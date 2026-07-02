@@ -118,6 +118,21 @@ extension RunnerState: UpdateStateProviding {
         // combined state and will silently get .ready instead of .failed.
         // Direct mutation of raw storage without going through apply(_:) is
         // not supported and not defended against here.
+        //
+        // ℹ️ ACCESS LEVEL: These properties are `public internal(set)` — not
+        // `private(set)`. This is intentional and the only viable option:
+        //
+        // - `private(set)` was considered. Swift's `private` is file-scoped, so
+        //   `private(set)` on properties declared in RunnerState.swift would make
+        //   the setters inaccessible to apply(_:) in this extension file. It does
+        //   not compile.
+        // - Moving the properties into this extension file was considered and
+        //   rejected. Storing stored properties on extension files is non-standard
+        //   and bad architecture.
+        // - `internal(set)` is therefore the correct and only viable access level.
+        //   The exposure is a side effect of Swift's file-scoped privacy model,
+        //   not a design flaw. The invariant is enforced by convention and the
+        //   warning above.
         if updateActionFailed {
             return .failed(version: availableUpdate)
         }
