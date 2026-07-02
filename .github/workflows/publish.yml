@@ -241,6 +241,16 @@ jobs:
           VERSION="${{ steps.tag.outputs.version }}"
           # Strip any pre-release suffix for CFBundleShortVersionString
           SHORT_VERSION="${VERSION%%-*}"
+          # NOTE: BUILD is captured before the "Commit patched Info.plist" step
+          # creates one additional commit, so CFBundleVersion at the tagged commit
+          # will be N while `git rev-list --count HEAD` at that tag returns N+1 —
+          # an intentional off-by-one. This is not a bug: CFBundleVersion's only
+          # job is to be monotonically increasing (used by Gatekeeper / macOS to
+          # order builds). It does not need to exactly match the commit count at
+          # the tag. The fix — $(( $(git rev-list --count HEAD) + 1 )) — was
+          # considered and rejected: it embeds a number for a commit that doesn't
+          # exist yet, makes dry runs inconsistent, and solves a diagnostics
+          # inconvenience at the cost of correctness confusion. Leave this as-is.
           BUILD=$(git rev-list --count HEAD)
 
           /usr/libexec/PlistBuddy -c \
