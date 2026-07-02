@@ -301,7 +301,12 @@ updater.skipCodeSignValidation = false // enable identity check for Developer ID
 ## Distribution assumptions
 
 - The release archive carries exactly one `.app` at its root.
-- Each release attaches a `<assetName>.sha256` sidecar.
+- Each release attaches a `<assetName>.sha256` sidecar — that is, the exact
+  filename returned by `assetName(tagName)` with `.sha256` appended. For example
+  if `assetName` returns `"RunBot.zip"`, the expected sidecar filename is
+  `"RunBot.zip.sha256"`. This is the name `fetchLatestAvailableRelease` looks for
+  verbatim. A sidecar named `"RunBot.sha256"` or `"RunBot.zip.sha256sum"` will not
+  be found and the download will be skipped.
 - **Missing zip asset or missing checksum sidecar** (`checksumURL` is nil on the
   `AvailableRelease`, or no asset matches `assetName`) — `AppUpdater` logs a
   warning and stays `.idle`. This is a publishing/CI problem; the background
