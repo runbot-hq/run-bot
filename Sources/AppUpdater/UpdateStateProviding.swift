@@ -58,7 +58,7 @@ public enum UpdatePhase: Equatable {
 /// property setters, no boolean flags, no parallel URL properties. This
 /// eliminates TOCTOU-shaped misuse: you cannot set a zip URL without also
 /// setting the matching version, because both are encoded in a single
-/// `UpdatePhase.ready(version:zipURL:)` case. Every write site becomes a
+/// `UpdatePhase.ready(version:)` case. Every write site becomes a
 /// single `state.apply(.case)` call, making state transitions auditable.
 ///
 /// ## Why the protocol also refines `Sendable`

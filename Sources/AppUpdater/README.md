@@ -112,7 +112,7 @@ case .available(let version):
     // Show a disabled Install button or "Checking…" indicator.
 case .downloading(let version):
     // Download is in progress — show ProgressView("Downloading update…")
-case .ready(let version, let zipURL):
+case .ready(let version):
     // Download complete and verified — show active Install & Relaunch button
 case .failed(let version):
     // Show error label + Retry button that calls checkAndHandle again
@@ -208,8 +208,8 @@ public enum UpdatePhase: Equatable {
     case available(version: String)
     /// A download is in progress for the given version.
     case downloading(version: String)
-    /// Download complete and integrity-verified; zip is at `zipURL`.
-    case ready(version: String, zipURL: URL)
+    /// Download complete and integrity-verified; zip is cached at `AppUpdater.fixedZipURL`.
+    case ready(version: String)
     /// A download or install attempt failed.
     case failed(version: String?)
 }
