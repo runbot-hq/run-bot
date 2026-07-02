@@ -5,6 +5,26 @@ for macOS apps distributed outside the Mac App Store. Zero host-specific
 dependencies — all host values (repo slug, asset name, scheduler identifier,
 beta-channel preference, UI state model) are injected by the caller.
 
+## Installation
+
+Add the dependency to your `Package.swift`:
+
+```swift
+.package(url: "https://github.com/runbot-hq/run-bot", branch: "main"),
+```
+
+Then add the product to your target:
+
+```swift
+.product(name: "AppUpdater", package: "run-bot")
+```
+
+> **Pin to a commit for reproducible builds.** Using `branch: "main"` always
+> resolves to the latest commit. For production use, pin to a specific commit SHA:
+> ```swift
+> .package(url: "https://github.com/runbot-hq/run-bot", revision: "<commit-sha>"),
+> ```
+
 ## Caveats
 
 - macOS 26+ only
@@ -18,6 +38,46 @@ beta-channel preference, UI state model) are injected by the caller.
 GitHub Releases poll → semver compare (incl. beta.N) → zip download
     → SHA-256 sidecar verification → cache → host state mutation
     → install & relaunch on user confirmation
+```
+
+## Minimal host app
+
+Complete wiring in a single file:
+
+```swift
+import AppKit
+import AppUpdater
+
+@MainActor
+final class AppDelegate: NSObject, NSApplicationDelegate {
+
+    @Observable
+    final class UpdateState: UpdateStateProviding {
+        private(set) var currentPhase: UpdatePhase = .idle
+        func apply(_ phase: UpdatePhase) { currentPhase = phase }
+    }
+
+    let updateState = UpdateState()
+    let updater = AppUpdater(
+        repo: "your-org/your-repo",
+        currentVersion: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "",
+        assetName: { _ in "YourApp.zip" },
+        schedulerIdentifier: "com.your-org.update-check"
+    )
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        Task { await updater.checkAndHandle(state: updateState) }
+        updater.scheduleBackgroundCheck(state: updateState)
+    }
+}
+```
+
+Then wire the install button from your settings UI:
+
+```swift
+Button("Install & Relaunch") {
+    Task { await updater.installAndRelaunch(state: updateState) }
+}
 ```
 
 ## Design Principles
@@ -187,7 +247,7 @@ before shipping.
 > **Test isolation:** Swift Testing runs test cases concurrently by default.
 > Always restore the original value in a `tearDown` block (or `addTeardownBlock`)
 > when mutating `checkInterval` in a test — otherwise concurrent test cases may
-> observe each other’s overrides and produce flaky failures.
+> observe each other's overrides and produce flaky failures.
 
 ### Protocol shape
 
