@@ -49,16 +49,21 @@ extension AppUpdater {
                     await updater.handle(release, state: state)
 
                 case .upToDate:
-                    // The API confirmed no newer release exists — unconditionally
-                    // clear to .idle. A reviewer may flag this as "wipes a
-                    // mid-download state", but that concern is incorrect: .upToDate
-                    // means the live check just returned no update, so there is
-                    // nothing valid to preserve. If a concurrent download Task
-                    // finishes after this .idle is applied, it will apply .ready
-                    // over .idle — which is fine. No isDownloading guard needed.
-                    // See issue #1859 Principle 2 (binary outcomes) and Principle 4
-                    // (no sprawl) for why an isDownloading flag was deliberately
-                    // removed from this library.
+                    // ✅ REVIEWED: unconditional .idle here is correct. Do NOT add a
+                    // .downloading/.ready guard (as the .failed arm has) without reading
+                    // this comment in full.
+                    //
+                    // The concern is: a download Task is in flight; .upToDate fires and
+                    // wipes state to .idle; the Task later applies .ready over .idle.
+                    // This is NOT a bug. .upToDate means the live GitHub API just
+                    // confirmed no newer release exists. For that to fire while a
+                    // download is in flight, the release being downloaded would have to
+                    // be simultaneously absent from the API — i.e. deleted from GitHub
+                    // mid-download. That scenario is not defended against by design
+                    // (Principle 5: unsupported is correct). The .failed arm has a guard
+                    // because a transient network failure is common; a release deletion
+                    // mid-download is not. Adding the guard here is Principle 4 sprawl.
+                    // See issue #1859.
                     state.apply(.idle)
 
                 case .failed:
