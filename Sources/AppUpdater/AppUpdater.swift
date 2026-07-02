@@ -78,6 +78,26 @@ public final class AppUpdater {
     /// `UserDefaults` is no longer used for zip-path persistence. The zip either
     /// exists at this path (install affordance available) or it doesn't (check
     /// + download needed).
+    ///
+    /// ## Why this is a computed property, not a `lazy let`
+    ///
+    /// `fixedZipURL` re-evaluates `FileManager` on every access. This is
+    /// intentional: if `cachesDirectory` is transiently unavailable, subsequent
+    /// accesses retry caches rather than permanently baking in the `/tmp`
+    /// fallback (which a `lazy let` computed at `init` time would do).
+    ///
+    /// ## ✅ Single-snapshot rule — do not call this twice in one operation
+    ///
+    /// Any call site that needs this URL for more than one step MUST snapshot
+    /// it once into a local `let` and use that local for all subsequent steps.
+    /// `handle()` does this: `let zipURL = fixedZipURL` — the same `zipURL`
+    /// is used for the step-1 existence check AND passed as `destination` into
+    /// `downloadUpdate`. This guarantees both operations target the exact same
+    /// path even if `cachesDirectory` availability changes between calls.
+    ///
+    /// Do NOT call `fixedZipURL` at multiple points in the same logical
+    /// operation — the two calls are not guaranteed to return the same base
+    /// directory if the caches directory flips between available and unavailable.
     var fixedZipURL: URL {
         let caches: URL
         if let url = try? FileManager.default.url(
