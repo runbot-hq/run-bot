@@ -54,6 +54,18 @@ public enum UpdateCheckError: Error, Sendable {
     /// the response body could not be decoded. This does not mean
     /// "no channel match" — when releases exist but none match the requested
     /// channel the result is `.upToDate`, not this error.
+    ///
+    /// ⚠️ Known conflation: `GitHubReleaseProvider.fetchLatestRelease`
+    /// returns `nil` for both a genuine network failure AND a successful
+    /// fetch where no release matched the channel. The instance-level
+    /// `AppUpdater.checkForUpdate` maps both to this case. In practice
+    /// this means: if a user disables beta channel and no stable release
+    /// exists yet, the background scheduler treats it as a network failure
+    /// and preserves `.ready` state rather than clearing it. This is an
+    /// accepted limitation — RunBot always has stable releases, so the
+    /// degenerate case (beta-only repo, user on stable channel) does not
+    /// apply. If that ever changes, split the nil return into a typed
+    /// result so the two cases can be handled separately.
     case noReleasesFound
 }
 
