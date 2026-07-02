@@ -4,6 +4,9 @@ This document is the single prose entry-point for shipping a new build.
 All automation lives in [`publish.sh`](../publish.sh) (local) and
 [`.github/workflows/publish.yml`](../.github/workflows/publish.yml) (CI).
 
+To verify the pipeline is healthy before shipping, run a dry run first —
+see [**DRY_RUN.md**](DRY_RUN.md).
+
 ---
 
 ## Quick reference
@@ -33,7 +36,7 @@ zipping, and creating the GitHub Release — is handled by CI automatically.
    - Runs `bash build.sh "$version"` with `CI=true` (skips local relaunch).
    - Verifies `dist/RunBot.zip` contains `RunBot.app/Contents/MacOS/RunBot`.
    - Generates a `RunBot.zip.sha256` sidecar via `shasum -a 256` and
-     uploads it alongside the zip. **This step is load-bearing:** `AutoUpdater`
+     uploads it alongside the zip. **This step is load-bearing:** `AppUpdater`
      treats a missing sidecar as a hard failure — every user's in-app update
      will fall back to the curl install command if the sidecar is absent from
      the release assets.
@@ -41,12 +44,8 @@ zipping, and creating the GitHub Release — is handled by CI automatically.
    - Creates the GitHub Release with both the zip and the `.sha256` sidecar
      attached.
 
-   > **Dry-run via `workflow_dispatch`:** When triggering manually from the
-   > Actions UI, select the **`beta`** or **`release`** branch in the branch
-   > selector to simulate the correct channel. Triggering from `main` (or any
-   > other branch) will fail immediately: `publish.yml` validates
-   > `GITHUB_REF_NAME` and aborts with an error if it is not `"beta"` or
-   > `"release"`. There is no silent stable-path fallback.
+   > **Dry-run via `workflow_dispatch`:** See [DRY_RUN.md](DRY_RUN.md) for
+   > step-by-step instructions and a full checklist of what to verify.
 
 ---
 
