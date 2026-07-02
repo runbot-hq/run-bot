@@ -68,13 +68,16 @@ extension AppUpdater {
         // recovery). A version-sidecar file would add state for an edge case
         // that self-heals in one retry cycle — see issue #1859.
         //
-        // ✅ REVIEWED: the "silent downgrade" concern is incorrect. `ditto`
-        // extracts the zip; `replaceItem` performs an atomic swap; `open -n`
-        // launches the new bundle. If the zip is the wrong version, `ditto` or
-        // `replaceItem` will fail and `.failed` is applied — the app does NOT
-        // relaunch at a lower version. The failure mode is .failed + retry,
-        // not a silent downgrade. A version sidecar would prevent the retry
-        // at the cost of new state — Principle 4 says no.
+        // ✅ REVIEWED: the "silent downgrade" concern is real but self-healing
+        // and accepted by design. Neither `ditto` nor `replaceItem` performs
+        // any version validation — a stale zip from a prior release will be
+        // extracted and installed without error, and the app will relaunch at
+        // the stale version. On the next scheduler cycle (24h in production)
+        // the check detects it is behind and re-downloads the correct zip.
+        // The failure mode is one stale session, not a permanent downgrade.
+        // A version sidecar would prevent the stale install at the cost of
+        // new persistent state — Principle 4 says no. Accepted trade-off.
+        // See issue #1859.
         let zipURL = fixedZipURL
         if FileManager.default.fileExists(atPath: zipURL.path) {
             state.apply(.ready(version: release.tagName, zipURL: zipURL))
