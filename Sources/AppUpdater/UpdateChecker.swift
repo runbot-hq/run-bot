@@ -120,8 +120,8 @@ public enum UpdateChecker {
         /// pre-release suffix (anything other than `beta.N`) sets `betaIndex`
         /// to `nil` while still marking `isPrerelease = true`.
         init(_ version: String) { // skipcq: SW-R1002 — reviewed; complexity acceptable for this version parser
-            let v = version.hasPrefix("v") ? String(version.dropFirst()) : version
-            let parts = v.split(separator: "-", maxSplits: 1)
+            let versionString = version.hasPrefix("v") ? String(version.dropFirst()) : version
+            let parts = versionString.split(separator: "-", maxSplits: 1)
             let core = parts.isEmpty ? "" : String(parts[0])
             isPrerelease = parts.count > 1
             let nums = core.split(separator: ".").compactMap { Int($0) }
