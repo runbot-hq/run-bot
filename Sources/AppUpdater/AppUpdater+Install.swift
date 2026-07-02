@@ -6,6 +6,22 @@
 #if canImport(AppKit)
 import AppKit
 #else
+// This fatalError is intentionally a compile error on non-AppKit platforms
+// (a bare statement outside a declaration body does not compile in Swift).
+// That is the correct behaviour — it surfaces the problem at build time, not
+// at runtime. The package is macOS-only (platforms: [.macOS(.v26)]) so this
+// branch is structurally unreachable today.
+//
+// SPM UNIT TEST BOUNDARY: `swift test` runs in a headless process that cannot
+// import AppKit. The #if canImport(AppKit) guard above means none of this file's
+// code is compiled into the test bundle. If a future test somehow reaches this
+// file (e.g. by adding a cross-module import that forces compilation), the
+// compile error is the correct signal: mock above the AppKit boundary, do not
+// add stub logic here.
+//
+// If a non-AppKit target (e.g. Linux) is ever added to Package.swift, replace
+// this with `#error("AppUpdater requires AppKit.")` — #error is the canonical
+// compile-time stop; fatalError is not.
 fatalError(
     "AppUpdater requires AppKit. " +
     "If you are hitting this from `swift test`: this code path touches AppKit " +
