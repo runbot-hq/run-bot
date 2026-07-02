@@ -254,7 +254,7 @@ extension AppDelegate: NSPopoverDelegate {
         // FIX: Await LocalRunnerStore.refreshAsync() before starting the poll loop.
         // See performStartupSequence() for rationale.
         log("AppDelegate › setupSubscriptions — scheduling async startup sequence")
-        Task(name: "AppDelegate.startup: localRunnerStore.refreshAsync → runnerStore.start",
+        Task(name: "AppDelegate.startup: refreshAsync → runnerStore.start → checkAndHandle → scheduleBackgroundCheck",
              priority: .userInitiated) { @MainActor [weak self] in
             await self?.performStartupSequence()
         }
