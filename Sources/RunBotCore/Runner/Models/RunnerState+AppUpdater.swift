@@ -132,7 +132,7 @@ extension RunnerState: UpdateStateProviding {
         // - `internal(set)` is therefore the correct and only viable access level.
         //   The exposure is a side effect of Swift's file-scoped privacy model,
         //   not a design flaw. The invariant is enforced by convention and the
-        //   warning above. Tracked in #1879.
+        //   warning above.
         if updateActionFailed {
             return .failed(version: availableUpdate)
         }
