@@ -91,6 +91,11 @@ func runCommand(_ executable: String, args: [String]) async -> Bool {
         // short line on failure), so the 64 KB OS pipe buffer never fills.
         // ditto exits freely; waitUntilExit() returns; the buffer drains.
         // See the full explanation in the doc comment above before refactoring.
+        //
+        // waitUntilExit() before readDataToEndOfFile() — safe ONLY for ditto, which
+        // writes at most one short diagnostic line to stderr on failure. Do NOT apply
+        // this ordering to codesign -dvvv (see AppUpdater+CodeSign.swift which uses
+        // an async drain instead, for exactly this reason).
         process.waitUntilExit()
         let succeeded = process.terminationStatus == 0
         if !succeeded {

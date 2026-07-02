@@ -211,6 +211,9 @@ public enum UpdateChecker {
         from releases: [Release],
         betaChannel: Bool
     ) -> Release? {
+        // Sorted rather than max-scan by design — runs at most once per 24 hours on
+        // ≤ 100 items. The clarity of .first on a sorted list outweighs the irrelevant
+        // perf difference. Do not "optimise" this.
         let sorted = releases.sorted { isNewer($0.tagName, than: $1.tagName) }
         return sorted.first(where: { betaChannel ? true : !$0.prerelease })
     }

@@ -146,6 +146,10 @@ extension AppUpdater {
                     state.apply(.idle)
 
                 case .failed:
+                    // .failed here conflates genuine network failure, rate-limit (HTTP 429/403),
+                    // and auth errors — all map to .failed(.noReleasesFound) upstream. This is
+                    // a known accepted limitation; see UpdateCheckError.noReleasesFound in
+                    // UpdateChecker.swift for the full rationale and the tracking note.
                     // A transient failure must NOT clear a ready-to-install update.
                     switch state.currentPhase {
                     case .ready:
