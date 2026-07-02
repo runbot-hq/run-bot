@@ -28,7 +28,7 @@ These principles govern this library and all future changes to it. They are not 
 There is one `UpdatePhase` enum. All state is expressed as a case of that enum. There are no boolean flags, no parallel URL properties, no implicit combinations. Illegal states are unrepresentable by construction.
 
 **2. No mid-flight recovery. Binary outcomes only.**
-An update either succeeds or it doesn’t. An app is either installable or it isn’t. There is no partial-success path, no `open -n` failure recovery, no rehydration-on-launch. If something goes wrong mid-flow, the phase becomes `.failed`. The user relaunches or retries. We do not attempt to recover state across process boundaries.
+An update either succeeds or it doesn't. An app is either installable or it isn't. There is no partial-success path, no `open -n` failure recovery, no rehydration-on-launch. If something goes wrong mid-flow, the phase becomes `.failed`. The user relaunches or retries. We do not attempt to recover state across process boundaries.
 
 **3. The task is exactly: check → download → verify → cache → install.**
 Nothing else. This is the entire feature surface. Any requirement that adds a step outside this pipeline is out of scope.
@@ -73,6 +73,8 @@ let updater = AppUpdater(
     currentVersion: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "",
     assetName: { _ in "YourApp.zip" },               // SHA-256 sidecar expected at "<assetName>.sha256"
     schedulerIdentifier: "com.your-org.update-check" // also scopes the on-disk cache directory
+    // betaChannelProvider: { false }                 // optional — defaults to stable channel
+    // releaseProvider: GitHubReleaseProvider()       // optional — injectable for testing
 )
 // If you distribute a Developer ID-signed app, also set:
 // updater.skipCodeSignValidation = false
@@ -82,9 +84,17 @@ let updater = AppUpdater(
 ### 3. Drive it from your app delegate
 
 ```swift
-await updater.checkAndHandle(state: myState)    // channel-aware check + download/cache
-updater.scheduleBackgroundCheck(state: myState)  // daily background re-check
+await updater.checkAndHandle(state: myState)     // channel-aware check + download/cache
+updater.scheduleBackgroundCheck(state: myState)   // periodic background re-check (interval: AppUpdater.checkInterval)
+```
 
+> **No `cancelBackgroundCheck()`.**
+> The scheduler is fire-and-forget. It starts once at app launch and runs for the
+> process lifetime. There is no supported scenario for stopping it mid-session — if
+> there were, the correct fix is to not start it, not to cancel it later. If an
+> external consumer genuinely needs cancellation, add it then (Principle 4).
+
+```swift
 // From the "Install & Relaunch" button:
 await updater.installAndRelaunch(state: myState)
 ```
@@ -98,17 +108,53 @@ switch myState.currentPhase {
 case .idle:
     // No update — hide the update row
 case .available(let version):
-    // Update found; download is starting — show disabled Install button
+    // A newer release was found; download is queued but not yet started.
+    // Show a disabled Install button or "Checking…" indicator.
 case .downloading(let version):
-    // Show ProgressView("Downloading update…")
+    // Download is in progress — show ProgressView("Downloading update…")
 case .ready(let version, let zipURL):
-    // Download complete — show active Install & Relaunch button
+    // Download complete and verified — show active Install & Relaunch button
 case .failed(let version):
     // Show error label + Retry button that calls checkAndHandle again
 }
 ```
 
-## Protocol shape
+## API reference
+
+### `AppUpdater.init`
+
+```swift
+public init(
+    repo: String,
+    currentVersion: String,
+    assetName: @escaping @Sendable (String) -> String,
+    schedulerIdentifier: String,
+    betaChannelProvider: @escaping @MainActor () -> Bool = { false },
+    releaseProvider: P = GitHubReleaseProvider()
+)
+```
+
+| Parameter | Description |
+|---|---|
+| `repo` | `"owner/repo"` slug on GitHub |
+| `currentVersion` | Running version string, e.g. `"1.2.3"` or `"v1.2.3"` |
+| `assetName` | Closure receiving the release tag and returning the expected zip asset filename |
+| `schedulerIdentifier` | Reverse-DNS string; also scopes the on-disk cache directory (`~/Library/Caches/<schedulerIdentifier>/update.zip`) |
+| `betaChannelProvider` | Called at check time to decide whether to include pre-release tags. Defaults to `{ false }` (stable channel only) |
+| `releaseProvider` | Injectable release fetcher. Defaults to `GitHubReleaseProvider()`. Override in tests. |
+
+### `AppUpdater.checkInterval`
+
+```swift
+public static var checkInterval: TimeInterval  // default: 86400 (24 hours)
+```
+
+The interval at which `scheduleBackgroundCheck` fires. Mutate before calling
+`scheduleBackgroundCheck` if you need a different cadence. In DEBUG builds
+you may want a shorter interval for manual testing — restore to the default
+before shipping.
+
+### Protocol shape
 
 ```swift
 @MainActor
@@ -123,6 +169,7 @@ public enum UpdatePhase: Equatable {
     /// No update activity — nothing available, nothing in progress.
     case idle
     /// A newer release was found; version is the tag string (e.g. `"v1.2.0"`).
+    /// Download is queued but not yet started.
     case available(version: String)
     /// A download is in progress for the given version.
     case downloading(version: String)
