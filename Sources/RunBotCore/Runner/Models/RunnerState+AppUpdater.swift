@@ -107,6 +107,17 @@ extension RunnerState: UpdateStateProviding {
         if let version = cachedUpdateVersion {
             return .ready(version: version)
         }
+        // ✅ REVIEWED: .ready is evaluated first. If both cachedUpdateVersion and
+        // updateActionFailed are set simultaneously, .ready wins and .failed is
+        // suppressed. This is safe only because apply(.failed(...)) always sets
+        // cachedUpdateVersion = nil, making the combined state unreachable through the
+        // apply(_:) path.
+        //
+        // WARNING: Any RunBotCore-internal code that writes to cachedUpdateVersion or
+        // updateActionFailed directly — bypassing apply(_:) — can produce this
+        // combined state and will silently get .ready instead of .failed.
+        // Direct mutation of raw storage without going through apply(_:) is
+        // not supported and not defended against here.
         if updateActionFailed {
             return .failed(version: availableUpdate)
         }
