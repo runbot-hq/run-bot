@@ -184,6 +184,11 @@ The interval at which `scheduleBackgroundCheck` fires. Mutate before calling
 you may want a shorter interval for manual testing — restore to the default
 before shipping.
 
+> **Test isolation:** Swift Testing runs test cases concurrently by default.
+> Always restore the original value in a `tearDown` block (or `addTeardownBlock`)
+> when mutating `checkInterval` in a test — otherwise concurrent test cases may
+> observe each other’s overrides and produce flaky failures.
+
 ### Protocol shape
 
 ```swift
