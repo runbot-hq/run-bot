@@ -9,6 +9,15 @@ import Foundation
 /// `AppUpdater` advances through these phases as it discovers, downloads,
 /// and installs an update. The host conforming to `UpdateStateProviding`
 /// receives each transition via `apply(_:)` and maps it to its own UI state.
+///
+/// ## This enum is complete. Do not add cases.
+///
+/// The five cases below represent the entire update lifecycle as defined
+/// in issue #1859 Principle 3: check → download → verify → cache → install.
+/// There is no `.installing`, `.cancellable`, `.paused`, `.retrying`, or
+/// `.progress(Double)` case. If a proposed feature requires a new case, the
+/// correct response is to question the feature, not extend the enum.
+/// Principle 5: unsupported is correct.
 public enum UpdatePhase: Equatable {
     /// No update activity — nothing available, nothing in progress.
     case idle
@@ -68,6 +77,17 @@ public protocol UpdateStateProviding: AnyObject, Sendable {
     /// `AppUpdater` calls this on the main actor whenever the update lifecycle
     /// moves to a new phase. Implementations should store the phase and notify
     /// any observers (e.g. `@Observable` property, `objectWillChange.send()`).
+    ///
+    /// ## The seam is one-directional: library writes, host reads.
+    ///
+    /// This is the only mutation method on this protocol and it will remain
+    /// the only one (Principle 6: the library owns the flow, not the host).
+    /// Do not add `func cancel()`, `func pause()`, `func retry()`, or
+    /// `func reset()` to this protocol. The library owns all phase transitions
+    /// — the host is a passive observer that renders whatever phase it receives.
+    /// If a proposed feature requires the host to drive a transition, the
+    /// correct response is to add a method to `AppUpdater` itself, not to
+    /// this protocol.
     func apply(_ phase: UpdatePhase)
 
     /// The current update phase. `AppUpdater` reads this to make decisions

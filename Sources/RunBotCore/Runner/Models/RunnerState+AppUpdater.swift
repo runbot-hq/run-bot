@@ -78,12 +78,25 @@ extension RunnerState: UpdateStateProviding {
     /// 3. `.available` — a version is known but no zip yet
     /// 4. `.idle` — nothing in progress
     ///
-    /// Note: `.downloading` is a transient phase — `RunnerState` has no
-    /// dedicated `isDownloading` storage flag after Step 3. From the
-    /// host's perspective `.downloading` and `.available` look identical
-    /// in stored fields (both have `updateZipURL == nil`); `AppUpdater`
-    /// drives `.downloading` via `apply` and reads `currentPhase` only
-    /// to distinguish `.ready` from non-ready, so this is correct.
+    /// ## `.downloading` is intentionally not reconstructable
+    ///
+    /// `RunnerState` has no `isDownloading: Bool` flag and never will
+    /// (Principle 1: no boolean flags). From stored fields, `.downloading`
+    /// and `.available` are identical — both have `updateZipURL == nil`.
+    /// This means `currentPhase` returns `.available` while a download is
+    /// in progress.
+    ///
+    /// This is correct and deliberate:
+    /// - `AppUpdater` reads `currentPhase` only to distinguish `.ready` from
+    ///   non-ready. It never keys on `.downloading` for any decision.
+    /// - The `.downloading` case in `updateActionRow` is therefore unreachable
+    ///   at runtime. This is not a bug — it is Principle 5 (unsupported is
+    ///   correct). The UI shows a disabled button during download, which is
+    ///   the right behaviour for a library that does less, not more.
+    /// - Adding `isDownloading: Bool` storage would violate Principle 1 and
+    ///   Principle 4. If download progress UI is ever required, the correct
+    ///   fix is to add a `downloading(version: String, progress: Double)` case
+    ///   to `UpdatePhase` — not to add a parallel flag here.
     public var currentPhase: UpdatePhase {
         if let version = cachedUpdateVersion, let zipURL = updateZipURL {
             return .ready(version: version, zipURL: zipURL)

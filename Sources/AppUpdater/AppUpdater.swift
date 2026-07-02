@@ -120,6 +120,15 @@ public final class AppUpdater {
     // MARK: - Runtime flags
 
     /// `true` while `installAndRelaunch` is mid-flight — guards a double-tap.
+    ///
+    /// This is the only runtime boolean flag on `AppUpdater` and it will remain
+    /// the only one. It is not update state (it is not expressed through
+    /// `UpdatePhase`) because it guards execution flow inside the library, not
+    /// anything the host needs to observe. Do not add `isChecking`,
+    /// `isDownloading`, `isCancelling`, or any other flag. If a proposed feature
+    /// requires a new flag, the correct response under Principle 1 is to ask
+    /// whether the flag represents a phase transition — if yes, add it to
+    /// `UpdatePhase`; if no, the feature is out of scope (Principle 4).
     var isInstalling: Bool = false
 
     // MARK: - Background scheduler storage
