@@ -59,14 +59,21 @@ extension AppUpdater {
     /// 3. Otherwise advances to `.available` and starts a background download.
     public func handle(_ release: AvailableRelease, state: any UpdateStateProviding) async {
 
-        // ── 1. Already cached? ───────────────────────────────────────────────
+        // ── 1. Already cached? ───────────────────────────────────────────
+        // The zip path is fixed (no version component). If a stale zip from a
+        // prior release is on disk, we still apply .ready for the new tagName.
+        // If the binary doesn’t match, installAndRelaunch will fail and apply
+        // .failed — the user retries and the next cycle re-downloads. This is
+        // the correct binary outcome under design Principle 2 (no mid-flight
+        // recovery). A version-sidecar file would add state for an edge case
+        // that self-heals in one retry cycle — see issue #1859.
         let zipURL = fixedZipURL
         if FileManager.default.fileExists(atPath: zipURL.path) {
             state.apply(.ready(version: release.tagName, zipURL: zipURL))
             return
         }
 
-        // ── 2. Asset or checksum sidecar absent? ─────────────────────────────
+        // ── 2. Asset or checksum sidecar absent? ───────────────────────────
         let wantedAsset = assetName(release.tagName)
         guard let asset = release.assets.first(where: { $0.name == wantedAsset }) else {
             appUpdaterLogger.warning("release \(release.tagName, privacy: .public) has no asset named \(wantedAsset, privacy: .public) — skipping download")
@@ -77,14 +84,21 @@ extension AppUpdater {
             return
         }
 
-        // ── 3. Advance to .available and start download ──────────────────────
+        // ── 3. Advance to .available and start download ──────────────────
         state.apply(.available(version: release.tagName))
 
         let downloadURL = asset.browserDownloadURL
         let checksumURL = release.checksumURL
         let tagName = release.tagName
 
-        // Fire-and-forget — see downloadUpdate doc comment for full rationale.
+        // Fire-and-forget. No isDownloading guard is intentional — isDownloading
+        // was explicitly removed in issue #1859 (Principle 1: no boolean flags;
+        // Principle 4: no sprawl). The .downloading phase applied by downloadUpdate
+        // is the in-flight signal. If the background scheduler fires a second
+        // handle() while a download is already running, the worst outcome is two
+        // Tasks racing to moveItem onto the same fixedZipURL; the second moveItem
+        // fails silently and the winner applies .ready. That is a correct binary
+        // outcome. In production (24 h interval) this race window does not exist.
         Task(name: "AppUpdater.download") {
             await self.downloadUpdate(from: downloadURL, checksumURL: checksumURL, version: tagName, state: state)
         }

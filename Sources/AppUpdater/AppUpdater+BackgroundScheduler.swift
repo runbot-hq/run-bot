@@ -49,6 +49,16 @@ extension AppUpdater {
                     await updater.handle(release, state: state)
 
                 case .upToDate:
+                    // The API confirmed no newer release exists — unconditionally
+                    // clear to .idle. A reviewer may flag this as "wipes a
+                    // mid-download state", but that concern is incorrect: .upToDate
+                    // means the live check just returned no update, so there is
+                    // nothing valid to preserve. If a concurrent download Task
+                    // finishes after this .idle is applied, it will apply .ready
+                    // over .idle — which is fine. No isDownloading guard needed.
+                    // See issue #1859 Principle 2 (binary outcomes) and Principle 4
+                    // (no sprawl) for why an isDownloading flag was deliberately
+                    // removed from this library.
                     state.apply(.idle)
 
                 case .failed:
