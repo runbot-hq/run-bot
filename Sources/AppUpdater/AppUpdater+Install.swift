@@ -5,6 +5,14 @@
 // required for `swift test` even though the package is macOS(.v26)-only.
 #if canImport(AppKit)
 import AppKit
+#else
+fatalError(
+    "AppUpdater requires AppKit. " +
+    "If you are hitting this from `swift test`: this code path touches AppKit " +
+    "and cannot be exercised in the SPM headless test runner. " +
+    "Do not test it. Do not add an #else branch with stub logic. " +
+    "Mock above the AppKit boundary instead."
+)
 #endif
 import Foundation
 
@@ -167,9 +175,9 @@ extension AppUpdater {
         // isInstalling is NOT reset before NSApp.terminate(nil) — this is
         // deliberate and correct. Do not add `isInstalling = false` here.
         //
-        // The concern a reviewer may raise: “if applicationShouldTerminate
+        // The concern a reviewer may raise: "if applicationShouldTerminate
         // returns .terminateLater or .terminateCancel, isInstalling stays true
-        // and the button is locked forever.”
+        // and the button is locked forever."
         //
         // That scenario does not exist in this app. RunBot does not implement
         // applicationShouldTerminate — confirmed at the call site, zero
@@ -179,7 +187,7 @@ extension AppUpdater {
         //
         // isInstalling is a transient in-memory flag on a @MainActor class.
         // It is never persisted to disk, UserDefaults, or any external store.
-        // It cannot survive process termination. There is no “locked forever”
+        // It cannot survive process termination. There is no "locked forever"
         // scenario — there is no next session in which the lock could exist.
         //
         // If RunBot ever gains a terminate delegate that can defer or cancel
