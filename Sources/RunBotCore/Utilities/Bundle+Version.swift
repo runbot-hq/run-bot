@@ -33,11 +33,14 @@ extension Bundle {
     /// (e.g. `"99.0.0"`) to suppress all update offers.
     ///
     /// REVIEWER: The `CFBundleShortVersionString` fallback and the `"0.0.0"`
-    /// bottom-out are intentional. `checkForUpdate` deliberately does NOT use
-    /// this fallback (it returns `.failed(.missingVersionKey)` instead) because
-    /// offering an update against an unknown base is worse than doing nothing.
-    /// The asymmetry is by design — `rbVersionString` is used for display and
-    /// cache rehydration only, not as the update gate.
+    /// bottom-out are intentional. `rbVersionString` never returns an empty
+    /// string, so `checkForUpdate` never returns `.failed(.missingVersionKey)`
+    /// when called with `Bundle.main.rbVersionString` — that guard is
+    /// unreachable via this property. The `.missingVersionKey` error case
+    /// exists for callers that pass a raw version string that may be empty
+    /// (e.g. in tests or external consumers). The `"0.0.0"` fallback means a
+    /// dev build without a patched Info.plist will always see every real release
+    /// as newer — see the dev-build quirk note above.
     public var rbVersionString: String {
         if let versionString = infoDictionary?["RBVersionString"] as? String, !versionString.isEmpty { return versionString }
         return infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.0.0"
