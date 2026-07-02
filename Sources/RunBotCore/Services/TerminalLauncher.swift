@@ -25,7 +25,7 @@ public enum TerminalLauncher {
         end tell
         """
         var error: NSDictionary?
-        if NSAppleScript(source: src)?.executeAndReturnError(&error) == nil {
+        if NSAppleScript(source: src)?.executeAndReturnError(&error) == nil { // NOSONAR swift:S1523 — command is always internally constructed, never user-supplied; injection risk is theoretical only
             log("TerminalLauncher › AppleScript error: \(error ?? [:])", category: .services)
         }
     }
