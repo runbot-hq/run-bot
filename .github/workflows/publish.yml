@@ -226,16 +226,6 @@ jobs:
       # back to the branch by this step. The "Commit patched Info.plist" step
       # below pushes it before the tag is created, so the tag points at the
       # patched commit and `git checkout <tag> && swift build` is reproducible.
-      # CFBundleShortVersionString  ← X.Y.Z only (macOS strips pre-release
-      #                               suffixes here for display; used by
-      #                               Gatekeeper and the App Store but NOT
-      #                               by UpdateChecker).
-      # RBVersionString             ← full semver incl. pre-release suffix
-      #                               (e.g. "0.7.1-beta.2"); read by
-      #                               UpdateChecker.checkForUpdate so that
-      #                               beta-to-beta comparisons work correctly.
-      # CFBundleVersion             ← monotonically incrementing build number
-      #                               derived from total git commit count
       - name: Patch Info.plist
         run: |
           set -euo pipefail
