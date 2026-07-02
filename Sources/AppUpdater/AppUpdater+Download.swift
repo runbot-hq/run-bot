@@ -124,6 +124,7 @@ extension AppUpdater {
 
             state.apply(.ready(version: version, zipURL: destination))
         } catch {
+            appUpdaterLogger.error("downloadUpdate failed: \(String(describing: error), privacy: .public)")
             if let tmp = tempURL {
                 try? FileManager.default.removeItem(at: tmp)
             }
