@@ -1,9 +1,7 @@
 # AppUpdater
 
-A host-agnostic Swift library that drives an in-app auto-update flow
-for macOS apps distributed outside the Mac App Store. Zero host-specific
-dependencies — all host values (repo slug, asset name, scheduler identifier,
-beta-channel preference, UI state model) are injected by the caller.
+A Swift library that drives an in-app auto-update flow for macOS apps
+distributed via GitHub Releases outside the Mac App Store.
 
 ## Installation
 
@@ -19,8 +17,7 @@ Then add the product to your target:
 .product(name: "AppUpdater", package: "run-bot")
 ```
 
-> **Pin to a commit for reproducible builds.** Using `branch: "main"` always
-> resolves to the latest commit. For production use, pin to a specific commit SHA:
+> **Pin to a commit for reproducible builds.** For production use, pin to a specific commit SHA:
 > ```swift
 > .package(url: "https://github.com/runbot-hq/run-bot", revision: "<commit-sha>"),
 > ```
@@ -28,7 +25,7 @@ Then add the product to your target:
 ## Caveats
 
 - macOS 26+ only
-- Non-sandboxed apps only
+- Sandboxed apps are not supported
 - GitHub Releases as the distribution source (no other providers)
 - No built-in UI — the host owns all update state and surfaces it however it likes
 
@@ -59,8 +56,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let updater = AppUpdater(
         repo: "your-org/your-repo",
         currentVersion: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "",
-        assetName: { _ in "YourApp.zip" },
-        schedulerIdentifier: "com.your-org.update-check"
+        assetName: { _ in "YourApp.zip" },               // SHA-256 sidecar expected at "YourApp.zip.sha256"
+        schedulerIdentifier: "com.your-org.update-check" // also scopes the on-disk cache directory
+        // betaChannelProvider: { false }                 // optional — defaults to stable channel only
     )
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -68,37 +66,62 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         updater.scheduleBackgroundCheck(state: updateState)
     }
 }
-```
 
-Wire the install button from your settings UI:
+struct UpdateRow: View {
+    let state: AppDelegate.UpdateState
+    let updater: AppUpdater
 
-```swift
-Button("Install & Relaunch") {
-    Task { await updater.installAndRelaunch(state: updateState) }
+    var body: some View {
+        switch state.currentPhase {
+        case .idle:
+            EmptyView()
+        case .available(let version):
+            Text("Update \(version) found, downloading…")
+        case .downloading(let version):
+            Text("Downloading \(version)…")
+        case .ready(let version):
+            VStack {
+                Text("\(version) ready to install")
+                Button("Install & Relaunch") {
+                    Task { await updater.installAndRelaunch(state: state) }
+                }
+            }
+        case .failed:
+            Button("Retry") {
+                Task { await updater.checkAndHandle(state: state) }
+            }
+        }
+    }
 }
 ```
 
-## UpdatePhase
+## Cache
 
-Switch on `currentPhase` to render your update UI:
+The verified zip is written to:
+
+```
+~/Library/Caches/<schedulerIdentifier>/update.zip
+```
+
+The path is deterministic from `schedulerIdentifier` alone. The file is deleted at the start of each new download and on successful install.
+
+## Background check interval
 
 ```swift
-switch state.currentPhase {
-case .idle:                    // no update — hide the update row
-case .available(let version):  // update found, download starting automatically
-case .downloading(let version):// download in progress
-case .ready(let version):      // verified and cached — show Install & Relaunch button
-case .failed(let version):     // show error + Retry button calling checkAndHandle again
-}
+AppUpdater.checkInterval  // default: 86400 (24 hours)
 ```
+
+Mutate before calling `scheduleBackgroundCheck` if you need a different cadence.
+
+> **Test isolation:** Always restore the original value in a `tearDown` block when mutating `checkInterval` in a test — Swift Testing runs cases concurrently by default and a stale override will cause flaky failures.
+
+## Distribution assumptions
+
+The SHA-256 sidecar must be named exactly `<assetName>.sha256` — i.e. if `assetName` returns `"YourApp.zip"`, the expected sidecar is `"YourApp.zip.sha256"`. A file named `"YourApp.sha256"` or `"YourApp.zip.sha256sum"` will not be found and the download will be skipped.
 
 ## Trust model
 
-**Unsigned (default)** — integrity via SHA-256 sidecar only. Correct for ad-hoc signed or unsigned apps.
-
-```swift
-// skipCodeSignValidation defaults to true — no extra configuration needed
-```
+**Unsigned (default)** — integrity via SHA-256 sidecar only. Correct for ad-hoc signed or unsigned apps. No extra configuration needed.
 
 **Developer ID signed** — enable bundle identity verification:
 
@@ -108,13 +131,9 @@ updater.skipCodeSignValidation = false
 
 When enabled, `codesign -dvvv` is run on both the running bundle and the downloaded bundle. The `Authority=` identity strings must match exactly or the install is aborted with `.failed`.
 
-> Set `skipCodeSignValidation` before calling `checkAndHandle` or `scheduleBackgroundCheck`.
-
 ## Known limitations
 
-**100-release ceiling** — a single `per_page=100` request is made. Releases beyond the first page are never evaluated. In practice the newest release is always in the first page (GitHub returns newest-first). Pagination is a future enhancement.
-
-**`beta.N` labels only** — pre-release ordering is supported only for `beta.N` suffixes. Any other suffix (`rc.1`, `alpha.1`) is treated as unordered and `isNewer` returns `false` when comparing against it.
+**`beta.N` labels only** — pre-release ordering is supported only for `beta.N` suffixes (e.g. `v1.0.0-beta.2`). Any other suffix (`rc.1`, `alpha.1`) is treated as unordered and `isNewer` returns `false` when comparing against it.
 
 ## Design principles
 
