@@ -142,12 +142,6 @@ public final class AppUpdater {
     ///
     /// `nonisolated(unsafe)` — written once in test setUp before any scheduler
     /// is constructed; no concurrent mutation path exists in practice.
-    // nonisolated(unsafe): written once in test setUp before any scheduler is
-    // constructed. There is no concurrent mutation path in practice. This is NOT
-    // a data race — it is a documented test-setup convention. Do not change to
-    // @MainActor static var without reading the test isolation note in the doc
-    // comment above; that would require every test to hop to MainActor for a
-    // one-line override.
     nonisolated(unsafe) public static var checkInterval: TimeInterval = 60
     #else
     /// 24-hour interval used in release builds.
