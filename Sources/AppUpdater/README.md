@@ -119,6 +119,36 @@ case .failed(let version):
 }
 ```
 
+## UX states
+
+The update row in Settings → About has exactly four user-visible states.
+The row is absent entirely when there is no update (`.idle`).
+
+| Phase | What the user sees | User action |
+|---|---|---|
+| `.available` | "A new version of RunBot is ready to download." + disabled **Install & Relaunch** | None — download is already running automatically |
+| `.downloading` | *(same as `.available` — not separately visible; see note below)* | None |
+| `.ready` | "A new version of RunBot is ready to install." + active **Install & Relaunch** | Tap to install and relaunch |
+| `.failed` | "Download failed. Check your connection and try again." + **Retry** | Tap Retry to re-run the full pipeline from scratch |
+
+The download is automatic — it starts the moment an update is found.
+The user consent gate is at **install**, not at download. This matches
+the macOS and Sparkle convention: downloading is low-risk and reversible
+(a cached zip); installing is destructive (replaces the running app).
+
+> **Why `.downloading` is not separately visible:** `RunnerState.currentPhase`
+> cannot reconstruct `.downloading` from stored fields — it is indistinguishable
+> from `.available` in storage. This is intentional (Principle 1: no boolean
+> flags). The user sees the same disabled button throughout the download, which
+> is correct: the zip completes in under 3 seconds on any normal connection and
+> a spinner would be noise. If download progress UI is ever needed, the right
+> fix is a `downloading(version: String, progress: Double)` case on `UpdatePhase`
+> — not a parallel flag on `RunnerState`.
+>
+> **Why there is no "Check for updates" opt-out toggle:** Scheduler start/stop
+> logic would add new state and a new code path for a feature with negligible
+> user demand. Principle 4: no sprawl. Principle 5: unsupported is correct.
+
 ## API reference
 
 ### `AppUpdater.init`
