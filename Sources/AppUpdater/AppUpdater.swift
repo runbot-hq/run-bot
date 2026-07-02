@@ -86,6 +86,13 @@ public final class AppUpdater {
     /// accesses retry caches rather than permanently baking in the `/tmp`
     /// fallback (which a `lazy let` computed at `init` time would do).
     ///
+    /// A `lazy var` would compute the path once at `init` time — but `init` runs
+    /// synchronously on `@MainActor` and `FileManager.url(for:create:true)` can
+    /// block. More critically, a `cachesDirectory` failure at init time would bake
+    /// the `/tmp` fallback permanently for the session with no retry possible.
+    /// The computed property retries on every access, so a transient failure
+    /// self-heals on the next scheduler cycle.
+    ///
     /// ## ✅ Single-snapshot rule — do not call this twice in one operation
     ///
     /// Any call site that needs this URL for more than one step MUST snapshot

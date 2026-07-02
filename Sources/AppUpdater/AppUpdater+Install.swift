@@ -115,6 +115,13 @@ extension AppUpdater {
         var resultingNSURL: NSURL?
 
         // ── Step 1: atomic bundle swap ───────────────────────────────────────────
+        // replaceItem is atomic at the filesystem level. On failure, bundleURL is
+        // preserved exactly as it was — no partial state, no corrupted .app.
+        // The replacement candidate (appInZip) is left in tmpDir and cleaned up
+        // below. The user's running .app is never touched on a failed swap.
+        // REVIEWER: this is why a stale or partial zip cannot leave the user with
+        // a broken installation — the swap either fully succeeds or fully rolls
+        // back. Do NOT replace this with removeItem + copyItem (not atomic).
         do {
             try fm.replaceItem(
                 at: bundleURL,

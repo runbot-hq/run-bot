@@ -86,6 +86,9 @@ extension AppUpdater {
         // removeItem(at: destination) before moveItem — the partial file is
         // wiped and a clean download begins. No stuck loop. See the
         // "Move verified zip" comment in AppUpdater+Download.swift.
+        // The swap itself is atomic (see replaceItem comment in AppUpdater+Install.swift)
+        // — a partial zip causes ditto to fail before replaceItem is ever reached.
+        // The user's .app is never touched.
         //
         // A version sidecar would add persistent state for edge cases that
         // self-heal in one cycle — Principle 4 says no. See issue #1859.
