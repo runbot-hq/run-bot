@@ -95,9 +95,6 @@ extension AppUpdater {
         // If the interval is ever shortened to sub-minute values in production,
         // revisit this — at that point holding the assertion matters.
         nonisolated(unsafe) let schedulerRef = scheduler
-        // @MainActor classes synthesise Sendable conformance in Swift 6 — capturing
-        // `self` as `updater` is safe here without [weak self] or nonisolated(unsafe).
-        let updater = self
         scheduler.schedule { completion in
             // schedulerRef.shouldDefer is read on the GCD background thread that
             // NSBackgroundActivityScheduler uses to invoke this block. This is safe:
@@ -112,11 +109,14 @@ extension AppUpdater {
             }
             completion(.finished)
 
+            // @MainActor classes synthesise Sendable conformance in Swift 6 —
+            // capturing `self` directly is safe here without [weak self] or
+            // nonisolated(unsafe).
             Task { @MainActor in
-                let beta = updater.betaChannelProvider()
-                switch await updater.checkForUpdate(betaChannel: beta) {
+                let beta = self.betaChannelProvider()
+                switch await self.checkForUpdate(betaChannel: beta) {
                 case .updateAvailable(let release):
-                    await updater.handle(release, state: state)
+                    await self.handle(release, state: state)
 
                 case .upToDate:
                     // ✅ REVIEWED: unconditional .idle here is correct. Do NOT add a
