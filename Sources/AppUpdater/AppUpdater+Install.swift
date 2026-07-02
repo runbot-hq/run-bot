@@ -44,7 +44,7 @@ extension AppUpdater {
     /// 1. Verify host is in `.ready` phase and extract zip URL + version.
     /// 2. Unzip into a temporary directory via `/usr/bin/ditto`.
     /// 3. (Optional) Verify `codesign` identity if `skipCodeSignValidation` is `false`.
-    /// 4. Replace the running bundle via `FileManager.replaceItem` (atomic swap).
+    /// 4. Replace the running bundle via `FileManager.replaceItemAt` (atomic swap).
     /// 5. Relaunch the new binary with `/usr/bin/open -n`.
     /// 6. Delete the zip (spend — relaunch confirmed).
     /// 7. Terminate this process via `NSApp.terminate`.
@@ -136,11 +136,9 @@ extension AppUpdater {
         state: any UpdateStateProviding
     ) async {
         let fm = FileManager.default
-        let backupItemName = bundleURL.lastPathComponent + ".bak"
-        var resultingNSURL: NSURL?
 
         // ── Step 1: atomic bundle swap ───────────────────────────────────────────
-        // replaceItem is atomic at the filesystem level. On failure, bundleURL is
+        // replaceItemAt is atomic at the filesystem level. On failure, bundleURL is
         // preserved exactly as it was — no partial state, no corrupted .app.
         // The replacement candidate (appInZip) is left in tmpDir and cleaned up
         // below. The user's running .app is never touched on a failed swap.
@@ -148,13 +146,7 @@ extension AppUpdater {
         // a broken installation — the swap either fully succeeds or fully rolls
         // back. Do NOT replace this with removeItem + copyItem (not atomic).
         do {
-            try fm.replaceItem(
-                at: bundleURL,
-                withItemAt: appInZip,
-                backupItemName: backupItemName,
-                options: [],
-                resultingItemURL: &resultingNSURL
-            )
+            try fm.replaceItemAt(bundleURL, withItemAt: appInZip)
         } catch {
             appUpdaterLogger.error("replaceItem failed: \(String(describing: error), privacy: .public)")
             isInstalling = false
@@ -168,10 +160,9 @@ extension AppUpdater {
 
         // ── Step 3: relaunch ───────────────────────────────────────────────────
         #if canImport(AppKit)
-        let launchPath = ((resultingNSURL as URL?) ?? bundleURL).path
         let relaunchTask = Process()
         relaunchTask.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-        relaunchTask.arguments = ["-n", launchPath]
+        relaunchTask.arguments = ["-n", bundleURL.path]
         do {
             try relaunchTask.run()
         } catch {
