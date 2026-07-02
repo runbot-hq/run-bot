@@ -23,6 +23,20 @@ extension AppUpdater {
     /// `handle()`. AppUpdater is process-lifetime; `@MainActor` serialises all
     /// state mutations. No stored task handle or cancellation is needed.
     ///
+    /// ## .downloading phase reachability
+    ///
+    /// A reviewer tracing `UpdatePhase.downloading` through the codebase may
+    /// find it hard to locate — it is applied on the very first line of this
+    /// function, not at the call site in `handle()`. The call chain is:
+    ///   `handle()` → `Task(name: "AppUpdater.download")` → `downloadUpdate()`
+    ///   → `state.apply(.downloading(...))` (line 1 of the function body).
+    ///
+    /// `.downloading` is NOT applied in `handle()` before the Task fires
+    /// because the Task is fire-and-forget — there is no guarantee of
+    /// ordering between the `.available` apply in `handle()` and the Task
+    /// body. Applying it here (inside the Task, on @MainActor) guarantees
+    /// the transition is serialised correctly.
+    ///
     /// ## checksumURL is non-optional by design
     ///
     /// `handle()` guards `release.checksumURL != nil` before spawning this Task

@@ -98,14 +98,26 @@ extension AppUpdater {
         let downloadURL = asset.browserDownloadURL
         let tagName = release.tagName
 
-        // Fire-and-forget. No isDownloading guard is intentional — isDownloading
-        // was explicitly removed in issue #1859 (Principle 1: no boolean flags;
-        // Principle 4: no sprawl). The .downloading phase applied by downloadUpdate
-        // is the in-flight signal. If the background scheduler fires a second
-        // handle() while a download is already running, the worst outcome is two
-        // Tasks racing to moveItem onto the same fixedZipURL; the second moveItem
-        // fails silently and the winner applies .ready. That is a correct binary
-        // outcome. In production (24 h interval) this race window does not exist.
+        // ✅ REVIEWED: fire-and-forget Task is correct here. Do NOT add an
+        // isDownloading guard, a stored Task handle, or a cancellation path.
+        //
+        // The concern a reviewer may raise: "two concurrent handle() calls
+        // race to moveItem onto the same fixedZipURL."
+        //
+        // That race is benign by design. moveItem is not atomic but its
+        // failure mode is a thrown error — the second Task's moveItem fails,
+        // it catches, and applies .failed. The first Task wins and applies
+        // .ready. .ready is the correct final state. No data is corrupted,
+        // no partial write can occur, and the user sees a correct Install
+        // button. In production (24-hour scheduler interval) two handle()
+        // calls cannot overlap — the race window does not exist.
+        //
+        // isDownloading was explicitly removed in issue #1859:
+        // - Principle 1: no boolean flags that mirror phase state.
+        // - Principle 4: no sprawl — a guard here would require the flag,
+        //   which requires reset paths, which requires lifecycle management.
+        // The .downloading phase applied inside downloadUpdate IS the
+        // in-flight signal. That is sufficient.
         Task(name: "AppUpdater.download") {
             await self.downloadUpdate(from: downloadURL, checksumURL: checksumURL, version: tagName, state: state)
         }

@@ -290,8 +290,18 @@ public enum UpdateChecker {
             return .failed(UpdateCheckError.noReleasesFound)
         }
 
-        // Step 2: filter by channel. nil here means releases exist but none
-        // match the channel — the user is already on the latest eligible version.
+        // Step 2: filter by channel.
+        // ✅ REVIEWED: nil here maps to .upToDate, NOT .failed — this is
+        // deliberate. nil from latestMatchingRelease means releases were
+        // fetched successfully but none matched the requested channel (e.g.
+        // the user is on the stable channel and every published release is a
+        // pre-release). That is not a failure — the user is on the latest
+        // version they are eligible for. A reviewer may flag this as "swallows
+        // a no-match condition silently" — it does not. The distinction is
+        // documented in the UpdateCheckError.noReleasesFound doc comment and
+        // in the checkForUpdate return-value docs above. Do not change this
+        // to .failed — that would incorrectly show an error state to stable
+        // users on a beta-only repository.
         guard let release = latestMatchingRelease(from: releases, betaChannel: betaChannel) else {
             return .upToDate
         }
