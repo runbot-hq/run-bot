@@ -163,5 +163,6 @@ extension Bundle {
 // compile error is the correct signal: mock above the AppKit boundary, do not
 // add stub logic here.
 //
+// swiftlint:disable:next line_length
 #error("AppUpdater requires AppKit. If you are hitting this from `swift test`: this code path touches AppKit and cannot be exercised in the SPM headless test runner. Do not test it. Do not add an #else branch with stub logic. Mock above the AppKit boundary instead.")
 #endif
