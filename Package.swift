@@ -40,7 +40,7 @@ let package = Package(
         ),
         .executableTarget(
             name: "RunBot",
-            dependencies: ["RunBotCore", "AppUpdater"],
+            dependencies: ["RunBotCore"],
             path: "Sources/RunBot",
             swiftSettings: [
                 .enableUpcomingFeature("NonisolatedNonsendingByDefault")

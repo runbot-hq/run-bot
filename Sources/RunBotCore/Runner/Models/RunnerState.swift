@@ -18,7 +18,7 @@ import Observation
 /// `{ get set }` requirement — see `RunnerViewModelProtocol` for the rationale.
 /// Only `LocalRunnerStore` (in `RunBotCore`) writes them in practice.
 /// The auto-update storage properties (`availableUpdate`, `updateZipURL`,
-/// `cachedUpdateVersion`, `updateAssetMissing`, `updateActionFailed`) are written
+/// `cachedUpdateVersion`, `updateActionFailed`) are written
 /// exclusively by `AppUpdater` via `UpdateStateProviding.apply(_:)`, declared in
 /// `RunnerState+AppUpdater.swift`.
 @Observable
@@ -79,11 +79,6 @@ public final class RunnerState {
     /// Version string of the cached update zip, or `nil` if none cached.
     public internal(set) var cachedUpdateVersion: String?
 
-    /// `true` when the release exists but its zip asset is absent.
-    /// The UI falls back to the curl install command.
-    public internal(set) var updateAssetMissing: Bool = false
-
     /// `true` when a download or install attempt has failed.
-    /// The curl fallback is shown whenever `updateAssetMissing || updateActionFailed`.
     public internal(set) var updateActionFailed: Bool = false
 }

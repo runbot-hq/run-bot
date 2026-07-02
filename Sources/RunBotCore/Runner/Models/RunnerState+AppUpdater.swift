@@ -29,7 +29,7 @@ extension RunnerState: UpdateStateProviding {
     /// | `.available(version)` | `availableUpdate = version`; zip/failure fields cleared |
     /// | `.downloading(version)` | `availableUpdate = version`; zip URL / failure fields cleared |
     /// | `.ready(version, zipURL)` | `availableUpdate = version`; `updateZipURL = zipURL`; failure flags cleared |
-    /// | `.failed(version)` | `updateActionFailed = true`; `updateAssetMissing = false`; zip URL cleared |
+    /// | `.failed(version)` | `updateActionFailed = true`; zip URL cleared |
     public func apply(_ phase: UpdatePhase) {
         switch phase {
         case .idle:
@@ -37,14 +37,12 @@ extension RunnerState: UpdateStateProviding {
             updateZipURL = nil
             cachedUpdateVersion = nil
             updateActionFailed = false
-            updateAssetMissing = false
 
         case .available(let version):
             availableUpdate = version
             updateZipURL = nil
             cachedUpdateVersion = nil
             updateActionFailed = false
-            updateAssetMissing = false
 
         case .downloading(let version):
             // Show that a download is in progress: update label visible,
@@ -53,14 +51,12 @@ extension RunnerState: UpdateStateProviding {
             updateZipURL = nil
             cachedUpdateVersion = nil
             updateActionFailed = false
-            updateAssetMissing = false
 
         case .ready(let version, let zipURL):
             availableUpdate = version
             updateZipURL = zipURL
             cachedUpdateVersion = version
             updateActionFailed = false
-            updateAssetMissing = false
 
         case .failed(let version):
             // Preserve availableUpdate label if we have a version,
@@ -69,7 +65,6 @@ extension RunnerState: UpdateStateProviding {
             updateZipURL = nil
             cachedUpdateVersion = nil
             updateActionFailed = true
-            updateAssetMissing = false
         }
     }
 
