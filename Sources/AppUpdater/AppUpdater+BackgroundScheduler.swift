@@ -82,6 +82,13 @@ extension AppUpdater {
         nonisolated(unsafe) let schedulerRef = scheduler
         let updater = self
         scheduler.schedule { completion in
+            // schedulerRef.shouldDefer is read on the GCD background thread that
+            // NSBackgroundActivityScheduler uses to invoke this block. This is safe:
+            // the OS sets shouldDefer before invoking the block, so it is a
+            // read-only snapshot with no concurrent writer at this point.
+            // nonisolated(unsafe) is required only to bridge the @MainActor
+            // isolation of the enclosing method — not because the access is
+            // genuinely unsafe.
             guard schedulerRef.shouldDefer == false else {
                 completion(.deferred)
                 return

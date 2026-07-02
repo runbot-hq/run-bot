@@ -120,7 +120,8 @@ public enum UpdateChecker {
         /// pre-release suffix (anything other than `beta.N`) sets `betaIndex`
         /// to `nil` while still marking `isPrerelease = true`.
         init(_ version: String) { // skipcq: SW-R1002 — reviewed; complexity acceptable for this version parser
-            let parts = version.split(separator: "-", maxSplits: 1)
+            let v = version.hasPrefix("v") ? String(version.dropFirst()) : version
+            let parts = v.split(separator: "-", maxSplits: 1)
             let core = parts.isEmpty ? "" : String(parts[0])
             isPrerelease = parts.count > 1
             let nums = core.split(separator: ".").compactMap { Int($0) }
@@ -260,8 +261,8 @@ public enum UpdateChecker {
     /// label (e.g. `rc.N`), extend `ParsedVersion` to recognise that suffix and
     /// assign a comparable index before calling this function.
     public static func isNewer(_ candidate: String, than current: String) -> Bool { // skipcq: SW-R1002 — reviewed; complexity acceptable for this semver comparison
-        let cv = ParsedVersion(candidate.hasPrefix("v") ? String(candidate.dropFirst()) : candidate)
-        let sv = ParsedVersion(current.hasPrefix("v")   ? String(current.dropFirst())   : current)
+        let cv = ParsedVersion(candidate)
+        let sv = ParsedVersion(current)
 
         if cv.major != sv.major { return cv.major > sv.major }
         if cv.minor != sv.minor { return cv.minor > sv.minor }
