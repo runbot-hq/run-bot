@@ -40,6 +40,15 @@ on:
 #   git tag -d <tag> && git push origin --delete <tag>
 # then re-run publish.sh. See docs/RELEASING.md § Rollback procedure.
 #
+# Orphaned plist-commit window: a second push that cancels the first *after*
+# "Commit patched Info.plist" has already pushed but *before* "Tag and push"
+# completes leaves a [skip ci] bump commit on the branch for a version that
+# was never tagged. The next run computes the same tag (no tag was pushed)
+# and pushes a second bump commit on top, accumulating one stale commit per
+# cancellation in that window. This is harmless to the release artifact but
+# obscures the branch history. If it becomes noisy, squash the stale commits
+# manually or add a revert step before "Commit patched Info.plist".
+#
 # Why keep cancel-in-progress: true at all? A mis-fire of publish.sh
 # followed immediately by the real push would otherwise queue two full
 # builds; the first would win the duplicate-tag guard and create the
@@ -66,14 +75,14 @@ jobs:
     timeout-minutes: 30
 
     steps:
-      # ── Checkout ───────────────────────────────────────────────────────────
+      # ── Checkout ──────────────────────────────────────────────────────────
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 0   # full history + all tags — fetch-depth: 0 is sufficient
                            # on its own; a full clone already includes all tags.
 
-      # ── Compute next tag ───────────────────────────────────────────────────
+      # ── Compute next tag ────────────────────────────────────────────────
       #
       # ⚠️  REVIEWER: Do NOT change the beta base to LATEST_STABLE + 1 patch.
       # Using the current stable base for beta tags (v0.7.0-beta.N, not
@@ -199,7 +208,7 @@ jobs:
           echo "version=$VERSION"   >> "$GITHUB_OUTPUT"
           echo "Computed tag: $TAG (channel: $CHANNEL)"
 
-      # ── Duplicate-tag guard ────────────────────────────────────────────────
+      # ── Duplicate-tag guard ─────────────────────────────────────────────
       - name: Guard against duplicate tag
         run: |
           set -euo pipefail
@@ -210,7 +219,7 @@ jobs:
           fi
           echo "Tag $TAG is available."
 
-      # ── Patch Info.plist ───────────────────────────────────────────────────
+      # ── Patch Info.plist ─────────────────────────────────────────────
       # CFBundleShortVersionString  ← X.Y.Z only (macOS strips pre-release
       #                               suffixes here for display; used by
       #                               Gatekeeper and the App Store but NOT
@@ -246,13 +255,13 @@ jobs:
 
           echo "Patched Info.plist: shortVersion=${SHORT_VERSION} fullVersion=${VERSION} build=${BUILD}"
 
-      # ── Build ──────────────────────────────────────────────────────────────
+      # ── Build ──────────────────────────────────────────────────────────
       - name: Build
         run: bash build.sh "${{ steps.tag.outputs.version }}"
         env:
           CI: "true"
 
-      # ── Verify zip ────────────────────────────────────────────────────────
+      # ── Verify zip ──────────────────────────────────────────────────
       - name: Verify zip
         id: verify
         run: |
@@ -279,7 +288,7 @@ jobs:
           echo "Zip verified: RunBot.app/Contents/MacOS/RunBot is present at archive root."
           echo "zip_path=$ZIP" >> "$GITHUB_OUTPUT"
 
-      # ── Generate SHA-256 sidecar ───────────────────────────────────────────
+      # ── Generate SHA-256 sidecar ───────────────────────────────────────
       # AppUpdater.downloadUpdate fetches checksumURL from the release assets
       # and treats a missing sidecar as a hard failure (URLError.resourceUnavailable),
       # falling back to the browser Download button for every user. This step
@@ -301,7 +310,7 @@ jobs:
           echo "SHA-256 sidecar: $(cat $SIDECAR)"
           echo "sidecar_path=$SIDECAR" >> "$GITHUB_OUTPUT"
 
-      # ── Commit patched Info.plist ──────────────────────────────────────────────────────────────────────
+      # ── Commit patched Info.plist ──────────────────────────────────────────────────
       # The "Patch Info.plist" step modifies Resources/Info.plist in the
       # workspace only. Without this commit, the tag points at the original
       # unpatched commit — checking out that tag and building locally produces
@@ -320,7 +329,7 @@ jobs:
           git commit -m "chore: bump version to ${{ steps.tag.outputs.tag }} [skip ci]"
           git push origin HEAD:${{ github.ref_name }}
 
-      # ── Tag + push ────────────────────────────────────────────────────────
+      # ── Tag + push ──────────────────────────────────────────────────
       # Note on the dry_run condition: when this workflow fires from a `push`
       # event (not `workflow_dispatch`), `github.event.inputs.dry_run` is `null`
       # rather than `"false"`. The expression `null != 'true'` evaluates to `true`,

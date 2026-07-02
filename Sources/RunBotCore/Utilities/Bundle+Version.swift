@@ -15,19 +15,19 @@ extension Bundle {
     /// ## ⚠️ Dev-build quirk — not a bug
     ///
     /// In a local development build where `publish.yml` has NOT patched
-    /// `Info.plist`, `RBVersionString` is absent and the fallback chain
-    /// returns `"0.0.0"`. Because `"0.0.0"` is older than any real release
-    /// version, `isOlderThan` will return `true` for any cached update zip
-    /// that happens to be present in `~/Library/Caches/io.github.runbot-hq/`
-    /// from a previous release build run on the same machine. This can cause
-    /// a spurious **Install & Relaunch** button to appear in Settings → About
-    /// on a dev machine.
+    /// `Info.plist`, `RBVersionString` retains its default value of `"0.7.0"`
+    /// from `Info.plist`. Because `"0.7.0"` is older than any release newer
+    /// than that baseline, `isOlderThan` will return `true` for any cached
+    /// update zip for a version newer than `"0.7.0"` present in
+    /// `~/Library/Caches/io.github.runbot-hq.update-check/` from a previous
+    /// build on the same machine. This can cause a spurious **Install &
+    /// Relaunch** button to appear in Settings → About on a dev machine.
     ///
     /// This is harmless in production — CI always patches `RBVersionString`
     /// via the `Patch Info.plist` step in `publish.yml`. If the spurious button
     /// is annoying during development, delete the cached zip manually:
     ///
-    ///     rm ~/Library/Caches/io.github.runbot-hq/RunBot-*.zip
+    ///     rm ~/Library/Caches/io.github.runbot-hq.update-check/update.zip
     ///
     /// or add `RBVersionString` to your local `Info.plist` with a high version
     /// (e.g. `"99.0.0"`) to suppress all update offers.
