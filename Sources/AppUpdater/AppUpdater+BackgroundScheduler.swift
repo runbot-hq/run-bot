@@ -110,9 +110,17 @@ extension AppUpdater {
             }
             completion(.finished)
 
+            // Strong capture of self is intentional: AppUpdater is process-lifetime
+            // (held by AppDelegate for the full app session). This creates a permanent
+            // retain cycle (AppUpdater → activity → scheduler block → AppUpdater),
+            // which is correct by design — there is no scenario where AppUpdater should
+            // deallocate mid-session. deinit { activity?.invalidate() } is a
+            // defense-in-depth guard for completeness, not a required teardown path.
+            // [weak self] is deliberately absent: the optional-chaining overhead buys
+            // nothing when deallocation is structurally impossible.
+            //
             // @MainActor classes synthesise Sendable conformance in Swift 6 —
-            // capturing `self` directly is safe here without [weak self] or
-            // nonisolated(unsafe).
+            // capturing `self` directly is safe here without nonisolated(unsafe).
             Task { @MainActor in
                 let beta = self.betaChannelProvider()
                 switch await self.checkForUpdate(betaChannel: beta) {
@@ -137,7 +145,12 @@ extension AppUpdater {
                     // See issue #1859.
                     state.apply(.idle)
 
-                case .failed:
+                case .failed(let error):
+                    // Log at debug level — matches checkAndHandle's precedent and ensures
+                    // background network failures (HTTP 429/403, TLS errors, etc.) are
+                    // visible in Console.app for triage. Without this, a 24-hour cycle
+                    // failure is completely silent.
+                    appUpdaterLogger.debug("background check failed: \(String(describing: error), privacy: .public)")
                     // .failed here conflates genuine network failure, rate-limit (HTTP 429/403),
                     // and auth errors — all map to .failed(.noReleasesFound) upstream. This is
                     // a known accepted limitation; see UpdateCheckError.noReleasesFound in
