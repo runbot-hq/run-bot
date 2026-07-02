@@ -56,6 +56,23 @@ extension Bundle {
     /// (Pillar 5 — no new `DispatchQueue` bridges). This mirrors `runCommand`
     /// in `AppUpdater+ProcessHelper.swift`.
     ///
+    /// ## Pipe drain ordering — differs from runCommand
+    ///
+    /// Unlike `runCommand` (which drains stdout/stderr after `waitUntilExit()`
+    /// because `ditto`'s output is always tiny), this function drains stderr
+    /// asynchronously via a detached Task *before* `waitUntilExit()` is called.
+    ///
+    /// Reason: `codesign -dvvv` unconditionally prints the full certificate chain
+    /// to stderr on Developer ID-signed bundles — potentially several KB. If the
+    /// subprocess writes enough to fill the OS pipe buffer (~64 KB), calling
+    /// `waitUntilExit()` first creates a deadlock:
+    ///   1. Subprocess blocks writing to the full pipe.
+    ///   2. `waitUntilExit()` blocks waiting for the subprocess to exit.
+    /// The async drain task reads continuously, keeping the pipe from filling, so
+    /// `waitUntilExit()` can return.
+    ///
+    /// DO NOT change this back to the `runCommand` ordering for this function.
+    ///
     /// ## No `SecCode`/`SecRequirement` API
     ///
     /// The Security framework API (`SecCodeCopyGuestWithAttributes`,
@@ -83,25 +100,31 @@ extension Bundle {
         let stderrPipe = Pipe()
         process.standardError = stderrPipe
 
+        // Drain stderr asynchronously BEFORE process.run() / waitUntilExit().
+        // codesign -dvvv can produce several KB on signed bundles; draining
+        // concurrently prevents the pipe from filling and deadlocking.
+        // See ## Pipe drain ordering in the doc comment above.
+        let stderrHandle = stderrPipe.fileHandleForReading
+        let drainTask = Task.detached {
+            stderrHandle.readDataToEndOfFile()
+        }
+
         do {
             try process.run()
-            // waitUntilExit() before readDataToEndOfFile() — safe because
-            // codesign's stderr is always << 64 KB (the OS pipe buffer limit).
-            // The same ordering is used in runCommand; see the full explanation
-            // in AppUpdater+ProcessHelper.swift.
             process.waitUntilExit()
         } catch {
             appUpdaterLogger.debug("codesign launch failed for \(bundlePath, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            drainTask.cancel()
             return nil
         }
+
+        let output = await drainTask.value
+        guard let text = String(data: output, encoding: .utf8) else { return nil }
 
         guard process.terminationStatus == 0 else {
             appUpdaterLogger.debug("codesign exited \(process.terminationStatus, privacy: .public) for \(bundlePath, privacy: .public)")
             return nil
         }
-
-        let output = stderrPipe.fileHandleForReading.readDataToEndOfFile()
-        guard let text = String(data: output, encoding: .utf8) else { return nil }
 
         // Parse `Authority=<value>` lines. codesign prints one per certificate
         // in the trust chain; the first line is the leaf (signing identity).
