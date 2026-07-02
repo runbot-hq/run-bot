@@ -99,6 +99,7 @@ public final class AppUpdater {
     /// operation — the two calls are not guaranteed to return the same base
     /// directory if the caches directory flips between available and unavailable.
     var fixedZipURL: URL {
+        // Re-evaluated on every access by design — see doc comment above.
         let caches: URL
         if let url = try? FileManager.default.url(
             for: .cachesDirectory,
