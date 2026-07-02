@@ -28,33 +28,29 @@ extension RunnerState: UpdateStateProviding {
     /// | `.idle` | all update fields cleared |
     /// | `.available(version)` | `availableUpdate = version`; zip/failure fields cleared |
     /// | `.downloading(version)` | `availableUpdate = version`; zip URL / failure fields cleared |
-    /// | `.ready(version, zipURL)` | `availableUpdate = version`; `updateZipURL = zipURL`; failure flags cleared |
+    /// | `.ready(version)` | `availableUpdate = version`; `cachedUpdateVersion = version`; failure flags cleared |
     /// | `.failed(version)` | `updateActionFailed = true`; zip URL cleared |
     public func apply(_ phase: UpdatePhase) {
         switch phase {
         case .idle:
             availableUpdate = nil
-            updateZipURL = nil
             cachedUpdateVersion = nil
             updateActionFailed = false
 
         case .available(let version):
             availableUpdate = version
-            updateZipURL = nil
             cachedUpdateVersion = nil
             updateActionFailed = false
 
         case .downloading(let version):
             // Show that a download is in progress: update label visible,
-            // zip URL cleared so install button is hidden while downloading.
+            // cachedUpdateVersion cleared so install button is hidden while downloading.
             availableUpdate = version
-            updateZipURL = nil
             cachedUpdateVersion = nil
             updateActionFailed = false
 
-        case .ready(let version, let zipURL):
+        case .ready(let version):
             availableUpdate = version
-            updateZipURL = zipURL
             cachedUpdateVersion = version
             updateActionFailed = false
 
@@ -62,7 +58,6 @@ extension RunnerState: UpdateStateProviding {
             // Preserve availableUpdate label if we have a version,
             // so the UI can direct the user to the curl-install fallback.
             if let version { availableUpdate = version }
-            updateZipURL = nil
             cachedUpdateVersion = nil
             updateActionFailed = true
         }
@@ -82,7 +77,7 @@ extension RunnerState: UpdateStateProviding {
     ///
     /// `RunnerState` has no `isDownloading: Bool` flag and never will
     /// (Principle 1: no boolean flags). From stored fields, `.downloading`
-    /// and `.available` are identical — both have `updateZipURL == nil`.
+    /// and `.available` are identical — both have `cachedUpdateVersion == nil`.
     /// This means `currentPhase` returns `.available` while a download is
     /// in progress.
     ///
@@ -98,8 +93,8 @@ extension RunnerState: UpdateStateProviding {
     ///   fix is to add a `downloading(version: String, progress: Double)` case
     ///   to `UpdatePhase` — not to add a parallel flag here.
     public var currentPhase: UpdatePhase {
-        if let version = cachedUpdateVersion, let zipURL = updateZipURL {
-            return .ready(version: version, zipURL: zipURL)
+        if let version = cachedUpdateVersion {
+            return .ready(version: version)
         }
         if updateActionFailed {
             return .failed(version: availableUpdate)

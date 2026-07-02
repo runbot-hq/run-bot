@@ -17,7 +17,7 @@ import Observation
 /// because Swift requires the setter to match the accessibility of a `public` protocol
 /// `{ get set }` requirement — see `RunnerViewModelProtocol` for the rationale.
 /// Only `LocalRunnerStore` (in `RunBotCore`) writes them in practice.
-/// The auto-update storage properties (`availableUpdate`, `updateZipURL`,
+/// The auto-update storage properties (`availableUpdate`,
 /// `cachedUpdateVersion`, `updateActionFailed`) are written
 /// exclusively by `AppUpdater` via `UpdateStateProviding.apply(_:)`, declared in
 /// `RunnerState+AppUpdater.swift`.
@@ -70,11 +70,6 @@ public final class RunnerState {
     /// Written exclusively by `AppUpdater` via `apply(_:)` in
     /// `RunnerState+AppUpdater.swift`. Read by views to show the update label.
     public internal(set) var availableUpdate: String?
-
-    /// Local file URL of the cached update zip, or `nil` while downloading
-    /// or not yet started. The Install & Relaunch button is shown only when
-    /// this is non-nil.
-    public internal(set) var updateZipURL: URL?
 
     /// Version string of the cached update zip, or `nil` if none cached.
     public internal(set) var cachedUpdateVersion: String?

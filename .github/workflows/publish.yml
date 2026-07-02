@@ -223,21 +223,9 @@ jobs:
       #                               derived from total git commit count
       #
       # ⚠️  Info.plist is patched in the workspace only — it is NOT committed
-      # back to the branch. The git tag therefore points at the original
-      # unpatched commit; `git checkout <tag> && swift build` produces a binary
-      # with placeholder version strings, not the release version.
-      #
-      # This is intentional for RunBot: releases are binary-only (no one builds
-      # from source), and committing back to `beta`/`release` would re-trigger
-      # this workflow via the push.branches trigger despite [skip ci] being
-      # unreliable on self-hosted runners. The release artifact is always
-      # correct — build.sh reads from the patched workspace, not from git.
-      #
-      # If reproducible source-tagged builds ever become a requirement, the fix
-      # is: git add Resources/Info.plist && git commit -m "chore: bump version
-      # to $TAG [skip ci]" && git push origin HEAD:${{ github.ref_name }}
-      # inserted between this step and "Tag and push". Verify [skip ci] is
-      # honoured on the self-hosted runner before enabling.
+      # back to the branch by this step. The "Commit patched Info.plist" step
+      # below pushes it before the tag is created, so the tag points at the
+      # patched commit and `git checkout <tag> && swift build` is reproducible.
       # CFBundleShortVersionString  ← X.Y.Z only (macOS strips pre-release
       #                               suffixes here for display; used by
       #                               Gatekeeper and the App Store but NOT
@@ -322,6 +310,25 @@ jobs:
           /usr/bin/shasum -a 256 "$ZIP" > "$SIDECAR"
           echo "SHA-256 sidecar: $(cat $SIDECAR)"
           echo "sidecar_path=$SIDECAR" >> "$GITHUB_OUTPUT"
+
+      # ── Commit patched Info.plist ──────────────────────────────────────────────────────────────────────
+      # The "Patch Info.plist" step modifies Resources/Info.plist in the
+      # workspace only. Without this commit, the tag points at the original
+      # unpatched commit — checking out that tag and building locally produces
+      # a binary with the wrong version strings. This commit aligns source and
+      # artifact so `git checkout <tag> && swift build` is reproducible.
+      #
+      # [skip ci] prevents this commit from re-triggering the publish workflow
+      # via the push.branches trigger.
+      - name: Commit patched Info.plist
+        if: ${{ github.event.inputs.dry_run != 'true' }}
+        run: |
+          set -euo pipefail
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Resources/Info.plist
+          git commit -m "chore: bump version to ${{ steps.tag.outputs.tag }} [skip ci]"
+          git push origin HEAD:${{ github.ref_name }}
 
       # ── Tag + push ────────────────────────────────────────────────────────
       # Note on the dry_run condition: when this workflow fires from a `push`

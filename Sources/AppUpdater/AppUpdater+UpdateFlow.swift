@@ -94,7 +94,7 @@ extension AppUpdater {
         // self-heal in one cycle — Principle 4 says no. See issue #1859.
         let zipURL = fixedZipURL
         if FileManager.default.fileExists(atPath: zipURL.path) {
-            state.apply(.ready(version: release.tagName, zipURL: zipURL))
+            state.apply(.ready(version: release.tagName))
             return
         }
 

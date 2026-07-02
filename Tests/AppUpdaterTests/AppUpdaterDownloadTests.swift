@@ -112,12 +112,11 @@ struct AppUpdaterDownloadTests {
         )
         await updater.handle(release, state: state)
 
-        guard case .ready(let version, let url) = state.currentPhase else {
+        guard case .ready(let version) = state.currentPhase else {
             Issue.record("Expected .ready, got \(state.currentPhase)")
             return
         }
         #expect(version == "v2.0.0")
-        #expect(url == zipURL)
         #expect(state.appliedPhases.count == 1)
     }
 

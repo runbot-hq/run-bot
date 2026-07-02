@@ -317,7 +317,7 @@ internal extension SettingsView {
                 }
                 Spacer()
 
-            case .ready(let version, let zipURL):
+            case .ready(let version):
                 VStack(alignment: .leading, spacing: 1) {
                     Text("Update available: \(version)").font(.system(size: 12))
                     Text("A new version of RunBot is ready to install.")
@@ -331,8 +331,7 @@ internal extension SettingsView {
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)
-                // zipURL captured from the enum case — no separate state lookup needed.
-                .help("Install from \(zipURL.lastPathComponent) and relaunch RunBot")
+                .help("Install and relaunch RunBot")
 
             case .failed(let version):
                 VStack(alignment: .leading, spacing: 1) {

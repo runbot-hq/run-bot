@@ -61,12 +61,11 @@ struct AppUpdaterBehaviorTests {
         )
         await updater.handle(release, state: state)
 
-        guard case .ready(let version, let url) = state.currentPhase else {
+        guard case .ready(let version) = state.currentPhase else {
             Issue.record("Expected .ready, got \(state.currentPhase)")
             return
         }
         #expect(version == "v9.9.9")
-        #expect(url == zipURL)
         // Exactly one phase transition: idle → ready.
         #expect(state.appliedPhases.count == 1)
     }

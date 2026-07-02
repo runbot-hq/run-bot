@@ -122,7 +122,7 @@ extension AppUpdater {
             try? FileManager.default.removeItem(at: destination)
             try FileManager.default.moveItem(at: downloadedURL, to: destination)
 
-            state.apply(.ready(version: version, zipURL: destination))
+            state.apply(.ready(version: version))
         } catch {
             appUpdaterLogger.error("downloadUpdate failed: \(String(describing: error), privacy: .public)")
             if let tmp = tempURL {

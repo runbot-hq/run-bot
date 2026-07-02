@@ -32,13 +32,14 @@ extension AppUpdater {
         guard !isInstalling else { return }
         isInstalling = true
 
-        // Extract zip URL and version from the .ready phase.
-        guard case .ready(let version, let zipURL) = state.currentPhase else {
+        // Extract version from the .ready phase; zip is always at fixedZipURL.
+        guard case .ready(let version) = state.currentPhase else {
             isInstalling = false
             state.apply(.failed(version: nil))
             return
         }
 
+        let zipURL = fixedZipURL
         let bundleURL = URL(fileURLWithPath: Bundle.main.bundlePath)
         let tmpDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("appupdater-update-\(UUID().uuidString)", isDirectory: true)

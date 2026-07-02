@@ -25,8 +25,8 @@ public enum UpdatePhase: Equatable {
     case available(version: String)
     /// A download is in progress for the given version.
     case downloading(version: String)
-    /// Download complete and integrity-verified; zip is at `zipURL`.
-    case ready(version: String, zipURL: URL)
+    /// Download complete and integrity-verified; zip is cached at `AppUpdater.fixedZipURL`.
+    case ready(version: String)
     /// A download or install attempt failed. `version` is the release tag if
     /// known at the time of failure, `nil` otherwise.
     case failed(version: String?)
