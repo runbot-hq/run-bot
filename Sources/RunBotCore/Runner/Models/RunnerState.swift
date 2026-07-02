@@ -69,11 +69,24 @@ public final class RunnerState {
     ///
     /// Written exclusively by `AppUpdater` via `apply(_:)` in
     /// `RunnerState+AppUpdater.swift`. Read by views to show the update label.
+    ///
+    /// `internal(set)` — not `private(set)` — because Swift's `private` is
+    /// file-scoped: the setter must be visible to `apply(_:)` in
+    /// `RunnerState+AppUpdater.swift`, which is a different file. Moving stored
+    /// properties into the extension file is non-standard and was rejected.
+    /// The invariant (only `apply(_:)` may write these) is enforced by
+    /// convention; see `currentPhase` warning comment in that file.
     public internal(set) var availableUpdate: String?
 
     /// Version string of the cached update zip, or `nil` if none cached.
+    ///
+    /// `internal(set)` for the same reason as `availableUpdate` above —
+    /// `private(set)` would make the setter inaccessible across file boundaries.
     public internal(set) var cachedUpdateVersion: String?
 
     /// `true` when a download or install attempt has failed.
+    ///
+    /// `internal(set)` for the same reason as `availableUpdate` above —
+    /// `private(set)` would make the setter inaccessible across file boundaries.
     public internal(set) var updateActionFailed: Bool = false
 }
