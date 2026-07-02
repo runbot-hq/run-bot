@@ -285,15 +285,28 @@ internal extension SettingsView {
                         .font(.caption2).foregroundColor(Color.rbTextSecondary)
                 }
                 Spacer()
-                // Download is in progress implicitly (checkAndHandle fires immediately
-                // after handle advances to .available); show a disabled placeholder
-                // so the row width is stable and the user sees feedback.
+                // The download fires automatically — the user never taps a Download
+                // button. This matches the macOS/Sparkle convention: downloading is
+                // low-risk and reversible (a cached zip), so consent is only required
+                // at install. Do NOT add a Download button here (Principle 5:
+                // unsupported is correct). The disabled Install & Relaunch button is
+                // the in-progress signal — it becomes active when .ready is reached.
                 Button("Install & Relaunch") {}
                     .buttonStyle(.borderedProminent)
                     .controlSize(.small)
                     .disabled(true)
 
             case .downloading(let version):
+                // ⚠️ This case is unreachable at runtime.
+                // RunnerState.currentPhase cannot reconstruct .downloading from stored
+                // fields — it returns .available instead (no isDownloading flag; see
+                // RunnerState+AppUpdater.swift currentPhase doc and Principle 1).
+                // The ProgressView below never renders. The case must remain for
+                // compiler exhaustiveness. Do NOT add an isDownloading: Bool flag to
+                // RunnerState to make this reachable — that violates Principle 1 (one
+                // enum owns all state) and Principle 4 (no sprawl). If download
+                // progress UI is ever genuinely needed, the right fix is a
+                // downloading(version: String, progress: Double) case on UpdatePhase.
                 VStack(alignment: .leading, spacing: 1) {
                     Text("Update available: \(version)").font(.system(size: 12))
                     // ProgressView label is intentionally visible (not hidden) so VoiceOver
@@ -329,6 +342,11 @@ internal extension SettingsView {
                         .font(.caption2).foregroundColor(Color.rbTextSecondary)
                 }
                 Spacer()
+                // Retry re-runs the full pipeline from scratch (check → download →
+                // verify → cache). There is no partial resume, no saved download
+                // offset, no rehydration of prior state. Principle 2: binary outcomes
+                // only. If the retry succeeds it reaches .ready; if it fails again
+                // it returns here. The user retries until it works or gives up.
                 Button("Retry") {
                     Task {
                         await autoUpdater.checkAndHandle(state: runnerState)
