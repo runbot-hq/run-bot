@@ -14,6 +14,24 @@ import Foundation
 /// Implemented as an extension on `Bundle` (not `AppUpdater`) so the logic is
 /// independently testable and can be called with any bundle — both the running
 /// bundle (`Bundle.main`) and the freshly unzipped candidate bundle.
+///
+/// ## Deviation from plan issue #1821
+///
+/// Issue #1821 (phase 4f) specified “confirm no codesign or SecCode calls are
+/// present.” This file adds a `codesign -dvvv` subprocess path — that is an
+/// intentional deviation, tracked here rather than in the issue.
+///
+/// The deviation is safe because:
+/// - It is guarded behind `AppUpdater.skipCodeSignValidation` (default `true`).
+///   RunBot's unsigned distribution model never exercises this path.
+/// - `SecCode`/`SecRequirement` is the alternative; it was rejected because it
+///   requires Hardened Runtime entitlements that RunBot does not have.
+/// - If RunBot ever adopts code signing, set `skipCodeSignValidation = false`
+///   and this path activates — no new code needed.
+///
+/// Do NOT remove this file or the `skipCodeSignValidation` flag without
+/// reading the above. The flag exists precisely so the path is
+/// opt-in rather than always-on.
 extension Bundle {
 
     /// Returns a stable code-signing identity string for this bundle, or `nil`

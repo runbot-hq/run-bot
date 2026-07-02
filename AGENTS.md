@@ -27,9 +27,10 @@ bash build.sh                                  # release build + .app bundle (ar
 > 2. **Tests run with bare `swift test`.** This covers all SPM test targets: `RunBotCoreTests`
 >    and `AppUpdaterTests`. The UI tests (`RunBotUITests`) run separately via `xcodebuild` on the
 >    self-hosted runner — do **not** try to run them with `swift test`.
-> 3. **Periphery uses `retain_public: true`** scoped to the `RunBot` and `RunBotCore` targets
->    (test targets excluded). Don't "fix" a Periphery finding by making a symbol non-public if the
->    app target needs it; mark intentional keeps with `// periphery:ignore` instead.
+> 3. **Periphery uses `retain_public: true`** scoped to the `RunBot`, `RunBotCore`, and
+>    `AppUpdater` targets (test targets excluded). Don't "fix" a Periphery finding by making a
+>    symbol non-public if the app target needs it; mark intentional keeps with
+>    `// periphery:ignore` instead.
 >
 > Tooling is installed via `brew install swiftlint` and
 > `brew install peripheryapp/periphery/periphery`. CI runs on `macos-26`.
