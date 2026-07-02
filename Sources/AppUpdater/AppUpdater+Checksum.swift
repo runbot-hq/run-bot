@@ -3,27 +3,6 @@
 import CryptoKit
 import Foundation
 
-// MARK: - Cache helpers
-
-/// Cache path helpers for the auto-update download flow.
-extension AppUpdater {
-
-    /// Returns the destination `URL` for the cached zip, creating the
-    /// intermediate cache directory if needed.
-    ///
-    /// The destination is always `fixedZipURL` — a single fixed path at
-    /// `~/Library/Caches/<schedulerIdentifier>/update.zip`. Each download
-    /// overwrites the previous file; no version-stamped names accumulate.
-    func cachedZipDestination() throws -> URL {
-        let dest = fixedZipURL
-        try FileManager.default.createDirectory(
-            at: dest.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        return dest
-    }
-}
-
 // MARK: - SHA-256 verification
 
 /// Reads `zipURL` from disk and verifies its SHA-256 digest against `expectedHex`.

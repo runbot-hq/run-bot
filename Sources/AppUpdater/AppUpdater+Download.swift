@@ -9,13 +9,22 @@ import Foundation
 extension AppUpdater {
 
     /// Downloads the zip and its SHA-256 sidecar in parallel, verifies
-    /// integrity, then caches the verified zip at `fixedZipURL` and advances
+    /// integrity, then caches the verified zip at `destination` and advances
     /// host state.
     ///
     /// State transitions:
     ///   `.available` → `.downloading` (on entry)
     ///   `.downloading` → `.ready`     (checksum-verified success)
     ///   `.downloading` → `.failed`    (any error)
+    ///
+    /// ## destination is passed in by handle()
+    ///
+    /// `destination` is the URL snapshotted once via `fixedZipURL` at the top
+    /// of `handle()` — the same path used for the step-1 existence check.
+    /// Passing it in (rather than recomputing via a separate helper) ensures
+    /// both the existence check and the write target the exact same path.
+    /// A divergence — where step 1 checks caches/ but the write lands in tmp/
+    /// due to a transient cachesDirectory failure — is structurally impossible.
     ///
     /// ## Fire-and-forget rationale
     ///
@@ -48,6 +57,7 @@ extension AppUpdater {
         from url: URL,
         checksumURL: URL,
         version: String,
+        destination: URL,
         state: any UpdateStateProviding
     ) async {
         state.apply(.downloading(version: version))
@@ -66,7 +76,7 @@ extension AppUpdater {
             tempURL = downloadedURL
             let (checksumData, checksumResponse) = try await checksumDownload
 
-            // ── Validate zip HTTP status ───────────────────────────────────────────
+            // ── Validate zip HTTP status ─────────────────────────────────────
             guard let zipHTTP = zipResponse as? HTTPURLResponse else {
                 throw URLError(.badServerResponse)
             }
@@ -75,7 +85,7 @@ extension AppUpdater {
                 throw URLError(.badServerResponse)
             }
 
-            // ── Validate checksum sidecar HTTP status ────────────────────────────
+            // ── Validate checksum sidecar HTTP status ────────────────────────
             guard let checksumHTTP = checksumResponse as? HTTPURLResponse else {
                 throw URLError(.badServerResponse)
             }
@@ -84,7 +94,7 @@ extension AppUpdater {
                 throw URLError(.badServerResponse)
             }
 
-            // ── Parse and validate the expected hex string ───────────────────────
+            // ── Parse and validate the expected hex string ───────────────────
             let rawChecksum = String(bytes: checksumData, encoding: .utf8) ?? ""
             let expectedHex = rawChecksum
                 .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -97,13 +107,18 @@ extension AppUpdater {
 
             try await verifyChecksum(zipURL: downloadedURL, expectedHex: expectedHex)
 
-            // ── Move verified zip to fixed destination ─────────────────────────────
-            let destination = try cachedZipDestination()
+            // ── Move verified zip to fixed destination ───────────────────────
+            // destination is the URL snapshotted in handle() — same path used
+            // for the step-1 existence check. No divergence possible.
             // Wipe any partial file from a prior interrupted download before
             // moving the verified zip into place. This is the only cleanup
             // needed — no separate purge step, no version sidecar. The
             // partial-write defence is here, not in handle(). See the
             // ✅ REVIEWED note in AppUpdater+UpdateFlow.swift handle() step 1.
+            try FileManager.default.createDirectory(
+                at: destination.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
             try? FileManager.default.removeItem(at: destination)
             try FileManager.default.moveItem(at: downloadedURL, to: destination)
 

@@ -60,8 +60,13 @@ extension AppUpdater {
     public func handle(_ release: AvailableRelease, state: any UpdateStateProviding) async {
 
         // ── 1. Already cached? ───────────────────────────────────────────────
-        // The zip path is fixed (no version component). If a stale zip from a
-        // prior release is on disk, we still apply .ready for the new tagName.
+        // fixedZipURL is snapshotted once here. This same URL is passed into
+        // downloadUpdate as `destination` so both the existence check (step 1)
+        // and the write target the exact same path. A divergence — where step 1
+        // checks caches/ but the write lands in tmp/ due to a transient
+        // cachesDirectory failure between the two calls — is structurally
+        // impossible. See "destination is passed in by handle()" in
+        // AppUpdater+Download.swift.
         //
         // ✅ REVIEWED: stale zip and partial-write scenarios both self-heal.
         // Do NOT add a version sidecar, version filename, or any validation.
@@ -128,7 +133,13 @@ extension AppUpdater {
         // The .downloading phase applied inside downloadUpdate IS the
         // in-flight signal. That is sufficient.
         Task(name: "AppUpdater.download") {
-            await self.downloadUpdate(from: downloadURL, checksumURL: checksumURL, version: tagName, state: state)
+            await self.downloadUpdate(
+                from: downloadURL,
+                checksumURL: checksumURL,
+                version: tagName,
+                destination: zipURL,
+                state: state
+            )
         }
     }
 }
