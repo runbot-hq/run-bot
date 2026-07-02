@@ -88,6 +88,8 @@ extension AppUpdater {
         // If the interval is ever shortened to sub-minute values in production,
         // revisit this — at that point holding the assertion matters.
         nonisolated(unsafe) let schedulerRef = scheduler
+        // @MainActor classes synthesise Sendable conformance in Swift 6 — capturing
+        // `self` as `updater` is safe here without [weak self] or nonisolated(unsafe).
         let updater = self
         scheduler.schedule { completion in
             // schedulerRef.shouldDefer is read on the GCD background thread that
