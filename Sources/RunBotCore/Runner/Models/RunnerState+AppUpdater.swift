@@ -55,8 +55,19 @@ extension RunnerState: UpdateStateProviding {
             updateActionFailed = false
 
         case .failed(let version):
-            // Preserve availableUpdate label if we have a version,
-            // so the UI can direct the user to the curl-install fallback.
+            // ✅ REVIEWED: availableUpdate is intentionally preserved when version == nil.
+            //
+            // The only nil-version caller is the phase-guard path at the top of
+            // installAndRelaunch — the `guard case .ready` fails, so .failed(version: nil)
+            // is applied. At that point currentPhase was already .ready, which means
+            // availableUpdate was already set to the version string. Leaving it in place
+            // means the .failed UI still shows the version label and the curl-install
+            // fallback URL. Clearing it would silently drop the version from the error
+            // state for no benefit.
+            //
+            // Do NOT change `if let version { availableUpdate = version }` to an
+            // unconditional assignment — that would wipe the version on nil and break
+            // the .failed UI for the phase-guard case.
             if let version { availableUpdate = version }
             cachedUpdateVersion = nil
             updateActionFailed = true
