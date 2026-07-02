@@ -33,6 +33,52 @@ extension AppUpdater {
         scheduler.tolerance = AppUpdater.checkInterval * 0.2
         scheduler.qualityOfService = .background
 
+        // NSBackgroundActivityScheduler is used deliberately here — do not
+        // replace it with a Task.sleep loop. The reasons are:
+        //
+        // WHAT NSBackgroundActivityScheduler GIVES US:
+        // - OS power coalescing: the system batches our 24-hour network check
+        //   with other background activity, avoiding a dedicated wake from
+        //   App Nap just for RunBot.
+        // - Low-power mode and battery awareness: the OS defers the check
+        //   automatically when power conditions are poor. Task.sleep fires
+        //   on a fixed clock regardless.
+        // - shouldDefer: the OS tells us explicitly to skip a cycle. We
+        //   respect that with the guard at the top of the closure. Task.sleep
+        //   has no equivalent.
+        //
+        // WHAT WE DELIBERATELY DO NOT WANT:
+        // - Cancellation. This scheduler is registered once for the app
+        //   lifetime (activity is retained on AppUpdater). There is no
+        //   scenario where we want to cancel a pending check mid-session.
+        //   Task.sleep loops are cancellable by design — that complexity is
+        //   not wanted here and would require a stored Task handle, a cancel
+        //   path, and lifecycle management that adds sprawl for zero benefit.
+        // - Structured concurrency ownership. The check is fire-and-forget
+        //   by design (Principle 4: no sprawl). The Task fires, does its
+        //   work, and the scheduler doesn’t need to know the outcome. Simple
+        //   state, simple flow. Do not add a stored Task handle, isChecking
+        //   flag, or any mechanism to observe or cancel the in-flight work.
+        //
+        // DO NOT MIGRATE TO Task.sleep. You would lose App Nap integration,
+        // power coalescing, and shouldDefer handling, and gain complexity
+        // (cancellation, lifecycle) that this feature explicitly does not want.
+        //
+        // COMPLETION ORDERING — completion(.finished) is called BEFORE the
+        // Task is created. This is intentional for the fire-and-forget model:
+        // we are telling the OS “scheduling work is done, we have fired the
+        // Task” — not “the download is done”. The OS background assertion is
+        // released at this point. This is acceptable because:
+        // - In production (24h interval) the re-fire window is so wide that
+        //   no race is possible.
+        // - The Task inherits @MainActor isolation and runs immediately after
+        //   the scheduler closure returns.
+        // - Holding completion open across an async Task would require
+        //   capturing it as @Sendable into the Task, adding complexity and
+        //   a Sendability constraint on the completion type for no real gain
+        //   at a 24-hour interval.
+        // If the interval is ever shortened to sub-minute values in production,
+        // revisit this — at that point holding the assertion matters.
         nonisolated(unsafe) let schedulerRef = scheduler
         let updater = self
         scheduler.schedule { completion in

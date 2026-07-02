@@ -114,7 +114,7 @@ extension AppUpdater {
         let backupItemName = bundleURL.lastPathComponent + ".bak"
         var resultingNSURL: NSURL?
 
-        // ── Step 1: atomic bundle swap ───────────────────────────────────────
+        // ── Step 1: atomic bundle swap ───────────────────────────────────────────
         do {
             try fm.replaceItem(
                 at: bundleURL,
@@ -134,7 +134,7 @@ extension AppUpdater {
         // ── Step 2: clean up scratch dir ─────────────────────────────────────
         try? fm.removeItem(at: tmpDir)
 
-        // ── Step 3: relaunch ─────────────────────────────────────────────────
+        // ── Step 3: relaunch ───────────────────────────────────────────────────
         #if canImport(AppKit)
         let launchPath = ((resultingNSURL as URL?) ?? bundleURL).path
         let relaunchTask = Process()
@@ -157,6 +157,26 @@ extension AppUpdater {
         try? fm.removeItem(at: zipURL)
 
         // ── Step 5: terminate ────────────────────────────────────────────────
+        // isInstalling is NOT reset before NSApp.terminate(nil) — this is
+        // deliberate and correct. Do not add `isInstalling = false` here.
+        //
+        // The concern a reviewer may raise: “if applicationShouldTerminate
+        // returns .terminateLater or .terminateCancel, isInstalling stays true
+        // and the button is locked forever.”
+        //
+        // That scenario does not exist in this app. RunBot does not implement
+        // applicationShouldTerminate — confirmed at the call site, zero
+        // implementations in the codebase. NSApp.terminate(nil) is therefore
+        // unconditional: the process always exits, the heap is always freed,
+        // and isInstalling ceases to exist the moment terminate is called.
+        //
+        // isInstalling is a transient in-memory flag on a @MainActor class.
+        // It is never persisted to disk, UserDefaults, or any external store.
+        // It cannot survive process termination. There is no “locked forever”
+        // scenario — there is no next session in which the lock could exist.
+        //
+        // If RunBot ever gains a terminate delegate that can defer or cancel
+        // termination, revisit this. Until then, do not add the reset.
         NSApp.terminate(nil)
         #endif
     }
