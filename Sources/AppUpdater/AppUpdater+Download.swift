@@ -66,7 +66,7 @@ extension AppUpdater {
             tempURL = downloadedURL
             let (checksumData, checksumResponse) = try await checksumDownload
 
-            // ── Validate zip HTTP status ─────────────────────────────────────
+            // ── Validate zip HTTP status ───────────────────────────────────────────
             guard let zipHTTP = zipResponse as? HTTPURLResponse else {
                 throw URLError(.badServerResponse)
             }
@@ -75,7 +75,7 @@ extension AppUpdater {
                 throw URLError(.badServerResponse)
             }
 
-            // ── Validate checksum sidecar HTTP status ────────────────────────
+            // ── Validate checksum sidecar HTTP status ────────────────────────────
             guard let checksumHTTP = checksumResponse as? HTTPURLResponse else {
                 throw URLError(.badServerResponse)
             }
@@ -84,7 +84,7 @@ extension AppUpdater {
                 throw URLError(.badServerResponse)
             }
 
-            // ── Parse and validate the expected hex string ───────────────────
+            // ── Parse and validate the expected hex string ───────────────────────
             let rawChecksum = String(bytes: checksumData, encoding: .utf8) ?? ""
             let expectedHex = rawChecksum
                 .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -97,8 +97,13 @@ extension AppUpdater {
 
             try await verifyChecksum(zipURL: downloadedURL, expectedHex: expectedHex)
 
-            // ── Move verified zip to fixed destination ───────────────────────
+            // ── Move verified zip to fixed destination ─────────────────────────────
             let destination = try cachedZipDestination()
+            // Wipe any partial file from a prior interrupted download before
+            // moving the verified zip into place. This is the only cleanup
+            // needed — no separate purge step, no version sidecar. The
+            // partial-write defence is here, not in handle(). See the
+            // ✅ REVIEWED note in AppUpdater+UpdateFlow.swift handle() step 1.
             try? FileManager.default.removeItem(at: destination)
             try FileManager.default.moveItem(at: downloadedURL, to: destination)
 

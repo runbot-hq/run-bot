@@ -62,22 +62,28 @@ extension AppUpdater {
         // ── 1. Already cached? ───────────────────────────────────────────────
         // The zip path is fixed (no version component). If a stale zip from a
         // prior release is on disk, we still apply .ready for the new tagName.
-        // If the binary doesn't match, installAndRelaunch will fail and apply
-        // .failed — the user retries and the next cycle re-downloads. This is
-        // the correct binary outcome under design Principle 2 (no mid-flight
-        // recovery). A version-sidecar file would add state for an edge case
-        // that self-heals in one retry cycle — see issue #1859.
         //
-        // ✅ REVIEWED: the "silent downgrade" concern is real but self-healing
-        // and accepted by design. Neither `ditto` nor `replaceItem` performs
-        // any version validation — a stale zip from a prior release will be
-        // extracted and installed without error, and the app will relaunch at
-        // the stale version. On the next scheduler cycle (24h in production)
-        // the check detects it is behind and re-downloads the correct zip.
-        // The failure mode is one stale session, not a permanent downgrade.
-        // A version sidecar would prevent the stale install at the cost of
-        // new persistent state — Principle 4 says no. Accepted trade-off.
-        // See issue #1859.
+        // ✅ REVIEWED: stale zip and partial-write scenarios both self-heal.
+        // Do NOT add a version sidecar, version filename, or any validation.
+        //
+        // STALE ZIP: a zip from v0.8.0 sits at fixedZipURL when v0.9.0 is
+        // discovered. .ready is applied, installAndRelaunch installs v0.8.0,
+        // the app relaunches. currentVersion is baked into AppUpdater at init
+        // from Bundle.main of the launched binary — it is still "v0.8.0".
+        // isNewer("v0.9.0", than: "v0.8.0") returns true on the next scheduler
+        // cycle. The correct zip is downloaded and installed. One stale
+        // session, then correct. Not a permanent downgrade.
+        //
+        // PARTIAL WRITE: if a prior download was interrupted mid-move, a
+        // partial file may sit at fixedZipURL. fileExists returns true,
+        // .ready is applied, ditto fails in installAndRelaunch, .failed is
+        // applied. On the next retry, downloadUpdate calls
+        // removeItem(at: destination) before moveItem — the partial file is
+        // wiped and a clean download begins. No stuck loop. See the
+        // "Move verified zip" comment in AppUpdater+Download.swift.
+        //
+        // A version sidecar would add persistent state for edge cases that
+        // self-heal in one cycle — Principle 4 says no. See issue #1859.
         let zipURL = fixedZipURL
         if FileManager.default.fileExists(atPath: zipURL.path) {
             state.apply(.ready(version: release.tagName, zipURL: zipURL))
