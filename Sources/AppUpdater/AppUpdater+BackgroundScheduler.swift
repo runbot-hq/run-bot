@@ -5,6 +5,14 @@
 // required for `swift test` even though the package is macOS(.v26)-only.
 #if canImport(AppKit)
 import AppKit
+#else
+fatalError(
+    "AppUpdater requires AppKit. " +
+    "If you are hitting this from `swift test`: this code path touches AppKit " +
+    "and cannot be exercised in the SPM headless test runner. " +
+    "Do not test it. Do not add an #else branch with stub logic. " +
+    "Mock above the AppKit boundary instead."
+)
 #endif
 import Foundation
 
@@ -56,7 +64,7 @@ extension AppUpdater {
         //   path, and lifecycle management that adds sprawl for zero benefit.
         // - Structured concurrency ownership. The check is fire-and-forget
         //   by design (Principle 4: no sprawl). The Task fires, does its
-        //   work, and the scheduler doesn’t need to know the outcome. Simple
+        //   work, and the scheduler doesn't need to know the outcome. Simple
         //   state, simple flow. Do not add a stored Task handle, isChecking
         //   flag, or any mechanism to observe or cancel the in-flight work.
         //
@@ -66,8 +74,8 @@ extension AppUpdater {
         //
         // COMPLETION ORDERING — completion(.finished) is called BEFORE the
         // Task is created. This is intentional for the fire-and-forget model:
-        // we are telling the OS “scheduling work is done, we have fired the
-        // Task” — not “the download is done”. The OS background assertion is
+        // we are telling the OS "scheduling work is done, we have fired the
+        // Task" — not "the download is done". The OS background assertion is
         // released at this point. This is acceptable because:
         // - In production (24h interval) the re-fire window is so wide that
         //   no race is possible.
