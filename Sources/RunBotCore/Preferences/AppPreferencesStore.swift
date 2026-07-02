@@ -29,6 +29,8 @@ public final class AppPreferencesStore {
         static let showDimmedRunners = "settings.showDimmedRunners"
         /// Key for the show-popover-arrow toggle.
         static let showPopoverArrow = "settings.showPopoverArrow"
+        /// Key for the beta channel toggle.
+        static let betaChannel = "settings.betaChannel"
     }
 
     /// Valid range for the polling interval in seconds. Minimum 10 s, maximum 300 s.
@@ -84,6 +86,15 @@ public final class AppPreferencesStore {
         didSet { defaults.set(showPopoverArrow, forKey: Key.showPopoverArrow) }
     }
 
+    /// Whether to offer pre-release (beta) builds in the update check.
+    ///
+    /// When `true`, `UpdateChecker` will also consider pre-release GitHub releases
+    /// when looking for a newer version. Defaults to `false` so users stay on the
+    /// stable channel unless they explicitly opt in.
+    public var betaChannel: Bool {
+        didSet { defaults.set(betaChannel, forKey: Key.betaChannel) }
+    }
+
     // MARK: - Init
 
     /// Convenience initialiser for production use. Calls `init(store: .standard)`.
@@ -103,11 +114,13 @@ public final class AppPreferencesStore {
             Key.pollingInterval: 15,  // First-launch default: 15 s (see #511)
             Key.showDimmedRunners: true,
             Key.showPopoverArrow: true,
+            Key.betaChannel: false,
         ])
         let stored = store.integer(forKey: Key.pollingInterval)
         pollingInterval = stored.clamped(to: Self.pollingRange)
         showDimmedRunners = store.bool(forKey: Key.showDimmedRunners)
         showPopoverArrow = store.bool(forKey: Key.showPopoverArrow)
+        betaChannel = store.bool(forKey: Key.betaChannel)
     }
 }
 

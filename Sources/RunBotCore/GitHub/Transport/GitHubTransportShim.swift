@@ -30,7 +30,7 @@ public typealias GHRawTransport = @Sendable (_ endpoint: String) async -> Data?
 ///   - timeout: Per-request timeout forwarded to `URLSession` **for each page**.
 ///
 /// - Warning: The `timeout` value must be forwarded explicitly into the inner
-///   call. Swift’s type-checker silently accepts a `_` wildcard that drops it:
+///   call. Swift's type-checker silently accepts a `_` wildcard that drops it:
 ///   ```swift
 ///   // ⚠️ WRONG — compiles but silently falls back to the 60-second default:
 ///   configureGHAPIPaginated { endpoint, _ in

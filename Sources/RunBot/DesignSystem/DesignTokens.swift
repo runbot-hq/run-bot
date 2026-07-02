@@ -172,6 +172,15 @@ enum RBRadius {
     static let small: CGFloat = 6
 }
 
+// MARK: - Metrics Tokens
+
+/// Miscellaneous scalar constants that don't belong to spacing, radius, or typography.
+enum RBMetrics {
+    /// Scale factor applied to `ProgressView` in the update action row.
+    /// 0.7 keeps the spinner visually consistent with the `.small` control size of adjacent buttons.
+    static let updateProgressScale: CGFloat = 0.7
+}
+
 // MARK: - Typography Tokens
 
 /// Shared font constants. Prefer these over inline `.system(size:weight:design:)` calls.

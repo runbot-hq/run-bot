@@ -1,0 +1,351 @@
+# .github/workflows/publish.yml
+# Triggered by force-push to `beta` or `release` routing branches
+# (via publish.sh) or manually via workflow_dispatch.
+#
+# Responsibilities:
+#   1. Compute the next semver tag from git history.
+#   2. Duplicate-tag guard.
+#   3. Patch Info.plist with the computed version + incremented build number.
+#   4. Build + zip via build.sh.
+#   5. Verify the zip contains RunBot.app/Contents/MacOS/RunBot.
+#   6. Generate SHA-256 sidecar (RunBot.zip.sha256).
+#   7. Tag + push (skipped on dry_run).
+#   8. Create GitHub Release, uploading both zip and sidecar (skipped on dry_run).
+
+name: Publish
+
+on:
+  push:
+    branches:
+      - beta
+      - release
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run (skip tag + release creation)"
+        required: false
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
+
+# cancel-in-progress: true is intentional and safe here.
+#
+# The duplicate-tag guard (step 2) runs *before* "Tag and push" (step 7),
+# so in the common case a cancelled run has not yet pushed a tag and
+# leaves nothing behind. The only window where an orphaned tag could exist
+# is if a run is cancelled *after* step 7 but *before* step 8 (Create
+# GitHub Release). That window is narrow (~seconds) and recoverable:
+#   git tag -d <tag> && git push origin --delete <tag>
+# then re-run publish.sh. See docs/RELEASING.md § Rollback procedure.
+#
+# Why keep cancel-in-progress: true at all? A mis-fire of publish.sh
+# followed immediately by the real push would otherwise queue two full
+# builds; the first would win the duplicate-tag guard and create the
+# release, leaving the second to fail noisily on the guard. Cancelling
+# the first on arrival of the second is the cleaner outcome.
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    # macos-26 is our self-hosted runner (macOS 26 / Tahoe beta machine).
+    # This is NOT a GitHub-hosted runner label — github-hosted macOS tops out
+    # at macos-15 as of mid-2026. Do not change this to a github-hosted label
+    # without provisioning the build environment separately.
+    runs-on: macos-26
+    # Self-hosted runner outage would otherwise queue this job indefinitely;
+    # GitHub marks stale runs after hours, not minutes. 30 minutes is generous
+    # for a build that normally completes in ~3 minutes, but tight enough to
+    # surface a hung or offline runner the same day rather than the next morning.
+    timeout-minutes: 30
+
+    steps:
+      # ── Checkout ───────────────────────────────────────────────────────────
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0   # full history + all tags — fetch-depth: 0 is sufficient
+                           # on its own; a full clone already includes all tags.
+
+      # ── Compute next tag ───────────────────────────────────────────────────
+      #
+      # ⚠️  REVIEWER: Do NOT change the beta base to LATEST_STABLE + 1 patch.
+      # Using the current stable base for beta tags (v0.7.0-beta.N, not
+      # v0.7.1-beta.N) is INTENTIONAL. CodeRabbit has flagged this as a bug
+      # on multiple PRs — it is not. Read the full design rationale below
+      # before raising this finding. This comment exists specifically because
+      # the finding has been raised and auto-marked "✅ Addressed" without
+      # actually being addressed.
+      #
+      # Tag scheme:
+      #   beta branch    → vMAJOR.MINOR.PATCH-beta.N   (e.g. v0.7.0-beta.1)
+      #   release branch → vMAJOR.MINOR.PATCH           (e.g. v0.7.1)
+      #
+      # Beta base design — why betas share the CURRENT stable base, not +1 patch:
+      #
+      #   The intended user journey is:
+      #     v0.7.0 (stable) ships
+      #       → beta users opt in and receive v0.7.0-beta.1, v0.7.0-beta.2, …
+      #       → stable ships as v0.7.1 (PATCH bump at release time)
+      #
+      #   Beta users are people who were already on a beta build and are offered
+      #   the next beta of the same base (beta.1 → beta.2). They are NOT users
+      #   who just installed the current stable: a user on v0.7.0 stable will
+      #   never be offered v0.7.0-beta.N, because by semver spec a pre-release
+      #   of the same base has lower precedence than the stable — isNewer() will
+      #   correctly return false. This is intentional: we do not push stable
+      #   users onto a pre-release automatically.
+      #
+      #   Using +1 patch as the beta base (v0.7.1-beta.N) would break this: the
+      #   stable release would then also need to be v0.7.1, which couples the
+      #   stable bump to the beta base chosen weeks earlier. The current scheme
+      #   keeps them decoupled — stable always bumps PATCH when it ships,
+      #   regardless of how many betas preceded it.
+      #
+      # Algorithm:
+      #   1. Find the latest stable tag (vX.Y.Z, no pre-release suffix).
+      #   2. Determine channel from GITHUB_REF_NAME.
+      #   3. Beta:   find the highest existing beta.N for the current stable base
+      #              and increment N (or start at beta.1 if none exist).
+      #   4. Stable: bump PATCH by 1 (with rollover at 10).
+      #
+      # Rollover logic: when PATCH reaches 9 it rolls over to 0 and MINOR
+      # increments; when MINOR reaches 9 it rolls over to 0 and MAJOR
+      # increments. Rollover is intentional per the project convention
+      # documented in docs/RELEASING.md.
+      - name: "Compute next tag ⚠️ beta uses CURRENT stable base intentionally — NOT a bug, read comment before changing"
+        id: tag
+        run: |
+          set -euo pipefail
+
+          CHANNEL="$GITHUB_REF_NAME"   # must be "beta" or "release"
+          if [[ "$CHANNEL" != "beta" && "$CHANNEL" != "release" ]]; then
+            echo "error: publish.yml must be triggered from 'beta' or 'release' branch, not '$CHANNEL'" >&2
+            exit 1
+          fi
+
+          # Latest stable tag (ignore beta/rc tags)
+          LATEST_STABLE=$(git tag --list 'v*' \
+            | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
+            | sort -V | tail -1 || true)
+
+          if [[ -z "$LATEST_STABLE" ]]; then
+            # ⚠️  SEED VERSION — only reached on a pristine repo with no stable
+            # tags (e.g. first-ever run or after manually deleting all tags).
+            # If you see this message in CI output on an established repo,
+            # something has gone wrong with tag fetching — stop and investigate
+            # before the release proceeds, as the wrong base version will be
+            # embedded in the artifact and pushed to gh-pages.
+            LATEST_STABLE="v0.7.0"
+            echo "⚠️  WARNING: No stable tags found — using seed version ${LATEST_STABLE}." >&2
+            echo "⚠️  If this is not a first-run on a fresh repo, tag fetching may have failed." >&2
+          fi
+
+          # Strip leading v
+          BASE="${LATEST_STABLE#v}"
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$BASE"
+
+          if [[ "$CHANNEL" == "beta" ]]; then
+            # Find highest beta.N for this base
+            HIGHEST_N=$(git tag --list "v${BASE}-beta.*" \
+              | grep -oE 'beta\.[0-9]+$' \
+              | grep -oE '[0-9]+$' \
+              | sort -n | tail -1 || true)
+            if [[ -z "$HIGHEST_N" ]]; then
+              NEXT_N=1
+            else
+              NEXT_N=$(( HIGHEST_N + 1 ))
+            fi
+            TAG="v${BASE}-beta.${NEXT_N}"
+            VERSION="${BASE}-beta.${NEXT_N}"
+          else
+            # Stable: bump PATCH, rolling over at 10 per project convention.
+            #
+            # ⚠️  INTENTIONAL NON-STANDARD SEMVER — DO NOT "FIX" THIS.
+            # Standard semver allows unbounded patch numbers (v1.0.10 is valid).
+            # This project uses single-digit components by convention: once PATCH
+            # reaches 9 the next stable release rolls over to X.(Y+1).0 rather
+            # than X.Y.10. This is a deliberate style choice documented in
+            # docs/RELEASING.md § Version scheme. The practical consequence is
+            # that we will never ship a tag like v1.0.10 — it becomes v1.1.0.
+            # If you need more than 10 patches on a minor, revisit RELEASING.md
+            # first; do not simply remove the rollover without updating the docs.
+            NEW_PATCH=$(( PATCH + 1 ))
+            if (( NEW_PATCH > 9 )); then  # rollover: intentional, see comment above
+              NEW_PATCH=0
+              NEW_MINOR=$(( MINOR + 1 ))
+              if (( NEW_MINOR > 9 )); then  # rollover: intentional, see comment above
+                NEW_MINOR=0
+                NEW_MAJOR=$(( MAJOR + 1 ))
+              else
+                NEW_MAJOR=$MAJOR
+              fi
+            else
+              NEW_MINOR=$MINOR
+              NEW_MAJOR=$MAJOR
+            fi
+            TAG="v${NEW_MAJOR}.${NEW_MINOR}.${NEW_PATCH}"
+            VERSION="${NEW_MAJOR}.${NEW_MINOR}.${NEW_PATCH}"
+          fi
+
+          echo "channel=$CHANNEL"   >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG"           >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION"   >> "$GITHUB_OUTPUT"
+          echo "Computed tag: $TAG (channel: $CHANNEL)"
+
+      # ── Duplicate-tag guard ────────────────────────────────────────────────
+      - name: Guard against duplicate tag
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.tag.outputs.tag }}"
+          if git ls-remote --tags origin | grep -q "refs/tags/${TAG}$"; then
+            echo "error: tag $TAG already exists on origin. Aborting." >&2
+            exit 1
+          fi
+          echo "Tag $TAG is available."
+
+      # ── Patch Info.plist ───────────────────────────────────────────────────
+      # CFBundleShortVersionString  ← X.Y.Z only (macOS strips pre-release
+      #                               suffixes here for display; used by
+      #                               Gatekeeper and the App Store but NOT
+      #                               by UpdateChecker).
+      # RBVersionString             ← full semver incl. pre-release suffix
+      #                               (e.g. "0.7.1-beta.2"); read by
+      #                               UpdateChecker.checkForUpdate so that
+      #                               beta-to-beta comparisons work correctly.
+      # CFBundleVersion             ← monotonically incrementing build number
+      #                               derived from total git commit count
+      - name: Patch Info.plist
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.tag.outputs.version }}"
+          # Strip any pre-release suffix for CFBundleShortVersionString
+          SHORT_VERSION="${VERSION%%-*}"
+          BUILD=$(git rev-list --count HEAD)
+
+          /usr/libexec/PlistBuddy -c \
+            "Set :CFBundleShortVersionString ${SHORT_VERSION}" \
+            Resources/Info.plist
+          /usr/libexec/PlistBuddy -c \
+            "Set :RBVersionString ${VERSION}" \
+            Resources/Info.plist
+          /usr/libexec/PlistBuddy -c \
+            "Set :CFBundleVersion ${BUILD}" \
+            Resources/Info.plist
+
+          echo "Patched Info.plist: shortVersion=${SHORT_VERSION} fullVersion=${VERSION} build=${BUILD}"
+
+      # ── Build ──────────────────────────────────────────────────────────────
+      - name: Build
+        run: bash build.sh "${{ steps.tag.outputs.version }}"
+        env:
+          CI: "true"
+
+      # ── Verify zip ────────────────────────────────────────────────────────
+      - name: Verify zip
+        id: verify
+        run: |
+          set -euo pipefail
+          ZIP=$(find dist -name '*.zip' | head -1)
+          if [[ -z "$ZIP" ]]; then
+            echo "error: no zip found in dist/" >&2
+            exit 1
+          fi
+          echo "Verifying $ZIP"
+          # The pattern is anchored to the start of the path column so that
+          # a nested archive (e.g. subdir/RunBot.app/…) does NOT pass this
+          # check. `unzip -l` output lines look like:
+          #   <size>  <date> <time>   RunBot.app/Contents/MacOS/RunBot
+          # The path starts after a fixed-width prefix; `grep -E` with `^\s+`
+          # then a literal start-of-path anchor is fragile, so we use a
+          # negative lookahead-free approach: require that nothing other than
+          # whitespace precedes "RunBot.app" on the line.
+          if ! unzip -l "$ZIP" | grep -qE '^\s+[0-9].*\s+RunBot\.app/Contents/MacOS/RunBot$'; then
+            echo "error: RunBot.app/Contents/MacOS/RunBot not found at archive root in $ZIP" >&2
+            unzip -l "$ZIP" >&2
+            exit 1
+          fi
+          echo "Zip verified: RunBot.app/Contents/MacOS/RunBot is present at archive root."
+          echo "zip_path=$ZIP" >> "$GITHUB_OUTPUT"
+
+      # ── Generate SHA-256 sidecar ───────────────────────────────────────────
+      # AutoUpdater.downloadUpdate fetches checksumURL from the release assets
+      # and treats a missing sidecar as a hard failure (URLError.resourceUnavailable),
+      # falling back to the browser Download button for every user. This step
+      # generates RunBot.zip.sha256 and passes its path to the release step so
+      # it is uploaded alongside the zip. The sidecar format is:
+      #   <hex-digest>  RunBot.zip
+      # which matches the output of `shasum -a 256` and is what verifyChecksum
+      # in AutoUpdater.swift parses (splits on whitespace, takes first token).
+      - name: Generate SHA-256 sidecar
+        id: checksum
+        run: |
+          set -euo pipefail
+          ZIP="${{ steps.verify.outputs.zip_path }}"
+          SIDECAR="${ZIP}.sha256"
+          # shasum -a 256 produces "<hex>  <filename>" — the two-space separator
+          # is intentional (BSD shasum convention). AutoUpdater.swift splits on
+          # whitespace and takes the first token, so single- or double-space both work.
+          /usr/bin/shasum -a 256 "$ZIP" > "$SIDECAR"
+          echo "SHA-256 sidecar: $(cat $SIDECAR)"
+          echo "sidecar_path=$SIDECAR" >> "$GITHUB_OUTPUT"
+
+      # ── Tag + push ────────────────────────────────────────────────────────
+      # Note on the dry_run condition: when this workflow fires from a `push`
+      # event (not `workflow_dispatch`), `github.event.inputs.dry_run` is `null`
+      # rather than `"false"`. The expression `null != 'true'` evaluates to `true`,
+      # so tag + release steps DO execute on push — which is the intended behaviour.
+      # This is not a bug; it's standard GitHub Actions null-coercion semantics.
+      - name: Tag and push
+        if: ${{ github.event.inputs.dry_run != 'true' }}
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.tag.outputs.tag }}"
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "Release $TAG"
+          git push origin "$TAG"
+          echo "Pushed tag $TAG."
+
+      # ── Create GitHub Release ─────────────────────────────────────────────
+      # Both the zip and the .sha256 sidecar are uploaded as release assets.
+      # UpdateChecker decodes checksumURL from the asset list by matching the
+      # ".sha256" suffix; AutoUpdater.downloadUpdate fetches it and passes the
+      # hex digest to verifyChecksum. Omitting the sidecar here would cause
+      # checksumURL to be nil, which downloadUpdate treats as a hard failure,
+      # leaving every user on the browser Download fallback permanently.
+      - name: Create GitHub Release
+        if: ${{ github.event.inputs.dry_run != 'true' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.tag.outputs.tag }}"
+          CHANNEL="${{ steps.tag.outputs.channel }}"
+          ZIP="${{ steps.verify.outputs.zip_path }}"
+          SIDECAR="${{ steps.checksum.outputs.sidecar_path }}"
+
+          # Build the flags array explicitly to avoid unquoted-variable word-splitting.
+          # An empty string in $PRERELEASE_FLAG / $LATEST_FLAG would expand safely
+          # most of the time, but an array is the idiomatic and unambiguous idiom.
+          FLAGS=()
+          if [[ "$CHANNEL" == "beta" ]]; then
+            FLAGS+=(--prerelease)
+          else
+            FLAGS+=(--latest)
+          fi
+
+          gh release create "$TAG" \
+            "$ZIP" \
+            "$SIDECAR" \
+            --title "$TAG" \
+            --generate-notes \
+            "${FLAGS[@]}"
+
+          echo "GitHub Release $TAG created (channel: $CHANNEL)."

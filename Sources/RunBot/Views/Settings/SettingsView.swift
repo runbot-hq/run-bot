@@ -47,12 +47,16 @@ struct SettingsView: View {
     var lifecycleService: any RunnerLifecycleServiceProtocol
 
     // MARK: - Injected services
-    /// App-wide preference store (polling interval, popover arrow, etc.).
+    /// App-wide preference store (polling interval, popover arrow, beta channel, etc.).
     /// Injected as a concrete reference; `@Observable` types don't need `@State` wrapping.
     let settings: AppPreferencesStore
     /// Notification preference store (notify-on-success, notify-on-failure).
     /// Injected as a concrete reference; `@Observable` types don't need `@State` wrapping.
     let notifications: NotificationPreferences
+    /// Observable runner state — read to display the update available banner.
+    /// Injected explicitly from `AppDelegate`; no default because `RunnerState` has no
+    /// singleton — the single instance lives on `AppDelegate.runnerState`.
+    let runnerState: RunnerState
 
     // MARK: - Local UI state
     /// Mirrors `LoginItem.isEnabled`; toggled by the Launch at Login switch.
@@ -75,15 +79,17 @@ struct SettingsView: View {
     // MARK: - Init
     /// Creates the view with injected dependencies.
     ///
-    /// Production call sites can omit all service parameters — the defaults wire
-    /// up the shared live instances automatically.
+    /// - Parameters:
+    ///   - runnerState: The single `RunnerState` instance owned by `AppDelegate`.
+    ///     Must be supplied explicitly — `RunnerState` has no singleton.
     init(
         onBack: @escaping () -> Void,
         localRunnerStore: LocalRunnerStore = .shared,
         oauthService: any OAuthServiceProtocol,
         settings: AppPreferencesStore = .shared,
         notifications: NotificationPreferences = .shared,
-        lifecycleService: any RunnerLifecycleServiceProtocol
+        lifecycleService: any RunnerLifecycleServiceProtocol,
+        runnerState: RunnerState
     ) {
         self.onBack = onBack
         self.localRunnerStore = localRunnerStore
@@ -91,13 +97,12 @@ struct SettingsView: View {
         self.settings = settings
         self.notifications = notifications
         self.lifecycleService = lifecycleService
+        self.runnerState = runnerState
     }
 
     // MARK: - Computed properties
-    /// Short version string from `CFBundleShortVersionString`.
-    var appVersion: String {
-        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—"
-    }
+    /// Full version string (preserves pre-release suffixes like `-beta.1`).
+    var appVersion: String { Bundle.main.rbVersionString }
     /// Build number from `CFBundleVersion`.
     var appBuild: String {
         Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "—"

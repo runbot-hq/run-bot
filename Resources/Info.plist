@@ -12,12 +12,37 @@
     <string>10</string>
     <key>CFBundleShortVersionString</key>
     <string>0.7.0</string>
+    <!-- RBVersionString carries the full semver including any pre-release suffix
+         (e.g. "0.7.1-beta.2"). CFBundleShortVersionString is stripped to X.Y.Z
+         by macOS for display purposes, so beta suffixes are lost there.
+         UpdateChecker.checkForUpdate reads RBVersionString instead so that a
+         user on 0.7.1-beta.1 is correctly offered 0.7.1-beta.2 rather than
+         seeing no update (both would appear as "0.7.1" via CFBundleShortVersionString).
+         publish.yml patches both keys at build time via PlistBuddy. -->
+    <key>RBVersionString</key>
+    <string>0.7.0</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>LSMinimumSystemVersion</key>
     <string>13.0</string>
     <key>LSUIElement</key>
     <true/>
+    <!-- LSFileQuarantineEnabled is intentionally absent (defaults to NO for
+         non-sandboxed apps). Do NOT add it.
+
+         LSFileQuarantineEnabled = YES would cause URLSession downloads made
+         by this process to receive the com.apple.quarantine extended attribute.
+         That xattr is then preserved by ditto into the extracted RunBot.app,
+         causing Gatekeeper to prompt or block on the first post-update launch.
+
+         The auto-update flow in AutoUpdater.swift relies on this key being
+         absent: the downloaded zip is quarantine-free, ditto propagates
+         nothing, and Gatekeeper is silent. The curl install script handles
+         quarantine separately for browser-downloaded zips; that concern does
+         not apply here.
+
+         See AutoUpdater.swift § Parallel fetch and
+         AutoUpdater+Install.swift § 2b for the full rationale. -->
     <key>CFBundleURLTypes</key>
     <array>
         <dict>

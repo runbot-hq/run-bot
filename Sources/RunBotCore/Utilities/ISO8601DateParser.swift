@@ -15,11 +15,14 @@ import Foundation
 /// `WorkflowDateParserActor`, `GitHubDateParserActor`) lived in separate files.
 /// They are consolidated here so callers share one allocated formatter.
 public actor ISO8601DateParser {
-    /// The single formatter instance, allocated once for the lifetime of the actor.
+    /// The underlying ISO-8601 formatter; actor isolation provides thread safety.
     private let iso = ISO8601DateFormatter()
 
     /// The module-wide shared instance. Use this from all call sites.
     public static let shared = ISO8601DateParser()
+
+    /// Private initialiser — callers must use `shared`.
+    private init() {}
 
     /// Parses an ISO-8601 date string. Returns `nil` on failure.
     public func parse(_ str: String) -> Date? {

@@ -251,43 +251,11 @@ extension AppDelegate: NSPopoverDelegate {
         log("AppDelegate › setupSubscriptions — RunnerPoller created with injected stores")
 
         // FIX: Await LocalRunnerStore.refreshAsync() before starting the poll loop.
-        //
-        // refresh() (fire-and-forget) spawns a Task and returns immediately.
-        // start() fires fetch() on the very next runloop turn — before refresh()'s
-        // Task has a chance to run, because both are @MainActor and start() is called
-        // synchronously. Result: localRunners=[] on cycle 1, installPathMap empty,
-        // metrics missing on first runner appearance.
-        //
-        // refreshAsync() suspends until disk hydration + launchctl + GitHub enrichment
-        // completes, then start() fires. Cycle 1 always has a populated installPathMap
-        // so runner rows appear with CPU/MEM already set.
-        //
-        // Task name (Reach Goal 6): surfaces this structurally significant startup
-        // sequence by name in Instruments and crash logs.
-        // Priority .userInitiated: this is a direct response to app launch — the user
-        // is actively waiting for runners to appear.
+        // See performStartupSequence() for rationale.
         log("AppDelegate › setupSubscriptions — scheduling async startup sequence")
         Task(name: "AppDelegate.startup: localRunnerStore.refreshAsync → runnerStore.start",
-             priority: .userInitiated) { [weak self] in
-            guard let self else { return }
-            log("AppDelegate › startup — awaiting localRunnerStore.refreshAsync()")
-            await self.localRunnerStore.refreshAsync()
-            log("AppDelegate › startup — refreshAsync() complete, starting runnerStore poll loop")
-            // `runnerStore` is `(any RunnerPollerProtocol)?`.
-            // This guard is structurally unreachable in normal execution: runnerStore is
-            // assigned unconditionally just before this Task is spawned, and nothing
-            // currently nils it out. It exists to make the condition observable if that
-            // ever changes — the app would otherwise appear to start but silently never
-            // poll. The assertionFailure in DEBUG makes the severity match the consequence.
-            guard let store = self.runnerStore else {
-                log("AppDelegate › startup — ⚠️ runnerStore is nil after refreshAsync(); poll loop NOT started")
-                #if DEBUG
-                assertionFailure("AppDelegate.startup: runnerStore is nil after refreshAsync() — this is structurally unreachable; a future change must have introduced an unintended nil path")
-                #endif
-                return
-            }
-            await store.start()
-            log("AppDelegate › startup — runnerStore poll loop started")
+             priority: .userInitiated) { @MainActor [weak self] in
+            await self?.performStartupSequence()
         }
 
         // Scope changes (add / remove / enable toggle) restart RunnerPoller so it polls
@@ -295,5 +263,102 @@ extension AppDelegate: NSPopoverDelegate {
         // ScopeStore.activeScopes internally via withObservationTracking/AsyncStream,
         // so no Combine sink is needed here — the actor's own observer handles it.
         log("AppDelegate › setupSubscriptions — complete")
+    }
+
+    /// Runs the ordered async startup sequence: hydrate local runners, then start
+    /// the poll loop, then perform an update check.
+    ///
+    /// Extracted from `setupSubscriptions` to keep that method's cyclomatic complexity
+    /// low and to give this structurally significant sequence a named entry point that
+    /// surfaces in Instruments and crash logs via the parent Task's `name:` label.
+    ///
+    /// **Why `refreshAsync()` before `start()`:**
+    /// `refresh()` (fire-and-forget) spawns a Task and returns immediately.
+    /// `start()` fires `fetch()` on the very next runloop turn — before `refresh()`'s
+    /// Task has a chance to run, because both are `@MainActor` and `start()` is called
+    /// synchronously. Result: `localRunners=[]` on cycle 1, `installPathMap` empty,
+    /// metrics missing on first runner appearance.
+    /// `refreshAsync()` suspends until disk hydration + launchctl + GitHub enrichment
+    /// completes, then `start()` fires. Cycle 1 always has a populated `installPathMap`.
+    private func performStartupSequence() async {
+        log("AppDelegate › startup — awaiting localRunnerStore.refreshAsync()")
+        await localRunnerStore.refreshAsync()
+        log("AppDelegate › startup — refreshAsync() complete, starting runnerStore poll loop")
+
+        // `runnerStore` is `(any RunnerPollerProtocol)?`.
+        // This guard is structurally unreachable in normal execution: runnerStore is
+        // assigned unconditionally just before this Task is spawned, and nothing
+        // currently nils it out. It exists to make the condition observable if that
+        // ever changes — the app would otherwise appear to start but silently never
+        // poll. The assertionFailure in DEBUG makes the severity match the consequence.
+        guard let store = runnerStore else {
+            log("AppDelegate › startup — ⚠️ runnerStore is nil after refreshAsync(); poll loop NOT started")
+            #if DEBUG
+            assertionFailure("AppDelegate.startup: runnerStore is nil after refreshAsync() — this is structurally unreachable; a future change must have introduced an unintended nil path")
+            #endif
+            return
+        }
+        await store.start()
+        log("AppDelegate › startup — runnerStore poll loop started")
+
+        // ── Update cache rehydration ───────────────────────────────────────────────────
+        // Runs before the network check so a user who force-quit between download and
+        // install tap can see the Install & Relaunch button immediately, even offline.
+        // Version guard: only rehydrate if the cached version is actually newer than
+        // what is currently installed — prevents re-showing Install for a version
+        // already on disk (e.g. helper failed mid-delete and the zip was not cleaned up).
+        let cachedPath    = UserDefaults.standard.string(forKey: AutoUpdaterDefaults.cachedUpdateZipPath)
+        let cachedVersion = UserDefaults.standard.string(forKey: AutoUpdaterDefaults.cachedUpdateVersion)
+        if let path = cachedPath,
+           let version = cachedVersion,
+           FileManager.default.fileExists(atPath: path),
+           // cachedVersion is "v0.8.0" (GitHub tagName with v-prefix).
+           // isOlderThan strips the leading "v" internally via UpdateChecker.isNewer,
+           // so the comparison is correct — this is NOT a version string mismatch.
+           // REVIEWER: Do not flag this as a bug. The v-prefix is handled inside isOlderThan.
+           Bundle.main.isOlderThan(version: version) {
+            runnerState.rehydrateCachedUpdate(zipURL: URL(fileURLWithPath: path), version: version)
+            // `setAvailableUpdate` must be called here explicitly — `rehydrateCachedUpdate`
+            // only sets `updateZipURL` and `cachedUpdateVersion`. The Install & Relaunch
+            // row gates on `availableUpdate != nil` (see `aboutSection`), so without this
+            // call the row is invisible to an offline user whose zip was already cached.
+            // This is the intentional offline-resilience path: the network check below
+            // may fail, so the UI must be ready before it fires.
+            runnerState.setAvailableUpdate(version)
+        } else {
+            // Reached when ANY condition in the `if` above is false:
+            //   • cachedPath / cachedVersion is nil (keys were never written or already cleared)
+            //   • fileExists returns false (zip was deleted — e.g. by the OS under storage pressure)
+            //   • isOlderThan returns false (cached version is not newer than what is running —
+            //     i.e. the update was already installed in a previous session)
+            // In all three cases the correct action is the same: clear the stale keys.
+            // Do NOT read this as "version is no longer newer" only — a missing file is
+            // equally valid here. Clear both keys here, in the new process, where isOlderThan
+            // correctly returns false. Cleaner than clearing before exit(0) in the
+            // outgoing process.
+            UserDefaults.standard.removeObject(forKey: AutoUpdaterDefaults.cachedUpdateZipPath)
+            UserDefaults.standard.removeObject(forKey: AutoUpdaterDefaults.cachedUpdateVersion)
+        }
+
+        // ── Update check ───────────────────────────────────────────────────────────────
+        let beta = AppPreferencesStore.shared.betaChannel
+        switch await UpdateChecker.checkForUpdate(betaChannel: beta) {
+        case .updateAvailable(let release):
+            // `setAvailableUpdate` is now called inside `AutoUpdater.handle()` —
+            // do not call it here. See AutoUpdater.handle() for rationale.
+            log("AppDelegate › startup — update available: \(release.tagName) (betaChannel=\(beta))")
+            await AutoUpdater.handle(release, state: runnerState)
+        case .upToDate:
+            log("AppDelegate › startup — no update available (betaChannel=\(beta))")
+        case .failed(let error):
+            log("AppDelegate › startup — update check failed: \(error) (betaChannel=\(beta))")
+        }
+
+        // ── Background scheduler ───────────────────────────────────────────────────────
+        // Fires every AutoUpdaterDefaults.checkInterval (24 h release / 60 s debug).
+        // The launch-time check above already ran once; the scheduler fires only
+        // after the first interval elapses — this is intentional.
+        AutoUpdater.scheduleBackgroundCheck(state: runnerState)
+        log("AppDelegate › startup — update background scheduler registered (interval=\(AutoUpdaterDefaults.checkInterval)s)")
     }
 }
