@@ -79,12 +79,23 @@ public final class AppUpdater {
     /// exists at this path (install affordance available) or it doesn't (check
     /// + download needed).
     var fixedZipURL: URL {
-        let caches = (try? FileManager.default.url(
+        let caches: URL
+        if let url = try? FileManager.default.url(
             for: .cachesDirectory,
             in: .userDomainMask,
             appropriateFor: nil,
             create: true
-        )) ?? FileManager.default.temporaryDirectory
+        ) {
+            caches = url
+        } else {
+            // ⚠️ cachesDirectory unavailable — zip lands in /tmp and may be evicted
+            // by the OS before the user taps Install & Relaunch, producing a
+            // confusing .failed state with no visible cause. If you see unexpected
+            // .failed states in production, check whether ~/Library/Caches is
+            // accessible on the affected machine.
+            appUpdaterLogger.warning("cachesDirectory unavailable — falling back to temporaryDirectory; zip is evictable and may disappear before install")
+            caches = FileManager.default.temporaryDirectory
+        }
         return caches
             .appendingPathComponent(schedulerIdentifier, isDirectory: true)
             .appendingPathComponent("update.zip")
@@ -98,7 +109,8 @@ public final class AppUpdater {
     /// - **DEBUG:** 60 seconds, overridable per-test.
     #if DEBUG
     /// 60-second interval used in DEBUG builds. Override in test setUp for faster
-    /// QA cycles.
+    /// QA cycles. **Always reset in tearDown** — Swift Testing runs tests
+    /// concurrently by default and concurrent mutations of this static are a data race.
     ///
     /// `nonisolated(unsafe)` — written once in test setUp before any scheduler
     /// is constructed; no concurrent mutation path exists in practice.
