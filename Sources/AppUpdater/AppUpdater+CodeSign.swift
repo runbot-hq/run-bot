@@ -163,14 +163,5 @@ extension Bundle {
 // compile error is the correct signal: mock above the AppKit boundary, do not
 // add stub logic here.
 //
-// If a non-AppKit target (e.g. Linux) is ever added to Package.swift, replace
-// this with `#error("AppUpdater requires AppKit.")` — #error is the canonical
-// compile-time stop; fatalError is not.
-fatalError(
-    "AppUpdater requires AppKit. " +
-    "If you are hitting this from `swift test`: this code path touches AppKit " +
-    "and cannot be exercised in the SPM headless test runner. " +
-    "Do not test it. Do not add an #else branch with stub logic. " +
-    "Mock above the AppKit boundary instead."
-)
+#error("AppUpdater requires AppKit. If you are hitting this from `swift test`: this code path touches AppKit and cannot be exercised in the SPM headless test runner. Do not test it. Do not add an #else branch with stub logic. Mock above the AppKit boundary instead.")
 #endif
