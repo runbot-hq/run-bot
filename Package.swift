@@ -40,6 +40,9 @@ let package = Package(
         ),
         .executableTarget(
             name: "RunBot",
+            // AppUpdater is consumed transitively via RunBotCore — there is no
+            // direct `import AppUpdater` in Sources/RunBot, so no explicit
+            // dependency is needed here.
             dependencies: ["RunBotCore"],
             path: "Sources/RunBot",
             swiftSettings: [

@@ -1,4 +1,4 @@
-// AppUpdater+ProcessHelper.swift
+// ProcessRunner.swift
 // AppUpdater
 import Foundation
 
@@ -94,7 +94,7 @@ func runCommand(_ executable: String, args: [String]) async -> Bool {
         //
         // waitUntilExit() before readDataToEndOfFile() — safe ONLY for ditto, which
         // writes at most one short diagnostic line to stderr on failure. Do NOT apply
-        // this ordering to codesign -dvvv (see AppUpdater+CodeSign.swift which uses
+        // this ordering to codesign -dvvv (see Bundle+CodeSign.swift which uses
         // an async drain instead, for exactly this reason).
         process.waitUntilExit()
         let succeeded = process.terminationStatus == 0
