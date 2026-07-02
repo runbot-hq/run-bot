@@ -66,6 +66,10 @@ public enum UpdateCheckError: Error, Sendable {
     /// degenerate case (beta-only repo, user on stable channel) does not
     /// apply. If that ever changes, split the nil return into a typed
     /// result so the two cases can be handled separately.
+    ///
+    /// Known limitation: nil is returned for network errors, rate-limits (HTTP 429/403),
+    /// and genuine no-match — all three become .failed(.noReleasesFound). The UI cannot
+    /// distinguish "offline" from "up to date". Tracked in issue #1878.
     case noReleasesFound
 }
 
