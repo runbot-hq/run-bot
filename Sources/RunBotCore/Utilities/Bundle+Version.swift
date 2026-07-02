@@ -1,5 +1,5 @@
 // Bundle+Version.swift
-// RunBot
+// RunBotCore
 import AppUpdater
 import Foundation
 

@@ -22,9 +22,17 @@ extension AppUpdater {
     /// Invoked from a fire-and-forget `Task(name: "AppUpdater.download")` in
     /// `handle()`. AppUpdater is process-lifetime; `@MainActor` serialises all
     /// state mutations. No stored task handle or cancellation is needed.
+    ///
+    /// ## checksumURL is non-optional by design
+    ///
+    /// `handle()` guards `release.checksumURL != nil` before spawning this Task
+    /// — a nil checksumURL never reaches this function. The parameter is `URL`
+    /// (non-optional) to make that invariant explicit at the type level and
+    /// remove any unreachable nil-handling code (Principle 1: illegal states
+    /// unrepresentable by construction).
     func downloadUpdate( // skipcq: SW-R1002 — reviewed; complexity acceptable for this download+verify flow
         from url: URL,
-        checksumURL: URL?,
+        checksumURL: URL,
         version: String,
         state: any UpdateStateProviding
     ) async {
@@ -37,10 +45,6 @@ extension AppUpdater {
             sessionConfig.timeoutIntervalForResource = 300
             let session = URLSession(configuration: sessionConfig)
             defer { session.finishTasksAndInvalidate() }
-
-            guard let checksumURL else {
-                throw URLError(.resourceUnavailable)
-            }
 
             async let zipDownload = session.download(from: url)
             async let checksumDownload = session.data(from: checksumURL)
