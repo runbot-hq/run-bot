@@ -221,6 +221,33 @@ jobs:
       #                               beta-to-beta comparisons work correctly.
       # CFBundleVersion             ← monotonically incrementing build number
       #                               derived from total git commit count
+      #
+      # ⚠️  Info.plist is patched in the workspace only — it is NOT committed
+      # back to the branch. The git tag therefore points at the original
+      # unpatched commit; `git checkout <tag> && swift build` produces a binary
+      # with placeholder version strings, not the release version.
+      #
+      # This is intentional for RunBot: releases are binary-only (no one builds
+      # from source), and committing back to `beta`/`release` would re-trigger
+      # this workflow via the push.branches trigger despite [skip ci] being
+      # unreliable on self-hosted runners. The release artifact is always
+      # correct — build.sh reads from the patched workspace, not from git.
+      #
+      # If reproducible source-tagged builds ever become a requirement, the fix
+      # is: git add Resources/Info.plist && git commit -m "chore: bump version
+      # to $TAG [skip ci]" && git push origin HEAD:${{ github.ref_name }}
+      # inserted between this step and "Tag and push". Verify [skip ci] is
+      # honoured on the self-hosted runner before enabling.
+      # CFBundleShortVersionString  ← X.Y.Z only (macOS strips pre-release
+      #                               suffixes here for display; used by
+      #                               Gatekeeper and the App Store but NOT
+      #                               by UpdateChecker).
+      # RBVersionString             ← full semver incl. pre-release suffix
+      #                               (e.g. "0.7.1-beta.2"); read by
+      #                               UpdateChecker.checkForUpdate so that
+      #                               beta-to-beta comparisons work correctly.
+      # CFBundleVersion             ← monotonically incrementing build number
+      #                               derived from total git commit count
       - name: Patch Info.plist
         run: |
           set -euo pipefail
