@@ -68,7 +68,8 @@ extension AppDelegate {
             },
             oauthService: oauthService,
             lifecycleService: lifecycleService,
-            runnerState: runnerState
+            runnerState: runnerState,
+            autoUpdater: autoUpdater
         )
         // PanelContainerView needed here too: sheets are presented from SettingsView.
         return wrapEnv(PanelContainerView(content: inner))

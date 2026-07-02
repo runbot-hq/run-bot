@@ -1,6 +1,7 @@
 // SettingsView.swift
 // RunBot
 import AppKit
+import AppUpdater
 import RunBotCore
 import ServiceManagement
 import SwiftUI
@@ -57,6 +58,10 @@ struct SettingsView: View {
     /// Injected explicitly from `AppDelegate`; no default because `RunnerState` has no
     /// singleton — the single instance lives on `AppDelegate.runnerState`.
     let runnerState: RunnerState
+    /// Auto-update driver injected from `AppDelegate`, used by the Install &
+    /// Relaunch action in `aboutSection`. No default — the single instance lives
+    /// on `AppDelegate.autoUpdater`.
+    let autoUpdater: AppUpdater
 
     // MARK: - Local UI state
     /// Mirrors `LoginItem.isEnabled`; toggled by the Launch at Login switch.
@@ -84,12 +89,13 @@ struct SettingsView: View {
     ///     Must be supplied explicitly — `RunnerState` has no singleton.
     init(
         onBack: @escaping () -> Void,
-        localRunnerStore: LocalRunnerStore = .shared,
         oauthService: any OAuthServiceProtocol,
-        settings: AppPreferencesStore = .shared,
-        notifications: NotificationPreferences = .shared,
         lifecycleService: any RunnerLifecycleServiceProtocol,
-        runnerState: RunnerState
+        runnerState: RunnerState,
+        autoUpdater: AppUpdater,
+        localRunnerStore: LocalRunnerStore = .shared,
+        settings: AppPreferencesStore = .shared,
+        notifications: NotificationPreferences = .shared
     ) {
         self.onBack = onBack
         self.localRunnerStore = localRunnerStore
@@ -98,6 +104,7 @@ struct SettingsView: View {
         self.notifications = notifications
         self.lifecycleService = lifecycleService
         self.runnerState = runnerState
+        self.autoUpdater = autoUpdater
     }
 
     // MARK: - Computed properties
@@ -193,7 +200,7 @@ struct SettingsView: View {
     }
 
     /// Runs on `.onAppear`: refreshes auth state and starts sign-in / sign-out listeners.
-    private func onAppearAction() {
+    private func onAppearAction() { // skipcq: SW-R1002 — reviewed; complexity acceptable for this onAppear setup
         let keychainToken = Keychain.token
         let envToken = githubToken()
         isOAuthAuthenticated = (keychainToken != nil)
@@ -218,7 +225,7 @@ struct SettingsView: View {
         signOutTask = Task { @MainActor in
             for await _ in oauthService.makeSignOutStream() {
                 let postToken = githubToken()
-                log("SettingsView › didSignOut — githubToken post-signout=\(postToken != nil ? "present(len=\(postToken!.count))" : "nil")")
+                log("SettingsView › didSignOut — githubToken post-signout=\(postToken.map { "present(len=\($0.count))" } ?? "nil")")
                 isOAuthAuthenticated = false
                 isCLIAuthenticated = postToken != nil
                 log("SettingsView › didSignOut — isOAuthAuthenticated=\(isOAuthAuthenticated) isCLIAuthenticated=\(isCLIAuthenticated)")

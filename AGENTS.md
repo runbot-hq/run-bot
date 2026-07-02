@@ -13,7 +13,7 @@ Run these and make them pass **before** calling any change done. CI runs the exa
 
 ```bash
 swift build                                   # type-check the whole package
-swift test --filter RunBotCoreTests        # run the core suite (THIS is what CI runs)
+swift test                                    # run all test suites (RunBotCoreTests + AppUpdaterTests)
 swiftlint lint --strict                       # CI fails on warnings, not just errors
 periphery scan                                # dead-code scan (config: .periphery.yml)
 swift run                                      # build + launch the app locally
@@ -24,12 +24,13 @@ bash build.sh                                  # release build + .app bundle (ar
 >
 > 1. **SwiftLint runs with `--strict`.** A bare `swiftlint` passes locally while CI fails, because
 >    `--strict` promotes every warning to an error. Always run `swiftlint lint --strict`.
-> 2. **Tests run with `--filter RunBotCoreTests`.** Bare `swift test` is not what CI runs. The
->    UI tests (`RunBotUITests`) run separately via `xcodebuild` on the self-hosted runner — do
->    **not** try to run them with `swift test`.
-> 3. **Periphery uses `retain_public: true`** scoped to the `RunBot` and `RunBotCore` targets
->    (test targets excluded). Don't "fix" a Periphery finding by making a symbol non-public if the
->    app target needs it; mark intentional keeps with `// periphery:ignore` instead.
+> 2. **Tests run with bare `swift test`.** This covers all SPM test targets: `RunBotCoreTests`
+>    and `AppUpdaterTests`. The UI tests (`RunBotUITests`) run separately via `xcodebuild` on the
+>    self-hosted runner — do **not** try to run them with `swift test`.
+> 3. **Periphery uses `retain_public: true`** scoped to the `RunBot`, `RunBotCore`, and
+>    `AppUpdater` targets (test targets excluded). Don't "fix" a Periphery finding by making a
+>    symbol non-public if the app target needs it; mark intentional keeps with
+>    `// periphery:ignore` instead.
 >
 > Tooling is installed via `brew install swiftlint` and
 > `brew install peripheryapp/periphery/periphery`. CI runs on `macos-26`.
@@ -39,8 +40,8 @@ bash build.sh                                  # release build + .app bundle (ar
 These opt-in rules fail CI and are the most common agent mistakes:
 
 - **`file_header`** — every Swift file's first two lines must match
-  `// <Filename>.swift` then `// RunBot`. New files without this header fail the strict lint.
-  (This regex is also why the second comment line must read `// RunBot` even in `RunBotCore`.)
+  `// <Filename>.swift` then `// RunBot` or `// AppUpdater`. New files without this header fail
+  the strict lint.
 - **`missing_docs`** — every declaration needs a `///` doc comment. Don't add public/internal API
   without one.
 - **`sorted_imports`** — keep `import` statements alphabetised.

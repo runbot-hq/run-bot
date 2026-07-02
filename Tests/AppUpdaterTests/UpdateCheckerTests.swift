@@ -1,7 +1,7 @@
 // UpdateCheckerTests.swift
-// RunBot
+// AppUpdater
 import Testing
-@testable import RunBotCore
+@testable import AppUpdater
 
 // MARK: - UpdateCheckerTests
 

@@ -1,0 +1,16 @@
+[
+  {
+    "tag_name": "v2.0.0",
+    "prerelease": false,
+    "assets": [
+      {
+        "name": "App.zip",
+        "browser_download_url": "https://objects.githubusercontent.com/example/App.zip"
+      },
+      {
+        "name": "App.zip.sha256",
+        "browser_download_url": "https://objects.githubusercontent.com/example/App.zip.sha256"
+      }
+    ]
+  }
+]

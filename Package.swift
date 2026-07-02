@@ -8,6 +8,10 @@ let package = Package(
         .library(
             name: "RunBotCore",
             targets: ["RunBotCore"]
+        ),
+        .library(
+            name: "AppUpdater",
+            targets: ["AppUpdater"]
         )
     ],
     dependencies: [
@@ -15,8 +19,18 @@ let package = Package(
     ],
     targets: [
         .target(
+            name: "AppUpdater",
+            dependencies: [],
+            path: "Sources/AppUpdater",
+            exclude: ["README.md"],
+            swiftSettings: [
+                .enableUpcomingFeature("NonisolatedNonsendingByDefault")
+            ]
+        ),
+        .target(
             name: "RunBotCore",
             dependencies: [
+                "AppUpdater",
                 .product(name: "Collections", package: "swift-collections")
             ],
             path: "Sources/RunBotCore",
@@ -26,6 +40,9 @@ let package = Package(
         ),
         .executableTarget(
             name: "RunBot",
+            // AppUpdater is consumed transitively via RunBotCore — there is no
+            // direct `import AppUpdater` in Sources/RunBot, so no explicit
+            // dependency is needed here.
             dependencies: ["RunBotCore"],
             path: "Sources/RunBot",
             swiftSettings: [
@@ -39,6 +56,19 @@ let package = Package(
                 .product(name: "Collections", package: "swift-collections")
             ],
             path: "Tests/RunBotCoreTests",
+            swiftSettings: [
+                .enableUpcomingFeature("NonisolatedNonsendingByDefault")
+            ]
+        ),
+        .testTarget(
+            name: "AppUpdaterTests",
+            dependencies: [
+                "AppUpdater"
+            ],
+            path: "Tests/AppUpdaterTests",
+            resources: [
+                .copy("Fixtures")
+            ],
             swiftSettings: [
                 .enableUpcomingFeature("NonisolatedNonsendingByDefault")
             ]

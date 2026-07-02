@@ -2,6 +2,7 @@
 // RunBot
 
 import AppKit
+import AppUpdater
 import RunBotCore
 import SwiftUI
 
@@ -147,6 +148,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// `LocalRunnerStore` pushes `localRunners` and `isLocalScanning` into this instance
     /// via `LocalRunnerStore.configure(viewModel: runnerState)` in `setupSubscriptions()`.
     let runnerState = RunnerState()
+    /// The auto-update driver. Carries all RunBot-specific configuration (repo
+    /// slug, asset name, scheduler identifier, beta-channel source); the
+    /// `AppUpdater` library itself holds no RunBot strings. Injected into
+    /// `SettingsView` for the Install & Relaunch action and driven from
+    /// `AppDelegate+PanelSetup` on startup.
+    let autoUpdater = AppUpdater(
+        repo: "runbot-hq/run-bot",
+        currentVersion: Bundle.main.rbVersionString,
+        assetName: { _ in "RunBot.zip" },
+        schedulerIdentifier: "io.github.runbot-hq.update-check",
+        betaChannelProvider: { AppPreferencesStore.shared.betaChannel }
+    )
     /// The last nav destination the user was on before the popover was closed or hidden.
     /// Restored by `openPanel()` so the user lands back where they left off.
     var savedNavState: NavState?

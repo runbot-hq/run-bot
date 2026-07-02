@@ -50,7 +50,10 @@ missing_docs:
   excludes_inherited_types: false
 
 file_header:
-  required_pattern: "^// [\\w+]+\\.swift\\n// RunBot"
+  # Line 2 is the module name. Historically every module was named RunBot*, but
+  # the AppUpdater library target (a host-agnostic module with no RunBot in its
+  # name) is a legitimate exception, so its module name is allowed here too.
+  required_pattern: "^// [\\w+]+\\.swift\\n// (RunBot|AppUpdater)"
 
 # ── Disabled rules ────────────────────────────────────────────────────────────────────────────────────────────────────────
 disabled_rules:

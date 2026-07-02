@@ -5,15 +5,18 @@
 #
 # retain_public:
 #   Treat all public/open declarations as used. Set to true because RunBotCore
-#   exposes a public API surface consumed by the RunBot app target. Without this,
-#   Periphery would flag every public symbol as unused when scanning the library alone.
+#   and AppUpdater expose a public API surface consumed by the RunBot app target.
+#   Without this, Periphery would flag every public symbol as unused when
+#   scanning the libraries alone.
 #
 # targets:
-#   Limit the scan to the two primary targets. Excluding test targets avoids noise
-#   from XCTestCase subclasses and test helpers that are never called directly.
+#   Limit the scan to the three primary targets. Excluding test targets avoids
+#   noise from XCTestCase subclasses and test helpers that are never called
+#   directly.
 
 retain_public: true
 
 targets:
   - RunBot
   - RunBotCore
+  - AppUpdater

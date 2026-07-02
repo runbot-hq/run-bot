@@ -17,10 +17,10 @@ import Observation
 /// because Swift requires the setter to match the accessibility of a `public` protocol
 /// `{ get set }` requirement — see `RunnerViewModelProtocol` for the rationale.
 /// Only `LocalRunnerStore` (in `RunBotCore`) writes them in practice.
-/// The auto-update download properties (`updateZipURL`, `cachedUpdateVersion`,
-/// `updateAssetMissing`, `updateActionFailed`) are `public internal(set)` — only
-/// `AutoUpdater` (same `RunBotCore` module) writes them via `await MainActor.run`.
-/// Views and app-layer code are read-only consumers of all properties.
+/// The auto-update storage properties (`availableUpdate`,
+/// `cachedUpdateVersion`, `updateActionFailed`) are written
+/// exclusively by `AppUpdater` via `UpdateStateProviding.apply(_:)`, declared in
+/// `RunnerState+AppUpdater.swift`.
 @Observable
 @MainActor
 public final class RunnerState {
@@ -37,107 +37,56 @@ public final class RunnerState {
     public internal(set) var actions: [WorkflowActionGroup] = []
 
     /// Whether the GitHub API rate limit has been hit.
-    ///
-    /// When `true`, polling is paused until `rateLimitResetDate`.
     public internal(set) var isRateLimited = false
 
     /// The date at which the rate limit resets, if currently rate-limited.
     public internal(set) var rateLimitResetDate: Date?
 
     /// The most recent fetch error, or `nil` if the last fetch succeeded.
-    ///
-    /// Set by `RunnerPoller.applyError(_:)`; cleared on every successful
-    /// `applyFetchResult`. Views read this to show a non-modal error banner.
-    ///
-    /// Typed `(any Error)?` — the stored value is always a `RunnerPoller.FetchError`,
-    /// which is `Sendable`. The property stays `any Error` for display flexibility;
-    /// `@MainActor` isolation on `RunnerState` ensures safe cross-actor reads.
     public internal(set) var fetchError: (any Error)?
 
     // MARK: - Local runner state (pushed by LocalRunnerStore)
 
     /// Locally-installed runner agents discovered on this Mac.
-    ///
-    /// Pushed by `LocalRunnerStore` via `await MainActor.run { }` after every refresh cycle.
-    ///
-    /// Declared `public var` (not `public internal(set) var`) because Swift requires the
-    /// setter to be at least as accessible as the protocol requirement when conforming to a
-    /// public protocol with a `{ get set }` requirement. `public internal(set)` would restrict
-    /// the setter to `RunBotCore` and fail to satisfy the requirement at the module interface.
-    /// In practice, only `LocalRunnerStore` (inside `RunBotCore`) ever writes this property;
-    /// the `public` setter is a type-system necessity, not an invitation for external mutation.
     public var localRunners: [RunnerModel] = []
 
     /// `true` while `LocalRunnerStore` is running a refresh cycle.
-    ///
-    /// Pushed by `LocalRunnerStore` alongside `localRunners`.
-    /// See `localRunners` for the access-level rationale.
     public var isLocalScanning: Bool = false
 
     /// The overall connectivity state of the runner fleet, derived from `runners`.
-    /// Observed by `AppDelegate`'s `statusIconLoop` via `ObservationLoop`.
     public var aggregateStatus: AggregateStatus {
         AggregateStatus(runners: runners)
     }
 
     // MARK: - Init
 
-    /// Public memberwise-style initialiser required so that `RunnerPollerProtocol`
-    /// can use `RunnerState()` as a default argument value from another module
-    /// (`RunBot` app target). Without an explicit `public init()`, the
-    /// `@Observable`-synthesised initialiser is `internal` and the cross-module
-    /// default argument fails to compile.
+    /// Creates a default-initialised `RunnerState` with all properties at their zero values.
     public init() {}
 
-    // MARK: - Auto-update state (pushed by AutoUpdater)
+    // MARK: - Auto-update storage (written via UpdateStateProviding.apply(_:))
 
-    /// The latest available version string if a newer version exists, or `nil` if
-    /// up to date.
+    /// The latest available version string, or `nil` if up to date / idle.
     ///
-    /// **Read-only for all callers.** Write via `setAvailableUpdate(_:)` below.
-    public private(set) var availableUpdate: String?
+    /// Written exclusively by `AppUpdater` via `apply(_:)` in
+    /// `RunnerState+AppUpdater.swift`. Read by views to show the update label.
+    ///
+    /// `internal(set)` — not `private(set)` — because Swift's `private` is
+    /// file-scoped: the setter must be visible to `apply(_:)` in
+    /// `RunnerState+AppUpdater.swift`, which is a different file. Moving stored
+    /// properties into the extension file is non-standard and was rejected.
+    /// The invariant (only `apply(_:)` may write these) is enforced by
+    /// convention; see `currentPhase` warning comment in that file.
+    public internal(set) var availableUpdate: String?
 
-    /// Sets `availableUpdate`.
+    /// Version string of the cached update zip, or `nil` if none cached.
     ///
-    /// Called from `AutoUpdater.handle(_:state:)` on every `.updateAvailable` result
-    /// (including the launch-time check in `AppDelegate+PanelSetup`) and from
-    /// `AutoUpdater.scheduleBackgroundCheck` to clear a stale row on `.upToDate`
-    /// or `.failed` results (when no zip is cached).
-    ///
-    /// Using an explicit method (rather than direct property assignment) keeps
-    /// every write site visible in code review and prevents ad-hoc mutation elsewhere.
-    public func setAvailableUpdate(_ version: String?) {
-        availableUpdate = version
-    }
-
-    /// Local file URL of the cached `RunBot-update.zip`, or `nil` while the
-    /// download is in progress or has not started yet.
-    ///
-    /// The Install & Relaunch button is shown only when this is non-`nil`.
-    public internal(set) var updateZipURL: URL?
-
-    /// Version string of the cached update zip (e.g. `"v0.8.0"`), or `nil`
-    /// if no download has been cached yet.
+    /// `internal(set)` for the same reason as `availableUpdate` above —
+    /// `private(set)` would make the setter inaccessible across file boundaries.
     public internal(set) var cachedUpdateVersion: String?
 
-    /// Rehydrates cached download state from `UserDefaults` on startup.
+    /// `true` when a download or install attempt has failed.
     ///
-    /// Called by `AppDelegate+PanelSetup` after verifying that the cached zip
-    /// still exists on disk and the cached version is newer than the installed app.
-    public func rehydrateCachedUpdate(zipURL: URL, version: String) {
-        updateZipURL = zipURL
-        cachedUpdateVersion = version
-    }
-
-    /// `true` when the latest release exists but its `RunBot.zip` asset is absent.
-    ///
-    /// When `true` the UI falls back to a **Download** button that opens the
-    /// releases page in the browser instead of triggering an in-app install.
-    public internal(set) var updateAssetMissing: Bool = false
-
-    /// `true` when a download **or** an install attempt has failed.
-    ///
-    /// The Download fallback button is shown whenever
-    /// `updateAssetMissing || updateActionFailed`.
+    /// `internal(set)` for the same reason as `availableUpdate` above —
+    /// `private(set)` would make the setter inaccessible across file boundaries.
     public internal(set) var updateActionFailed: Bool = false
 }
