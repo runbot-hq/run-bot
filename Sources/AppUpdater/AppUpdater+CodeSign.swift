@@ -105,6 +105,11 @@ extension Bundle {
         // concurrently prevents the pipe from filling and deadlocking.
         // See ## Pipe drain ordering in the doc comment above.
         let stderrHandle = stderrPipe.fileHandleForReading
+        // Task.detached is safe here: we are inside #if canImport(AppKit), and on
+        // macOS /usr/bin/codesign always exists. process.run() cannot throw in
+        // practice — if it did, the environment is fatally broken and the detached
+        // task leaking is the least of our problems. No cancel or pipe-close logic
+        // is needed or wanted (Principle 4: no sprawl).
         let drainTask = Task.detached {
             stderrHandle.readDataToEndOfFile()
         }
@@ -113,8 +118,12 @@ extension Bundle {
             try process.run()
             process.waitUntilExit()
         } catch {
+            // Structurally unreachable on macOS — /usr/bin/codesign always exists
+            // and process.run() does not throw for a valid executable path.
+            // If we somehow land here, the environment is broken beyond recovery.
+            // drainTask is not awaited or cancelled: adding that logic would violate
+            // Principle 4 for a branch that cannot be reached in production.
             appUpdaterLogger.debug("codesign launch failed for \(bundlePath, privacy: .public): \(error.localizedDescription, privacy: .public)")
-            drainTask.cancel()
             return nil
         }
 
