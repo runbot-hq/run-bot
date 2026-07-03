@@ -8,19 +8,18 @@ import Observation
 /// `@Observable` property read inside `value` changes.
 ///
 /// **How it works**
-/// Each iteration calls `withObservationTracking` to register tracking,
-/// yields the current value, then suspends. When any tracked property
-/// changes the `onChange` callback fires, enqueues a `Task { @MainActor in }`
-/// that yields the next value and re-registers tracking — producing an
-/// infinite, self-re-registering observation stream.
+/// A `@MainActor`-isolated registration object holds the recursive
+/// `withObservationTracking` loop. On each change the `onChange` callback
+/// enqueues a `Task { @MainActor in }` that yields the next value and
+/// re-registers — producing an infinite, self-re-registering stream.
 ///
 /// **Lifetime**
-/// The stream runs until the consuming `Task` is cancelled. No retained
-/// object is needed; cancellation is handled by structured concurrency.
+/// The stream runs until the consuming `Task` is cancelled.
+/// No retained object is needed; structured concurrency manages lifetime.
 ///
 /// **Threading**
-/// `value` is called on the `@MainActor`. The stream is safe to iterate
-/// from any `@MainActor`-isolated context.
+/// `value` is called on the `@MainActor`. Safe to iterate from any
+/// `@MainActor`-isolated context.
 ///
 /// **Usage**
 /// ```swift
@@ -30,25 +29,35 @@ import Observation
 ///     }
 /// }
 /// ```
-///
-/// - Parameter value: A `@MainActor` closure that reads one or more
-///   `@Observable` properties. Re-called after each change to
-///   re-register tracking and capture the new value.
-/// - Returns: An `AsyncStream` that yields `T` on every change.
-public func observationStream<T>(
+public func observationStream<T: Sendable>(
     of value: @escaping @MainActor () -> T
 ) -> AsyncStream<T> {
     AsyncStream { continuation in
-        @MainActor func next() {
-            withObservationTracking {
-                continuation.yield(value())
-            } onChange: {
-                Task { @MainActor in
-                    if case .terminated = continuation.yield(value()) { return }
-                    next()
+        // Wrap the recursive registration in a @MainActor class so the
+        // `next` method reference is actor-isolated and therefore Sendable.
+        @MainActor final class Registration<U: Sendable> {
+            let value: @MainActor () -> U
+            let continuation: AsyncStream<U>.Continuation
+
+            init(value: @escaping @MainActor () -> U, continuation: AsyncStream<U>.Continuation) {
+                self.value = value
+                self.continuation = continuation
+            }
+
+            func next() {
+                withObservationTracking {
+                    _ = continuation.yield(value())
+                } onChange: { [weak self] in
+                    Task { @MainActor [weak self] in
+                        guard let self else { return }
+                        if case .terminated = continuation.yield(value()) { return }
+                        next()
+                    }
                 }
             }
         }
-        Task { @MainActor in next() }
+
+        let registration = Registration(value: value, continuation: continuation)
+        Task { @MainActor in registration.next() }
     }
 }
