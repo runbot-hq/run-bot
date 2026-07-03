@@ -31,8 +31,8 @@ extension AppDelegate {
     /// 4. `setupStatusItem` / `setupPanel` / `setupSignOutSubscription` — UI and
     ///    observers start only after display names are hydrated.
     ///
-    /// ## statusIconLoop ordering
-    /// `statusIconLoop` (Step 13) is assigned in this outer `Task {}` block,
+    /// ## statusIconTask ordering
+    /// `statusIconTask` (Step 13) is assigned in this outer `Task {}` block,
     /// synchronously *after* `setupPanel()` returns but *before* `RunnerPoller.start()`
     /// has a chance to fire. Here is why that ordering is guaranteed:
     ///
@@ -41,9 +41,9 @@ extension AppDelegate {
     /// `await localRunnerStore.refreshAsync()` before calling `store.start()`.
     /// Because `refreshAsync()` suspends, the inner Task yields back to the
     /// `@MainActor` queue — this outer `Task {}` continues to the
-    /// `statusIconLoop = ObservationLoop { … }` line before `start()` is ever
-    /// called. There is no reachable path where `applyFetchResult` writes to
-    /// `runnerState` before `statusIconLoop` is registered.
+    /// `statusIconTask = Task { … }` line before `start()` is ever called.
+    /// There is no reachable path where `applyFetchResult` writes to
+    /// `runnerState` before `statusIconTask` is registered.
     ///
     /// - Parameter _: The notification (unused).
     func applicationDidFinishLaunching(_ _: Notification) {
@@ -98,19 +98,19 @@ extension AppDelegate {
             setupPanel()
             setupSignOutSubscription()
 
-            // Step 13: wire ObservationLoop so AppDelegate reacts to RunnerState
-            // changes without a callback from RunnerPoller.
+            // Step 13: wire status-icon observation via observationStream so AppDelegate
+            // reacts to RunnerState changes without a callback from RunnerPoller.
             //
             // Ordering safety: setupPanel → setupSubscriptions spawns an inner Task
             // that suspends on `await localRunnerStore.refreshAsync()` before calling
             // `store.start()`. The suspension yields control back here, so this
             // assignment is always reached before the first `applyFetchResult` write.
             // See `applicationDidFinishLaunching` doc-comment for the full explanation.
-            statusIconLoop = ObservationLoop { [weak self] in
+            statusIconTask = Task { @MainActor [weak self] in
                 guard let self else { return }
-                _ = runnerState.aggregateStatus
-            } onChange: { [weak self] in
-                self?.updateStatusIcon()
+                for await _ in observationStream(of: { self.runnerState.aggregateStatus }) {
+                    self.updateStatusIcon()
+                }
             }
 
             log("AppDelegate › applicationDidFinishLaunching — DONE")
