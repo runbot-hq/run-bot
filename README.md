@@ -94,6 +94,13 @@ curl -fsSL https://runbot-hq.github.io/run-bot/install.sh | bash
 
 ---
 
+## External Dependencies
+
+- **[AppUpdater](https://github.com/runbot-hq/AppUpdater)** (first-party) — headless auto-update library; polls GitHub Releases for new versions, verifies SHA-256 integrity, and hands update state to the host app via `UpdateStateProviding`
+- **[swift-collections](https://github.com/apple/swift-collections)** (Apple) — ordered and efficient collection types used internally in `RunBotCore`; primarily `OrderedDictionary` for stable, insertion-ordered workflow state
+
+---
+
 ## Concurrency
 
 RunBot uses Swift 6.2 strict concurrency, so data-race safety is guaranteed by the compiler rather than by convention. UI runs on the main actor and background work is isolated in dedicated actors, all coordinated through structured `async`/`await`.
