@@ -9,10 +9,16 @@ import Observation
 /// Holds the recursive `withObservationTracking` loop for `observationStream(of:)`.
 /// Top-level so Swift does not reject it as a generic type nested in a closure.
 @MainActor
-final class _ObservationRegistration<T: Sendable> {
+final class ObservationRegistration<T: Sendable> {
+    /// The closure that reads the tracked `@Observable` value on each registration pass.
     private let getValue: @MainActor () -> T
+    /// The stream continuation into which each observed value is yielded.
     private let continuation: AsyncStream<T>.Continuation
 
+    /// Creates a new registration with the given value reader and stream continuation.
+    /// - Parameters:
+    ///   - getValue: A closure that reads one or more `@Observable` properties.
+    ///   - continuation: The `AsyncStream` continuation to yield values into.
     init(
         getValue: @escaping @MainActor () -> T,
         continuation: AsyncStream<T>.Continuation
@@ -21,6 +27,12 @@ final class _ObservationRegistration<T: Sendable> {
         self.continuation = continuation
     }
 
+    /// Registers a single `withObservationTracking` pass and schedules the next on change.
+    ///
+    /// Yields the current value immediately so the consuming `Task` receives an initial
+    /// value, then re-registers on the `@MainActor` each time a tracked property changes.
+    /// Returns without re-registering if the continuation is already terminated (consuming
+    /// task was cancelled).
     func next() {
         withObservationTracking {
             _ = continuation.yield(getValue())
@@ -60,7 +72,7 @@ public func observationStream<T: Sendable>(
     of value: @escaping @MainActor () -> T
 ) -> AsyncStream<T> {
     AsyncStream { continuation in
-        let registration = _ObservationRegistration(getValue: value, continuation: continuation)
+        let registration = ObservationRegistration(getValue: value, continuation: continuation)
         Task { @MainActor in registration.next() }
     }
 }
