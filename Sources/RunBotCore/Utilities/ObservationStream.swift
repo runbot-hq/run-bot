@@ -44,7 +44,7 @@ public func observationStream<T>(
                 continuation.yield(value())
             } onChange: {
                 Task { @MainActor in
-                    guard continuation.yield(value()) != .terminated else { return }
+                    if case .terminated = continuation.yield(value()) { return }
                     next()
                 }
             }
