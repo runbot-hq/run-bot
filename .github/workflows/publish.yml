@@ -1,6 +1,5 @@
-# .github/workflows/publish.yml
-# Triggered by force-push to `beta` or `release` routing branches
-# (via publish.sh) or manually via workflow_dispatch.
+# Triggered via workflow_dispatch from main only.
+# Use: gh workflow run publish.yml --ref main --field channel=release --field dry_run=false
 #
 # Responsibilities:
 #   1. Compute the next semver tag from git history.
@@ -9,20 +8,25 @@
 #   4. Build + zip via build.sh.
 #   5. Verify the zip contains RunBot.app/Contents/MacOS/RunBot.
 #   6. Generate SHA-256 sidecar (RunBot.zip.sha256).
-#   7. Tag + push (skipped on dry_run).
-#   8. Create GitHub Release, uploading both zip and sidecar (skipped on dry_run).
+#   7. Commit patched Info.plist back to main via --force-with-lease (skipped on dry_run).
+#   8. Tag the plist commit SHA directly — race-free (skipped on dry_run).
+#   9. Create GitHub Release, uploading both zip and sidecar (skipped on dry_run).
 
 name: Publish
 
 on:
-  push:
-    branches:
-      - beta
-      - release
   workflow_dispatch:
     inputs:
+      channel:
+        description: "Release channel"
+        required: true
+        default: "release"
+        type: choice
+        options:
+          - "release"
+          - "beta"
       dry_run:
-        description: "Dry run (skip tag + release creation)"
+        description: "Dry run (skip plist commit, tag, and release creation)"
         required: false
         default: "false"
         type: choice
@@ -32,30 +36,15 @@ on:
 
 # cancel-in-progress: true is intentional and safe here.
 #
-# The duplicate-tag guard (step 2) runs *before* "Tag and push" (step 7),
-# so in the common case a cancelled run has not yet pushed a tag and
-# leaves nothing behind. The only window where an orphaned tag could exist
-# is if a run is cancelled *after* step 7 but *before* step 8 (Create
-# GitHub Release). That window is narrow (~seconds) and recoverable:
-#   git tag -d <tag> && git push origin --delete <tag>
-# then re-run publish.sh. See docs/RELEASING.md § Rollback procedure.
-#
-# Orphaned plist-commit window: a second push that cancels the first *after*
-# "Commit patched Info.plist" has already pushed but *before* "Tag and push"
-# completes leaves a [skip ci] bump commit on the branch for a version that
-# was never tagged. The next run computes the same tag (no tag was pushed)
-# and pushes a second bump commit on top, accumulating one stale commit per
-# cancellation in that window. This is harmless to the release artifact but
-# obscures the branch history. If it becomes noisy, squash the stale commits
-# manually or add a revert step before "Commit patched Info.plist".
-#
-# Why keep cancel-in-progress: true at all? A mis-fire of publish.sh
-# followed immediately by the real push would otherwise queue two full
-# builds; the first would win the duplicate-tag guard and create the
-# release, leaving the second to fail noisily on the guard. Cancelling
-# the first on arrival of the second is the cleaner outcome.
+# The duplicate-tag guard (step 2) runs *before* any mutating steps, so a
+# cancelled run has not yet pushed a tag or committed the plist in the common
+# case. The only narrow window where partial state could exist is if a run is
+# cancelled after "Commit patched Info.plist" but before "Tag and push". In
+# that case main will have a version bump commit with no tag. Recovery:
+#   git revert HEAD --no-edit && git push origin main
+# then re-run the workflow. See docs/RELEASING.md § Rollback procedure.
 concurrency:
-  group: publish-${{ github.ref }}
+  group: publish-${{ inputs.channel }}
   cancel-in-progress: true
 
 permissions:
@@ -68,21 +57,18 @@ jobs:
     # at macos-15 as of mid-2026. Do not change this to a github-hosted label
     # without provisioning the build environment separately.
     runs-on: macos-26
-    # Self-hosted runner outage would otherwise queue this job indefinitely;
-    # GitHub marks stale runs after hours, not minutes. 30 minutes is generous
-    # for a build that normally completes in ~3 minutes, but tight enough to
-    # surface a hung or offline runner the same day rather than the next morning.
+    # Self-hosted runner outage would otherwise queue this job indefinitely.
+    # 30 minutes is generous for a build that normally completes in ~3 minutes.
     timeout-minutes: 30
 
     steps:
-      # ── Checkout ──────────────────────────────────────────────────────────
+      # ── Checkout ──────────────────────────────────────────────────────────────────
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
-          fetch-depth: 0   # full history + all tags — fetch-depth: 0 is sufficient
-                           # on its own; a full clone already includes all tags.
+          fetch-depth: 0   # full history + all tags required for tag computation
 
-      # ── Compute next tag ────────────────────────────────────────────────
+      # ── Compute next tag ───────────────────────────────────────────────────────────
       #
       # ⚠️  REVIEWER: Do NOT change the beta base to LATEST_STABLE + 1 patch.
       # Using the current stable base for beta tags (v0.7.0-beta.N, not
@@ -93,8 +79,8 @@ jobs:
       # actually being addressed.
       #
       # Tag scheme:
-      #   beta branch    → vMAJOR.MINOR.PATCH-beta.N   (e.g. v0.7.0-beta.1)
-      #   release branch → vMAJOR.MINOR.PATCH           (e.g. v0.7.1)
+      #   beta channel    → vMAJOR.MINOR.PATCH-beta.N   (e.g. v0.7.0-beta.1)
+      #   release channel → vMAJOR.MINOR.PATCH           (e.g. v0.7.1)
       #
       # Beta base design — why betas share the CURRENT stable base, not +1 patch:
       #
@@ -119,7 +105,7 @@ jobs:
       #
       # Algorithm:
       #   1. Find the latest stable tag (vX.Y.Z, no pre-release suffix).
-      #   2. Determine channel from GITHUB_REF_NAME.
+      #   2. Determine channel from input.
       #   3. Beta:   find the highest existing beta.N for the current stable base
       #              and increment N (or start at beta.1 if none exist).
       #   4. Stable: bump PATCH by 1 (with rollover at 10).
@@ -133,11 +119,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          CHANNEL="$GITHUB_REF_NAME"   # must be "beta" or "release"
-          if [[ "$CHANNEL" != "beta" && "$CHANNEL" != "release" ]]; then
-            echo "error: publish.yml must be triggered from 'beta' or 'release' branch, not '$CHANNEL'" >&2
-            exit 1
-          fi
+          CHANNEL="${{ inputs.channel }}"
 
           # Latest stable tag (ignore beta/rc tags)
           LATEST_STABLE=$(git tag --list 'v*' \
@@ -148,20 +130,16 @@ jobs:
             # ⚠️  SEED VERSION — only reached on a pristine repo with no stable
             # tags (e.g. first-ever run or after manually deleting all tags).
             # If you see this message in CI output on an established repo,
-            # something has gone wrong with tag fetching — stop and investigate
-            # before the release proceeds, as the wrong base version will be
-            # embedded in the artifact and pushed to gh-pages.
+            # something has gone wrong with tag fetching — stop and investigate.
             LATEST_STABLE="v0.7.0"
             echo "⚠️  WARNING: No stable tags found — using seed version ${LATEST_STABLE}." >&2
             echo "⚠️  If this is not a first-run on a fresh repo, tag fetching may have failed." >&2
           fi
 
-          # Strip leading v
           BASE="${LATEST_STABLE#v}"
           IFS='.' read -r MAJOR MINOR PATCH <<< "$BASE"
 
           if [[ "$CHANNEL" == "beta" ]]; then
-            # Find highest beta.N for this base
             HIGHEST_N=$(git tag --list "v${BASE}-beta.*" \
               | grep -oE 'beta\.[0-9]+$' \
               | grep -oE '[0-9]+$' \
@@ -183,8 +161,6 @@ jobs:
             # than X.Y.10. This is a deliberate style choice documented in
             # docs/RELEASING.md § Version scheme. The practical consequence is
             # that we will never ship a tag like v1.0.10 — it becomes v1.1.0.
-            # If you need more than 10 patches on a minor, revisit RELEASING.md
-            # first; do not simply remove the rollover without updating the docs.
             NEW_PATCH=$(( PATCH + 1 ))
             if (( NEW_PATCH > 9 )); then  # rollover: intentional, see comment above
               NEW_PATCH=0
@@ -208,7 +184,7 @@ jobs:
           echo "version=$VERSION"   >> "$GITHUB_OUTPUT"
           echo "Computed tag: $TAG (channel: $CHANNEL)"
 
-      # ── Duplicate-tag guard ─────────────────────────────────────────────
+      # ── Duplicate-tag guard ──────────────────────────────────────────────────────────
       - name: Guard against duplicate tag
         run: |
           set -euo pipefail
@@ -219,38 +195,26 @@ jobs:
           fi
           echo "Tag $TAG is available."
 
-      # ── Patch Info.plist ─────────────────────────────────────────────
+      # ── Patch Info.plist ──────────────────────────────────────────────────────────────
       # CFBundleShortVersionString  ← X.Y.Z only (macOS strips pre-release
-      #                               suffixes here for display; used by
-      #                               Gatekeeper and the App Store but NOT
-      #                               by UpdateChecker).
+      #                               suffixes here for display)
       # RBVersionString             ← full semver incl. pre-release suffix
       #                               (e.g. "0.7.1-beta.2"); read by
-      #                               UpdateChecker.checkForUpdate so that
-      #                               beta-to-beta comparisons work correctly.
+      #                               UpdateChecker.checkForUpdate
       # CFBundleVersion             ← monotonically incrementing build number
       #                               derived from total git commit count
       #
-      # ⚠️  Info.plist is patched in the workspace only — it is NOT committed
-      # back to the branch by this step. The "Commit patched Info.plist" step
-      # below pushes it before the tag is created, so the tag points at the
-      # patched commit and `git checkout <tag> && swift build` is reproducible.
+      # BUILD is captured before the plist commit step adds one more commit,
+      # so CFBundleVersion at the tagged commit will be N while git rev-list
+      # returns N+1 at that tag. This is intentional — CFBundleVersion only
+      # needs to be monotonically increasing. The tag is pinned to PLIST_SHA
+      # (the commit where BUILD=N was embedded), which is consistent.
+      # See docs/RELEASING.md § Version scheme for full rationale.
       - name: Patch Info.plist
         run: |
           set -euo pipefail
           VERSION="${{ steps.tag.outputs.version }}"
-          # Strip any pre-release suffix for CFBundleShortVersionString
           SHORT_VERSION="${VERSION%%-*}"
-          # NOTE: BUILD is captured before the "Commit patched Info.plist" step
-          # creates one additional commit, so CFBundleVersion at the tagged commit
-          # will be N while `git rev-list --count HEAD` at that tag returns N+1 —
-          # an intentional off-by-one. This is not a bug: CFBundleVersion's only
-          # job is to be monotonically increasing (used by Gatekeeper / macOS to
-          # order builds). It does not need to exactly match the commit count at
-          # the tag. The fix — $(( $(git rev-list --count HEAD) + 1 )) — was
-          # considered and rejected: it embeds a number for a commit that doesn't
-          # exist yet, makes dry runs inconsistent, and solves a diagnostics
-          # inconvenience at the cost of correctness confusion. Leave this as-is.
           BUILD=$(git rev-list --count HEAD)
 
           /usr/libexec/PlistBuddy -c \
@@ -265,13 +229,13 @@ jobs:
 
           echo "Patched Info.plist: shortVersion=${SHORT_VERSION} fullVersion=${VERSION} build=${BUILD}"
 
-      # ── Build ──────────────────────────────────────────────────────────
+      # ── Build ────────────────────────────────────────────────────────────────────
       - name: Build
         run: bash build.sh "${{ steps.tag.outputs.version }}"
         env:
           CI: "true"
 
-      # ── Verify zip ──────────────────────────────────────────────────
+      # ── Verify zip ─────────────────────────────────────────────────────────────────
       - name: Verify zip
         id: verify
         run: |
@@ -282,14 +246,6 @@ jobs:
             exit 1
           fi
           echo "Verifying $ZIP"
-          # The pattern is anchored to the start of the path column so that
-          # a nested archive (e.g. subdir/RunBot.app/…) does NOT pass this
-          # check. `unzip -l` output lines look like:
-          #   <size>  <date> <time>   RunBot.app/Contents/MacOS/RunBot
-          # The path starts after a fixed-width prefix; `grep -E` with `^\s+`
-          # then a literal start-of-path anchor is fragile, so we use a
-          # negative lookahead-free approach: require that nothing other than
-          # whitespace precedes "RunBot.app" on the line.
           if ! unzip -l "$ZIP" | grep -qE '^\s+[0-9].*\s+RunBot\.app/Contents/MacOS/RunBot$'; then
             echo "error: RunBot.app/Contents/MacOS/RunBot not found at archive root in $ZIP" >&2
             unzip -l "$ZIP" >&2
@@ -298,73 +254,68 @@ jobs:
           echo "Zip verified: RunBot.app/Contents/MacOS/RunBot is present at archive root."
           echo "zip_path=$ZIP" >> "$GITHUB_OUTPUT"
 
-      # ── Generate SHA-256 sidecar ───────────────────────────────────────
+      # ── Generate SHA-256 sidecar ───────────────────────────────────────────────────────
       # AppUpdater.downloadUpdate fetches checksumURL from the release assets
-      # and treats a missing sidecar as a hard failure (URLError.resourceUnavailable),
-      # falling back to the browser Download button for every user. This step
-      # generates RunBot.zip.sha256 and passes its path to the release step so
-      # it is uploaded alongside the zip. The sidecar format is:
+      # and treats a missing sidecar as a hard failure. The sidecar format is:
       #   <hex-digest>  RunBot.zip
-      # which matches the output of `shasum -a 256` and is what verifyChecksum
-      # in AppUpdater+Checksum.swift parses (splits on whitespace, takes first token).
+      # which matches `shasum -a 256` output and is what verifyChecksum parses.
       - name: Generate SHA-256 sidecar
         id: checksum
         run: |
           set -euo pipefail
           ZIP="${{ steps.verify.outputs.zip_path }}"
           SIDECAR="${ZIP}.sha256"
-          # shasum -a 256 produces "<hex>  <filename>" — the two-space separator
-          # is intentional (BSD shasum convention). AppUpdater+Checksum.swift splits on
-          # whitespace and takes the first token, so single- or double-space both work.
           /usr/bin/shasum -a 256 "$ZIP" > "$SIDECAR"
           echo "SHA-256 sidecar: $(cat $SIDECAR)"
           echo "sidecar_path=$SIDECAR" >> "$GITHUB_OUTPUT"
 
-      # ── Commit patched Info.plist ──────────────────────────────────────────────────
-      # The "Patch Info.plist" step modifies Resources/Info.plist in the
-      # workspace only. Without this commit, the tag points at the original
-      # unpatched commit — checking out that tag and building locally produces
-      # a binary with the wrong version strings. This commit aligns source and
-      # artifact so `git checkout <tag> && swift build` is reproducible.
+      # ── Commit patched Info.plist back to main ─────────────────────────────────────────
+      # Pushes the version-bumped Info.plist back to main so that main always
+      # has correct version strings after a release.
       #
-      # [skip ci] prevents this commit from re-triggering the publish workflow
-      # via the push.branches trigger.
+      # [skip ci] prevents this commit from re-triggering this workflow or any
+      # other workflow triggered on push to main (e.g. lint, tests). This is
+      # intentional — a version string bump is not meaningful to test or lint.
+      # Keep this in mind when adding new push-triggered workflows.
+      #
+      # --force-with-lease rejects if main moved since checkout, preventing
+      # silent overwrites. A rejection here means a concurrent commit landed
+      # on main — re-run the workflow after pulling.
       - name: Commit patched Info.plist
-        if: ${{ github.event.inputs.dry_run != 'true' }}
+        if: ${{ inputs.dry_run != 'true' }}
         run: |
           set -euo pipefail
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add Resources/Info.plist
           git commit -m "chore: bump version to ${{ steps.tag.outputs.tag }} [skip ci]"
-          git push origin HEAD:${{ github.ref_name }}
+          git push --force-with-lease origin HEAD:main
 
-      # ── Tag + push ──────────────────────────────────────────────────
-      # Note on the dry_run condition: when this workflow fires from a `push`
-      # event (not `workflow_dispatch`), `github.event.inputs.dry_run` is `null`
-      # rather than `"false"`. The expression `null != 'true'` evaluates to `true`,
-      # so tag + release steps DO execute on push — which is the intended behaviour.
-      # This is not a bug; it's standard GitHub Actions null-coercion semantics.
+      # ── Tag + push ─────────────────────────────────────────────────────────────────
       - name: Tag and push
-        if: ${{ github.event.inputs.dry_run != 'true' }}
+        if: ${{ inputs.dry_run != 'true' }}
         run: |
           set -euo pipefail
           TAG="${{ steps.tag.outputs.tag }}"
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag -a "$TAG" -m "Release $TAG"
+          # Capture the plist commit SHA explicitly so the tag is guaranteed to
+          # point at the patched plist regardless of any concurrent push to main.
+          # CFBundleVersion=N was embedded at this commit; git rev-list at this
+          # tag returns N+1 (the plist commit itself). Intentional — see Patch
+          # Info.plist step comment above.
+          PLIST_SHA=$(git rev-parse HEAD)
+          git tag -a "$TAG" "$PLIST_SHA" -m "Release $TAG"
           git push origin "$TAG"
-          echo "Pushed tag $TAG."
+          echo "Pushed tag $TAG (at plist commit $PLIST_SHA)."
 
-      # ── Create GitHub Release ─────────────────────────────────────────────
+      # ── Create GitHub Release ──────────────────────────────────────────────────────────
       # Both the zip and the .sha256 sidecar are uploaded as release assets.
       # UpdateChecker decodes checksumURL from the asset list by matching the
-      # ".sha256" suffix; AppUpdater.downloadUpdate fetches it and passes the
-      # hex digest to verifyChecksum. Omitting the sidecar here would cause
-      # checksumURL to be nil, which downloadUpdate treats as a hard failure,
-      # leaving every user on the browser Download fallback permanently.
+      # ".sha256" suffix. Omitting the sidecar would cause checksumURL to be nil,
+      # which downloadUpdate treats as a hard failure.
       - name: Create GitHub Release
-        if: ${{ github.event.inputs.dry_run != 'true' }}
+        if: ${{ inputs.dry_run != 'true' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -374,9 +325,6 @@ jobs:
           ZIP="${{ steps.verify.outputs.zip_path }}"
           SIDECAR="${{ steps.checksum.outputs.sidecar_path }}"
 
-          # Build the flags array explicitly to avoid unquoted-variable word-splitting.
-          # An empty string in $PRERELEASE_FLAG / $LATEST_FLAG would expand safely
-          # most of the time, but an array is the idiomatic and unambiguous idiom.
           FLAGS=()
           if [[ "$CHANNEL" == "beta" ]]; then
             FLAGS+=(--prerelease)
