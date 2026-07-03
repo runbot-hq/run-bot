@@ -123,3 +123,5 @@ git fetch && git checkout feature/your-branch && git pull
 bash build.sh && pkill RunBot; sleep 1 && open dist/RunBot.app
 ```
   
+**Deploy release or beta:**  
+[publish.yml](https://github.com/runbot-hq/run-bot/actions/workflows/publish.yml) select dry_run false or true and select beta or release
