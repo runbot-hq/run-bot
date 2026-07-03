@@ -10,7 +10,7 @@
 #   6. Generate SHA-256 sidecar (RunBot.zip.sha256).
 #   7. Commit patched Info.plist back to main via --force-with-lease (skipped on dry_run).
 #   8. Tag the plist commit SHA directly — race-free (skipped on dry_run).
-#   9. Create GitHub Release, uploading both zip and sidecar (skipped on dry_run).
+#   9. Create GitHub Release with release_notes if provided, --generate-notes otherwise (skipped on dry_run).
 
 name: Publish
 
@@ -33,6 +33,11 @@ on:
         options:
           - "false"
           - "true"
+      release_notes:
+        description: "Release notes (markdown). Leave blank to auto-generate from commits."
+        required: false
+        default: ""
+        type: string
 
 # cancel-in-progress: true is intentional and safe here.
 #
@@ -317,6 +322,10 @@ jobs:
       # UpdateChecker decodes checksumURL from the asset list by matching the
       # ".sha256" suffix. Omitting the sidecar would cause checksumURL to be nil,
       # which downloadUpdate treats as a hard failure.
+      #
+      # Release notes: if the release_notes input is provided, it is used verbatim.
+      # If left blank, --generate-notes auto-generates notes from commits since
+      # the previous tag.
       - name: Create GitHub Release
         if: ${{ inputs.dry_run != 'true' }}
         env:
@@ -335,11 +344,17 @@ jobs:
             FLAGS+=(--latest)
           fi
 
+          NOTES="${{ inputs.release_notes }}"
+          if [[ -n "$NOTES" ]]; then
+            FLAGS+=(--notes "$NOTES")
+          else
+            FLAGS+=(--generate-notes)
+          fi
+
           gh release create "$TAG" \
             "$ZIP" \
             "$SIDECAR" \
             --title "$TAG" \
-            --generate-notes \
             "${FLAGS[@]}"
 
           echo "GitHub Release $TAG created (channel: $CHANNEL)."
