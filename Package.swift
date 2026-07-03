@@ -8,29 +8,17 @@ let package = Package(
         .library(
             name: "RunBotCore",
             targets: ["RunBotCore"]
-        ),
-        .library(
-            name: "AppUpdater",
-            targets: ["AppUpdater"]
         )
     ],
     dependencies: [
-        .package(url: "https://github.com/apple/swift-collections.git", from: "1.1.0")
+        .package(url: "https://github.com/apple/swift-collections.git", from: "1.1.0"),
+        .package(url: "https://github.com/runbot-hq/AppUpdater", revision: "1930db3f88abdb86c97df721261464ecbb3f152b")
     ],
     targets: [
         .target(
-            name: "AppUpdater",
-            dependencies: [],
-            path: "Sources/AppUpdater",
-            exclude: ["README.md"],
-            swiftSettings: [
-                .enableUpcomingFeature("NonisolatedNonsendingByDefault")
-            ]
-        ),
-        .target(
             name: "RunBotCore",
             dependencies: [
-                "AppUpdater",
+                .product(name: "AppUpdater", package: "AppUpdater"),
                 .product(name: "Collections", package: "swift-collections")
             ],
             path: "Sources/RunBotCore",
@@ -60,18 +48,5 @@ let package = Package(
                 .enableUpcomingFeature("NonisolatedNonsendingByDefault")
             ]
         ),
-        .testTarget(
-            name: "AppUpdaterTests",
-            dependencies: [
-                "AppUpdater"
-            ],
-            path: "Tests/AppUpdaterTests",
-            resources: [
-                .copy("Fixtures")
-            ],
-            swiftSettings: [
-                .enableUpcomingFeature("NonisolatedNonsendingByDefault")
-            ]
-        )
     ]
 )
