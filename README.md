@@ -42,6 +42,7 @@
 **Activity**
 
 [![Version](https://img.shields.io/github/v/release/runbot-hq/run-bot?label=version)](https://github.com/runbot-hq/run-bot/releases/latest)
+[![Beta](https://img.shields.io/github/v/release/runbot-hq/run-bot?include_prereleases&label=beta)](https://github.com/runbot-hq/run-bot/releases)
 [![Downloads](https://img.shields.io/github/downloads/runbot-hq/run-bot/RunBot.zip?label=downloads&displayAssetName=false)](https://github.com/runbot-hq/run-bot/releases)
 [![Latest release](https://img.shields.io/github/release-date/runbot-hq/run-bot?label=latest%20release)](https://github.com/runbot-hq/run-bot/releases/latest)
 [![Open PRs](https://img.shields.io/github/issues-pr/runbot-hq/run-bot)](https://github.com/runbot-hq/run-bot/pulls)
