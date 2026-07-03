@@ -11,7 +11,7 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>0.7.1</string>
+	<string>0.7.2</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
@@ -24,12 +24,12 @@
 		</dict>
 	</array>
 	<key>CFBundleVersion</key>
-	<string>4382</string>
+	<string>4384</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>13.0</string>
 	<key>LSUIElement</key>
 	<true/>
 	<key>RBVersionString</key>
-	<string>0.7.1-beta.2</string>
+	<string>0.7.2</string>
 </dict>
 </plist>
