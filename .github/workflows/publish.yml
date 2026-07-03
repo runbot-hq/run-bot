@@ -278,9 +278,11 @@ jobs:
       # intentional — a version string bump is not meaningful to test or lint.
       # Keep this in mind when adding new push-triggered workflows.
       #
-      # --force-with-lease rejects if main moved since checkout, preventing
-      # silent overwrites. A rejection here means a concurrent commit landed
-      # on main — re-run the workflow after pulling.
+      # git fetch before --force-with-lease is required. --force-with-lease
+      # compares against the local tracking ref (origin/main as seen at checkout
+      # time). Without a fresh fetch, that ref is stale after a multi-minute
+      # build — a concurrent push would go undetected. The fetch updates
+      # origin/main so the lease check reflects the actual remote state.
       - name: Commit patched Info.plist
         if: ${{ inputs.dry_run != 'true' }}
         run: |
@@ -289,6 +291,7 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add Resources/Info.plist
           git commit -m "chore: bump version to ${{ steps.tag.outputs.tag }} [skip ci]"
+          git fetch origin main
           git push --force-with-lease origin HEAD:main
 
       # ── Tag + push ─────────────────────────────────────────────────────────────────
