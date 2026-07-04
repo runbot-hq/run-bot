@@ -113,7 +113,7 @@ extension AppDelegate {
             // See `applicationDidFinishLaunching` doc-comment for the full explanation.
             statusIconTask = Task { @MainActor [weak self] in
                 guard let self else { return }
-                for await _ in Observations({ runnerState.aggregateStatus }) {
+                for await _ in Observations({ self.runnerState.aggregateStatus }) {
                     updateStatusIcon()
                 }
             }
