@@ -70,7 +70,15 @@ public final class KeychainTokenStore: TokenStore, Sendable {
 
     // MARK: - TokenStore
 
-    /// Loads the token from the keychain. Returns `nil` if not found or on error.
+    /// Loads the token from the keychain. Returns `nil` if not found or on any error.
+    ///
+    /// Intentionally silent on all non-success statuses, including genuine Security
+    /// framework errors such as `errSecInteractionNotAllowed`. This is correct for a
+    /// hot-path auth check — `load()` is called on every `isAuthenticated` evaluation
+    /// and logging every miss would produce extreme noise in normal operation.
+    /// Failures here degrade gracefully to a signed-out state, which is the safe
+    /// fallback. `save()` and `delete()` log their non-success statuses explicitly
+    /// because they are called infrequently and failures there are always actionable.
     public nonisolated func load() -> String? {
         var query = baseQuery()
         query[kSecReturnData] = true

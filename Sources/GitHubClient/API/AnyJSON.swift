@@ -42,6 +42,17 @@ internal enum AnyJSON: Codable, Equatable {
     /// - `Int` is tried before `Double` so integer-valued fields are stored losslessly
     ///   as `.int` rather than coerced to a `Double` mantissa.
     /// - `String` is tried last among scalar types so it cannot shadow earlier cases.
+    ///
+    /// ## singleValueContainer reuse safety
+    /// All `try? container.decode(...)` calls share the same `singleValueContainer`
+    /// instance. This is safe because `[String: AnyJSON]` decodes via a
+    /// `KeyedDecodingContainer` internally, and `[AnyJSON]` via an
+    /// `UnkeyedDecodingContainer` — both are separate container paths in
+    /// `JSONDecoder`, not sequential cursor reads on `singleValueContainer`.
+    /// A failed `try?` on a scalar type (Bool, Int, Double, String) does not
+    /// advance any shared cursor; Foundation resets the decoder state on `try?`
+    /// failure. Substituting a non-Foundation `Decoder` would need to be validated
+    /// against this assumption before use.
     init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
         if let val = try? container.decode([String: AnyJSON].self) { self = .object(val); return }
