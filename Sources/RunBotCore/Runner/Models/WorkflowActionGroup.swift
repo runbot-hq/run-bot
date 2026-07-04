@@ -209,8 +209,6 @@ public struct WorkflowActionGroup: Identifiable, Equatable, Sendable {
     ///   - lastJobCompletedAt: Latest job completion time across all runs.
     ///   - createdAt: Fallback creation time from the representative run.
     ///   - isDimmed: `true` when frozen into the completed cache. Defaults to `false`.
-    ///   - Note: 11 parameters faithfully model the workflow group payload; splitting would break all call sites.
-    // swiftlint:disable:next function_parameter_count
     public init(
         headSha: String,
         label: String,
@@ -253,11 +251,9 @@ public struct WorkflowActionGroup: Identifiable, Equatable, Sendable {
     ///    Prevents the silent fallthrough to `.completed` during the initial fetch window.
     public var groupStatus: GroupStatus {
         let allRunsConcluded = runs.allSatisfy { $0.conclusion != nil }
-        // Step 8: job.jobConclusion (renamed from .conclusion on ActiveJob)
         if allRunsConcluded, jobsTotal > 0, jobs.allSatisfy({ $0.jobConclusion != nil }) {
             return .completed
         }
-        // WorkflowRunRef.status is NOT renamed — it is a direct stored property, not from GitHubJob
         if runs.contains(where: { $0.status == .inProgress }) { return .inProgress }
         if runs.contains(where: { $0.status == .queued }) { return .queued }
         if jobs.isEmpty && !allRunsConcluded { return .loading }
@@ -286,54 +282,26 @@ public struct WorkflowActionGroup: Identifiable, Equatable, Sendable {
     /// takes over with the precise `JobConclusion` value. Callers can switch on the enum
     /// directly for full type-safety.
     public var conclusion: JobConclusion? {
-        // Job-based conclusion (preferred) — use when data is fully loaded.
         if !jobs.isEmpty {
-            // Step 8: job.jobConclusion (renamed from .conclusion on ActiveJob)
-            // Only conclude when every single job has a conclusion.
             guard jobs.allSatisfy({ $0.jobConclusion != nil }) else { return nil }
-            // ⚠️ Do NOT change this to read from runs[].conclusion — run-level API
-            // conclusions are stale and can report "failure" even when all jobs pass
-            // (e.g. after a retry). This caused the spurious FAILED badge (issue #294).
-            // Use the canonical `JobConclusion.isFailure` check so this branch stays
-            // aligned with the run-based fallback below (and PollResultBuilder /
-            // FailureHookRunner). Previously this matched only `.failure`, so a
-            // `.timedOut` / `.startupFailure` / `.actionRequired` group reported
-            // failure while jobs were loading, then incorrectly flipped to
-            // success once jobs populated.
-            // Priority: failure-class > cancelled > skipped > success.
-            // Note: cancelled and skipped are only checked when NO isFailure job exists —
-            // the isFailure guard above is the precondition for both branches below.
             if let failedJob = jobs.first(where: { $0.jobConclusion?.isFailure == true }) {
-                return failedJob.jobConclusion  // preserves .timedOut / .actionRequired / .startupFailure
+                return failedJob.jobConclusion
             }
             if jobs.contains(where: { $0.jobConclusion == .cancelled }) { return .cancelled }
             let hasSuccess = jobs.contains(where: { $0.jobConclusion == .success })
-            // At this point no job has .cancelled (early-returned above), so
-            // allJobsSkipped checks only for .skipped — .neutral and .stale jobs are
-            // NOT included here and fall through to .success below (see run-based path
-            // comment for the equivalent loading-window gap).
             let allJobsSkipped = jobs.allSatisfy { $0.jobConclusion == .skipped }
             if !hasSuccess && allJobsSkipped { return .skipped }
-            // All jobs are .neutral, .stale, or a mix with .success — treat as success.
             return .success
         }
-        // Run-based conclusion (fallback when jobs haven't loaded yet).
-        // ⚠️ This path is only reached when jobs is empty (loading state).
-        // Once jobs are populated the block above takes over.
-        // All isFailure conclusions (.actionRequired, .timedOut, .startupFailure, .failure)
-        // normalise to .failure here — see NORMALISATION NOTE in the doc comment above.
         guard runs.allSatisfy({ $0.conclusion != nil }) else { return nil }
-        if runs.contains(where: { $0.conclusion?.isFailure == true }) { return .failure }  // LOADING-STATE ONLY — normalises all isFailure subtypes to .failure during fetch window
+        if runs.contains(where: { $0.conclusion?.isFailure == true }) { return .failure }
         if runs.contains(where: { $0.conclusion == .cancelled }) { return .cancelled }
         if runs.contains(where: { $0.conclusion == .skipped }) { return .skipped }
-        // .neutral and .stale runs during the loading window should not flash a green
-        // SUCCESS badge. Return nil so the row stays badge-less until jobs populate.
         if runs.allSatisfy({ $0.conclusion == .neutral || $0.conclusion == .stale || $0.conclusion == .skipped }) { return nil }
         return .success
     }
 
     /// Number of jobs with a concluded result across all sibling runs.
-    // Step 8: job.jobConclusion (renamed from .conclusion on ActiveJob)
     public var jobsDone: Int { jobs.filter { $0.jobConclusion != nil }.count }
 
     /// Total job count across all sibling runs.
@@ -356,16 +324,13 @@ public struct WorkflowActionGroup: Identifiable, Equatable, Sendable {
     /// those paths are migrated off their existing inline checks.
     public var hasFailedJob: Bool {
         if !jobs.isEmpty {
-            // Step 8: job.jobConclusion (renamed from .conclusion on ActiveJob)
             return jobs.contains { $0.jobConclusion?.isFailure == true }
         }
-        // Run-level fallback: mirrors the loading-state path in `conclusion`.
         return runs.contains { $0.conclusion?.isFailure == true }
     }
 
     /// Name of the first in-progress job, or first queued job, or `"—"`.
     public var currentJobName: String {
-        // Step 8: job.jobStatus (renamed from .status on ActiveJob)
         if let job = jobs.first(where: { $0.jobStatus == .inProgress }) { return job.name }
         if let job = jobs.first(where: { $0.jobStatus == .queued }) { return job.name }
         return "—"
