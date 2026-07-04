@@ -208,7 +208,6 @@ struct SettingsView: View {
         isCLIAuthenticated = !oauthService.isAuthenticated && oauthService.hasAnyToken
         #if DEBUG
         let envToken = oauthService.hasAnyToken
-        // swiftlint:disable:next line_length
         log("SettingsView › onAppear — isAuthenticated=\(oauthService.isAuthenticated) hasAnyToken=\(envToken) isOAuthAuthenticated=\(isOAuthAuthenticated) isCLIAuthenticated=\(isCLIAuthenticated)")
         #endif
 
