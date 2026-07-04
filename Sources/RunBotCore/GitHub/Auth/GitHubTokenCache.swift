@@ -10,47 +10,27 @@ import GitHubClient
 // environment on every invocation, which adds unnecessary overhead.
 //
 // The actual caching and resolution logic lives in GitHubClient's injectable
-// `TokenCache` (guarded by a Synchronization.Mutex). This file provides the
-// unqualified `githubToken()` / `invalidateTokenCache()` free functions that
-// production call-sites (Keychain.swift, OAuthService, SwiftUI views) depend on,
-// wiring the shared cache to the RunBotCore `Keychain` enum.
+// TokenCache (guarded by a Synchronization.Mutex). This file provides the
+// unqualified githubToken() / invalidateTokenCache() free functions that
+// production call-sites depend on.
 //
 // The cache is populated on first successful resolution and cleared by:
-//   - OAuthService.signOut() via invalidateTokenCache()
-//   - Keychain.save()         via invalidateTokenCache()
-
-// MARK: - Keychain-backed TokenStore
-
-/// Adapts the RunBotCore `Keychain` enum to `GitHubClient.TokenStore`.
-///
-/// The standalone `GitHubClient.KeychainTokenStore` is deliberately *not* used
-/// here: it does not set `kSecUseDataProtectionKeychain`, which the RunBotCore
-/// `Keychain` enum requires to avoid a legacy-keychain crash on launch (see the
-/// file-level comment in `Keychain.swift`). Delegating to `Keychain` preserves
-/// those exact SecItem settings, keeping token resolution behaviour unchanged.
-///
-/// - Note: `internal` (not `private`) so `AppDelegate` can pass this as the
-///   `tokenStore` argument to `OAuthService`, ensuring the OAuth write path and
-///   the `githubToken()` read path both delegate to the same `Keychain` enum
-///   and therefore the same keychain item.
-struct KeychainTokenStoreAdapter: TokenStore {
-    /// Loads the OAuth token from the RunBotCore `Keychain`.
-    nonisolated func load() -> String? { Keychain.token }
-    /// Saves the OAuth token via the RunBotCore `Keychain`.
-    nonisolated func save(_ token: String) -> Bool { Keychain.save(token) }
-    /// Deletes the OAuth token via the RunBotCore `Keychain`.
-    nonisolated func delete() -> Bool { Keychain.delete() }
-}
+//   - OAuthService.signOut()   via invalidateTokenCache()
+//   - KeychainTokenStore.save() via the tokenStore path in OAuthService
 
 /// Shared, process-wide token cache backing the free-function API below.
 ///
-/// Resolution priority (unchanged from the pre-extraction implementation):
+/// Resolution priority:
 /// 1. In-memory cache
-/// 2. Keychain (via `KeychainTokenStoreAdapter`)
+/// 2. Keychain (via KeychainTokenStore)
 /// 3. `GH_TOKEN` environment variable
 /// 4. `GITHUB_TOKEN` environment variable
 private let sharedTokenCache = TokenCache(
-    tokenStore: KeychainTokenStoreAdapter(),
+    tokenStore: KeychainTokenStore(
+        service: "run-bot",
+        account: "github-oauth-token",
+        logger: RunBotLogger()
+    ),
     logger: RunBotLogger()
 )
 
@@ -75,10 +55,9 @@ public func githubToken() -> String? {
 /// ### Namespacing rationale
 /// `invalidateTokenCache()` and `githubToken()` are intentionally free functions
 /// rather than members of a namespace type. They are called as unqualified
-/// symbols from `Keychain.swift`, `OAuthService`, and SwiftUI views. Moving them
-/// into a namespace type would require updating ~6 call-sites across 4 files for
-/// no correctness benefit. The module boundary (`RunBotCore`) already provides
-/// the necessary scoping.
+/// symbols from `OAuthService` and SwiftUI views. Moving them into a namespace
+/// type would require updating call-sites across multiple files for no correctness
+/// benefit. The module boundary (`RunBotCore`) already provides the necessary scoping.
 public func invalidateTokenCache() {
     sharedTokenCache.invalidate()
 }
