@@ -110,4 +110,33 @@ public final class KeychainTokenStore: TokenStore, Sendable {
             let addStatus = SecItemAdd(addQuery as CFDictionary, nil)
             if addStatus == errSecSuccess { return true }
             if addStatus == errSecDuplicateItem {
-          
+                // Concurrent writer race — retry the update.
+                let retryStatus = SecItemUpdate(baseQuery() as CFDictionary, attributes as CFDictionary)
+                if retryStatus == errSecSuccess { return true }
+                logger?.log(
+                    "KeychainTokenStore › save: retry update failed (\(retryStatus))",
+                    category: "transport")
+                return false
+            }
+            logger?.log(
+                "KeychainTokenStore › save: SecItemAdd failed (\(addStatus))",
+                category: "transport")
+            return false
+        }
+        logger?.log(
+            "KeychainTokenStore › save: SecItemUpdate failed (\(updateStatus))",
+            category: "transport")
+        return false
+    }
+
+    /// Deletes the token from the keychain. Returns `true` on success or if not found.
+    @discardableResult
+    public nonisolated func delete() -> Bool {
+        let status = SecItemDelete(baseQuery() as CFDictionary)
+        if status == errSecSuccess || status == errSecItemNotFound { return true }
+        logger?.log(
+            "KeychainTokenStore › delete: SecItemDelete failed (\(status))",
+            category: "transport")
+        return false
+    }
+}
