@@ -297,8 +297,14 @@ extension GitHubTransport {
       return nil
     }
     let endpoint = "\(scope.apiPrefix)/actions/runners/\(runnerID)/labels"
-    let bodyData = try? JSONEncoder().encode(["labels": labels])
-    guard let response = await put(endpoint, body: bodyData ?? Data(), timeout: 30) else {
+    let bodyData: Data
+    do {
+      bodyData = try encoder.encode(["labels": labels])
+    } catch {
+      logger?.log("patchRunnerLabels › failed to serialise request body: \(error)", category: "transport")
+      return nil
+    }
+    guard let response = await put(endpoint, body: bodyData, timeout: 30) else {
       logger?.log("patchRunnerLabels › PUT failed for runnerID=\(runnerID)", category: "transport")
       return nil
     }
