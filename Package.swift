@@ -8,6 +8,10 @@ let package = Package(
         .library(
             name: "RunBotCore",
             targets: ["RunBotCore"]
+        ),
+        .library(
+            name: "GitHubClient",
+            targets: ["GitHubClient"]
         )
     ],
     dependencies: [
@@ -16,8 +20,17 @@ let package = Package(
     ],
     targets: [
         .target(
+            name: "GitHubClient",
+            dependencies: [],
+            path: "Sources/GitHubClient",
+            swiftSettings: [
+                .enableUpcomingFeature("NonisolatedNonsendingByDefault")
+            ]
+        ),
+        .target(
             name: "RunBotCore",
             dependencies: [
+                "GitHubClient",
                 .product(name: "AppUpdater", package: "AppUpdater"),
                 .product(name: "Collections", package: "swift-collections")
             ],
@@ -44,6 +57,14 @@ let package = Package(
                 .product(name: "Collections", package: "swift-collections")
             ],
             path: "Tests/RunBotCoreTests",
+            swiftSettings: [
+                .enableUpcomingFeature("NonisolatedNonsendingByDefault")
+            ]
+        ),
+        .testTarget(
+            name: "GitHubClientTests",
+            dependencies: ["GitHubClient"],
+            path: "Tests/GitHubClientTests",
             swiftSettings: [
                 .enableUpcomingFeature("NonisolatedNonsendingByDefault")
             ]
