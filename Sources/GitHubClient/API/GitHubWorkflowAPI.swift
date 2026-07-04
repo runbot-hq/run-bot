@@ -244,14 +244,23 @@ public struct GitHubStep: Decodable, Equatable, Sendable {
 
 /// The result of fetching active workflow runs, distinguishing auth/rate-limit failures
 /// from partial and full successes.
+///
+/// - Note: `.authFailure` is currently never produced by `fetchActiveRuns` — the
+///   underlying transport collapses all failure modes to `nil`, so auth failures
+///   are surfaced as `.noToken` (first page) or `.rateLimited` (subsequent pages).
+///   The case is part of the intended API for when `ghAPIPaginated` is replaced
+///   with a typed `ExecuteResult`-returning call (tracked in #1950). Callers
+///   should handle it defensively but must not rely on it being produced today.
 public enum GitHubRunsFetchResult: Sendable {
     /// All pages fetched successfully.
     case success([GitHubWorkflowRun])
     /// Rate limit hit mid-fetch — results are valid but may be incomplete.
     case rateLimited([GitHubWorkflowRun])
     /// Token was rejected (401/403 without rate-limit headers) — discard everything.
+    /// Currently unreachable from `fetchActiveRuns`; see type-level note above.
     case authFailure
-    /// No GitHub token is configured.
+    /// No GitHub token is configured — or any first-page transport failure
+    /// (see type-level note above).
     case noToken
 }
 

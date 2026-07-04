@@ -75,7 +75,6 @@ public final class OAuthService: OAuthServiceProtocol {
     ///     Defaults to `nil` — existing call sites are unaffected.
     ///   - onTokenDeleted: Optional callback invoked on every `signOut()`, regardless of
     ///     whether the Keychain delete succeeded. Use this to invalidate a `TokenCache`.
-    ///     Use this to invalidate an external cache (e.g. `TokenCache.invalidate()`).
     ///     Defaults to `nil` — existing call sites are unaffected.
     public init(
         clientID: String,
@@ -230,6 +229,14 @@ public final class OAuthService: OAuthServiceProtocol {
         guard let comps = URLComponents(url: url, resolvingAgainstBaseURL: false),
               let code = comps.queryItems?.first(where: { $0.name == "code" })?.value
         else {
+            // Intentionally does NOT clear `pendingState` here. A URL with no
+            // `code` param is likely a malformed deep-link or a different app's
+            // URL being mis-routed to us — not the GitHub redirect. Keeping
+            // `pendingState` live means the real GitHub callback (arriving
+            // moments later) still has a valid nonce to match against. Clearing
+            // it here would cause that legitimate callback to be rejected.
+            // All other guard branches clear `pendingState` because they involve
+            // the actual GitHub redirect (state param present but wrong/absent).
             logger?.log("OAuthService › handleCallback — missing code param, calling fireSignIn(false)", category: "transport")
             fireSignIn(false)
             return
