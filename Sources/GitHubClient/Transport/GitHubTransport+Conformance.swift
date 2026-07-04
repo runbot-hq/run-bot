@@ -191,6 +191,7 @@ extension GitHubTransport {
           var request = req
           request.httpMethod = "PUT"
           request.httpBody = body
+          request.setValue("application/json", forHTTPHeaderField: "Content-Type")
           return request
         }
       )
