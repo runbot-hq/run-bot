@@ -177,7 +177,8 @@ struct GitHubClientTests {
         let stream = oauth.makeSignOutStream()
         oauth.triggerSignOut()
         var iterator = stream.makeAsyncIterator()
-        let value = await iterator.next()
-        #expect(value == ())
+        // AsyncStream<Void>.AsyncIterator.next() returns Void? — assert non-nil to confirm delivery.
+        let value: Void? = await iterator.next()
+        #expect(value != nil)
     }
 }
