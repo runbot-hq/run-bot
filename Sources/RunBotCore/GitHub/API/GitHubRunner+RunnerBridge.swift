@@ -41,7 +41,6 @@ struct GitHubRunnerWithMetrics {
     let base: GitHubRunner
     /// The CPU/memory snapshot to attach, or `nil` to clear metrics.
     let metrics: RunnerMetrics?
-
     /// Re-exposes the base runner. Metrics are carried separately by `RunnerPoller`.
     var runner: GitHubRunner { base }
 }

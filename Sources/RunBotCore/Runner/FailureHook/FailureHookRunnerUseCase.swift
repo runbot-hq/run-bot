@@ -81,7 +81,6 @@ public struct FailureHookRunnerUseCase: Sendable {
             return
         }
 
-        // Branch filter — skip if a branch filter is set and doesn't match.
         let filterBranch = await preferencesStore.failureHookBranch(for: scope)
         if let filter = filterBranch {
             let groupBranch = group.headBranch ?? ""
@@ -173,15 +172,15 @@ public struct FailureHookRunnerUseCase: Sendable {
 
         return command
             .replacingOccurrences(of: "$LOCAL_PATH", with: singleQuoteEscape(localRepoPath))
-            .replacingOccurrences(of: "$SCOPE",       with: singleQuoteEscape(scope))
-            .replacingOccurrences(of: "$BRANCH",      with: singleQuoteEscape(branch))
-            .replacingOccurrences(of: "$COMMIT_SHA",  with: singleQuoteEscape(sha))
-            .replacingOccurrences(of: "$RUN_ID",      with: singleQuoteEscape(failedRunID))
+            .replacingOccurrences(of: "$SCOPE", with: singleQuoteEscape(scope))
+            .replacingOccurrences(of: "$BRANCH", with: singleQuoteEscape(branch))
+            .replacingOccurrences(of: "$COMMIT_SHA", with: singleQuoteEscape(sha))
+            .replacingOccurrences(of: "$RUN_ID", with: singleQuoteEscape(failedRunID))
             .replacingOccurrences(of: "$WORKFLOW_NAME", with: singleQuoteEscape(workflowName))
-            .replacingOccurrences(of: "$RUN_LINK",    with: runLink)
+            .replacingOccurrences(of: "$RUN_LINK", with: runLink)
             .replacingOccurrences(of: "$COMMIT_LINK", with: commitLink)
             .replacingOccurrences(of: "$BRANCH_LINK", with: branchLink)
-            .replacingOccurrences(of: "$REPO_LINK",   with: repoLink)
+            .replacingOccurrences(of: "$REPO_LINK", with: repoLink)
             .replacingOccurrences(of: "$FAILURE_LOG", with: escapedLog)
     }
 
@@ -207,6 +206,7 @@ public struct FailureHookRunnerUseCase: Sendable {
 
     // MARK: - Private helpers
 
+    /// Returns a run-level failure summary when no individual job details are available.
     private static func runLevelSummary(group: WorkflowActionGroup) -> String {
         let lines: [String] = group.runs.compactMap { run in
             guard let conclusion = run.conclusion, conclusion.isHookConclusion else { return nil }
@@ -215,6 +215,7 @@ public struct FailureHookRunnerUseCase: Sendable {
         return lines.joined(separator: "\n")
     }
 
+    /// Returns the log tail for `entry` if available, otherwise the formatted failed-step lines.
     private static func logEntry(for entry: FailedJobResult) -> String {
         if let tail = entry.logTail, !tail.isEmpty { return tail }
         return stepLines(for: entry.job).joined(separator: "\n")
@@ -223,16 +224,15 @@ public struct FailureHookRunnerUseCase: Sendable {
     /// Formats the failed-step list for a job into printable lines.
     private static func stepLines(for job: GitHubJob) -> [String] {
         let failedSteps = job.steps.filter { step in
-            guard let conclusion = step.conclusion else { return false }
-            return conclusion.isHookConclusion
+            guard let raw = step.conclusion else { return false }
+            return WorkflowRunConclusion(rawValue: raw)?.isHookConclusion == true
         }
         var lines: [String] = ["Job: \(job.name) [failed]"]
         if failedSteps.isEmpty {
             lines.append("  (no failed steps reported)")
         } else {
             for step in failedSteps {
-                let conclusionStr = step.conclusion?.isHookConclusion == true
-                    ? step.conclusion! : step.status
+                let conclusionStr = step.conclusion ?? step.status
                 lines.append("  x Step \(step.number): \(step.name) -- \(conclusionStr)")
             }
         }
@@ -263,8 +263,8 @@ public struct FailureHookRunnerUseCase: Sendable {
                 category: .failureHook)
             let allJobs = await fetchJobs(runID: run.id, scope: parsedScope)
             let failedJobs = allJobs.filter { job in
-                guard let conclusion = job.conclusion else { return false }
-                return conclusion.isHookConclusion
+                guard let raw = job.conclusion else { return false }
+                return WorkflowRunConclusion(rawValue: raw)?.isHookConclusion == true
             }
             for job in failedJobs {
                 guard seenIDs.insert(job.id).inserted else { continue }

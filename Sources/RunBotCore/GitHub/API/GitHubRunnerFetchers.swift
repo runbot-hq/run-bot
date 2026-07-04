@@ -53,11 +53,11 @@ func fetchActiveJobs(for scopeString: String, decoder: JSONDecoder) async -> [Ac
     let result = await fetchActiveRuns(scope: scope)
     let runs: [GitHubWorkflowRun]
     switch result {
-    case .success(let r):
-        runs = r
-    case .rateLimited(let r):
-        log("fetchActiveJobs › rate limited — \(r.count) partial run(s)")
-        runs = r
+    case .success(let fetchedRuns):
+        runs = fetchedRuns
+    case .rateLimited(let partialRuns):
+        log("fetchActiveJobs › rate limited — \(partialRuns.count) partial run(s)")
+        runs = partialRuns
     case .authFailure:
         log("fetchActiveJobs › auth failure")
         return []
