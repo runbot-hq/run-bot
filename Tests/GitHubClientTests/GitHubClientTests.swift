@@ -33,15 +33,16 @@ struct GitHubClientTests {
     @Test @MainActor
     func testInit_oauthService_isInjectedMock() async {
         let (client, oauth, _) = makeSUT()
-        // Identity check: the protocol box must wrap the same mock instance.
-        #expect(client.oauthService === oauth)
+        // OAuthServiceProtocol is AnyObject-constrained; use ObjectIdentifier for identity.
+        #expect(ObjectIdentifier(client.oauthService as AnyObject) == ObjectIdentifier(oauth))
     }
 
     /// The test init exposes the injected transport at `client.transport`.
     @Test @MainActor
     func testInit_transport_isInjectedMock() async {
         let (client, _, transport) = makeSUT()
-        #expect(client.transport === transport)
+        // GitHubTransportProtocol is Sendable (not AnyObject); cast via AnyObject for identity.
+        #expect(ObjectIdentifier(client.transport as AnyObject) == ObjectIdentifier(transport))
     }
 
     // MARK: - oauthService forwarding
