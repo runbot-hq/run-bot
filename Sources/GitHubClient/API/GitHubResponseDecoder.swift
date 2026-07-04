@@ -36,7 +36,7 @@ func logErrorBody(_ data: Data?, endpoint: String, status: Int, logger: (any Git
 ///   causing a permission-denied 403 to be misclassified as a rate-limit.
 ///
 /// - Parameter statusCode: The HTTP status code of the response.
-/// - Parameter  The response body, if any.
+/// - Parameter data: The response body, if any.
 /// - Parameter response: The full `HTTPURLResponse`.
 /// - Parameter endpoint: The endpoint string, used for logging.
 /// - Parameter rateLimiter: The rate-limit actor to arm on a genuine rate-limit response.
@@ -50,7 +50,7 @@ func logErrorBody(_ data: Data?, endpoint: String, status: Int, logger: (any Git
 /// See https://docs.github.com/en/rest/overview/rate-limits-for-the-rest-api
 func handleRateLimitResponse(
   statusCode: Int,
-  _ data: Data?,
+  data: Data?,
   response: HTTPURLResponse,
   endpoint: String,
   rateLimiter: some RateLimitActorProtocol,
