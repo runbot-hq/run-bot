@@ -56,16 +56,15 @@ public struct ActiveJob: Identifiable, Equatable, Sendable {
     ///
     /// This initialiser constructs the internal `GitHubJob` from flat
     /// parameters so call-sites that pre-date the `raw:` refactor continue to
-    /// compile unchanged.
+    /// compile unchanged. `runID` defaults to `0` — tests that don’t care
+    /// about the run ID can omit it.
     ///
     /// - Parameters:
-    ///   - id:          The job's GitHub numeric ID.
+    ///   - id:          The job’s GitHub numeric ID.
+    ///   - runID:       The workflow run this job belongs to. Defaults to `0`.
     ///   - name:        Display name of the job.
     ///   - status:      Job status string (e.g. `"queued"`, `"in_progress"`, `"completed"`).
-    ///                  Accepts a raw `String` **or** a `JobStatus` value via
-    ///                  `ExpressibleByStringLiteral` conformance.
     ///   - conclusion:  Optional conclusion string (e.g. `"success"`, `"failure"`).
-    ///                  Accepts a raw `String` **or** a `JobConclusion` value.
     ///   - htmlUrl:     Optional URL linking to the job on GitHub.
     ///   - runnerName:  Optional runner name (used to determine `isLocalRunner`).
     ///   - startedAt:   Optional job start `Date`; encoded to ISO-8601 string.
@@ -80,6 +79,7 @@ public struct ActiveJob: Identifiable, Equatable, Sendable {
         status: String,
         conclusion: String? = nil,
         htmlUrl: String? = nil,
+        runID: Int = 0,
         runnerName: String? = nil,
         startedAt: Date? = nil,
         completedAt: Date? = nil,
@@ -91,6 +91,7 @@ public struct ActiveJob: Identifiable, Equatable, Sendable {
         let iso = ISO8601DateFormatter()
         let raw = GitHubJob(
             id: id,
+            runID: runID,
             name: name,
             status: status,
             conclusion: conclusion,
@@ -197,12 +198,10 @@ public struct ActiveJob: Identifiable, Equatable, Sendable {
 
     /// Returns a completed, dimmed copy of this job.
     ///
-    /// The `statusOverride` is set to `.completed` and `isDimmed` to `true`.
-    /// If `raw.completedAt` is `nil`, `fallbackDate` is encoded as an ISO-8601
-    /// string and written into `raw` so that `completedDate` returns a non-nil
-    /// `Date` for callers that depend on it (e.g. `ActiveJobAsCompletedTests`).
+    /// Sets `statusOverride` to `.completed` and `isDimmed` to `true`.
+    /// When `raw.completedAt` is `nil`, `fallbackDate` is ISO-8601-encoded and
+    /// written into `raw` so `completedDate` returns a non-nil `Date`.
     public func asCompleted(at fallbackDate: Date) -> ActiveJob {
-        // Write fallbackDate into raw when the API hasn't provided a completedAt.
         let updatedRaw: GitHubJob
         if raw.completedAt == nil {
             let iso = ISO8601DateFormatter()

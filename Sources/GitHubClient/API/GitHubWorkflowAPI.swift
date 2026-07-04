@@ -219,6 +219,27 @@ public struct GitHubStep: Decodable, Equatable, Sendable {
         /// Maps `completed_at`.
         case completedAt = "completed_at"
     }
+
+    /// Memberwise initialiser — used by tests and `copying(...)` helpers.
+    ///
+    /// `GitHubStep` is `Decodable`-only in production, but tests construct
+    /// steps directly. This init bridges that gap without requiring
+    /// `@testable` access to an internal init.
+    public init(
+        number: Int,
+        name: String,
+        status: String,
+        conclusion: String? = nil,
+        startedAt: String? = nil,
+        completedAt: String? = nil
+    ) {
+        self.number = number
+        self.name = name
+        self.status = status
+        self.conclusion = conclusion
+        self.startedAt = startedAt
+        self.completedAt = completedAt
+    }
 }
 
 /// The result of fetching active workflow runs, distinguishing auth/rate-limit failures
