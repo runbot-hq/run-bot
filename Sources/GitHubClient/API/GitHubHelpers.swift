@@ -32,12 +32,16 @@ public func fetchUserRepos() async -> [String] {
 
 // MARK: - Step log
 
-/// Precompiled regex matching ANSI escape sequences, stripped from step logs.
+/// Compiled regular expression for stripping ANSI escape sequences from log output.
+/// Safety: NSRegularExpression is immutable after initialisation — concurrent reads are safe.
 private let ansiRegex: NSRegularExpression? = try? NSRegularExpression(
     pattern: "\u{001B}\\[[0-9;]*[A-Za-z]"
 )
 
 /// Fetches the log for a single step via the transport layer's `urlSessionRaw()`.
+/// `urlSessionRaw` uses `application/vnd.github.v3.raw` and lets URLSession follow
+/// the GitHub 302→S3 redirect automatically, eliminating the need for a manual
+/// two-step redirect implementation.
 @concurrent
 public func fetchStepLog(jobID: Int, stepNumber: Int, scope scopeString: String) async -> String? {
     guard let scope = Scope.parse(scopeString) else {
@@ -56,7 +60,9 @@ public func fetchStepLog(jobID: Int, stepNumber: Int, scope scopeString: String)
     return parseStepLog(raw, stepNumber: stepNumber)
 }
 
-/// Fetches raw log bytes for `endpoint` and decodes them as UTF-8 text, or `nil` on failure.
+/// Fetches raw log data from `endpoint`, decodes it as UTF-8, and validates the response.
+/// Returns `nil` if the network call fails, the body is not valid UTF-8, the body is
+/// empty, or the body looks like a GitHub error JSON object.
 @concurrent
 private func fetchAndDecodeStepLog(endpoint: String, jobID: Int) async -> String? {
     guard let data = await urlSessionRaw(endpoint) else {
@@ -102,7 +108,8 @@ private func parseStepLog(_ raw: String, stepNumber: Int) -> String? {
     return section
 }
 
-/// Splits cleaned log text into sections delimited by `##[group]` markers.
+/// Splits a cleaned log string into sections delimited by `##[group]` markers.
+/// Lines before the first marker are preamble and are intentionally skipped.
 private func buildLogSections(from cleaned: String) -> [String] {
     let lines = cleaned.components(separatedBy: "\n")
     var sections: [String] = []
