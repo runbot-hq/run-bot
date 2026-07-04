@@ -131,21 +131,29 @@ extension GitHubRunner {
     /// Use `displayStatus(metrics:)` at the call site — metrics are not stored on
     /// `GitHubRunner`.
     init(id: Int, name: String, status: RunnerStatus, busy: Bool = false) {
-        let json = "{\"id\":\(id),\"name\":\"\(name)\",\"status\":\"\(status.rawString)\",\"busy\":\(busy ? "true" : "false"),\"labels\":[]}"
+        let json = "{\"id\":\(id),\"name\":\"\(name)\",\"status\":\"\(status.rawValue)\",\"busy\":\(busy ? "true" : "false"),\"labels\":[]}"
         self = try! JSONDecoder().decode(GitHubRunner.self, from: Data(json.utf8))
     }
 }
 
-// MARK: - makeGitHubRunner helper (used by RunnerDisplayStatusTests)
+// MARK: - JobStep typealias (restores pre-refactor name for tests)
 
-/// Builds a `GitHubRunner` for use in tests.
-func makeGitHubRunner(
-    id: Int = 1,
-    name: String = "test-runner",
-    status: RunnerStatus,
-    busy: Bool = false
-) -> GitHubRunner {
-    GitHubRunner(id: id, name: name, status: status, busy: busy)
+/// Test-only typealias so existing tests can keep using `JobStep` instead of `GitHubStep`.
+typealias JobStep = GitHubStep
+
+// MARK: - ActiveJob string property bridges
+
+extension ActiveJob {
+    /// Test bridge: effective status as raw String.
+    var status: String { jobStatus.rawValue }
+    /// Test bridge: effective conclusion as raw String.
+    var conclusion: String? { jobConclusion?.rawValue }
+    /// Test bridge: parsed completion date.
+    var completedAt: Date? { completedDate }
+    /// Test bridge: parsed start date.
+    var startedAt: Date? { startDate }
+    /// Test bridge: parsed creation date.
+    var createdAt: Date? { createdDate }
 }
 
 // MARK: - Private ISO8601 formatter
