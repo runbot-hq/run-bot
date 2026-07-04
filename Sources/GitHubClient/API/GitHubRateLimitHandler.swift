@@ -133,9 +133,14 @@ public actor RateLimitActor: RateLimitActorProtocol {
     /// and compared in `didFire` to ensure a stale task from a cancelled window
     /// cannot clear state that belongs to a newer rate-limit window.
     private var generation = 0
+    /// Optional logger for diagnostic messages.
+    private let logger: (any GitHubLogger)?
 
     /// Creates a new `RateLimitActor` instance.
-    public init() {}
+    /// - Parameter logger: The injected logger, or `nil` to suppress output.
+    public init(logger: (any GitHubLogger)? = nil) {
+        self.logger = logger
+    }
 
     /// Arms the rate-limit flag and schedules an automatic reset.
     ///
@@ -154,7 +159,7 @@ public actor RateLimitActor: RateLimitActorProtocol {
         // the actual auto-clear time even when the raw server timestamp falls
         // outside the [5, 7200] clamp range.
         let date = Date().addingTimeInterval(delay)
-        log("RateLimitActor › arming: delay=\(Int(delay))s resetDate=\(date)", category: .transport)
+        logger?.log("RateLimitActor › arming: delay=\(Int(delay))s resetDate=\(date)", category: "transport")
         generation &+= 1
         let capturedGeneration = generation
         resetTask?.cancel()
@@ -217,13 +222,13 @@ public actor RateLimitActor: RateLimitActorProtocol {
     /// used on a non-async callee.
     private func didFire(generation: Int, scheduledDelay: TimeInterval) async {
         guard generation == self.generation else {
-            log("RateLimitActor › stale didFire ignored (gen=\(generation) current=\(self.generation))", category: .transport)
+            logger?.log("RateLimitActor › stale didFire ignored (gen=\(generation) current=\(self.generation))", category: "transport")
             return
         }
         isLimited = false
         resetDate = nil
         resetTask = nil
-        log("RateLimitActor › auto-reset fired after \(Int(scheduledDelay))s", category: .transport)
+        logger?.log("RateLimitActor › auto-reset fired after \(Int(scheduledDelay))s", category: "transport")
     }
 }
 

@@ -6,11 +6,12 @@ import Foundation
 // MARK: - Error logging
 
 /// Logs the response body (up to 400 chars) for non-2xx responses.
-func logErrorBody(_ data: Data?, endpoint: String, status: Int) {
+/// - Parameter logger: The injected logger, or `nil` to suppress output.
+func logErrorBody(_ data: Data?, endpoint: String, status: Int, logger: (any GitHubLogger)?) {
   guard let data, !data.isEmpty else { return }
   let body = String(data: data, encoding: .utf8) ?? "<non-UTF8, \(data.count)b>"
   let preview = body.count > 400 ? String(body.prefix(400)) + "…" : body
-  log("HTTP \(status) \(endpoint): \(preview)", category: .transport)
+  logger?.log("HTTP \(status) \(endpoint): \(preview)", category: "transport")
 }
 
 // MARK: - Rate-limit response handler
@@ -42,6 +43,7 @@ func logErrorBody(_ data: Data?, endpoint: String, status: Int) {
 ///   **No default is provided intentionally.** This function is internal and
 ///   must always be called from `urlSessionExecute`, which threads its own
 ///   injected actor through.
+/// - Parameter logger: The injected logger, or `nil` to suppress output.
 ///
 /// - Important: Do not call this function directly from outside `urlSessionExecute`.
 ///
@@ -51,7 +53,8 @@ func handleRateLimitResponse(
   _ data: Data?,
   response: HTTPURLResponse,
   endpoint: String,
-  rateLimiter: some RateLimitActorProtocol
+  rateLimiter: some RateLimitActorProtocol,
+  logger: (any GitHubLogger)?
 ) async -> Bool {
   let retryAfter = response.value(forHTTPHeaderField: "Retry-After").flatMap(Double.init)
   let remaining = response.value(forHTTPHeaderField: "X-RateLimit-Remaining").flatMap(Int.init)
@@ -61,20 +64,20 @@ func handleRateLimitResponse(
   // Remaining == 0 or a Retry-After window is present.
   let isRealRateLimit = statusCode == 429 || remaining == 0 || retryAfter != nil
   guard isRealRateLimit else {
-    log("RateLimit › 403 permission error (not rate limit) — \(endpoint)", category: .transport)
+    logger?.log("RateLimit › 403 permission error (not rate limit) — \(endpoint)", category: "transport")
     return false
   }
 
   let limitKind = rateLimitKind(retryAfter: retryAfter, statusCode: statusCode)
-  logErrorBody(data, endpoint: endpoint, status: statusCode)
+  logErrorBody(data, endpoint: endpoint, status: statusCode, logger: logger)
 
   let resetAt = resetTimestamp(retryAfter: retryAfter, resetHeader: resetHeader)
-  log(
+  logger?.log(
     "RateLimit › ⚠️ rate limited (\(limitKind)) — \(endpoint) "
       + "status=\(statusCode) "
       + "retryAfter=\(String(describing: retryAfter)) "
       + "resetAt=\(String(describing: resetAt))",
-    category: .transport
+    category: "transport"
   )
   await rateLimiter.set(resetAt: resetAt)
   return true

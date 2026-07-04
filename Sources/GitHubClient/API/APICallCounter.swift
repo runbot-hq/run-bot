@@ -78,7 +78,7 @@ public actor APICallCounter: APICallCounterProtocol {
     ///
     /// Declared `internal` (not `private`) so that the test-target seam
     /// `APICallCounter+TestSeam.swift` can inject pre-built timestamps
-    /// via `@testable import RunBotCore` without needing a public API.
+    /// via `@testable import GitHubClient` without needing a public API.
     var timestamps: [ContinuousClock.Instant] = []
 
     /// Creates a new `APICallCounter` instance.

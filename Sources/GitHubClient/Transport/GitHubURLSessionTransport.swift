@@ -132,12 +132,12 @@ public struct GitHubTransport: GitHubTransportProtocol {
     if http.statusCode == 403 || http.statusCode == 429 {
       let wasRateLimited = await handleRateLimitResponse(
         statusCode: http.statusCode, data, response: http,
-        endpoint: urlString, rateLimiter: rateLimiter
+        endpoint: urlString, rateLimiter: rateLimiter, logger: logger
       )
       return wasRateLimited ? .rateLimited : .permissionDenied
     }
     guard (200..<300).contains(http.statusCode) else {
-      logErrorBody(data, endpoint: urlString, status: http.statusCode)
+      logErrorBody(data, endpoint: urlString, status: http.statusCode, logger: logger)
       return .httpError(http.statusCode)
     }
     await rateLimiter.clearIfNotLimited()
