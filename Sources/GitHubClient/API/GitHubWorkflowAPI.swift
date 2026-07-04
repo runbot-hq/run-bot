@@ -21,13 +21,14 @@ public struct GitHubWorkflowRun: Decodable, Sendable {
     /// Raw ISO 8601 date string — caller is responsible for parsing.
     public let updatedAt: String
 
+    /// Coding keys mapping snake_case JSON fields to camelCase Swift properties.
     enum CodingKeys: String, CodingKey {
         case id, name, status, conclusion
-        case headBranch  = "head_branch"
-        case headSha     = "head_sha"
-        case htmlUrl     = "html_url"
-        case createdAt   = "created_at"
-        case updatedAt   = "updated_at"
+        case headBranch = "head_branch"
+        case headSha = "head_sha"
+        case htmlUrl = "html_url"
+        case createdAt = "created_at"
+        case updatedAt = "updated_at"
     }
 }
 
@@ -51,38 +52,45 @@ public struct GitHubJob: Decodable, Identifiable, Equatable, Sendable {
     public let createdAt: String?
     public let steps: [GitHubStep]
 
+    /// Coding keys mapping snake_case JSON fields to camelCase Swift properties.
     enum CodingKeys: String, CodingKey {
         case id, name, status, conclusion, steps
-        case runID       = "run_id"
-        case htmlUrl     = "html_url"
-        case runnerName  = "runner_name"
-        case startedAt   = "started_at"
+        case runID = "run_id"
+        case htmlUrl = "html_url"
+        case runnerName = "runner_name"
+        case startedAt = "started_at"
         case completedAt = "completed_at"
-        case createdAt   = "created_at"
+        case createdAt = "created_at"
     }
 
     public init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        id          = try c.decode(Int.self,    forKey: .id)
-        runID       = try c.decode(Int.self,    forKey: .runID)
-        name        = try c.decode(String.self, forKey: .name)
-        status      = try c.decode(String.self, forKey: .status)
-        conclusion  = try c.decodeIfPresent(String.self, forKey: .conclusion)
-        htmlUrl     = try c.decodeIfPresent(String.self, forKey: .htmlUrl)
-        runnerName  = try c.decodeIfPresent(String.self, forKey: .runnerName)
-        startedAt   = try c.decodeIfPresent(String.self, forKey: .startedAt)
-        completedAt = try c.decodeIfPresent(String.self, forKey: .completedAt)
-        createdAt   = try c.decodeIfPresent(String.self, forKey: .createdAt)
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(Int.self, forKey: .id)
+        runID = try container.decode(Int.self, forKey: .runID)
+        name = try container.decode(String.self, forKey: .name)
+        status = try container.decode(String.self, forKey: .status)
+        conclusion = try container.decodeIfPresent(String.self, forKey: .conclusion)
+        htmlUrl = try container.decodeIfPresent(String.self, forKey: .htmlUrl)
+        runnerName = try container.decodeIfPresent(String.self, forKey: .runnerName)
+        startedAt = try container.decodeIfPresent(String.self, forKey: .startedAt)
+        completedAt = try container.decodeIfPresent(String.self, forKey: .completedAt)
+        createdAt = try container.decodeIfPresent(String.self, forKey: .createdAt)
         // Queued jobs have no steps array in the API response — fall back to []
-        steps       = (try? c.decodeIfPresent([GitHubStep].self, forKey: .steps)) ?? []
+        steps = (try? container.decodeIfPresent([GitHubStep].self, forKey: .steps)) ?? []
     }
 
-    // Full memberwise init for copying helpers.
+    /// Full memberwise initialiser — used by `copying(...)` helpers and tests.
     public init(
-        id: Int, runID: Int, name: String, status: String,
-        conclusion: String? = nil, htmlUrl: String? = nil,
-        runnerName: String? = nil, startedAt: String? = nil,
-        completedAt: String? = nil, createdAt: String? = nil,
+        id: Int,
+        runID: Int,
+        name: String,
+        status: String,
+        conclusion: String? = nil,
+        htmlUrl: String? = nil,
+        runnerName: String? = nil,
+        startedAt: String? = nil,
+        completedAt: String? = nil,
+        createdAt: String? = nil,
         steps: [GitHubStep] = []
     ) {
         self.id = id; self.runID = runID; self.name = name; self.status = status
@@ -93,35 +101,53 @@ public struct GitHubJob: Decodable, Identifiable, Equatable, Sendable {
     }
 
     // MARK: copying helpers — used by ActiveJob.withUpdatedRaw
-    public func copying(runnerName v: String?) -> GitHubJob {
+
+    /// Returns a copy of this job with `runnerName` replaced.
+    public func copying(runnerName newValue: String?) -> GitHubJob {
         GitHubJob(id: id, runID: runID, name: name, status: status,
-                  conclusion: conclusion, htmlUrl: htmlUrl, runnerName: v,
-                  startedAt: startedAt, completedAt: completedAt, createdAt: createdAt, steps: steps)
+                  conclusion: conclusion, htmlUrl: htmlUrl,
+                  runnerName: newValue, startedAt: startedAt,
+                  completedAt: completedAt, createdAt: createdAt, steps: steps)
     }
-    public func copying(startedAt v: String?) -> GitHubJob {
+
+    /// Returns a copy of this job with `startedAt` replaced.
+    public func copying(startedAt newValue: String?) -> GitHubJob {
         GitHubJob(id: id, runID: runID, name: name, status: status,
-                  conclusion: conclusion, htmlUrl: htmlUrl, runnerName: runnerName,
-                  startedAt: v, completedAt: completedAt, createdAt: createdAt, steps: steps)
+                  conclusion: conclusion, htmlUrl: htmlUrl,
+                  runnerName: runnerName, startedAt: newValue,
+                  completedAt: completedAt, createdAt: createdAt, steps: steps)
     }
-    public func copying(completedAt v: String?) -> GitHubJob {
+
+    /// Returns a copy of this job with `completedAt` replaced.
+    public func copying(completedAt newValue: String?) -> GitHubJob {
         GitHubJob(id: id, runID: runID, name: name, status: status,
-                  conclusion: conclusion, htmlUrl: htmlUrl, runnerName: runnerName,
-                  startedAt: startedAt, completedAt: v, createdAt: createdAt, steps: steps)
+                  conclusion: conclusion, htmlUrl: htmlUrl,
+                  runnerName: runnerName, startedAt: startedAt,
+                  completedAt: newValue, createdAt: createdAt, steps: steps)
     }
-    public func copying(createdAt v: String?) -> GitHubJob {
+
+    /// Returns a copy of this job with `createdAt` replaced.
+    public func copying(createdAt newValue: String?) -> GitHubJob {
         GitHubJob(id: id, runID: runID, name: name, status: status,
-                  conclusion: conclusion, htmlUrl: htmlUrl, runnerName: runnerName,
-                  startedAt: startedAt, completedAt: completedAt, createdAt: v, steps: steps)
+                  conclusion: conclusion, htmlUrl: htmlUrl,
+                  runnerName: runnerName, startedAt: startedAt,
+                  completedAt: completedAt, createdAt: newValue, steps: steps)
     }
-    public func copying(steps v: [GitHubStep]) -> GitHubJob {
+
+    /// Returns a copy of this job with `steps` replaced.
+    public func copying(steps newValue: [GitHubStep]) -> GitHubJob {
         GitHubJob(id: id, runID: runID, name: name, status: status,
-                  conclusion: conclusion, htmlUrl: htmlUrl, runnerName: runnerName,
-                  startedAt: startedAt, completedAt: completedAt, createdAt: createdAt, steps: v)
+                  conclusion: conclusion, htmlUrl: htmlUrl,
+                  runnerName: runnerName, startedAt: startedAt,
+                  completedAt: completedAt, createdAt: createdAt, steps: newValue)
     }
-    public func copying(conclusion v: String?) -> GitHubJob {
+
+    /// Returns a copy of this job with `conclusion` replaced.
+    public func copying(conclusion newValue: String?) -> GitHubJob {
         GitHubJob(id: id, runID: runID, name: name, status: status,
-                  conclusion: v, htmlUrl: htmlUrl, runnerName: runnerName,
-                  startedAt: startedAt, completedAt: completedAt, createdAt: createdAt, steps: steps)
+                  conclusion: newValue, htmlUrl: htmlUrl,
+                  runnerName: runnerName, startedAt: startedAt,
+                  completedAt: completedAt, createdAt: createdAt, steps: steps)
     }
 }
 
@@ -136,9 +162,10 @@ public struct GitHubStep: Decodable, Equatable, Sendable {
     /// Raw ISO 8601 date string — caller is responsible for parsing.
     public let completedAt: String?
 
+    /// Coding keys mapping snake_case JSON fields to camelCase Swift properties.
     enum CodingKeys: String, CodingKey {
         case name, status, conclusion, number
-        case startedAt   = "started_at"
+        case startedAt = "started_at"
         case completedAt = "completed_at"
     }
 }
@@ -164,14 +191,13 @@ public func fetchActiveRuns(scope: Scope) async -> GitHubRunsFetchResult {
     let statuses = ["in_progress", "queued"]
     var allRuns: [GitHubWorkflowRun] = []
     var seenIDs = Set<Int>()
-
     for status in statuses {
-        let endpoint =
-            "\(scope.apiPrefix)/actions/runs?status=\(status)&per_page=\(GitHubConstants.activeRunsPageSize)"
+        let endpoint = "\(scope.apiPrefix)/actions/runs?status=\(status)&per_page=\(GitHubConstants.activeRunsPageSize)"
         guard let data = await ghAPIPaginated(endpoint) else {
             if allRuns.isEmpty { return .noToken } else { return .rateLimited(allRuns) }
         }
-        struct Response: Decodable { let workflowRuns: [GitHubWorkflowRun]
+        struct Response: Decodable {
+            let workflowRuns: [GitHubWorkflowRun]
             enum CodingKeys: String, CodingKey { case workflowRuns = "workflow_runs" }
         }
         if let decoded = try? JSONDecoder().decode(Response.self, from: data) {

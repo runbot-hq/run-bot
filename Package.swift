@@ -23,6 +23,7 @@ let package = Package(
             name: "GitHubClient",
             dependencies: [],
             path: "Sources/GitHubClient",
+            exclude: ["README.md"],
             swiftSettings: [
                 .enableUpcomingFeature("NonisolatedNonsendingByDefault")
             ]

@@ -14,7 +14,6 @@ public struct GitHubRunner: Codable, Identifiable, Sendable, Equatable {
     public let status: String
     public let busy: Bool
     public let labels: [GitHubRunnerLabel]
-
     /// The label name strings for this runner (e.g. `["self-hosted", "macOS", "arm64"]`).
     public var labelNames: [String] { labels.map(\.name) }
 }
@@ -23,6 +22,7 @@ public struct GitHubRunner: Codable, Identifiable, Sendable, Equatable {
 public struct GitHubRunnerLabel: Codable, Sendable, Equatable {
     public let id: Int
     public let name: String
+    /// The label type as returned by the API: `"read-only"` for system labels, `"custom"` for user-defined labels.
     public let type: String
 }
 
