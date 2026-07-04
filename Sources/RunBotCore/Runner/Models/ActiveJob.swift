@@ -50,61 +50,6 @@ public struct ActiveJob: Identifiable, Equatable, Sendable {
         self.conclusionOverride = conclusionOverride
     }
 
-    // MARK: Convenience init (flat fields)
-
-    /// Creates an `ActiveJob` from individual field values.
-    ///
-    /// This initialiser constructs the internal `GitHubJob` from flat
-    /// parameters so call-sites that pre-date the `raw:` refactor continue to
-    /// compile unchanged. `runID` defaults to `0` — tests that don’t care
-    /// about the run ID can omit it.
-    ///
-    /// - Parameters:
-    ///   - id:          The job’s GitHub numeric ID.
-    ///   - runID:       The workflow run this job belongs to. Defaults to `0`.
-    ///   - name:        Display name of the job.
-    ///   - status:      Job status string (e.g. `"queued"`, `"in_progress"`, `"completed"`).
-    ///   - conclusion:  Optional conclusion string (e.g. `"success"`, `"failure"`).
-    ///   - htmlUrl:     Optional URL linking to the job on GitHub.
-    ///   - runnerName:  Optional runner name (used to determine `isLocalRunner`).
-    ///   - startedAt:   Optional job start `Date`; encoded to ISO-8601 string.
-    ///   - completedAt: Optional job completion `Date`; encoded to ISO-8601 string.
-    ///   - createdAt:   Optional job creation `Date`; encoded to ISO-8601 string.
-    ///   - steps:       Array of `GitHubStep` values (aliased as `JobStep`).
-    ///   - isDimmed:    Whether the job is displayed as a faded history entry.
-    ///   - scope:       Repo/org scope string, injected post-fetch.
-    public init(
-        id: Int,
-        name: String,
-        status: String,
-        conclusion: String? = nil,
-        htmlUrl: String? = nil,
-        runID: Int = 0,
-        runnerName: String? = nil,
-        startedAt: Date? = nil,
-        completedAt: Date? = nil,
-        createdAt: Date? = nil,
-        steps: [GitHubStep] = [],
-        isDimmed: Bool = false,
-        scope: String? = nil
-    ) {
-        let iso = ISO8601DateFormatter()
-        let raw = GitHubJob(
-            id: id,
-            runID: runID,
-            name: name,
-            status: status,
-            conclusion: conclusion,
-            htmlUrl: htmlUrl,
-            runnerName: runnerName,
-            startedAt: startedAt.map { iso.string(from: $0) },
-            completedAt: completedAt.map { iso.string(from: $0) },
-            createdAt: createdAt.map { iso.string(from: $0) },
-            steps: steps
-        )
-        self.init(raw: raw, isDimmed: isDimmed, scope: scope)
-    }
-
     // MARK: Forwarded API fields
 
     /// Job display name forwarded from `raw.name`.
@@ -218,12 +163,3 @@ public struct ActiveJob: Identifiable, Equatable, Sendable {
         )
     }
 }
-
-// MARK: - JobStep typealias
-
-/// `JobStep` is a source-compatibility alias for `GitHubStep`.
-///
-/// Legacy test code that pre-dates the `GitHubClient` extraction uses
-/// `JobStep` as the step type. The alias lets those files compile without
-/// modification while the rest of the codebase migrates to `GitHubStep`.
-public typealias JobStep = GitHubStep
