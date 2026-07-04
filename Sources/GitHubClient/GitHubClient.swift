@@ -54,12 +54,17 @@ public final class GitHubClient {
     /// path. `TokenCache.invalidate()` is called automatically after every
     /// successful sign-in and sign-out.
     ///
+    /// Must be called on the main actor because `OAuthService.init` is
+    /// `@MainActor`-isolated. `AppDelegate` — the only production call site —
+    /// satisfies this requirement automatically.
+    ///
     /// - Parameters:
     ///   - clientID: The GitHub OAuth app client ID.
     ///   - clientSecret: The GitHub OAuth app client secret.
     ///   - service: The keychain service name. Defaults to `"run-bot"`.
     ///   - account: The keychain account name. Defaults to `"github-oauth-token"`.
     ///   - logger: Optional logger for diagnostic messages.
+    @MainActor
     public init(
         clientID: String,
         clientSecret: String,
@@ -92,6 +97,9 @@ public final class GitHubClient {
     /// Use in tests to avoid Keychain or network access. Inject a
     /// `MockOAuthService` and `MockTransport` at whatever granularity
     /// the test requires.
+    ///
+    /// Intentionally nonisolated — it only assigns protocol existentials
+    /// and never calls any `@MainActor`-isolated code directly.
     ///
     /// - Parameters:
     ///   - oauthService: A mock or stub conforming to `OAuthServiceProtocol`.
