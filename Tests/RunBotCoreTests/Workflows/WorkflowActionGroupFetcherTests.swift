@@ -103,9 +103,10 @@ private func minimalRun(
 private func minimalJob(
   id: Int, name: String = "build",
   status: String = "completed",
-  conclusion: String? = "success"
+  conclusion: String? = "success",
+  runID: Int = 0
 ) -> [String: Any] {
-  var d: [String: Any] = ["id": id, "name": name, "status": status]
+  var d: [String: Any] = ["id": id, "run_id": runID, "name": name, "status": status]
   withConclusion(&d, conclusion)
   return d
 }

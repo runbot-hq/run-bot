@@ -150,6 +150,7 @@ public struct ActiveJob: Identifiable, Equatable, Sendable {
         let updatedRaw: GitHubJob
         if raw.completedAt == nil {
             let iso = ISO8601DateFormatter()
+            iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
             updatedRaw = raw.copying(completedAt: iso.string(from: fallbackDate))
         } else {
             updatedRaw = raw
