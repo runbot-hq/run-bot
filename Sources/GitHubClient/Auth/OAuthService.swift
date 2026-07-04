@@ -19,7 +19,7 @@ import Foundation
 // 4. AppDelegate.application(_:open:) catches the URL and calls handleCallback(_:).
 // 5. handleCallback verifies the state param matches pendingState (CSRF guard),
 //    then exchanges the code for an access token via POST to GitHub.
-// 6. Token is saved to Keychain. fireSignIn(_:) yields the result to all
+// 6. Token is saved to tokenStore. fireSignIn(_:) yields the result to all
 //    registered makeSignInStream() consumers.
 
 /// Manages OAuth state and behaviour. No AppKit dependency.
@@ -44,7 +44,7 @@ public final class OAuthService: OAuthServiceProtocol {
     private let clientID: String
     /// The GitHub OAuth app client secret.
     private let clientSecret: String
-    /// The backing store used to save/delete the OAuth token.
+    /// The backing store used to save/delete/load the OAuth token.
     private let tokenStore: any TokenStore
     /// Optional logger for diagnostic messages.
     private let logger: (any GitHubLogger)?
@@ -53,7 +53,7 @@ public final class OAuthService: OAuthServiceProtocol {
     /// - Parameters:
     ///   - clientID: The GitHub OAuth app client ID.
     ///   - clientSecret: The GitHub OAuth app client secret.
-    ///   - tokenStore: The backing store used to save/delete the OAuth token.
+    ///   - tokenStore: The backing store used to save/delete/load the OAuth token.
     ///   - logger: Optional logger for diagnostic messages.
     public init(
         clientID: String,
@@ -65,6 +65,24 @@ public final class OAuthService: OAuthServiceProtocol {
         self.clientSecret = clientSecret
         self.tokenStore = tokenStore
         self.logger = logger
+    }
+
+    // MARK: - OAuthServiceProtocol — Auth state
+
+    /// `true` when a valid OAuth token is present in the token store (e.g. Keychain).
+    public var isAuthenticated: Bool {
+        tokenStore.load() != nil
+    }
+
+    /// `true` when any usable GitHub token is available — OAuth token,
+    /// `GH_TOKEN`, or `GITHUB_TOKEN` environment variable.
+    ///
+    /// Mirrors the resolution priority of `TokenCache.token()` without
+    /// requiring a `TokenCache` reference here.
+    public var hasAnyToken: Bool {
+        if tokenStore.load() != nil { return true }
+        let env = ProcessInfo.processInfo.environment
+        return env["GH_TOKEN"] != nil || env["GITHUB_TOKEN"] != nil
     }
 
     // MARK: - Sign-out multicast
