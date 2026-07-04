@@ -194,6 +194,12 @@ public final class OAuthService: OAuthServiceProtocol {
             logger?.log("OAuthService › signOut — emitting didSignOut to \(signOutContinuations.count) consumer(s)", category: "transport")
             signOutContinuations.values.forEach { $0.yield(()) }
         } else {
+            // TODO(#1950): The suppression below makes the sign-out button permanently
+            // inoperative on any Keychain SecItemDelete error (e.g. errSecInteractionNotAllowed).
+            // Fix: always call onTokenDeleted() + emit the sign-out stream regardless of
+            // delete success, so the in-memory cache is wiped and the UI reflects reality.
+            // The ghost-sign-in risk on next launch is recoverable; permanent UI lock-out is not.
+            //
             // Intentional: do NOT emit the sign-out event when the token was not
             // successfully deleted. Emitting a sign-out with a live token still in
             // the store would leave the app in a ghost-signed-in state on the next
