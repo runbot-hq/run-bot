@@ -7,14 +7,19 @@ import Foundation
 
 /// A GitHub Actions workflow run as returned by the REST API.
 public struct GitHubWorkflowRun: Decodable, Sendable {
+    /// Unique numeric run ID assigned by GitHub.
     public let id: Int
+    /// Display name of the workflow (may be `nil` for anonymous workflows).
     public let name: String?
     /// Raw status string from the API: `"queued"`, `"in_progress"`, or `"completed"`.
     public let status: String
     /// Raw conclusion string: `"success"`, `"failure"`, `"cancelled"`, or `nil` when still running.
     public let conclusion: String?
+    /// The branch this run was triggered on.
     public let headBranch: String?
+    /// The commit SHA this run was triggered on.
     public let headSha: String
+    /// GitHub web URL for this run.
     public let htmlUrl: String
     /// Raw ISO 8601 date string — caller is responsible for parsing.
     public let createdAt: String
@@ -23,26 +28,42 @@ public struct GitHubWorkflowRun: Decodable, Sendable {
 
     /// Coding keys mapping snake_case JSON fields to camelCase Swift properties.
     enum CodingKeys: String, CodingKey {
-        case id, name, status, conclusion
+        /// Maps `id`.
+        case id
+        /// Maps `name`.
+        case name
+        /// Maps `status`.
+        case status
+        /// Maps `conclusion`.
+        case conclusion
+        /// Maps `head_branch`.
         case headBranch = "head_branch"
+        /// Maps `head_sha`.
         case headSha = "head_sha"
+        /// Maps `html_url`.
         case htmlUrl = "html_url"
+        /// Maps `created_at`.
         case createdAt = "created_at"
+        /// Maps `updated_at`.
         case updatedAt = "updated_at"
     }
 }
 
 /// A GitHub Actions job as returned by the REST API.
 public struct GitHubJob: Decodable, Identifiable, Equatable, Sendable {
+    /// Unique numeric job ID assigned by GitHub.
     public let id: Int
     /// The workflow run this job belongs to. Maps the `run_id` JSON field.
     public let runID: Int
+    /// Display name of the job.
     public let name: String
     /// Raw status string — NOT `JobStatus` (a RunBotCore type).
     public let status: String
     /// Raw conclusion string — NOT `JobConclusion` (a RunBotCore type).
     public let conclusion: String?
+    /// GitHub web URL for this job.
     public let htmlUrl: String?
+    /// Name of the runner executing this job, or `nil` if not yet assigned.
     public let runnerName: String?
     /// Raw ISO 8601 date string — caller is responsible for parsing.
     public let startedAt: String?
@@ -50,19 +71,36 @@ public struct GitHubJob: Decodable, Identifiable, Equatable, Sendable {
     public let completedAt: String?
     /// Raw ISO 8601 date string — caller is responsible for parsing.
     public let createdAt: String?
+    /// Steps within this job.
     public let steps: [GitHubStep]
 
     /// Coding keys mapping snake_case JSON fields to camelCase Swift properties.
     enum CodingKeys: String, CodingKey {
-        case id, name, status, conclusion, steps
+        /// Maps `id`.
+        case id
+        /// Maps `name`.
+        case name
+        /// Maps `status`.
+        case status
+        /// Maps `conclusion`.
+        case conclusion
+        /// Maps `steps`.
+        case steps
+        /// Maps `run_id`.
         case runID = "run_id"
+        /// Maps `html_url`.
         case htmlUrl = "html_url"
+        /// Maps `runner_name`.
         case runnerName = "runner_name"
+        /// Maps `started_at`.
         case startedAt = "started_at"
+        /// Maps `completed_at`.
         case completedAt = "completed_at"
+        /// Maps `created_at`.
         case createdAt = "created_at"
     }
 
+    /// Decodes a `GitHubJob` from the GitHub REST API JSON payload.
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(Int.self, forKey: .id)
@@ -153,9 +191,13 @@ public struct GitHubJob: Decodable, Identifiable, Equatable, Sendable {
 
 /// A single step within a GitHub Actions job.
 public struct GitHubStep: Decodable, Equatable, Sendable {
+    /// Display name of the step.
     public let name: String
+    /// Raw status string from the API.
     public let status: String
+    /// Raw conclusion string from the API, or `nil` if still running.
     public let conclusion: String?
+    /// 1-based step number within the job.
     public let number: Int
     /// Raw ISO 8601 date string — caller is responsible for parsing.
     public let startedAt: String?
@@ -164,8 +206,17 @@ public struct GitHubStep: Decodable, Equatable, Sendable {
 
     /// Coding keys mapping snake_case JSON fields to camelCase Swift properties.
     enum CodingKeys: String, CodingKey {
-        case name, status, conclusion, number
+        /// Maps `name`.
+        case name
+        /// Maps `status`.
+        case status
+        /// Maps `conclusion`.
+        case conclusion
+        /// Maps `number`.
+        case number
+        /// Maps `started_at`.
         case startedAt = "started_at"
+        /// Maps `completed_at`.
         case completedAt = "completed_at"
     }
 }

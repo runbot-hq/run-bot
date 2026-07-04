@@ -7,12 +7,16 @@ import Foundation
 
 /// A GitHub Actions self-hosted runner as returned by the REST API.
 public struct GitHubRunner: Codable, Identifiable, Sendable, Equatable {
+    /// Unique numeric runner ID assigned by GitHub.
     public let id: Int
+    /// Display name of the runner (e.g. `"my-mac-runner"`).
     public let name: String
     /// Raw status string from the API: `"online"`, `"offline"`, or `"busy"`.
     /// RunBotCore is responsible for interpreting this value via `runnerStatus`.
     public let status: String
+    /// `true` when the runner is actively executing a job.
     public let busy: Bool
+    /// Labels attached to this runner.
     public let labels: [GitHubRunnerLabel]
     /// The label name strings for this runner (e.g. `["self-hosted", "macOS", "arm64"]`).
     public var labelNames: [String] { labels.map(\.name) }
@@ -20,7 +24,9 @@ public struct GitHubRunner: Codable, Identifiable, Sendable, Equatable {
 
 /// A label attached to a GitHub Actions self-hosted runner.
 public struct GitHubRunnerLabel: Codable, Sendable, Equatable {
+    /// Unique numeric label ID assigned by GitHub.
     public let id: Int
+    /// Display name of the label (e.g. `"self-hosted"`, `"macOS"`).
     public let name: String
     /// The label type as returned by the API: `"read-only"` for system labels, `"custom"` for user-defined labels.
     public let type: String
