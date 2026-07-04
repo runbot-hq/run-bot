@@ -120,7 +120,7 @@ extension GitHubStep {
         let json = """
         {"number":\(n),"name":\"\(name)\","status":\"\(status)\","conclusion":\(conclusionJSON),"started_at":\(startJSON),"completed_at":\(endJSON)}
         """
-        self = try! JSONDecoder().decode(GitHubStep.self, from: Data(json.utf8))
+        self = try! JSONDecoder().decode(GitHubStep.self, from: Data(json.utf8)) // swiftlint:disable:this force_try
     }
 
     /// Test-only init: typed `JobStatus` / `JobConclusion` overload.
@@ -150,22 +150,17 @@ extension GitHubStep {
 
 // MARK: - GitHubRunner test convenience init
 
-/// Test-only typealias restoring the pre-refactor `Runner` name.
-typealias Runner = GitHubRunner
-
 extension GitHubRunner {
     /// Test-only convenience init: builds a `GitHubRunner` from a typed `RunnerStatus`
-/// and optional `busy` flag via JSON round-trip.
-/// `GitHubRunner` has no public memberwise init and `labels` is `[GitHubRunnerLabel]`,
-/// not `[String]`, so JSON is the only stable construction path from tests.
-/// Labels default to empty. Use `displayStatus(metrics:)` at the call site — metrics are not stored on
-/// `GitHubRunner`.
-init(id: Int, name: String, status: RunnerStatus, busy: Bool = false, metrics: RunnerMetrics? = nil) {
-    let json = """
-    {"id":\(id),"name":\"\(name)\",\"status\":\"\(status.rawValue)\",\"busy\":\(busy ? "true" : "false"),"labels":[]}
-    """
-
-        self = try! JSONDecoder().decode(GitHubRunner.self, from: Data(json.utf8))
+    /// and optional `busy` flag via JSON round-trip.
+    /// `GitHubRunner` has no public memberwise init and `labels` is `[GitHubRunnerLabel]`,
+    /// not `[String]`, so JSON is the only stable construction path from tests.
+    /// Labels default to empty. Use `displayStatus(metrics:)` at the call site.
+    init(id: Int, name: String, status: RunnerStatus, busy: Bool = false) {
+        let json = """
+        {"id":\(id),"name":\"\(name)\","status":\"\(status.rawValue)\","busy":\(busy ? "true" : "false"),"labels":[]}
+        """
+        self = try! JSONDecoder().decode(GitHubRunner.self, from: Data(json.utf8)) // swiftlint:disable:this force_try
     }
 
     /// Convenience forwarder for tests that call `runner.displayStatus` without args.

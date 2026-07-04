@@ -22,7 +22,7 @@ final class MockOAuthService: OAuthServiceProtocol {
 
     var isAuthenticated: Bool = false
     var hasAnyToken: Bool = false
-    var signInURLToReturn: URL? = nil
+    var signInURLToReturn: URL?
 
     // MARK: - Spy state
 

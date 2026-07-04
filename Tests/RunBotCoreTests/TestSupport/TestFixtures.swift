@@ -45,15 +45,15 @@ func makeRunnerModel(
 func makeGitHubRunner(
     id: Int = 1,
     name: String = "r",
-    status: RunnerStatus,
-    busy: Bool = false
+    busy: Bool = false,
+    status: RunnerStatus
 ) -> GitHubRunner {
     // GitHubRunner.labels is [GitHubRunnerLabel] (not [String]) and has no public
     // memberwise init, so we round-trip through JSON to construct a test instance.
     let json = """
     {"id":\(id),"name":\"\(name)\",\"status\":\"\(status.rawValue)\",\"busy\":\(busy ? "true" : "false"),"labels":[]}
     """
-    return try! JSONDecoder().decode(GitHubRunner.self, from: Data(json.utf8))
+    return try! JSONDecoder().decode(GitHubRunner.self, from: Data(json.utf8)) // swiftlint:disable:this force_try
 }
 
 // MARK: - WorkflowActionGroup
