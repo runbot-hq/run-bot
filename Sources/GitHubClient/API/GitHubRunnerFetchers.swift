@@ -1,11 +1,22 @@
 // GitHubRunnerFetchers.swift
 // GitHubClient
+//
+// Step 10: Free functions that fetch runners and active jobs from the GitHub API.
+// Moved from RunBot/GitHub/GitHubHelpers.swift so RunnerPoller (now in Core)
+// can call them without an app-layer dependency.
 import Foundation
 import os
 
 // MARK: - Fetch runners
 
-public func fetchRunners(for scopeString: String, decoder: JSONDecoder) async -> [Runner] {
+/// Fetches all registered self-hosted runners for the given scope string.
+/// Supports both repo-scoped (`owner/repo`) and org-scoped (`org`) formats.
+/// - Parameters:
+///   - scopeString: A repo path (`owner/repo`) or org name.
+///   - decoder: A shared `JSONDecoder` instance. Pass `RunnerPoller.decoder` so the
+///     actor's reusable instance is used instead of allocating a new one per call.
+/// - Returns: An array of `Runner` values, or empty on failure.
+func fetchRunners(for scopeString: String, decoder: JSONDecoder) async -> [Runner] {
     guard let scope = Scope.parse(scopeString) else {
         log("fetchRunners › invalid scope: \(scopeString)")
         return []
@@ -24,13 +35,23 @@ public func fetchRunners(for scopeString: String, decoder: JSONDecoder) async ->
     return response.runners
 }
 
+/// Response envelope for the runners list API endpoint.
 private struct RunnersResponse: Codable {
+    /// The list of runners returned by the API.
     let runners: [Runner]
 }
 
 // MARK: - Fetch active jobs
 
-public func fetchActiveJobs(for scopeString: String, decoder: JSONDecoder) async -> [ActiveJob] {
+/// Fetches all active (in-progress and queued) jobs for a given scope.
+/// Supports both repo-scoped (`owner/repo`) and org-scoped (`org`) runners.
+/// Date parsing goes through `ISO8601DateParser.shared` — one actor, one formatter.
+/// - Parameters:
+///   - scopeString: A repo path (`owner/repo`) or org name.
+///   - decoder: A shared `JSONDecoder` instance. Pass `RunnerPoller.decoder` so the
+///     actor's reusable instance is used instead of allocating a new one per call.
+/// - Returns: An array of `ActiveJob` values, or empty on failure.
+func fetchActiveJobs(for scopeString: String, decoder: JSONDecoder) async -> [ActiveJob] {
     guard let scope = Scope.parse(scopeString) else {
         log("fetchActiveJobs › invalid scope: \(scopeString)")
         return []
@@ -67,11 +88,19 @@ public func fetchActiveJobs(for scopeString: String, decoder: JSONDecoder) async
     return jobs
 }
 
+/// Response envelope for the workflow runs list API endpoint.
 private struct WorkflowRunsResponse: Codable {
+    /// The list of workflow runs returned by the API.
     let workflowRuns: [WorkflowRun]
-    enum CodingKeys: String, CodingKey { case workflowRuns = "workflow_runs" }
+    /// Maps the snake_case `workflow_runs` key to the camelCase Swift property.
+    enum CodingKeys: String, CodingKey {
+        /// Maps `workflow_runs` JSON key to `workflowRuns`.
+        case workflowRuns = "workflow_runs"
+    }
 }
 
+/// Minimal workflow run payload — only the run ID is needed for job fetching.
 private struct WorkflowRun: Codable {
+    /// The unique run identifier.
     let id: Int
 }
