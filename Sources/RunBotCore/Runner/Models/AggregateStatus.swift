@@ -9,7 +9,7 @@
 /// - `allOnline`  → green dot / filled circle  (every runner online or busy)
 /// - `someOffline` → yellow dot / half-filled circle (mixed)
 /// - `allOffline`  → dark dot  / empty circle   (no runners reachable)
-public enum AggregateStatus {
+public enum AggregateStatus: Sendable {
     /// Every runner in the fleet is `.online` or `.busy`.
     case allOnline
     /// At least one runner is offline while at least one is online or busy.

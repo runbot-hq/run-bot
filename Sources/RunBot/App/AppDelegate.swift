@@ -166,11 +166,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Sheet state that must survive transient popover hides.
     let panelSheetState = PanelSheetState()
 
-    // periphery:ignore - write-only by design; assignment keeps the loop alive
-    /// Retains the `ObservationLoop` that observes `runnerState.aggregateStatus`
-    /// and calls `updateStatusIcon()` whenever the runner fleet status changes.
-    /// Must be stored as a property — deallocating it stops re-registration.
-    var statusIconLoop: ObservationLoop?
+    // periphery:ignore - write-only by design; assignment keeps the Task alive
+    /// Retained handle for the status-icon observation task started in
+    /// `applicationDidFinishLaunching` (AppDelegate+StoreSetup.swift).
+    /// Keeping a strong reference ensures the task is never silently abandoned.
+    var statusIconTask: Task<Void, Never>?
 
     // periphery:ignore - write-only by design; assignment keeps the Task alive
     /// Retained handle for the sign-out observation task started in

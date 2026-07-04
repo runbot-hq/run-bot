@@ -2,6 +2,7 @@
 // RunBot
 
 import AppKit
+import Observation
 import RunBotCore
 
 /// AppDelegate extension wiring app-lifecycle callbacks to store and service setup.
@@ -31,8 +32,8 @@ extension AppDelegate {
     /// 4. `setupStatusItem` / `setupPanel` / `setupSignOutSubscription` — UI and
     ///    observers start only after display names are hydrated.
     ///
-    /// ## statusIconLoop ordering
-    /// `statusIconLoop` (Step 13) is assigned in this outer `Task {}` block,
+    /// ## statusIconTask ordering
+    /// `statusIconTask` (Step 13) is assigned in this outer `Task {}` block,
     /// synchronously *after* `setupPanel()` returns but *before* `RunnerPoller.start()`
     /// has a chance to fire. Here is why that ordering is guaranteed:
     ///
@@ -41,9 +42,9 @@ extension AppDelegate {
     /// `await localRunnerStore.refreshAsync()` before calling `store.start()`.
     /// Because `refreshAsync()` suspends, the inner Task yields back to the
     /// `@MainActor` queue — this outer `Task {}` continues to the
-    /// `statusIconLoop = ObservationLoop { … }` line before `start()` is ever
-    /// called. There is no reachable path where `applyFetchResult` writes to
-    /// `runnerState` before `statusIconLoop` is registered.
+    /// `statusIconTask = Task { … }` line before `start()` is ever called.
+    /// There is no reachable path where `applyFetchResult` writes to
+    /// `runnerState` before `statusIconTask` is registered.
     ///
     /// - Parameter _: The notification (unused).
     func applicationDidFinishLaunching(_ _: Notification) {
@@ -98,19 +99,26 @@ extension AppDelegate {
             setupPanel()
             setupSignOutSubscription()
 
-            // Step 13: wire ObservationLoop so AppDelegate reacts to RunnerState
-            // changes without a callback from RunnerPoller.
+            // Step 13: observe aggregateStatus changes via Observations<Value> — the
+            // Swift 6.2 native AsyncSequence for @Observable types (Reach Goal #2).
+            //
+            // Observations handles re-registration, threading, and cancellation
+            // correctly at the framework level. No manual withObservationTracking
+            // bridge needed.
             //
             // Ordering safety: setupPanel → setupSubscriptions spawns an inner Task
             // that suspends on `await localRunnerStore.refreshAsync()` before calling
             // `store.start()`. The suspension yields control back here, so this
             // assignment is always reached before the first `applyFetchResult` write.
             // See `applicationDidFinishLaunching` doc-comment for the full explanation.
-            statusIconLoop = ObservationLoop { [weak self] in
+            statusIconTask = Task { @MainActor [weak self] in
                 guard let self else { return }
-                _ = runnerState.aggregateStatus
-            } onChange: { [weak self] in
-                self?.updateStatusIcon()
+                // Observations has did-set semantics: it emits once immediately with
+                // the current value, then on each subsequent change. The initial call
+                // seeds the status icon to the correct state at startup.
+                for await _ in Observations({ self.runnerState.aggregateStatus }) {
+                    updateStatusIcon()
+                }
             }
 
             log("AppDelegate › applicationDidFinishLaunching — DONE")
