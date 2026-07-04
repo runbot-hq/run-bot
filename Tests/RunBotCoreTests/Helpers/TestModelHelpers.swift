@@ -173,8 +173,10 @@ typealias Runner = GitHubRunner
 
 extension GitHubRunner {
     /// Test-only convenience init matching the pre-refactor Runner(id:name:status:busy:metrics:).
+    /// GitHubRunner's memberwise init is internal, so we round-trip through JSON.
     init(id: Int, name: String, status: RunnerStatus, busy: Bool = false, metrics: RunnerMetrics? = nil) {
-        self.init(id: id, name: name, status: status.rawString, busy: busy, labels: [])
+        let json = "{\"id\":\(id),\"name\":\"\(name)\",\"status\":\"\(status.rawValue)\",\"busy\":\(busy ? "true" : "false"),\"labels\":[]}"
+        self = try! JSONDecoder().decode(GitHubRunner.self, from: Data(json.utf8))
         // metrics is not stored on GitHubRunner — use displayStatus(metrics:) at call site.
     }
 

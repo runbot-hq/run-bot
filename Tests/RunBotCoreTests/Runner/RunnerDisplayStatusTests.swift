@@ -10,7 +10,7 @@ import GitHubClient
 struct RunnerDisplayStatusTests {
 
     private func makeRunner(status: RunnerStatus, busy: Bool = false) -> GitHubRunner {
-        GitHubRunner(id: 1, name: "r", status: status.rawString, busy: busy, labels: [])
+        GitHubRunner(id: 1, name: "r", status: status, busy: busy)
     }
 
     @Test func offlineReturnsOffline() {
