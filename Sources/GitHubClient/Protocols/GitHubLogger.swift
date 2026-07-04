@@ -1,11 +1,15 @@
 // GitHubLogger.swift
-// GitHubClient
+// RunBotGitHubClient
 
 /// Log categories used by `GitHubClient` types.
 public enum LogCategory: String, Sendable {
+    /// Network transport events (requests, responses, errors).
     case transport
+    /// GitHub API call events.
     case api
+    /// Authentication and token events.
     case auth
+    /// General-purpose diagnostic events.
     case general
 }
 
@@ -22,8 +26,10 @@ public protocol GitHubLogger: Sendable {
     nonisolated func log(_ message: String, category: LogCategory)
 }
 
-/// A no-op logger used as a default when no logger is injected.
+/// A no-op logger used as a safe default when no logger is injected.
 public struct SilentGitHubLogger: GitHubLogger {
+    /// Creates a new silent logger.
     public init() {}
+    /// Does nothing.
     public nonisolated func log(_ message: String, category: LogCategory) {}
 }
