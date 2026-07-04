@@ -13,7 +13,7 @@ import Foundation
 /// - Note: All methods mirror the existing free-function signatures in this file.
 ///   Default `timeout` values match the legacy free-function defaults so that
 ///   existing call sites require no changes when migrated.
-public protocol GitHubTransportProtocol: Sendable {
+public protocol GitHubTransportProtocol: AnyObject, Sendable {
     /// Fetches a single GitHub REST API page. Returns decoded `Data` on success, `nil` on any failure.
     @concurrent
     func apiAsync(_ endpoint: String, timeout: TimeInterval) async -> Data?
