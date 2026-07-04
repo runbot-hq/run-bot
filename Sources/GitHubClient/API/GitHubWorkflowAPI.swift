@@ -32,7 +32,7 @@ public struct GitHubWorkflowRun: Decodable, Sendable {
 }
 
 /// A GitHub Actions job as returned by the REST API.
-public struct GitHubJob: Decodable, Identifiable, Sendable {
+public struct GitHubJob: Decodable, Identifiable, Equatable, Sendable {
     public let id: Int
     /// The workflow run this job belongs to. Maps the `run_id` JSON field.
     public let runID: Int
@@ -76,10 +76,57 @@ public struct GitHubJob: Decodable, Identifiable, Sendable {
         // Queued jobs have no steps array in the API response — fall back to []
         steps       = (try? c.decodeIfPresent([GitHubStep].self, forKey: .steps)) ?? []
     }
+
+    // Full memberwise init for copying helpers.
+    public init(
+        id: Int, runID: Int, name: String, status: String,
+        conclusion: String? = nil, htmlUrl: String? = nil,
+        runnerName: String? = nil, startedAt: String? = nil,
+        completedAt: String? = nil, createdAt: String? = nil,
+        steps: [GitHubStep] = []
+    ) {
+        self.id = id; self.runID = runID; self.name = name; self.status = status
+        self.conclusion = conclusion; self.htmlUrl = htmlUrl
+        self.runnerName = runnerName; self.startedAt = startedAt
+        self.completedAt = completedAt; self.createdAt = createdAt
+        self.steps = steps
+    }
+
+    // MARK: copying helpers — used by ActiveJob.withUpdatedRaw
+    public func copying(runnerName v: String?) -> GitHubJob {
+        GitHubJob(id: id, runID: runID, name: name, status: status,
+                  conclusion: conclusion, htmlUrl: htmlUrl, runnerName: v,
+                  startedAt: startedAt, completedAt: completedAt, createdAt: createdAt, steps: steps)
+    }
+    public func copying(startedAt v: String?) -> GitHubJob {
+        GitHubJob(id: id, runID: runID, name: name, status: status,
+                  conclusion: conclusion, htmlUrl: htmlUrl, runnerName: runnerName,
+                  startedAt: v, completedAt: completedAt, createdAt: createdAt, steps: steps)
+    }
+    public func copying(completedAt v: String?) -> GitHubJob {
+        GitHubJob(id: id, runID: runID, name: name, status: status,
+                  conclusion: conclusion, htmlUrl: htmlUrl, runnerName: runnerName,
+                  startedAt: startedAt, completedAt: v, createdAt: createdAt, steps: steps)
+    }
+    public func copying(createdAt v: String?) -> GitHubJob {
+        GitHubJob(id: id, runID: runID, name: name, status: status,
+                  conclusion: conclusion, htmlUrl: htmlUrl, runnerName: runnerName,
+                  startedAt: startedAt, completedAt: completedAt, createdAt: v, steps: steps)
+    }
+    public func copying(steps v: [GitHubStep]) -> GitHubJob {
+        GitHubJob(id: id, runID: runID, name: name, status: status,
+                  conclusion: conclusion, htmlUrl: htmlUrl, runnerName: runnerName,
+                  startedAt: startedAt, completedAt: completedAt, createdAt: createdAt, steps: v)
+    }
+    public func copying(conclusion v: String?) -> GitHubJob {
+        GitHubJob(id: id, runID: runID, name: name, status: status,
+                  conclusion: v, htmlUrl: htmlUrl, runnerName: runnerName,
+                  startedAt: startedAt, completedAt: completedAt, createdAt: createdAt, steps: steps)
+    }
 }
 
 /// A single step within a GitHub Actions job.
-public struct GitHubStep: Decodable, Sendable {
+public struct GitHubStep: Decodable, Equatable, Sendable {
     public let name: String
     public let status: String
     public let conclusion: String?
@@ -112,12 +159,6 @@ public enum GitHubRunsFetchResult: Sendable {
 // MARK: - API
 
 /// Fetches active (queued + in_progress) workflow runs for a scope.
-///
-/// Fetches both statuses in sequence, deduplicates by run ID, and maps
-/// transport-level failures to the appropriate `GitHubRunsFetchResult` case.
-/// A `nil` result from the paginated transport on the very first request is
-/// treated as a token/auth failure; `nil` on a subsequent request (after
-/// collecting results) is treated as a rate-limit partial result.
 @concurrent
 public func fetchActiveRuns(scope: Scope) async -> GitHubRunsFetchResult {
     let statuses = ["in_progress", "queued"]
@@ -128,13 +169,7 @@ public func fetchActiveRuns(scope: Scope) async -> GitHubRunsFetchResult {
         let endpoint =
             "\(scope.apiPrefix)/actions/runs?status=\(status)&per_page=\(GitHubConstants.activeRunsPageSize)"
         guard let data = await ghAPIPaginated(endpoint) else {
-            // nil on the first successful page implies auth failure (no token or 401/403);
-            // nil after collecting runs implies rate limiting.
-            if allRuns.isEmpty {
-                return .noToken
-            } else {
-                return .rateLimited(allRuns)
-            }
+            if allRuns.isEmpty { return .noToken } else { return .rateLimited(allRuns) }
         }
         struct Response: Decodable { let workflowRuns: [GitHubWorkflowRun]
             enum CodingKeys: String, CodingKey { case workflowRuns = "workflow_runs" }
