@@ -68,6 +68,13 @@ public final class TokenCache: Sendable {
     }
 
     /// Loads the token from the `TokenStore`. Populates the cache on success.
+    ///
+    /// - Note: Thundering-herd window is intentional. Two concurrent callers that
+    ///   both miss `resolveFromCache()` will both call `tokenStore.load()` and both
+    ///   attempt to set the cache. The `if $0 == nil { $0 = token }` check-before-write
+    ///   inside the `Mutex` lock ensures only one write lands and both callers return
+    ///   the same token. The double Keychain read is idempotent and cheaper than
+    ///   adding a separate initialisation lock.
     private func resolveFromStore() -> String? {
         guard let token = tokenStore.load() else {
             #if DEBUG
@@ -83,6 +90,10 @@ public final class TokenCache: Sendable {
     }
 
     /// Reads the `GH_TOKEN` or `GITHUB_TOKEN` environment variable. Populates the cache on success.
+    ///
+    /// - Note: Same intentional thundering-herd window as `resolveFromStore()` — the
+    ///   `if $0 == nil` guard inside the lock is the correct protection. The env var
+    ///   read is an in-process dictionary lookup and is safe to call concurrently.
     private func resolveFromEnvironment() -> String? {
         for key in ["GH_TOKEN", "GITHUB_TOKEN"] {
             if let envValue = ProcessInfo.processInfo.environment[key], !envValue.isEmpty {
