@@ -68,11 +68,12 @@ struct SettingsView: View {
     /// Mirrors `LoginItem.isEnabled`; toggled by the Launch at Login switch.
     @State var launchAtLogin = LoginItem.isEnabled
     /// `true` when a valid OAuth token is stored in the keychain.
-    /// Initialised to `false`; set to the correct value in `onAppearAction()`.
-    @State var isOAuthAuthenticated = false
+    /// Seeded from `oauthService.isAuthenticated` in `init` to avoid a false
+    /// flash before `.onAppear` fires. Kept in sync by `onAppearAction()`'s streams.
+    @State var isOAuthAuthenticated: Bool
     /// `true` when a CLI token (GH_TOKEN / GITHUB_TOKEN) is present but no OAuth token.
-    /// Initialised to `false`; set to the correct value in `onAppearAction()`.
-    @State var isCLIAuthenticated = false
+    /// Seeded from `oauthService` in `init` to avoid a false flash before `.onAppear`.
+    @State var isCLIAuthenticated: Bool
     /// `true` while the OAuth sign-in flow is in progress.
     @State var isSigningIn = false
     /// Retains the sign-in listener Task so it is cancelled when the view disappears.
@@ -86,6 +87,11 @@ struct SettingsView: View {
 
     // MARK: - Init
     /// Creates the view with injected dependencies.
+    ///
+    /// `isOAuthAuthenticated` and `isCLIAuthenticated` are seeded synchronously from
+    /// `oauthService` here rather than defaulting to `false` and correcting in
+    /// `.onAppear`. Both properties are backed by a synchronous Keychain read, so
+    /// the cost is identical and the one-render false-flash is eliminated.
     ///
     /// - Parameters:
     ///   - runnerState: The single `RunnerState` instance owned by `AppDelegate`.
@@ -108,6 +114,8 @@ struct SettingsView: View {
         self.lifecycleService = lifecycleService
         self.runnerState = runnerState
         self.autoUpdater = autoUpdater
+        _isOAuthAuthenticated = State(initialValue: oauthService.isAuthenticated)
+        _isCLIAuthenticated = State(initialValue: !oauthService.isAuthenticated && oauthService.hasAnyToken)
     }
 
     // MARK: - Computed properties
@@ -202,7 +210,11 @@ struct SettingsView: View {
         .padding(.bottom, 16)
     }
 
-    /// Runs on `.onAppear`: refreshes auth state from `oauthService` and starts sign-in / sign-out listeners.
+    /// Runs on `.onAppear`: re-syncs auth state from `oauthService` and starts sign-in / sign-out listeners.
+    ///
+    /// Auth state is already seeded from `oauthService` in `init`, so this is a no-op
+    /// on the first render. On subsequent appears (e.g. after a hide/show cycle) it
+    /// re-reads the current state and re-registers the stream tasks.
     private func onAppearAction() { // skipcq: SW-R1002 — reviewed; complexity acceptable for this onAppear setup
         isOAuthAuthenticated = oauthService.isAuthenticated
         isCLIAuthenticated = !oauthService.isAuthenticated && oauthService.hasAnyToken
@@ -232,7 +244,7 @@ struct SettingsView: View {
     }
 
     // MARK: - Header
-    /// Top bar with back button and "Settings" title.
+    /// Top bar with back button and “Settings” title.
     private var headerBar: some View {
         HStack {
             Button(action: onBack, label: {
