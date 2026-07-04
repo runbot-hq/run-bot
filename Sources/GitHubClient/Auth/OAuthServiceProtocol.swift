@@ -38,11 +38,22 @@ import Foundation
 public protocol OAuthServiceProtocol: AnyObject {
     /// `true` when a valid OAuth token is present in the token store (e.g. Keychain).
     /// Use this to determine whether the user has signed in via the native OAuth flow.
+    ///
+    /// - Note: The concrete implementation reads the token store (Keychain) directly on
+    ///   every call — it intentionally bypasses any in-memory `TokenCache`. This is
+    ///   correct because `isAuthenticated` drives UI state; a stale cache hit would show
+    ///   the wrong sign-in indicator. The Keychain read is synchronous and cheap.
     var isAuthenticated: Bool { get }
 
     /// `true` when any usable GitHub token is available — OAuth token, `GH_TOKEN`,
     /// or `GITHUB_TOKEN` environment variable.
     /// Use this to determine whether API calls can proceed at all.
+    ///
+    /// - Note: Delegates to `isAuthenticated` first, so a signed-in user pays only one
+    ///   Keychain read. A second read only occurs when `isAuthenticated` returns `false`
+    ///   and the env-var fallback is checked. The maximum cost is two Keychain reads
+    ///   (not three — evaluating both properties back-to-back, e.g. in `SettingsView.init`,
+    ///   costs one read if signed in, two if signed out via env var).
     var hasAnyToken: Bool { get }
 
     /// Builds and returns the GitHub OAuth authorization URL, storing the CSRF nonce.
