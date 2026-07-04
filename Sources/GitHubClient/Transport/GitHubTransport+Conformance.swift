@@ -47,6 +47,9 @@ extension GitHubTransport {
   }
 
   /// Logs the outcome of a single pagination step.
+  ///
+  /// Called once per loop iteration in `apiPaginated`. Only emits a log entry
+  /// on `.stop` — `.advance` is the hot path and intentionally silent.
   private func applyPaginationLog(_ action: PaginationAction, urlString: String, count: Int) {
     switch action {
     case .advance:
@@ -84,7 +87,14 @@ extension GitHubTransport {
     }
   }
 
-  /// Finalises and encodes the accumulated pagination result.
+  /// Finalises and encodes the accumulated pagination result into a single JSON array.
+  ///
+  /// Handles four terminal states in priority order:
+  /// 1. Auth/permission failure — always returns `nil`, discards any partial results.
+  /// 2. Rate-limit — returns partial results if at least one page succeeded, else `nil`.
+  /// 3. Non-partial failure (non-array body / HTTP error) — returns partial results if
+  ///    at least one successful page was seen, else `nil`.
+  /// 4. No successful page at all — returns `nil`.
   private func encodePaginationResult(_ state: PaginationState) -> Data? {
     if state.didFailAuth {
       if state.allItems.isEmpty {
@@ -262,6 +272,10 @@ extension GitHubTransport {
   }
 
   /// Interprets an `ExecuteResult` from a cancel-run POST and returns the boolean outcome.
+  ///
+  /// Cyclomatic complexity: 7 (one case per `ExecuteResult` variant).
+  /// Extracted from `cancelRun` to keep that method focused on scope-validation
+  /// and request setup only.
   private func interpretCancelResult(_ result: ExecuteResult, runID: Int, forLogAt endpoint: String) -> Bool {
     switch result {
     case .success:
@@ -389,6 +403,10 @@ extension GitHubTransport {
   // MARK: - Private helpers
 
   /// Requests a runner token of the given `type` (registration or removal) for `scope`.
+  ///
+  /// Used by both `fetchRegistrationToken` and `fetchRemovalToken` to avoid duplication.
+  /// The `logPrefix` parameter is forwarded into every log message so log entries
+  /// identify the original public call site (e.g. `fetchRegistrationToken`).
   @concurrent
   private func fetchRunnerToken(type: String, scope: Scope, logPrefix: String) async -> String? {
     let endpoint = "\(scope.apiPrefix)/actions/runners/\(type)"
@@ -401,7 +419,10 @@ extension GitHubTransport {
       logger?.log("\(logPrefix) › unexpected empty body for \(endpoint) (204?)", category: "transport")
       return nil
     }
+    /// Short-lived installation token returned by the GitHub runner token endpoint.
+    /// `private` to `fetchRunnerToken` — not part of any public API surface.
     struct TokenResponse: Decodable {
+      /// The short-lived token value.
       let token: String
     }
     guard let resp = try? decoder.decode(TokenResponse.self, from: outputData) else {

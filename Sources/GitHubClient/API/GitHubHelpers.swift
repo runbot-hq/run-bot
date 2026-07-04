@@ -10,7 +10,9 @@ import os
 /// Returns the login names of all GitHub organisations the authenticated user belongs to.
 public func fetchUserOrgs() async -> [String] {
     guard let data = await ghAPIPaginated("\(GitHubConstants.userOrgsPath)?per_page=\(GitHubConstants.maxPageSize)") else { return [] }
+    /// Minimal org payload — only the login name is needed.
     struct Org: Decodable {
+        /// The organisation's GitHub login name.
         let login: String
     }
     guard let orgs = try? JSONDecoder().decode([Org].self, from: data) else { return [] }
@@ -20,9 +22,13 @@ public func fetchUserOrgs() async -> [String] {
 /// Returns the `owner/repo` full names of all repositories visible to the authenticated user.
 public func fetchUserRepos() async -> [String] {
     guard let data = await ghAPIPaginated("\(GitHubConstants.userReposPath)?sort=updated&per_page=\(GitHubConstants.maxPageSize)") else { return [] }
+    /// Minimal repo payload — only the full name is needed.
     struct Repo: Decodable {
+        /// The repository's full name in `owner/repo` format.
         let fullName: String
+        /// Maps the snake_case `full_name` key to the camelCase Swift property.
         enum CodingKeys: String, CodingKey {
+            /// Maps `full_name` JSON key to `fullName`.
             case fullName = "full_name"
         }
     }
@@ -42,6 +48,8 @@ private let ansiRegex: NSRegularExpression? = try? NSRegularExpression(
 /// `urlSessionRaw` uses `application/vnd.github.v3.raw` and lets URLSession follow
 /// the GitHub 302→S3 redirect automatically, eliminating the need for a manual
 /// two-step redirect implementation.
+///
+/// Complexity: 3 (two guard branches).
 @concurrent
 public func fetchStepLog(jobID: Int, stepNumber: Int, scope scopeString: String) async -> String? {
     guard let scope = Scope.parse(scopeString) else {
@@ -63,6 +71,8 @@ public func fetchStepLog(jobID: Int, stepNumber: Int, scope scopeString: String)
 /// Fetches raw log data from `endpoint`, decodes it as UTF-8, and validates the response.
 /// Returns `nil` if the network call fails, the body is not valid UTF-8, the body is
 /// empty, or the body looks like a GitHub error JSON object.
+///
+/// Complexity: 4 (four guard/if branches).
 @concurrent
 private func fetchAndDecodeStepLog(endpoint: String, jobID: Int) async -> String? {
     guard let data = await urlSessionRaw(endpoint) else {
@@ -89,6 +99,8 @@ private func fetchAndDecodeStepLog(endpoint: String, jobID: Int) async -> String
 /// Parses a raw log string into sections delimited by `##[group]` markers
 /// and returns the section matching `stepNumber` (1-based).
 /// Falls back to the full log if sections cannot be parsed or the index is out of range.
+///
+/// Complexity: 3 (two guard/if branches).
 private func parseStepLog(_ raw: String, stepNumber: Int) -> String? {
     let cleaned = stripAnsi(raw)
     let sections = buildLogSections(from: cleaned)
@@ -112,6 +124,8 @@ private func parseStepLog(_ raw: String, stepNumber: Int) -> String? {
 
 /// Splits a cleaned log string into sections delimited by `##[group]` markers.
 /// Lines before the first marker are preamble and are intentionally skipped.
+///
+/// Complexity: 4 (for loop + two if branches).
 private func buildLogSections(from cleaned: String) -> [String] {
     let lines = cleaned.components(separatedBy: "\n")
     var sections: [String] = []
@@ -130,7 +144,8 @@ private func buildLogSections(from cleaned: String) -> [String] {
     return sections
 }
 
-/// Removes ANSI escape sequences from `input` using the precompiled `ansiRegex`.
+/// Strips ANSI escape sequences from a string using the pre-compiled `ansiRegex`.
+/// Returns the original string unchanged if the regex is unavailable.
 private func stripAnsi(_ input: String) -> String {
     guard let ansiRegex else { return input }
     let range = NSRange(input.startIndex..., in: input)
