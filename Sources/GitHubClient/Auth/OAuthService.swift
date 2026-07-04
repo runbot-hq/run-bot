@@ -58,7 +58,8 @@ public final class OAuthService: OAuthServiceProtocol {
     private let session: URLSession
     /// Called after a successful `tokenStore.save()` — e.g. to invalidate a `TokenCache`.
     private let onTokenSaved: (() -> Void)?
-    /// Called after a successful `tokenStore.delete()` — e.g. to invalidate a `TokenCache`.
+    /// Called on every `signOut()` — e.g. to invalidate a `TokenCache`. Invoked regardless of
+    /// whether `tokenStore.delete()` succeeded, so the in-memory cache is always cleared.
     private let onTokenDeleted: (() -> Void)?
 
     /// Creates a new `OAuthService`.
@@ -72,7 +73,8 @@ public final class OAuthService: OAuthServiceProtocol {
     ///   - onTokenSaved: Optional callback invoked after a successful token save.
     ///     Use this to invalidate an external cache (e.g. `TokenCache.invalidate()`).
     ///     Defaults to `nil` — existing call sites are unaffected.
-    ///   - onTokenDeleted: Optional callback invoked after a successful token deletion.
+    ///   - onTokenDeleted: Optional callback invoked on every `signOut()`, regardless of
+    ///     whether the Keychain delete succeeded. Use this to invalidate a `TokenCache`.
     ///     Use this to invalidate an external cache (e.g. `TokenCache.invalidate()`).
     ///     Defaults to `nil` — existing call sites are unaffected.
     public init(
@@ -183,49 +185,27 @@ public final class OAuthService: OAuthServiceProtocol {
 
     // MARK: - Sign Out
 
-    /// Clears the pending state, deletes the token, and emits a sign-out event.
+    /// Clears the pending state, deletes the stored token, and emits a sign-out event.
+    ///
+    /// Token deletion is best-effort: if `tokenStore.delete()` fails (e.g.
+    /// `errSecInteractionNotAllowed` when the screen is locked), the cache is
+    /// still invalidated and the sign-out stream is still emitted. The app UI
+    /// reflects signed-out state immediately. A stale Keychain entry is benign
+    /// on next launch because `isAuthenticated` checks for a *valid* token; an
+    /// orphaned entry will simply be overwritten or ignored on next sign-in.
+    /// Permanent UI lock-out is a worse failure mode than a recoverable ghost
+    /// entry, so we always proceed.
     public func signOut() {
         logger?.log("OAuthService › signOut — called, pendingState=\(pendingState != nil ? "set" : "nil")", category: "transport")
         pendingState = nil
         let deleted = tokenStore.delete()
         logger?.log("OAuthService › signOut — tokenStore.delete result=\(deleted)", category: "transport")
-        if deleted {
-            onTokenDeleted?()
-            logger?.log("OAuthService › signOut — emitting didSignOut to \(signOutContinuations.count) consumer(s)", category: "transport")
-            signOutContinuations.values.forEach { $0.yield(()) }
-        } else {
-            // TODO(#1950): The suppression below makes the sign-out button permanently
-            // inoperative on any Keychain SecItemDelete error (e.g. errSecInteractionNotAllowed).
-            // Fix: always call onTokenDeleted() + emit the sign-out stream regardless of
-            // delete success, so the in-memory cache is wiped and the UI reflects reality.
-            // The ghost-sign-in risk on next launch is recoverable; permanent UI lock-out is not.
-            //
-            // Intentional: do NOT emit the sign-out event when the token was not
-            // successfully deleted. Emitting a sign-out with a live token still in
-            // the store would leave the app in a ghost-signed-in state on the next
-            // launch — `isAuthenticated` would return `true` but the user believes
-            // they signed out. The silent suppression here is the lesser evil:
-            // the user stays visually signed in and can retry, rather than seeing
-            // a signed-out UI backed by a live credential.
-            //
-            // onTokenDeleted?() is also intentionally NOT called here. Calling it
-            // would require rethinking the closure callback architecture introduced
-            // in this PR (onTokenSaved/onTokenDeleted are injected at init time and
-            // couple OAuthService to TokenCache indirectly). A surgical call here
-            // patches the symptom without fixing the design and risks new problems.
-            // The full fix — including cache invalidation on failure — is tracked in #1950.
-            //
-            // ⚠️ Consequence for TokenStore implementors and test mocks: returning
-            // `false` from `delete()` will block the sign-out stream entirely.
-            // Production `KeychainTokenStore.delete()` only returns `false` on a
-            // genuine Security framework error — `errSecItemNotFound` is treated as
-            // success (already gone). Test mocks must mirror this contract.
-            //
-            // ⚠️ If this fires in production, the sign-out button becomes permanently
-            // inoperative until the app is relaunched or the Keychain item is manually
-            // removed. There is no automatic retry path.
-            logger?.log("OAuthService › signOut: tokenStore.delete failed — sign-out suppressed (ghost-sign-in prevention)", category: "transport")
+        if !deleted {
+            logger?.log("OAuthService › signOut — tokenStore.delete failed (best-effort); proceeding with cache clear and sign-out event", category: "transport")
         }
+        onTokenDeleted?()
+        logger?.log("OAuthService › signOut — emitting didSignOut to \(signOutContinuations.count) consumer(s)", category: "transport")
+        signOutContinuations.values.forEach { $0.yield(()) }
     }
 
     // MARK: - Callback Handler
