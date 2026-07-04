@@ -165,9 +165,9 @@ struct ScopesView: View {
 
     /// Row view for a single remote scope entry.
     ///
-    /// Display name and alias sub-label are fetched synchronously from the
-    /// `@Observable` `ScopeStore` — the actor read is deferred to the tap
-    /// handler where we await the preferences before opening the sheet.
+    /// `displayName` and `alias` are read from `ScopeStore`'s cached observable state
+    /// (written back by `ScopePreferencesStore` on save), so this stays synchronous.
+    /// Full actor reads happen in the tap handler below.
     private func scopeRow(_ entry: ScopeEntry) -> some View {
         let isRepo = entry.scope.contains("/")
         let displayName = entry.displayName ?? entry.scope
@@ -213,6 +213,8 @@ struct ScopesView: View {
                     .foregroundColor(entry.isEnabled ? Color.rbSuccess : Color.rbTextTertiary)
                 Toggle("", isOn: Binding(
                     get: { entry.isEnabled },
+                    // ScopeStore enable/disable is observed by RunnerStore.startObservingScopes
+                    // via withObservationTracking — no explicit restart needed here.
                     set: { scopeStore.setEnabled(entry.id, $0) }
                 ))
                 .toggleStyle(.switch)
@@ -225,9 +227,15 @@ struct ScopesView: View {
                     .font(.caption2)
                     .foregroundColor(Color.rbTextTertiary)
                 Button {
+                    // cleanUp MUST complete before remove so that the poll loop
+                    // restart triggered by ScopeStore.remove cannot race a
+                    // not-yet-cleaned preferences blob on the next tick. (#1538)
                     Task {
                         await ScopePreferencesStore.shared.cleanUp(scope: entry.scope)
                         scopeStore.remove(id: entry.id)
+                        // ScopeStore.remove mutates activeScopes, firing
+                        // withObservationTracking in startObservingScopes and
+                        // restarting the poll loop automatically.
                     }
                 } label: {
                     Image(systemName: "minus.circle")
