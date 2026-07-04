@@ -10,18 +10,12 @@ extension GitHubJob {
 
     // MARK: Typed accessors
 
-    // JobStatus and JobConclusion live in RunBotCore — not visible to GitHubClient.
-    // Both use init(rawString:) — same pattern as RunnerStatus.
-
     /// Typed job status derived from the raw `status` string.
     public var jobStatus: JobStatus { JobStatus(rawString: status) }
     /// Typed job conclusion derived from the raw `conclusion` string, or `nil` when running.
     public var jobConclusion: JobConclusion? { conclusion.map { JobConclusion(rawString: $0) } }
 
     // MARK: Parsed dates
-
-    // Uses a module-private ISO8601DateFormatter (see bottom of file).
-    // Same formatter config as the existing makeActiveJob(from:iso:isDimmed:) function.
 
     /// Parsed `startedAt` date, or `nil` when not yet started.
     public var startDate: Date? { startedAt.flatMap { _iso8601.date(from: $0) } }
@@ -36,7 +30,6 @@ extension GitHubJob {
     public var displayTitle: String { name }
 
     /// Human-readable elapsed duration, e.g. `"02:47"`.
-    /// Matches existing ActiveJob.elapsed logic exactly.
     public var elapsed: String {
         formatElapsed(
             start: startDate ?? createdDate,
@@ -58,7 +51,7 @@ extension GitHubJob {
         return Double(steps.filter { $0.conclusion != nil }.count) / Double(steps.count)
     }
 
-    /// Canonical display status — matches existing ActiveJob.rbStatus logic exactly.
+    /// Canonical display status derived from job conclusion and status.
     public var rbStatus: RBStatus {
         if let conclusion = jobConclusion {
             switch conclusion {
@@ -86,15 +79,15 @@ extension GitHubStep {
     public var startDate: Date? { startedAt.flatMap { _iso8601.date(from: $0) } }
     /// Parsed `completedAt` date, or `nil` when still running.
     public var completedDate: Date? { completedAt.flatMap { _iso8601.date(from: $0) } }
-    /// Human-readable elapsed duration — matches existing JobStep.elapsed logic exactly.
+    /// Human-readable elapsed duration.
     public var elapsed: String {
         formatElapsed(start: startDate, end: completedDate, isCompleted: stepConclusion != nil)
     }
-    /// Unicode character summarising step outcome — matches existing JobStep.conclusionIcon.
+    /// Unicode character summarising step outcome.
     public var conclusionIcon: String {
         switch stepConclusion {
-        case .success:            return "\u{2713}"
-        case .failure:            return "\u{2797}"
+        case .success:             return "\u{2713}"
+        case .failure:             return "\u{2797}"
         case .skipped, .cancelled: return "\u{2298}"
         default: return stepStatus == .inProgress ? "\u{25B6}" : "\u{00B7}"
         }
@@ -103,7 +96,7 @@ extension GitHubStep {
 
 // MARK: - Private ISO8601 formatter
 
-// Module-private — same config as the formatter passed into makeActiveJob(from:iso:isDimmed:).
+/// Module-private ISO 8601 date formatter shared by `GitHubJob` and `GitHubStep` date accessors.
 private let _iso8601: ISO8601DateFormatter = {
     let formatter = ISO8601DateFormatter()
     formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
