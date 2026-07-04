@@ -116,6 +116,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let github = GitHubClient(
         clientID: OAuthSecrets.clientID,
         clientSecret: OAuthSecrets.clientSecret,
+        service: "run-bot",
+        account: "github-oauth-token",
         logger: RunBotLogger()
     )
 
