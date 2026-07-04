@@ -274,8 +274,8 @@ extension GitHubTransport {
     case .permissionDenied:
       logger?.log("cancelRun › 403 Permission Denied for runID=\(runID) at \(endpoint)", category: "transport")
       return false
-    case .networkError:
-      logger?.log("cancelRun › network error for runID=\(runID) at \(endpoint)", category: "transport")
+    case .networkError(let error):
+      logger?.log("cancelRun › network error for runID=\(runID) at \(endpoint): \(error.localizedDescription)", category: "transport")
       return false
     }
   }
