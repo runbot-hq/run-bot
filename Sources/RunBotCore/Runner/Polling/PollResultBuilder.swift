@@ -128,11 +128,12 @@ public enum PollResultBuilder {
     backfill: @Sendable (inout [Int: ActiveJob]) async -> Void
   ) async -> JobPollResult {
     let allFetched: [ActiveJob] = await fetchJobs()
+    // Step 8: job.jobConclusion / job.jobStatus (renamed from .conclusion / .status)
     let liveJobs: [ActiveJob] = allFetched.filter { job in
-      job.conclusion == nil && job.status != .completed
+      job.jobConclusion == nil && job.jobStatus != .completed
     }
     let freshDone: [ActiveJob] = allFetched.filter { job in
-      job.conclusion != nil || job.status == .completed
+      job.jobConclusion != nil || job.jobStatus == .completed
     }
     let liveIDs: Set<Int> = Set(liveJobs.map { $0.id })
     let now = Date()
@@ -146,8 +147,9 @@ public enum PollResultBuilder {
     let newPrevLive: [Int: ActiveJob] = [Int: ActiveJob](
       uniqueKeysWithValues: liveJobs.map { ($0.id, $0) })
     let display = buildJobDisplay(live: liveJobs, cache: newCache)
-    let inProgCount = liveJobs.filter { $0.status == .inProgress }.count
-    let queuedCount = liveJobs.filter { $0.status == .queued }.count
+    // Step 8: job.jobStatus (renamed from .status)
+    let inProgCount = liveJobs.filter { $0.jobStatus == .inProgress }.count
+    let queuedCount = liveJobs.filter { $0.jobStatus == .queued }.count
     log(
       "PollResultBuilder › \(inProgCount) in_progress \(queuedCount) queued"
         + " | cache: \(newCache.count) | display: \(display.count)",
@@ -261,8 +263,9 @@ public enum PollResultBuilder {
   /// Trims the job cache to at most `limit` entries, keeping the most recently completed.
   public static func trimJobCache(_ cache: inout [Int: ActiveJob], limit: Int) {
     guard cache.count > limit else { return }
+    // Step 8: job.completedDate (renamed from .completedAt)
     let sorted = cache.values.sorted { lhs, rhs in
-      (lhs.completedAt ?? .distantPast) > (rhs.completedAt ?? .distantPast)
+      (lhs.completedDate ?? .distantPast) > (rhs.completedDate ?? .distantPast)
     }
     cache = [Int: ActiveJob](
       uniqueKeysWithValues: sorted.prefix(limit).map { job in (job.id, job) })
@@ -274,10 +277,12 @@ public enum PollResultBuilder {
   /// Live jobs are never capped by `jobCacheLimit`; the combined list is capped
   /// at `jobDisplayLimit` so the panel UI stays manageable.
   public static func buildJobDisplay(live: [ActiveJob], cache: [Int: ActiveJob]) -> [ActiveJob] {
-    let inProgress: [ActiveJob] = live.filter { $0.status == .inProgress }
-    let queued: [ActiveJob] = live.filter { $0.status == .queued }
+    // Step 8: job.jobStatus (renamed from .status)
+    let inProgress: [ActiveJob] = live.filter { $0.jobStatus == .inProgress }
+    let queued: [ActiveJob] = live.filter { $0.jobStatus == .queued }
+    // Step 8: job.completedDate (renamed from .completedAt)
     let cached: [ActiveJob] = cache.values.sorted { lhs, rhs in
-      (lhs.completedAt ?? .distantPast) > (rhs.completedAt ?? .distantPast)
+      (lhs.completedDate ?? .distantPast) > (rhs.completedDate ?? .distantPast)
     }
     // Use all live IDs (not just inProgress + queued) so that jobs in other
     // non-completed statuses (.waiting, .requested, .pending) also prevent

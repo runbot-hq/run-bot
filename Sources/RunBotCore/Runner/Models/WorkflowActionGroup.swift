@@ -252,16 +252,14 @@ public struct WorkflowActionGroup: Identifiable, Equatable, Sendable {
     ///    Prevents the silent fallthrough to `.completed` during the initial fetch window.
     public var groupStatus: GroupStatus {
         let allRunsConcluded = runs.allSatisfy { $0.conclusion != nil }
-        if allRunsConcluded, jobsTotal > 0, jobs.allSatisfy({ $0.conclusion != nil }) {
+        // Step 8: job.jobConclusion (renamed from .conclusion on ActiveJob)
+        if allRunsConcluded, jobsTotal > 0, jobs.allSatisfy({ $0.jobConclusion != nil }) {
             return .completed
         }
+        // WorkflowRunRef.status is NOT renamed — it is a direct stored property, not from GitHubJob
         if runs.contains(where: { $0.status == .inProgress }) { return .inProgress }
         if runs.contains(where: { $0.status == .queued }) { return .queued }
         if jobs.isEmpty && !allRunsConcluded { return .loading }
-        // Intentional fallthrough: allRunsConcluded == true && jobs.isEmpty.
-        // Reached when a run concluded before any job was dispatched (e.g. immediately
-        // cancelled). .loading is correctly skipped here because !allRunsConcluded is
-        // false — a concluded-with-no-jobs run is done, not loading.
         return .completed
     }
 
@@ -289,8 +287,9 @@ public struct WorkflowActionGroup: Identifiable, Equatable, Sendable {
     public var conclusion: JobConclusion? {
         // Job-based conclusion (preferred) — use when data is fully loaded.
         if !jobs.isEmpty {
+            // Step 8: job.jobConclusion (renamed from .conclusion on ActiveJob)
             // Only conclude when every single job has a conclusion.
-            guard jobs.allSatisfy({ $0.conclusion != nil }) else { return nil }
+            guard jobs.allSatisfy({ $0.jobConclusion != nil }) else { return nil }
             // ⚠️ Do NOT change this to read from runs[].conclusion — run-level API
             // conclusions are stale and can report "failure" even when all jobs pass
             // (e.g. after a retry). This caused the spurious FAILED badge (issue #294).
@@ -303,16 +302,16 @@ public struct WorkflowActionGroup: Identifiable, Equatable, Sendable {
             // Priority: failure-class > cancelled > skipped > success.
             // Note: cancelled and skipped are only checked when NO isFailure job exists —
             // the isFailure guard above is the precondition for both branches below.
-            if let failedJob = jobs.first(where: { $0.conclusion?.isFailure == true }) {
-                return failedJob.conclusion  // preserves .timedOut / .actionRequired / .startupFailure
+            if let failedJob = jobs.first(where: { $0.jobConclusion?.isFailure == true }) {
+                return failedJob.jobConclusion  // preserves .timedOut / .actionRequired / .startupFailure
             }
-            if jobs.contains(where: { $0.conclusion == .cancelled }) { return .cancelled }
-            let hasSuccess = jobs.contains(where: { $0.conclusion == .success })
+            if jobs.contains(where: { $0.jobConclusion == .cancelled }) { return .cancelled }
+            let hasSuccess = jobs.contains(where: { $0.jobConclusion == .success })
             // At this point no job has .cancelled (early-returned above), so
             // allJobsSkipped checks only for .skipped — .neutral and .stale jobs are
             // NOT included here and fall through to .success below (see run-based path
             // comment for the equivalent loading-window gap).
-            let allJobsSkipped = jobs.allSatisfy { $0.conclusion == .skipped }
+            let allJobsSkipped = jobs.allSatisfy { $0.jobConclusion == .skipped }
             if !hasSuccess && allJobsSkipped { return .skipped }
             // All jobs are .neutral, .stale, or a mix with .success — treat as success.
             return .success
@@ -333,7 +332,8 @@ public struct WorkflowActionGroup: Identifiable, Equatable, Sendable {
     }
 
     /// Number of jobs with a concluded result across all sibling runs.
-    public var jobsDone: Int { jobs.filter { $0.conclusion != nil }.count }
+    // Step 8: job.jobConclusion (renamed from .conclusion on ActiveJob)
+    public var jobsDone: Int { jobs.filter { $0.jobConclusion != nil }.count }
 
     /// Total job count across all sibling runs.
     public var jobsTotal: Int { jobs.count }
@@ -355,7 +355,8 @@ public struct WorkflowActionGroup: Identifiable, Equatable, Sendable {
     /// those paths are migrated off their existing inline checks.
     public var hasFailedJob: Bool {
         if !jobs.isEmpty {
-            return jobs.contains { $0.conclusion?.isFailure == true }
+            // Step 8: job.jobConclusion (renamed from .conclusion on ActiveJob)
+            return jobs.contains { $0.jobConclusion?.isFailure == true }
         }
         // Run-level fallback: mirrors the loading-state path in `conclusion`.
         return runs.contains { $0.conclusion?.isFailure == true }
@@ -363,8 +364,9 @@ public struct WorkflowActionGroup: Identifiable, Equatable, Sendable {
 
     /// Name of the first in-progress job, or first queued job, or `"—"`.
     public var currentJobName: String {
-        if let job = jobs.first(where: { $0.status == .inProgress }) { return job.name }
-        if let job = jobs.first(where: { $0.status == .queued }) { return job.name }
+        // Step 8: job.jobStatus (renamed from .status on ActiveJob)
+        if let job = jobs.first(where: { $0.jobStatus == .inProgress }) { return job.name }
+        if let job = jobs.first(where: { $0.jobStatus == .queued }) { return job.name }
         return "—"
     }
 
