@@ -2,6 +2,7 @@
 // RunBot
 
 import AppKit
+import Observation
 import RunBotCore
 
 /// AppDelegate extension wiring app-lifecycle callbacks to store and service setup.
@@ -98,8 +99,12 @@ extension AppDelegate {
             setupPanel()
             setupSignOutSubscription()
 
-            // Step 13: wire status-icon observation via observationStream so AppDelegate
-            // reacts to RunnerState changes without a callback from RunnerPoller.
+            // Step 13: observe aggregateStatus changes via Observations<Value> — the
+            // Swift 6.2 native AsyncSequence for @Observable types (Reach Goal #2).
+            //
+            // Observations handles re-registration, threading, and cancellation
+            // correctly at the framework level. No manual withObservationTracking
+            // bridge needed.
             //
             // Ordering safety: setupPanel → setupSubscriptions spawns an inner Task
             // that suspends on `await localRunnerStore.refreshAsync()` before calling
@@ -108,8 +113,8 @@ extension AppDelegate {
             // See `applicationDidFinishLaunching` doc-comment for the full explanation.
             statusIconTask = Task { @MainActor [weak self] in
                 guard let self else { return }
-                for await _ in observationStream(of: { self.runnerState.aggregateStatus }) {
-                    self.updateStatusIcon()
+                for await _ in Observations(of: \.aggregateStatus, on: runnerState) {
+                    updateStatusIcon()
                 }
             }
 
