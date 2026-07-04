@@ -37,9 +37,7 @@ public enum AggregateStatus: Sendable {
             let status = runner.runnerStatus
             return status == .online || status == .busy
         }.count
-        if onlineCount == runners.count { self = .allOnline }
-        else if onlineCount == 0 { self = .allOffline }
-        else { self = .someOffline }
+        if onlineCount == runners.count { self = .allOnline } else if onlineCount == 0 { self = .allOffline } else { self = .someOffline }
     }
 
     /// SF Symbol name used for the status-bar icon.
