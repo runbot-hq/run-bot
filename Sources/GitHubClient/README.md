@@ -142,6 +142,43 @@ let labels = await github.transport.patchRunnerLabels(
 )
 ```
 
+## Runners
+
+```swift
+// MARK: - Runners
+
+// Fetch all runners for a scope
+let runners: [GitHubRunner] = await fetchRunners(scope: .repo(owner: "acme", name: "my-app"))
+let runners: [GitHubRunner] = await fetchRunners(scope: .org("acme"))
+
+// Convenience overload with a raw scope string
+let runners: [GitHubRunner]? = await fetchRunners(scopeString: "orgs/acme")
+```
+
+## Workflow Runs & Jobs
+
+```swift
+// MARK: - Workflow Runs & Jobs
+
+// Fetch active (queued + in_progress) runs — typed result handles all failure modes
+let result = await fetchActiveRuns(scope: .org("acme"))
+switch result {
+case .success(let runs):      // all runs collected
+case .rateLimited(let runs):  // partial — rate limit hit mid-fetch, runs collected so far are valid
+case .authFailure:            // token rejected — discard everything
+case .noToken:                // no token configured
+}
+
+// Fetch all jobs for a specific workflow run
+let jobs: [GitHubJob] = await fetchJobs(runID: 12345678, scope: .repo(owner: "acme", name: "my-app"))
+
+// Access raw fields
+let job: GitHubJob = jobs[0]
+print(job.status)       // "in_progress" — raw string
+print(job.runnerName)   // "my-runner-1"
+print(job.steps.count)  // number of steps
+```
+
 ## Bring your own logger
 
 ```swift
@@ -178,6 +215,8 @@ Sources/GitHubClient/
     ├── GitHubRateLimitHandler.swift
     ├── GitHubURLHelpers.swift
     ├── GitHubHelpers.swift               ← fetchUserRepos, fetchUserOrgs, fetchStepLog
+    ├── GitHubRunnerAPI.swift             ← fetchRunners(scope:) + fetchRunners(scopeString:)
+    ├── GitHubWorkflowAPI.swift           ← fetchActiveRuns(scope:), fetchJobs(runID:scope:)
     ├── APICallCounter.swift
     ├── AnyJSON.swift                     ← type-erased Codable for pagination accumulation
     └── KeychainTokenStore.swift          ← concrete TokenStore backed by Security.framework
@@ -185,6 +224,21 @@ Sources/GitHubClient/
 
 The library has no opinion on how you log — inject any type conforming to `GitHubLogger`.
 Token storage defaults to `KeychainTokenStore` but any `TokenStore` conformance works.
+
+## Type inventory
+
+| Type | File | Description |
+|---|---|---|
+| `GitHubClient` | `GitHubClient.swift` | Facade — wires all subsystems |
+| `GitHubScope` | `GitHubScope.swift` | `.repo(owner:name:)` or `.org(String)` |
+| `GitHubRunner` | `GitHubRunnerAPI.swift` | Decoded runner object from the REST API |
+| `GitHubRunnerLabel` | `GitHubRunnerAPI.swift` | Label attached to a `GitHubRunner` |
+| `GitHubWorkflowRun` | `GitHubWorkflowAPI.swift` | Single workflow run (queued or in-progress) |
+| `GitHubJob` | `GitHubWorkflowAPI.swift` | Individual job within a workflow run |
+| `GitHubStep` | `GitHubWorkflowAPI.swift` | Step within a `GitHubJob` |
+| `GitHubRunsFetchResult` | `GitHubWorkflowAPI.swift` | Typed fetch outcome: `.success`, `.rateLimited`, `.authFailure`, `.noToken` |
+| `TokenCache` | `Auth/TokenCache.swift` | Layered token resolver (memory → Keychain → env) |
+| `KeychainTokenStore` | `API/KeychainTokenStore.swift` | Concrete `TokenStore` via `Security.framework` |
 
 ## Why not the official GitHub SDK?
 
