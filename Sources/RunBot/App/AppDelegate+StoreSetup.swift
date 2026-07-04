@@ -51,7 +51,11 @@ extension AppDelegate {
     func applicationDidFinishLaunching(_ _: Notification) {
         log("AppDelegate › applicationDidFinishLaunching — START")
 
-        configureGHToken { githubToken() }
+        // Read the OAuth token directly from Keychain on every call — no cache layer.
+        // This replaces the previous `githubToken()` free function which went through
+        // GitHubTokenCache. Direct Keychain reads are OS-serialised (Security.framework)
+        // so no additional lock is needed. See Keychain.swift P16 rationale.
+        configureGHToken { Keychain.token }
 
         // Wire all three shim transports directly to sharedGitHubTransport,
         // eliminating the intermediate hop through module-level free-function shims.
