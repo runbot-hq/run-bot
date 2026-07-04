@@ -32,6 +32,7 @@ public func fetchUserRepos() async -> [String] {
 
 // MARK: - Step log
 
+/// Precompiled regex matching ANSI escape sequences, stripped from step logs.
 private let ansiRegex: NSRegularExpression? = try? NSRegularExpression(
     pattern: "\u{001B}\\[[0-9;]*[A-Za-z]"
 )
@@ -50,6 +51,7 @@ public func fetchStepLog(jobID: Int, stepNumber: Int, scope scopeString: String)
     return parseStepLog(raw, stepNumber: stepNumber)
 }
 
+/// Fetches raw log bytes for `endpoint` and decodes them as UTF-8 text, or `nil` on failure.
 @concurrent
 private func fetchAndDecodeStepLog(endpoint: String, jobID: Int) async -> String? {
     guard let data = await urlSessionRaw(endpoint) else { return nil }
@@ -59,6 +61,7 @@ private func fetchAndDecodeStepLog(endpoint: String, jobID: Int) async -> String
     return raw
 }
 
+/// Strips ANSI codes and returns the log section for `stepNumber` (1-based), or the whole log.
 private func parseStepLog(_ raw: String, stepNumber: Int) -> String? {
     let cleaned = stripAnsi(raw)
     let sections = buildLogSections(from: cleaned)
@@ -68,6 +71,7 @@ private func parseStepLog(_ raw: String, stepNumber: Int) -> String? {
     return sections[index]
 }
 
+/// Splits cleaned log text into sections delimited by `##[group]` markers.
 private func buildLogSections(from cleaned: String) -> [String] {
     let lines = cleaned.components(separatedBy: "\n")
     var sections: [String] = []
@@ -86,6 +90,7 @@ private func buildLogSections(from cleaned: String) -> [String] {
     return sections
 }
 
+/// Removes ANSI escape sequences from `input` using the precompiled `ansiRegex`.
 private func stripAnsi(_ input: String) -> String {
     guard let ansiRegex else { return input }
     let range = NSRange(input.startIndex..., in: input)

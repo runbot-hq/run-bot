@@ -151,10 +151,10 @@ extension GitHubTransport {
         timeout: timeout,
         logTag: "post",
         configure: { req in
-          var r = req
-          r.httpMethod = "POST"
-          if let body { r.httpBody = body }
-          return r
+          var request = req
+          request.httpMethod = "POST"
+          if let body { request.httpBody = body }
+          return request
         }
       )
     else { return nil }
@@ -172,10 +172,10 @@ extension GitHubTransport {
         timeout: timeout,
         logTag: "put",
         configure: { req in
-          var r = req
-          r.httpMethod = "PUT"
-          r.httpBody = body
-          return r
+          var request = req
+          request.httpMethod = "PUT"
+          request.httpBody = body
+          return request
         }
       )
     else { return nil }
@@ -194,9 +194,9 @@ extension GitHubTransport {
         timeout: timeout,
         logTag: "delete",
         configure: { req in
-          var r = req
-          r.httpMethod = "DELETE"
-          return r
+          var request = req
+          request.httpMethod = "DELETE"
+          return request
         }
       )
     else { return false }
@@ -219,7 +219,7 @@ extension GitHubTransport {
       endpoint,
       timeout: 30,
       logTag: "cancelRun",
-      configure: { req in var r = req; r.httpMethod = "POST"; return r }
+      configure: { req in var request = req; request.httpMethod = "POST"; return request }
     )
     return interpretCancelResult(result, runID: runID, forLogAt: endpoint)
   }
@@ -253,10 +253,14 @@ extension GitHubTransport {
 
   // MARK: patchRunnerLabels
 
+  /// Decodes the `labels` array returned by the runner-labels endpoint.
   private struct RunnerLabelsResponse: Decodable {
+    /// A single runner label entry.
     struct Label: Decodable {
+      /// The label's display name.
       let name: String
     }
+    /// The runner's current labels.
     let labels: [Label]
   }
 
@@ -366,17 +370,28 @@ extension GitHubTransport {
 
 // MARK: - PaginationAction
 
+/// The outcome of applying one paginated response to the accumulating state.
 private enum PaginationAction {
+  /// Continue paginating; the associated value carries the raw `Link` header.
   case advance(next: String?)
+  /// Stop paginating for the given reason.
   case stop(StopReason)
 
+  /// Why pagination stopped.
   enum StopReason {
+    /// The response body was not the expected JSON array.
     case nonArrayBody
+    /// No GitHub token was available.
     case noToken
+    /// The server returned 401 Unauthorized.
     case unauthorized
+    /// The server returned a non-2xx status.
     case httpError
+    /// The request was rate limited.
     case rateLimited
+    /// The server returned 403 Permission Denied.
     case permissionDenied
+    /// A transport-level network error occurred.
     case networkError
   }
 }
@@ -386,18 +401,28 @@ private enum PaginationAction {
 /// Type-erased JSON value used to accumulate paginated array items.
 /// A minimal Codable box sufficient for re-encoding collected pages.
 private struct AnyJSON: Codable {
+  /// The boxed JSON value (dictionary, array, string, number, bool, or null).
   private let value: Any
 
+  /// Decodes a single JSON value of any supported shape.
   init(from decoder: any Decoder) throws {
     let container = try decoder.singleValueContainer()
-    if let dict = try? container.decode([String: AnyJSON].self) { value = dict }
-    else if let arr = try? container.decode([AnyJSON].self) { value = arr }
-    else if let str = try? container.decode(String.self) { value = str }
-    else if let num = try? container.decode(Double.self) { value = num }
-    else if let bool = try? container.decode(Bool.self) { value = bool }
-    else { value = NSNull() }
+    if let dict = try? container.decode([String: AnyJSON].self) {
+      value = dict
+    } else if let arr = try? container.decode([AnyJSON].self) {
+      value = arr
+    } else if let str = try? container.decode(String.self) {
+      value = str
+    } else if let num = try? container.decode(Double.self) {
+      value = num
+    } else if let bool = try? container.decode(Bool.self) {
+      value = bool
+    } else {
+      value = NSNull()
+    }
   }
 
+  /// Re-encodes the boxed JSON value.
   func encode(to encoder: any Encoder) throws {
     var container = encoder.singleValueContainer()
     switch value {
@@ -413,14 +438,22 @@ private struct AnyJSON: Codable {
 
 // MARK: - PaginationState
 
+/// Mutable accumulator threaded through the pagination loop.
 private struct PaginationState {
+  /// The URL of the next page to fetch, or `nil` when pagination is complete.
   var nextURL: String?
+  /// All items collected across pages so far.
   var allItems: [AnyJSON] = []
+  /// Whether an auth/permission failure was encountered.
   var didFailAuth = false
+  /// Whether the request was rate limited.
   var didRateLimit = false
+  /// Whether a non-partial (non-array/HTTP) failure was encountered.
   var didEncounterNonPartialFailure = false
+  /// Whether at least one page decoded successfully.
   var hadAtLeastOneSuccessfulPage = false
 
+  /// Applies one `ExecuteResult` to the state and returns the next pagination action.
   mutating func apply(
     _ result: ExecuteResult,
     decoder: JSONDecoder

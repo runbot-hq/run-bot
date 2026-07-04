@@ -37,7 +37,11 @@ public struct GitHubTransport: GitHubTransportProtocol {
   private let tokenProvider: @Sendable () -> String?
 
   /// Optional logger for diagnostic messages.
-  private let logger: (any GitHubLogger)?
+  ///
+  /// `internal` (not `private`) so the `GitHubTransportProtocol` conformance in
+  /// `GitHubTransport+Conformance.swift` — a same-module extension in another
+  /// file — can emit diagnostics through it.
+  internal let logger: (any GitHubLogger)?
 
   // MARK: - Init
 
@@ -99,6 +103,7 @@ public struct GitHubTransport: GitHubTransportProtocol {
 
   // MARK: - Request building
 
+  /// Builds a signed `URLRequest` for `endpoint`, or `nil` if the URL is invalid.
   private func buildRequest(
     endpoint: String,
     token: String,
@@ -121,6 +126,7 @@ public struct GitHubTransport: GitHubTransportProtocol {
 
   // MARK: - HTTP response interpretation
 
+  /// Maps an HTTP response + body into an `ExecuteResult`, arming rate-limit back-off as needed.
   private func interpretHTTPResponse(
     _ response: URLResponse,
     data: Data,
@@ -150,10 +156,16 @@ public struct GitHubTransport: GitHubTransportProtocol {
 
 /// The result of a single URLSession round-trip through `execute`.
 internal enum ExecuteResult {
+  /// A 2xx response with body, status code, and optional `Link` header.
   case success(Data, statusCode: Int, linkHeader: String?)
+  /// No GitHub token was available.
   case noToken
+  /// A non-2xx HTTP status code was returned.
   case httpError(Int)
+  /// The request was rate limited (403/429 with rate-limit signals).
   case rateLimited
+  /// The request was denied (403/429 without rate-limit signals).
   case permissionDenied
+  /// A transport-level network error occurred.
   case networkError(Error)
 }
