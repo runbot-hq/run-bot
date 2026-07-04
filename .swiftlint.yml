@@ -53,7 +53,7 @@ file_header:
   # Line 2 is the module name. Historically every module was named RunBot*, but
   # the AppUpdater library target (a host-agnostic module with no RunBot in its
   # name) is a legitimate exception, so its module name is allowed here too.
-  required_pattern: "^// [\\w+]+\\.swift\\n// (RunBot|AppUpdater)"
+  required_pattern: "^// [\\w+]+\\.swift\\n// (RunBot|AppUpdater|GitHubClient)"
 
 # ── Disabled rules ────────────────────────────────────────────────────────────────────────────────────────────────────────
 disabled_rules:
