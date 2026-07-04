@@ -39,8 +39,8 @@ struct ActiveJobAsCompletedTests {
       name: "build",
       status: status,
       conclusion: conclusion,
-      completedAt: completedAt,
-      scope: scope
+      scope: scope,
+      completedAt: completedAt
     )
   }
 
@@ -123,13 +123,13 @@ struct ActiveJobAsCompletedTests {
       status: "in_progress",
       htmlUrl: "https://github.com/org/repo/actions/runs/1",
       conclusion: "failure",
+      isDimmed: false,
       runnerName: "my-runner",
+      scope: "org/repo",
       startedAt: startedAtDate,
       completedAt: nil,
       createdAt: createdAtDate,
-      steps: [step],
-      isDimmed: false,
-      scope: "org/repo"
+      steps: [step]
     )
     let fallback = Date(timeIntervalSinceReferenceDate: 600_000)
     let result = job.asCompleted(at: fallback)

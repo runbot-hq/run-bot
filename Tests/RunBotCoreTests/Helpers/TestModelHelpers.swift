@@ -189,15 +189,15 @@ extension GitHubRunner {
     /// The `metrics` parameter is intentionally ignored — use
     /// `displayStatus(metrics:)` at the call site instead.
     init(id: Int, name: String, status: RunnerStatus, busy: Bool = false, metrics: RunnerMetrics? = nil) {
-        let json = """
-        {"id":\(id),"name":\"\(name)\",\"status\":\"\(status.rawValue)\",\"busy\":\(busy ? "true" : "false"),"labels":[]}
-        """
+        let json = "{\"id\":\(id),\"name\":\"\(name)\",\"status\":\"\(status.rawValue)\",\"busy\":\(busy ? "true" : "false"),\"labels\":[]}"
         self = try! JSONDecoder().decode(GitHubRunner.self, from: Data(json.utf8))
-    }
     }
 
     /// Convenience forwarder for tests that call `runner.displayStatus` without args.
-    var displayStatus: String { displayStatus(metrics: nil) }
+    var displayStatus: String {
+        let fn: (RunnerMetrics?) -> String = self.displayStatus(metrics:)
+        return fn(nil)
+    }
 }
 
 // MARK: - Private ISO8601 formatter for test shim

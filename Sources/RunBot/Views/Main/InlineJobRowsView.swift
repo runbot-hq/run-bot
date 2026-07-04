@@ -254,7 +254,7 @@ private struct JobRowCard: View {
     /// Vertically stacked step rows shown when the job card is expanded.
     private var stepsContainer: some View {
         VStack(alignment: .leading, spacing: 0) {
-            ForEach(Array(job.steps.enumerated()), id: \.element.id) { index, step in
+            ForEach(Array(job.steps.enumerated()), id: \.element.number) { index, step in
                 StepRowView(
                     step: step,
                     isLast: index == job.steps.count - 1,
