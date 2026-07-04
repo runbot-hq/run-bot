@@ -401,46 +401,6 @@ private enum PaginationAction {
   }
 }
 
-// MARK: - AnyJSON
-
-/// Type-erased JSON value used to accumulate paginated array items.
-/// A minimal Codable box sufficient for re-encoding collected pages.
-private struct AnyJSON: Codable {
-  /// The boxed JSON value (dictionary, array, string, number, bool, or null).
-  private let value: Any
-
-  /// Decodes a single JSON value of any supported shape.
-  init(from decoder: any Decoder) throws {
-    let container = try decoder.singleValueContainer()
-    if let dict = try? container.decode([String: AnyJSON].self) {
-      value = dict
-    } else if let arr = try? container.decode([AnyJSON].self) {
-      value = arr
-    } else if let str = try? container.decode(String.self) {
-      value = str
-    } else if let num = try? container.decode(Double.self) {
-      value = num
-    } else if let bool = try? container.decode(Bool.self) {
-      value = bool
-    } else {
-      value = NSNull()
-    }
-  }
-
-  /// Re-encodes the boxed JSON value.
-  func encode(to encoder: any Encoder) throws {
-    var container = encoder.singleValueContainer()
-    switch value {
-    case let dict as [String: AnyJSON]: try container.encode(dict)
-    case let arr as [AnyJSON]: try container.encode(arr)
-    case let str as String: try container.encode(str)
-    case let num as Double: try container.encode(num)
-    case let bool as Bool: try container.encode(bool)
-    default: try container.encodeNil()
-    }
-  }
-}
-
 // MARK: - PaginationState
 
 /// Mutable accumulator threaded through the pagination loop.
