@@ -28,7 +28,12 @@ import GitHubClient
 /// `Keychain` enum requires to avoid a legacy-keychain crash on launch (see the
 /// file-level comment in `Keychain.swift`). Delegating to `Keychain` preserves
 /// those exact SecItem settings, keeping token resolution behaviour unchanged.
-private struct KeychainTokenStoreAdapter: TokenStore {
+///
+/// - Note: `internal` (not `private`) so `AppDelegate` can pass this as the
+///   `tokenStore` argument to `OAuthService`, ensuring the OAuth write path and
+///   the `githubToken()` read path both delegate to the same `Keychain` enum
+///   and therefore the same keychain item.
+struct KeychainTokenStoreAdapter: TokenStore {
     /// Loads the OAuth token from the RunBotCore `Keychain`.
     nonisolated func load() -> String? { Keychain.token }
     /// Saves the OAuth token via the RunBotCore `Keychain`.
