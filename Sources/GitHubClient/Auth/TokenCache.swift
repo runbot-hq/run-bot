@@ -13,8 +13,11 @@ import Synchronization
 /// All reads and writes are guarded by a `Mutex` for thread safety.
 public final class TokenCache: Sendable {
 
+    /// An injected `TokenStore` used to persist the token to the keychain.
     private let tokenStore: any TokenStore
+    /// An optional logger for diagnostic messages.
     private let logger: (any GitHubLogger)?
+    /// Thread-safe in-memory cache, initially `nil`.
     private let cache = Mutex<String?>(nil)
 
     /// Creates a new `TokenCache`.
@@ -38,9 +41,9 @@ public final class TokenCache: Sendable {
     ///
     /// Returns `nil` if no token is available from any source.
     public func token() -> String? {
-        if let t = resolveFromCache() { return t }
-        if let t = resolveFromStore() { return t }
-        if let t = resolveFromEnvironment() { return t }
+        if let cached = resolveFromCache() { return cached }
+        if let stored = resolveFromStore() { return stored }
+        if let envToken = resolveFromEnvironment() { return envToken }
         logger?.log("TokenCache › token() — returning nil (no token from any source)", category: "transport")
         return nil
     }
@@ -53,6 +56,7 @@ public final class TokenCache: Sendable {
 
     // MARK: - Private helpers
 
+    /// Reads the in-memory cache. Returns `nil` if not set.
     private func resolveFromCache() -> String? {
         let cached = cache.withLock { $0 }
         #if DEBUG
@@ -63,28 +67,30 @@ public final class TokenCache: Sendable {
         return cached
     }
 
+    /// Loads the token from the `TokenStore`. Populates the cache on success.
     private func resolveFromStore() -> String? {
-        guard let t = tokenStore.load() else {
+        guard let token = tokenStore.load() else {
             #if DEBUG
             logger?.log("TokenCache › token store returned nil", category: "transport")
             #endif
             return nil
         }
         #if DEBUG
-        logger?.log("TokenCache › resolved from store (len=\(t.count)), populating cache", category: "transport")
+        logger?.log("TokenCache › resolved from store (len=\(token.count)), populating cache", category: "transport")
         #endif
-        cache.withLock { if $0 == nil { $0 = t } }
-        return t
+        cache.withLock { if $0 == nil { $0 = token } }
+        return token
     }
 
+    /// Reads the `GH_TOKEN` or `GITHUB_TOKEN` environment variable. Populates the cache on success.
     private func resolveFromEnvironment() -> String? {
         for key in ["GH_TOKEN", "GITHUB_TOKEN"] {
-            if let t = ProcessInfo.processInfo.environment[key], !t.isEmpty {
+            if let envValue = ProcessInfo.processInfo.environment[key], !envValue.isEmpty {
                 #if DEBUG
-                logger?.log("TokenCache › resolved from env var \(key) (len=\(t.count)), populating cache", category: "transport")
+                logger?.log("TokenCache › resolved from env var \(key) (len=\(envValue.count)), populating cache", category: "transport")
                 #endif
-                cache.withLock { if $0 == nil { $0 = t } }
-                return t
+                cache.withLock { if $0 == nil { $0 = envValue } }
+                return envValue
             }
             #if DEBUG
             logger?.log("TokenCache › env var \(key): nil/empty", category: "transport")

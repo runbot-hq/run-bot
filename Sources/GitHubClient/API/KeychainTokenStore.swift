@@ -7,7 +7,9 @@ import Security
 /// A `TokenStore` implementation backed by the macOS/iOS Keychain.
 public final class KeychainTokenStore: TokenStore {
 
+    /// The keychain service name (e.g. bundle identifier).
     private let service: String
+    /// The keychain account name (e.g. "github-token").
     private let account: String
 
     /// Creates a new `KeychainTokenStore`.

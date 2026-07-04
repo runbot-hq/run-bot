@@ -55,22 +55,35 @@ public protocol GitHubTransportProtocol: Sendable {
 // MARK: - GitHubTransportProtocol defaults
 
 /// Timeout-free convenience overloads for all protocol methods.
+///
+/// These are **distinct selectors** from the protocol requirements (no `timeout:` label),
+/// so they dispatch unambiguously to the required `timeout:`-bearing methods. A mock
+/// conformer that implements only the required signatures will never accidentally recurse
+/// into these defaults — the call sites simply resolve to the correct concrete method.
 public extension GitHubTransportProtocol {
+    /// Fetches a single GitHub REST API page using the default 20 s timeout.
     func apiAsync(_ endpoint: String) async -> Data? {
         await apiAsync(endpoint, timeout: 20)
     }
+    /// Fetches and concatenates all pages for a paginated endpoint using the default 60 s timeout.
     func apiPaginated(_ endpoint: String) async -> Data? {
         await apiPaginated(endpoint, timeout: 60)
     }
+    /// Fetches raw bytes using the default 60 s timeout.
     func raw(_ endpoint: String) async -> Data? {
         await raw(endpoint, timeout: 60)
     }
+    /// Posts `body` to `endpoint` using the default 30 s timeout.
+    /// - Warning: Mock conformers must **not** add a 2-arg `post(_:body:)` override — doing so
+    ///   shadows this default and prevents dispatch to the required 3-arg `post(_:body:timeout:)`.
     func post(_ endpoint: String, body: Data? = nil) async -> Data? {
         await post(endpoint, body: body, timeout: 30)
     }
+    /// Sends a PUT with `body` to `endpoint` using the default 30 s timeout.
     func put(_ endpoint: String, body: Data) async -> Data? {
         await put(endpoint, body: body, timeout: 30)
     }
+    /// Sends a DELETE to `endpoint` using the default 30 s timeout.
     func delete(_ endpoint: String) async -> Bool {
         await delete(endpoint, timeout: 30)
     }

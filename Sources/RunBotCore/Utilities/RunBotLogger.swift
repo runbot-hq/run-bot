@@ -18,6 +18,7 @@ import GitHubClient
 /// protocol requirement.
 public struct RunBotLogger: GitHubLogger {
 
+    /// Creates a new `RunBotLogger` instance.
     public init() {}
 
     /// Forwards a message from `GitHubClient` into `os.Logger` via the RunBot
