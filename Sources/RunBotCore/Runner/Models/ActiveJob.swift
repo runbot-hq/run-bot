@@ -4,14 +4,6 @@
 import Foundation
 import GitHubClient
 
-// ISO 8601 formatter used by asCompleted(at:) to serialise a fallback Date back
-// into the raw string field. Matches the formatter in GitHubJob+AppExtensions.
-nonisolated(unsafe) private let _iso8601Formatter: ISO8601DateFormatter = {
-    let f = ISO8601DateFormatter()
-    f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-    return f
-}()
-
 // MARK: - ActiveJob
 
 /// A live or recently-completed GitHub Actions job visible in the panel.
@@ -41,7 +33,9 @@ public struct ActiveJob: Identifiable, Equatable, Sendable {
     /// Stable ID forwarded from `raw`.
     public var id: Int { raw.id }
 
-    /// Creates an `ActiveJob`.
+    // MARK: Designated init
+
+    /// Creates an `ActiveJob` wrapping a raw `GitHubJob`.
     public init(
         raw: GitHubJob,
         isDimmed: Bool = false,
@@ -54,6 +48,60 @@ public struct ActiveJob: Identifiable, Equatable, Sendable {
         self.scope = scope
         self.statusOverride = statusOverride
         self.conclusionOverride = conclusionOverride
+    }
+
+    // MARK: Convenience init (flat fields)
+
+    /// Creates an `ActiveJob` from individual field values.
+    ///
+    /// This initialiser constructs the internal `GitHubJob` from flat
+    /// parameters so call-sites that pre-date the `raw:` refactor continue to
+    /// compile unchanged.
+    ///
+    /// - Parameters:
+    ///   - id:          The job's GitHub numeric ID.
+    ///   - name:        Display name of the job.
+    ///   - status:      Job status string (e.g. `"queued"`, `"in_progress"`, `"completed"`).
+    ///                  Accepts a raw `String` **or** a `JobStatus` value via
+    ///                  `ExpressibleByStringLiteral` conformance.
+    ///   - conclusion:  Optional conclusion string (e.g. `"success"`, `"failure"`).
+    ///                  Accepts a raw `String` **or** a `JobConclusion` value.
+    ///   - htmlUrl:     Optional URL linking to the job on GitHub.
+    ///   - runnerName:  Optional runner name (used to determine `isLocalRunner`).
+    ///   - startedAt:   Optional job start `Date`; encoded to ISO-8601 string.
+    ///   - completedAt: Optional job completion `Date`; encoded to ISO-8601 string.
+    ///   - createdAt:   Optional job creation `Date`; encoded to ISO-8601 string.
+    ///   - steps:       Array of `GitHubStep` values (aliased as `JobStep`).
+    ///   - isDimmed:    Whether the job is displayed as a faded history entry.
+    ///   - scope:       Repo/org scope string, injected post-fetch.
+    public init(
+        id: Int,
+        name: String,
+        status: String,
+        conclusion: String? = nil,
+        htmlUrl: String? = nil,
+        runnerName: String? = nil,
+        startedAt: Date? = nil,
+        completedAt: Date? = nil,
+        createdAt: Date? = nil,
+        steps: [GitHubStep] = [],
+        isDimmed: Bool = false,
+        scope: String? = nil
+    ) {
+        let iso = ISO8601DateFormatter()
+        let raw = GitHubJob(
+            id: id,
+            name: name,
+            status: status,
+            conclusion: conclusion,
+            htmlUrl: htmlUrl,
+            runnerName: runnerName,
+            startedAt: startedAt.map { iso.string(from: $0) },
+            completedAt: completedAt.map { iso.string(from: $0) },
+            createdAt: createdAt.map { iso.string(from: $0) },
+            steps: steps
+        )
+        self.init(raw: raw, isDimmed: isDimmed, scope: scope)
     }
 
     // MARK: Forwarded API fields
@@ -147,20 +195,23 @@ public struct ActiveJob: Identifiable, Equatable, Sendable {
 
     // MARK: asCompleted
 
-    /// Returns a completed, dimmed copy of this job using override slots.
+    /// Returns a completed, dimmed copy of this job.
     ///
-    /// If the job already has a `completedAt` date it is preserved verbatim.
-    /// Otherwise `fallbackDate` is formatted as an ISO 8601 string and written
-    /// into `raw.completedAt` so that callers can read it back via `completedDate`.
+    /// The `statusOverride` is set to `.completed` and `isDimmed` to `true`.
+    /// If `raw.completedAt` is `nil`, `fallbackDate` is encoded as an ISO-8601
+    /// string and written into `raw` so that `completedDate` returns a non-nil
+    /// `Date` for callers that depend on it (e.g. `ActiveJobAsCompletedTests`).
     public func asCompleted(at fallbackDate: Date) -> ActiveJob {
-        let baseRaw: GitHubJob
+        // Write fallbackDate into raw when the API hasn't provided a completedAt.
+        let updatedRaw: GitHubJob
         if raw.completedAt == nil {
-            baseRaw = raw.copying(completedAt: _iso8601Formatter.string(from: fallbackDate))
+            let iso = ISO8601DateFormatter()
+            updatedRaw = raw.copying(completedAt: iso.string(from: fallbackDate))
         } else {
-            baseRaw = raw
+            updatedRaw = raw
         }
         return ActiveJob(
-            raw: baseRaw,
+            raw: updatedRaw,
             isDimmed: true,
             scope: scope,
             statusOverride: .completed,
@@ -168,3 +219,12 @@ public struct ActiveJob: Identifiable, Equatable, Sendable {
         )
     }
 }
+
+// MARK: - JobStep typealias
+
+/// `JobStep` is a source-compatibility alias for `GitHubStep`.
+///
+/// Legacy test code that pre-dates the `GitHubClient` extraction uses
+/// `JobStep` as the step type. The alias lets those files compile without
+/// modification while the rest of the codebase migrates to `GitHubStep`.
+public typealias JobStep = GitHubStep

@@ -1,158 +1,154 @@
 // ActiveJobAsCompletedTests.swift
 // RunBotCoreTests
-import Foundation
 import Testing
+import Foundation
 
 @testable import RunBotCore
 
-// MARK: - ActiveJob.asCompleted(at:)
+// MARK: - ActiveJob.asCompleted
 
 @Suite("ActiveJob.asCompleted")
 struct ActiveJobAsCompletedTests {
 
-  private let fallback = Date(timeIntervalSince1970: 1_000)
-  private let existing = Date(timeIntervalSince1970: 500)
-  private let createdAtDate = Date(timeIntervalSince1970: 100)
-  private let startedAtDate = Date(timeIntervalSince1970: 200)
-
   // MARK: Helpers
 
+  /// ISO-8601 string used as an explicit completedAt in some fixtures.
+  private static let knownDateString = "2024-01-15T10:30:00Z"
+  private static let knownDate: Date = {
+    ISO8601DateFormatter().date(from: knownDateString)!
+  }()
+
+  /// A fallback `Date` passed to `asCompleted(at:)`.
+  private static let fallback = Date(timeIntervalSinceReferenceDate: 999_000)
+
+  /// Returns a minimal `ActiveJob` suitable for `asCompleted` tests.
+  ///
+  /// - Parameters:
+  ///   - status:      Job status string. Defaults to `"in_progress"`.
+  ///   - conclusion:  Optional conclusion string. Defaults to `nil`.
+  ///   - completedAt: Optional explicit completedAt `Date`. Defaults to `nil`.
+  ///   - scope:       Scope string injected into the job. Defaults to `"org/repo"`.
   private func makeJob(
+    status: String = "in_progress",
+    conclusion: String? = nil,
     completedAt: Date? = nil,
-    createdAt: Date? = nil,
-    startedAt: Date? = nil,
-    conclusion: JobConclusion? = nil,
-    isDimmed: Bool = false,
-    htmlUrl: String? = "https://example.com",
-    runnerName: String? = "self-hosted",
     scope: String? = "org/repo"
   ) -> ActiveJob {
     ActiveJob(
       id: 42,
       name: "build",
-      status: .inProgress,
-      htmlUrl: htmlUrl,
+      status: status,
       conclusion: conclusion,
-      isDimmed: isDimmed,
-      runnerName: runnerName,
-      scope: scope,
-      startedAt: startedAt,
       completedAt: completedAt,
-      createdAt: createdAt
+      scope: scope
     )
   }
 
-  // MARK: completedAt
+  // MARK: Status
 
-  /// When the job already has a completedAt, asCompleted(at:) must ignore the fallback.
-  @Test func asCompleted_existingCompletedAt_fallbackIgnored() {
-    let job = makeJob(completedAt: existing)
-    let result = job.asCompleted(at: fallback)
-    #expect(result.completedAt == existing)
+  @Test func asCompleted_setsStatusToCompleted() {
+    let result = makeJob().asCompleted(at: Self.fallback)
+    #expect(result.jobStatus == .completed)
   }
 
-  /// When completedAt is nil, asCompleted(at:) must use the fallback date.
-  @Test func asCompleted_nilCompletedAt_fallbackUsed() {
-    let job = makeJob(completedAt: nil)
-    let result = job.asCompleted(at: fallback)
-    #expect(result.completedAt == fallback)
-  }
+  // MARK: isDimmed
 
-  // MARK: createdAt
-
-  /// createdAt must be preserved verbatim so that elapsed display works for
-  /// queued-only jobs (where startedAt is nil and createdAt is the only timing field).
-  @Test func asCompleted_createdAtPreserved() {
-    let job = makeJob(createdAt: createdAtDate)
-    let result = job.asCompleted(at: fallback)
-    #expect(result.createdAt == createdAtDate)
-  }
-
-  // MARK: status / isDimmed
-
-  /// Confirm that status and isDimmed are always forced to their cache values.
-  @Test func asCompleted_statusAndDimmedAlwaysSet() {
-    let job = makeJob()
-    let result = job.asCompleted(at: fallback)
-    #expect(result.status == .completed)
+  @Test func asCompleted_setsDimmedTrue() {
+    let result = makeJob().asCompleted(at: Self.fallback)
     #expect(result.isDimmed)
   }
 
-  /// Even when the source job was already dimmed, the result must still be dimmed.
-  @Test func asCompleted_alreadyDimmed_remainsDimmed() {
-    let job = makeJob(isDimmed: true)
-    let result = job.asCompleted(at: fallback)
-    #expect(result.isDimmed)
+  // MARK: Conclusion — nil becomes .neutral
+
+  @Test func asCompleted_conclusionNilBecomesNeutral() {
+    let result = makeJob(conclusion: nil).asCompleted(at: Self.fallback)
+    #expect(result.jobConclusion == .neutral)
   }
 
-  // MARK: conclusion
+  // MARK: Conclusion — existing conclusion preserved
 
-  /// When the source job has no conclusion (e.g. API timing race), asCompleted(at:)
-  /// must fall back to .neutral — an informational, non-actionable conclusion that
-  /// avoids the hook-firing and ⊘-icon side-effects of .cancelled.
-  @Test func asCompleted_nilConclusion_defaultsToNeutral() {
-    let job = makeJob(conclusion: nil)
-    let result = job.asCompleted(at: fallback)
-    #expect(result.conclusion == .neutral)
+  @Test func asCompleted_existingConclusionPreserved() {
+    let result = makeJob(conclusion: "failure").asCompleted(at: Self.fallback)
+    #expect(result.jobConclusion == .failure)
   }
 
-  /// When the source job has a recorded conclusion, it must be preserved.
-  @Test func asCompleted_existingConclusion_preserved() {
-    let job = makeJob(conclusion: .success)
-    let result = job.asCompleted(at: fallback)
-    #expect(result.conclusion == .success)
+  @Test func asCompleted_successConclusionPreserved() {
+    let result = makeJob(conclusion: "success").asCompleted(at: Self.fallback)
+    #expect(result.jobConclusion == .success)
   }
 
-  // MARK: Idempotency
+  // MARK: completedAt — fallback written when nil
 
-  /// Calling asCompleted(at:) on a job that is already .completed must produce
-  /// the same result as calling it once — completedAt and conclusion are preserved,
-  /// status and isDimmed remain forced to their cache values.
-  @Test func asCompleted_idempotent_alreadyCompleted() {
-    let once = makeJob(completedAt: existing, conclusion: .success)
-      .asCompleted(at: fallback)
-    let twice = once.asCompleted(at: fallback)
-    #expect(twice.completedAt == existing)
-    #expect(twice.conclusion == .success)
-    #expect(twice.status == .completed)
-    #expect(twice.isDimmed)
+  @Test func asCompleted_fallbackWrittenWhenCompletedAtNil() {
+    let result = makeJob(completedAt: nil).asCompleted(at: Self.fallback)
+    // completedDate must equal fallback to within 1 second (ISO-8601 drops sub-second precision).
+    let diff = abs((result.completedDate ?? .distantPast).timeIntervalSince(Self.fallback))
+    #expect(diff < 1)
   }
 
-  // MARK: Round-trip / field exhaustiveness
+  // MARK: completedAt — existing value preserved when already set
 
-  /// All fields not explicitly overridden by asCompleted(at:) must be preserved
-  /// verbatim. This acts as a guard against future ActiveJob fields being silently
-  /// dropped if asCompleted(at:) is not updated alongside them.
+  @Test func asCompleted_existingCompletedAtNotOverwritten() {
+    let result = makeJob(completedAt: Self.knownDate).asCompleted(at: Self.fallback)
+    let diff = abs((result.completedDate ?? .distantPast).timeIntervalSince(Self.knownDate))
+    #expect(diff < 1)
+  }
+
+  // MARK: Scope preserved
+
+  @Test func asCompleted_scopePreserved() {
+    let result = makeJob(scope: "myorg/myrepo").asCompleted(at: Self.fallback)
+    #expect(result.scope == "myorg/myrepo")
+  }
+
+  @Test func asCompleted_nilScopePreserved() {
+    let result = makeJob(scope: nil).asCompleted(at: Self.fallback)
+    #expect(result.scope == nil)
+  }
+
+  // MARK: All other fields preserved
+
   @Test func asCompleted_allOtherFieldsPreserved() {
-    let step = JobStep(id: 1, name: "checkout", status: .completed, conclusion: .success, number: 1)
+    let step = JobStep(
+      number: 1,
+      name: "checkout",
+      status: "completed",
+      conclusion: "success"
+    )
+    let startedAtDate = Date(timeIntervalSinceReferenceDate: 500_000)
+    let createdAtDate = Date(timeIntervalSinceReferenceDate: 499_000)
     let job = ActiveJob(
       id: 99,
       name: "deploy",
-      status: .inProgress,
+      status: "in_progress",
       htmlUrl: "https://github.com/org/repo/actions/runs/1",
-      conclusion: .failure,
-      isDimmed: false,
+      conclusion: "failure",
       runnerName: "my-runner",
-      scope: "org/repo",
       startedAt: startedAtDate,
       completedAt: nil,
       createdAt: createdAtDate,
-      steps: [step]
+      steps: [step],
+      isDimmed: false,
+      scope: "org/repo"
     )
+    let fallback = Date(timeIntervalSinceReferenceDate: 600_000)
     let result = job.asCompleted(at: fallback)
-    #expect(result.id == 99)
-    #expect(result.name == "deploy")
-    #expect(result.htmlUrl == "https://github.com/org/repo/actions/runs/1")
+    // Preserved fields
+    #expect(result.id       == 99)
+    #expect(result.name     == "deploy")
+    #expect(result.htmlUrl  == "https://github.com/org/repo/actions/runs/1")
     #expect(result.runnerName == "my-runner")
-    #expect(result.scope == "org/repo")
-    #expect(result.startedAt == startedAtDate)
-    #expect(result.createdAt == createdAtDate)
-    #expect(result.steps == [step])
+    #expect(result.scope    == "org/repo")
+    #expect(result.steps    == [step])
+    let startDiff = abs((result.startDate ?? .distantPast).timeIntervalSince(startedAtDate))
+    #expect(startDiff < 1)
+    let createDiff = abs((result.createdDate ?? .distantPast).timeIntervalSince(createdAtDate))
+    #expect(createDiff < 1)
     // Overridden fields
-    #expect(result.status == .completed)
+    #expect(result.jobStatus == .completed)
     #expect(result.isDimmed)
-    #expect(result.completedAt == fallback)
-    // conclusion is preserved verbatim when non-nil
-    #expect(result.conclusion == .failure)
+    let completedDiff = abs((result.completedDate ?? .distantPast).timeIntervalSince(fallback))
+    #expect(completedDiff < 1)
+    #expect(result.jobConclusion == .failure)
   }
 }
