@@ -116,7 +116,7 @@ private struct StepRowView: View {
     private var stepContent: some View {
         Button(action: onTap) {
             HStack(spacing: 6) {
-                Text(step.stepConclusionIcon)
+                Text(step.conclusionIcon)
                     .font(.system(size: 10))
                     .foregroundColor(iconColor)
                     .fixedSize()
@@ -127,7 +127,8 @@ private struct StepRowView: View {
                     .truncationMode(.tail)
                     .layoutPriority(1)
                 Spacer(minLength: 4)
-                if step.stepStatus == .inProgress || step.stepConclusion != nil {
+                // GitHubStep.status is a raw String; "in_progress" means the step is running.
+                if step.status == "in_progress" || step.conclusion != nil {
                     Text(step.elapsed)
                         .font(.caption2.monospacedDigit())
                         .foregroundColor(Color.rbTextTertiary)
@@ -147,11 +148,11 @@ private struct StepRowView: View {
     }
     /// Foreground colour for the step conclusion icon.
     private var iconColor: Color {
-        switch step.stepConclusion {
-        case .success: return Color.rbSuccess
-        case .failure: return Color.rbDanger
-        case .skipped, .cancelled: return Color.rbTextTertiary
-        default: return step.stepStatus == .inProgress ? Color.rbBlue : Color.rbTextTertiary
+        switch step.conclusion {
+        case "success": return Color.rbSuccess
+        case "failure": return Color.rbDanger
+        case "skipped", "cancelled": return Color.rbTextTertiary
+        default: return step.status == "in_progress" ? Color.rbBlue : Color.rbTextTertiary
         }
     }
 }
@@ -184,7 +185,9 @@ private struct JobRowCard: View {
     private var totalSteps: Int { job.steps.count }
     /// Number of completed steps in this job.
     private var completedSteps: Int {
-        job.steps.filter { $0.stepConclusion != nil }.count
+        // GitHubStep.conclusion is a raw String? — non-nil means the step has finished.
+        // GitHubStep.status is a raw String — "completed" means the step has finished.
+        job.steps.filter { $0.conclusion != nil || $0.status == "completed" }.count
     }
     /// Renders the job tree connector, card header, and optional expanded step list.
     var body: some View {
@@ -289,6 +292,7 @@ struct InlineJobRowsView: View {
     var body: some View {
         Group {
             if panelVisibilityState.isOpen {
+                // jobStatus is the typed accessor on ActiveJob; raw job.status is a String.
                 let jobs = fullExpand ? group.jobs : group.jobs.filter { $0.jobStatus == .inProgress }
                 VStack(alignment: .leading, spacing: 2) {
                     ForEach(Array(jobs.enumerated()), id: \.element.id) { index, job in

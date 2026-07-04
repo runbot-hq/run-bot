@@ -275,108 +275,96 @@ struct StepLogView: View {
             // disabled) per #1515 policy exception — saved repo preferred over unrelated active repo.
             return scopeStore.entries.first(where: { $0.scope.contains("/") })?.scope ?? ""
         }()
-        // ✅ Plain Task inherits @MainActor context from the view.
-        // ✅ Handle stored so onDisappear can signal cancellation (P9).
-        // ⚠️ See doc above: guard !Task.isCancelled reduces but does NOT close the
-        //   stale-write race — fetchStepLog must cooperate with cancellation to fully fix.
-        loadTask = Task(priority: .userInitiated) {
-            let text = await fetchStepLog(jobID: jobID, stepNumber: stepNum, scope: scope)
-            // Reduces (but does not close) the stale-write window — see loadLog() doc.
+        loadTask = Task {
+            defer { Task { @MainActor in isLoading = false } }
             guard !Task.isCancelled else { return }
-            logText = text ?? ""
-            isLoading = false
-            onLogLoaded?()
+            let text = await fetchStepLog(jobID: jobID, stepNumber: stepNum, scope: scope)
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                logText = text ?? ""
+                onLogLoaded?()
+            }
         }
     }
-}
 
-// MARK: - Derived helpers
-/// Derived helper properties for `StepLogView` (status labels, colors, time formatting).
-extension StepLogView {
-    /// Repo slug derived from `job.htmlUrl`, e.g. `"owner/repo"`.
+    // MARK: - Derived repo scope
+    /// Derives a `owner/repo` scope string from `job.htmlUrl` for use in `fetchStepLog`.
     ///
-    /// - Note: Logic is intentionally duplicated from `repoScopeForFetch` (same URL parsing,
-    ///   different fallback: "—" vs ""). Consolidation deferred — see TODO in `repoScopeForFetch`.
-    var repoSlug: String {
-        let parts = (job.htmlUrl ?? "").components(separatedBy: "/")
-        guard parts.count >= 5 else { return "—" }
-        let owner = parts[3]; let repo = parts[4]
-        return (owner.isEmpty || repo.isEmpty) ? "—" : "\(owner)/\(repo)"
+    /// Parses the URL path: `https://github.com/{owner}/{repo}/runs/{id}` → `"{owner}/{repo}"`.
+    /// Returns an empty string when `htmlUrl` is absent or the path cannot be parsed.
+    private var repoScopeForFetch: String {
+        guard let urlString = job.htmlUrl,
+              let url = URL(string: urlString),
+              url.host == "github.com" else { return "" }
+        let parts = url.pathComponents.filter { $0 != "/" }
+        guard parts.count >= 2 else { return "" }
+        return "\(parts[0])/\(parts[1])"
     }
 
-    /// Repo scope string (`owner/repo`) derived from `job.htmlUrl` for use in API fetch calls.
-    ///
-    /// - TODO: `repoSlug` duplicates this parsing logic with a different empty fallback ("—").
-    ///   When touching this area next, consolidate: `repoSlug` should call `repoScopeForFetch`
-    ///   and substitute "—" for the empty-string case.
-    var repoScopeForFetch: String {
-        let parts = (job.htmlUrl ?? "").components(separatedBy: "/")
-        guard parts.count >= 5 else { return "" }
-        let owner = parts[3]; let repo = parts[4]
-        return (owner.isEmpty || repo.isEmpty) ? "" : "\(owner)/\(repo)"
+    // MARK: - Meta row computed properties
+
+    /// `owner/repo` slug derived from `job.htmlUrl` for the meta row.
+    private var repoSlug: String { repoScopeForFetch.isEmpty ? "—" : repoScopeForFetch }
+
+    /// Formatted start time string, or `"—"` when the step has not yet started.
+    private var startLabel: String {
+        guard let startedAtString = step.startedAt,
+              let date = ISO8601DateFormatter().date(from: startedAtString) else { return "—" }
+        return Self.timeFmt.string(from: date)
     }
 
-    /// Step conclusion label with icon, or live/queued status.
+    /// Formatted end time string, or a status string when the step is still running.
+    private var endLabel: String {
+        guard let completedAtString = step.completedAt,
+              let dateValue = ISO8601DateFormatter().date(from: completedAtString) else {
+            return step.status == "in_progress" ? "running…" : "—"
+        }
+        return Self.timeFmt.string(from: dateValue)
+    }
+
+    /// Formatted date string derived from `step.startedAt`, or `"—"`.
+    private var dateLabel: String {
+        guard let startedAtString = step.startedAt,
+              let date = ISO8601DateFormatter().date(from: startedAtString) else { return "—" }
+        return Self.dateFmt.string(from: date)
+    }
+
+    /// Human-readable label derived from the step's conclusion and status.
     ///
-    /// Exhaustively matches all `JobConclusion` cases so that terminal outcomes like
-    /// `.timedOut`, `.actionRequired`, `.neutral`, `.stale`, and `.startupFailure`
-    /// are never mislabelled as running or queued.
-    ///
-    /// `step.stepConclusion` is `JobConclusion?` (typed accessor from GitHubJob+AppExtensions).
-    /// `step.stepStatus` is `JobStatus` (non-optional typed accessor).
-    var stepStatusLabel: String {
-        switch step.stepConclusion {
-        case .success:                  return "✓ success"
-        case .failure:                  return "✗ failure"
-        case .skipped:                  return "⊘ skipped"
-        case .cancelled:                return "⊘ cancelled"
-        case .timedOut:                 return "⧗ timed out"
-        case .actionRequired:           return "⚠️ action required"
-        case .neutral:                  return "· neutral"
-        case .stale:                    return "· stale"
-        case .startupFailure:           return "✗ startup failure"
-        case .unknown(let raw):         return "· \(raw)"
+    /// Maps `GitHubStep.conclusion` (raw `String?`) through `JobConclusion` for
+    /// display, falling back to a running/queued label when conclusion is absent.
+    private var stepStatusLabel: String {
+        let conclusion = step.conclusion.flatMap { JobConclusion(rawValue: $0) }
+        switch conclusion {
+        case .success:                          return "✓ success"
+        case .failure:                          return "✗ failure"
+        case .cancelled:                        return "⊘ cancelled"
+        case .neutral:                          return "· neutral"
+        case .skipped:                          return "⊘ skipped"
+        case .timedOut:                         return "✗ timed out"
+        case .actionRequired:                   return "! action required"
+        case .stale:                            return "· stale"
+        case .startupFailure:                   return "✗ startup failure"
+        case .unknown(let raw):                 return "· \(raw)"
         case nil:
-            return step.stepStatus == .inProgress ? "▶ running" : "· queued"
+            return step.status == "in_progress" ? "▶ running" : "· queued"
         }
     }
 
-    /// Colour used to render `stepStatusLabel` based on conclusion or live status.
+    /// Foreground colour for the step status label.
     ///
-    /// Uses `JobConclusion.isFailure` semantics: `.failure`, `.timedOut`,
-    /// `.startupFailure`, and `.actionRequired` render as danger; everything else
-    /// uses secondary text or warning colours.
-    var stepStatusColor: Color {
-        switch step.stepConclusion {
-        case .success:                                      return Color.rbSuccess
-        case .failure, .timedOut, .startupFailure,
-             .actionRequired:                              return Color.rbDanger
+    /// Maps `GitHubStep.conclusion` (raw `String?`) through `JobConclusion` for
+    /// colour selection, falling back to warning/secondary colours when absent.
+    private var stepStatusColor: Color {
+        let conclusion = step.conclusion.flatMap { JobConclusion(rawValue: $0) }
+        switch conclusion {
+        case .success:                          return Color.rbSuccess
+        case .failure, .timedOut,
+             .actionRequired, .startupFailure: return Color.rbDanger
         case .skipped, .cancelled, .neutral, .stale,
-             .unknown:                                     return Color.rbTextSecondary
+             .unknown:                         return Color.rbTextSecondary
         case nil:
-            return step.stepStatus == .inProgress ? Color.rbWarning : Color.rbTextSecondary
+            return step.status == "in_progress" ? Color.rbWarning : Color.rbTextSecondary
         }
-    }
-
-    /// Formatted start time, or `"—"` if unavailable.
-    var startLabel: String {
-        // step.startedAt is raw String? — use .startDate (parsed Date? from GitHubJob+AppExtensions).
-        guard let dateValue = step.startDate else { return "—" }
-        return Self.timeFmt.string(from: dateValue)
-    }
-
-    /// Formatted end time, or `"—"` if unavailable.
-    var endLabel: String {
-        // step.completedAt is raw String? — use .completedDate (parsed Date?).
-        guard let dateValue = step.completedDate else {
-            return step.stepStatus == .inProgress ? "running…" : "—"
-        }
-        return Self.timeFmt.string(from: dateValue)
-    }
-
-    /// Date string (`yyyy-MM-dd`) for context when the step ran.
-    var dateLabel: String {
-        guard let dateValue = step.startDate ?? step.completedDate else { return "—" }
-        return Self.dateFmt.string(from: dateValue)
     }
 }
