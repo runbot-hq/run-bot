@@ -22,6 +22,10 @@ struct ScopesView: View {
     /// Callback invoked when the user taps the back button.
     let onBack: () -> Void
 
+    /// OAuth service injected from `SettingsView` → `AppDelegate`.
+    /// Forwarded into `AddScopeSheet` to check token availability.
+    var oauthService: any OAuthServiceProtocol
+
     // MARK: - Observed stores
 
     /// Registered remote runner scopes (org / repo URLs).
@@ -56,7 +60,7 @@ struct ScopesView: View {
         }
         .frame(idealWidth: 480, maxWidth: .infinity)
         .sheet(isPresented: $showAddScopeSheet) {
-            AddScopeSheet(isPresented: $showAddScopeSheet)
+            AddScopeSheet(isPresented: $showAddScopeSheet, oauthService: oauthService)
         }
         // Sheet is presented only once both entry and preferences snapshot are ready.
         // The Binding maps nil/non-nil of selectedScopeEntry to Bool.
@@ -165,20 +169,10 @@ struct ScopesView: View {
     /// handler where we await the preferences before opening the sheet.
     private func scopeRow(_ entry: ScopeEntry) -> some View {
         let isRepo = entry.scope.contains("/")
-        // displayName and alias are read from ScopeStore's cached observable state
-        // (written back by ScopePreferencesStore on save), so this stays synchronous.
-        // Full actor reads happen in the tap handler below.
         let displayName = entry.displayName ?? entry.scope
         let hasAlias = entry.displayName != nil
         return Button {
-            // Guard against double-taps: if a sheet is already being prepared or presented,
-            // ignore the second tap entirely. Without this, two simultaneous Tasks could
-            // complete out-of-order and pair selectedScopePreferences from scope A with
-            // selectedScopeEntry for scope B. (#1538)
             guard selectedScopeEntry == nil else { return }
-            // Fetch preferences from the actor before presenting the sheet.
-            // Plain Task{} — inherits @MainActor, sheet presentation happens
-            // on main actor after the await. (P9)
             Task {
                 let prefs = await ScopePreferencesStore.shared.preferences(for: entry.scope)
                 selectedScopePreferences = prefs
@@ -211,8 +205,6 @@ struct ScopesView: View {
                     .foregroundColor(entry.isEnabled ? Color.rbSuccess : Color.rbTextTertiary)
                 Toggle("", isOn: Binding(
                     get: { entry.isEnabled },
-                    // ScopeStore enable/disable is observed by RunnerStore.startObservingScopes
-                    // via withObservationTracking — no explicit restart needed here.
                     set: { scopeStore.setEnabled(entry.id, $0) }
                 ))
                 .toggleStyle(.switch)
@@ -225,15 +217,9 @@ struct ScopesView: View {
                     .font(.caption2)
                     .foregroundColor(Color.rbTextTertiary)
                 Button {
-                    // cleanUp MUST complete before remove so that the poll loop
-                    // restart triggered by ScopeStore.remove cannot race a
-                    // not-yet-cleaned preferences blob on the next tick. (#1538)
                     Task {
                         await ScopePreferencesStore.shared.cleanUp(scope: entry.scope)
                         scopeStore.remove(id: entry.id)
-                        // ScopeStore.remove mutates activeScopes, firing
-                        // withObservationTracking in startObservingScopes and
-                        // restarting the poll loop automatically.
                     }
                 } label: {
                     Image(systemName: "minus.circle")

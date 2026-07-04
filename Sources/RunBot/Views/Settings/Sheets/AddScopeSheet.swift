@@ -38,6 +38,10 @@ struct AddScopeSheet: View {
     /// Controls whether the sheet is shown.
     @Binding var isPresented: Bool
 
+    /// OAuth service injected from `ScopesView` → `SettingsView` → `AppDelegate`.
+    /// Used to check token availability before attempting GitHub API fetches.
+    var oauthService: any OAuthServiceProtocol
+
     /// Whether the scope is org-level or repo-level.
     @State private var scopeType: ScopeType = .org
     /// The scope string chosen from the picker.
@@ -224,7 +228,7 @@ struct AddScopeSheet: View {
     /// Pattern matches `LocalRunnerStore.refresh()`: background work is off-actor via
     /// `Task.detached`, then the `Task` continuation returns to `@MainActor` automatically.
     @MainActor private func fetchScopeOptions() {
-        guard githubToken() != nil else {
+        guard oauthService.hasAnyToken else {
             log("AddScopeSheet \u{203a} no token \u{2014} falling back to text field")
             usePicker = false
             return
