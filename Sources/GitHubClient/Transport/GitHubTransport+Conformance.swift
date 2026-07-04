@@ -24,12 +24,6 @@ extension GitHubTransport {
   // MARK: apiPaginated
 
   /// Fetches and concatenates all pages for a GitHub paginated endpoint.
-  /// Follows `Link: <url>; rel="next"` until all pages are consumed or an error stops pagination.
-  ///
-  /// - Returns `nil` on auth failure (401, permission-denied 403, missing/revoked token).
-  /// - Returns `nil` when a stopping condition occurs before any items are accumulated.
-  /// - Returns encoded `[]` (non-nil) when the endpoint returns a valid empty-array response.
-  /// - Returns partial results when pagination stops mid-way due to rate-limit or network error.
   @concurrent
   public func apiPaginated(_ endpoint: String, timeout: TimeInterval = 60) async -> Data? {
     var state = PaginationState(nextURL: resolveURL(endpoint))
@@ -54,32 +48,32 @@ extension GitHubTransport {
     case .stop(let reason):
       switch reason {
       case .nonArrayBody:
-        log(
+        logger?.log(
           "apiPaginated › unexpected non-array response at \(urlString) — stopping pagination",
-          category: .transport)
+          category: "transport")
       case .unauthorized:
-        log(
+        logger?.log(
           "apiPaginated › 401 Unauthorized — token may have been revoked, stopping pagination",
-          category: .transport)
+          category: "transport")
       case .httpError:
-        log(
+        logger?.log(
           "apiPaginated › non-2xx error at \(urlString) — stopping pagination",
-          category: .transport)
+          category: "transport")
       case .rateLimited:
-        log("apiPaginated › rate limited — \(count) items collected so far", category: .transport)
+        logger?.log("apiPaginated › rate limited — \(count) items collected so far", category: "transport")
       case .permissionDenied:
-        log(
+        logger?.log(
           "apiPaginated › permission denied at \(urlString) — stopping pagination"
             + " and discarding \(count) collected items",
-          category: .transport)
+          category: "transport")
       case .networkError:
-        log(
+        logger?.log(
           "apiPaginated › network error at \(urlString) — stopping pagination",
-          category: .transport)
+          category: "transport")
       case .noToken:
-        log(
+        logger?.log(
           "apiPaginated › no GitHub token available — stopping pagination",
-          category: .transport)
+          category: "transport")
       }
     }
   }
@@ -88,46 +82,46 @@ extension GitHubTransport {
   private func encodePaginationResult(_ state: PaginationState) -> Data? {
     if state.didFailAuth {
       if state.allItems.isEmpty {
-        log(
+        logger?.log(
           "apiPaginated › auth/permission failure on first page — returning nil",
-          category: .transport)
+          category: "transport")
       } else {
-        log(
+        logger?.log(
           "apiPaginated › auth/permission failure mid-pagination"
             + " — discarding \(state.allItems.count) collected items",
-          category: .transport)
+          category: "transport")
       }
       return nil
     }
     if state.didRateLimit {
       if state.allItems.isEmpty {
-        log(
+        logger?.log(
           "apiPaginated › rate limited on first page — no items collected, returning nil",
-          category: .transport)
+          category: "transport")
         return nil
       }
-      log(
+      logger?.log(
         "apiPaginated › pagination stopped by rate limit"
           + " — returning \(state.allItems.count) partial items",
-        category: .transport)
+        category: "transport")
     }
     if state.didEncounterNonPartialFailure {
       if state.allItems.isEmpty {
-        log(
+        logger?.log(
           "apiPaginated › non-array/HTTP error on first page — returning nil",
-          category: .transport)
+          category: "transport")
         return nil
       }
-      log(
+      logger?.log(
         "apiPaginated › pagination stopped by non-array/HTTP error"
           + " — returning \(state.allItems.count) partial items",
-        category: .transport)
+        category: "transport")
     }
-    log(
+    logger?.log(
       "apiPaginated › returning \(state.allItems.count) item(s)",
-      category: .transport)
+      category: "transport")
     guard let data = try? JSONEncoder().encode(state.allItems) else {
-      log("apiPaginated › JSON encode failed — returning nil", category: .transport)
+      logger?.log("apiPaginated › JSON encode failed — returning nil", category: "transport")
       return nil
     }
     return data
@@ -139,7 +133,7 @@ extension GitHubTransport {
   @concurrent
   public func raw(_ endpoint: String, timeout: TimeInterval = 60) async -> Data? {
     guard let (data, _) = await executeRaw(endpoint, timeout: timeout) else {
-      log("raw › request failed for \(endpoint)", category: .transport)
+      logger?.log("raw › request failed for \(endpoint)", category: "transport")
       return nil
     }
     return data
@@ -153,7 +147,15 @@ extension GitHubTransport {
   public func post(_ endpoint: String, body: Data? = nil, timeout: TimeInterval = 30) async -> Data? {
     guard
       case .success(let data, _, _) = await execute(
-        endpoint, method: "POST", body: body, timeout: timeout, logTag: "post"
+        endpoint,
+        timeout: timeout,
+        logTag: "post",
+        configure: { req in
+          var r = req
+          r.httpMethod = "POST"
+          if let body { r.httpBody = body }
+          return r
+        }
       )
     else { return nil }
     return data
@@ -166,7 +168,15 @@ extension GitHubTransport {
   public func put(_ endpoint: String, body: Data, timeout: TimeInterval = 30) async -> Data? {
     guard
       case .success(let data, _, _) = await execute(
-        endpoint, method: "PUT", body: body, timeout: timeout, logTag: "put"
+        endpoint,
+        timeout: timeout,
+        logTag: "put",
+        configure: { req in
+          var r = req
+          r.httpMethod = "PUT"
+          r.httpBody = body
+          return r
+        }
       )
     else { return nil }
     return data
@@ -180,7 +190,14 @@ extension GitHubTransport {
   public func delete(_ endpoint: String, timeout: TimeInterval = 30) async -> Bool {
     guard
       case .success = await execute(
-        endpoint, method: "DELETE", timeout: timeout, logTag: "delete"
+        endpoint,
+        timeout: timeout,
+        logTag: "delete",
+        configure: { req in
+          var r = req
+          r.httpMethod = "DELETE"
+          return r
+        }
       )
     else { return false }
     return true
@@ -189,65 +206,57 @@ extension GitHubTransport {
   // MARK: cancelRun
 
   /// Cancels the workflow run identified by `runID` inside `scope`.
-  ///
-  /// - Note: Intentionally repo-only — GitHub does not provide a uniform
-  ///   org-scoped cancel endpoint, so we only support `repo` scope here.
   @concurrent
   @discardableResult
   public func cancelRun(runID: Int, scope scopeString: String) async -> Bool {
     guard let scope = Scope.parse(scopeString) else {
-      log("cancelRun › invalid scope: \(scopeString)", category: .transport)
+      logger?.log("cancelRun › invalid scope: \(scopeString)", category: "transport")
       return false
     }
-    // Intentionally repo-only: GitHub has no uniform org-scope cancel endpoint.
-    // POST /repos/{owner}/{repo}/actions/runs/{run_id}/cancel exists; the org-level
-    // equivalent does not. Org/enterprise callers must resolve to a repo scope first.
     let endpoint = "\(scope.apiPrefix)/actions/runs/\(runID)/cancel"
-    log("cancelRun › POST \(endpoint)", category: .transport)
-    let result = await execute(endpoint, method: "POST", timeout: 30, logTag: "cancelRun")
+    logger?.log("cancelRun › POST \(endpoint)", category: "transport")
+    let result = await execute(
+      endpoint,
+      timeout: 30,
+      logTag: "cancelRun",
+      configure: { req in var r = req; r.httpMethod = "POST"; return r }
+    )
     return interpretCancelResult(result, runID: runID, forLogAt: endpoint)
   }
 
   /// Interprets an `ExecuteResult` from a cancel-run POST and returns the boolean outcome.
-  ///
-  /// Extracted from `cancelRun` to reduce its cyclomatic complexity (SW-R1002).
   private func interpretCancelResult(_ result: ExecuteResult, runID: Int, forLogAt endpoint: String) -> Bool {
     switch result {
     case .success:
-      log("cancelRun › success for runID=\(runID) at \(endpoint)", category: .transport)
+      logger?.log("cancelRun › success for runID=\(runID) at \(endpoint)", category: "transport")
       return true
     case .noToken:
-      log("cancelRun › no token for runID=\(runID)", category: .transport)
+      logger?.log("cancelRun › no token for runID=\(runID)", category: "transport")
       return false
     case .httpError(409):
-      log("cancelRun › 409 Conflict for runID=\(runID) — already completed?", category: .transport)
+      logger?.log("cancelRun › 409 Conflict for runID=\(runID) — already completed?", category: "transport")
       return false
     case .httpError(let code):
-      log("cancelRun › HTTP \(code) for runID=\(runID) at \(endpoint)", category: .transport)
+      logger?.log("cancelRun › HTTP \(code) for runID=\(runID) at \(endpoint)", category: "transport")
       return false
     case .rateLimited:
-      log("cancelRun › rate limited for runID=\(runID)", category: .transport)
+      logger?.log("cancelRun › rate limited for runID=\(runID)", category: "transport")
       return false
     case .permissionDenied:
-      log("cancelRun › 403 Permission Denied for runID=\(runID) at \(endpoint)", category: .transport)
+      logger?.log("cancelRun › 403 Permission Denied for runID=\(runID) at \(endpoint)", category: "transport")
       return false
     case .networkError:
-      log("cancelRun › network error for runID=\(runID) at \(endpoint)", category: .transport)
+      logger?.log("cancelRun › network error for runID=\(runID) at \(endpoint)", category: "transport")
       return false
     }
   }
 
   // MARK: patchRunnerLabels
 
-  /// Decoding model for the GitHub "set runner labels" PUT response.
-  /// `private` to this file — used only by `patchRunnerLabels`.
   private struct RunnerLabelsResponse: Decodable {
-    /// A single runner label entry returned by the GitHub API.
     struct Label: Decodable {
-      /// The display name of the runner label.
       let name: String
     }
-    /// The full list of labels attached to the runner after the PUT.
     let labels: [Label]
   }
 
@@ -256,21 +265,21 @@ extension GitHubTransport {
   @discardableResult
   public func patchRunnerLabels(scope scopeString: String, runnerID: Int, labels: [String]) async -> [String]? {
     guard let scope = Scope.parse(scopeString) else {
-      log("patchRunnerLabels › invalid scope: \(scopeString)", category: .transport)
+      logger?.log("patchRunnerLabels › invalid scope: \(scopeString)", category: "transport")
       return nil
     }
     let endpoint = "\(scope.apiPrefix)/actions/runners/\(runnerID)/labels"
     let bodyData = try? JSONEncoder().encode(["labels": labels])
     guard let response = await put(endpoint, body: bodyData ?? Data(), timeout: 30) else {
-      log("patchRunnerLabels › PUT failed for runnerID=\(runnerID)", category: .transport)
+      logger?.log("patchRunnerLabels › PUT failed for runnerID=\(runnerID)", category: "transport")
       return nil
     }
     guard let decoded = try? decoder.decode(RunnerLabelsResponse.self, from: response) else {
-      log("patchRunnerLabels › decode failed for runnerID=\(runnerID)", category: .transport)
+      logger?.log("patchRunnerLabels › decode failed for runnerID=\(runnerID)", category: "transport")
       return nil
     }
     let result = decoded.labels.map(\.name)
-    log("patchRunnerLabels › success for runnerID=\(runnerID) — \(result.count) labels", category: .transport)
+    logger?.log("patchRunnerLabels › success for runnerID=\(runnerID) — \(result.count) labels", category: "transport")
     return result
   }
 
@@ -279,10 +288,8 @@ extension GitHubTransport {
   /// Fetches a short-lived registration token for the runner identified by `scope`.
   @concurrent
   public func fetchRegistrationToken(scope: String) async -> String? {
-    guard
-      let scope = Scope.parse(scope)
-    else {
-      log("fetchRegistrationToken › invalid scope: \(scope)", category: .transport)
+    guard let scope = Scope.parse(scope) else {
+      logger?.log("fetchRegistrationToken › invalid scope: \(scope)", category: "transport")
       return nil
     }
     guard
@@ -290,7 +297,7 @@ extension GitHubTransport {
         type: "registration-token", scope: scope, logPrefix: "fetchRegistrationToken"
       )
     else { return nil }
-    log("fetchRegistrationToken › got registration token", category: .transport)
+    logger?.log("fetchRegistrationToken › got registration token", category: "transport")
     return token
   }
 
@@ -300,7 +307,7 @@ extension GitHubTransport {
   @concurrent
   public func fetchRemovalToken(scope: String) async -> String? {
     guard let scope = Scope.parse(scope) else {
-      log("fetchRemovalToken › invalid scope: \(scope)", category: .transport)
+      logger?.log("fetchRemovalToken › invalid scope: \(scope)", category: "transport")
       return nil
     }
     guard
@@ -308,7 +315,7 @@ extension GitHubTransport {
         type: "remove-token", scope: scope, logPrefix: "fetchRemovalToken"
       )
     else { return nil }
-    log("fetchRemovalToken › got removal token", category: .transport)
+    logger?.log("fetchRemovalToken › got removal token", category: "transport")
     return token
   }
 
@@ -319,14 +326,14 @@ extension GitHubTransport {
   @discardableResult
   public func deleteRunnerByID(scope scopeString: String, runnerID: Int) async -> Bool {
     guard let scope = Scope.parse(scopeString) else {
-      log("deleteRunnerByID › invalid scope: \(scopeString)", category: .transport)
+      logger?.log("deleteRunnerByID › invalid scope: \(scopeString)", category: "transport")
       return false
     }
     let endpoint = "\(scope.apiPrefix)/actions/runners/\(runnerID)"
-    log("deleteRunnerByID › DELETE \(endpoint) runnerID=\(runnerID)", category: .transport)
+    logger?.log("deleteRunnerByID › DELETE \(endpoint) runnerID=\(runnerID)", category: "transport")
     let success = await delete(endpoint)
     if !success {
-      log("deleteRunnerByID › failed for runnerID=\(runnerID)", category: .transport)
+      logger?.log("deleteRunnerByID › failed for runnerID=\(runnerID)", category: "transport")
     }
     return success
   }
@@ -337,23 +344,20 @@ extension GitHubTransport {
   @concurrent
   private func fetchRunnerToken(type: String, scope: Scope, logPrefix: String) async -> String? {
     let endpoint = "\(scope.apiPrefix)/actions/runners/\(type)"
-    log("\(logPrefix) › POSTing \(endpoint)", category: .transport)
+    logger?.log("\(logPrefix) › POSTing \(endpoint)", category: "transport")
     guard let outputData = await post(endpoint) else {
-      log("\(logPrefix) › request failed for \(endpoint)", category: .transport)
+      logger?.log("\(logPrefix) › request failed for \(endpoint)", category: "transport")
       return nil
     }
     guard !outputData.isEmpty else {
-      log("\(logPrefix) › unexpected empty body for \(endpoint) (204?)", category: .transport)
+      logger?.log("\(logPrefix) › unexpected empty body for \(endpoint) (204?)", category: "transport")
       return nil
     }
-    /// Short-lived installation token returned by the GitHub runner token endpoint.
-    /// `private` to `fetchRunnerToken` — not part of any public API surface.
     struct TokenResponse: Decodable {
-      /// The short-lived token value.
       let token: String
     }
     guard let resp = try? decoder.decode(TokenResponse.self, from: outputData) else {
-      log("\(logPrefix) › decode failed (\(outputData.count)b)", category: .transport)
+      logger?.log("\(logPrefix) › decode failed (\(outputData.count)b)", category: "transport")
       return nil
     }
     return resp.token
@@ -362,56 +366,61 @@ extension GitHubTransport {
 
 // MARK: - PaginationAction
 
-/// The outcome of processing a single page result in `PaginationState.apply(_:decoder:)`.
 private enum PaginationAction {
-  /// Fetch succeeded — advance to the given link header (caller resolves next URL).
   case advance(next: String?)
-  /// Pagination should stop for the given reason.
   case stop(StopReason)
 
-  /// The reason pagination was halted.
   enum StopReason {
-    /// Response body was not a JSON array.
     case nonArrayBody
-    /// No GitHub token available.
     case noToken
-    /// HTTP 401 — token revoked or expired.
     case unauthorized
-    /// Any other non-2xx HTTP status.
     case httpError
-    /// GitHub rate limit hit.
     case rateLimited
-    /// HTTP 403 permission denied.
     case permissionDenied
-    /// URLSession / network failure.
     case networkError
+  }
+}
+
+// MARK: - AnyJSON
+
+/// Type-erased JSON value used to accumulate paginated array items.
+/// A minimal Codable box sufficient for re-encoding collected pages.
+private struct AnyJSON: Codable {
+  private let value: Any
+
+  init(from decoder: any Decoder) throws {
+    let container = try decoder.singleValueContainer()
+    if let dict = try? container.decode([String: AnyJSON].self) { value = dict }
+    else if let arr = try? container.decode([AnyJSON].self) { value = arr }
+    else if let str = try? container.decode(String.self) { value = str }
+    else if let num = try? container.decode(Double.self) { value = num }
+    else if let bool = try? container.decode(Bool.self) { value = bool }
+    else { value = NSNull() }
+  }
+
+  func encode(to encoder: any Encoder) throws {
+    var container = encoder.singleValueContainer()
+    switch value {
+    case let dict as [String: AnyJSON]: try container.encode(dict)
+    case let arr as [AnyJSON]: try container.encode(arr)
+    case let str as String: try container.encode(str)
+    case let num as Double: try container.encode(num)
+    case let bool as Bool: try container.encode(bool)
+    default: try container.encodeNil()
+    }
   }
 }
 
 // MARK: - PaginationState
 
-/// Accumulates per-page results and stop-conditions for ``GitHubTransport/apiPaginated(_:timeout:)``.
-///
-/// Extracted from `apiPaginated` to reduce its cyclomatic complexity (SW-R1002).
-/// All mutation happens through `apply(_:decoder:)`.
 private struct PaginationState {
-  /// The URL to fetch on the next iteration, or `nil` when pagination is complete.
   var nextURL: String?
-  /// All decoded items accumulated across successful pages.
   var allItems: [AnyJSON] = []
-  /// Set to `true` when any auth or permission failure stops pagination.
   var didFailAuth = false
-  /// Set to `true` when a rate-limit response stops pagination.
   var didRateLimit = false
-  /// Set to `true` when a non-partial failure stops pagination.
   var didEncounterNonPartialFailure = false
-  /// Set to `true` after the first page decodes successfully.
   var hadAtLeastOneSuccessfulPage = false
 
-  /// Applies a single `ExecuteResult` to the state and returns the action to take.
-  ///
-  /// Side-effects: updates `allItems`, `didFailAuth`, `didRateLimit`,
-  /// `didEncounterNonPartialFailure`, and `hadAtLeastOneSuccessfulPage`.
   mutating func apply(
     _ result: ExecuteResult,
     decoder: JSONDecoder

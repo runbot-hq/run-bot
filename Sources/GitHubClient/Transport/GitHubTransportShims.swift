@@ -67,31 +67,27 @@ public func urlSessionDelete(_ endpoint: String, timeout: TimeInterval = 30) asy
 
 /// Thin GET alias used widely across the module.
 /// - SeeAlso: ``GitHubTransport/apiAsync(_:timeout:)``
-///
-/// Uses `@concurrent` (not `nonisolated(nonsending)`) because this calls
-/// `sharedGitHubTransport.apiAsync` directly rather than the `@concurrent`
-/// `urlSessionAPIAsync` shim. Consistent with all other shims in this file
-/// (`ghPost`, `deleteRunnerByID`, etc.) that delegate directly to the struct.
 @concurrent
 public func ghAPI(_ endpoint: String, timeout: TimeInterval = 20) async -> Data? {
     await sharedGitHubTransport.apiAsync(endpoint, timeout: timeout)
+}
+
+/// Paginated GET alias.
+/// - SeeAlso: ``GitHubTransport/apiPaginated(_:timeout:)``
+@concurrent
+public func ghAPIPaginated(_ endpoint: String, timeout: TimeInterval = 60) async -> Data? {
+    await sharedGitHubTransport.apiPaginated(endpoint, timeout: timeout)
 }
 
 /// Fire-and-forget POST alias. Returns `true` on 2xx.
 /// - Note: Intentionally discards response body (converts `Data?` → `Bool`).
 ///   Use the transport method directly if the body is needed.
 /// - SeeAlso: ``GitHubTransport/post(_:body:timeout:)``
-///
-/// - Note: Returns `Bool` (success/failure) rather than `Data?`. This is an intentional
-///   lossy conversion — existing callers only care whether the POST succeeded. If the
-///   response body ever becomes relevant, call `sharedGitHubTransport.post(_:)` directly.
 @concurrent
 @discardableResult
 public func ghPost(_ endpoint: String) async -> Bool {
     let result = await sharedGitHubTransport.post(endpoint)
-    let success = result != nil
-    log("ghPost › \(endpoint) success=\(success)", category: .transport)
-    return success
+    return result != nil
 }
 
 /// Deregisters a runner from GitHub via DELETE.
