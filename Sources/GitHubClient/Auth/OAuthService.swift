@@ -53,6 +53,9 @@ public final class OAuthService: OAuthServiceProtocol {
     private let tokenStore: any TokenStore
     /// Optional logger for diagnostic messages.
     private let logger: (any GitHubLogger)?
+    /// The `URLSession` used for token-exchange network calls. Defaults to `.shared`.
+    /// Injected at init time so tests can supply a mock session without swizzling.
+    private let session: URLSession
     /// Called after a successful `tokenStore.save()` — e.g. to invalidate a `TokenCache`.
     private let onTokenSaved: (() -> Void)?
     /// Called after a successful `tokenStore.delete()` — e.g. to invalidate a `TokenCache`.
@@ -64,6 +67,8 @@ public final class OAuthService: OAuthServiceProtocol {
     ///   - clientSecret: The GitHub OAuth app client secret.
     ///   - tokenStore: The backing store used to save/delete/load the OAuth token.
     ///   - logger: Optional logger for diagnostic messages.
+    ///   - session: The `URLSession` used for token-exchange requests. Defaults to `.shared`.
+    ///     Inject a custom session in tests to avoid real network calls.
     ///   - onTokenSaved: Optional callback invoked after a successful token save.
     ///     Use this to invalidate an external cache (e.g. `TokenCache.invalidate()`).
     ///     Defaults to `nil` — existing call sites are unaffected.
@@ -75,6 +80,7 @@ public final class OAuthService: OAuthServiceProtocol {
         clientSecret: String,
         tokenStore: any TokenStore,
         logger: (any GitHubLogger)? = nil,
+        session: URLSession = .shared,
         onTokenSaved: (() -> Void)? = nil,
         onTokenDeleted: (() -> Void)? = nil
     ) {
@@ -82,6 +88,7 @@ public final class OAuthService: OAuthServiceProtocol {
         self.clientSecret = clientSecret
         self.tokenStore = tokenStore
         self.logger = logger
+        self.session = session
         self.onTokenSaved = onTokenSaved
         self.onTokenDeleted = onTokenDeleted
     }
@@ -200,6 +207,10 @@ public final class OAuthService: OAuthServiceProtocol {
             // Production `KeychainTokenStore.delete()` only returns `false` on a
             // genuine Security framework error — `errSecItemNotFound` is treated as
             // success (already gone). Test mocks must mirror this contract.
+            //
+            // ⚠️ If this fires in production, the sign-out button becomes permanently
+            // inoperative until the app is relaunched or the Keychain item is manually
+            // removed. There is no automatic retry path.
             logger?.log("OAuthService › signOut: tokenStore.delete failed — sign-out suppressed (ghost-sign-in prevention)", category: "transport")
         }
     }
@@ -308,11 +319,17 @@ public final class OAuthService: OAuthServiceProtocol {
 
     /// Performs the network call for the token exchange.
     ///
+    /// Marked `@concurrent` — consistent with the transport layer's convention for
+    /// network calls. `session.data(for:)` suspends during the network hop so the
+    /// main thread is never blocked, but `@concurrent` makes the isolation explicit
+    /// and avoids unnecessarily dispatching setup work on the main actor.
+    ///
     /// - Parameter request: The pre-built `URLRequest` to send.
     /// - Returns: The raw response `Data`.
     /// - Throws: Any `URLError` from the underlying `URLSession`.
+    @concurrent
     private func fetchTokenData(request: URLRequest) async throws -> Data {
-        let (data, _) = try await URLSession.shared.data(for: request)
+        let (data, _) = try await session.data(for: request)
         return data
     }
 
