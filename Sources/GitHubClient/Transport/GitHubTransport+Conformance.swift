@@ -126,11 +126,13 @@ extension GitHubTransport {
     logger?.log(
       "apiPaginated › returning \(state.allItems.count) item(s)",
       category: "transport")
-    guard let data = try? JSONEncoder().encode(state.allItems) else {
-      logger?.log("apiPaginated › JSON encode failed — returning nil", category: "transport")
+    do {
+      let data = try encoder.encode(state.allItems)
+      return data
+    } catch {
+      logger?.log("apiPaginated › JSON encode failed: \(error) — returning nil", category: "transport")
       return nil
     }
-    return data
   }
 
   // MARK: raw
