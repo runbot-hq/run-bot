@@ -40,7 +40,7 @@ struct AddScopeSheet: View {
 
     /// OAuth service injected from `ScopesView` → `SettingsView` → `AppDelegate`.
     /// Used to check token availability before attempting GitHub API fetches.
-    var oauthService: any OAuthServiceProtocol
+    let oauthService: any OAuthServiceProtocol
 
     /// Whether the scope is org-level or repo-level.
     @State private var scopeType: ScopeType = .org
