@@ -7,6 +7,7 @@
 // so Core has no import of the RunBot app target.
 // F-35: startObservingPreferences and startObservingScopes updated to use
 //       ObservationRelay's trailing-closure init (read closure) instead of store: parameter.
+// Step 6: runners property changed from [Runner] to [GitHubRunner].
 
 import Collections
 import Foundation
@@ -40,7 +41,7 @@ public actor RunnerPoller {
 
   /// Runners currently shown in the panel.
   /// Written exclusively by `applyFetchResult` (success path) and `applyError` (error path).
-  private(set) var runners: [Runner] = []
+  private(set) var runners: [GitHubRunner] = []
   /// Jobs currently shown in the panel, including dimmed completed entries.
   /// Written exclusively by `applyFetchResult`.
   private(set) var jobs: [ActiveJob] = []
@@ -532,7 +533,7 @@ public actor RunnerPoller {
   func setDisplayState(
     isRateLimited newIsRateLimited: Bool,
     rateLimitResetDate newResetDate: Date?,
-    runners newRunners: [Runner]? = nil,
+    runners newRunners: [GitHubRunner]? = nil,
     jobs newJobs: [ActiveJob]? = nil,
     actions newActions: [WorkflowActionGroup]? = nil
   ) {

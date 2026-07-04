@@ -6,18 +6,21 @@ import Foundation
 // MARK: - Models
 
 /// A GitHub Actions self-hosted runner as returned by the REST API.
-public struct GitHubRunner: Codable, Identifiable, Sendable {
+public struct GitHubRunner: Codable, Identifiable, Sendable, Equatable {
     public let id: Int
     public let name: String
     /// Raw status string from the API: `"online"`, `"offline"`, or `"busy"`.
-    /// RunBotCore is responsible for interpreting this value.
+    /// RunBotCore is responsible for interpreting this value via `runnerStatus`.
     public let status: String
     public let busy: Bool
     public let labels: [GitHubRunnerLabel]
+
+    /// The label name strings for this runner (e.g. `["self-hosted", "macOS", "arm64"]`).
+    public var labelNames: [String] { labels.map(\.name) }
 }
 
 /// A label attached to a GitHub Actions self-hosted runner.
-public struct GitHubRunnerLabel: Codable, Sendable {
+public struct GitHubRunnerLabel: Codable, Sendable, Equatable {
     public let id: Int
     public let name: String
     public let type: String

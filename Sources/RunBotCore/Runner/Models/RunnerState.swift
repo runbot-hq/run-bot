@@ -1,6 +1,7 @@
 // RunnerState.swift
 // RunBotCore
 import Foundation
+import GitHubClient
 import Observation
 
 // MARK: - RunnerState
@@ -28,7 +29,7 @@ public final class RunnerState {
     // MARK: - Poll-written runner state (pushed by RunnerPoller)
 
     /// The current list of GitHub self-hosted runners for all active scopes.
-    public internal(set) var runners: [Runner] = []
+    public internal(set) var runners: [GitHubRunner] = []
 
     /// Active and recently-completed jobs across all active scopes.
     public internal(set) var jobs: [ActiveJob] = []

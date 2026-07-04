@@ -4,6 +4,9 @@
 // Step 10: Free functions that fetch runners and active jobs from the GitHub API.
 // Moved from RunBot/GitHub/GitHubHelpers.swift so RunnerPoller (now in Core)
 // can call them without an app-layer dependency.
+//
+// Step 6: fetchRunners(for:decoder:) now delegates to GitHubClient.fetchRunners(scope:)
+// and returns [GitHubRunner] instead of the old RunBotCore-local Runner struct.
 import Foundation
 import GitHubClient
 import os
@@ -12,34 +15,22 @@ import os
 
 /// Fetches all registered self-hosted runners for the given scope string.
 /// Supports both repo-scoped (`owner/repo`) and org-scoped (`org`) formats.
+///
+/// Delegates to `GitHubClient.fetchRunners(scope:)` which handles pagination
+/// automatically. The `decoder` parameter is accepted for API-compatibility with
+/// existing call sites but is not used — `fetchRunners(scope:)` owns its decoder.
+///
 /// - Parameters:
 ///   - scopeString: A repo path (`owner/repo`) or org name.
-///   - decoder: A shared `JSONDecoder` instance. Pass `RunnerPoller.decoder` so the
-///     actor's reusable instance is used instead of allocating a new one per call.
-/// - Returns: An array of `Runner` values, or empty on failure.
-func fetchRunners(for scopeString: String, decoder: JSONDecoder) async -> [Runner] {
+///   - decoder: Unused — retained for call-site compatibility. Will be removed
+///     once all callers are updated to use `fetchRunners(scope:)` directly.
+/// - Returns: An array of `GitHubRunner` values, or empty on failure.
+func fetchRunners(for scopeString: String, decoder: JSONDecoder) async -> [GitHubRunner] {
     guard let scope = Scope.parse(scopeString) else {
         log("fetchRunners › invalid scope: \(scopeString)")
         return []
     }
-    let endpoint = "\(scope.apiPrefix)/actions/runners"
-    log("fetchRunners › \(endpoint)")
-    guard let data = await ghAPI(endpoint) else {
-        log("fetchRunners › no data for scope: \(scopeString)")
-        return []
-    }
-    guard let response = try? decoder.decode(RunnersResponse.self, from: data) else {
-        log("fetchRunners › decode failed for scope: \(scopeString)")
-        return []
-    }
-    log("fetchRunners › found \(response.runners.count) runner(s) for \(scopeString)")
-    return response.runners
-}
-
-/// Response envelope for the runners list API endpoint.
-private struct RunnersResponse: Codable {
-    /// The list of runners returned by the API.
-    let runners: [Runner]
+    return await GitHubClient.fetchRunners(scope: scope)
 }
 
 // MARK: - Fetch active jobs
