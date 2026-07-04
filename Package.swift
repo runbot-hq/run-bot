@@ -8,6 +8,10 @@ let package = Package(
         .library(
             name: "RunBotCore",
             targets: ["RunBotCore"]
+        ),
+        .library(
+            name: "GitHubClient",
+            targets: ["GitHubClient"]
         )
     ],
     dependencies: [
@@ -15,9 +19,23 @@ let package = Package(
         .package(url: "https://github.com/runbot-hq/AppUpdater", branch: "main")
     ],
     targets: [
+        // MARK: - GitHubClient
+        //
+        // Standalone GitHub API client — Auth, Transport, and API layers.
+        // Zero RunBot-specific domain logic. Intended for eventual extraction
+        // into a separate SPM package once validated inside this monorepo.
+        // See: https://github.com/runbot-hq/run-bot/issues/1894
+        .target(
+            name: "GitHubClient",
+            path: "Sources/GitHubClient",
+            swiftSettings: [
+                .enableUpcomingFeature("NonisolatedNonsendingByDefault")
+            ]
+        ),
         .target(
             name: "RunBotCore",
             dependencies: [
+                "GitHubClient",
                 .product(name: "AppUpdater", package: "AppUpdater"),
                 .product(name: "Collections", package: "swift-collections")
             ],
