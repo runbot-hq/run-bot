@@ -25,6 +25,8 @@ import Foundation
 /// ```swift
 /// @MainActor
 /// final class StubOAuthService: OAuthServiceProtocol {
+///     var isAuthenticated: Bool = false
+///     var hasAnyToken: Bool = false
 ///     func makeSignInURL() -> URL? { nil }
 ///     func signOut() {}
 ///     func handleCallback(_ url: URL) {}
@@ -34,6 +36,15 @@ import Foundation
 /// ```
 @MainActor
 public protocol OAuthServiceProtocol: AnyObject {
+    /// `true` when a valid OAuth token is present in the token store (e.g. Keychain).
+    /// Use this to determine whether the user has signed in via the native OAuth flow.
+    var isAuthenticated: Bool { get }
+
+    /// `true` when any usable GitHub token is available — OAuth token, `GH_TOKEN`,
+    /// or `GITHUB_TOKEN` environment variable.
+    /// Use this to determine whether API calls can proceed at all.
+    var hasAnyToken: Bool { get }
+
     /// Builds and returns the GitHub OAuth authorization URL, storing the CSRF nonce.
     /// The caller is responsible for opening the URL (e.g. `NSWorkspace.shared.open(url)`).
     /// Returns `nil` if the URL cannot be constructed.
