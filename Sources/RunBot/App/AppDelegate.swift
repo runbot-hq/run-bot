@@ -112,14 +112,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Constructed once here — injected into `AppDelegate+OAuthCallback`, `AppDelegate+Polling`,
     /// and `SettingsView` rather than accessed via a global `.shared`.
     ///
-    /// `KeychainTokenStoreAdapter` delegates to the RunBotCore `Keychain` enum, which sets
-    /// `kSecUseDataProtectionKeychain` and `kSecAttrAccessible` correctly. This ensures the
-    /// OAuth write path (OAuthService.save) and the read path (githubToken() → TokenCache)
+    /// `KeychainTokenStore` is the canonical SecItem* implementation in `GitHubClient`.
+    /// It sets `kSecUseDataProtectionKeychain` and `kSecAttrAccessibleAfterFirstUnlock`
+    /// correctly. The same service/account constants used by `GitHubTokenCache` ensure
+    /// the OAuth write path (OAuthService) and the read path (githubToken() → TokenCache)
     /// both resolve to the same keychain item.
     let oauthService: any OAuthServiceProtocol = OAuthService(
         clientID: OAuthSecrets.clientID,
         clientSecret: OAuthSecrets.clientSecret,
-        tokenStore: KeychainTokenStoreAdapter(),
+        tokenStore: KeychainTokenStore(
+            service: "run-bot",
+            account: "github-oauth-token",
+            logger: RunBotLogger()
+        ),
         logger: RunBotLogger()
     )
     /// Owned lifecycle service instance. Typed to protocol so tests can supply a stub
