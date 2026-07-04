@@ -116,6 +116,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let github = GitHubClient(
         clientID: OAuthSecrets.clientID,
         clientSecret: OAuthSecrets.clientSecret,
+        // ⚠️ Backward-compat: "run-bot" matches the keychain service name used by the
+        // pre-GitHubClient `Keychain` type. Do NOT change this value post-ship —
+        // doing so orphans any token already stored under the old coordinates and
+        // forces every signed-in user to re-authenticate. If the bundle identifier
+        // is ever adopted as the canonical service name, a migration read from
+        // "run-bot" → delete → re-save under the new name is required first.
         service: "run-bot",
         account: "github-oauth-token",
         logger: RunBotLogger()
