@@ -35,16 +35,15 @@ public final class TokenCache: Sendable {
     ///
     /// Priority order:
     /// 1. In-memory cache
-    /// 2. `TokenStore.load()` — the user's explicit OAuth token (Keychain)
+    /// 2. `TokenStore.load()` (e.g. Keychain OAuth token)
     /// 3. `GH_TOKEN` environment variable
     /// 4. `GITHUB_TOKEN` environment variable
     ///
-    /// The `TokenStore` (Keychain) is checked before env vars because an OAuth
-    /// token represents an explicit, user-initiated credential grant and should
-    /// always take precedence over ambient CI/shell credentials. Env vars act as
-    /// a fallback for automation contexts where no interactive sign-in has occurred.
-    /// Reordering these two would silently break the auth precedence for signed-in
-    /// users who also happen to have `GH_TOKEN` set in their shell environment.
+    /// The `TokenStore` (step 2) is checked before environment variables (steps 3–4)
+    /// because a Keychain-persisted OAuth token represents an explicit, user-initiated
+    /// sign-in and should not be silently shadowed by an ambient CI/shell env var.
+    /// Environment variables are the fallback for unauthenticated contexts (CI pipelines,
+    /// local automation) where no interactive sign-in has occurred.
     ///
     /// Returns `nil` if no token is available from any source.
     public func token() -> String? {
