@@ -5,6 +5,7 @@ import Foundation
 import Testing
 import os
 
+import GitHubClient
 @testable import RunBotCore
 
 // MARK: - StubTransport

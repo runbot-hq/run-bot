@@ -54,6 +54,7 @@ let package = Package(
             name: "RunBotCoreTests",
             dependencies: [
                 "RunBotCore",
+                "GitHubClient",
                 .product(name: "Collections", package: "swift-collections")
             ],
             path: "Tests/RunBotCoreTests",
