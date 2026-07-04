@@ -297,7 +297,8 @@ public actor RunnerPoller {
   ///
   /// Extracted from `nextPollInterval` to reduce its cyclomatic complexity.
   private func hasActiveWork() -> Bool {
-    let hasActiveJobs = jobs.contains { $0.status == .inProgress || $0.status == .queued }
+    // ActiveJob exposes jobStatus (JobStatus), not status (String).
+    let hasActiveJobs = jobs.contains { $0.jobStatus == .inProgress || $0.jobStatus == .queued }
     let hasActiveActions = actions.contains {
       $0.groupStatus == .inProgress || $0.groupStatus == .queued
     }
