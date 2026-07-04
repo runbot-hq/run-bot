@@ -1,9 +1,10 @@
 // AggregateStatus.swift
 // RunBotCore
+import GitHubClient
 
 // MARK: - AggregateStatus
 
-/// The overall connectivity state of the runner fleet, derived by `RunnerStore.aggregateStatus`.
+/// The overall connectivity state of the runner fleet, derived by `RunnerState.aggregateStatus`.
 ///
 /// Drives the status-bar dot colour and the menu-bar SF Symbol:
 /// - `allOnline`  → green dot / filled circle  (every runner online or busy)
@@ -29,9 +30,12 @@ public enum AggregateStatus: Sendable {
     /// Derives the aggregate status from a fleet of runners.
     ///
     /// - Parameter runners: The current runner list from the GitHub API.
-    public init(runners: [Runner]) {
+    public init(runners: [GitHubRunner]) {
         guard !runners.isEmpty else { self = .allOffline; return }
-        let onlineCount = runners.filter { $0.status == .online || $0.status == .busy }.count
+        let onlineCount = runners.filter {
+            let s = $0.runnerStatus
+            return s == .online || s == .busy
+        }.count
         if onlineCount == runners.count {
             self = .allOnline
         } else if onlineCount == 0 {
