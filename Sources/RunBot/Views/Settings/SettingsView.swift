@@ -67,10 +67,10 @@ struct SettingsView: View {
     // MARK: - Local UI state
     /// Mirrors `LoginItem.isEnabled`; toggled by the Launch at Login switch.
     @State var launchAtLogin = LoginItem.isEnabled
-    /// `true` when a valid OAuth token is stored in Keychain.
-    @State var isOAuthAuthenticated = (Keychain.token != nil)
+    /// `true` when a valid OAuth token is stored in the token store.
+    @State var isOAuthAuthenticated = false
     /// `true` when a CLI token (GH_TOKEN / GITHUB_TOKEN) is present but no OAuth token.
-    @State var isCLIAuthenticated = (Keychain.token == nil && githubToken() != nil)
+    @State var isCLIAuthenticated = false
     /// `true` while the OAuth sign-in flow is in progress.
     @State var isSigningIn = false
     /// Retains the sign-in listener Task so it is cancelled when the view disappears.
@@ -202,13 +202,12 @@ struct SettingsView: View {
 
     /// Runs on `.onAppear`: refreshes auth state and starts sign-in / sign-out listeners.
     private func onAppearAction() { // skipcq: SW-R1002 — reviewed; complexity acceptable for this onAppear setup
-        let keychainToken = Keychain.token
-        let envToken = githubToken()
-        isOAuthAuthenticated = (keychainToken != nil)
-        isCLIAuthenticated = (keychainToken == nil && envToken != nil)
+        isOAuthAuthenticated = oauthService.isAuthenticated
+        isCLIAuthenticated = !oauthService.isAuthenticated && oauthService.hasAnyToken
         #if DEBUG
+        let envToken = githubToken()
         // swiftlint:disable:next line_length
-        log("SettingsView › onAppear — Keychain.token=\(keychainToken.map { "present(len=\($0.count))" } ?? "nil") githubToken=\(envToken.map { "present(len=\($0.count))" } ?? "nil") isOAuthAuthenticated=\(isOAuthAuthenticated) isCLIAuthenticated=\(isCLIAuthenticated)")
+        log("SettingsView › onAppear — isOAuthAuthenticated=\(isOAuthAuthenticated) isCLIAuthenticated=\(isCLIAuthenticated) githubToken=\(envToken.map { "present(len=\($0.count))" } ?? "nil")")
         #endif
 
         // Replace the old `onCompletion` closure with a structured async stream.
