@@ -132,10 +132,15 @@ extension GitHubTransport {
   /// Fetches raw bytes from a GitHub API endpoint that 302-redirects to S3.
   @concurrent
   public func raw(_ endpoint: String, timeout: TimeInterval = 60) async -> Data? {
-    guard let (data, _) = await executeRaw(endpoint, timeout: timeout) else {
+    guard
+      case .success(let data, _, _) = await execute(
+        endpoint, timeout: timeout, logTag: "raw", useRawAccept: true
+      )
+    else {
       logger?.log("raw › request failed for \(endpoint)", category: "transport")
       return nil
     }
+    logger?.log("raw › \(endpoint) → \(data.count)b", category: "transport")
     return data
   }
 
