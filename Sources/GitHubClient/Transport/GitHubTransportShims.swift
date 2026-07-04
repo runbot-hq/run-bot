@@ -11,6 +11,10 @@ import Foundation
 /// shims below forward to real network behaviour with zero configuration.
 /// Tests that need a fake transport should construct a `GitHubTransport` directly
 /// (or provide a mock conformer to `GitHubTransportProtocol`) and NOT use this global.
+///
+/// ⚠️ Token-less by default: `tokenProvider` is `nil` until `GitHubClient.init` wires
+/// it via `configureGHAPI*`. Any call before `applicationDidFinishLaunching` completes
+/// will silently return `.noToken` / `nil` with no error.
 public let sharedGitHubTransport = GitHubTransport()
 
 // MARK: - Backward-compatibility shims

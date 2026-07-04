@@ -85,6 +85,8 @@ public final class KeychainTokenStore: TokenStore, Sendable {
         query[kSecMatchLimit] = kSecMatchLimitOne
         var item: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &item)
+        // errSecInteractionNotAllowed: device locked — load() returns nil until next unlock,
+        // causing isAuthenticated to return false. UI recovers automatically on unlock.
         guard status == errSecSuccess,
               let data = item as? Data,
               let token = String(data: data, encoding: .utf8)
