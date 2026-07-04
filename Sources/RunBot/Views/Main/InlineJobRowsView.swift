@@ -238,6 +238,8 @@ private struct JobRowCard: View {
                         .foregroundColor(Color.rbTextTertiary)
                         .fixedSize()
                 }
+                // ActiveJob.startDate is the parsed Date? equivalent of the raw .startedAt
+                // String bridge from GitHubJob — non-nil means the job has started.
                 if job.startDate != nil {
                     Text(job.elapsed)
                         .font(.caption2.monospacedDigit())
@@ -254,6 +256,8 @@ private struct JobRowCard: View {
     /// Vertically stacked step rows shown when the job card is expanded.
     private var stepsContainer: some View {
         VStack(alignment: .leading, spacing: 0) {
+            // GitHubStep has no `id` property — `number` (1-based step index within
+            // the job) is the stable identifier assigned by the GitHub API.
             ForEach(Array(job.steps.enumerated()), id: \.element.number) { index, step in
                 StepRowView(
                     step: step,
