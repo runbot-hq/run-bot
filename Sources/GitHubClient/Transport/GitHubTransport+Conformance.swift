@@ -223,11 +223,18 @@ extension GitHubTransport {
   // MARK: cancelRun
 
   /// Cancels the workflow run identified by `runID` inside `scope`.
+  ///
+  /// Only repo-scoped runs can be cancelled via the GitHub Actions API.
+  /// Org-scoped calls are rejected early to avoid a silent 404.
   @concurrent
   @discardableResult
   public func cancelRun(runID: Int, scope scopeString: String) async -> Bool {
     guard let scope = Scope.parse(scopeString) else {
       logger?.log("cancelRun › invalid scope: \(scopeString)", category: "transport")
+      return false
+    }
+    guard case .repo = scope else {
+      logger?.log("cancelRun › skipped: org-scoped runs not supported (scope=\(scopeString))", category: "transport")
       return false
     }
     let endpoint = "\(scope.apiPrefix)/actions/runs/\(runID)/cancel"
