@@ -20,14 +20,11 @@ public protocol TokenStore: Sendable {
 
     /// Deletes the token from storage. Returns `true` on success or if not found.
     ///
-    /// - Important: `OAuthService.signOut()` gates the sign-out stream on this return
-    ///   value. Returning `false` suppresses the `didSignOut` event entirely, leaving
-    ///   the app visually signed in. This is intentional — emitting a sign-out event
-    ///   with a live token still in the store would create a ghost-signed-in state on
-    ///   the next launch.
+    /// - Important: Deletion is **best-effort**. `OAuthService.signOut()` always clears
+    ///   the in-memory cache (`onTokenDeleted`) and emits the sign-out stream, regardless
+    ///   of this return value. A `false` return is logged but does not block sign-out.
     ///
     ///   Implementations **must** return `true` when the item is already absent
-    ///   (not-found is a success). Only return `false` on a genuine storage error.
-    ///   Test mocks that always return `false` will permanently block sign-out.
+    ///   (not-found is a success). Return `false` only on a genuine storage error.
     nonisolated func delete() -> Bool
 }

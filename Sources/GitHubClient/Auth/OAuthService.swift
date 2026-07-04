@@ -98,6 +98,13 @@ public final class OAuthService: OAuthServiceProtocol {
     // MARK: - OAuthServiceProtocol — Auth state
 
     /// `true` when a valid OAuth token is present in the token store (e.g. Keychain).
+    ///
+    /// Each call performs one synchronous `SecItemCopyMatching` read. This is
+    /// intentional: the Keychain is the source of truth and caching here would
+    /// mask external token revocation. The read is fast (≥10 µs on macOS) and
+    /// safe on the main thread at current call sites (settings appear on user
+    /// interaction, not in animation/layout loops). If this is ever used in a
+    /// tight render loop, cache the result at the call site instead.
     public var isAuthenticated: Bool {
         tokenStore.load() != nil
     }
@@ -240,6 +247,12 @@ public final class OAuthService: OAuthServiceProtocol {
             return
         }
         logger?.log("OAuthService › handleCallback — state OK, exchanging code", category: "transport")
+        // `pendingState` is cleared *before* the Task is spawned. This is the
+        // double-tap guard: a second rapid `handleCallback` (e.g. from a duplicate
+        // system URL delivery) will reach the `returnedState == pendingState` check
+        // above with `pendingState == nil` and be rejected with `fireSignIn(false)`.
+        // GitHub one-time codes cannot be replayed, so the race window is
+        // effectively zero even without an explicit `isExchangingCode` flag.
         pendingState = nil
         Task { await exchangeCode(code) }
     }

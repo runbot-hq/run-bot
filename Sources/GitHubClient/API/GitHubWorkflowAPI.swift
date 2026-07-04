@@ -266,6 +266,20 @@ public func fetchActiveRuns(scope: Scope) async -> GitHubRunsFetchResult {
     for status in statuses {
         let endpoint = "\(scope.apiPrefix)/actions/runs?status=\(status)&per_page=\(GitHubConstants.activeRunsPageSize)"
         guard let data = await ghAPIPaginated(endpoint) else {
+            // `ghAPIPaginated` returns `nil` for all failure modes: no token,
+            // rate limit, 401/403, and network errors. We cannot distinguish them
+            // here because the transport collapses all failures to `nil`.
+            //
+            // Heuristic: nil on the first page (allRuns still empty) is almost
+            // always a token/auth issue, so we surface `.noToken` to prompt
+            // sign-in. Nil after at least one page is surfaced as `.rateLimited`
+            // so callers can use the partial results rather than discarding them.
+            //
+            // Known gap: a rate-limit or network drop on the very first page is
+            // misclassified as `.noToken`; a 401 mid-loop surfaces as
+            // `.rateLimited(partialResults)`. Both were true before the extraction
+            // and require the transport to expose a typed ExecuteResult to fix
+            // properly. Tracked in #1950.
             if allRuns.isEmpty { return .noToken } else { return .rateLimited(allRuns) }
         }
         struct Response: Decodable {
