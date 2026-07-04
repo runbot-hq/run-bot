@@ -19,7 +19,9 @@ import Security
 /// ## Thread safety
 /// `SecItem*` calls are serialised by the Security framework at the OS level
 /// and are safe to call concurrently from multiple threads without additional
-/// locking.
+/// locking. All stored properties are immutable (`let`), and `GitHubLogger`
+/// requires `Sendable` conformance, so `KeychainTokenStore` satisfies `Sendable`
+/// without any `@unchecked` escape hatch (P4).
 ///
 /// ## Usage
 /// Pass an instance at `OAuthService` / `TokenCache` init time:
@@ -31,7 +33,7 @@ import Security
 /// )
 /// let tokenCache = TokenCache(tokenStore: store, logger: MyLogger())
 /// ```
-public final class KeychainTokenStore: TokenStore {
+public final class KeychainTokenStore: TokenStore, Sendable {
 
     /// The keychain service name (e.g. bundle identifier).
     private let service: String
@@ -108,27 +110,4 @@ public final class KeychainTokenStore: TokenStore {
             let addStatus = SecItemAdd(addQuery as CFDictionary, nil)
             if addStatus == errSecSuccess { return true }
             if addStatus == errSecDuplicateItem {
-                // Concurrent writer inserted the item between our update and add — retry update.
-                let retryStatus = SecItemUpdate(baseQuery() as CFDictionary, attributes as CFDictionary)
-                if retryStatus == errSecSuccess { return true }
-                logger?.log("KeychainTokenStore › save: retry SecItemUpdate failed: \(retryStatus)", category: "services")
-                return false
-            }
-            logger?.log("KeychainTokenStore › save: SecItemAdd failed: \(addStatus)", category: "services")
-            return false
-        }
-        logger?.log("KeychainTokenStore › save: SecItemUpdate failed: \(updateStatus)", category: "services")
-        return false
-    }
-
-    /// Deletes the token from the keychain. Returns `true` on success or if not found.
-    @discardableResult
-    public nonisolated func delete() -> Bool {
-        let status = SecItemDelete(baseQuery() as CFDictionary)
-        let succeeded = status == errSecSuccess || status == errSecItemNotFound
-        if !succeeded {
-            logger?.log("KeychainTokenStore › delete: SecItemDelete failed: \(status)", category: "services")
-        }
-        return succeeded
-    }
-}
+          
