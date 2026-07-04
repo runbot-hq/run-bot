@@ -46,9 +46,6 @@ public typealias GHRawTransport = @Sendable (_ endpoint: String) async -> Data?
 ///   not one per page fetched. See `APICallCounterRow` tooltip.
 public typealias GHAPIPaginatedTransport = @Sendable (_ endpoint: String, _ timeout: TimeInterval) async -> Data?
 
-/// A sync closure that returns the active GitHub personal access token, or `nil`.
-public typealias GHTokenProvider = @Sendable () -> String?
-
 // MARK: - TransportBox
 
 /// Thread-safe wrapper around an `OSAllocatedUnfairLock`-guarded closure.
@@ -59,12 +56,12 @@ public typealias GHTokenProvider = @Sendable () -> String?
 /// inside `withLock` — only read out under the lock, then invoked outside it.
 ///
 /// **Reconfigurability is intentional.** `TransportBox` deliberately does not
-/// enforce a one-configure-only invariant. `configureGHToken` is called on
-/// every test `init()` and in mid-test token-swap scenarios by design.
+/// enforce a one-configure-only invariant. The configure functions are called on
+/// every test `init()` and in mid-test swap scenarios by design.
 /// If a one-time-configure invariant is needed for a specific box, enforce it
 /// at the call site — do not add a `precondition(isFirstConfigure)` guard
 /// inside this type, as that would silently break all tests that reconfigure
-/// the transport or token provider mid-suite.
+/// the transport mid-suite.
 private struct TransportBox<T: Sendable> {
     /// Unfair lock guarding mutable transport state.
     private let lock: OSAllocatedUnfairLock<T>
@@ -84,8 +81,11 @@ private let transportBox = TransportBox<GHAPITransport>(initialState: { _ in nil
 private let rawTransportBox = TransportBox<GHRawTransport>(initialState: { _ in nil })
 /// Lock-protected box holding the active paginated transport.
 private let paginatedTransportBox = TransportBox<GHAPIPaginatedTransport>(initialState: { _, _ in nil })
-/// Lock-protected box holding the active token provider.
-private let tokenProviderBox = TransportBox<GHTokenProvider>(initialState: { nil })
+
+// Note: `tokenProviderBox` / `configureGHToken` / `githubTokenCore()` were removed in #1912.
+// Token resolution now goes through `TokenCache` wired inside `GitHubClient.init`.
+// `GitHubTransport`'s default `tokenProvider` (previously `{ githubTokenCore() }`) is
+// now set explicitly at construction time by the `GitHubClient` facade.
 
 // MARK: - Configuration
 
@@ -109,14 +109,6 @@ public func configureGHRaw(_ rawTransport: @escaping GHRawTransport) {
 ///   for the silent-misconfiguration warning.
 public func configureGHAPIPaginated(_ transport: @escaping GHAPIPaginatedTransport) {
     paginatedTransportBox.configure(transport)
-}
-
-/// Wire up the token provider. Call once at launch.
-///
-/// - Parameter provider: Sync closure that returns the current GitHub token,
-///   or `nil` when no token is available (e.g. user is signed out).
-public func configureGHToken(_ provider: @escaping GHTokenProvider) {
-    tokenProviderBox.configure(provider)
 }
 
 // MARK: - Module-level symbols
@@ -158,10 +150,4 @@ public func ghAPIPaginated(_ endpoint: String, timeout: TimeInterval = 60) async
     let result = await transport(endpoint, timeout)
     if result != nil { await apiCallCounter.record() }
     return result
-}
-
-/// Returns the active GitHub token via the configured provider.
-func githubTokenCore() -> String? {
-    let provider = tokenProviderBox.read()
-    return provider()
 }

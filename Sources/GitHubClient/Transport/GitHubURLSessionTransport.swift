@@ -48,12 +48,10 @@ public struct GitHubTransport: GitHubTransportProtocol {
   /// Creates a `GitHubTransport` with the given dependencies. All parameters have defaults
   /// that reproduce the production behaviour, so `GitHubTransport()` is ready to use.
   ///
-  /// When `tokenProvider` is omitted, it defaults to `{ githubTokenCore() }` — a closure
-  /// that reads `tokenProviderBox` **at call time**, not at init time. This means
-  /// `sharedGitHubTransport` (constructed at module load, before any `configureGH*` call)
-  /// always reflects the current box value; there is no snapshot or stale-nil window.
-  /// Calling `configureGHToken` after `sharedGitHubTransport` is created is safe and
-  /// takes effect immediately on the next request.
+  /// - Note: In production, `GitHubClient.init` always supplies an explicit `tokenProvider`
+  ///   (`{ cache.token() }`) so the `nil` default is never used in the app target.
+  ///   The default (`{ nil }`) exists only so `GitHubTransport()` compiles without
+  ///   a token provider in test or standalone contexts where no `TokenCache` is wired.
   public init(
     decoder: JSONDecoder = JSONDecoder(),
     encoder: JSONEncoder = JSONEncoder(),
@@ -66,7 +64,7 @@ public struct GitHubTransport: GitHubTransportProtocol {
     self.encoder = encoder
     self.session = session
     self.rateLimiter = rateLimiter
-    self.tokenProvider = tokenProvider ?? { githubTokenCore() }
+    self.tokenProvider = tokenProvider ?? { nil }
     self.logger = logger
   }
 
