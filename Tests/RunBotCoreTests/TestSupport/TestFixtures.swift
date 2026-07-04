@@ -137,14 +137,43 @@ typealias JobStep = GitHubStep
 
 extension GitHubStep {
     /// Convenience init used by tests: maps the `id` label to `number`.
-    init(id: Int, name: String, status: JobStatus, conclusion: JobConclusion?, number: Int) {
+    /// `GitHubStep` is Decodable-only, so we round-trip through JSON.
+    init(
+        id: Int,
+        name: String,
+        status: JobStatus,
+        conclusion: JobConclusion? = nil,
+        number: Int = 0,
+        startedAt: Date? = nil,
+        completedAt: Date? = nil
+    ) {
+        let conclusionJSON = conclusion.map { "\"\($0.rawValue)\"" } ?? "null"
+        let startJSON = startedAt.map { "\"\(_testISO8601.string(from: $0))\"" } ?? "null"
+        let endJSON = completedAt.map { "\"\(_testISO8601.string(from: $0))\"" } ?? "null"
+        let json = """
+        {"name":\"\(name)\","status":\"\(status.rawValue)\","conclusion":\(conclusionJSON),"number":\(number),"started_at":\(startJSON),"completed_at":\(endJSON)}
+        """
+        self = try! JSONDecoder().decode(GitHubStep.self, from: Data(json.utf8))
+    }
+
+    /// Overload accepting raw String status — used by tests that pass `"completed"`, etc.
+    init(
+        id: Int,
+        name: String,
+        status: String,
+        conclusion: String? = nil,
+        number: Int = 0,
+        startedAt: Date? = nil,
+        completedAt: Date? = nil
+    ) {
         self.init(
+            id: id,
             name: name,
-            status: status.rawValue,
-            conclusion: conclusion?.rawValue,
+            status: JobStatus(rawString: status),
+            conclusion: conclusion.map { JobConclusion(rawString: $0) },
             number: number,
-            startedAt: nil,
-            completedAt: nil
+            startedAt: startedAt,
+            completedAt: completedAt
         )
     }
 }

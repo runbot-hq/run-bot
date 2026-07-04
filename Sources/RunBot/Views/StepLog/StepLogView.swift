@@ -151,7 +151,7 @@ struct StepLogView: View {
                 Text(job.name).font(.caption).foregroundColor(Color.rbTextSecondary)
                     .lineLimit(1).truncationMode(.tail).layoutPriority(1)
                 Spacer()
-                Text("step #\(step.id)")
+                Text("step #\(step.number)")
                     .font(.system(size: 10, weight: .medium, design: .monospaced))
                     .foregroundColor(Color.rbTextSecondary)
                     .padding(.horizontal, 5).padding(.vertical, 2)
@@ -267,7 +267,7 @@ struct StepLogView: View {
         loadTask?.cancel() // Signals cancellation; does NOT abort in-flight network I/O.
         isLoading = true
         let jobID = job.id
-        let stepNum = step.id
+        let stepNum = step.number
         let scope: String = {
             let primary = repoScopeForFetch
             if !primary.isEmpty { return primary }
@@ -334,8 +334,10 @@ struct StepLogView: View {
     /// Maps `GitHubStep.conclusion` (raw `String?`) through `JobConclusion` for
     /// display, falling back to a running/queued label when conclusion is absent.
     private var stepStatusLabel: String {
-        let conclusion = step.conclusion.flatMap { JobConclusion(rawValue: $0) }
-        switch conclusion {
+        guard let raw = step.conclusion else {
+            return step.status == "in_progress" ? "▶ running" : "· queued"
+        }
+        switch JobConclusion(rawString: raw) {
         case .success:                          return "✓ success"
         case .failure:                          return "✗ failure"
         case .cancelled:                        return "⊘ cancelled"
@@ -346,8 +348,6 @@ struct StepLogView: View {
         case .stale:                            return "· stale"
         case .startupFailure:                   return "✗ startup failure"
         case .unknown(let raw):                 return "· \(raw)"
-        case nil:
-            return step.status == "in_progress" ? "▶ running" : "· queued"
         }
     }
 
@@ -356,15 +356,15 @@ struct StepLogView: View {
     /// Maps `GitHubStep.conclusion` (raw `String?`) through `JobConclusion` for
     /// colour selection, falling back to warning/secondary colours when absent.
     private var stepStatusColor: Color {
-        let conclusion = step.conclusion.flatMap { JobConclusion(rawValue: $0) }
-        switch conclusion {
+        guard let raw = step.conclusion else {
+            return step.status == "in_progress" ? Color.rbWarning : Color.rbTextSecondary
+        }
+        switch JobConclusion(rawString: raw) {
         case .success:                          return Color.rbSuccess
         case .failure, .timedOut,
              .actionRequired, .startupFailure: return Color.rbDanger
         case .skipped, .cancelled, .neutral, .stale,
              .unknown:                         return Color.rbTextSecondary
-        case nil:
-            return step.status == "in_progress" ? Color.rbWarning : Color.rbTextSecondary
         }
     }
 }
