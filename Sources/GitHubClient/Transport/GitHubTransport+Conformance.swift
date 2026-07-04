@@ -106,7 +106,12 @@ extension GitHubTransport {
         category: "transport")
     }
     if state.didEncounterNonPartialFailure {
-      if state.allItems.isEmpty {
+      // ⚠️ Use hadAtLeastOneSuccessfulPage, NOT allItems.isEmpty.
+      // A page can HTTP-200 with a valid empty array — hadAtLeastOneSuccessfulPage
+      // would be true but allItems would still be empty. Checking allItems.isEmpty
+      // would wrongly return nil in that case, breaking the "no behaviour changes"
+      // contract. The old RunBotCore code used this same guard.
+      if !state.hadAtLeastOneSuccessfulPage {
         logger?.log(
           "apiPaginated › non-array/HTTP error on first page — returning nil",
           category: "transport")
@@ -309,7 +314,8 @@ extension GitHubTransport {
       return nil
     }
     guard let decoded = try? decoder.decode(RunnerLabelsResponse.self, from: response) else {
-      logger?.log("patchRunnerLabels › decode failed for runnerID=\(runnerID)", category: "transport")
+      let raw = String(data: response, encoding: .utf8) ?? ""
+      logger?.log("patchRunnerLabels › decode failed for runnerID=\(runnerID) raw=\(raw.prefix(200))", category: "transport")
       return nil
     }
     let result = decoded.labels.map(\.name)

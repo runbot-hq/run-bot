@@ -159,6 +159,9 @@ public final class OAuthService: OAuthServiceProtocol {
     /// Extracts the `code` and `state` query parameters, validates the CSRF
     /// state nonce, then kicks off the token-exchange flow.
     public func handleCallback(_ url: URL) {
+        // Log scheme+host only — the full URL contains the one-time `code` query
+        // parameter which is sensitive for a short window. Never log url.absoluteString
+        // or url.query here; doing so would leak the live credential into unified logs.
         let safeURL = "\(url.scheme ?? "")://\(url.host ?? "")"
         logger?.log("OAuthService › handleCallback — url=\(safeURL)", category: "transport")
         guard let comps = URLComponents(url: url, resolvingAgainstBaseURL: false),
