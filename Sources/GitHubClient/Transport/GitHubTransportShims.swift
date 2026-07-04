@@ -92,7 +92,9 @@ public func ghAPI(_ endpoint: String, timeout: TimeInterval = 20) async -> Data?
 @discardableResult
 public func ghPost(_ endpoint: String) async -> Bool {
     let result = await sharedGitHubTransport.post(endpoint)
-    return result != nil
+    let success = result != nil
+    sharedGitHubTransport.logger?.log("ghPost › \(endpoint) success=\(success)", category: "transport")
+    return success
 }
 
 /// Deregisters a runner from GitHub via DELETE.

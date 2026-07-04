@@ -297,7 +297,7 @@ extension GitHubTransport {
       /// The label's display name.
       let name: String
     }
-    /// The runner's current labels.
+    /// The full list of labels attached to the runner after the PUT.
     let labels: [Label]
   }
 

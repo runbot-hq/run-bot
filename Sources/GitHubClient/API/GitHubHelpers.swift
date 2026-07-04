@@ -86,7 +86,9 @@ private func fetchAndDecodeStepLog(endpoint: String, jobID: Int) async -> String
     return raw
 }
 
-/// Strips ANSI codes and returns the log section for `stepNumber` (1-based), or the whole log.
+/// Parses a raw log string into sections delimited by `##[group]` markers
+/// and returns the section matching `stepNumber` (1-based).
+/// Falls back to the full log if sections cannot be parsed or the index is out of range.
 private func parseStepLog(_ raw: String, stepNumber: Int) -> String? {
     let cleaned = stripAnsi(raw)
     let sections = buildLogSections(from: cleaned)
