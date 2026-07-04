@@ -75,7 +75,7 @@ run-bot/
 │   │   │   └── KeychainTokenStore.swift     — canonical SecItem* TokenStore implementation (kSecUseDataProtectionKeychain, upsert retry guard, GitHubLogger error logging)
 │   │   │
 │   │   ├── Auth/
-│   │   │   ├── OAuthService.swift           — @MainActor GitHub OAuth Authorization Code flow service (injected TokenStore + GitHubLogger)
+│   │   │   ├── OAuthService.swift           — @MainActor GitHub OAuth Authorization Code flow service; clientID/clientSecret inlined as private constants
 │   │   │   ├── OAuthServiceProtocol.swift   — abstraction over the OAuth flow; exposes isAuthenticated + hasAnyToken for UI consumers
 │   │   │   └── TokenCache.swift             — process-wide token cache with invalidation (Synchronization.Mutex-guarded)
 │   │   │
@@ -101,7 +101,7 @@ run-bot/
 │   │   │   ├── AppDelegate+PanelSetup.swift  — NSPopoverDelegate conformance and panel setup
 │   │   │   ├── AppDelegate+Polling.swift    — OAuth sign-out subscription and poll-loop coordination
 │   │   │   ├── AppDelegate+StatusItem.swift  — status-bar item creation and management
-│   │   │   ├── AppDelegate+StoreSetup.swift  — wires app-lifecycle callbacks to store and service setup
+│   │   │   ├── AppDelegate+StoreSetup.swift  — wires app-lifecycle callbacks to store and service setup; reads token directly via Keychain.token
 │   │   │   └── PopoverLifecycleCoordinator.swift — popover lifecycle coordinator extracted from AppDelegate (#1374)
 │   │   │
 │   │   ├── DesignSystem/
@@ -144,7 +144,7 @@ run-bot/
 │   │       │       ├── AddRunnerSheet+FormFields.swift — form-field subviews and folder actions
 │   │       │       ├── AddRunnerSheet+TokenSection.swift — token section + runner download-URL lookup
 │   │       │       ├── AddRunnerSheet+Validation.swift — validation helpers and state-check predicates
-│   │       │       ├── AddScopeSheet.swift   — add-scope sheet (ScopeType selection)
+│   │       │       ├── AddScopeSheet.swift   — add-scope sheet; uses oauthService.hasAnyToken for auth check
 │   │       │       ├── FailureHookCommandSheet.swift — per-scope failure-hook command editor (#544)
 │   │       │       ├── RunnerDetailSheet.swift — edit a single self-hosted runner
 │   │       │       └── ScopeEditSheet.swift  — modal scope-edit sheet (atomic save, #1540)
@@ -159,11 +159,6 @@ run-bot/
 │       │   ├── FailureHookRunnerAdapters.swift — production adapters bridging deps to the use-case protocols
 │       │   ├── FailureHookRunnerDependencies.swift — dependency protocols (incl. ScopePreferencesStoreProtocol)
 │       │   └── FailureHookRunnerUseCase.swift — testable, DI'd replacement for the static FailureHookRunner
-│       │
-│       ├── GitHub/
-│       │   └── Auth/
-│       │       ├── GitHubTokenCache.swift   — githubToken() / invalidateTokenCache() free functions; wires TokenCache to KeychainTokenStore with RunBot service/account constants
-│       │       └── OAuthSecrets.swift       — OAuth app credential constants (clientID + clientSecret bundled with binary)
 │       │
 │       ├── Preferences/
 │       │   ├── AppPreferencesStore.swift    — @MainActor store persisting general app settings to UserDefaults
@@ -256,21 +251,27 @@ run-bot/
 │           └── SystemStats.swift            — snapshot of CPU and memory metrics
 │
 └── Tests/
-    ├── RunBotCoreTests/
+    ├── GitHubClientTests/
     │   ├── APICallCounter+TestSeam.swift    — test-only seeding/reset extensions on APICallCounter
     │   ├── APICallCounterTests.swift        — unit tests for APICallCounter and its snapshot
+    │   ├── GitHubRateLimitActorTests.swift  — rate-limit actor generation-guard/race tests
+    │   ├── GitHubTokenCacheTests.swift      — TokenCache resolution, caching, and invalidation tests (MockTokenStore; no Keychain)
+    │   ├── GitHubTransportPaginatedTests.swift — integration tests for GitHubTransport.apiPaginated
+    │   ├── GitHubTransportShimTests.swift   — tests for the module-level transport configure/read shims
+    │   ├── GitHubURLHelpersTests.swift      — unit tests for GitHubURLHelpers scope-string extraction
+    │   └── TestSupport/
+    │       └── (shared test doubles and fixtures for GitHubClientTests)
+    ├── RunBotCoreTests/
     │   ├── ActiveJobAsCompletedTests.swift  — tests for ActiveJob.asCompleted(at:)
     │   ├── FailureHookRunnerUseCaseTests.swift — unit tests for FailureHookRunnerUseCase
-    │   ├── GitHubRateLimitActorTests.swift  — rate-limit actor generation-guard/race tests
-    │   ├── GitHubTokenCacheTests.swift      — token-cache tests (with isolation requirement)
     │   ├── GitHubTransportPaginatedTests.swift — integration tests for GitHubTransport.apiPaginated
     │   ├── GitHubTransportShimTests.swift   — tests for the module-level transport configure/read shims
     │   ├── LocalRunnerIndexTests.swift      — unit tests for LocalRunnerIndex
     │   ├── LogFetcherTests.swift            — unit tests for LogFetcher
     │   ├── ObservationLoopTests.swift       — unit tests for ObservationLoop invariants
     │   ├── OrgRunnerMetricsResolutionTests.swift — regression tests for org-scoped runner metrics (#1209/#1192)
-    │   ├── RunBotCoreTests.swift         — top-level RunBotCore test suite
-│   │   ├── SaveRunnerEditsUseCaseTests.swift — unit tests for SaveRunnerEditsUseCase (Phase 5, #1300)
+    │   ├── RunBotCoreTests.swift            — top-level RunBotCore test suite
+    │   ├── SaveRunnerEditsUseCaseTests.swift — unit tests for SaveRunnerEditsUseCase (Phase 5, #1300)
     │   ├── ScopeEditSheetTests.swift        — atomic-save contract tests for the ScopeEditSheet rewrite (#1540)
     │   ├── StepLogViewScopeResolutionTests.swift — tests for StepLogView.loadLog() scope resolution (#1517)
     │   ├── WorkflowActionGroupFetcherTests.swift — unit tests for WorkflowActionGroupFetcher
@@ -278,5 +279,5 @@ run-bot/
     │       ├── TestDoubles.swift            — shared test doubles (#1447)
     │       └── TestFixtures.swift           — shared test fixtures (#1446)
     └── RunBotUITests/
-        └── RunBotUITests.swift           — UI tests using real mouse interaction; run via xcodebuild on the self-hosted runner
+        └── RunBotUITests.swift              — UI tests using real mouse interaction; run via xcodebuild on the self-hosted runner
 ```
