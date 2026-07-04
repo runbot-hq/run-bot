@@ -1,5 +1,6 @@
 // IndexedScopedRunner.swift
 // RunBotCore
+
 import GitHubClient
 
 // MARK: - IndexedScopedRunner
@@ -33,7 +34,6 @@ struct IndexedScopedRunner: Sendable {
     /// Immutable — Phase 2 produces a new `IndexedScopedRunner` via
     /// `IndexedScopedRunner(scope:runner:)` rather than mutating this field.
     let runner: GitHubRunner
-
     /// The locally-resolved CPU/memory snapshot for this runner, if any.
     ///
     /// Populated by `enrichBusyRunners` during Phase 2 of `fetchAndEnrichRunners`.
@@ -42,6 +42,11 @@ struct IndexedScopedRunner: Sendable {
     /// them back to the local store.
     let metrics: RunnerMetrics?
 
+    /// Creates an `IndexedScopedRunner`.
+    /// - Parameters:
+    ///   - scope: The GitHub scope URL string (repo or org) this runner belongs to.
+    ///   - runner: The enriched `GitHubRunner` value.
+    ///   - metrics: The locally-resolved CPU/memory snapshot, if any.
     init(scope: String, runner: GitHubRunner, metrics: RunnerMetrics? = nil) {
         self.scope = scope
         self.runner = runner

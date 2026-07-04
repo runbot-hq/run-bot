@@ -3,20 +3,19 @@
 //
 // RunBotCore-layer extensions on GitHubRunner that depend on types
 // (RunnerStatus, RunnerMetrics) which live in RunBotCore, not GitHubClient.
+
 import GitHubClient
 
 // MARK: - RunBotCore bridge
 
+/// RunBotCore-layer extensions on `GitHubRunner` bridging to `RunnerStatus` and `RunnerMetrics`.
 extension GitHubRunner {
-
     /// The typed `RunnerStatus` for this runner, derived from the raw `status` string.
     ///
     /// `GitHubRunner.status` is a plain `String` so the `GitHubClient` package
     /// stays free of the `RunnerStatus` enum. This computed property performs the
     /// conversion at the `RunBotCore` boundary.
-    public var runnerStatus: RunnerStatus {
-        RunnerStatus(rawString: status)
-    }
+    public var runnerStatus: RunnerStatus { RunnerStatus(rawString: status) }
 
     /// Returns a copy of this runner with the given `metrics` value applied.
     ///
@@ -44,9 +43,11 @@ extension GitHubRunner {
         default: break
         }
         let label = busy ? "active" : "idle"
-        guard let m = metrics else { return "\(label) (CPU: \u{2014} MEM: \u{2014})" }
-        let cpu = String(format: "%.1f", m.cpu)
-        let mem = String(format: "%.1f", m.mem)
+        guard let metricsSnapshot = metrics else {
+            return "\(label) (CPU: \u{2014} MEM: \u{2014})"
+        }
+        let cpu = String(format: "%.1f", metricsSnapshot.cpu)
+        let mem = String(format: "%.1f", metricsSnapshot.mem)
         return "\(label) (CPU: \(cpu)% MEM: \(mem)%)"
     }
 }
@@ -64,7 +65,9 @@ extension GitHubRunner {
 /// couple `GitHubClient` to `RunBotCore`, violating the package boundary. This
 /// carrier is intentionally `internal` and not part of the public API.
 struct GitHubRunnerWithMetrics {
+    /// The base runner value carrying the GitHub API fields.
     let base: GitHubRunner
+    /// The CPU/memory snapshot to attach, or `nil` to clear metrics.
     let metrics: RunnerMetrics?
 
     /// Re-exposes the base runner. The metrics are carried separately by `RunnerPoller`.
