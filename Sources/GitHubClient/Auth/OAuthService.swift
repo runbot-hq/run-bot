@@ -43,6 +43,11 @@ public final class OAuthService: OAuthServiceProtocol {
     /// The GitHub OAuth app client ID.
     private let clientID: String
     /// The GitHub OAuth app client secret.
+    ///
+    /// Held in process memory for the app lifetime — intentional for compile-time
+    /// baked constants (e.g. `OAuthSecrets.clientSecret`). If a dynamic secrets
+    /// manager is ever wired in, the secret should **not** be stored as a property;
+    /// use a closure or async resolver instead so the secret can be zeroed after use.
     private let clientSecret: String
     /// The backing store used to save/delete/load the OAuth token.
     private let tokenStore: any TokenStore
@@ -259,6 +264,9 @@ public final class OAuthService: OAuthServiceProtocol {
         do {
             data = try await fetchTokenData(request: req)
         } catch {
+            // Safe to log error.localizedDescription here — URLError never includes
+            // HTTP response body or auth credentials; it carries only transport-level
+            // metadata (e.g. "The network connection was lost.").
             logger?.log("OAuthService › exchangeCode: network error — \(error.localizedDescription), calling fireSignIn(false)", category: "transport")
             fireSignIn(false)
             return
