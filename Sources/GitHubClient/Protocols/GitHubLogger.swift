@@ -1,5 +1,5 @@
 // GitHubLogger.swift
-// RunBotGitHubClient
+// GitHubClient
 
 /// Injectable logging protocol used by `GitHubClient` types to forward
 /// diagnostic messages to the host app's logging system.
