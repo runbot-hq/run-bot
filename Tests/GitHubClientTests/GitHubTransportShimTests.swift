@@ -1,9 +1,9 @@
 // GitHubTransportShimTests.swift
-// RunBotCoreTests
+// GitHubClientTests
 import Foundation
 import Testing
 
-@testable import RunBotCore
+@testable import GitHubClient
 
 // MARK: - GitHubTransportShimTests
 

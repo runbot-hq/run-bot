@@ -1,5 +1,5 @@
 // GitHubRateLimitActorTests.swift
-// RunBotCoreTests
+// GitHubClientTests
 //
 // Unit tests for RateLimitActor — generation-guard stale-task race,
 // clamp semantics, and the atomic snapshot contract.
@@ -20,7 +20,7 @@
 import Foundation
 import Testing
 
-@testable import RunBotCore
+@testable import GitHubClient
 
 @Suite("RateLimitActor")
 struct RateLimitActorTests {

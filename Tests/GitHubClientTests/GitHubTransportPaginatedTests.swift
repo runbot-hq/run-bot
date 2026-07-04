@@ -1,5 +1,5 @@
 // GitHubTransportPaginatedTests.swift
-// RunBotCoreTests
+// GitHubClientTests
 //
 // Integration tests for GitHubTransport.apiPaginated.
 // Uses URLProtocol stubbing + SpyRateLimitActor to exercise the real pagination
@@ -22,7 +22,7 @@
 import Foundation
 import Testing
 
-@testable import RunBotCore
+@testable import GitHubClient
 
 // MARK: - StubURLProtocol
 
