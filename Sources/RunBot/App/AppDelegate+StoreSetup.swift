@@ -113,6 +113,9 @@ extension AppDelegate {
             // See `applicationDidFinishLaunching` doc-comment for the full explanation.
             statusIconTask = Task { @MainActor [weak self] in
                 guard let self else { return }
+                // Observations has did-set semantics: it emits once immediately with
+                // the current value, then on each subsequent change. The initial call
+                // seeds the status icon to the correct state at startup.
                 for await _ in Observations({ self.runnerState.aggregateStatus }) {
                     updateStatusIcon()
                 }
