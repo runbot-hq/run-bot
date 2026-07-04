@@ -1,6 +1,5 @@
 // GitHubJob+AppExtensions.swift
 // RunBotCore
-
 import Foundation
 import GitHubClient
 
@@ -12,6 +11,7 @@ extension GitHubJob {
 
     /// Typed job status derived from the raw `status` string.
     public var jobStatus: JobStatus { JobStatus(rawString: status) }
+
     /// Typed job conclusion derived from the raw `conclusion` string, or `nil` when running.
     public var jobConclusion: JobConclusion? { conclusion.map { JobConclusion(rawString: $0) } }
 
@@ -19,8 +19,10 @@ extension GitHubJob {
 
     /// Parsed `startedAt` date, or `nil` when not yet started.
     public var startDate: Date? { startedAt.flatMap { _iso8601.date(from: $0) } }
+
     /// Parsed `completedAt` date, or `nil` when still running.
     public var completedDate: Date? { completedAt.flatMap { _iso8601.date(from: $0) } }
+
     /// Parsed `createdAt` date, or `nil` when not available.
     public var createdDate: Date? { createdAt.flatMap { _iso8601.date(from: $0) } }
 
@@ -71,23 +73,29 @@ extension GitHubJob {
 
 /// RunBotCore-layer extensions on `GitHubStep` for typed status, dates, and display.
 extension GitHubStep {
+
     /// Typed step status derived from the raw `status` string.
     public var stepStatus: JobStatus { JobStatus(rawString: status) }
+
     /// Typed step conclusion derived from the raw `conclusion` string, or `nil` when running.
     public var stepConclusion: JobConclusion? { conclusion.map { JobConclusion(rawString: $0) } }
+
     /// Parsed `startedAt` date, or `nil` when not yet started.
     public var startDate: Date? { startedAt.flatMap { _iso8601.date(from: $0) } }
+
     /// Parsed `completedAt` date, or `nil` when still running.
     public var completedDate: Date? { completedAt.flatMap { _iso8601.date(from: $0) } }
+
     /// Human-readable elapsed duration.
     public var elapsed: String {
         formatElapsed(start: startDate, end: completedDate, isCompleted: stepConclusion != nil)
     }
+
     /// Unicode character summarising step outcome.
     public var conclusionIcon: String {
         switch stepConclusion {
-        case .success:             return "\u{2713}"
-        case .failure:             return "\u{2797}"
+        case .success: return "\u{2713}"
+        case .failure: return "\u{2797}"
         case .skipped, .cancelled: return "\u{2298}"
         default: return stepStatus == .inProgress ? "\u{25B6}" : "\u{00B7}"
         }
@@ -97,7 +105,12 @@ extension GitHubStep {
 // MARK: - Private ISO8601 formatter
 
 /// Module-private ISO 8601 date formatter shared by `GitHubJob` and `GitHubStep` date accessors.
-private let _iso8601: ISO8601DateFormatter = {
+///
+/// `nonisolated(unsafe)` suppresses the Swift 6 `#MutableGlobalVariable` diagnostic.
+/// Access is safe because `ISO8601DateFormatter` is read-only after initialisation
+/// (no mutation occurs after the closure returns) and the Apple SDK guarantee is
+/// that date *formatting* (not setting options) is thread-safe on a configured instance.
+nonisolated(unsafe) private let _iso8601: ISO8601DateFormatter = {
     let formatter = ISO8601DateFormatter()
     formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
     return formatter

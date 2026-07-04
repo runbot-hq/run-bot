@@ -1,6 +1,7 @@
 // ISO8601DateParser.swift
 // RunBotCore
 import Foundation
+import GitHubClient
 
 // MARK: - ISO8601DateParser
 
@@ -29,11 +30,11 @@ public actor ISO8601DateParser {
         iso.date(from: str)
     }
 
-    /// Builds an `ActiveJob` from a decoded `JobPayload` using the actor-owned formatter.
+    /// Builds an `ActiveJob` from a decoded `GitHubJob` using the actor-owned formatter.
     ///
-    /// Centralising job construction here keeps `makeActiveJob(from:iso:isDimmed:)`
+    /// Centralising job construction here keeps `ActiveJob(raw:isDimmed:)`
     /// as the single source of truth while hiding the formatter from callers.
-    public func makeJob(from payload: JobPayload, isDimmed: Bool = false) -> ActiveJob {
-        makeActiveJob(from: payload, iso: iso, isDimmed: isDimmed)
+    public func makeJob(from payload: GitHubJob, isDimmed: Bool = false) -> ActiveJob {
+        ActiveJob(raw: payload, isDimmed: isDimmed)
     }
 }
