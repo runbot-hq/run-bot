@@ -12,6 +12,11 @@ import GitHubClient
 
 // MARK: - Metrics bridge
 
+/// RunBotCore-layer extensions on `GitHubRunner` that bridge to `RunnerMetrics`.
+///
+/// `GitHubRunner` is defined in `GitHubClient` and cannot reference `RunnerMetrics`
+/// directly. These extensions live in `RunBotCore` so the dependency flows in
+/// the correct direction: `RunBotCore` → `GitHubClient`, never the reverse.
 extension GitHubRunner {
     /// Returns a copy of this runner with the given `metrics` value applied.
     ///
