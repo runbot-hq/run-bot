@@ -65,16 +65,16 @@ struct ActiveJobElapsedTests {
   }
 }
 
-// MARK: - JobStep.elapsed
+// MARK: - GitHubStep.elapsed
 
-@Suite("JobStep.elapsed")
-struct JobStepElapsedTests {
+@Suite("GitHubStep.elapsed")
+struct GitHubStepElapsedTests {
 
-  /// A completed job step formats elapsed time as "MM:SS" given fixed start/end dates.
+  /// A completed step formats elapsed time as "MM:SS" given fixed start/end dates.
   @Test func elapsedFixedDuration() {
     let start = Date(timeIntervalSinceReferenceDate: 0)
     let end = Date(timeIntervalSinceReferenceDate: 185)  // 3m 5s
-    let step = JobStep(
+    let step = GitHubStep(
       id: 1, name: "S", status: "completed",
       startedAt: start, completedAt: end)
     #expect(step.elapsed == "03:05")
@@ -82,7 +82,7 @@ struct JobStepElapsedTests {
 
   /// A step with nil start and end dates returns "00:00".
   @Test func elapsedNilDatesReturnsZero() {
-    let step = JobStep(id: 1, name: "S", status: "in_progress")
+    let step = GitHubStep(id: 1, name: "S", status: "in_progress")
     #expect(step.elapsed == "00:00")
   }
 
@@ -90,7 +90,7 @@ struct JobStepElapsedTests {
   @Test func elapsedExactlyOneMinute() {
     let start = Date(timeIntervalSinceReferenceDate: 0)
     let end = Date(timeIntervalSinceReferenceDate: 60)
-    let step = JobStep(
+    let step = GitHubStep(
       id: 1, name: "S", status: "completed",
       startedAt: start, completedAt: end)
     #expect(step.elapsed == "01:00")
@@ -224,7 +224,7 @@ struct PollResultBuilderTests {
 
   // MARK: trimJobCache
 
-  /// Verifies that `trimJobCache` evicts the oldest (lowest `completedAt`) entry when the cache exceeds the limit.
+  /// Verifies that `trimJobCache` evicts the oldest (lowest `completedDate`) entry when the cache exceeds the limit.
   @Test func trimJobCacheRemovesOldestWhenOverLimit() {
     var cache: [Int: ActiveJob] = [
       1: ActiveJob(
@@ -320,10 +320,10 @@ struct PollResultBuilderTests {
       into: &cache
     )
     #expect(cache[55] != nil)
-    #expect(cache[55]?.status == "completed")
+    #expect(cache[55]?.jobStatus == .completed)
     #expect(cache[55]?.isDimmed == true)
     #expect(
-      cache[55]?.conclusion == "neutral",
+      cache[55]?.jobConclusion == .neutral,
       "Missing conclusion defaults to neutral (.cancelled has isHookConclusion side-effects)")
   }
 
@@ -340,7 +340,7 @@ struct PollResultBuilderTests {
       now: Date(),
       into: &cache
     )
-    #expect(cache[55]?.conclusion == "failure", "Existing cache entry must not be overwritten")
+    #expect(cache[55]?.jobConclusion == .failure, "Existing cache entry must not be overwritten")
   }
 
   /// Verifies that `applyVanishedJobs` does not add a job to the cache when that job is still present in the live feed.
@@ -356,7 +356,7 @@ struct PollResultBuilderTests {
     #expect(cache[77] == nil)
   }
 
-  /// Verifies that `applyVanishedJobs` preserves an already-set conclusion on the vanished job rather than overwriting it with `"neutral"`.
+  /// Verifies that `applyVanishedJobs` preserves an already-set conclusion on the vanished job rather than overwriting it with `.neutral`.
   @Test func applyVanishedJobsPreservesExistingConclusion() {
     let vanished = ActiveJob(
       id: 88, name: "Done", status: "completed",
@@ -368,7 +368,7 @@ struct PollResultBuilderTests {
       now: Date(),
       into: &cache
     )
-    #expect(cache[88]?.conclusion == "failure")
+    #expect(cache[88]?.jobConclusion == .failure)
   }
 
   // MARK: buildJobState
@@ -408,7 +408,7 @@ struct PollResultBuilderTests {
       backfill: { _ in }
     )
     #expect(result.newCache[11] != nil)
-    #expect(result.newCache[11]?.status == "completed")
+    #expect(result.newCache[11]?.jobStatus == .completed)
   }
 
   // MARK: trimSeenGroupIDs
@@ -741,21 +741,11 @@ struct PollResultBuilderGroupStateTests {
     #expect(cacheForSha.count == 0)
   }
 
-  /// Regression: a group ID that has been FIFO-evicted from seenGroupIDs must re-fire
-  /// the hook when it next appears — this is the documented known limitation (bounded
-  /// memory; occasional re-fire is an accepted trade-off).
-  ///
-  /// Scenario:
-  /// 1. Poll 1 — group fires hook; ID lands at index 0 of seenGroupIDs (oldest).
-  /// 2. Synthetic eviction — fill seenGroupIDs to seenGroupIDsLimit with filler IDs
-  ///    (real ID remains at index 0), then trim by 1 to evict it via FIFO.
-  /// 3. Poll 2 — ID is gone from seenGroupIDs; hook re-fires (counter reaches 2).
   @Test func evictedGroupIDRefiresHookOnNextPoll() async {
     let failedGroup = makeGroup(
       id: 1001, sha: "dead01", groupStatus: .completed, conclusion: "failure")
     let counter = HookCounter()
 
-    // Poll 1: hook fires for the first time; ID is registered in newSeenGroupIDs.
     let poll1 = await PollResultBuilder.buildGroupState(
       snapPrevGroups: [:],
       snapGroupCache: [:],
@@ -769,10 +759,6 @@ struct PollResultBuilderGroupStateTests {
     #expect(await counter.value == 1, "hook must fire once on first poll")
     #expect(poll1.newSeenGroupIDs.contains(failedGroup.id))
 
-    // Synthetic FIFO eviction:
-    // Place the real group ID at index 0 (oldest), then fill to seenGroupIDsLimit
-    // with filler IDs. Trim by 1 — trimSeenGroupIDs removes the single oldest entry,
-    // which is the real group ID, because OrderedSet preserves insertion order.
     var seenAfterEviction: OrderedSet<String> = [failedGroup.id]
     for i in 0..<(PollResultBuilder.seenGroupIDsLimit - 1) {
       seenAfterEviction.append("filler-\(i)")
@@ -784,7 +770,6 @@ struct PollResultBuilderGroupStateTests {
       !seenAfterEviction.contains(failedGroup.id),
       "real group ID must be evicted (it was the oldest entry)")
 
-    // Poll 2: ID is no longer in seenGroupIDs — hook must re-fire.
     _ = await PollResultBuilder.buildGroupState(
       snapPrevGroups: [:],
       snapGroupCache: [:],
@@ -799,7 +784,6 @@ struct PollResultBuilderGroupStateTests {
     #expect(await counter.value == 2, "hook must re-fire after FIFO eviction from seenGroupIDs")
   }
 
-  /// Verifies that `doneGroups` are registered in `seenGroupIDs` before `freezeVanishedGroups` runs, preventing a double hook fire when a group transitions live → completed in the same poll.
   @Test func doneGroupsSeenBeforeFreezeVanishedGroupsPreventsDoubleFire() async {
     let sha = "ff0011"
     let liveVersion = makeGroup(
@@ -822,25 +806,11 @@ struct PollResultBuilderGroupStateTests {
       "doneGroups must be marked seen before freezeVanishedGroups runs to prevent double-fire")
   }
 
-  /// Regression: a group that fires the hook via the vanish path (freezeVanishedGroups)
-  /// must NOT re-fire if its cache entry is later evicted by trimGroupCache and it
-  /// reappears in snapPrevGroups on a subsequent poll. seenGroupIDs must survive
-  /// cache eviction because it is trimmed independently (seenGroupIDsLimit >> groupCacheLimit).
-  ///
-  /// The vanished group must carry a hook-triggering conclusion on its runs for the
-  /// hook to fire at all — freezeVanishedGroups checks `run.conclusion?.isHookConclusion`.
-  /// Here we use a completed run with `conclusion: .failure` to exercise the full path.
   @Test func vanishPathHookDoesNotRefireAfterCacheEviction() async {
     let sha = "cc0011"
-    // Build a group whose run already has a failure conclusion — this is what
-    // freezeVanishedGroups checks via `run.conclusion?.isHookConclusion == true`.
-    // An in-progress run has conclusion == nil, so the hook would never fire;
-    // we need a completed run conclusion to trigger the vanish-path hook.
     let vanishedGroup = makeGroup(
       id: 1003, sha: sha, groupStatus: .completed, conclusion: "failure", isDimmed: false)
 
-    // Poll 1: group is in snapPrevGroups but absent from fetchGroups — vanish path fires the hook.
-    // Note: fetchGroups returns [] so the group goes through freezeVanishedGroups, not doneGroups.
     let counter = HookCounter()
     let poll1 = await PollResultBuilder.buildGroupState(
       snapPrevGroups: [vanishedGroup.id: vanishedGroup],
@@ -856,14 +826,10 @@ struct PollResultBuilderGroupStateTests {
     #expect(
       poll1.newSeenGroupIDs.contains(vanishedGroup.id), "vanish path must insert into seenGroupIDs")
 
-    // Simulate cache eviction: poll1's group cache is trimmed to 0 (groupCacheLimit=0).
-    // seenGroupIDs survives because it is passed forward independently.
     var evictedCache = poll1.newGroupCache
     PollResultBuilder.trimGroupCache(&evictedCache, limit: 0)
     #expect(evictedCache.isEmpty, "cache must be empty after eviction")
 
-    // Poll 2: same group reappears in snapPrevGroups (e.g. from stale store state),
-    // cache is empty, but seenGroupIDs still contains the ID — hook must NOT re-fire.
     _ = await PollResultBuilder.buildGroupState(
       snapPrevGroups: [vanishedGroup.id: vanishedGroup],
       snapGroupCache: evictedCache,
@@ -886,7 +852,6 @@ struct PollResultBuilderGroupStateTests {
 @Suite("ProcessRunner.runAsync stdin")
 struct ProcessRunnerRunAsyncStdinTests {
 
-  /// Verifies that a small payload piped through `/bin/cat` via `runAsync` stdin is returned intact with exit code 0.
   @Test(.timeLimit(.minutes(1)))
   func runAsyncStdinSmallPayloadRoundtrip() async {
     let input = "hello stdin"
@@ -900,7 +865,6 @@ struct ProcessRunnerRunAsyncStdinTests {
     #expect(result.output == input)
   }
 
-  /// Verifies that a 1 MiB payload piped through `/bin/cat` via `runAsync` stdin is returned with the same byte count and exit code 0.
   @Test(.timeLimit(.minutes(1)))
   func runAsyncStdinLargePayloadRoundtrip() async {
     let input = String(repeating: "x", count: 1_024 * 1_024)
@@ -914,12 +878,6 @@ struct ProcessRunnerRunAsyncStdinTests {
     #expect(result.output.count == input.count)
   }
 
-  // MARK: - Exit codes
-
-  /// A command that exits with a non-zero status must report that exit code.
-  /// Regression guard: a bug that always reports exitCode == 0 would silently pass
-  /// the stdin round-trip tests above while breaking callers that rely on exit codes.
-  /// `/usr/bin/false` always exits 1 on macOS and Linux — asserting == 1 is deterministic.
   @Test(.timeLimit(.minutes(1)))
   func runAsyncNonZeroExitCode() async {
     let result = await ProcessRunner.runAsync(
@@ -936,9 +894,6 @@ struct ProcessRunnerRunAsyncStdinTests {
 @Suite("RunnerConfigStoreError.errorDescription")
 struct RunnerConfigStoreErrorDescriptionTests {
 
-  /// .malformedExistingFile errorDescription must contain the install path,
-  /// the word "malformed", and the phrase "agent-managed" so callers and UI
-  /// can identify both the file location and the consequence.
   @Test func malformedExistingFileDescriptionContainsPathAndConsequence() {
     let error = RunnerConfigStoreError.malformedExistingFile("/opt/runners/my-runner")
     let desc = error.errorDescription ?? ""
@@ -947,9 +902,6 @@ struct RunnerConfigStoreErrorDescriptionTests {
     #expect(desc.contains("agent-managed"))
   }
 
-  /// .malformedExistingFile must be distinct from .decodeFailed — the two cases
-  /// describe different failure sites (save pre-read vs. load) and must not
-  /// share an identical description.
   @Test func malformedExistingFileDescriptionDiffersFromDecodeFailed() {
     let malformed = RunnerConfigStoreError.malformedExistingFile("/opt/runners/r")
     let decode = RunnerConfigStoreError.decodeFailed("/opt/runners/r")
