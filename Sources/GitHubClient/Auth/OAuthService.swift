@@ -182,7 +182,20 @@ public final class OAuthService: OAuthServiceProtocol {
             logger?.log("OAuthService › signOut — emitting didSignOut to \(signOutContinuations.count) consumer(s)", category: "transport")
             signOutContinuations.values.forEach { $0.yield(()) }
         } else {
-            logger?.log("OAuthService › signOut: tokenStore.delete failed — sign-out suppressed", category: "transport")
+            // Intentional: do NOT emit the sign-out event when the token was not
+            // successfully deleted. Emitting a sign-out with a live token still in
+            // the store would leave the app in a ghost-signed-in state on the next
+            // launch — `isAuthenticated` would return `true` but the user believes
+            // they signed out. The silent suppression here is the lesser evil:
+            // the user stays visually signed in and can retry, rather than seeing
+            // a signed-out UI backed by a live credential.
+            //
+            // ⚠️ Consequence for TokenStore implementors and test mocks: returning
+            // `false` from `delete()` will block the sign-out stream entirely.
+            // Production `KeychainTokenStore.delete()` only returns `false` on a
+            // genuine Security framework error — `errSecItemNotFound` is treated as
+            // success (already gone). Test mocks must mirror this contract.
+            logger?.log("OAuthService › signOut: tokenStore.delete failed — sign-out suppressed (ghost-sign-in prevention)", category: "transport")
         }
     }
 
