@@ -67,9 +67,11 @@ struct SettingsView: View {
     // MARK: - Local UI state
     /// Mirrors `LoginItem.isEnabled`; toggled by the Launch at Login switch.
     @State var launchAtLogin = LoginItem.isEnabled
-    /// `true` when a valid OAuth token is stored in the token store.
+    /// `true` when a valid OAuth token is stored in the keychain.
+    /// Initialised to `false`; set to the correct value in `onAppearAction()`.
     @State var isOAuthAuthenticated = false
     /// `true` when a CLI token (GH_TOKEN / GITHUB_TOKEN) is present but no OAuth token.
+    /// Initialised to `false`; set to the correct value in `onAppearAction()`.
     @State var isCLIAuthenticated = false
     /// `true` while the OAuth sign-in flow is in progress.
     @State var isSigningIn = false
@@ -122,7 +124,7 @@ struct SettingsView: View {
         // Lifecycle modifiers live on the root (wrapping all branches) so
         // onAppearAction()/onDisappear fire only when the settings panel itself
         // opens/closes — NOT on every navigation to LocalRunnersView/ScopesView.
-        // Attaching them to `settingsBody` caused needless Keychain re-reads and
+        // Attaching them to `settingsBody` caused needless re-reads and
         // Task recreation on every back-navigation.
         Group {
             if showLocalRunners {
@@ -200,18 +202,16 @@ struct SettingsView: View {
         .padding(.bottom, 16)
     }
 
-    /// Runs on `.onAppear`: refreshes auth state and starts sign-in / sign-out listeners.
+    /// Runs on `.onAppear`: refreshes auth state from `oauthService` and starts sign-in / sign-out listeners.
     private func onAppearAction() { // skipcq: SW-R1002 — reviewed; complexity acceptable for this onAppear setup
         isOAuthAuthenticated = oauthService.isAuthenticated
         isCLIAuthenticated = !oauthService.isAuthenticated && oauthService.hasAnyToken
         #if DEBUG
         let envToken = githubToken()
         // swiftlint:disable:next line_length
-        log("SettingsView › onAppear — isOAuthAuthenticated=\(isOAuthAuthenticated) isCLIAuthenticated=\(isCLIAuthenticated) githubToken=\(envToken.map { "present(len=\($0.count))" } ?? "nil")")
+        log("SettingsView › onAppear — isAuthenticated=\(oauthService.isAuthenticated) githubToken=\(envToken.map { "present(len=\($0.count))" } ?? "nil") isOAuthAuthenticated=\(isOAuthAuthenticated) isCLIAuthenticated=\(isCLIAuthenticated)")
         #endif
 
-        // Replace the old `onCompletion` closure with a structured async stream.
-        // This avoids the retained-closure / multiple-subscriber hazard (P9).
         signInTask = Task { @MainActor in
             for await success in oauthService.makeSignInStream() {
                 log("SettingsView › signInStream — success=\(success), updating auth state")
