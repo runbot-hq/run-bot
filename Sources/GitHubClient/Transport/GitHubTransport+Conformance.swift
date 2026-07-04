@@ -117,6 +117,12 @@ extension GitHubTransport {
           + " — returning \(state.allItems.count) partial items",
         category: "transport")
     }
+    guard state.hadAtLeastOneSuccessfulPage else {
+      logger?.log(
+        "apiPaginated › loop ended without any successful page — returning nil",
+        category: "transport")
+      return nil
+    }
     logger?.log(
       "apiPaginated › returning \(state.allItems.count) item(s)",
       category: "transport")
