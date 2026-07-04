@@ -91,6 +91,7 @@ public final class GitHubClient {
             clientSecret: clientSecret,
             tokenStore: store,
             logger: logger,
+            session: .shared,
             onTokenSaved: { cache.invalidate() },
             onTokenDeleted: { cache.invalidate() }
         )
