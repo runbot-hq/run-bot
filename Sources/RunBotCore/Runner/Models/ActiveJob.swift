@@ -4,6 +4,14 @@
 import Foundation
 import GitHubClient
 
+// ISO 8601 formatter used by asCompleted(at:) to serialise a fallback Date back
+// into the raw string field. Matches the formatter in GitHubJob+AppExtensions.
+nonisolated(unsafe) private let _iso8601Formatter: ISO8601DateFormatter = {
+    let f = ISO8601DateFormatter()
+    f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    return f
+}()
+
 // MARK: - ActiveJob
 
 /// A live or recently-completed GitHub Actions job visible in the panel.
@@ -140,11 +148,19 @@ public struct ActiveJob: Identifiable, Equatable, Sendable {
     // MARK: asCompleted
 
     /// Returns a completed, dimmed copy of this job using override slots.
+    ///
+    /// If the job already has a `completedAt` date it is preserved verbatim.
+    /// Otherwise `fallbackDate` is formatted as an ISO 8601 string and written
+    /// into `raw.completedAt` so that callers can read it back via `completedDate`.
     public func asCompleted(at fallbackDate: Date) -> ActiveJob {
-        // fallbackDate is not stored — completedAt lives in raw (String).
-        // Callers that need a concrete completedAt string should use copying(completedAt:) first.
-        ActiveJob(
-            raw: raw,
+        let baseRaw: GitHubJob
+        if raw.completedAt == nil {
+            baseRaw = raw.copying(completedAt: _iso8601Formatter.string(from: fallbackDate))
+        } else {
+            baseRaw = raw
+        }
+        return ActiveJob(
+            raw: baseRaw,
             isDimmed: true,
             scope: scope,
             statusOverride: .completed,
