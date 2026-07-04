@@ -72,7 +72,7 @@ run-bot/
 │   │   │   ├── GitHubRunnerFetchers.swift   — free functions fetching runners and active jobs from the API
 │   │   │   ├── GitHubScope.swift            — Scope enum: a single repo or an entire organisation
 │   │   │   ├── GitHubURLHelpers.swift       — extracts owner/repo or org scope strings from GitHub HTML URLs
-│   │   │   └── KeychainTokenStore.swift     — TokenStore implementation backed by the macOS/iOS Keychain
+│   │   │   └── KeychainTokenStore.swift     — canonical SecItem* TokenStore implementation (kSecUseDataProtectionKeychain, upsert retry guard, GitHubLogger error logging)
 │   │   │
 │   │   ├── Auth/
 │   │   │   ├── OAuthService.swift           — @MainActor GitHub OAuth Authorization Code flow service (injected TokenStore + GitHubLogger)
@@ -232,7 +232,7 @@ run-bot/
 │       │   └── ScopeStoreProtocol.swift     — abstracts the active-scopes store for test doubles
 │       │
 │       ├── Services/
-│       │   ├── Keychain.swift               — Keychain read/write helpers (static API; delegates token cache to GitHubClient)
+│       │   ├── Keychain.swift               — thin adapter over GitHubClient.KeychainTokenStore; holds RunBot service/account constants and calls invalidateTokenCache() after mutations
 │       │   ├── LogFetcher.swift             — downloads and unzips GitHub Actions logs
 │       │   ├── LoginItem.swift              — manages launch-at-login registration via SMAppService
 │       │   ├── ProcessRunner.swift          — primitive for launching subprocesses with streaming output
