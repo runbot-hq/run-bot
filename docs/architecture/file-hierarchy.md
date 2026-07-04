@@ -76,7 +76,7 @@ run-bot/
 │   │   │
 │   │   ├── Auth/
 │   │   │   ├── OAuthService.swift           — @MainActor GitHub OAuth Authorization Code flow service (injected TokenStore + GitHubLogger)
-│   │   │   ├── OAuthServiceProtocol.swift   — abstraction over the OAuth flow for testability
+│   │   │   ├── OAuthServiceProtocol.swift   — abstraction over the OAuth flow; exposes isAuthenticated + hasAnyToken for UI consumers
 │   │   │   └── TokenCache.swift             — process-wide token cache with invalidation (Synchronization.Mutex-guarded)
 │   │   │
 │   │   ├── Protocols/
@@ -133,7 +133,7 @@ run-bot/
 │   │       │       ├── BranchSelectorSheet.swift — sheet for picking a branch to filter the failure hook (#560)
 │   │       │       └── RepoSelectorSheet.swift — reusable searchable repo/org picker sheet (#580/#576)
 │   │       ├── Settings/
-│   │       │   ├── SettingsView.swift       — main settings view (all phases 1–6)
+│   │       │   ├── SettingsView.swift       — main settings view (all phases 1–6); reads auth state from oauthService.isAuthenticated/hasAnyToken
 │   │       │   ├── SettingsView+Sections.swift — settings sections broken out for readability
 │   │       │   ├── APICallCounterRow.swift  — settings row showing the live GitHub API call counter
 │   │       │   ├── APICallCounterViewModel.swift — @Observable VM exposing live API call-counter state
@@ -162,6 +162,7 @@ run-bot/
 │       │
 │       ├── GitHub/
 │       │   └── Auth/
+│       │       ├── GitHubTokenCache.swift   — githubToken() / invalidateTokenCache() free functions; wires TokenCache to KeychainTokenStore with RunBot service/account constants
 │       │       └── OAuthSecrets.swift       — OAuth app credential constants (clientID + clientSecret bundled with binary)
 │       │
 │       ├── Preferences/
@@ -232,7 +233,6 @@ run-bot/
 │       │   └── ScopeStoreProtocol.swift     — abstracts the active-scopes store for test doubles
 │       │
 │       ├── Services/
-│       │   ├── Keychain.swift               — thin adapter over GitHubClient.KeychainTokenStore; holds RunBot service/account constants and calls invalidateTokenCache() after mutations
 │       │   ├── LogFetcher.swift             — downloads and unzips GitHub Actions logs
 │       │   ├── LoginItem.swift              — manages launch-at-login registration via SMAppService
 │       │   ├── ProcessRunner.swift          — primitive for launching subprocesses with streaming output
@@ -270,7 +270,7 @@ run-bot/
     │   ├── ObservationLoopTests.swift       — unit tests for ObservationLoop invariants
     │   ├── OrgRunnerMetricsResolutionTests.swift — regression tests for org-scoped runner metrics (#1209/#1192)
     │   ├── RunBotCoreTests.swift         — top-level RunBotCore test suite
-    │   ├── SaveRunnerEditsUseCaseTests.swift — unit tests for SaveRunnerEditsUseCase (Phase 5, #1300)
+│   │   ├── SaveRunnerEditsUseCaseTests.swift — unit tests for SaveRunnerEditsUseCase (Phase 5, #1300)
     │   ├── ScopeEditSheetTests.swift        — atomic-save contract tests for the ScopeEditSheet rewrite (#1540)
     │   ├── StepLogViewScopeResolutionTests.swift — tests for StepLogView.loadLog() scope resolution (#1517)
     │   ├── WorkflowActionGroupFetcherTests.swift — unit tests for WorkflowActionGroupFetcher
