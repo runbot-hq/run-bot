@@ -38,7 +38,9 @@ extension WorkflowActionGroup {
     var progressFraction: Double? {
         let steps = jobs.flatMap { $0.steps }
         guard !steps.isEmpty else { return nil }
-        let done = steps.filter { $0.jobConclusion != nil || $0.stepConclusion != nil }.count
+        // GitHubStep.status is a raw String — use the typed .stepStatus accessor
+        // (defined in GitHubJob+AppExtensions) to compare against JobStatus cases.
+        let done = steps.filter { $0.conclusion != nil || $0.stepStatus == .completed }.count
         return Double(done) / Double(steps.count)
     }
 
@@ -47,6 +49,7 @@ extension WorkflowActionGroup {
     /// Returns an empty string when the group has no jobs.
     var jobProgress: String {
         guard !jobs.isEmpty else { return "" }
+        // ActiveJob.conclusion no longer exists — use the typed .jobConclusion accessor.
         let done = jobs.filter { $0.jobConclusion != nil }.count
         return "\(done)/\(jobs.count)"
     }
@@ -74,6 +77,7 @@ extension WorkflowActionGroup {
 
     /// The start date of the earliest job in the group, or `nil` if none has started.
     var firstJobStartedAt: Date? {
+        // ActiveJob.startedAt no longer exists — use .startDate (parsed Date? from raw.startedAt).
         jobs.compactMap { $0.startDate }.min()
     }
 
@@ -111,12 +115,13 @@ extension WorkflowActionGroup {
 extension ActiveJob {
     /// Radial fill fraction (0.0–1.0). Returns `nil` while queued or when no steps are available.
     var progressFraction: Double? {
-        switch status {
+        // ActiveJob.status was renamed to .jobStatus (typed JobStatus) in the Step 8 refactor.
+        switch jobStatus {
         case .queued: return nil
         case .completed: return 1.0
         default:
             guard !steps.isEmpty else { return nil }
-            let done = steps.filter { $0.jobConclusion != nil }.count
+            let done = steps.filter { $0.conclusion != nil }.count
             let fraction = Double(done) / Double(steps.count)
             return min(max(fraction, 0.0), 1.0)
         }

@@ -321,13 +321,16 @@ extension StepLogView {
     /// Exhaustively matches all `JobConclusion` cases so that terminal outcomes like
     /// `.timedOut`, `.actionRequired`, `.neutral`, `.stale`, and `.startupFailure`
     /// are never mislabelled as running or queued.
+    ///
+    /// `step.stepConclusion` is `JobConclusion?` (typed accessor from GitHubJob+AppExtensions).
+    /// `step.stepStatus` is `JobStatus` (non-optional typed accessor).
     var stepStatusLabel: String {
         switch step.stepConclusion {
         case .success:                  return "✓ success"
         case .failure:                  return "✗ failure"
         case .skipped:                  return "⊘ skipped"
         case .cancelled:                return "⊘ cancelled"
-        case .timedOut:                 return "⧖ timed out"
+        case .timedOut:                 return "⧗ timed out"
         case .actionRequired:           return "⚠️ action required"
         case .neutral:                  return "· neutral"
         case .stale:                    return "· stale"
@@ -357,12 +360,14 @@ extension StepLogView {
 
     /// Formatted start time, or `"—"` if unavailable.
     var startLabel: String {
+        // step.startedAt is raw String? — use .startDate (parsed Date? from GitHubJob+AppExtensions).
         guard let dateValue = step.startDate else { return "—" }
         return Self.timeFmt.string(from: dateValue)
     }
 
     /// Formatted end time, or `"—"` if unavailable.
     var endLabel: String {
+        // step.completedAt is raw String? — use .completedDate (parsed Date?).
         guard let dateValue = step.completedDate else {
             return step.stepStatus == .inProgress ? "running…" : "—"
         }
