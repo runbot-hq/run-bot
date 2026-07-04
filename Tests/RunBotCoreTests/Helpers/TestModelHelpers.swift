@@ -172,27 +172,6 @@ init(id: Int, name: String, status: RunnerStatus, busy: Bool = false, metrics: R
     var displayStatus: String { displayStatus(metrics: nil) }
 }
 
-// MARK: - makeGitHubRunner helper
-// MARK: - JobStep typealias (restores pre-refactor name for tests)
-
-/// Test-only typealias so existing tests can keep using `JobStep` instead of `GitHubStep`.
-typealias JobStep = GitHubStep
-
-// MARK: - ActiveJob string property bridges
-
-extension ActiveJob {
-    /// Test bridge: effective status as raw String.
-    var status: String { jobStatus.rawValue }
-    /// Test bridge: effective conclusion as raw String.
-    var conclusion: String? { jobConclusion?.rawValue }
-    /// Test bridge: parsed completion date.
-    var completedAt: Date? { completedDate }
-    /// Test bridge: parsed start date.
-    var startedAt: Date? { startDate }
-    /// Test bridge: parsed creation date.
-    var createdAt: Date? { createdDate }
-}
-
 // MARK: - Private ISO8601 formatter
 
 nonisolated(unsafe) private let _testISO8601: ISO8601DateFormatter = {

@@ -5,8 +5,6 @@ import Foundation
 import GitHubClient
 @testable import RunBotCore
 
-@testable import RunBotCore
-
 // MARK: - ActiveJob.asCompleted
 
 @Suite("ActiveJob.asCompleted")
@@ -112,7 +110,7 @@ struct ActiveJobAsCompletedTests {
 
   @Test func asCompleted_allOtherFieldsPreserved() {
     let step = JobStep(
-      number: 1,
+      id: 1,
       name: "checkout",
       status: "completed",
       conclusion: "success"
