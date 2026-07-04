@@ -241,6 +241,7 @@ public struct FailureHookRunnerUseCase: Sendable {
         return lines
     }
 
+    /// Returns `true` when `group` contains at least one run with a hook-triggering conclusion.
     private static func isFailure(group: WorkflowActionGroup) -> Bool {
         group.runs.contains { $0.conclusion?.isHookConclusion == true }
     }
