@@ -154,7 +154,7 @@ public actor RateLimitActor: RateLimitActorProtocol {
         // the actual auto-clear time even when the raw server timestamp falls
         // outside the [5, 7200] clamp range.
         let date = Date().addingTimeInterval(delay)
-        log("RateLimitActor › arming: delay=\(Int(delay))s resetDate=\(date)", category: "transport")
+        log("RateLimitActor › arming: delay=\(Int(delay))s resetDate=\(date)", category: .transport)
         generation &+= 1
         let capturedGeneration = generation
         resetTask?.cancel()
@@ -217,13 +217,13 @@ public actor RateLimitActor: RateLimitActorProtocol {
     /// used on a non-async callee.
     private func didFire(generation: Int, scheduledDelay: TimeInterval) async {
         guard generation == self.generation else {
-            log("RateLimitActor › stale didFire ignored (gen=\(generation) current=\(self.generation))", category: "transport")
+            log("RateLimitActor › stale didFire ignored (gen=\(generation) current=\(self.generation))", category: .transport)
             return
         }
         isLimited = false
         resetDate = nil
         resetTask = nil
-        log("RateLimitActor › auto-reset fired after \(Int(scheduledDelay))s", category: "transport")
+        log("RateLimitActor › auto-reset fired after \(Int(scheduledDelay))s", category: .transport)
     }
 }
 
