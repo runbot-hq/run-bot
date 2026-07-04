@@ -5,6 +5,7 @@
 // free functions added to GitHubClient in Steps 1 and 2. Inline
 // WorkflowRunsResponse / WorkflowRun / JobsResponse private structs deleted.
 
+import Foundation
 import GitHubClient
 import os
 

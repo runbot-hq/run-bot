@@ -223,9 +223,10 @@ public struct FailureHookRunnerUseCase: Sendable {
 
     /// Formats the failed-step list for a job into printable lines.
     private static func stepLines(for job: GitHubJob) -> [String] {
+        // GitHubStep.conclusion is String? — map through JobConclusion to use isHookConclusion.
         let failedSteps = job.steps.filter { step in
             guard let raw = step.conclusion else { return false }
-            return WorkflowRunConclusion(rawValue: raw)?.isHookConclusion == true
+            return JobConclusion(rawValue: raw)?.isHookConclusion == true
         }
         var lines: [String] = ["Job: \(job.name) [failed]"]
         if failedSteps.isEmpty {
@@ -262,9 +263,10 @@ public struct FailureHookRunnerUseCase: Sendable {
                 " conclusion=\(run.conclusion?.rawValue ?? "nil")",
                 category: .failureHook)
             let allJobs = await fetchJobs(runID: run.id, scope: parsedScope)
+            // GitHubJob.conclusion is String? — map through JobConclusion to use isHookConclusion.
             let failedJobs = allJobs.filter { job in
                 guard let raw = job.conclusion else { return false }
-                return WorkflowRunConclusion(rawValue: raw)?.isHookConclusion == true
+                return JobConclusion(rawValue: raw)?.isHookConclusion == true
             }
             for job in failedJobs {
                 guard seenIDs.insert(job.id).inserted else { continue }
