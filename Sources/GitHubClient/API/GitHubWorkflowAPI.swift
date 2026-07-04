@@ -220,12 +220,12 @@ public struct GitHubStep: Decodable, Equatable, Sendable {
         case completedAt = "completed_at"
     }
 
-    /// Memberwise initialiser — used by tests and `copying(...)` helpers.
+    /// Memberwise initialiser for use within `GitHubClient` only (e.g. `copying` helpers).
     ///
-    /// `GitHubStep` is `Decodable`-only in production, but tests construct
-    /// steps directly. This init bridges that gap without requiring
-    /// `@testable` access to an internal init.
-    public init(
+    /// Intentionally `internal` — `GitHubStep` is `Decodable`-only at the public
+    /// API surface. Tests construct instances via the JSON round-trip shim in
+    /// `TestModelHelpers.swift` (`@testable import GitHubClient`).
+    init(
         number: Int,
         name: String,
         status: String,
