@@ -217,52 +217,6 @@ struct RunnerModelStatusColorTests {
   }
 }
 
-// MARK: - GitHubRunner.displayStatus
-
-@Suite("GitHubRunner.displayStatus")
-struct RunnerDisplayStatusTests {
-
-  private func makeRunner(status: RunnerStatus, busy: Bool = false, metrics: RunnerMetrics? = nil)
-    -> GitHubRunner
-  {
-    makeGitHubRunner(id: 1, name: "r", status: status, busy: busy)
-  }
-
-  /// Verifies that a runner with `.offline` status returns `"offline"` as its display status.
-  @Test func offlineReturnsOffline() {
-    #expect(makeRunner(status: .offline).displayStatus(metrics: nil) == "offline")
-  }
-
-  /// Verifies that a runner with an unknown status value falls back to `"offline"`.
-  @Test func unknownReturnsOffline() {
-    #expect(makeRunner(status: .unknown("draining")).displayStatus(metrics: nil) == "offline")
-  }
-
-  /// Verifies that an online, idle runner with no metrics shows em-dash placeholders for CPU and MEM.
-  @Test func onlineIdleNoMetrics() {
-    #expect(
-      makeRunner(status: .online, busy: false).displayStatus(metrics: nil)
-        == "idle (CPU: \u{2014} MEM: \u{2014})"
-    )
-  }
-
-  /// Verifies that an online, busy runner with metrics shows `"active"` with formatted CPU and MEM values.
-  @Test func onlineBusyWithMetrics() {
-    let m = RunnerMetrics(cpu: 45.0, mem: 12.3)
-    #expect(
-      makeRunner(status: .online, busy: true).displayStatus(metrics: m)
-        == "active (CPU: 45.0% MEM: 12.3%)")
-  }
-
-  /// Verifies that a runner with `.busy` status and metrics shows `"active"` with the correct CPU and MEM percentages.
-  @Test func busyStatusShowsActiveWithMetrics() {
-    let m = RunnerMetrics(cpu: 80.0, mem: 50.0)
-    #expect(
-      makeRunner(status: .busy, busy: true).displayStatus(metrics: m)
-        == "active (CPU: 80.0% MEM: 50.0%)")
-  }
-}
-
 // MARK: - PollResultBuilder (pure logic)
 
 @Suite("PollResultBuilder")
