@@ -11,6 +11,8 @@
 //   let github = GitHubClient(
 //       clientID: "your-client-id",
 //       clientSecret: "your-client-secret",
+//       service: "com.example.myapp",
+//       account: "github-oauth-token",
 //       logger: MyLogger()
 //   )
 //
@@ -61,15 +63,15 @@ public final class GitHubClient {
     /// - Parameters:
     ///   - clientID: The GitHub OAuth app client ID.
     ///   - clientSecret: The GitHub OAuth app client secret.
-    ///   - service: The keychain service name. Defaults to `"run-bot"`.
-    ///   - account: The keychain account name. Defaults to `"github-oauth-token"`.
+    ///   - service: The keychain service name (e.g. your app's bundle identifier).
+    ///   - account: The keychain account name (e.g. `"github-oauth-token"`).
     ///   - logger: Optional logger for diagnostic messages.
     @MainActor
     public init(
         clientID: String,
         clientSecret: String,
-        service: String = "run-bot",
-        account: String = "github-oauth-token",
+        service: String,
+        account: String,
         logger: (any GitHubLogger)? = nil
     ) {
         let store = KeychainTokenStore(service: service, account: account, logger: logger)
