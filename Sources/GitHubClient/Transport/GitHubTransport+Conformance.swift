@@ -24,6 +24,12 @@ extension GitHubTransport {
   // MARK: apiPaginated
 
   /// Fetches and concatenates all pages for a GitHub paginated endpoint.
+  /// Follows `Link: <url>; rel="next"` until all pages are consumed or an error stops pagination.
+  ///
+  /// - Returns `nil` on auth failure (401, permission-denied 403, missing/revoked token).
+  /// - Returns `nil` when a stopping condition occurs before any items are accumulated.
+  /// - Returns encoded `[]` (non-nil) when the endpoint returns a valid empty-array response.
+  /// - Returns partial results when pagination stops mid-way due to rate-limit or network error.
   @concurrent
   public func apiPaginated(_ endpoint: String, timeout: TimeInterval = 60) async -> Data? {
     var state = PaginationState(nextURL: resolveURL(endpoint))
@@ -230,6 +236,8 @@ extension GitHubTransport {
   /// Cancels the workflow run identified by `runID` inside `scope`.
   ///
   /// Only repo-scoped runs can be cancelled via the GitHub Actions API.
+  /// `POST /repos/{owner}/{repo}/actions/runs/{run_id}/cancel` exists; the org-level
+  /// equivalent does not. Org/enterprise callers must resolve to a repo scope first.
   /// Org-scoped calls are rejected early to avoid a silent 404.
   @concurrent
   @discardableResult
