@@ -12,7 +12,8 @@ import GitHubClient
 // MARK: - ActiveJob test convenience init
 
 extension ActiveJob {
-    /// Test-only convenience init matching the pre-refactor ActiveJob memberwise signature.
+    /// Test-only convenience init matching the pre-refactor ActiveJob memberwise signature
+    /// (raw String status/conclusion).
     init(
         id: Int,
         name: String,
@@ -47,7 +48,9 @@ extension ActiveJob {
         )
     }
 
-    // Typed-status overload used by ActiveJobRBStatusTests and ActiveJobAsCompletedTests.
+    /// Test-only convenience init with typed `JobStatus` / `JobConclusion`.
+    /// Used by `ActiveJobRBStatusTests`, `ActiveJobAsCompletedTests`, and
+    /// `WorkflowActionGroupFetcherTests`.
     init(
         id: Int,
         name: String,
@@ -80,25 +83,25 @@ extension ActiveJob {
 
     // MARK: Property bridges for tests that read the old property names
 
-    /// Test bridge: returns the effective typed status (statusOverride ?? raw.jobStatus).
+    /// Test bridge: typed effective status.
     var status: JobStatus { jobStatus }
-    /// Test bridge: returns the effective typed conclusion.
+    /// Test bridge: typed effective conclusion.
     var conclusion: JobConclusion? { jobConclusion }
-    /// Test bridge: returns the parsed completedAt date.
+    /// Test bridge: parsed completion date.
     var completedAt: Date? { completedDate }
-    /// Test bridge: returns the parsed startedAt date.
+    /// Test bridge: parsed start date.
     var startedAt: Date? { startDate }
-    /// Test bridge: returns the parsed createdAt date.
+    /// Test bridge: parsed creation date.
     var createdAt: Date? { createdDate }
 }
 
-// MARK: - JobStep shim (typealias + convenience init)
+// MARK: - JobStep shim (typealias + convenience inits)
 
-/// Test-only typealias restoring the pre-refactor JobStep name.
+/// Test-only typealias restoring the pre-refactor `JobStep` name.
 typealias JobStep = GitHubStep
 
 extension GitHubStep {
-    /// Test-only convenience init matching the pre-refactor JobStep init.
+    /// Test-only convenience init: raw String status. Maps `id` → `number`.
     init(
         id: Int,
         name: String,
@@ -118,7 +121,7 @@ extension GitHubStep {
         )
     }
 
-    // Typed-status overload.
+    /// Test-only convenience init: typed `JobStatus`. Maps `id` → `number`.
     init(
         id: Int,
         name: String,
@@ -143,10 +146,16 @@ extension GitHubStep {
     var conclusionTyped: JobConclusion? { stepConclusion }
 }
 
-// MARK: - GitHubStep full memberwise init (not Decodable-only)
+// MARK: - GitHubStep memberwise init shim
+//
+// `GitHubStep` is `Decodable`-only in production. The public memberwise init
+// added to `GitHubWorkflowAPI.swift` (number:name:status:conclusion:startedAt:
+// completedAt:) is the canonical production path. This extension provides
+// the name-only variant for tests that already call `self.init(name:status:...)`.
 
 extension GitHubStep {
-    /// Full memberwise init for tests — GitHubStep only ships an init(from:Decoder).
+    /// Convenience init used by helpers that build steps from raw strings.
+    /// Delegates to the public memberwise init on `GitHubStep`.
     init(
         name: String,
         status: String,
@@ -155,32 +164,39 @@ extension GitHubStep {
         startedAt: String? = nil,
         completedAt: String? = nil
     ) {
-        // Encode via JSON round-trip to satisfy the Decodable-only struct.
-        let dict: [String: Any?] = [
-            "name": name, "status": status, "conclusion": conclusion,
-            "number": number, "started_at": startedAt, "completed_at": completedAt
-        ]
-        let cleaned = dict.compactMapValues { $0 }
-        let data = try! JSONSerialization.data(withJSONObject: cleaned)
-        self = try! JSONDecoder().decode(GitHubStep.self, from: data)
+        self.init(
+            number: number,
+            name: name,
+            status: status,
+            conclusion: conclusion,
+            startedAt: startedAt,
+            completedAt: completedAt
+        )
     }
 }
 
 // MARK: - Runner shim (typealias over GitHubRunner)
 
-/// Test-only typealias restoring the pre-refactor Runner name.
+/// Test-only typealias restoring the pre-refactor `Runner` name.
 typealias Runner = GitHubRunner
 
 extension GitHubRunner {
-    /// Test-only convenience init matching the pre-refactor Runner(id:name:status:busy:metrics:).
-    /// GitHubRunner's memberwise init is internal, so we round-trip through JSON.
+    /// Test-only convenience init matching the pre-refactor
+    /// `Runner(id:name:status:busy:metrics:)` signature.
+    ///
+    /// `GitHubRunner.labels` is `[GitHubRunnerLabel]` (not `[String]`) and
+    /// the struct has no public memberwise init, so we round-trip through JSON.
+    /// The `metrics` parameter is intentionally ignored — use
+    /// `displayStatus(metrics:)` at the call site instead.
     init(id: Int, name: String, status: RunnerStatus, busy: Bool = false, metrics: RunnerMetrics? = nil) {
-        let json = "{\"id\":\(id),\"name\":\"\(name)\",\"status\":\"\(status.rawValue)\",\"busy\":\(busy ? "true" : "false"),\"labels\":[]}"
+        let json = """
+        {"id":\(id),"name":\"\(name)\",\"status\":\"\(status.rawValue)\",\"busy\":\(busy ? "true" : "false"),"labels":[]}
+        """
         self = try! JSONDecoder().decode(GitHubRunner.self, from: Data(json.utf8))
-        // metrics is not stored on GitHubRunner — use displayStatus(metrics:) at call site.
+    }
     }
 
-    /// Convenience forwarder for tests that call runner.displayStatus without args.
+    /// Convenience forwarder for tests that call `runner.displayStatus` without args.
     var displayStatus: String { displayStatus(metrics: nil) }
 }
 
