@@ -97,6 +97,19 @@ public final class TokenCache: Sendable {
 
     /// Reads the `GH_TOKEN` or `GITHUB_TOKEN` environment variable. Populates the cache on success.
     ///
+    /// ## Caching trade-off
+    /// Env-var tokens are written into the shared cache (same as store-backed tokens). This
+    /// mirrors the behaviour of the original `GitHubTokenCache` in `RunBotCore` and keeps
+    /// the hot path consistent: once any token is resolved, every subsequent call returns
+    /// immediately from `resolveFromCache()` without re-reading the env dictionary.
+    ///
+    /// The theoretical downside is that an env-var token is frozen for the process lifetime.
+    /// In practice this is fine — `ProcessInfo.processInfo.environment` is itself immutable
+    /// after launch, so there is nothing to re-read. A more conservative design would skip
+    /// the cache write here and reserve the cache exclusively for store-backed tokens, but
+    /// that adds complexity with no real benefit given the immutability guarantee. `invalidate()`
+    /// remains the correct escape hatch if a token-rotation scenario ever arises.
+    ///
     /// - Note: Same intentional thundering-herd window as `resolveFromStore()` — the
     ///   `if $0 == nil` guard inside the lock is the correct protection. The env var
     ///   read is an in-process dictionary lookup and is safe to call concurrently.
