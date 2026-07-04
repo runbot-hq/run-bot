@@ -72,13 +72,6 @@ public func ghAPI(_ endpoint: String, timeout: TimeInterval = 20) async -> Data?
     await sharedGitHubTransport.apiAsync(endpoint, timeout: timeout)
 }
 
-/// Paginated GET alias.
-/// - SeeAlso: ``GitHubTransport/apiPaginated(_:timeout:)``
-@concurrent
-public func ghAPIPaginated(_ endpoint: String, timeout: TimeInterval = 60) async -> Data? {
-    await sharedGitHubTransport.apiPaginated(endpoint, timeout: timeout)
-}
-
 /// Fire-and-forget POST alias. Returns `true` on 2xx.
 /// - Note: Intentionally discards response body (converts `Data?` → `Bool`).
 ///   Use the transport method directly if the body is needed.
