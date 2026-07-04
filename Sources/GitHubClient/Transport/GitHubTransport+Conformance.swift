@@ -164,7 +164,10 @@ extension GitHubTransport {
         configure: { req in
           var request = req
           request.httpMethod = "POST"
-          if let body { request.httpBody = body }
+          if let body {
+            request.httpBody = body
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+          }
           return request
         }
       )
