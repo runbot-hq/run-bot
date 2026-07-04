@@ -208,6 +208,13 @@ public final class OAuthService: OAuthServiceProtocol {
             // the user stays visually signed in and can retry, rather than seeing
             // a signed-out UI backed by a live credential.
             //
+            // onTokenDeleted?() is also intentionally NOT called here. Calling it
+            // would require rethinking the closure callback architecture introduced
+            // in this PR (onTokenSaved/onTokenDeleted are injected at init time and
+            // couple OAuthService to TokenCache indirectly). A surgical call here
+            // patches the symptom without fixing the design and risks new problems.
+            // The full fix — including cache invalidation on failure — is tracked in #1950.
+            //
             // ⚠️ Consequence for TokenStore implementors and test mocks: returning
             // `false` from `delete()` will block the sign-out stream entirely.
             // Production `KeychainTokenStore.delete()` only returns `false` on a

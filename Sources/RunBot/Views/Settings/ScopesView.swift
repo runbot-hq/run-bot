@@ -173,7 +173,14 @@ struct ScopesView: View {
         let displayName = entry.displayName ?? entry.scope
         let hasAlias = entry.displayName != nil
         return Button {
+            // Guard against double-taps: if a sheet is already being prepared or presented,
+            // ignore the second tap entirely. Without this, two simultaneous Tasks could
+            // complete out-of-order and pair selectedScopePreferences from scope A with
+            // selectedScopeEntry for scope B. (#1538)
             guard selectedScopeEntry == nil else { return }
+            // Fetch preferences from the actor before presenting the sheet.
+            // Plain Task{} — inherits @MainActor, sheet presentation happens
+            // on main actor after the await. (P9)
             Task {
                 let prefs = await ScopePreferencesStore.shared.preferences(for: entry.scope)
                 selectedScopePreferences = prefs
