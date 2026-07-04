@@ -172,12 +172,21 @@ case .noToken:                // no token configured
 // Fetch all jobs for a specific workflow run
 let jobs: [GitHubJob] = await fetchJobs(runID: 12345678, scope: .repo(owner: "acme", name: "my-app"))
 
-// Access raw fields
+// Raw API types stay in GitHubClient.
 let job: GitHubJob = jobs[0]
-print(job.status)       // "in_progress" — raw string
+print(job.status)       // "in_progress" — raw string from GitHub
 print(job.runnerName)   // "my-runner-1"
 print(job.steps.count)  // number of steps
 ```
+
+## API type ownership
+
+`GitHubClient` owns the GitHub API shapes. `RunBotCore` adds app-specific behavior in
+extensions and thin wrappers rather than duplicating API structs.
+
+- `GitHubRunner`, `GitHubJob`, and `GitHubStep` are the single source of truth for GitHub fields.
+- App-only concerns such as parsed dates, display helpers, derived status, and UI state live outside this module.
+- A GitHub field change should require one API-type edit here, not mirrored edits in app targets.
 
 ## Bring your own logger
 
@@ -215,8 +224,8 @@ Sources/GitHubClient/
     ├── GitHubRateLimitHandler.swift
     ├── GitHubURLHelpers.swift
     ├── GitHubHelpers.swift               ← fetchUserRepos, fetchUserOrgs, fetchStepLog
-    ├── GitHubRunnerAPI.swift             ← fetchRunners(scope:) + fetchRunners(scopeString:)
-    ├── GitHubWorkflowAPI.swift           ← fetchActiveRuns(scope:), fetchJobs(runID:scope:)
+    ├── GitHubRunnerAPI.swift             ← GitHubRunner / GitHubRunnerLabel + runner fetch APIs
+    ├── GitHubWorkflowAPI.swift           ← GitHubWorkflowRun / GitHubJob / GitHubStep + workflow/job fetch APIs
     ├── APICallCounter.swift
     ├── AnyJSON.swift                     ← type-erased Codable for pagination accumulation
     └── KeychainTokenStore.swift          ← concrete TokenStore backed by Security.framework
@@ -224,6 +233,10 @@ Sources/GitHubClient/
 
 The library has no opinion on how you log — inject any type conforming to `GitHubLogger`.
 Token storage defaults to `KeychainTokenStore` but any `TokenStore` conformance works.
+
+`GitHubClient` intentionally owns the raw GitHub API models. Higher-level modules can add
+computed properties or app-specific wrappers, but they should not redefine the same runner,
+workflow, job, or step fields in parallel.
 
 ## Type inventory
 

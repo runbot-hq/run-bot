@@ -106,17 +106,11 @@ public actor RunnerPoller {
   /// Injected scope store. Provides `activeScopes`.
   /// `internal` (not `private`) so that extension files can read this property.
   internal let scopeStore: any ScopeStoreProtocol
-  /// Shared `JSONDecoder` — reused across all decode calls in the actor.
+  /// Shared `JSONDecoder` — reused for local decode work inside the actor.
   ///
-  /// `withTaskGroup` child tasks in `fetchAndEnrichRunners` (Phase 1 and Phase 2) access
-  /// `self.decoder` concurrently. This is safe because:
-  /// - `JSONDecoder` is stateless after initialisation (no mutable configuration
-  ///   happens inside the task group).
-  /// - It is declared `@unchecked Sendable` in the SDK, explicitly authorising
-  ///   concurrent reads.
-  /// No local capture (`let d = decoder`) is required for correctness; `self.decoder`
-  /// is equally safe. The property access touches the actor executor as a normal
-  /// actor-isolated `let` read — it does not serialise the concurrent child tasks.
+  /// This decoder is still used by backfill helpers and other actor-local decoding.
+  /// It is no longer passed into the GitHub fetcher shims, which now delegate fully
+  /// to `GitHubClient` for transport, pagination, and decoding.
   let decoder = JSONDecoder()
   /// Fetcher for workflow action groups.
   let actionGroupFetcher: any WorkflowActionGroupFetcherProtocol
@@ -456,7 +450,7 @@ public actor RunnerPoller {
   ///   directly to avoid re-reading `scopeStore.activeScopes` and creating a TOCTOU
   ///   window between the snapshot used for runners/groups and the one used for jobs.
   ///
-  /// `fetchActiveJobs(for:decoder:)` returns `ActiveJob` values with `scope == nil`
+  /// `fetchActiveJobs(for:)` returns `ActiveJob` values with `scope == nil`
   /// because the GitHub Jobs API payload has no scope field. Without `.copying(scope:)`
   /// at fetch time, every concluded job entering `completedCache` has `scope == nil`.
   /// On the very next `backfillSteps` call those entries would hit the eviction branch
@@ -475,13 +469,12 @@ public actor RunnerPoller {
   /// not a public API. Call sites are exclusively within `RunBotCore`.
   func fetchAllJobs(scopes: [String]) async -> [ActiveJob] {
     guard !scopes.isEmpty else { return [] }
-    let dec = decoder
     var allJobs: [ActiveJob] = []
     await withTaskGroup(of: [ActiveJob].self) { group in
       for scope in scopes {
         group.addTask {
           // fetchActiveJobs is a free function in GitHubRunnerFetchers.swift
-          await fetchActiveJobs(for: scope, decoder: dec)
+          await fetchActiveJobs(for: scope)
             .map { $0.copying(scope: scope) }
         }
       }

@@ -77,7 +77,7 @@ extension RunnerPoller {
     await withTaskGroup(of: (String, [GitHubRunner]).self) { group in
       for scope in allScopes {
         group.addTask {
-          let fetched = await fetchRunners(for: scope, decoder: self.decoder)
+          let fetched = await fetchRunners(for: scope)
           return (scope, fetched)
         }
       }

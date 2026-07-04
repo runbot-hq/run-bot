@@ -15,14 +15,11 @@ import os
 /// Supports both repo-scoped (`owner/repo`) and org-scoped (`org`) formats.
 ///
 /// Delegates to `fetchRunners(scopeString:)` in `GitHubClient` which handles
-/// pagination automatically. The `decoder` parameter is kept for call-site
-/// compatibility but is no longer used internally.
+/// pagination automatically.
 ///
-/// - Parameters:
-///   - scopeString: A repo path (`owner/repo`) or org name.
-///   - decoder: Unused — retained for call-site compatibility.
+/// - Parameter scopeString: A repo path (`owner/repo`) or org name.
 /// - Returns: An array of `GitHubRunner` values, or empty on failure.
-func fetchRunners(for scopeString: String, decoder: JSONDecoder) async -> [GitHubRunner] {
+func fetchRunners(for scopeString: String) async -> [GitHubRunner] {
     guard let runners = await fetchRunners(scopeString: scopeString) else {
         log("fetchRunners › invalid scope: \(scopeString)")
         return []
@@ -38,14 +35,10 @@ func fetchRunners(for scopeString: String, decoder: JSONDecoder) async -> [GitHu
 ///
 /// Delegates to `fetchActiveRuns(scope:)` and `fetchJobs(runID:scope:)` in
 /// `GitHubClient`. All JSON decoding and pagination are handled there.
-/// The `decoder` parameter is kept for call-site compatibility but is no
-/// longer used internally.
 ///
-/// - Parameters:
-///   - scopeString: A repo path (`owner/repo`) or org name.
-///   - decoder: Unused — retained for call-site compatibility.
+/// - Parameter scopeString: A repo path (`owner/repo`) or org name.
 /// - Returns: An array of `ActiveJob` values, or empty on failure.
-func fetchActiveJobs(for scopeString: String, decoder: JSONDecoder) async -> [ActiveJob] {
+func fetchActiveJobs(for scopeString: String) async -> [ActiveJob] {
     guard let scope = Scope.parse(scopeString) else {
         log("fetchActiveJobs › invalid scope: \(scopeString)")
         return []
