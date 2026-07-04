@@ -401,7 +401,7 @@ public struct WorkflowActionGroupFetcher: Sendable, WorkflowActionGroupFetcherPr
 
     let initial = await withTaskGroup(of: ActiveJob.self) { group in
       for payload in wrapper.jobs {
-        group.addTask { await ISO8601DateParser.shared.makeJob(from: payload) }
+        group.addTask { ActiveJob(raw: payload) }
       }
       var out: [ActiveJob] = []
       for await job in group { out.append(job) }
@@ -460,7 +460,7 @@ public struct WorkflowActionGroupFetcher: Sendable, WorkflowActionGroupFetcherPr
       // JobPayload was renamed to GitHubJob in the Step 8 refactor.
       let fresh = try? decoder.decode(GitHubJob.self, from: freshData)
     else { return nil }
-    let freshJob = await ISO8601DateParser.shared.makeJob(from: fresh)
+    let freshJob = ActiveJob(raw: fresh)
     if fresh.conclusion != nil { return freshJob }
     // GitHubStep.status is raw String — use stepStatus typed accessor.
     let hasBetterSteps =

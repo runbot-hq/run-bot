@@ -43,7 +43,7 @@ extension RunnerPoller {
         do {
             // JobPayload renamed to GitHubJob in Step 5/8 refactor.
             let payload = try decoder.decode(GitHubJob.self, from: rawData)
-            let updated = await ISO8601DateParser.shared.makeJob(from: payload, isDimmed: true)
+            let updated = ActiveJob(raw: payload, isDimmed: true)
             guard !updated.steps.isEmpty else {
                 log(
                     "RunnerPoller › backfillSteps — jobID=\(jobID) API returned 0 steps, keeping existing cache entry",
