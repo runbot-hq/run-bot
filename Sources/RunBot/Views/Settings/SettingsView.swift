@@ -207,16 +207,16 @@ struct SettingsView: View {
         isOAuthAuthenticated = oauthService.isAuthenticated
         isCLIAuthenticated = !oauthService.isAuthenticated && oauthService.hasAnyToken
         #if DEBUG
-        let envToken = githubToken()
+        let envToken = oauthService.hasAnyToken
         // swiftlint:disable:next line_length
-        log("SettingsView › onAppear — isAuthenticated=\(oauthService.isAuthenticated) githubToken=\(envToken.map { "present(len=\($0.count))" } ?? "nil") isOAuthAuthenticated=\(isOAuthAuthenticated) isCLIAuthenticated=\(isCLIAuthenticated)")
+        log("SettingsView › onAppear — isAuthenticated=\(oauthService.isAuthenticated) hasAnyToken=\(envToken) isOAuthAuthenticated=\(isOAuthAuthenticated) isCLIAuthenticated=\(isCLIAuthenticated)")
         #endif
 
         signInTask = Task { @MainActor in
             for await success in oauthService.makeSignInStream() {
                 log("SettingsView › signInStream — success=\(success), updating auth state")
                 isOAuthAuthenticated = success
-                isCLIAuthenticated = !success && githubToken() != nil
+                isCLIAuthenticated = !success && oauthService.hasAnyToken
                 log("SettingsView › signInStream — isOAuthAuthenticated=\(isOAuthAuthenticated) isCLIAuthenticated=\(isCLIAuthenticated)")
                 isSigningIn = false
             }
@@ -224,10 +224,9 @@ struct SettingsView: View {
 
         signOutTask = Task { @MainActor in
             for await _ in oauthService.makeSignOutStream() {
-                let postToken = githubToken()
-                log("SettingsView › didSignOut — githubToken post-signout=\(postToken.map { "present(len=\($0.count))" } ?? "nil")")
+                log("SettingsView › didSignOut — hasAnyToken=\(oauthService.hasAnyToken)")
                 isOAuthAuthenticated = false
-                isCLIAuthenticated = postToken != nil
+                isCLIAuthenticated = oauthService.hasAnyToken
                 log("SettingsView › didSignOut — isOAuthAuthenticated=\(isOAuthAuthenticated) isCLIAuthenticated=\(isCLIAuthenticated)")
             }
         }
