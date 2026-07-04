@@ -51,27 +51,21 @@ extension AppDelegate {
     func applicationDidFinishLaunching(_ _: Notification) {
         log("AppDelegate › applicationDidFinishLaunching — START")
 
-        // Read the OAuth token directly from Keychain on every call — no cache layer.
-        // This replaces the previous `githubToken()` free function which went through
-        // GitHubTokenCache. Direct Keychain reads are OS-serialised (Security.framework)
-        // so no additional lock is needed. See Keychain.swift P16 rationale.
-        configureGHToken { Keychain.token }
-
-        // Wire all three shim transports directly to sharedGitHubTransport,
-        // eliminating the intermediate hop through module-level free-function shims.
-        // The token is resolved per-call via sharedGitHubTransport's default
-        // tokenProvider (githubTokenCore()), which reads the box configured above.
+        // Wire all three shim transports to github.transport.
+        // Token resolution goes through TokenCache (wired inside GitHubClient)
+        // rather than the raw Keychain box — no configureGHToken call needed.
+        let transport = github.transport
         configureGHAPI { endpoint in
-            await sharedGitHubTransport.apiAsync(endpoint)
+            await transport.apiAsync(endpoint)
         }
         configureGHRaw { endpoint in
-            await sharedGitHubTransport.raw(endpoint)
+            await transport.raw(endpoint)
         }
         // Both `endpoint` and `timeout` must be forwarded so callers that pass
         // a custom timeout via ghAPIPaginated(endpoint, timeout:) are not silently
         // overridden by apiPaginated's 60-second default.
         configureGHAPIPaginated { endpoint, timeout in
-            await sharedGitHubTransport.apiPaginated(endpoint, timeout: timeout)
+            await transport.apiPaginated(endpoint, timeout: timeout)
         }
 
         // Read knownScopes synchronously before the Task — ScopeStore.shared is
