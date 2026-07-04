@@ -8,6 +8,10 @@
 // Following the #1935/#1937 refactor, production call sites use the canonical
 // names directly: GitHubRunner, GitHubStep, runner.runnerStatus,
 // job.jobStatus, job.jobConclusion, job.completedDate, step.stepStatus, etc.
+//
+// GitHubStep is Decodable-only at the public API surface (internal memberwise
+// init in GitHubWorkflowAPI.swift). Tests construct instances via JSON
+// round-trip below, using @testable import GitHubClient.
 
 import Foundation
 import GitHubClient
@@ -77,12 +81,29 @@ extension ActiveJob {
             steps: steps
         )
     }
+
+    // MARK: Property bridges for tests that read the old names
+
+    /// Test bridge: typed effective status.
+    var status: JobStatus { jobStatus }
+    /// Test bridge: typed effective conclusion.
+    var conclusion: JobConclusion? { jobConclusion }
+    /// Test bridge: parsed completion date.
+    var completedAt: Date? { completedDate }
+    /// Test bridge: parsed start date.
+    var startedAt: Date? { startDate }
+    /// Test bridge: parsed creation date.
+    var createdAt: Date? { createdDate }
 }
 
-// MARK: - GitHubStep test convenience inits
+// MARK: - JobStep shim
+
+/// Test-only typealias restoring the pre-refactor `JobStep` name.
+typealias JobStep = GitHubStep
 
 extension GitHubStep {
     /// Test-only init: raw String status. Maps the legacy `id` parameter to `number`.
+    /// Uses a JSON round-trip because `GitHubStep`'s memberwise init is internal.
     init(
         id: Int,
         name: String,
@@ -92,14 +113,14 @@ extension GitHubStep {
         completedAt: Date? = nil,
         number: Int = 0
     ) {
-        self.init(
-            number: id != 0 ? id : number,
-            name: name,
-            status: status,
-            conclusion: conclusion,
-            startedAt: startedAt.map { _testISO8601.string(from: $0) },
-            completedAt: completedAt.map { _testISO8601.string(from: $0) }
-        )
+        let n = id != 0 ? id : number
+        let conclusionJSON = conclusion.map { "\"\($0)\"" } ?? "null"
+        let startJSON     = startedAt.map   { "\"\(_testISO8601.string(from: $0))\"" } ?? "null"
+        let endJSON       = completedAt.map { "\"\(_testISO8601.string(from: $0))\"" } ?? "null"
+        let json = """
+        {"number":\(n),"name":\"\(name)\","status":\"\(status)\","conclusion":\(conclusionJSON),"started_at":\(startJSON),"completed_at":\(endJSON)}
+        """
+        self = try! JSONDecoder().decode(GitHubStep.self, from: Data(json.utf8))
     }
 
     /// Test-only init: typed `JobStatus` / `JobConclusion` overload.
@@ -121,21 +142,37 @@ extension GitHubStep {
             number: number
         )
     }
+
+    // MARK: Property bridges
+    var statusTyped: JobStatus { stepStatus }
+    var conclusionTyped: JobConclusion? { stepConclusion }
 }
 
 // MARK: - GitHubRunner test convenience init
 
+/// Test-only typealias restoring the pre-refactor `Runner` name.
+typealias Runner = GitHubRunner
+
 extension GitHubRunner {
     /// Test-only convenience init: builds a `GitHubRunner` from a typed `RunnerStatus`
-    /// and optional `busy` flag. Labels default to empty.
-    /// Use `displayStatus(metrics:)` at the call site — metrics are not stored on
-    /// `GitHubRunner`.
-    init(id: Int, name: String, status: RunnerStatus, busy: Bool = false) {
-        let json = "{\"id\":\(id),\"name\":\"\(name)\",\"status\":\"\(status.rawValue)\",\"busy\":\(busy ? "true" : "false"),\"labels\":[]}"
+/// and optional `busy` flag via JSON round-trip.
+/// `GitHubRunner` has no public memberwise init and `labels` is `[GitHubRunnerLabel]`,
+/// not `[String]`, so JSON is the only stable construction path from tests.
+/// Labels default to empty. Use `displayStatus(metrics:)` at the call site — metrics are not stored on
+/// `GitHubRunner`.
+init(id: Int, name: String, status: RunnerStatus, busy: Bool = false, metrics: RunnerMetrics? = nil) {
+    let json = """
+    {"id":\(id),"name":\"\(name)\",\"status\":\"\(status.rawValue)\",\"busy\":\(busy ? "true" : "false"),"labels":[]}
+    """
+
         self = try! JSONDecoder().decode(GitHubRunner.self, from: Data(json.utf8))
     }
+
+    /// Convenience forwarder for tests that call `runner.displayStatus` without args.
+    var displayStatus: String { displayStatus(metrics: nil) }
 }
 
+// MARK: - makeGitHubRunner helper
 // MARK: - JobStep typealias (restores pre-refactor name for tests)
 
 /// Test-only typealias so existing tests can keep using `JobStep` instead of `GitHubStep`.
