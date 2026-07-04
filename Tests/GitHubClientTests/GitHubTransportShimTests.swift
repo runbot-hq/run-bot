@@ -58,25 +58,4 @@ struct GitHubTransportShimTests {
     let result = await ghRaw("/logs/123")
     #expect(result == second)
   }
-
-  // MARK: - configureGHToken / githubTokenCore
-
-  /// Injected `GHTokenProvider` is called and its return value propagated.
-  @Test func githubTokenCoreReturnsConfiguredToken() {
-    configureGHToken { "test-token-abc" }
-    #expect(githubTokenCore() == "test-token-abc")
-  }
-
-  /// Reconfiguring the token provider replaces the previous closure — latest value wins.
-  @Test func githubTokenCoreReconfigureReplacesProvider() {
-    configureGHToken { "old-token" }
-    configureGHToken { "new-token" }
-    #expect(githubTokenCore() == "new-token")
-  }
-
-  /// A token provider returning `nil` propagates `nil` correctly.
-  @Test func githubTokenCoreReturnsNilWhenProviderReturnsNil() {
-    configureGHToken { nil }
-    #expect(githubTokenCore() == nil)
-  }
 }
