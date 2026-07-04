@@ -10,6 +10,7 @@
 
 import Collections
 import Foundation
+import GitHubClient
 import os
 
 // MARK: - RunnerPoller

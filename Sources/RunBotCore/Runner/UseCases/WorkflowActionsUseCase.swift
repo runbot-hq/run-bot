@@ -1,6 +1,7 @@
 // WorkflowActionsUseCase.swift
 // RunBotCore
 import Foundation
+import GitHubClient
 
 // MARK: - WorkflowActionsUseCase
 

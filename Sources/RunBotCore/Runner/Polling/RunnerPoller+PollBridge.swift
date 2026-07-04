@@ -7,6 +7,7 @@
 // `FailureHookRunner` in the app target and out of `RunBotCore`.
 import Collections
 import Foundation
+import GitHubClient
 import os
 
 // MARK: - RunnerPoller PollBridge

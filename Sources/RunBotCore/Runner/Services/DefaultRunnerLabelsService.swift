@@ -1,6 +1,7 @@
 // DefaultRunnerLabelsService.swift
 // RunBotCore
 import Foundation
+import GitHubClient
 
 // MARK: - DefaultRunnerLabelsService
 

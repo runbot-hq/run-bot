@@ -2,6 +2,7 @@
 // RunBotCore
 // Phase 5 of the Swift 6.2 data model modernisation (#1287, #1300).
 import Foundation
+import GitHubClient
 
 // MARK: - LabelsPrerequisiteError
 

@@ -2,6 +2,7 @@
 // RunBotCore
 
 import Foundation
+import GitHubClient
 
 // MARK: - RunnerPoller: step backfill
 

@@ -2,6 +2,7 @@
 // RunBot
 import AppKit
 import AppUpdater
+import GitHubClient
 import RunBotCore
 import ServiceManagement
 import SwiftUI

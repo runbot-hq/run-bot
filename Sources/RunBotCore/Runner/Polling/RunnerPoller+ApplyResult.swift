@@ -2,6 +2,7 @@
 // RunBotCore
 
 import Foundation
+import GitHubClient
 
 // swiftlint:disable:next missing_docs
 extension RunnerPoller {

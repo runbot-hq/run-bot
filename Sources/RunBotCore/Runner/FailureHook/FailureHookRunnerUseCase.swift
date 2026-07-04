@@ -1,6 +1,7 @@
 // FailureHookRunnerUseCase.swift
 // RunBotCore
 import Foundation
+import GitHubClient
 
 // MARK: - FailureHookRunnerUseCase
 

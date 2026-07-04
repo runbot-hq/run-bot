@@ -2,6 +2,7 @@
 // RunBot
 
 import AppKit
+import GitHubClient
 import Observation
 import RunBotCore
 

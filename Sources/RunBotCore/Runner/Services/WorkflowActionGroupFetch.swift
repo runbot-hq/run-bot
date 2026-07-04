@@ -1,6 +1,7 @@
 // WorkflowActionGroupFetch.swift
 // RunBotCore
 import Foundation
+import GitHubClient
 import os
 
 // MARK: - File-level constants

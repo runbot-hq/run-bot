@@ -4,6 +4,7 @@
 // @Observable view-model exposing live GitHub API call-counter state
 // for the Settings panel (P2 — Async/Await and @Observable for Data Flow).
 import Foundation
+import GitHubClient
 import Observation
 import RunBotCore
 import SwiftUI
