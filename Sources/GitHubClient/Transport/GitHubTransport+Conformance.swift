@@ -158,22 +158,22 @@ extension GitHubTransport {
   @concurrent
   @discardableResult
   public func post(_ endpoint: String, body: Data? = nil, timeout: TimeInterval = 30) async -> Data? {
-    guard
-      case .success(let data, _, _) = await execute(
-        endpoint,
-        timeout: timeout,
-        logTag: "post",
-        configure: { req in
-          var request = req
-          request.httpMethod = "POST"
-          if let body {
-            request.httpBody = body
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-          }
-          return request
+    let result = await execute(
+      endpoint,
+      timeout: timeout,
+      logTag: "post",
+      configure: { req in
+        var request = req
+        request.httpMethod = "POST"
+        if let body {
+          request.httpBody = body
+          request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         }
-      )
-    else { return nil }
+        return request
+      }
+    )
+    guard case .success(let data, let statusCode, _) = result else { return nil }
+    logger?.log("post › \(endpoint) → \(statusCode)", category: "transport")
     return data
   }
 
@@ -182,20 +182,20 @@ extension GitHubTransport {
   /// Sends a PUT with `body` to `endpoint`. Returns decoded response `Data`, or `nil` on failure.
   @concurrent
   public func put(_ endpoint: String, body: Data, timeout: TimeInterval = 30) async -> Data? {
-    guard
-      case .success(let data, _, _) = await execute(
-        endpoint,
-        timeout: timeout,
-        logTag: "put",
-        configure: { req in
-          var request = req
-          request.httpMethod = "PUT"
-          request.httpBody = body
-          request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-          return request
-        }
-      )
-    else { return nil }
+    let result = await execute(
+      endpoint,
+      timeout: timeout,
+      logTag: "put",
+      configure: { req in
+        var request = req
+        request.httpMethod = "PUT"
+        request.httpBody = body
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        return request
+      }
+    )
+    guard case .success(let data, let statusCode, _) = result else { return nil }
+    logger?.log("put › \(endpoint) → \(statusCode)", category: "transport")
     return data
   }
 

@@ -5,6 +5,15 @@ import Foundation
 import Security
 
 /// A `TokenStore` implementation backed by the macOS/iOS Keychain.
+///
+/// This is a general-purpose store suitable for standalone `swift-github-client` consumers.
+///
+/// - Warning: This implementation does **not** set `kSecUseDataProtectionKeychain` or
+///   `kSecAttrAccessible`. On some macOS configurations, omitting
+///   `kSecUseDataProtectionKeychain: true` causes a `CSSMERR_DL_DATASTORE_DOESNOT_EXIST`
+///   crash at launch. If your host app already manages keychain access via a dedicated
+///   enum or helper that sets these attributes (e.g. RunBotCore’s `Keychain`), pass a
+///   `TokenStore` adapter that delegates to that helper instead of using this type directly.
 public final class KeychainTokenStore: TokenStore {
 
     /// The keychain service name (e.g. bundle identifier).
@@ -54,7 +63,7 @@ public final class KeychainTokenStore: TokenStore {
         let attributes: [CFString: Any] = [kSecValueData: data]
         let updateStatus = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
         if updateStatus == errSecSuccess { return true }
-        // Item doesn't exist yet — add it.
+        // Item doesn’t exist yet — add it.
         var addQuery = query
         addQuery[kSecValueData] = data
         let addStatus = SecItemAdd(addQuery as CFDictionary, nil)
