@@ -3,9 +3,13 @@
 
 /// Log categories used by `GitHubClient` types.
 public enum LogCategory: String, Sendable {
+    /// Transport-layer diagnostics (API calls, pagination, rate limits).
     case transport
+    /// General API operation logs.
     case api
+    /// Authentication and OAuth flow logs.
     case auth
+    /// Uncategorised log messages.
     case general
 }
 
@@ -24,6 +28,8 @@ public protocol GitHubLogger: Sendable {
 
 /// A no-op logger used as a default when no logger is injected.
 public struct SilentGitHubLogger: GitHubLogger {
+    /// Creates a new `SilentGitHubLogger` instance.
     public init() {}
+    /// No-op implementation that discards the message.
     public nonisolated func log(_ message: String, category: LogCategory) {}
 }
