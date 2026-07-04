@@ -48,6 +48,10 @@ public final class OAuthService: OAuthServiceProtocol {
     private let tokenStore: any TokenStore
     /// Optional logger for diagnostic messages.
     private let logger: (any GitHubLogger)?
+    /// Called after a successful `tokenStore.save()` — e.g. to invalidate a `TokenCache`.
+    private let onTokenSaved: (() -> Void)?
+    /// Called after a successful `tokenStore.delete()` — e.g. to invalidate a `TokenCache`.
+    private let onTokenDeleted: (() -> Void)?
 
     /// Creates a new `OAuthService`.
     /// - Parameters:
@@ -55,16 +59,26 @@ public final class OAuthService: OAuthServiceProtocol {
     ///   - clientSecret: The GitHub OAuth app client secret.
     ///   - tokenStore: The backing store used to save/delete/load the OAuth token.
     ///   - logger: Optional logger for diagnostic messages.
+    ///   - onTokenSaved: Optional callback invoked after a successful token save.
+    ///     Use this to invalidate an external cache (e.g. `TokenCache.invalidate()`).
+    ///     Defaults to `nil` — existing call sites are unaffected.
+    ///   - onTokenDeleted: Optional callback invoked after a successful token deletion.
+    ///     Use this to invalidate an external cache (e.g. `TokenCache.invalidate()`).
+    ///     Defaults to `nil` — existing call sites are unaffected.
     public init(
         clientID: String,
         clientSecret: String,
         tokenStore: any TokenStore,
-        logger: (any GitHubLogger)? = nil
+        logger: (any GitHubLogger)? = nil,
+        onTokenSaved: (() -> Void)? = nil,
+        onTokenDeleted: (() -> Void)? = nil
     ) {
         self.clientID = clientID
         self.clientSecret = clientSecret
         self.tokenStore = tokenStore
         self.logger = logger
+        self.onTokenSaved = onTokenSaved
+        self.onTokenDeleted = onTokenDeleted
     }
 
     // MARK: - OAuthServiceProtocol — Auth state
@@ -77,10 +91,11 @@ public final class OAuthService: OAuthServiceProtocol {
     /// `true` when any usable GitHub token is available — OAuth token,
     /// `GH_TOKEN`, or `GITHUB_TOKEN` environment variable.
     ///
-    /// Mirrors the resolution priority of `TokenCache.token()` without
-    /// requiring a `TokenCache` reference here.
+    /// Delegates to `isAuthenticated` for the Keychain check to avoid a
+    /// duplicate `tokenStore.load()` call when both properties are evaluated
+    /// back-to-back (e.g. `SettingsView.onAppearAction`).
     public var hasAnyToken: Bool {
-        if tokenStore.load() != nil { return true }
+        if isAuthenticated { return true }
         let env = ProcessInfo.processInfo.environment
         return env["GH_TOKEN"] != nil || env["GITHUB_TOKEN"] != nil
     }
@@ -163,6 +178,7 @@ public final class OAuthService: OAuthServiceProtocol {
         let deleted = tokenStore.delete()
         logger?.log("OAuthService › signOut — tokenStore.delete result=\(deleted)", category: "transport")
         if deleted {
+            onTokenDeleted?()
             logger?.log("OAuthService › signOut — emitting didSignOut to \(signOutContinuations.count) consumer(s)", category: "transport")
             signOutContinuations.values.forEach { $0.yield(()) }
         } else {
@@ -214,7 +230,8 @@ public final class OAuthService: OAuthServiceProtocol {
     /// 2. Decodes the response.
     /// 3. Validates the response and extracts the token.
     /// 4. Saves the token via `tokenStore`.
-    /// 5. Notifies sign-in consumers of the result.
+    /// 5. Calls `onTokenSaved` to allow callers to invalidate external caches.
+    /// 6. Notifies sign-in consumers of the result.
     private func exchangeCode(_ code: String) async {
         logger?.log("OAuthService › exchangeCode — POST to GitHub", category: "transport")
         let req: URLRequest
@@ -248,7 +265,11 @@ public final class OAuthService: OAuthServiceProtocol {
         logger?.log("OAuthService › exchangeCode — got access_token (len=\(token.count)), saving to store", category: "transport")
         let saved = tokenStore.save(token)
         logger?.log("OAuthService › exchangeCode — tokenStore.save result=\(saved), calling fireSignIn(\(saved))", category: "transport")
-        if !saved { logger?.log("OAuthService › exchangeCode: tokenStore.save failed", category: "transport") }
+        if saved {
+            onTokenSaved?()
+        } else {
+            logger?.log("OAuthService › exchangeCode: tokenStore.save failed", category: "transport")
+        }
         fireSignIn(saved)
     }
 
