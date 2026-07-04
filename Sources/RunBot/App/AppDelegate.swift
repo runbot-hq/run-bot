@@ -3,6 +3,7 @@
 
 import AppKit
 import AppUpdater
+import GitHubClient
 import RunBotCore
 import SwiftUI
 
@@ -110,7 +111,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     ///
     /// Constructed once here — injected into `AppDelegate+OAuthCallback`, `AppDelegate+Polling`,
     /// and `SettingsView` rather than accessed via a global `.shared`.
-    let oauthService: any OAuthServiceProtocol = OAuthService()
+    ///
+    /// `KeychainTokenStore` uses the same service/account values as the legacy
+    /// `Keychain` enum so that tokens written by older builds remain readable.
+    let oauthService: any OAuthServiceProtocol = OAuthService(
+        clientID: OAuthSecrets.clientID,
+        clientSecret: OAuthSecrets.clientSecret,
+        tokenStore: KeychainTokenStore(service: "run-bot", account: "github-oauth-token"),
+        logger: RunBotLogger()
+    )
     /// Owned lifecycle service instance. Typed to protocol so tests can supply a stub
     /// without spawning real `svc.sh` processes (P7).
     ///

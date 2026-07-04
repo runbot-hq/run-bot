@@ -1,6 +1,7 @@
 // Keychain.swift
 // RunBotCore
 import Foundation
+import GitHubClient
 import Security
 
 // MARK: - Keychain
@@ -21,7 +22,7 @@ import Security
 // additional actor or lock is needed around the SecItem* calls themselves.
 //
 // The one piece of mutable shared state — the in-memory token cache — lives in
-// GitHubTokenCache.swift and is guarded by a Synchronization.Mutex (P24).
+// GitHubClient's TokenCache.swift and is guarded by a Synchronization.Mutex.
 // invalidateTokenCache() (called after every mutation here) clears that cache
 // under the lock, so there is no unprotected shared mutable state in this type.
 //
@@ -32,7 +33,7 @@ import Security
 // Keychain is public because OAuthService and SettingsView in the RunBot
 // app target call Keychain.save(), .delete(), and .token directly. A future
 // refactor should route those call-sites through a dedicated public function
-// boundary (e.g. keychainSave/keychainDelete in GitHubTokenCache.swift) so
+// boundary (e.g. keychainSave/keychainDelete in TokenCache.swift) so
 // Keychain can be scoped internal. Tracked as a follow-up to this PR.
 
 /// Wrapper around Security.framework for storing and retrieving the GitHub OAuth token.
@@ -40,7 +41,7 @@ import Security
 /// ## Thread safety
 /// `SecItem*` calls are OS-serialised by the Security framework and are safe to
 /// call concurrently. The in-memory token cache is protected by
-/// `Synchronization.Mutex` in `GitHubTokenCache` (P24); `invalidateTokenCache()`
+/// `Synchronization.Mutex` in `GitHubClient.TokenCache`; `invalidateTokenCache()`
 /// is called after every mutation to keep it consistent. No actor wrapper is
 /// required — see the file-level comment for the full P16 rationale.
 public enum Keychain {
