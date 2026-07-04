@@ -135,7 +135,7 @@ struct SettingsView: View {
                     lifecycleService: lifecycleService
                 )
             } else if showScopes {
-                ScopesView(onBack: { showScopes = false })
+                ScopesView(onBack: { showScopes = false }, oauthService: oauthService)
             } else {
                 settingsBody
             }
