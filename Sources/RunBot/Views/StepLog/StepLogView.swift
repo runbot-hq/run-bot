@@ -36,7 +36,7 @@ import SwiftUI
 // ╙────────────────────────────────────────────────────────────────────────────╜
 // Phase 5: DesignToken colour sweep
 // Phase 7: meta badge backgrounds -> .glassCard(cornerRadius: RBRadius.small).
-/// Shows the raw log text for a single `JobStep`.
+/// Shows the raw log text for a single `GitHubStep`.
 ///
 /// Placed by `AppDelegate.navigate()` (rootView swap). Fits the fixed popover frame;
 /// `ScrollView` absorbs overflow. Fetches log on `onAppear` via a background task;
@@ -45,7 +45,7 @@ struct StepLogView: View {
     /// The job that owns this step.
     let job: ActiveJob
     /// The step whose log will be displayed.
-    let step: JobStep
+    let step: GitHubStep
     /// Called when the user taps the back button.
     let onBack: () -> Void
     /// Optional callback fired on the main thread once the async log fetch completes.
@@ -89,7 +89,7 @@ struct StepLogView: View {
     ///   - scopeStore: Scope store used for API scope resolution. Defaults to `ScopeStore.shared`.
     init(
         job: ActiveJob,
-        step: JobStep,
+        step: GitHubStep,
         onBack: @escaping () -> Void,
         onLogLoaded: (() -> Void)? = nil,
         scopeStore: any ScopeStoreProtocol = ScopeStore.shared
@@ -322,7 +322,7 @@ extension StepLogView {
     /// `.timedOut`, `.actionRequired`, `.neutral`, `.stale`, and `.startupFailure`
     /// are never mislabelled as running or queued.
     var stepStatusLabel: String {
-        switch step.conclusion {
+        switch step.stepConclusion {
         case .success:                  return "✓ success"
         case .failure:                  return "✗ failure"
         case .skipped:                  return "⊘ skipped"
@@ -334,7 +334,7 @@ extension StepLogView {
         case .startupFailure:           return "✗ startup failure"
         case .unknown(let raw):         return "· \(raw)"
         case nil:
-            return step.status == .inProgress ? "▶ running" : "· queued"
+            return step.stepStatus == .inProgress ? "▶ running" : "· queued"
         }
     }
 
@@ -344,34 +344,34 @@ extension StepLogView {
     /// `.startupFailure`, and `.actionRequired` render as danger; everything else
     /// uses secondary text or warning colours.
     var stepStatusColor: Color {
-        switch step.conclusion {
+        switch step.stepConclusion {
         case .success:                                      return Color.rbSuccess
         case .failure, .timedOut, .startupFailure,
              .actionRequired:                              return Color.rbDanger
         case .skipped, .cancelled, .neutral, .stale,
              .unknown:                                     return Color.rbTextSecondary
         case nil:
-            return step.status == .inProgress ? Color.rbWarning : Color.rbTextSecondary
+            return step.stepStatus == .inProgress ? Color.rbWarning : Color.rbTextSecondary
         }
     }
 
     /// Formatted start time, or `"—"` if unavailable.
     var startLabel: String {
-        guard let dateValue = step.startedAt else { return "—" }
+        guard let dateValue = step.startDate else { return "—" }
         return Self.timeFmt.string(from: dateValue)
     }
 
     /// Formatted end time, or `"—"` if unavailable.
     var endLabel: String {
-        guard let dateValue = step.completedAt else {
-            return step.status == .inProgress ? "running…" : "—"
+        guard let dateValue = step.completedDate else {
+            return step.stepStatus == .inProgress ? "running…" : "—"
         }
         return Self.timeFmt.string(from: dateValue)
     }
 
     /// Date string (`yyyy-MM-dd`) for context when the step ran.
     var dateLabel: String {
-        guard let dateValue = step.startedAt ?? step.completedAt else { return "—" }
+        guard let dateValue = step.startDate ?? step.completedDate else { return "—" }
         return Self.dateFmt.string(from: dateValue)
     }
 }

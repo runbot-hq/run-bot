@@ -140,8 +140,8 @@ private struct JobContextMenuModifier: ViewModifier {
     /// Context menu items: re-run job, cancel, copy log, open on GitHub.
     @ViewBuilder
     private var menuItems: some View {
-        let isConcluded = job.conclusion != nil
-        let isLive = job.status == .inProgress
+        let isConcluded = job.jobConclusion != nil
+        let isLive = job.jobStatus == .inProgress
         let scope = group.repo
 
         // Re-run job
@@ -199,7 +199,7 @@ extension View {
     }
 
     /// Attaches a step-level right-click context menu (copy step name, view log).
-    func stepContextMenu(step: JobStep, onTap: @escaping () -> Void) -> some View {
+    func stepContextMenu(step: GitHubStep, onTap: @escaping () -> Void) -> some View {
         modifier(StepContextMenuModifier(step: step, onTap: onTap))
     }
 }
@@ -208,7 +208,7 @@ extension View {
 /// `ViewModifier` that attaches a step-level right-click context menu to a step row.
 private struct StepContextMenuModifier: ViewModifier {
     /// The step this menu acts on.
-    let step: JobStep
+    let step: GitHubStep
     /// Called when the user selects "View Log" from the context menu.
     let onTap: () -> Void
 
