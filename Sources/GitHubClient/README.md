@@ -2,8 +2,6 @@
 
 A lightweight, modern Swift GitHub API client for macOS apps. Direct REST calls over `URLSession`, zero external dependencies, Swift 6.2 strict concurrency throughout.
 
----
-
 ## Features
 
 - **Dual authentication** — OAuth Authorization Code flow for interactive users; `GH_TOKEN` / `GITHUB_TOKEN` env var for CI and automation. Same call site, no branching
@@ -18,7 +16,7 @@ A lightweight, modern Swift GitHub API client for macOS apps. Direct REST calls 
 ## Requirements
 
 - Swift 6.2+
-- macOS 26+
+- macOS 26+ (Tahoe SDK)
 
 ## Installation
 
@@ -175,6 +173,29 @@ let labels: [String]? = await github.transport.patchRunnerLabels(
 )
 ```
 
+## Handling failures
+
+All transport methods return `nil` (or `false` for booleans) on any failure — network
+error, auth failure, rate limit, or malformed response. The transport logs the reason
+via `GitHubLogger` before returning. For callers that need to distinguish failure modes
+at the raw transport level, use `fetchActiveRuns` which returns a typed
+`GitHubRunsFetchResult` instead of `nil`.
+
+```swift
+// Raw transport — nil means "something went wrong", check logs for detail
+let  Data? = await github.transport.apiAsync("/repos/owner/repo/actions/runs")
+guard let data else { return }  // logged internally
+
+// Typed result — distinguish auth failure from rate limit from missing token
+let result = await fetchActiveRuns(scope: .org("acme"))
+switch result {
+case .success(let runs):       break
+case .rateLimited(let runs):   // partial — back off and retry
+case .authFailure:             // token rejected — prompt re-auth
+case .noToken:                 // not configured — check setup
+}
+```
+
 ## Runners
 
 ```swift
@@ -221,10 +242,16 @@ extensions and thin wrappers rather than duplicating API structs.
 
 ## Bring your own logger
 
+Conform any type to `GitHubLogger`. The `category` parameter is a free string
+(e.g. `"auth"`, `"transport"`, `"keychain"`) — use it to filter log output:
+
 ```swift
 extension MyLogger: GitHubLogger {
     nonisolated func log(_ message: String, category: String) {
-        os_log("%{public}@", log: .default, type: .debug, message)
+        // Filter by category for focused diagnostics:
+        // "auth"      — OAuthService, TokenCache, KeychainTokenStore
+        // "transport" — GitHubTransport request/response pipeline
+        os_log("%{public}@ [%{public}@]", log: .default, type: .debug, message, category)
     }
 }
 ```
