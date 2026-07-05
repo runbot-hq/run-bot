@@ -202,6 +202,17 @@ If a release needs to be pulled:
 
 ---
 
+## In-app update check
+
+At launch, `UpdateChecker` hits `GET /repos/.../releases`, sorts by semver
+(not publish date), filters by `betaChannel` preference, and returns an
+`UpdateCheckResult`. `AutoUpdater.handle()` writes `RunnerState.availableUpdate`
+via `setAvailableUpdate()` — called on each check (launch-time and every
+24-hour background tick). Settings → About reads that and shows the update
+row if non-nil. For full details see [UPDATE_FLOW.md](UPDATE_FLOW.md).
+
+---
+
 ## Related
 
 - [UPDATE_FLOW.md](UPDATE_FLOW.md) — how the in-app updater detects, downloads, and installs updates
