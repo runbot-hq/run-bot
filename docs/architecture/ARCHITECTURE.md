@@ -4,9 +4,7 @@ Regression guards and architectural decisions enforced inline in the source.
 **Do not remove** the corresponding inline annotations without updating this file.
 
 For deep-dives on specific subsystems see:
-- [popover-side-jump-prevention.md](popover-side-jump-prevention.md) — why `show()` must only be called once
-- [status-bar-window.md](status-bar-window.md) — why NSPopover replaced NSPanel
-- [nspopover-dismiss-and-sheets.md](nspopover-dismiss-and-sheets.md) — sheet orphan prevention
+- [../ui/nspopover-decisions.md](../ui/nspopover-decisions.md) — why NSPopover, side-jump prevention, sheet/file-picker dismiss
 
 ---
 
@@ -55,7 +53,7 @@ reset to `mainView()` (so the SwiftUI tree is fresh), but `savedNavState` is
 kept — `openPanel()` reads it and calls `navigate(to: validatedView(for: saved))`.
 
 - ❌ NEVER clear `savedNavState` inside `closePanel()` or `hidePanel()`.
-- ❌ NEVER try to preserve sheet `@State` across an explicit close (`closePanel()`) — see [nspopover-dismiss-and-sheets.md](nspopover-dismiss-and-sheets.md).
+- ❌ NEVER try to preserve sheet `@State` across an explicit close (`closePanel()`) — see [nspopover-decisions.md](../ui/nspopover-decisions.md).
 - Sheet `@State` IS preserved across `hidePanel()` (outside-tap / workspace-switch) via `hidePopoverWindowsPreservingSheets()` — this is intentional.
 
 ---
