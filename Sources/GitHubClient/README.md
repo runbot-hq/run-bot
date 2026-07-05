@@ -5,7 +5,7 @@ A lightweight, modern Swift GitHub API client for macOS apps. Direct REST calls 
 ## Features
 
 - **Dual authentication** — OAuth Authorization Code flow for interactive users; `GH_TOKEN` / `GITHUB_TOKEN` env var for CI and automation. Same call site, no branching
-- **Layered token resolution** — memory cache → Keychain → env var, resolved at call time
+- **Layered token resolution** — resolved at call time from memory cache → Keychain → env var; subsequent calls served from cache
 - **Direct REST over `URLSession`** — no code generation, no auto-generated OpenAPI types, no third-party networking layer
 - **Rate-limit aware** — automatic backoff and retry on 429 / 403 rate-limit responses
 - **Link-header pagination** — cursor-based pagination handled transparently
@@ -16,13 +16,13 @@ A lightweight, modern Swift GitHub API client for macOS apps. Direct REST calls 
 ## Requirements
 
 - Swift 6.2+
-- macOS 26+ (Tahoe SDK)
+- macOS 26+ — required for `Synchronization.Mutex`, which `TokenCache` uses for lock-guarded in-memory caching
 
 ## Installation
 
-> **Note:** Standalone SPM extraction is planned (tracked in step 14 of the extraction
-> roadmap). Until then, `GitHubClient` is a local SPM target inside the `run-bot`
-> monorepo. Add it as a local dependency:
+> **Note:** Standalone SPM extraction is planned (tracked in the extraction roadmap).
+> Until then, `GitHubClient` is a local SPM target inside the `run-bot` monorepo.
+> Add it as a local dependency:
 
 ```swift
 // Package.swift
@@ -67,9 +67,9 @@ let transport: any GitHubTransportProtocol = github.transport
 
 In `applicationDidFinishLaunching`, wire the transport shims and the shared logger
 so that free-function diagnostics (`ghPost`, `fetchStepLog`, etc.) are not silently
-dropped. `sharedGitHubTransport` and `github.transport` are separate instances —
-without `configureGHLogger` the logger on the singleton remains `nil` for the process
-lifetime.
+dropped. The shim layer (`ghAPI`, `ghAPIPaginated`, `ghRaw`) is backed by a separate
+module-level singleton — without `configureGHLogger` its logger remains `nil` for the
+process lifetime even when `github.transport` has a logger.
 
 ```swift
 let transport = github.transport
@@ -154,26 +154,27 @@ Use `github.transport` directly for authenticated requests:
 
 ```swift
 // GET — returns raw Data? on success
-let data = await github.transport.apiAsync("/repos/owner/repo/actions/runs")
+let data: Data? = await github.transport.apiAsync("/repos/owner/repo/actions/runs")
 
 // POST
-let result = await github.transport.post("/repos/owner/repo/actions/runs/\(runID)/cancel")
+let result: Data? = await github.transport.post("/repos/owner/repo/actions/runs/\(runID)/cancel")
 
 // Paginated GET — follows Link headers, returns all pages concatenated
-let data = await github.transport.apiPaginated("/orgs/my-org/actions/runners")
+let pages: Data? = await github.transport.apiPaginated("/orgs/my-org/actions/runners")
 
 // Cancel a workflow run — returns true if the cancel request was accepted
-let cancelled: Bool = await github.transport.cancelRun(runID: 12345, scope: "owner/repo")
+// Scope string must use the REST prefix: "repos/owner/name" or "orgs/name"
+let cancelled: Bool = await github.transport.cancelRun(runID: 12345, scope: "repos/owner/repo")
 
 // Patch runner labels — returns the updated label name strings, or nil on failure
 let labels: [String]? = await github.transport.patchRunnerLabels(
-    scope: "owner/repo",
+    scope: "repos/owner/repo",
     runnerID: 42,
     labels: ["self-hosted", "macOS"]
 )
 ```
 
-## Handling failures
+### Handling failures
 
 All transport methods return `nil` (or `false` for booleans) on any failure — network
 error, auth failure, rate limit, or malformed response. The transport logs the reason
@@ -183,8 +184,8 @@ at the raw transport level, use `fetchActiveRuns` which returns a typed
 
 ```swift
 // Raw transport — nil means "something went wrong", check logs for detail
-let  Data? = await github.transport.apiAsync("/repos/owner/repo/actions/runs")
-guard let data else { return }  // logged internally
+let data: Data? = await github.transport.apiAsync("/repos/owner/repo/actions/runs")
+guard let data else { return }  // reason logged internally
 
 // Typed result — distinguish auth failure from rate limit from missing token
 let result = await fetchActiveRuns(scope: .org("acme"))
@@ -199,9 +200,11 @@ case .noToken:                 // not configured — check setup
 ## Runners
 
 ```swift
-// Fetch all runners for a scope
-let runners: [GitHubRunner] = await fetchRunners(scope: .repo(owner: "acme", name: "my-app"))
-let runners: [GitHubRunner] = await fetchRunners(scope: .org("acme"))
+// Fetch all runners for a repo scope
+let repoRunners: [GitHubRunner] = await fetchRunners(scope: .repo(owner: "acme", name: "my-app"))
+
+// Fetch all runners for an org scope
+let orgRunners: [GitHubRunner] = await fetchRunners(scope: .org("acme"))
 
 // Convenience overload with a raw scope string
 let runners: [GitHubRunner]? = await fetchRunners(scopeString: "orgs/acme")
@@ -211,8 +214,8 @@ let runners: [GitHubRunner]? = await fetchRunners(scopeString: "orgs/acme")
 
 ```swift
 // Fetch active (queued + in_progress) runs — typed result handles all failure modes
-// Note: GitHubRunsFetchResult is provisional; a richer ExecuteResult type is
-// tracked in #1950 and will replace this enum in a future PR.
+// Note: GitHubRunsFetchResult is provisional; a richer typed result is planned
+// for a future PR once the transport exposes a typed ExecuteResult.
 let result = await fetchActiveRuns(scope: .org("acme"))
 switch result {
 case .success(let runs):      // all runs collected
@@ -242,15 +245,15 @@ extensions and thin wrappers rather than duplicating API structs.
 
 ## Bring your own logger
 
-Conform any type to `GitHubLogger`. The `category` parameter is a free string
-(e.g. `"auth"`, `"transport"`, `"keychain"`) — use it to filter log output:
+Conform any type to `GitHubLogger`. The `category` parameter is a free string —
+the library emits two categories you can use to filter log output:
+
+- `"auth"` — `OAuthService`, `TokenCache`, `KeychainTokenStore`
+- `"transport"` — `GitHubTransport` request/response pipeline, shim layer
 
 ```swift
 extension MyLogger: GitHubLogger {
     nonisolated func log(_ message: String, category: String) {
-        // Filter by category for focused diagnostics:
-        // "auth"      — OAuthService, TokenCache, KeychainTokenStore
-        // "transport" — GitHubTransport request/response pipeline
         os_log("%{public}@ [%{public}@]", log: .default, type: .debug, message, category)
     }
 }
@@ -301,13 +304,15 @@ workflow, job, or step fields in parallel.
 | Type | File | Description |
 |---|---|---|
 | `GitHubClient` | `GitHubClient.swift` | Facade — wires all subsystems |
-| `GitHubScope` | `GitHubScope.swift` | `.repo(owner:name:)` or `.org(String)` |
-| `GitHubRunner` | `GitHubRunnerAPI.swift` | Decoded runner object from the REST API |
-| `GitHubRunnerLabel` | `GitHubRunnerAPI.swift` | Label attached to a `GitHubRunner` |
-| `GitHubWorkflowRun` | `GitHubWorkflowAPI.swift` | Single workflow run (queued or in-progress) |
-| `GitHubJob` | `GitHubWorkflowAPI.swift` | Individual job within a workflow run |
-| `GitHubStep` | `GitHubWorkflowAPI.swift` | Step within a `GitHubJob` |
-| `GitHubRunsFetchResult` | `GitHubWorkflowAPI.swift` | Typed fetch outcome: `.success`, `.rateLimited`, `.authFailure`, `.noToken` |
+| `OAuthService` | `Auth/OAuthService.swift` | Concrete OAuth service — sign-in, sign-out, CSRF, token exchange |
+| `GitHubTransport` | `Transport/GitHubURLSessionTransport.swift` | Concrete transport — authenticated URLSession calls |
+| `GitHubScope` | `API/GitHubScope.swift` | `.repo(owner:name:)` or `.org(String)` |
+| `GitHubRunner` | `API/GitHubRunnerAPI.swift` | Decoded runner object from the REST API |
+| `GitHubRunnerLabel` | `API/GitHubRunnerAPI.swift` | Label attached to a `GitHubRunner` |
+| `GitHubWorkflowRun` | `API/GitHubWorkflowAPI.swift` | Single workflow run (queued or in-progress) |
+| `GitHubJob` | `API/GitHubWorkflowAPI.swift` | Individual job within a workflow run |
+| `GitHubStep` | `API/GitHubWorkflowAPI.swift` | Step within a `GitHubJob` |
+| `GitHubRunsFetchResult` | `API/GitHubWorkflowAPI.swift` | Typed fetch outcome: `.success`, `.rateLimited`, `.authFailure`, `.noToken` |
 | `TokenCache` | `Auth/TokenCache.swift` | Layered token resolver (memory → Keychain → env) |
 | `KeychainTokenStore` | `API/KeychainTokenStore.swift` | Concrete `TokenStore` via `Security.framework` |
 
