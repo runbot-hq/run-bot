@@ -102,32 +102,7 @@ curl -fsSL https://runbot-hq.github.io/run-bot/install.sh | bash
 - **[GitHubClient](https://github.com/runbot-hq/GitHubClient)** (first-party) — lightweight GitHub REST client; OAuth Authorization Code flow, layered token resolution (Keychain → env var), paginated API calls, and rate-limit handling; currently embedded as a local SPM target and extracted to its own repo as part of the ongoing modularisation effort
 - **[swift-collections](https://github.com/apple/swift-collections)** (Apple) — ordered and efficient collection types used internally in `RunBotCore`; primarily `OrderedDictionary` for stable, insertion-ordered workflow state
 
----
-
-## Concurrency
-
-RunBot uses Swift 6.2 strict concurrency, so data-race safety is guaranteed by the compiler rather than by convention. UI runs on the main actor and background work is isolated in dedicated actors, all coordinated through structured `async`/`await`.
-
-→ [`docs/architecture.md`](docs/architecture.md)
-
----
-
-## Module Separation
-
-Logic is kept independent of the app runtime: the `RunBotCore` library holds the platform-agnostic business logic, and the `RunBot` executable holds the macOS app shell. The compiler enforces the boundary, which keeps Core reusable and unit-testable with plain `swift test`.
-
-→ [`docs/architecture.md`](docs/architecture.md)
-
----
-
-## Model Philosophy
-
-State is immutable by default and flows one way: domain models are value types, and the UI observes a single read model it never writes to. Configuration is typed and behaviour is expressed as dependency-injected use-cases, so everything stays testable in isolation.
-
-→ [`docs/architecture.md`](docs/architecture.md) · [`docs/principles.md`](docs/principles.md)
-
----
-
+--- 
 **Test a branch:**
 ```bash
 git fetch && git checkout feature/your-branch && git pull
@@ -135,7 +110,7 @@ bash build.sh && pkill RunBot; sleep 1 && open dist/RunBot.app
 ```
   
 **Deploy release or beta:**  
-- [publish.yml](https://github.com/runbot-hq/run-bot/actions/workflows/publish.yml)
+- Deploy releases, betas and dry-runs here: [publish.yml](https://github.com/runbot-hq/run-bot/actions/workflows/publish.yml)
 - select dry_run false or true and
 - select beta or release
 - Tag will be bumped according to rollover rules v1.0.9 -> v1.1.0 etc
