@@ -38,9 +38,9 @@ public struct GitHubTransport: GitHubTransportProtocol {
 
   /// Optional logger for diagnostic messages.
   ///
-  /// `internal` (not `private`) so the `GitHubTransportProtocol` conformance in
-  /// `GitHubTransport+Conformance.swift` — a same-module extension in another
-  /// file — can emit diagnostics through it.
+  /// `public` (not `private`) so the protocol requirement in `GitHubTransportProtocol`
+  /// is satisfied and host apps can forward it to `configureGHLogger(_:)` without
+  /// downcasting to the concrete `GitHubTransport` type.
   public let logger: (any GitHubLogger)?
 
   // MARK: - Init

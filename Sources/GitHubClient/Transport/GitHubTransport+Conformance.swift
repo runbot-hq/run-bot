@@ -327,6 +327,7 @@ extension GitHubTransport {
       return nil
     }
     let endpoint = "\(scope.apiPrefix)/actions/runners/\(runnerID)/labels"
+    logger?.log("patchRunnerLabels › PUT \(endpoint) labels=\(labels)", category: "transport")
     let bodyData: Data
     do {
       bodyData = try encoder.encode(["labels": labels])
