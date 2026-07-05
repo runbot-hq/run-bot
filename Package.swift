@@ -8,30 +8,18 @@ let package = Package(
         .library(
             name: "RunBotCore",
             targets: ["RunBotCore"]
-        ),
-        .library(
-            name: "GitHubClient",
-            targets: ["GitHubClient"]
         )
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-collections.git", from: "1.1.0"),
-        .package(url: "https://github.com/runbot-hq/AppUpdater", branch: "main")
+        .package(url: "https://github.com/runbot-hq/AppUpdater", branch: "main"),
+        .package(url: "https://github.com/runbot-hq/GitHubClient", branch: "main")
     ],
     targets: [
         .target(
-            name: "GitHubClient",
-            dependencies: [],
-            path: "Sources/GitHubClient",
-            exclude: ["README.md"],
-            swiftSettings: [
-                .enableUpcomingFeature("NonisolatedNonsendingByDefault")
-            ]
-        ),
-        .target(
             name: "RunBotCore",
             dependencies: [
-                "GitHubClient",
+                .product(name: "GitHubClient", package: "GitHubClient"),
                 .product(name: "AppUpdater", package: "AppUpdater"),
                 .product(name: "Collections", package: "swift-collections")
             ],
@@ -42,9 +30,7 @@ let package = Package(
         ),
         .executableTarget(
             name: "RunBot",
-            // AppUpdater is consumed transitively via RunBotCore — there is no
-            // direct `import AppUpdater` in Sources/RunBot, so no explicit
-            // dependency is needed here.
+            // AppUpdater and GitHubClient are consumed transitively via RunBotCore.
             dependencies: ["RunBotCore"],
             path: "Sources/RunBot",
             swiftSettings: [
@@ -55,18 +41,10 @@ let package = Package(
             name: "RunBotCoreTests",
             dependencies: [
                 "RunBotCore",
-                "GitHubClient",
+                .product(name: "GitHubClient", package: "GitHubClient"),
                 .product(name: "Collections", package: "swift-collections")
             ],
             path: "Tests/RunBotCoreTests",
-            swiftSettings: [
-                .enableUpcomingFeature("NonisolatedNonsendingByDefault")
-            ]
-        ),
-        .testTarget(
-            name: "GitHubClientTests",
-            dependencies: ["GitHubClient"],
-            path: "Tests/GitHubClientTests",
             swiftSettings: [
                 .enableUpcomingFeature("NonisolatedNonsendingByDefault")
             ]
