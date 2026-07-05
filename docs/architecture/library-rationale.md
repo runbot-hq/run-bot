@@ -39,3 +39,41 @@ Great question. Here's the full picture for your specific setup.
 ## The Net Position for Your Setup
 
 In a pure SPM / no-`.xcodeproj` codebase with GitHub Actions CI, the payoff is **high and concrete**: faster CI via `swift test`, enforced architectural boundaries, and a clean path to testing business logic without the full app build. The main cost is upfront refactoring — particularly the `RunnerStore`/`RunnerViewModel` coupling — but the files that don't have that coupling (the 13 straightforward candidates in the issue) are essentially free wins.
+
+---
+
+## GitHubClient Package (`runbot-hq/GitHubClient`)
+
+`GitHubClient` is a first-party Swift package that owns all GitHub API communication, OAuth, and token management. It lives outside `RunBotCore` because it is a reusable, independently versioned module — not because it has app-layer dependencies.
+
+**What it provides:**
+
+- `GitHubClient` — the top-level facade that wires `OAuthService`, `GitHubTransport`, and `TokenCache` under a single initialiser. The production init takes Keychain credentials; the test init accepts protocol mocks, avoiding any Keychain or network access in tests.
+- `GitHubTransport` / `GitHubTransportProtocol` — authenticated `URLSession`-backed transport for all GitHub REST calls. Token reads go through `TokenCache` so the Keychain is never hit on every request.
+- `OAuthService` / `OAuthServiceProtocol` — manages the OAuth sign-in/sign-out flow and persists tokens to `KeychainTokenStore`. Calls `TokenCache.invalidate()` on every token change so the cache stays consistent.
+- `GitHubRunnerAPI`, `GitHubWorkflowAPI` — typed API wrappers for the runner and workflow endpoints, built on top of `GitHubTransport`.
+- `AnyJSON` — the type-erased JSON codec (see principle 19 in `project-tech-principles.md`).
+- `RateLimitActor` / `GitHubRateLimitHandler` — serialises all rate-limit state behind an actor so concurrent API calls never race on limit tracking.
+
+**Why a separate package, not part of `RunBotCore`?**
+
+`GitHubClient` has no dependency on the `RunBot` app target — it is pure Swift with no AppKit imports. It is extracted as a package so it can be versioned, tested, and potentially reused independently of RunBot. `RunBotCore` declares it as a dependency and consumes it via protocol abstractions (`GitHubTransportProtocol`, `OAuthServiceProtocol`), keeping the core testable without the full Keychain/network stack.
+
+**Isolation note:** `GitHubClient` is not annotated `@MainActor` at the type level. The production init is `@MainActor` (because `OAuthService.init` requires it), but the type itself is not isolated — a full type-level annotation is deferred until all remaining Keychain/`RunBotCore` call sites are migrated (#1914).
+
+---
+
+## AppUpdater Package (`runbot-hq/AppUpdater`)
+
+`AppUpdater` is a first-party Swift package that drives the in-app auto-update flow end to end. It is consumed by `RunBotCore` and consumed transitively by the `RunBot` executable.
+
+**What it provides:**
+
+- `AppUpdater` — a `@MainActor` class that orchestrates the full update pipeline: GitHub Releases poll → semver compare → zip download → SHA-256 verification → install and relaunch on user confirmation. The caller injects an `any UpdateStateProviding` for all UI-facing state; `AppUpdater` itself owns no host-specific state beyond a fixed zip cache path under `~/Library/Caches/<schedulerIdentifier>/update.zip`.
+- Background scheduler (`AppUpdater+BackgroundScheduler`) — periodic background polling via a `BGTaskScheduler`-style scheduler. The identifier is injected at init time so it can be overridden in tests.
+- Download + verification (`AppUpdater+Download`) — `URLSession`-based zip download with SHA-256 checksum verification running in a `@concurrent` free function so it never blocks the main actor.
+- Install + relaunch (`AppUpdater+Install`) — replaces the running `.app` bundle and relaunches via a subprocess, also in a `@concurrent` helper.
+
+**Isolation model:** The class is `@MainActor`, so `isInstalling` and the scheduler reference are race-free without extra locking. All blocking work (download, checksum, subprocess) runs off the main thread via `URLSession` suspension or `@concurrent` free functions.
+
+**Fixed zip path invariant:** All update cycles write to the same fixed path (`~/Library/Caches/<schedulerIdentifier>/update.zip`). `fixedZipURL` is a computed property (not `lazy let`) so that a transient `cachesDirectory` failure self-heals on the next scheduler cycle rather than permanently baking in a `/tmp` fallback. Any call site that needs this URL for more than one step must snapshot it once into a local `let`.
