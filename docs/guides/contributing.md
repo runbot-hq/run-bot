@@ -1,4 +1,10 @@
-# Contributing — Stacked PRs
+# Contributing
+
+Two areas that consistently trip up new contributors: stacked PRs and the commenting standard. Both are covered here.
+
+---
+
+## Stacked PRs
 
 Stacked PRs let you break large features into small, reviewable slices that build on each other. Each PR targets the one before it, not `main`. This doc covers how we create, manage, and land a stack cleanly.
 
@@ -183,3 +189,103 @@ before retrying — do not force a resolution.
 | Bottom PR merges (squash) | Use `git rebase --onto main <old-base-sha> <branch>` |
 | Conflict during rebase | Fix file, `git add`, `git rebase --continue` |
 | Force push | Always `--force-with-lease`, never `--force` |
+
+---
+
+## Code Comments
+
+The codebase has three audiences for documentation: **contributors reading the code**, **Xcode Quick Help**, and **a future DocC site**. Three comment styles are in use — `///` doc comments, `//` inline remarks, and `// MARK:` section dividers — and this standard normalises their application across all layers of the codebase.
+
+### Rule 1 — `///` on All Declarations
+
+Every `struct`, `class`, `enum`, `protocol`, `typealias`, `func`, computed `var`, stored `var`, `@State`, `@ObservedObject`, `@Published`, `init`, and `body` declaration gets a `///` doc comment. No exceptions based on access level or perceived obviousness.
+
+The opening sentence is a **one-line summary** in imperative or declarative form. A blank `///` line separates the summary from any body paragraph, matching Apple's own SDK header style.
+
+```swift
+/// Aggregate of all active-scope runners and their workflow jobs.
+/// Polling is driven by a self-rescheduling `Timer`; interval adapts based on
+/// whether any jobs are in-progress or the API is rate-limited.
+///
+/// - Note: Always accessed on `@MainActor`. All mutations are main-thread only.
+/// - SeeAlso: `ScopeStore`, `RunnerLifecycleService`, `PollResultBuilder`
+@MainActor
+final class RunnerStore { … }
+```
+
+```swift
+/// The branch currently selected as the failure-hook filter.
+/// `nil` means no filter is active — the hook fires for all branches.
+@State private var hookBranch: String?
+```
+
+### Rule 2 — Structured DocC Tags
+
+Use DocC callout tags consistently. Every applicable tag must be present — do not omit `- Returns:` on non-void functions or `- Parameter:` on non-obvious parameters.
+
+| Tag | When to use |
+|---|---|
+| `- Parameter name:` | Single parameter that needs explanation |
+| `- Parameters:` (block) | Two or more parameters |
+| `- Returns:` | Any non-void return where the value shape or contract matters |
+| `- Throws:` | Any `throws` or `async throws` function |
+| `- Note:` | Threading, actor, ordering, or lifecycle contracts |
+| `- Important:` | Must-not-break invariants |
+| `- SeeAlso:` | Cross-type relationships and related declarations |
+
+### Rule 3 — Inline `//` Comments: Intent and Constraints Only
+
+Plain `//` comments inside function bodies explain **decisions and constraints**, never restate what the code does. Issue and PR references (`// #560: Branch filter`) are encouraged and must be kept — they link runtime behaviour to the decision trail in git.
+
+```swift
+// ✅ Good — explains a non-obvious constraint
+// Task.detached ensures the body runs off @MainActor so that
+// urlSessionAPI's dispatchPrecondition(.notOnQueue(.main)) does not trap.
+
+// ❌ Bad — restates the code
+// Invalidate the timer
+timer?.invalidate()
+```
+
+### Rule 4 — `// MARK:` Structure
+
+Every file uses `MARK` dividers consistently. The required hierarchy:
+
+```swift
+// MARK: - TypeName            ← top of file, matches the primary type name
+
+// MARK: Stored Properties     ← no leading dash for sub-sections within a type
+// MARK: - Init
+// MARK: - Derived / Computed
+// MARK: - Actions
+// MARK: - Private
+```
+
+Extension files use a dash for each extension block:
+
+```swift
+// MARK: - Sections
+// MARK: - Failure Hook Rows
+// MARK: - Sub-view Helpers
+```
+
+Every `extension` in a separate file or at the bottom of a file gets its own `// MARK: -` divider. No `extension` block is left unmarked.
+
+### Rule 5 — File Header
+
+Every file begins with a minimal standard header. Issue history belongs in git log, not the file top. Multi-line issue-log blocks should be removed from file headers and replaced with a type-level `///` doc comment so they surface in Xcode Quick Help instead.
+
+```swift
+// FailureHookRunner.swift
+// RunBot
+//
+// Fires a per-scope terminal command when a WorkflowActionGroup transitions
+// to a failure conclusion. Resolves all $TOKEN variables before shell handoff.
+// See: TerminalLauncher, ScopePreferencesStore, WorkflowActionGroup
+```
+
+The `See:` line lists the primary collaborators so a new contributor knows where to look next without reading the full file.
+
+### Rule 6 — The Only Exception
+
+`// swiftlint:disable` suppression lines are tool directives, not declarations. They do not get `///` comments — leave them exactly as-is.
