@@ -85,12 +85,14 @@ curl -fsSL https://runbot-hq.github.io/run-bot/install.sh | bash
 
 ## Docs
 
-- [Development](docs/guides/development.md) — build and run locally
-- [Deployment](docs/guides/deployment.md) — releases and deployment
-- [UI Testing](docs/guides/ui-testing.md) — UI test runner setup
-- [AI Review](docs/guides/ai-review.md) — AI reviewer configuration
+- [Development](docs/development.md) — build and run locally
+- [Releasing](docs/releasing.md) — release pipeline and update flow
+- [Testing](docs/testing.md) — test strategy and running tests
+- [Contributing](docs/contributing.md) — contribution guidelines
+- [Architecture](docs/architecture.md) — data model, concurrency model, regression guards
+- [Principles](docs/principles.md) — engineering and design principles
+- [Privacy](docs/privacy.md) — OAuth scopes, token storage, data handling
 - [Agents](AGENTS.md) — context for AI coding agents
-- [Privacy](docs/legal/privacy.md) — OAuth scopes, token storage, data handling
 
 ---
 
@@ -106,7 +108,7 @@ curl -fsSL https://runbot-hq.github.io/run-bot/install.sh | bash
 
 RunBot uses Swift 6.2 strict concurrency, so data-race safety is guaranteed by the compiler rather than by convention. UI runs on the main actor and background work is isolated in dedicated actors, all coordinated through structured `async`/`await`.
 
-→ [`docs/architecture/concurrency-overview.md`](docs/architecture/concurrency-overview.md)
+→ [`docs/architecture.md`](docs/architecture.md)
 
 ---
 
@@ -114,7 +116,7 @@ RunBot uses Swift 6.2 strict concurrency, so data-race safety is guaranteed by t
 
 Logic is kept independent of the app runtime: the `RunBotCore` library holds the platform-agnostic business logic, and the `RunBot` executable holds the macOS app shell. The compiler enforces the boundary, which keeps Core reusable and unit-testable with plain `swift test`.
 
-→ [`docs/architecture/library-rationale.md`](docs/architecture/library-rationale.md)
+→ [`docs/architecture.md`](docs/architecture.md)
 
 ---
 
@@ -122,7 +124,7 @@ Logic is kept independent of the app runtime: the `RunBotCore` library holds the
 
 State is immutable by default and flows one way: domain models are value types, and the UI observes a single read model it never writes to. Configuration is typed and behaviour is expressed as dependency-injected use-cases, so everything stays testable in isolation.
 
-→ [`docs/architecture/data-model.md`](docs/architecture/data-model.md) · [`docs/principles/project-principles.md`](docs/principles/project-principles.md)
+→ [`docs/architecture.md`](docs/architecture.md) · [`docs/principles.md`](docs/principles.md)
 
 ---
 
