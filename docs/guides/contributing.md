@@ -1,4 +1,4 @@
-# Stacked PRs — Best Practices
+# Contributing — Stacked PRs
 
 Stacked PRs let you break large features into small, reviewable slices that build on each other. Each PR targets the one before it, not `main`. This doc covers how we create, manage, and land a stack cleanly.
 
