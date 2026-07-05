@@ -1,14 +1,15 @@
 // AggregateStatus.swift
 // RunBotCore
+import GitHubClient
 
 // MARK: - AggregateStatus
 
-/// The overall connectivity state of the runner fleet, derived by `RunnerStore.aggregateStatus`.
+/// The overall connectivity state of the runner fleet, derived by `RunnerState.aggregateStatus`.
 ///
 /// Drives the status-bar dot colour and the menu-bar SF Symbol:
-/// - `allOnline`  → green dot / filled circle  (every runner online or busy)
+/// - `allOnline`  → green dot / filled circle (every runner online or busy)
 /// - `someOffline` → yellow dot / half-filled circle (mixed)
-/// - `allOffline`  → dark dot  / empty circle   (no runners reachable)
+/// - `allOffline` → dark dot / empty circle (no runners reachable)
 public enum AggregateStatus: Sendable {
     /// Every runner in the fleet is `.online` or `.busy`.
     case allOnline
@@ -20,7 +21,7 @@ public enum AggregateStatus: Sendable {
     /// Emoji dot used in the menu-bar title string.
     public var dot: String {
         switch self {
-        case .allOnline: return "🟢"
+        case .allOnline:  return "🟢"
         case .someOffline: return "🟡"
         case .allOffline: return "⚫"
         }
@@ -29,9 +30,12 @@ public enum AggregateStatus: Sendable {
     /// Derives the aggregate status from a fleet of runners.
     ///
     /// - Parameter runners: The current runner list from the GitHub API.
-    public init(runners: [Runner]) {
+    public init(runners: [GitHubRunner]) {
         guard !runners.isEmpty else { self = .allOffline; return }
-        let onlineCount = runners.filter { $0.status == .online || $0.status == .busy }.count
+        let onlineCount = runners.filter { (runner: GitHubRunner) -> Bool in
+            let status = runner.runnerStatus
+            return status == .online || status == .busy
+        }.count
         if onlineCount == runners.count {
             self = .allOnline
         } else if onlineCount == 0 {
@@ -44,7 +48,7 @@ public enum AggregateStatus: Sendable {
     /// SF Symbol name used for the status-bar icon.
     public var symbolName: String {
         switch self {
-        case .allOnline: return "circle.fill"
+        case .allOnline:  return "circle.fill"
         case .someOffline: return "circle.lefthalf.filled"
         case .allOffline: return "circle"
         }

@@ -2,6 +2,7 @@
 // RunBot
 
 import AppKit
+import GitHubClient
 import Observation
 import RunBotCore
 
@@ -50,23 +51,28 @@ extension AppDelegate {
     func applicationDidFinishLaunching(_ _: Notification) {
         log("AppDelegate › applicationDidFinishLaunching — START")
 
-        configureGHToken { githubToken() }
-
-        // Wire all three shim transports directly to sharedGitHubTransport,
-        // eliminating the intermediate hop through module-level free-function shims.
-        // The token is resolved per-call via sharedGitHubTransport's default
-        // tokenProvider (githubTokenCore()), which reads the box configured above.
+        // Wire all three shim transports to github.transport.
+        // Token resolution goes through TokenCache (wired inside GitHubClient)
+        // rather than the raw Keychain box — no configureGHToken call needed.
+        let transport = github.transport
+        // Wire the shared shim logger so free-function diagnostics in
+        // GitHubHelpers.swift and GitHubTransportShims.swift are not silently
+        // dropped. Without this, sharedGitHubTransport.logger (a separate instance
+        // from transport) remains nil for the process lifetime.
+        if let logger = transport.logger {
+            configureGHLogger(logger)
+        }
         configureGHAPI { endpoint in
-            await sharedGitHubTransport.apiAsync(endpoint)
+            await transport.apiAsync(endpoint)
         }
         configureGHRaw { endpoint in
-            await sharedGitHubTransport.raw(endpoint)
+            await transport.raw(endpoint)
         }
         // Both `endpoint` and `timeout` must be forwarded so callers that pass
         // a custom timeout via ghAPIPaginated(endpoint, timeout:) are not silently
         // overridden by apiPaginated's 60-second default.
         configureGHAPIPaginated { endpoint, timeout in
-            await sharedGitHubTransport.apiPaginated(endpoint, timeout: timeout)
+            await transport.apiPaginated(endpoint, timeout: timeout)
         }
 
         // Read knownScopes synchronously before the Task — ScopeStore.shared is

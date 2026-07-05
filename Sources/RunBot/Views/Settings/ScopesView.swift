@@ -1,5 +1,6 @@
 // ScopesView.swift
 // RunBot
+import GitHubClient
 import RunBotCore
 import SwiftUI
 
@@ -21,6 +22,10 @@ struct ScopesView: View {
 
     /// Callback invoked when the user taps the back button.
     let onBack: () -> Void
+
+    /// OAuth service injected from `SettingsView` → `AppDelegate`.
+    /// Forwarded into `AddScopeSheet` to check token availability.
+    var oauthService: any OAuthServiceProtocol
 
     // MARK: - Observed stores
 
@@ -56,7 +61,7 @@ struct ScopesView: View {
         }
         .frame(idealWidth: 480, maxWidth: .infinity)
         .sheet(isPresented: $showAddScopeSheet) {
-            AddScopeSheet(isPresented: $showAddScopeSheet)
+            AddScopeSheet(isPresented: $showAddScopeSheet, oauthService: oauthService)
         }
         // Sheet is presented only once both entry and preferences snapshot are ready.
         // The Binding maps nil/non-nil of selectedScopeEntry to Bool.
@@ -160,14 +165,11 @@ struct ScopesView: View {
 
     /// Row view for a single remote scope entry.
     ///
-    /// Display name and alias sub-label are fetched synchronously from the
-    /// `@Observable` `ScopeStore` — the actor read is deferred to the tap
-    /// handler where we await the preferences before opening the sheet.
+    /// `displayName` and `alias` are read from `ScopeStore`'s cached observable state
+    /// (written back by `ScopePreferencesStore` on save), so this stays synchronous.
+    /// Full actor reads happen in the tap handler below.
     private func scopeRow(_ entry: ScopeEntry) -> some View {
         let isRepo = entry.scope.contains("/")
-        // displayName and alias are read from ScopeStore's cached observable state
-        // (written back by ScopePreferencesStore on save), so this stays synchronous.
-        // Full actor reads happen in the tap handler below.
         let displayName = entry.displayName ?? entry.scope
         let hasAlias = entry.displayName != nil
         return Button {

@@ -1,5 +1,6 @@
 // PanelMainView.swift
 // RunBot
+import GitHubClient
 import RunBotCore
 import SwiftUI
 // REGRESSION GUARD -- DO NOT REMOVE - see regression history (ref #52 #54 #57 #375 #376 #377)
@@ -24,7 +25,7 @@ import SwiftUI
 /// Root panel view rendered inside the NSPopover.
 struct PanelMainView: View {
     /// Called when user taps a step row.
-    let onStepTap: (ActiveJob, JobStep) -> Void
+    let onStepTap: (ActiveJob, GitHubStep) -> Void
     /// Called when the user taps the settings gear button.
     let onSelectSettings: () -> Void
     /// Injected local runner store — used to trigger refresh on appear.
@@ -45,7 +46,7 @@ struct PanelMainView: View {
 
     /// Creates a `PanelMainView`.
     init(
-        onStepTap: @escaping (ActiveJob, JobStep) -> Void,
+        onStepTap: @escaping (ActiveJob, GitHubStep) -> Void,
         onSelectSettings: @escaping () -> Void
     ) {
         self.onStepTap = onStepTap
@@ -65,7 +66,7 @@ struct PanelMainView: View {
     private var activeLocalRunners: [RunnerModel] {
         guard runnerState.actions.contains(where: { $0.groupStatus == .inProgress }) else { return [] }
         let activeNamesFromJobs = Set(
-            runnerState.jobs.filter { $0.status == .inProgress }.compactMap { $0.runnerName }
+            runnerState.jobs.filter { $0.jobStatus == .inProgress }.compactMap { $0.runnerName }
         )
         let busyRunners = runnerState.runners.filter { $0.busy }
         let busyIds = Set(busyRunners.compactMap { $0.id })

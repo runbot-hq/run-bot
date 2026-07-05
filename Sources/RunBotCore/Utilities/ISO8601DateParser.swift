@@ -1,6 +1,7 @@
 // ISO8601DateParser.swift
 // RunBotCore
 import Foundation
+import GitHubClient
 
 // MARK: - ISO8601DateParser
 
@@ -27,13 +28,5 @@ public actor ISO8601DateParser {
     /// Parses an ISO-8601 date string. Returns `nil` on failure.
     public func parse(_ str: String) -> Date? {
         iso.date(from: str)
-    }
-
-    /// Builds an `ActiveJob` from a decoded `JobPayload` using the actor-owned formatter.
-    ///
-    /// Centralising job construction here keeps `makeActiveJob(from:iso:isDimmed:)`
-    /// as the single source of truth while hiding the formatter from callers.
-    public func makeJob(from payload: JobPayload, isDimmed: Bool = false) -> ActiveJob {
-        makeActiveJob(from: payload, iso: iso, isDimmed: isDimmed)
     }
 }

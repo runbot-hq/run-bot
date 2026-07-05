@@ -20,11 +20,6 @@ import Security
 // are documented as safe to call concurrently from multiple threads. No
 // additional actor or lock is needed around the SecItem* calls themselves.
 //
-// The one piece of mutable shared state — the in-memory token cache — lives in
-// GitHubTokenCache.swift and is guarded by a Synchronization.Mutex (P24).
-// invalidateTokenCache() (called after every mutation here) clears that cache
-// under the lock, so there is no unprotected shared mutable state in this type.
-//
 // Conclusion: a KeychainActor would require all call-sites to become async with
 // no correctness benefit. The current design satisfies P16.
 //
@@ -32,17 +27,14 @@ import Security
 // Keychain is public because OAuthService and SettingsView in the RunBot
 // app target call Keychain.save(), .delete(), and .token directly. A future
 // refactor should route those call-sites through a dedicated public function
-// boundary (e.g. keychainSave/keychainDelete in GitHubTokenCache.swift) so
-// Keychain can be scoped internal. Tracked as a follow-up to this PR.
+// boundary so Keychain can be scoped internal. Tracked as #1914.
 
 /// Wrapper around Security.framework for storing and retrieving the GitHub OAuth token.
 ///
 /// ## Thread safety
 /// `SecItem*` calls are OS-serialised by the Security framework and are safe to
-/// call concurrently. The in-memory token cache is protected by
-/// `Synchronization.Mutex` in `GitHubTokenCache` (P24); `invalidateTokenCache()`
-/// is called after every mutation to keep it consistent. No actor wrapper is
-/// required — see the file-level comment for the full P16 rationale.
+/// call concurrently. No actor wrapper is required — see the file-level comment
+/// for the full P16 rationale.
 public enum Keychain {
     /// Keychain service name used for RunBot credentials.
     private static let service = "run-bot"
@@ -80,8 +72,7 @@ public enum Keychain {
         return token.isEmpty ? nil : token
     }
 
-    /// Saves (or overwrites) the token and invalidates the in-memory token cache.
-    /// Returns true if the token was successfully persisted.
+    /// Saves (or overwrites) the token. Returns true if the token was successfully persisted.
     ///
     /// - Note: `SecItemUpdate`/`SecItemAdd` are OS-serialised.
     ///   Concurrent writers are handled by the upsert retry guard below.
@@ -89,12 +80,6 @@ public enum Keychain {
     @discardableResult
     public static func save(_ token: String) -> Bool {
         guard let data = token.data(using: .utf8) else { return false }
-        // Try update first; fall back to add if item does not exist.
-        // kSecAttrAccessibleAfterFirstUnlock is included on both paths so that a
-        // legacy item created without this attribute (e.g. from an older build or
-        // different signing identity) is upgraded in place. Without it, the existing
-        // accessibility attribute is preserved, and a legacy item may be inaccessible
-        // at launch before the first device unlock.
         let updateStatus = SecItemUpdate(
             baseQuery() as CFDictionary,
             [
@@ -106,15 +91,9 @@ public enum Keychain {
         if updateStatus == errSecItemNotFound {
             var addQuery = baseQuery()
             addQuery[kSecValueData as String] = data
-            // kSecAttrAccessibleAfterFirstUnlock: token is readable after the first
-            // unlock post-reboot, which covers app launch in the background before
-            // the user has unlocked the screen. Without this, the default
-            // kSecAttrAccessibleWhenUnlocked would block token reads at launch.
             addQuery[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
             let addStatus = SecItemAdd(addQuery as CFDictionary, nil)
             if addStatus == errSecDuplicateItem {
-                // A concurrent writer inserted the item between our update and add.
-                // Retry the update now that the item exists.
                 let retryStatus = SecItemUpdate(
                     baseQuery() as CFDictionary,
                     [
@@ -135,17 +114,10 @@ public enum Keychain {
         } else if !succeeded {
             log("Keychain.save › SecItemUpdate failed: \(updateStatus)", category: .services)
         }
-        // FIXME(P24): atomicity gap — SecItemUpdate/Add and invalidateTokenCache() are
-        // not atomic. A concurrent githubToken() caller between the two calls will read
-        // the stale cached value. For a menu-bar app this window is negligible, but a
-        // future improvement could wrap both in a single Mutex-guarded operation.
-        if succeeded { invalidateTokenCache() }
         return succeeded
     }
 
-    /// Deletes the stored token.
-    /// Invalidates the in-memory token cache only when deletion actually succeeds
-    /// (or the item was already absent). Returns true on success.
+    /// Deletes the stored token. Returns true on success.
     ///
     /// - Note: `SecItemDelete` is OS-serialised. See file-level P16 rationale.
     @discardableResult
@@ -156,7 +128,6 @@ public enum Keychain {
             log("Keychain.delete › SecItemDelete failed: \(status)", category: .services)
             return false
         }
-        invalidateTokenCache()
         return true
     }
 }

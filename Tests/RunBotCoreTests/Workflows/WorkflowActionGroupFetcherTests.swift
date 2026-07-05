@@ -5,6 +5,7 @@ import Foundation
 import Testing
 import os
 
+import GitHubClient
 @testable import RunBotCore
 
 // MARK: - StubTransport
@@ -56,6 +57,8 @@ struct StubTransport: GitHubTransportProtocol {
     self.responses = sorted
   }
 
+  var logger: (any GitHubLogger)? { nil }
+
   func apiAsync(_ endpoint: String, timeout _: TimeInterval) async -> Data? {
     apiCallCountLock.withLock { $0 += 1 }
     return responses.first(where: { endpoint.hasPrefix($0.prefix) })?.data
@@ -102,9 +105,10 @@ private func minimalRun(
 private func minimalJob(
   id: Int, name: String = "build",
   status: String = "completed",
-  conclusion: String? = "success"
+  conclusion: String? = "success",
+  runID: Int = 0
 ) -> [String: Any] {
-  var d: [String: Any] = ["id": id, "name": name, "status": status]
+  var d: [String: Any] = ["id": id, "run_id": runID, "name": name, "status": status]
   withConclusion(&d, conclusion)
   return d
 }

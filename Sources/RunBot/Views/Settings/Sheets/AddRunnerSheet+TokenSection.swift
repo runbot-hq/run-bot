@@ -2,6 +2,7 @@
 // RunBot
 
 import Foundation
+import GitHubClient
 import RunBotCore
 
 // MARK: - Runner download URL

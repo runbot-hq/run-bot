@@ -25,6 +25,7 @@
 //
 // See: RunnerModel, RunnerStatus
 import Foundation
+import GitHubClient
 
 // MARK: - Codable payload
 

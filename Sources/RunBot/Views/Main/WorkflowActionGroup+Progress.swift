@@ -38,7 +38,8 @@ extension WorkflowActionGroup {
     var progressFraction: Double? {
         let steps = jobs.flatMap { $0.steps }
         guard !steps.isEmpty else { return nil }
-        let done = steps.filter { $0.conclusion != nil || $0.status == .completed }.count
+        // GitHubStep.status and .conclusion are raw Strings — compare against literals.
+        let done = steps.filter { $0.conclusion != nil || $0.status == "completed" }.count
         return Double(done) / Double(steps.count)
     }
 
@@ -47,7 +48,7 @@ extension WorkflowActionGroup {
     /// Returns an empty string when the group has no jobs.
     var jobProgress: String {
         guard !jobs.isEmpty else { return "" }
-        let done = jobs.filter { $0.conclusion != nil }.count
+        let done = jobs.filter { $0.jobConclusion != nil }.count
         return "\(done)/\(jobs.count)"
     }
 
@@ -74,7 +75,7 @@ extension WorkflowActionGroup {
 
     /// The start date of the earliest job in the group, or `nil` if none has started.
     var firstJobStartedAt: Date? {
-        jobs.compactMap { $0.startedAt }.min()
+        jobs.compactMap { $0.startDate }.min()
     }
 
     /// `true` when the group is completed and its conclusion is neither success nor a failure-class
@@ -111,11 +112,12 @@ extension WorkflowActionGroup {
 extension ActiveJob {
     /// Radial fill fraction (0.0–1.0). Returns `nil` while queued or when no steps are available.
     var progressFraction: Double? {
-        switch status {
+        switch jobStatus {
         case .queued: return nil
         case .completed: return 1.0
         default:
             guard !steps.isEmpty else { return nil }
+            // GitHubStep.conclusion is a raw String? — nil means not yet finished.
             let done = steps.filter { $0.conclusion != nil }.count
             let fraction = Double(done) / Double(steps.count)
             return min(max(fraction, 0.0), 1.0)

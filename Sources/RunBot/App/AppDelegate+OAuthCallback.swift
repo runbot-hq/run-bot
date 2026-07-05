@@ -2,6 +2,7 @@
 // RunBot
 
 import AppKit
+import GitHubClient
 import RunBotCore
 
 /// AppDelegate extension handling the OAuth callback URL delivered by the OS.

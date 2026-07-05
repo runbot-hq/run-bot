@@ -2,6 +2,7 @@
 // RunBot
 import AppKit
 import AppUpdater
+import GitHubClient
 import RunBotCore
 import ServiceManagement
 import SwiftUI
@@ -66,10 +67,13 @@ struct SettingsView: View {
     // MARK: - Local UI state
     /// Mirrors `LoginItem.isEnabled`; toggled by the Launch at Login switch.
     @State var launchAtLogin = LoginItem.isEnabled
-    /// `true` when a valid OAuth token is stored in Keychain.
-    @State var isOAuthAuthenticated = (Keychain.token != nil)
+    /// `true` when a valid OAuth token is stored in the keychain.
+    /// Seeded from `oauthService.isAuthenticated` in `init` to avoid a false
+    /// flash before `.onAppear` fires. Kept in sync by `onAppearAction()`'s streams.
+    @State var isOAuthAuthenticated: Bool
     /// `true` when a CLI token (GH_TOKEN / GITHUB_TOKEN) is present but no OAuth token.
-    @State var isCLIAuthenticated = (Keychain.token == nil && githubToken() != nil)
+    /// Seeded from `oauthService` in `init` to avoid a false flash before `.onAppear`.
+    @State var isCLIAuthenticated: Bool
     /// `true` while the OAuth sign-in flow is in progress.
     @State var isSigningIn = false
     /// Retains the sign-in listener Task so it is cancelled when the view disappears.
@@ -83,6 +87,11 @@ struct SettingsView: View {
 
     // MARK: - Init
     /// Creates the view with injected dependencies.
+    ///
+    /// `isOAuthAuthenticated` and `isCLIAuthenticated` are seeded synchronously from
+    /// `oauthService` here rather than defaulting to `false` and correcting in
+    /// `.onAppear`. Both properties are backed by a synchronous Keychain read, so
+    /// the cost is identical and the one-render false-flash is eliminated.
     ///
     /// - Parameters:
     ///   - runnerState: The single `RunnerState` instance owned by `AppDelegate`.
@@ -105,6 +114,8 @@ struct SettingsView: View {
         self.lifecycleService = lifecycleService
         self.runnerState = runnerState
         self.autoUpdater = autoUpdater
+        _isOAuthAuthenticated = State(initialValue: oauthService.isAuthenticated)
+        _isCLIAuthenticated = State(initialValue: !oauthService.isAuthenticated && oauthService.hasAnyToken)
     }
 
     // MARK: - Computed properties
@@ -121,7 +132,7 @@ struct SettingsView: View {
         // Lifecycle modifiers live on the root (wrapping all branches) so
         // onAppearAction()/onDisappear fire only when the settings panel itself
         // opens/closes — NOT on every navigation to LocalRunnersView/ScopesView.
-        // Attaching them to `settingsBody` caused needless Keychain re-reads and
+        // Attaching them to `settingsBody` caused needless re-reads and
         // Task recreation on every back-navigation.
         Group {
             if showLocalRunners {
@@ -132,7 +143,7 @@ struct SettingsView: View {
                     lifecycleService: lifecycleService
                 )
             } else if showScopes {
-                ScopesView(onBack: { showScopes = false })
+                ScopesView(onBack: { showScopes = false }, oauthService: oauthService)
             } else {
                 settingsBody
             }
@@ -199,24 +210,24 @@ struct SettingsView: View {
         .padding(.bottom, 16)
     }
 
-    /// Runs on `.onAppear`: refreshes auth state and starts sign-in / sign-out listeners.
+    /// Runs on `.onAppear`: re-syncs auth state from `oauthService` and starts sign-in / sign-out listeners.
+    ///
+    /// Auth state is already seeded from `oauthService` in `init`, so this is a no-op
+    /// on the first render. On subsequent appears (e.g. after a hide/show cycle) it
+    /// re-reads the current state and re-registers the stream tasks.
     private func onAppearAction() { // skipcq: SW-R1002 — reviewed; complexity acceptable for this onAppear setup
-        let keychainToken = Keychain.token
-        let envToken = githubToken()
-        isOAuthAuthenticated = (keychainToken != nil)
-        isCLIAuthenticated = (keychainToken == nil && envToken != nil)
+        isOAuthAuthenticated = oauthService.isAuthenticated
+        isCLIAuthenticated = !oauthService.isAuthenticated && oauthService.hasAnyToken
         #if DEBUG
-        // swiftlint:disable:next line_length
-        log("SettingsView › onAppear — Keychain.token=\(keychainToken.map { "present(len=\($0.count))" } ?? "nil") githubToken=\(envToken.map { "present(len=\($0.count))" } ?? "nil") isOAuthAuthenticated=\(isOAuthAuthenticated) isCLIAuthenticated=\(isCLIAuthenticated)")
+        let envToken = oauthService.hasAnyToken
+        log("SettingsView › onAppear — isAuthenticated=\(oauthService.isAuthenticated) hasAnyToken=\(envToken) isOAuthAuthenticated=\(isOAuthAuthenticated) isCLIAuthenticated=\(isCLIAuthenticated)")
         #endif
 
-        // Replace the old `onCompletion` closure with a structured async stream.
-        // This avoids the retained-closure / multiple-subscriber hazard (P9).
         signInTask = Task { @MainActor in
             for await success in oauthService.makeSignInStream() {
                 log("SettingsView › signInStream — success=\(success), updating auth state")
                 isOAuthAuthenticated = success
-                isCLIAuthenticated = !success && githubToken() != nil
+                isCLIAuthenticated = !success && oauthService.hasAnyToken
                 log("SettingsView › signInStream — isOAuthAuthenticated=\(isOAuthAuthenticated) isCLIAuthenticated=\(isCLIAuthenticated)")
                 isSigningIn = false
             }
@@ -224,17 +235,16 @@ struct SettingsView: View {
 
         signOutTask = Task { @MainActor in
             for await _ in oauthService.makeSignOutStream() {
-                let postToken = githubToken()
-                log("SettingsView › didSignOut — githubToken post-signout=\(postToken.map { "present(len=\($0.count))" } ?? "nil")")
+                log("SettingsView › didSignOut — hasAnyToken=\(oauthService.hasAnyToken)")
                 isOAuthAuthenticated = false
-                isCLIAuthenticated = postToken != nil
+                isCLIAuthenticated = oauthService.hasAnyToken
                 log("SettingsView › didSignOut — isOAuthAuthenticated=\(isOAuthAuthenticated) isCLIAuthenticated=\(isCLIAuthenticated)")
             }
         }
     }
 
     // MARK: - Header
-    /// Top bar with back button and "Settings" title.
+    /// Top bar with back button and “Settings” title.
     private var headerBar: some View {
         HStack {
             Button(action: onBack, label: {

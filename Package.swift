@@ -12,12 +12,14 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-collections.git", from: "1.1.0"),
-        .package(url: "https://github.com/runbot-hq/AppUpdater", branch: "main")
+        .package(url: "https://github.com/runbot-hq/AppUpdater", branch: "main"),
+        .package(url: "https://github.com/runbot-hq/GitHubClient", branch: "main")
     ],
     targets: [
         .target(
             name: "RunBotCore",
             dependencies: [
+                .product(name: "GitHubClient", package: "GitHubClient"),
                 .product(name: "AppUpdater", package: "AppUpdater"),
                 .product(name: "Collections", package: "swift-collections")
             ],
@@ -28,9 +30,7 @@ let package = Package(
         ),
         .executableTarget(
             name: "RunBot",
-            // AppUpdater is consumed transitively via RunBotCore — there is no
-            // direct `import AppUpdater` in Sources/RunBot, so no explicit
-            // dependency is needed here.
+            // AppUpdater and GitHubClient are consumed transitively via RunBotCore.
             dependencies: ["RunBotCore"],
             path: "Sources/RunBot",
             swiftSettings: [
@@ -41,6 +41,7 @@ let package = Package(
             name: "RunBotCoreTests",
             dependencies: [
                 "RunBotCore",
+                .product(name: "GitHubClient", package: "GitHubClient"),
                 .product(name: "Collections", package: "swift-collections")
             ],
             path: "Tests/RunBotCoreTests",

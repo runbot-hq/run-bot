@@ -1,6 +1,7 @@
 // ActionRowView.swift
 // RunBot
 
+import GitHubClient
 import RunBotCore
 import SwiftUI
 
@@ -17,7 +18,7 @@ struct ActionRowView: View {
     /// Poll tick counter used to force time-ago label refreshes.
     let tick: Int
     /// Called when the user taps a step inside the expanded inline job rows.
-    let onStepTap: (ActiveJob, JobStep) -> Void
+    let onStepTap: (ActiveJob, GitHubStep) -> Void
     /// Drives the inline expand/collapse state: `nil` = collapsed, `false` = partially expanded, `true` = fully expanded.
     @State private var expandState: Bool?
     /// Tracks the previous row status to detect in-progress → done transitions.

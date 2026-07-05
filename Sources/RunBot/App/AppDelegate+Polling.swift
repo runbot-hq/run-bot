@@ -2,6 +2,7 @@
 // RunBot
 
 import Foundation
+import GitHubClient
 import RunBotCore
 
 /// AppDelegate extension managing the OAuth sign-out subscription and poll-loop coordination.

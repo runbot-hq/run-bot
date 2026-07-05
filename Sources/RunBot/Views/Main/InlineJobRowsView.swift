@@ -1,5 +1,6 @@
 // InlineJobRowsView.swift
 // RunBot
+import GitHubClient
 import RunBotCore
 import SwiftUI
 
@@ -92,7 +93,7 @@ private struct JobInlineProgress: View {
 /// Shows the step icon, name, and elapsed time aligned with the tree connector.
 private struct StepRowView: View {
     /// The step to display.
-    let step: JobStep
+    let step: GitHubStep
     /// Whether this is the last step in the list.
     let isLast: Bool
     /// Called when the user taps the step row.
@@ -127,7 +128,8 @@ private struct StepRowView: View {
                     .truncationMode(.tail)
                     .layoutPriority(1)
                 Spacer(minLength: 4)
-                if step.status == .inProgress || step.conclusion != nil {
+                // GitHubStep.status is a raw String; "in_progress" means the step is running.
+                if step.status == "in_progress" || step.conclusion != nil {
                     Text(step.elapsed)
                         .font(.caption2.monospacedDigit())
                         .foregroundColor(Color.rbTextTertiary)
@@ -148,10 +150,10 @@ private struct StepRowView: View {
     /// Foreground colour for the step conclusion icon.
     private var iconColor: Color {
         switch step.conclusion {
-        case .success: return Color.rbSuccess
-        case .failure: return Color.rbDanger
-        case .skipped, .cancelled: return Color.rbTextTertiary
-        default: return step.status == .inProgress ? Color.rbBlue : Color.rbTextTertiary
+        case "success": return Color.rbSuccess
+        case "failure": return Color.rbDanger
+        case "skipped", "cancelled": return Color.rbTextTertiary
+        default: return step.status == "in_progress" ? Color.rbBlue : Color.rbTextTertiary
         }
     }
 }
@@ -173,7 +175,7 @@ private struct JobRowCard: View {
     /// Called when the user taps the job header to toggle expansion.
     let onToggle: () -> Void
     /// Called when the user taps a step row inside the expanded card.
-    let onStepTap: (JobStep) -> Void
+    let onStepTap: (GitHubStep) -> Void
     // indent = 7: half of the workflow DonutStatusView dot (size 14).
     // Geometry: card colour bar(4) + clear spacer(12) + half-dot(7) = 23 from card edge.
     // InlineJobRowsView padding(.leading:12) + colour bar(4) = 16 from card edge.
@@ -184,7 +186,9 @@ private struct JobRowCard: View {
     private var totalSteps: Int { job.steps.count }
     /// Number of completed steps in this job.
     private var completedSteps: Int {
-        job.steps.filter { $0.conclusion != nil || $0.status == .completed }.count
+        // GitHubStep.conclusion is a raw String? — non-nil means the step has finished.
+        // GitHubStep.status is a raw String — "completed" means the step has finished.
+        job.steps.filter { $0.conclusion != nil || $0.status == "completed" }.count
     }
     /// Renders the job tree connector, card header, and optional expanded step list.
     var body: some View {
@@ -224,7 +228,7 @@ private struct JobRowCard: View {
                     .lineLimit(1)
                     .fixedSize(horizontal: true, vertical: false)
                 Spacer(minLength: 4)
-                if job.status == .inProgress {
+                if job.jobStatus == .inProgress {
                     JobInlineProgress(progress: job.progressFraction ?? 0)
                         .frame(width: 120)
                 }
@@ -234,7 +238,9 @@ private struct JobRowCard: View {
                         .foregroundColor(Color.rbTextTertiary)
                         .fixedSize()
                 }
-                if job.startedAt != nil {
+                // ActiveJob.startDate is the parsed Date? equivalent of the raw .startedAt
+                // String bridge from GitHubJob — non-nil means the job has started.
+                if job.startDate != nil {
                     Text(job.elapsed)
                         .font(.caption2.monospacedDigit())
                         .foregroundColor(Color.rbTextTertiary)
@@ -250,7 +256,9 @@ private struct JobRowCard: View {
     /// Vertically stacked step rows shown when the job card is expanded.
     private var stepsContainer: some View {
         VStack(alignment: .leading, spacing: 0) {
-            ForEach(Array(job.steps.enumerated()), id: \.element.id) { index, step in
+            // GitHubStep has no `id` property — `number` (1-based step index within
+            // the job) is the stable identifier assigned by the GitHub API.
+            ForEach(Array(job.steps.enumerated()), id: \.element.number) { index, step in
                 StepRowView(
                     step: step,
                     isLast: index == job.steps.count - 1,
@@ -275,7 +283,7 @@ struct InlineJobRowsView: View {
     var fullExpand: Bool = false
     // Default no-op handler; callers that need step navigation override this.
     /// Called when the user taps a step row. Defaults to a no-op.
-    var onStepTap: (ActiveJob, JobStep) -> Void = { _, _ in
+    var onStepTap: (ActiveJob, GitHubStep) -> Void = { _, _ in
         // Intentionally empty: default is a no-op.
         // Callers that require navigation provide a real implementation.
     }
@@ -289,7 +297,8 @@ struct InlineJobRowsView: View {
     var body: some View {
         Group {
             if panelVisibilityState.isOpen {
-                let jobs = fullExpand ? group.jobs : group.jobs.filter { $0.status == .inProgress }
+                // jobStatus is the typed accessor on ActiveJob; raw job.status is a String.
+                let jobs = fullExpand ? group.jobs : group.jobs.filter { $0.jobStatus == .inProgress }
                 VStack(alignment: .leading, spacing: 2) {
                     ForEach(Array(jobs.enumerated()), id: \.element.id) { index, job in
                         JobRowCard(

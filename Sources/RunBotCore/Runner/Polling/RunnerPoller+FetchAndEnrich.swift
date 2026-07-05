@@ -1,5 +1,6 @@
 // RunnerPoller+FetchAndEnrich.swift
 // RunBotCore
+import GitHubClient
 
 // swiftlint:disable:next missing_docs
 extension RunnerPoller {
@@ -37,7 +38,7 @@ extension RunnerPoller {
     extraOrgScopes: [String],
     localRunners: [RunnerModel],
     installPathMap: InstallPathMap
-  ) async -> [Runner] {
+  ) async -> [GitHubRunner] {
     let allScopes = scopes + extraOrgScopes
     log(
       "RunnerPoller › fetchAndEnrichRunners ENTER — scopes=\(scopes) extraOrgScopes=\(extraOrgScopes)",
@@ -49,15 +50,15 @@ extension RunnerPoller {
     // with resolved metrics is small in practice (typically < 5). A `withTaskGroup`
     // wrapper would add task-spawn overhead without measurable benefit. Revisit only
     // if `applyMetrics` ever becomes slow (e.g. if it starts performing I/O).
-    let metricsUpdates = indexed.filter { $0.runner.busy && $0.runner.metrics != nil }
+    let metricsUpdates = indexed.filter { $0.runner.busy && $0.metrics != nil }
     if !metricsUpdates.isEmpty {
       for entry in metricsUpdates {
         #if DEBUG
           log(
-            "RunnerPoller › fetchAndEnrichRunners — applyMetrics: \(entry.runner.name) id=\(entry.runner.id) busy=\(entry.runner.busy) metrics=\(String(describing: entry.runner.metrics))",
+            "RunnerPoller › fetchAndEnrichRunners — applyMetrics: \(entry.runner.name) id=\(entry.runner.id) busy=\(entry.runner.busy) metrics=\(String(describing: entry.metrics))",
             category: .runner)
         #endif
-        await applyMetrics(entry.runner.metrics, entry.runner.id, entry.runner.name)
+        await applyMetrics(entry.metrics, entry.runner.id, entry.runner.name)
       }
     }
     let result = indexed.map(\.runner)
@@ -73,10 +74,10 @@ extension RunnerPoller {
   /// Task completion order is non-deterministic; views sort runners for display independently.
   private func fetchRawRunners(allScopes: [String]) async -> [IndexedScopedRunner] {
     var indexed: [IndexedScopedRunner] = []
-    await withTaskGroup(of: (String, [Runner]).self) { group in
+    await withTaskGroup(of: (String, [GitHubRunner]).self) { group in
       for scope in allScopes {
         group.addTask {
-          let fetched = await fetchRunners(for: scope, decoder: self.decoder)
+          let fetched = await fetchRunners(for: scope)
           return (scope, fetched)
         }
       }
@@ -125,7 +126,7 @@ extension RunnerPoller {
       return results
     }
     for (i, metrics) in metricsResults {
-      indexed[i] = IndexedScopedRunner(scope: indexed[i].scope, runner: indexed[i].runner.copying(metrics: metrics))
+      indexed[i] = IndexedScopedRunner(scope: indexed[i].scope, runner: indexed[i].runner, metrics: metrics)
     }
     return indexed
   }

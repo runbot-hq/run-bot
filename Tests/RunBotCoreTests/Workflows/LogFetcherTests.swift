@@ -2,6 +2,7 @@
 // RunBotCoreTests
 
 import Foundation
+import GitHubClient
 import Testing
 
 @testable import RunBotCore

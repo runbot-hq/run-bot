@@ -1,6 +1,7 @@
 // AppDelegate+Navigation.swift
 // RunBot
 import AppKit
+import GitHubClient
 import RunBotCore
 import SwiftUI
 
@@ -33,7 +34,7 @@ extension AppDelegate {
     ///    nesting causes multiple overlapping dim overlays → gray/black flash.
     func mainView() -> AnyView {
         let inner = PanelMainView(
-            onStepTap: { [weak self] job, step in
+            onStepTap: { [weak self] (job: ActiveJob, step: GitHubStep) in
                 guard let self else { return }
                 self.savedNavState = .stepLog(job: job, step: step)
                 self.navigate(to: self.wrapEnv(StepLogView(

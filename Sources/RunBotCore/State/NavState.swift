@@ -1,5 +1,6 @@
 // NavState.swift
 // RunBotCore
+import GitHubClient
 
 // MARK: - NavState
 //
@@ -22,7 +23,7 @@ public enum NavState {
     /// - Parameters:
     ///   - job: The active job providing context for the selected step.
     ///   - step: The specific step whose log is displayed.
-    case stepLog(job: ActiveJob, step: JobStep)
+    case stepLog(job: ActiveJob, step: GitHubStep)
     /// The Settings sheet.
     case settings
 }

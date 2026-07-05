@@ -3,6 +3,7 @@
 
 import AppKit
 import AppUpdater
+import GitHubClient
 import RunBotCore
 import SwiftUI
 
@@ -105,12 +106,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// The SwiftUI hosting controller embedded inside `popover`. Its `rootView` is
     /// swapped on navigation; the controller itself is never recreated.
     var hostingController: NSHostingController<AnyView>?
-    /// Owned OAuth service instance. Typed to protocol so tests can supply a stub
-    /// without going through the live singleton (P7).
+
+    /// The `GitHubClient` facade — owns and wires `KeychainTokenStore`, `TokenCache`,
+    /// `OAuthService`, and `GitHubTransport` under a single init.
     ///
-    /// Constructed once here — injected into `AppDelegate+OAuthCallback`, `AppDelegate+Polling`,
-    /// and `SettingsView` rather than accessed via a global `.shared`.
-    let oauthService: any OAuthServiceProtocol = OAuthService()
+    /// `oauthService` and `transport` are accessed via this instance rather than
+    /// constructed independently. `TokenCache.invalidate()` is called automatically
+    /// after every sign-in and sign-out via the hooks wired inside the facade.
+    let github = GitHubClient(
+        clientID: OAuthSecrets.clientID,
+        clientSecret: OAuthSecrets.clientSecret,
+        // ⚠️ Backward-compat: "run-bot" matches the keychain service name used by the
+        // pre-GitHubClient `Keychain` type. Do NOT change this value post-ship —
+        // doing so orphans any token already stored under the old coordinates and
+        // forces every signed-in user to re-authenticate. If the bundle identifier
+        // is ever adopted as the canonical service name, a migration read from
+        // "run-bot" → delete → re-save under the new name is required first.
+        service: "run-bot",
+        account: "github-oauth-token",
+        logger: RunBotLogger()
+    )
+
+    /// Forwarded from `github.oauthService` for backward-compatible access across
+    /// AppDelegate extensions and injected views.
+    var oauthService: any OAuthServiceProtocol { github.oauthService }
+
     /// Owned lifecycle service instance. Typed to protocol so tests can supply a stub
     /// without spawning real `svc.sh` processes (P7).
     ///

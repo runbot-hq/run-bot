@@ -1,6 +1,7 @@
 // LogFetcher.swift
 // RunBotCore
 import Foundation
+import GitHubClient
 import os
 
 // MARK: - Filesystem path constants

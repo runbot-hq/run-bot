@@ -2,6 +2,7 @@
 // RunBotCore
 
 import Foundation
+import GitHubClient
 
 // swiftlint:disable:next missing_docs
 extension RunnerPoller {
@@ -15,7 +16,7 @@ extension RunnerPoller {
     /// guarded — if `fetchError` is already `nil` the assignment is skipped to
     /// avoid a spurious `@Observable` notification on every healthy poll cycle.
     func applyFetchResult(
-        enrichedRunners: [Runner],
+        enrichedRunners: [GitHubRunner],
         jobResult: JobPollResult,
         groupResult: GroupPollResult
     ) async {

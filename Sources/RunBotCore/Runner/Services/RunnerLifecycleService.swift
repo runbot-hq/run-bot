@@ -1,6 +1,7 @@
 // RunnerLifecycleService.swift
 // RunBotCore
 import Foundation
+import GitHubClient
 
 // MARK: - RunnerLifecycleService
 

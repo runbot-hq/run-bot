@@ -6,7 +6,7 @@ A short description of every source file in the project.
 
 ```
 run-bot/
-├── Package.swift                            — SPM manifest; defines RunBot + RunBotCore targets and their dependencies
+├── Package.swift                            — SPM manifest; defines RunBot + RunBotCore + GitHubClient targets and their dependencies
 ├── project.yml                              — XcodeGen project definition
 ├── build.sh                                 — local build helper script
 ├── deploy.sh                                — deployment/release helper script
@@ -55,18 +55,54 @@ run-bot/
 │
 ├── Sources/
 │   │
+│   ├── GitHubClient/                     (pure-Swift library — no AppKit/UIKit; no RunBotCore dependency)
+│   │   │
+│   │   │   All GitHub networking, auth and token types live here. RunBotCore
+│   │   │   and RunBot both depend on this target. GitHubClient has no dependency
+│   │   │   on either of them — the inversion is bridged via the TokenStore and
+│   │   │   GitHubLogger protocols injected at construction time.
+│   │   │
+│   │   ├── GitHubClient.swift               — top-level facade; owns and wires KeychainTokenStore, TokenCache, OAuthService, and GitHubTransport under a single init; exposes a test init for mock injection
+│   │   ├── API/
+│   │   │   ├── APICallCounter.swift         — tracks GitHub REST call timestamps in a rolling 60-minute window
+│   │   │   ├── GitHubConstants.swift        — shared GitHub API base URLs and endpoint path constants
+│   │   │   ├── GitHubHelpers.swift          — free helpers (e.g. fetchUserOrgs) over the GitHub API
+│   │   │   ├── GitHubRateLimitHandler.swift — actor-isolated rate-limit state + RateLimitSnapshot
+│   │   │   ├── GitHubRequestBuilder.swift   — builds authenticated URLRequests; resolveURL endpoint logic
+│   │   │   ├── GitHubResponseDecoder.swift  — decodes/validates GitHub JSON responses; logs error bodies
+│   │   │   ├── GitHubRunnerFetchers.swift   — free functions fetching runners and active jobs from the API
+│   │   │   ├── GitHubScope.swift            — Scope enum: a single repo or an entire organisation
+│   │   │   ├── GitHubURLHelpers.swift       — extracts owner/repo or org scope strings from GitHub HTML URLs
+│   │   │   └── KeychainTokenStore.swift     — canonical SecItem* TokenStore implementation (kSecUseDataProtectionKeychain, upsert retry guard, GitHubLogger error logging)
+│   │   │
+│   │   ├── Auth/
+│   │   │   ├── OAuthService.swift           — @MainActor GitHub OAuth Authorization Code flow service; onTokenSaved/onTokenDeleted hooks invalidate TokenCache after every sign-in/sign-out
+│   │   │   ├── OAuthServiceProtocol.swift   — abstraction over the OAuth flow; exposes isAuthenticated + hasAnyToken for UI consumers
+│   │   │   └── TokenCache.swift             — process-wide token cache with invalidation (Synchronization.Mutex-guarded)
+│   │   │
+│   │   ├── Protocols/
+│   │   │   ├── GitHubLogger.swift           — logging protocol injected into GitHubClient types (bridges to RunBotCore log())
+│   │   │   └── TokenStore.swift             — token persistence protocol (load/save/delete); implemented by KeychainTokenStore
+│   │   │
+│   │   └── Transport/
+│   │       ├── GitHubTransportProtocol.swift    — protocol describing all GitHub network operations
+│   │       ├── GitHubTransport+Conformance.swift — GitHubTransport conformance to the transport protocol; .networkError now binds and logs the underlying Error value
+│   │       ├── GitHubURLSessionTransport.swift  — concrete URLSession-backed GitHubTransport implementation
+│   │       ├── GitHubTransportShim.swift        — module-level ghAPI / ghAPIPaginated transport symbols
+│   │       └── GitHubTransportShims.swift       — shared default GitHubTransport instance + configure/read shims
+│   │
 │   ├── RunBot/                           (AppKit/SwiftUI app target — UI + lifecycle)
 │   │   │
 │   │   ├── main.swift                       — entry point; instantiates AppDelegate and starts the run loop
 │   │   │
 │   │   ├── App/
-│   │   │   ├── AppDelegate.swift            — @MainActor app delegate; owns NSPopover architecture and top-level wiring
+│   │   │   ├── AppDelegate.swift            — @MainActor app delegate; owns NSPopover architecture; holds a single GitHubClient facade instance (github); exposes oauthService as a computed var forwarding to github.oauthService
 │   │   │   ├── AppDelegate+Navigation.swift  — navigation handling extension
 │   │   │   ├── AppDelegate+OAuthCallback.swift — handles the OAuth callback URL delivered by the OS
 │   │   │   ├── AppDelegate+PanelSetup.swift  — NSPopoverDelegate conformance and panel setup
 │   │   │   ├── AppDelegate+Polling.swift    — OAuth sign-out subscription and poll-loop coordination
 │   │   │   ├── AppDelegate+StatusItem.swift  — status-bar item creation and management
-│   │   │   ├── AppDelegate+StoreSetup.swift  — wires app-lifecycle callbacks to store and service setup
+│   │   │   ├── AppDelegate+StoreSetup.swift  — wires app-lifecycle callbacks to store and service setup; wires configureGHAPI/configureGHRaw/configureGHAPIPaginated to github.transport (no configureGHToken call needed)
 │   │   │   └── PopoverLifecycleCoordinator.swift — popover lifecycle coordinator extracted from AppDelegate (#1374)
 │   │   │
 │   │   ├── DesignSystem/
@@ -98,7 +134,7 @@ run-bot/
 │   │       │       ├── BranchSelectorSheet.swift — sheet for picking a branch to filter the failure hook (#560)
 │   │       │       └── RepoSelectorSheet.swift — reusable searchable repo/org picker sheet (#580/#576)
 │   │       ├── Settings/
-│   │       │   ├── SettingsView.swift       — main settings view (all phases 1–6)
+│   │       │   ├── SettingsView.swift       — main settings view (all phases 1–6); reads auth state from oauthService.isAuthenticated/hasAnyToken
 │   │       │   ├── SettingsView+Sections.swift — settings sections broken out for readability
 │   │       │   ├── APICallCounterRow.swift  — settings row showing the live GitHub API call counter
 │   │       │   ├── APICallCounterViewModel.swift — @Observable VM exposing live API call-counter state
@@ -109,7 +145,7 @@ run-bot/
 │   │       │       ├── AddRunnerSheet+FormFields.swift — form-field subviews and folder actions
 │   │       │       ├── AddRunnerSheet+TokenSection.swift — token section + runner download-URL lookup
 │   │       │       ├── AddRunnerSheet+Validation.swift — validation helpers and state-check predicates
-│   │       │       ├── AddScopeSheet.swift   — add-scope sheet (ScopeType selection)
+│   │       │       ├── AddScopeSheet.swift   — add-scope sheet; uses oauthService.hasAnyToken for auth check
 │   │       │       ├── FailureHookCommandSheet.swift — per-scope failure-hook command editor (#544)
 │   │       │       ├── RunnerDetailSheet.swift — edit a single self-hosted runner
 │   │       │       └── ScopeEditSheet.swift  — modal scope-edit sheet (atomic save, #1540)
@@ -124,28 +160,6 @@ run-bot/
 │       │   ├── FailureHookRunnerAdapters.swift — production adapters bridging deps to the use-case protocols
 │       │   ├── FailureHookRunnerDependencies.swift — dependency protocols (incl. ScopePreferencesStoreProtocol)
 │       │   └── FailureHookRunnerUseCase.swift — testable, DI'd replacement for the static FailureHookRunner
-│       │
-│       ├── GitHub/
-│       │   ├── API/
-│       │   │   ├── APICallCounter.swift     — tracks GitHub REST call timestamps in a rolling 60-minute window
-│       │   │   ├── GitHubConstants.swift    — shared GitHub API base URLs and endpoint path constants
-│       │   │   ├── GitHubHelpers.swift      — free helpers (e.g. fetchUserOrgs) over the GitHub API
-│       │   │   ├── GitHubRateLimitHandler.swift — actor-isolated rate-limit state + RateLimitSnapshot
-│       │   │   ├── GitHubRequestBuilder.swift — builds authenticated URLRequests; resolveURL endpoint logic
-│       │   │   ├── GitHubResponseDecoder.swift — decodes/validates GitHub JSON responses; logs error bodies
-│       │   │   ├── GitHubRunnerFetchers.swift — free functions fetching runners and active jobs from the API
-│       │   │   └── GitHubURLHelpers.swift   — extracts owner/repo or org scope strings from GitHub HTML URLs
-│       │   ├── Auth/
-│       │   │   ├── GitHubTokenCache.swift   — process-wide token cache with invalidation
-│       │   │   ├── OAuthSecrets.swift       — OAuth app credential constants
-│       │   │   ├── OAuthService.swift       — @MainActor GitHub OAuth Authorization Code flow service
-│       │   │   └── OAuthServiceProtocol.swift — abstraction over the OAuth flow for testability
-│       │   └── Transport/
-│       │       ├── GitHubTransportProtocol.swift — protocol describing all GitHub network operations
-│       │       ├── GitHubTransport+Conformance.swift — GitHubTransport conformance to the transport protocol
-│       │       ├── GitHubURLSessionTransport.swift — concrete URLSession-backed GitHubTransport implementation
-│       │       ├── GitHubTransportShim.swift — module-level ghAPI / ghAPIPaginated transport symbols
-│       │       └── GitHubTransportShims.swift — shared default GitHubTransport instance + configure/read shims
 │       │
 │       ├── Preferences/
 │       │   ├── AppPreferencesStore.swift    — @MainActor store persisting general app settings to UserDefaults
@@ -208,7 +222,6 @@ run-bot/
 │       │       └── SaveRunnerEditsUseCase.swift — saves runner edits; LabelsPrerequisiteError (Phase 5, #1300)
 │       │
 │       ├── Scope/
-│       │   ├── GitHubScope.swift            — Scope enum: a single repo or an entire organisation
 │       │   ├── ScopeEntry.swift             — a single watched scope (repo/org) with enable/disable flag
 │       │   ├── ScopePreferences.swift       — Codable snapshot of all per-scope user preferences
 │       │   ├── ScopePreferencesStore.swift  — actor owning UserDefaults I/O for per-scope preferences
@@ -216,7 +229,6 @@ run-bot/
 │       │   └── ScopeStoreProtocol.swift     — abstracts the active-scopes store for test doubles
 │       │
 │       ├── Services/
-│       │   ├── Keychain.swift               — Keychain read/write helpers
 │       │   ├── LogFetcher.swift             — downloads and unzips GitHub Actions logs
 │       │   ├── LoginItem.swift              — manages launch-at-login registration via SMAppService
 │       │   ├── ProcessRunner.swift          — primitive for launching subprocesses with streaming output
@@ -234,25 +246,36 @@ run-bot/
 │           ├── AnyJSON.swift                — type-erased Codable JSON value (no JSONSerialization)
 │           ├── FormatElapsed.swift          — human-readable mm:ss elapsed-duration formatter
 │           ├── ISO8601DateParser.swift      — shared actor-isolated ISO-8601 date parser
-│           ├── Logger.swift                 — unified logging helpers
+│           ├── Logger.swift                 — unified logging helpers (log() free function + LogCategory)
 │           ├── ObservationLoop.swift        — re-registering withObservationTracking onChange wrapper
+│           ├── RunBotLogger.swift           — GitHubLogger conformance; bridges GitHubClient log calls to log(); #if DEBUG assertion fires on unknown category strings
 │           └── SystemStats.swift            — snapshot of CPU and memory metrics
 │
 └── Tests/
-    ├── RunBotCoreTests/
+    ├── GitHubClientTests/
     │   ├── APICallCounter+TestSeam.swift    — test-only seeding/reset extensions on APICallCounter
     │   ├── APICallCounterTests.swift        — unit tests for APICallCounter and its snapshot
+    │   ├── GitHubClientTests.swift          — unit tests for GitHubClient facade: test-init injection, oauthService/transport identity, mock forwarding
+    │   ├── GitHubRateLimitActorTests.swift  — rate-limit actor generation-guard/race tests
+    │   ├── GitHubTokenCacheTests.swift      — TokenCache resolution, caching, and invalidation tests (MockTokenStore; no Keychain)
+    │   ├── GitHubTransportPaginatedTests.swift — integration tests for GitHubTransport.apiPaginated
+    │   ├── GitHubTransportShimTests.swift   — tests for the module-level transport configure/read shims
+    │   ├── GitHubURLHelpersTests.swift      — unit tests for GitHubURLHelpers scope-string extraction
+    │   └── TestSupport/
+    │       ├── MockOAuthService.swift       — spy/stub conforming to OAuthServiceProtocol; triggerSignIn/triggerSignOut helpers push events into AsyncStream consumers
+    │       ├── MockTokenStore.swift         — in-memory TokenStore for tests; seeded via init(initial:)
+    │       ├── MockTransport.swift          — controllable stub conforming to GitHubTransportProtocol; all methods delegate to closure properties (onCancelRun, onApiAsync, etc.)
+    │       └── SpyRateLimitActor.swift      — spy for GitHubRateLimitActor used in rate-limit tests
+    ├── RunBotCoreTests/
     │   ├── ActiveJobAsCompletedTests.swift  — tests for ActiveJob.asCompleted(at:)
     │   ├── FailureHookRunnerUseCaseTests.swift — unit tests for FailureHookRunnerUseCase
-    │   ├── GitHubRateLimitActorTests.swift  — rate-limit actor generation-guard/race tests
-    │   ├── GitHubTokenCacheTests.swift      — token-cache tests (with isolation requirement)
     │   ├── GitHubTransportPaginatedTests.swift — integration tests for GitHubTransport.apiPaginated
     │   ├── GitHubTransportShimTests.swift   — tests for the module-level transport configure/read shims
     │   ├── LocalRunnerIndexTests.swift      — unit tests for LocalRunnerIndex
     │   ├── LogFetcherTests.swift            — unit tests for LogFetcher
     │   ├── ObservationLoopTests.swift       — unit tests for ObservationLoop invariants
     │   ├── OrgRunnerMetricsResolutionTests.swift — regression tests for org-scoped runner metrics (#1209/#1192)
-    │   ├── RunBotCoreTests.swift         — top-level RunBotCore test suite
+    │   ├── RunBotCoreTests.swift            — top-level RunBotCore test suite
     │   ├── SaveRunnerEditsUseCaseTests.swift — unit tests for SaveRunnerEditsUseCase (Phase 5, #1300)
     │   ├── ScopeEditSheetTests.swift        — atomic-save contract tests for the ScopeEditSheet rewrite (#1540)
     │   ├── StepLogViewScopeResolutionTests.swift — tests for StepLogView.loadLog() scope resolution (#1517)
@@ -261,5 +284,5 @@ run-bot/
     │       ├── TestDoubles.swift            — shared test doubles (#1447)
     │       └── TestFixtures.swift           — shared test fixtures (#1446)
     └── RunBotUITests/
-        └── RunBotUITests.swift           — UI tests using real mouse interaction; run via xcodebuild on the self-hosted runner
+        └── RunBotUITests.swift              — UI tests using real mouse interaction; run via xcodebuild on the self-hosted runner
 ```
