@@ -77,9 +77,7 @@ ones**. That's why `AppDelegate`, `AddRunnerSheet`, and `RunnerPoller` are split
 - **Immutable, `Sendable` value models** (`Runner`, `RunnerModel`, config types): `let` properties,
   mutate via `copying(…)`. No `@unchecked Sendable` in production types except the documented
   sign-off on `PollLoopCoordinator`.
-- See `docs/architecture/data-model.md`, `concurrency-overview.md`, and
-  `swift-concurrency-lexicon.md` for detail, and `docs/principles/project-principles.md` for the
-  canonical 21 principles this codebase commits to.
+- See `docs/architecture/ARCHITECTURE.md` for the data model, concurrency model, and library rationale detail, and `docs/principles/project-tech-principles.md` for the canonical 21 principles this codebase commits to.
 
 ## GitHub networking & auth
 
