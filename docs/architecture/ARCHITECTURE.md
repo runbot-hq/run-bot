@@ -5,6 +5,7 @@ Regression guards and architectural decisions enforced inline in the source.
 
 For deep-dives on specific subsystems see:
 - [../ui/nspopover-decisions.md](../ui/nspopover-decisions.md) — why NSPopover, side-jump prevention, sheet/file-picker dismiss
+- [Swift concurrency lexicon](https://gist.github.com/eonist/cd034f2318a70ca03ee69635a2fc2583) — replacement for the deleted `swift-concurrency-lexicon.md`
 
 ---
 
