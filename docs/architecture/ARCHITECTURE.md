@@ -77,3 +77,43 @@ the sign-in spinner stuck indefinitely.
 `KeyablePanel` must be `internal` (not `private` or `fileprivate`).
 `AppDelegate+Navigation.swift` accesses `panel: KeyablePanel?` from a separate
 file, and Swift `private` does not cross file boundaries.
+
+---
+
+## Dark Mode & Light Mode Support
+
+Appearance adaptation is handled at three distinct layers. There is no user-facing toggle — the app defers entirely to the system setting.
+
+### 1. `PanelChromeView` — Explicit AppKit check (`PanelChrome.swift`)
+
+The custom `NSView` subclass uses `effectiveAppearance` to manually detect the active color scheme:
+
+```swift
+let isDark = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+let fill: NSColor = isDark
+    ? NSColor(white: 0.18, alpha: 0.01)
+    : NSColor(white: 0.95, alpha: 0.01)
+```
+
+### 2. `NSVisualEffectView` — Automatic material adaptation (`PanelChrome.swift`)
+
+```swift
+view.material = .popover
+view.blendingMode = .behindWindow
+view.state = .active
+```
+
+The `.popover` material resolves automatically to a light frosted-glass blur in Light Mode and a dark tinted blur in Dark Mode. **Do not change the material** — switching away from `.popover` is explicitly prohibited in inline code comments to prevent visual regressions.
+
+### 3. SwiftUI views — Semantic colors (all view files)
+
+All SwiftUI views exclusively use semantic system colors (`.primary`, `.secondary`, `.green`, `.red`, `.yellow`, `Color.secondary.opacity(0.12)`) that SwiftUI resolves at render time. There is **no hardcoded `NSColor` or `Color(hex:)`** in the UI layer.
+
+| Layer | File | Mechanism |
+|---|---|---|
+| `PanelChromeView` (AppKit) | `PanelChrome.swift` | `effectiveAppearance.bestMatch` |
+| `NSVisualEffectView` material | `PanelChrome.swift` | `.popover` + `.behindWindow` |
+| SwiftUI views | All view files | Semantic colors |
+
+- ❌ NEVER hardcode `NSColor` or `Color(hex:)` in the UI layer.
+- ❌ NEVER change `view.material` away from `.popover` in `PanelChrome.swift`.
