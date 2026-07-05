@@ -15,6 +15,16 @@ import Foundation
 /// ⚠️ Token-less by default: `tokenProvider` is `nil` until `GitHubClient.init` wires
 /// it via `configureGHAPI*`. Any call before `applicationDidFinishLaunching` completes
 /// will silently return `.noToken` / `nil` with no error.
+///
+/// This is intentional for the app target, where launch order is controlled and
+/// the silent `.noToken` path is the correct degraded behaviour before auth is
+/// wired. A `precondition`/`fatalError` on unconfigured calls is not added here
+/// because it would fire legitimately during app startup (before the wiring call)
+/// and would be a hazard for unit tests that import `GitHubClient` without
+/// going through `GitHubClient.init`. If `GitHubClient` is ever packaged as a
+/// true standalone library (step 14), add an explicit `assertionFailure` inside
+/// `GitHubTransport` when `tokenProvider` is nil and the caller is not in the
+/// signed-out / no-token flow.
 public let sharedGitHubTransport = GitHubTransport()
 
 // MARK: - Backward-compatibility shims
@@ -93,7 +103,7 @@ public func ghAPI(_ endpoint: String, timeout: TimeInterval = 20) async -> Data?
 public func ghPost(_ endpoint: String) async -> Bool {
     let result = await sharedGitHubTransport.post(endpoint)
     let success = result != nil
-    sharedGitHubTransport.logger?.log("ghPost › \(endpoint) success=\(success)", category: "transport")
+    ghLogger()?.log("ghPost › \(endpoint) success=\(success)", category: "transport")
     return success
 }
 

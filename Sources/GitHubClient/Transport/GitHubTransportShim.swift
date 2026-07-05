@@ -81,6 +81,12 @@ private let transportBox = TransportBox<GHAPITransport>(initialState: { _ in nil
 private let rawTransportBox = TransportBox<GHRawTransport>(initialState: { _ in nil })
 /// Lock-protected box holding the active paginated transport.
 private let paginatedTransportBox = TransportBox<GHAPIPaginatedTransport>(initialState: { _, _ in nil })
+/// Lock-protected box holding the shared logger.
+///
+/// Seeded with `nil` so pre-launch log calls are silently dropped rather than
+/// crashing. Wire the real logger via `configureGHLogger(_:)` in
+/// `applicationDidFinishLaunching`, alongside the transport boxes.
+private let loggerBox = TransportBox<(any GitHubLogger)?>(initialState: nil)
 
 // Note: `tokenProviderBox` / `configureGHToken` / `githubTokenCore()` were removed in #1912.
 // Token resolution now goes through `TokenCache` wired inside `GitHubClient.init`.
@@ -100,6 +106,26 @@ public func configureGHAPI(_ transport: @escaping GHAPITransport) {
 ///   Returns `nil` on failure.
 public func configureGHRaw(_ rawTransport: @escaping GHRawTransport) {
     rawTransportBox.configure(rawTransport)
+}
+
+/// Wire up the shared logger used by free-function shims (`ghPost`, `fetchStepLog`, etc.).
+///
+/// Call once in `applicationDidFinishLaunching` alongside `configureGHAPI*`, passing
+/// `github.transport.logger`. Pre-launch log calls are silently dropped (box is seeded
+/// with `nil`), which is the correct degraded behaviour — same as the token-less transport.
+///
+/// - Parameter logger: The logger to use for all shim-layer diagnostics.
+public func configureGHLogger(_ logger: any GitHubLogger) {
+    loggerBox.configure(logger)
+}
+
+/// Returns the currently configured shim-layer logger, or `nil` if not yet wired.
+///
+/// Used internally by `GitHubHelpers.swift` and `GitHubTransportShims.swift` instead of
+/// `sharedGitHubTransport.logger`, which is always `nil` in production because
+/// `sharedGitHubTransport` is a separate instance from the one wired by `GitHubClient.init`.
+func ghLogger() -> (any GitHubLogger)? {
+    loggerBox.read()
 }
 
 /// Wire up the real (or mock) paginated JSON transport. Call once at launch.

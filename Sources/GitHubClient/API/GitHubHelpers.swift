@@ -53,17 +53,17 @@ private let ansiRegex: NSRegularExpression? = try? NSRegularExpression(
 @concurrent
 public func fetchStepLog(jobID: Int, stepNumber: Int, scope scopeString: String) async -> String? {
     guard let scope = Scope.parse(scopeString) else {
-        sharedGitHubTransport.logger?.log("fetchStepLog › invalid scope: \(scopeString)", category: "transport")
+        ghLogger()?.log("fetchStepLog › invalid scope: \(scopeString)", category: "transport")
         return nil
     }
     guard case .repo = scope else {
-        sharedGitHubTransport.logger?.log(
+        ghLogger()?.log(
             "fetchStepLog › skipped: org-scoped logs not supported (scope=\(scopeString))",
             category: "transport")
         return nil
     }
     let endpoint = "\(scope.apiPrefix)/actions/jobs/\(jobID)/logs"
-    sharedGitHubTransport.logger?.log("fetchStepLog › fetching \(endpoint) step=\(stepNumber)", category: "transport")
+    ghLogger()?.log("fetchStepLog › fetching \(endpoint) step=\(stepNumber)", category: "transport")
     guard let raw = await fetchAndDecodeStepLog(endpoint: endpoint, jobID: jobID) else { return nil }
     return parseStepLog(raw, stepNumber: stepNumber)
 }
@@ -76,21 +76,21 @@ public func fetchStepLog(jobID: Int, stepNumber: Int, scope scopeString: String)
 @concurrent
 private func fetchAndDecodeStepLog(endpoint: String, jobID: Int) async -> String? {
     guard let data = await urlSessionRaw(endpoint) else {
-        sharedGitHubTransport.logger?.log("fetchStepLog › urlSessionRaw returned nil for job \(jobID)", category: "transport")
+        ghLogger()?.log("fetchStepLog › urlSessionRaw returned nil for job \(jobID)", category: "transport")
         return nil
     }
     guard let raw = String(data: data, encoding: .utf8) else {
-        sharedGitHubTransport.logger?.log(
+        ghLogger()?.log(
             "fetchStepLog › UTF-8 decode failed for job \(jobID) (\(data.count) bytes)",
             category: "transport")
         return nil
     }
     guard !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-        sharedGitHubTransport.logger?.log("fetchStepLog › empty body for job \(jobID)", category: "transport")
+        ghLogger()?.log("fetchStepLog › empty body for job \(jobID)", category: "transport")
         return nil
     }
     if raw.hasPrefix("{") {
-        sharedGitHubTransport.logger?.log("fetchStepLog › error JSON returned: \(raw.prefix(120))", category: "transport")
+        ghLogger()?.log("fetchStepLog › error JSON returned: \(raw.prefix(120))", category: "transport")
         return nil
     }
     return raw
@@ -104,21 +104,21 @@ private func fetchAndDecodeStepLog(endpoint: String, jobID: Int) async -> String
 private func parseStepLog(_ raw: String, stepNumber: Int) -> String? {
     let cleaned = stripAnsi(raw)
     let sections = buildLogSections(from: cleaned)
-    sharedGitHubTransport.logger?.log("parseStepLog › parsed \(sections.count) section(s) from log", category: "transport")
+    ghLogger()?.log("parseStepLog › parsed \(sections.count) section(s) from log", category: "transport")
     if sections.isEmpty {
-        sharedGitHubTransport.logger?.log("parseStepLog › no group markers, returning full raw log", category: "transport")
+        ghLogger()?.log("parseStepLog › no group markers, returning full raw log", category: "transport")
         return cleaned
     }
     let index = stepNumber - 1
     guard index >= 0, index < sections.count else {
-        sharedGitHubTransport.logger?.log(
+        ghLogger()?.log(
             "parseStepLog › stepNumber \(stepNumber) out of range "
                 + "(sections=\(sections.count)), returning full log",
             category: "transport")
         return cleaned
     }
     let section = sections[index]
-    sharedGitHubTransport.logger?.log("parseStepLog › step \(stepNumber) → \(section.count)ch", category: "transport")
+    ghLogger()?.log("parseStepLog › step \(stepNumber) → \(section.count)ch", category: "transport")
     return section
 }
 

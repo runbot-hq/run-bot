@@ -41,7 +41,7 @@ public struct GitHubTransport: GitHubTransportProtocol {
   /// `internal` (not `private`) so the `GitHubTransportProtocol` conformance in
   /// `GitHubTransport+Conformance.swift` — a same-module extension in another
   /// file — can emit diagnostics through it.
-  internal let logger: (any GitHubLogger)?
+  public let logger: (any GitHubLogger)?
 
   // MARK: - Init
 

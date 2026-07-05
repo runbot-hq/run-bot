@@ -55,6 +55,13 @@ extension AppDelegate {
         // Token resolution goes through TokenCache (wired inside GitHubClient)
         // rather than the raw Keychain box — no configureGHToken call needed.
         let transport = github.transport
+        // Wire the shared shim logger so free-function diagnostics in
+        // GitHubHelpers.swift and GitHubTransportShims.swift are not silently
+        // dropped. Without this, sharedGitHubTransport.logger (a separate instance
+        // from transport) remains nil for the process lifetime.
+        if let logger = transport.logger {
+            configureGHLogger(logger)
+        }
         configureGHAPI { endpoint in
             await transport.apiAsync(endpoint)
         }

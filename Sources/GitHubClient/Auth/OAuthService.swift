@@ -340,6 +340,17 @@ public final class OAuthService: OAuthServiceProtocol {
     /// - Parameter request: The pre-built `URLRequest` to send.
     /// - Returns: The raw response `Data`.
     /// - Throws: Any `URLError` from the underlying `URLSession`.
+    ///
+    /// The `URLResponse` is intentionally discarded. GitHub's token exchange
+    /// endpoint always returns HTTP 200, even for OAuth-level errors — the
+    /// error is in the JSON body (`error` / `error_description` fields) and
+    /// is handled by `handleTokenResponse(_:)`. A genuine server-side failure
+    /// (e.g. HTTP 5xx during a GitHub outage) will return a non-JSON body,
+    /// causing the decode to throw, which surfaces as `fireSignIn(false)` —
+    /// the correct outcome. Adding an HTTP status check here would not change
+    /// behaviour; it would only improve the log message from "decode error"
+    /// to "HTTP 5xx". If richer diagnostics are ever needed, surface the
+    /// `HTTPURLResponse` at this layer and pass the status to the caller.
     @concurrent
     private func fetchTokenData(request: URLRequest) async throws -> Data {
         let (data, _) = try await session.data(for: request)
