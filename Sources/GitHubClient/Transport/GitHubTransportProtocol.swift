@@ -14,6 +14,10 @@ import Foundation
 ///   Default `timeout` values match the legacy free-function defaults so that
 ///   existing call sites require no changes when migrated.
 public protocol GitHubTransportProtocol: Sendable {
+    /// The logger used for transport-layer diagnostics, or `nil` if none was provided.
+    /// Exposed on the protocol so host apps can forward it to `configureGHLogger(_:)`
+    /// without downcasting to the concrete `GitHubTransport` type.
+    var logger: (any GitHubLogger)? { get }
     /// Fetches a single GitHub REST API page. Returns decoded `Data` on success, `nil` on any failure.
     @concurrent
     func apiAsync(_ endpoint: String, timeout: TimeInterval) async -> Data?

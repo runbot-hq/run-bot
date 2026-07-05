@@ -45,9 +45,9 @@ public final class OAuthService: OAuthServiceProtocol {
     /// The GitHub OAuth app client secret.
     ///
     /// Held in process memory for the app lifetime — intentional for compile-time
-    /// baked constants (e.g. `OAuthSecrets.clientSecret`). If a dynamic secrets
-    /// manager is ever wired in, the secret should **not** be stored as a property;
-    /// use a closure or async resolver instead so the secret can be zeroed after use.
+    /// baked constants (e.g. `OAuthSecrets.clientSecret`). Dynamic secret managers
+    /// are not supported at this call site; tracked as a follow-up for the
+    /// standalone `swift-github-client` release (step 14).
     private let clientSecret: String
     /// The backing store used to save/delete/load the OAuth token.
     private let tokenStore: any TokenStore

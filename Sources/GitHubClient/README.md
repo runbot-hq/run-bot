@@ -75,6 +75,7 @@ lifetime.
 
 ```swift
 let transport = github.transport
+// transport.logger is (any GitHubLogger)? — only wire if one was supplied at init.
 if let logger = transport.logger {
     configureGHLogger(logger)          // wire shim-layer logger
 }

@@ -125,17 +125,17 @@ public final class KeychainTokenStore: TokenStore, Sendable {
                 if retryStatus == errSecSuccess { return true }
                 logger?.log(
                     "KeychainTokenStore › save: retry update failed (\(retryStatus))",
-                    category: "transport")
+                    category: "auth")
                 return false
             }
             logger?.log(
                 "KeychainTokenStore › save: SecItemAdd failed (\(addStatus))",
-                category: "transport")
+                category: "auth")
             return false
         }
         logger?.log(
             "KeychainTokenStore › save: SecItemUpdate failed (\(updateStatus))",
-            category: "transport")
+            category: "auth")
         return false
     }
 
@@ -146,7 +146,7 @@ public final class KeychainTokenStore: TokenStore, Sendable {
         if status == errSecSuccess || status == errSecItemNotFound { return true }
         logger?.log(
             "KeychainTokenStore › delete: SecItemDelete failed (\(status))",
-            category: "transport")
+            category: "auth")
         return false
     }
 }

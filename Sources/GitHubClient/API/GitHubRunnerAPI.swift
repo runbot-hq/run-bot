@@ -18,8 +18,6 @@ public struct GitHubRunner: Codable, Identifiable, Sendable, Equatable {
     public let busy: Bool
     /// Labels attached to this runner.
     public let labels: [GitHubRunnerLabel]
-    /// The label name strings for this runner (e.g. `["self-hosted", "macOS", "arm64"]`).
-    public var labelNames: [String] { labels.map(\.name) }
 }
 
 /// A label attached to a GitHub Actions self-hosted runner.
