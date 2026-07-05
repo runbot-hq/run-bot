@@ -29,6 +29,8 @@ The compiler enforces all concurrency boundaries throughout the codebase. There 
 
 The visual design embraces the macOS 26 Tahoe Liquid Glass aesthetic, so RunBot feels like a natural extension of the OS. UI components are built to match the translucency, material hierarchy, and motion vocabulary introduced in macOS 26, rather than layering a custom design language on top.
 
+→ [Liquid Glass implementation notes](https://gist.github.com/eonist/a8f0d160c7e9e37f634a15c3a33a8109)
+
 ### 6. Strict Value Semantics and Immutable Models
 
 `RunnerModel` and related domain types are fully immutable structs — every property is `let`, and `Sendable` conformance is synthesised by the compiler without any `@unchecked` escape hatch. Mutations produce new values through a `copying(…)` method that uses the double-optional `Optional<Optional<T>>` pattern to distinguish “set to nil” from “leave unchanged”. This eliminates shared-mutable-state data races by construction rather than by convention.
