@@ -143,6 +143,30 @@ RunBot does not request access to contacts, location, camera, microphone, Photos
 
 ---
 
+## GitHub OAuth Permissions
+
+RunBot requests five OAuth scopes when you sign in with GitHub: `repo`, `read:org`, `admin:org`, `manage_runners:org`, and `workflow`. Here is exactly why each is needed.
+
+**`repo`** — Required for three core features: fetching step and run logs (`GET .../jobs/{job_id}/logs`, `GET .../runs/{run_id}/logs`), generating runner registration tokens (`POST .../runners/registration-token`), and polling workflow run and job status (`GET .../actions/runs`, `GET .../runs/{run_id}/jobs`). Without it the GitHub API returns 403 for all of these.
+
+**`read:org`** — Grants read-only access to org membership and org-level Actions data for users who are **org members but not owners**: `GET /orgs/{org}/actions/runners`, `GET /orgs/{org}/actions/runs`, and `GET /user/orgs` (scope picker). Without it, only `owner/repo`-scoped monitoring works.
+
+**`admin:org`** — Required to call the runners API on organisations where the authenticated user is an **owner**. For org owners, `read:org` alone is insufficient — `GET /orgs/{org}/actions/runners` returns 403 without `admin:org`. This is a GitHub API requirement, not a RunBot design choice.
+
+**`manage_runners:org`** — A fine-grained runner management scope introduced by GitHub in 2023, requested alongside `admin:org` for forward-compatibility. GitHub is progressively migrating runner management APIs to require this explicit scope; requesting it now avoids forcing users to re-authenticate later.
+
+**`workflow`** — Required for write actions on workflow runs: re-run (`POST .../rerun`), re-run failed jobs (`POST .../rerun-failed-jobs`), and cancel (`POST .../cancel`). Without it, these fail silently with 403 even when `repo` is present.
+
+### What RunBot does NOT do
+
+- Does not read, write, or access repository source code or file contents (even though `repo` technically permits this)
+- Does not write to repositories, open issues, or create pull requests on your behalf
+- Does not access private user data beyond organisation membership
+- Does not store your token anywhere other than the macOS Keychain on your local machine
+- Does not transmit your token to any server other than `api.github.com` and `github.com`
+
+---
+
 ## Open Source
 
 RunBot is open source. You can audit every network call, every persistence write, and every credential access in the source code:
