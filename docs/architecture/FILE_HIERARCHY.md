@@ -5,14 +5,13 @@ A short description of every source file in the project.
 ---
 
 ```
-runner-bar/
-├── Package.swift                            — SPM manifest; defines RunnerBar + RunnerBarCore targets and their dependencies
+run-bot/
+├── Package.swift                            — SPM manifest; defines RunnerBar + RunnerBarCore targets and pulls in GitHubClient + AppUpdater as remote packages
 ├── project.yml                              — XcodeGen project definition
 ├── build.sh                                 — local build helper script
 ├── deploy.sh                                — deployment/release helper script
 ├── install.sh                               — runner installation helper script
 ├── README.md                                — project overview, screenshots, setup instructions
-├── LICENSE                                  — project licence
 ├── sonar-project.properties                 — SonarCloud project configuration
 ├── .swiftlint.yml                           — SwiftLint rule configuration
 ├── .periphery.yml                           — Periphery dead-code scanner configuration
@@ -26,16 +25,13 @@ runner-bar/
 │   ├── design/
 │   │   ├── brand-inspiration_developer-tools_2026-06-02.md — brand/design inspiration notes
 │   │   ├── dark_light_mode_support.md       — notes on dark/light mode adaptive design
-│   │   ├── liquid-glass.md                  — liquid-glass visual design exploration
-│   │   ├── runnerbar_v34_light_glass.html   — HTML prototype of the v34 light glass UI
-│   │   └── zap.svg                          — zap icon asset used in design explorations
+│   │   └── liquid-glass.md                  — liquid-glass visual design exploration
 │   ├── guides/
 │   │   ├── DEPLOYMENT.md                    — release and deployment instructions
 │   │   ├── DEVELOPMENT.md                   — local development setup and workflow
 │   │   ├── UI_TESTING.md                    — UI testing approach and instructions
 │   │   ├── commenting-standard.md           — code commenting conventions for the project
-│   │   ├── dev-with-log-in-terminal.md      — how to run the app with live log output in Terminal
-│   │   └── useful-commands.md               — handy shell commands for development tasks
+│   │   └── dev-with-log-in-terminal.md      — how to run the app with live log output in Terminal
 │   ├── legal-and-security/
 │   │   ├── GitHub-Permission-Rationale.md   — justification for requested GitHub OAuth scopes
 │   │   └── PRIVACY.md                       — privacy policy and data-handling notes
@@ -71,12 +67,12 @@ runner-bar/
 │   │   │   └── ScopePreferencesStore.swift — reads and writes the list of ScopeEntry values to UserDefaults
 │   │   │
 │   │   ├── Services/
-│   │   │   ├── LogFetcher.swift           — downloads raw step-log text for a given job URL
-│   │   │   └── ProcessRunner.swift        — runs a shell command in a subprocess, captures stdout/stderr, merges stderr to /dev/null when not needed
+│   │   │   ├── LogFetcher.swift           — fetches raw workflow step log text from the GitHub API
+│   │   │   └── ProcessRunner.swift        — runs a shell process and captures stdout/stderr
 │   │   │
 │   │   └── Utilities/
-│   │       ├── ISO8601DateParser.swift    — lightweight ISO 8601 date parsing helpers used across the core layer
-│   │       ├── Logger.swift               — app-wide OSLog logger constants (one per subsystem category)
+│   │       ├── ISO8601DateParser.swift    — fast ISO-8601 date parser used across the model layer
+│   │       ├── Logger.swift               — os.Logger wrapper; category-scoped logging for RunnerBarCore
 │   │       └── SystemStats.swift          — reads live CPU and disk usage via host_statistics / statvfs
 │   │
 │   └── RunnerBar/                           (UI target — AppKit + SwiftUI, macOS menu-bar app)
@@ -97,7 +93,7 @@ runner-bar/
 │       │   └── PanelVisibilityState.swift — publishes whether the popover panel is currently visible
 │       │
 │       ├── DesignSystem/
-│       │   ├── DesignTokens.swift         — colour, spacing, and typography constants; adaptive() helper for light/dark; includes legacy shim
+│       │   ├── DesignTokens.swift         — colour, spacing, and typography constants; adaptive() helper for light/dark
 │       │   ├── PanelViewModifiers.swift   — reusable SwiftUI ViewModifiers (glass button style, panel-level padding, etc.)
 │       │   └── RemovalAlertModifier.swift — ViewModifier that presents the runner-removal confirmation alert
 │       │
@@ -109,9 +105,9 @@ runner-bar/
 │       │   ├── GitHubResponseDecoder.swift — decodes and validates GitHub API JSON responses; surfaces typed errors
 │       │   ├── GitHubURLSessionTransport.swift — URLSession-based REST transport; handles 401 sentinel, rate-limit atomicity, per-iteration token re-fetch
 │       │   ├── Keychain.swift             — thin Keychain wrapper for storing/retrieving the OAuth token
-│       │   ├── OAuthService.swift         — drives the GitHub OAuth Device Flow (sign-in URL, code exchange, CSRF check, callback handling)
+│       │   ├── OAuthService.swift         — drives the GitHub OAuth Authorization Code flow (sign-in URL, code exchange, CSRF check, callback handling)
 │       │   ├── Scope.swift                — enum with .repo(owner:name:) and .org(_:) cases; parses raw scope strings and produces the correct GitHub REST API path prefix
-│       │   └── Secrets.swift              — holds the GitHub App client-id and client-secret constants
+│       │   └── Secrets.swift             — holds the GitHub App client-id and client-secret constants
 │       │
 │       ├── Models/
 │       │   ├── RunnerEditCommit.swift     — immutable snapshot of runner edits ready to be committed to the API
@@ -136,27 +132,27 @@ runner-bar/
 │       │   └── RunnerViewModel.swift      — @MainActor view-model bridging RunnerStore to SwiftUI; DI seam for testing
 │       │
 │       ├── Scope/
-│       │   ├── ScopeDetailView.swift      — SwiftUI view showing details and controls for a single scope entry
-│       │   ├── ScopeEntry.swift           — UI-layer display wrapper around the Core ScopeEntry model
-│       │   └── ScopeStore.swift           — @MainActor store that loads, persists, and mutates the list of monitored scopes
+│       │   ├── ScopeDetailView.swift      — detail view for an individual monitored scope
+│       │   ├── ScopeEntry.swift           — UI-layer scope entry model
+│       │   └── ScopeStore.swift           — @MainActor observable store managing the list of monitored scopes
 │       │
 │       ├── Services/
-│       │   ├── FailureHookRunner.swift    — runs the user-configured failure-hook shell command when a job fails; builds log-tail content
-│       │   ├── LoginItem.swift            — registers/unregisters the app as a login item via SMAppService
-│       │   └── TerminalLauncher.swift     — opens a Terminal.app window and runs a given shell command in it
+│       │   ├── FailureHookRunner.swift    — executes the user-configured shell command on runner failure
+│       │   ├── LoginItem.swift            — registers/deregisters the app as a login item via SMAppService
+│       │   └── TerminalLauncher.swift     — opens a Terminal window and runs a given command string
 │       │
 │       ├── Utilities/
-│       │   └── WindowGrabber.swift        — utility that locates the key NSWindow for sheet presentation
+│       │   └── WindowGrabber.swift        — utility for obtaining the NSWindow reference from a SwiftUI scene
 │       │
 │       └── Views/
 │           ├── Components/
-│           │   ├── DonutStatusView.swift      — circular donut chart showing aggregate runner status at a glance
-│           │   ├── SparklineView.swift        — mini sparkline graph of recent CPU or metric history for a runner
-│           │   ├── SystemStatsView.swift      — displays live CPU and disk stats in the panel header
-│           │   ├── SystemStatsViewModel.swift — samples CPU/disk periodically and publishes values to SystemStatsView
-│           │   └── WorkflowContextMenuModifier.swift — adds a right-click context menu to workflow rows (copy URL, open in browser, etc.)
+│           │   ├── DonutStatusView.swift      — circular donut chart showing aggregate runner status
+│           │   ├── SparklineView.swift        — mini sparkline graph for metrics history
+│           │   ├── SystemStatsView.swift      — header stats display (CPU, memory)
+│           │   ├── SystemStatsViewModel.swift — view-model feeding live system stats into SystemStatsView
+│           │   └── WorkflowContextMenuModifier.swift — context-menu modifier for workflow action rows
 │           ├── Main/
-│           │   ├── ActionRowView.swift        — renders a single workflow-action row with status icon and elapsed time
+│           │   ├── ActionRowView.swift        — row view for a single workflow action entry
 │           │   ├── InlineJobRowsView.swift    — renders the inline expandable job-step rows inside a runner row
 │           │   ├── PanelContainerView.swift   — top-level NSViewRepresentable that hosts the SwiftUI panel inside the NSPopover
 │           │   ├── PanelHeaderView.swift      — header bar of the panel showing app title, system stats, and settings button
@@ -172,7 +168,7 @@ runner-bar/
 │           │   ├── AddScopeSheet.swift        — sheet for adding a new monitored scope (org/repo/user picker, manual entry)
 │           │   ├── FailureHookCommandSheet.swift — sheet for editing the failure-hook shell command and inserting variables
 │           │   ├── LocalRunnersView.swift     — settings sub-view listing locally installed self-hosted runners
-│           │   ├── RunnerDetailPopover.swift  — popover showing runner metadata and a copy-to-pasteboard token action
+│           │   ├── RunnerDetailSheet.swift    — sheet showing runner metadata and a copy-to-pasteboard token action
 │           │   ├── ScopesView.swift           — settings sub-view for managing monitored scopes
 │           │   ├── SettingsView.swift         — main Settings tab view (login, notifications, scopes, runners, failure hook)
 │           │   └── SettingsView+Sections.swift — section decomposition helpers for SettingsView

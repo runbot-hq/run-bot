@@ -140,5 +140,4 @@ func shell(_ command: String) -> String {
 ## When you are unsure
 
 - Prefer the simpler implementation
-- Prefer AppKit primitives over SwiftUI when SwiftUI requires macOS 14+
 - Do not add features not listed here — ask first
