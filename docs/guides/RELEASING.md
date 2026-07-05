@@ -204,12 +204,15 @@ If a release needs to be pulled:
 
 ## In-app update check
 
-At launch, `UpdateChecker` hits `GET /repos/.../releases`, sorts by semver
-(not publish date), filters by `betaChannel` preference, and returns an
-`UpdateCheckResult`. `AutoUpdater.handle()` writes `RunnerState.availableUpdate`
-via `setAvailableUpdate()` — called on each check (launch-time and every
-24-hour background tick). Settings → About reads that and shows the update
-row if non-nil. For full details see [UPDATE_FLOW.md](UPDATE_FLOW.md).
+At launch, `AppUpdater.checkAndHandle(state:)` hits `GET /repos/.../releases`,
+sorts by semver (not publish date), and filters by the `betaChannel` preference
+from `AppPreferencesStore`. The result is applied to `RunnerState` via
+`UpdateStateProviding.apply(_ phase:)`, which advances the state machine
+(`idle` → `available` → `downloading` → `ready` / `failed`). After the
+launch-time check, `AppUpdater.scheduleBackgroundCheck(state:)` registers a
+repeating background check at `AppUpdater.checkInterval`. Settings → About
+reads `RunnerState.availableUpdate` and shows the update row if non-nil.
+For full details see [UPDATE_FLOW.md](UPDATE_FLOW.md).
 
 ---
 
