@@ -69,6 +69,15 @@ popover.contentViewController?.view.window?.setFrame(newFrame, display: true)
 panel.setFrame(NSRect(origin: currentOrigin, size: newSize), display: true)
 ```
 
+Common mistakes that cause jumping:
+
+| Mistake | Why it jumps |
+|---|---|
+| Calling `popover.show()` again on resize | `show()` re-runs full anchor calculation from scratch |
+| `behavior = .transient` with size changes | Transient mode can close and re-show automatically in some AppKit paths |
+| Setting `contentSize` before `show()` with wrong size | Popover opens at wrong size; `show()` is called again to "fix" it |
+| `NSWindow.setFrame()` on the popover's window | Bypasses AppKit geometry; anchor recalculates on next event loop tick |
+
 ---
 
 ## History of This Bug in This Repo
@@ -93,4 +102,4 @@ All three: calling `show()` more than once per open.
 
 ---
 
-*Related: `docs/ui/nspopover-dynamic-width.md` (the mental model), `docs/ui/status-bar-window.md` (NSPanel alternative when `.sheet` support is needed).*
+*Related: `docs/ui/status-bar-window.md` (why NSPopover won over NSPanel), `docs/ui/nspopover-dismiss-and-sheets.md` (sheet orphan prevention).*
