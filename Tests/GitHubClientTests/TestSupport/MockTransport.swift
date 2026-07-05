@@ -38,6 +38,8 @@ final class MockTransport: GitHubTransportProtocol, @unchecked Sendable {
 
     // MARK: - GitHubTransportProtocol
 
+    var logger: (any GitHubLogger)? { nil }
+
     func apiAsync(_ endpoint: String, timeout: TimeInterval) async -> Data? {
         apiAsyncEndpoints.append(endpoint)
         return await onApiAsync(endpoint, timeout)
