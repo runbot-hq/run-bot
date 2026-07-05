@@ -1,4 +1,4 @@
-# UI Test Runner Setup
+# Testing — UI Test Runner Setup
 
 One-time manual steps required on the self-hosted Mac before UI tests will run unattended in CI.
 
