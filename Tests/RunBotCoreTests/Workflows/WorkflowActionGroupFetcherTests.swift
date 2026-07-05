@@ -57,6 +57,8 @@ struct StubTransport: GitHubTransportProtocol {
     self.responses = sorted
   }
 
+  var logger: (any GitHubLogger)? { nil }
+
   func apiAsync(_ endpoint: String, timeout _: TimeInterval) async -> Data? {
     apiCallCountLock.withLock { $0 += 1 }
     return responses.first(where: { endpoint.hasPrefix($0.prefix) })?.data
