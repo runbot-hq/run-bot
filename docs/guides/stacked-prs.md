@@ -147,6 +147,31 @@ For complex conflicts mid-stack, it can help to rebase one branch at a time and 
 
 ---
 
+## Landing with `--onto` (squash-merge stacks)
+
+When `main` uses **squash merges**, a plain `git rebase main` after landing the
+bottom PR will replay all of its original commits as conflicts — because those
+commits exist in the child branch's history but have been squashed away on `main`.
+
+Use `--onto` instead:
+
+```bash
+# After PR 1 is squash-merged into main:
+git rebase --onto main <old-base-sha> feature/auth-ui
+git push --force-with-lease
+```
+
+Where `<old-base-sha>` is the commit that `feature/auth-ui` was originally
+branched from (i.e. the tip of `feature/auth-base` before it was merged). This
+replays only the commits that are *unique* to `feature/auth-ui`, skipping
+everything that was already squashed into `main`.
+
+Resolve any conflict once, `git rebase --continue`, then repeat up the stack.
+If a rebase gets stuck, `git rebase --abort` and figure out the right base SHA
+before retrying — do not force a resolution.
+
+---
+
 ## Quick Reference
 
 | Situation | Action |
@@ -154,33 +179,7 @@ For complex conflicts mid-stack, it can help to rebase one branch at a time and 
 | Creating a new slice | Branch off the top of the stack, PR targets parent branch |
 | `main` got new commits | Rebase bottom-up through the entire stack |
 | Review fixes a middle branch | Fix there, cascade rebase through all children |
-| Bottom PR merges | Retarget next PR to `main`, rebase locally, push |
+| Bottom PR merges (merge commit) | Retarget next PR to `main`, rebase locally, push |
+| Bottom PR merges (squash) | Use `git rebase --onto main <old-base-sha> <branch>` |
 | Conflict during rebase | Fix file, `git add`, `git rebase --continue` |
 | Force push | Always `--force-with-lease`, never `--force` |
-
----
-
-## Current Stack: `refactor-tweak-branch`
-
-> ⚠️ Historical note for the current PR stack. Remove or update this section once PR #1340 lands so branch names do not become stale.
-
-The active stack for Codable + concurrency tweaks follows this plan:
-
-```text
-main
- └── refactor-tweak-branch              ← umbrella PR (targets main)
-       └── tweak/oauth-codable          ← #1335: Codable in OAuthService
-             └── tweak/transport-codable  ← #1334: Codable in transport layer
-                   └── tweak/dispatchqueue  ← DispatchQueue → async/await cleanup
-```
-
-Branches are cut **incrementally** — each child is only created once its parent is stable. No pre-created empty branches.
-
-**Merge order** (bottom-up — each PR must land before its parent can retarget `main`):
-
-| Order | Branch | PR | Targets |
-|---|---|---|---|
-| 1 | `tweak/dispatchqueue` | — | `tweak/transport-codable` |
-| 2 | `tweak/transport-codable` | #1334 | `tweak/oauth-codable` |
-| 3 | `tweak/oauth-codable` | #1335 | `refactor-tweak-branch` |
-| 4 | `refactor-tweak-branch` | #1340 | `main` |
