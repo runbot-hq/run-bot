@@ -97,6 +97,7 @@ curl -fsSL https://runbot-hq.github.io/run-bot/install.sh | bash
 ## External Dependencies
 
 - **[AppUpdater](https://github.com/runbot-hq/AppUpdater)** (first-party) — headless auto-update library; polls GitHub Releases for new versions, verifies SHA-256 integrity, and hands update state to the host app via `UpdateStateProviding`
+- **[GitHubClient](https://github.com/runbot-hq/GitHubClient)** (first-party) — lightweight GitHub REST client; OAuth Authorization Code flow, layered token resolution (Keychain → env var), paginated API calls, and rate-limit handling; currently embedded as a local SPM target and extracted to its own repo as part of the ongoing modularisation effort
 - **[swift-collections](https://github.com/apple/swift-collections)** (Apple) — ordered and efficient collection types used internally in `RunBotCore`; primarily `OrderedDictionary` for stable, insertion-ordered workflow state
 
 ---
