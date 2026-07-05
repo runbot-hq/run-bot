@@ -256,6 +256,7 @@ extension GitHubTransport {
       logger?.log("cancelRun › invalid scope: \(scopeString)", category: "transport")
       return false
     }
+    // GitHub has no org-level cancel endpoint — repo scope only.
     guard case .repo = scope else {
       logger?.log("cancelRun › skipped: org-scoped runs not supported (scope=\(scopeString))", category: "transport")
       return false
@@ -305,6 +306,7 @@ extension GitHubTransport {
   // MARK: patchRunnerLabels
 
   /// Decodes the `labels` array returned by the runner-labels endpoint.
+  /// `private` to this file — used only by `patchRunnerLabels`.
   private struct RunnerLabelsResponse: Decodable {
     /// A single runner label entry.
     struct Label: Decodable {
@@ -479,6 +481,9 @@ private struct PaginationState {
   var hadAtLeastOneSuccessfulPage = false
 
   /// Applies one `ExecuteResult` to the state and returns the next pagination action.
+  ///
+  /// Side-effects: updates `allItems`, `didFailAuth`, `didRateLimit`,
+  /// `didEncounterNonPartialFailure`, and `hadAtLeastOneSuccessfulPage`.
   mutating func apply(
     _ result: ExecuteResult,
     decoder: JSONDecoder

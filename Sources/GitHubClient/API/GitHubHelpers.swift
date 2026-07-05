@@ -5,6 +5,8 @@ import os
 
 // MARK: - URL helpers
 
+// `scopeFromHtmlUrl(_:)` is defined in GitHubURLHelpers.swift in this module.
+
 // MARK: - User orgs and repos
 
 /// Returns the login names of all GitHub organisations the authenticated user belongs to.
