@@ -164,11 +164,11 @@ let result = await github.transport.post("/repos/owner/repo/actions/runs/\(runID
 // Paginated GET — follows Link headers, returns all pages concatenated
 let data = await github.transport.apiPaginated("/orgs/my-org/actions/runners")
 
-// Cancel a workflow run
-let cancelled = await github.transport.cancelRun(runID: 12345, scope: "owner/repo")
+// Cancel a workflow run — returns true if the cancel request was accepted
+let cancelled: Bool = await github.transport.cancelRun(runID: 12345, scope: "owner/repo")
 
-// Patch runner labels
-let labels = await github.transport.patchRunnerLabels(
+// Patch runner labels — returns the updated label name strings, or nil on failure
+let labels: [String]? = await github.transport.patchRunnerLabels(
     scope: "owner/repo",
     runnerID: 42,
     labels: ["self-hosted", "macOS"]
