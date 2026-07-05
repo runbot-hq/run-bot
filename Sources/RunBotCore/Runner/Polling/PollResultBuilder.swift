@@ -261,6 +261,9 @@ public enum PollResultBuilder {
   }
 
   /// Trims the job cache to at most `limit` entries, keeping the most recently completed.
+  ///
+  /// The sort is O(n log n), but with `jobCacheLimit = 3` this is completely
+  /// irrelevant at runtime scale — do not optimise.
   public static func trimJobCache(_ cache: inout [Int: ActiveJob], limit: Int) {
     guard cache.count > limit else { return }
     // Step 8: job.completedDate (renamed from .completedAt)
@@ -374,6 +377,9 @@ public enum PollResultBuilder {
   }
 
   /// Trims the group cache to at most `limit` entries, keeping the most recently completed.
+  ///
+  /// The sort is O(n log n), but with `groupCacheLimit = 30` this is completely
+  /// irrelevant at runtime scale — do not optimise.
   public static func trimGroupCache(_ cache: inout [String: WorkflowActionGroup], limit: Int) {
     guard cache.count > limit else { return }
     let sorted = cache.values.sorted { lhs, rhs in
@@ -592,7 +598,7 @@ private extension Array {
   ///   without leaking it as `public` API. It is **not** intended for use outside
   ///   the polling pipeline; treat it as an implementation detail of
   ///   `buildJobDisplay` and `buildGroupDisplay`.
-  mutating func appendUpTo<S>(
+  fileprivate mutating func appendUpTo<S>(
     _ limit: Int,
     from source: S,
     where shouldAppend: (S.Element) -> Bool = { _ in true }

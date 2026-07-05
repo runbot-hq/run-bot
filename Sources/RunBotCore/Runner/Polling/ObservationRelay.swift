@@ -33,6 +33,14 @@ import Observation
 /// - Note: `Element` is constrained to `Sendable` because values are yielded
 ///   from inside a `Task { @MainActor }` onChange closure, which crosses an
 ///   actor boundary. Both `TimeInterval` and `[String]` satisfy this.
+///
+/// - Important: This relay is a **restart-only consumer**. Rapid back-to-back
+///   observed-value changes coalesce: if the observed value changes again before
+///   the `Task` in `onChange` executes, only the latest value is yielded and all
+///   intermediate values are silently dropped. This is intentional and correct
+///   for the current use-sites (preference/scope changes that trigger a poll
+///   restart). Do **not** use this relay where every intermediate value matters
+///   (e.g. audit logging, event counting) — it will silently miss events.
 @MainActor
 final class ObservationRelay<Element: Sendable> {
     /// Pushes new values into the consumer's `AsyncStream`.

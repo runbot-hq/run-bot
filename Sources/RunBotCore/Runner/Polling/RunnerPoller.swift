@@ -524,6 +524,14 @@ public actor RunnerPoller {
   ///
   /// `applyError` passes `nil` display lists to preserve stale data during error
   /// cycles. Do not pass `nil` intending to clear — use explicit empty arrays.
+  ///
+  /// **Why not `enum DisplayUpdate<T> { case keep; case set(T) }`?**
+  /// The nil-means-keep contract is entirely internal to this one actor and has
+  /// exactly two call sites (`applyFetchResult`, `applyError`), both in the same
+  /// file. An enum wrapper would add a generic type, a new declaration, and
+  /// wrapping/unwrapping boilerplate at every call site with no real safety gain
+  /// at this scope. The `nil` semantics are fully documented here and enforced by
+  /// code review — that is sufficient.
   func setDisplayState(
     isRateLimited newIsRateLimited: Bool,
     rateLimitResetDate newResetDate: Date?,
