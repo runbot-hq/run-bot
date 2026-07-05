@@ -306,6 +306,7 @@ extension GitHubTransport {
   // MARK: patchRunnerLabels
 
   /// Decodes the `labels` array returned by the runner-labels endpoint.
+  /// `private` to this file — used only by `patchRunnerLabels`.
   private struct RunnerLabelsResponse: Decodable {
     /// A single runner label entry.
     struct Label: Decodable {
