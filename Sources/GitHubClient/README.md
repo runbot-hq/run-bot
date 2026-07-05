@@ -22,18 +22,28 @@ A lightweight, modern Swift GitHub API client for macOS apps. Direct REST calls 
 
 ## Installation
 
+> **Note:** Standalone SPM extraction is planned (tracked in step 14 of the extraction
+> roadmap). Until then, `GitHubClient` is a local SPM target inside the `run-bot`
+> monorepo. Add it as a local dependency:
+
 ```swift
 // Package.swift
-.package(url: "https://github.com/runbot-hq/swift-github-client", from: "1.0.0")
+.package(path: "../run-bot")  // or embed directly in your workspace
 ```
 
 ```swift
 .target(
     name: "MyApp",
     dependencies: [
-        .product(name: "GitHubClient", package: "swift-github-client")
+        .product(name: "GitHubClient", package: "run-bot")
     ]
 )
+```
+
+Once extracted to its own repo the import will become:
+
+```swift
+.package(url: "https://github.com/runbot-hq/swift-github-client", from: "1.0.0")
 ```
 
 ## Usage
@@ -55,6 +65,28 @@ let github = GitHubClient(
 // Access the wired subsystems
 let oauth: any OAuthServiceProtocol = github.oauthService
 let transport: any GitHubTransportProtocol = github.transport
+```
+
+In `applicationDidFinishLaunching`, wire the transport shims and the shared logger
+so that free-function diagnostics (`ghPost`, `fetchStepLog`, etc.) are not silently
+dropped. `sharedGitHubTransport` and `github.transport` are separate instances —
+without `configureGHLogger` the logger on the singleton remains `nil` for the process
+lifetime.
+
+```swift
+let transport = github.transport
+if let logger = transport.logger {
+    configureGHLogger(logger)          // wire shim-layer logger
+}
+configureGHAPI { endpoint in
+    await transport.apiAsync(endpoint)
+}
+configureGHRaw { endpoint in
+    await transport.raw(endpoint)
+}
+configureGHAPIPaginated { endpoint, timeout in
+    await transport.apiPaginated(endpoint, timeout: timeout)
+}
 ```
 
 For tests, inject protocol mocks directly — no Keychain or network involved:
@@ -161,6 +193,8 @@ let runners: [GitHubRunner]? = await fetchRunners(scopeString: "orgs/acme")
 // MARK: - Workflow Runs & Jobs
 
 // Fetch active (queued + in_progress) runs — typed result handles all failure modes
+// Note: GitHubRunsFetchResult is provisional; a richer ExecuteResult type is
+// tracked in #1950 and will replace this enum in a future PR.
 let result = await fetchActiveRuns(scope: .org("acme"))
 switch result {
 case .success(let runs):      // all runs collected
@@ -214,8 +248,8 @@ Sources/GitHubClient/
 │   ├── GitHubTransportProtocol.swift
 │   ├── GitHubURLSessionTransport.swift   ← URLSession, rate-limit backoff, ExecuteResult pipeline
 │   ├── GitHubTransport+Conformance.swift ← apiPaginated, post, put, delete, cancelRun, etc.
-│   ├── GitHubTransportShim.swift         ← sharedGitHubTransport singleton + configureGH* hooks
-│   └── GitHubTransportShims.swift        ← module-level free-function shims (ghAPI, ghPost, …)
+│   ├── GitHubTransportShim.swift         ← TransportBox, configureGHAPI/Raw/Paginated/Logger hooks
+│   └── GitHubTransportShims.swift        ← module-level free-function shims (ghAPI, ghPost, …) + sharedGitHubTransport singleton
 └── API/
     ├── GitHubScope.swift                 ← Scope enum: .repo(owner:name:) or .org(String)
     ├── GitHubConstants.swift
