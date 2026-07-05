@@ -178,8 +178,6 @@ let labels = await github.transport.patchRunnerLabels(
 ## Runners
 
 ```swift
-// MARK: - Runners
-
 // Fetch all runners for a scope
 let runners: [GitHubRunner] = await fetchRunners(scope: .repo(owner: "acme", name: "my-app"))
 let runners: [GitHubRunner] = await fetchRunners(scope: .org("acme"))
@@ -191,8 +189,6 @@ let runners: [GitHubRunner]? = await fetchRunners(scopeString: "orgs/acme")
 ## Workflow Runs & Jobs
 
 ```swift
-// MARK: - Workflow Runs & Jobs
-
 // Fetch active (queued + in_progress) runs — typed result handles all failure modes
 // Note: GitHubRunsFetchResult is provisional; a richer ExecuteResult type is
 // tracked in #1950 and will replace this enum in a future PR.
