@@ -95,6 +95,48 @@ swift package show-dependencies
 ```
 The only third-party dependency is `apple/swift-collections`.
 
+### Log streaming
+
+Run the binary directly (not via `open`) so stdout/stderr flow to the terminal. Use `log stream` to tap the unified logging subsystem.
+
+**Feature branch — log stream only:**
+```bash
+cd ~/run-bot && \
+pkill -x RunBot 2>/dev/null || true && \
+git fetch origin && \
+git checkout <branch> && \
+git pull origin <branch> && \
+bash build.sh && \
+log stream --level debug --predicate 'subsystem == "com.eoncode.run-bot"'
+```
+
+**Main — log stream alongside the running binary:**
+```bash
+git fetch origin && \
+git checkout main && \
+git pull origin main && \
+bash build.sh && \
+pkill RunBot 2>/dev/null; sleep 1; \
+log stream --level debug --predicate 'subsystem == "com.eoncode.run-bot"' & LOG_PID=$!; sleep 1; \
+./dist/RunBot.app/Contents/MacOS/RunBot; kill $LOG_PID
+```
+
+**Fresh build with filtered log stream** (strips noisy subsystems):
+```bash
+cd ~/run-bot && \
+pkill -x RunBot 2>/dev/null || true && \
+sleep 1 && \
+rm -rf dist/ && \
+touch Sources/RunBot/App/AppDelegate.swift && \
+bash build.sh && \
+sleep 1 && \
+log stream --level debug \
+  --predicate 'subsystem == "com.eoncode.run-bot"' 2>/dev/null \
+| grep -v -E "PollResult|RunnerStore|FailureHook|RunnerViewModel|RunnerPollState|Enricher|LocalRunnerStore"
+```
+
+`Ctrl+C` stops the stream. To also capture to a file, append `| tee /tmp/runbot_log.txt` to the last line.
+
 ---
 
 ## Verification (run before every commit / PR)
