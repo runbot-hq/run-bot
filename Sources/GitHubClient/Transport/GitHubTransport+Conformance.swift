@@ -144,11 +144,11 @@ extension GitHubTransport {
         category: "transport")
       return nil
     }
-    logger?.log(
-      "apiPaginated › returning \(state.allItems.count) item(s)",
-      category: "transport")
     do {
       let data = try encoder.encode(state.allItems)
+      logger?.log(
+        "apiPaginated › returning \(state.allItems.count) item(s) (\(data.count)b)",
+        category: "transport")
       return data
     } catch {
       logger?.log("apiPaginated › JSON encode failed: \(error) — returning nil", category: "transport")
@@ -238,6 +238,7 @@ extension GitHubTransport {
         }
       )
     else { return false }
+    logger?.log("delete › \(endpoint) → success", category: "transport")
     return true
   }
 
@@ -465,7 +466,10 @@ private enum PaginationAction {
 
 // MARK: - PaginationState
 
-/// Mutable accumulator threaded through the pagination loop.
+/// Accumulates per-page results and stop-conditions for ``GitHubTransport/apiPaginated(_:timeout:)``.
+///
+/// Extracted from `apiPaginated` to reduce its cyclomatic complexity (SW-R1002).
+/// All mutation happens through `apply(_:decoder:)`.
 private struct PaginationState {
   /// The URL of the next page to fetch, or `nil` when pagination is complete.
   var nextURL: String?
