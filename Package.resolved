@@ -1,0 +1,33 @@
+{
+  "originHash" : "aafeefa98b835c08f6e28c8fa30463dee4c70d0bf28a192ff8d0bba161a2d05e",
+  "pins" : [
+    {
+      "identity" : "appupdater",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/runbot-hq/AppUpdater",
+      "state" : {
+        "branch" : "main",
+        "revision" : "280b804c9479fd5dfe31c702573410ffa99e314e"
+      }
+    },
+    {
+      "identity" : "githubclient",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/runbot-hq/GitHubClient",
+      "state" : {
+        "branch" : "main",
+        "revision" : "5397ce1f99cb17760b591daf7aa7cf2158462855"
+      }
+    },
+    {
+      "identity" : "swift-collections",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/apple/swift-collections.git",
+      "state" : {
+        "revision" : "a0cb0954ecb21e4e31b0070e6ed5674e8556685a",
+        "version" : "1.6.0"
+      }
+    }
+  ],
+  "version" : 3
+}

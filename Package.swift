@@ -12,8 +12,8 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-collections.git", from: "1.1.0"),
-        .package(url: "https://github.com/runbot-hq/AppUpdater", revision: "280b804c9479fd5dfe31c702573410ffa99e314e"),
-        .package(url: "https://github.com/runbot-hq/GitHubClient", revision: "5397ce1f99cb17760b591daf7aa7cf2158462855")
+        .package(url: "https://github.com/runbot-hq/AppUpdater", branch: "main"),
+        .package(url: "https://github.com/runbot-hq/GitHubClient", branch: "main")
     ],
     targets: [
         .target(
