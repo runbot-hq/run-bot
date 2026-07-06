@@ -1,5 +1,5 @@
 // ObservationRelay.swift
-// RunBot
+// RunBotCore
 //
 // F-35: Generic replacement for PreferencesObserver and ScopesObserver.
 
