@@ -311,10 +311,10 @@ extension AppDelegate: NSPopoverDelegate {
         await autoUpdater.checkAndHandle(state: runnerState)
 
         // ── Background scheduler ───────────────────────────────────────────────────────
-        // Fires every AppUpdater.checkInterval (24 h release / 60 s debug).
+        // Fires every autoUpdater.checkInterval (24 h release / 60 s debug).
         // The launch-time check above already ran once; the scheduler fires only
         // after the first interval elapses — this is intentional.
         autoUpdater.scheduleBackgroundCheck(state: runnerState)
-        log("AppDelegate › startup — update background scheduler registered (interval=\(AppUpdater.checkInterval)s)")
+        log("AppDelegate › startup — update background scheduler registered (interval=\(autoUpdater.checkInterval)s)")
     }
 }

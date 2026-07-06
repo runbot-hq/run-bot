@@ -20,16 +20,17 @@ public struct WorkflowActionsUseCase: Sendable {
 
     // MARK: - Dependencies
 
-    /// Injected transport. Defaults to the module-level `sharedGitHubTransport`
-    /// shim so production callers need no extra wiring (P7).
+    /// Injected transport. Defaults to `currentTransport` — the live `@TaskLocal`
+    /// read path wired by `GitHubClient.init`. Production callers need no extra
+    /// wiring; tests can override via `withTransport(_:operation:)` (P7).
     private let transport: any GitHubTransportProtocol
 
     // MARK: - Init
 
     /// Creates a use case with an optional custom transport.
     /// - Parameter transport: The GitHub transport to use for all mutations.
-    ///   Defaults to `sharedGitHubTransport`.
-    public init(transport: any GitHubTransportProtocol = sharedGitHubTransport) {
+    ///   Defaults to `currentTransport`.
+    public init(transport: any GitHubTransportProtocol = currentTransport) {
         self.transport = transport
     }
 

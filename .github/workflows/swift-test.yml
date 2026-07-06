@@ -19,5 +19,8 @@ jobs:
         # churn with zero security benefit for repos we control or vet directly.
         uses: actions/checkout@v4
 
+      - name: Clear SPM cache
+        run: rm -rf ~/.cache/org.swift.swiftpm
+
       - name: Run tests
         run: swift test
