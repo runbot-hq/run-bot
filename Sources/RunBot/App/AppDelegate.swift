@@ -124,7 +124,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // "run-bot" → delete → re-save under the new name is required first.
         service: "run-bot",
         account: "github-oauth-token",
-        logger: RunBotLogger()
+        logger: GitHubLoggerAdapter()
     )
 
     /// Forwarded from `github.oauthService` for backward-compatible access across
