@@ -28,3 +28,12 @@ public protocol AppPreferencesStoreProtocol: AnyObject, Sendable {
     /// The current polling interval, in seconds, as configured by the user.
     var pollingInterval: Int { get }
 }
+
+// MARK: - Production conformance
+//
+// Moved from RunnerPollerConformances.swift (#1618).
+// Both the concrete type and the protocol are Core-resident; the conformance belongs here.
+
+/// Conforms `AppPreferencesStore` to `AppPreferencesStoreProtocol` so the live
+/// singleton can be injected at the production call site without any wrapper.
+extension AppPreferencesStore: AppPreferencesStoreProtocol {}

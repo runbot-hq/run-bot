@@ -168,3 +168,17 @@ struct PanelLocalRunnerRow: View {
         return raw
     }
 }
+
+// MARK: - String+nilIfEmpty
+//
+// Moved from PanelMainView+Subviews.swift.
+// Retains only shared glue after extracting focused view files:
+//   - PanelHeaderView.swift  (PanelHeaderView, SectionHeaderLabel)
+//   - RunnerRowViews.swift   (PanelLocalRunnerRow, RunnerMetricsBadge, RunnerTypeIcon)
+//   - ActionRowView.swift    (ActionRowView, RowTapModifier)
+
+/// Convenience helpers used across panel subview files.
+extension String {
+    /// Returns `nil` when the string is empty, otherwise returns `self`.
+    var nilIfEmpty: String? { isEmpty ? nil : self }
+}
