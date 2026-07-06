@@ -1,9 +1,9 @@
-// RunBotLogger.swift
+// GitHubLoggerAdapter.swift
 // RunBotCore
 import Foundation
 import GitHubClient
 
-// MARK: - RunBotLogger
+// MARK: - GitHubLoggerAdapter
 
 /// Bridges `GitHubLogger` (defined in `GitHubClient`) to the RunBot unified
 /// logging system (`log()` free function in Logger.swift).
@@ -13,7 +13,7 @@ import GitHubClient
 /// stream as the rest of the app, filtered under the matching category.
 ///
 /// ## Sendability
-/// `RunBotLogger` is a stateless value type; `Sendable` conformance is
+/// `GitHubLoggerAdapter` is a stateless value type; `Sendable` conformance is
 /// synthesised automatically by the compiler and satisfies the `GitHubLogger`
 /// protocol requirement.
 ///
@@ -24,9 +24,9 @@ import GitHubClient
 /// before `RunBotCore` is updated. A `#if DEBUG` assertion fires so that new
 /// category strings are caught early during development or CI rather than
 /// silently degrading category metadata in production.
-public struct RunBotLogger: GitHubLogger {
+public struct GitHubLoggerAdapter: GitHubLogger {
 
-    /// Creates a new `RunBotLogger` instance.
+    /// Creates a new `GitHubLoggerAdapter` instance.
     public init() {}
 
     /// Forwards a message from `GitHubClient` into `os.Logger` via the RunBot
@@ -43,7 +43,7 @@ public struct RunBotLogger: GitHubLogger {
         guard let resolvedCategory = LogCategory(rawValue: category) else {
 #if DEBUG
             preconditionFailure(
-                "RunBotLogger: unknown GitHubClient log category '\(category)'. "
+                "GitHubLoggerAdapter: unknown GitHubClient log category '\(category)'. "
                 + "Add it to LogCategory.RawValue or update GitHubClient to use an existing category."
             )
 #else
