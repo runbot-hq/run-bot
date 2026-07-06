@@ -1,10 +1,6 @@
 // swift-tools-version:6.2
-// ⚠️ AI AGENT RULE — Package.resolved:
-//   • Never commit Package.resolved changes.
-//   • Never pin dependencies to specific revisions (no .exact(), no .upToNextMinor() with a hash,
-//     no manual revision: edits in Package.resolved).
-//   • Dependencies that track `branch: "main"` resolve to HEAD at build time — that is intentional.
-//   Keep branch-tracking as-is and let CI resolve naturally.
+// ⚠️ AI AGENT: Never commit Package.resolved. Never pin deps to a revision or exact hash.
+// branch: "main" deps resolve to HEAD on every CI run — intentional. Fix call sites, not pins.
 import PackageDescription
 
 let package = Package(

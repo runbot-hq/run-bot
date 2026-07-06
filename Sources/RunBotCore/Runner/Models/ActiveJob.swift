@@ -74,6 +74,15 @@ public struct ActiveJob: Identifiable, Equatable, Sendable {
     public var elapsed: String { raw.elapsed }
 
     /// Elapsed duration using an injected clock — use in tests for deterministic results.
+    ///
+    /// - Note: Delegates directly to `raw.elapsed(now:)`, bypassing `statusOverride` and
+    ///   `conclusionOverride`. For currently-running jobs this makes no difference — elapsed
+    ///   time depends only on dates, not on status. It would matter only if a caller passed a
+    ///   frozen-via-`asCompleted` job that has `statusOverride = .completed` but a nil
+    ///   `raw.completedDate`; in that case the property correctly returns `"--:--"` (because
+    ///   `raw.elapsed` reads `jobConclusion` from the raw value) while this method would use
+    ///   `now` as the end time. No current caller hits that path — all callers use the property.
+    ///   If this surface grows, thread `jobConclusion` through here too.
     public func elapsed(now: Date) -> String { raw.elapsed(now: now) }
     /// Display title forwarded from `raw.displayTitle`.
     public var displayTitle: String { raw.displayTitle }
