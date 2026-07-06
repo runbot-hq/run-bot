@@ -72,6 +72,9 @@ public struct ActiveJob: Identifiable, Equatable, Sendable {
 
     /// Human-readable elapsed duration forwarded from `raw.elapsed`.
     public var elapsed: String { raw.elapsed }
+
+    /// Elapsed duration using an injected clock — use in tests for deterministic results.
+    public func elapsed(now: Date) -> String { raw.elapsed(now: now) }
     /// Display title forwarded from `raw.displayTitle`.
     public var displayTitle: String { raw.displayTitle }
     /// Whether the job ran on a local runner, forwarded from `raw.isLocalRunner`.

@@ -36,26 +36,20 @@ struct ActiveJobElapsedTests {
     #expect(job.elapsed == "--:--")
   }
 
-  /// An in-progress job calculates elapsed time from startedAt to now, within a reasonable tolerance.
+  /// An in-progress job calculates elapsed time from startedAt using an injected clock.
   @Test func elapsedInProgressUsesStartedAt() {
-    let start = Date(timeIntervalSinceNow: -90)
+    let now = Date(timeIntervalSinceReferenceDate: 10_000)
+    let start = now.addingTimeInterval(-90)
     let job = ActiveJob(id: 1, name: "J", status: "in_progress", startedAt: start)
-    let mins = Int(job.elapsed.prefix(2))!
-    let secs = Int(job.elapsed.suffix(2))!
-    let total = mins * 60 + secs
-    #expect(total >= 89)
-    #expect(total <= 95)
+    #expect(job.elapsed(now: now) == "01:30")
   }
 
-  /// An in-progress job falls back to createdAt when startedAt is nil (still queued/assigning).
+  /// An in-progress job falls back to createdAt when startedAt is nil, using an injected clock.
   @Test func elapsedInProgressFallsBackToCreatedAt() {
-    let created = Date(timeIntervalSinceNow: -60)
+    let now = Date(timeIntervalSinceReferenceDate: 20_000)
+    let created = now.addingTimeInterval(-60)
     let job = ActiveJob(id: 1, name: "J", status: "in_progress", createdAt: created)
-    let mins = Int(job.elapsed.prefix(2))!
-    let secs = Int(job.elapsed.suffix(2))!
-    let total = mins * 60 + secs
-    #expect(total >= 59)
-    #expect(total <= 65)
+    #expect(job.elapsed(now: now) == "01:00")
   }
 
   /// An in-progress job with neither startedAt nor createdAt returns "00:00".
