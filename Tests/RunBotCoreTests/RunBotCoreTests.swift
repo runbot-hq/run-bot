@@ -57,6 +57,23 @@ struct ActiveJobElapsedTests {
     let job = ActiveJob(id: 1, name: "J", status: "in_progress")
     #expect(job.elapsed == "00:00")
   }
+
+  /// `var elapsed` on a job frozen via `asCompleted()` returns a fixed "mm:ss" string.
+  ///
+  /// `asCompleted()` guarantees `raw.completedAt` is non-nil (writing `fallbackDate` when the
+  /// API value is absent), so `raw.elapsed` always produces a fixed duration rather than a
+  /// live "time since start" value. This test pins that guarantee so any future change to
+  /// `asCompleted()` that breaks the invariant surfaces immediately.
+  @Test func elapsedVarOnFrozenJobReturnFixedDuration() {
+    let start = Date(timeIntervalSinceReferenceDate: 0)
+    let fallback = Date(timeIntervalSinceReferenceDate: 75) // 1m 15s after start
+    let job = ActiveJob(id: 1, name: "J", status: "in_progress", startedAt: start)
+    let frozen = job.asCompleted(at: fallback)
+    // var elapsed must return a fixed string, not a live clock value.
+    #expect(frozen.elapsed == "01:15")
+    // Calling it twice must produce the same value (i.e. not racing Date()).
+    #expect(frozen.elapsed == frozen.elapsed)
+  }
 }
 
 // MARK: - GitHubStep.elapsed

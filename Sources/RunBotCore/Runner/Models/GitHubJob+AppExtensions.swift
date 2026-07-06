@@ -94,6 +94,11 @@ extension GitHubStep {
     public var elapsed: String { elapsed(now: Date()) }
 
     /// Elapsed duration using an injected clock — use in tests for deterministic results.
+    ///
+    /// - Note: Uses `start: startDate` only — no `createdDate` fallback. `GitHubStep` has no
+    ///   `createdAt` field in the GitHub Actions API response, so there is nothing to fall back to.
+    ///   This is intentionally asymmetric with `GitHubJob.elapsed(now:)`, which uses
+    ///   `startDate ?? createdDate` because jobs do carry a `created_at` timestamp.
     public func elapsed(now: Date) -> String {
         formatElapsed(start: startDate, end: completedDate, isCompleted: stepConclusion != nil, now: now)
     }
