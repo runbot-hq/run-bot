@@ -108,6 +108,11 @@ ones**. That's why `AppDelegate`, `AddRunnerSheet`, and `RunnerPoller` are split
   Do not revert to an arch-neutral path (it caused stale-artifact debugging).
 - **Dependencies:** only `apple/swift-collections` is allowed. Do not add third-party deps without
   asking.
+- **`Package.resolved` — NEVER commit it.** It is `.gitignore`d on purpose. Do not stage, amend,
+  or otherwise include `Package.resolved` in any commit. CI resolves dependencies from scratch.
+- **Never pin revisions.** Do not edit `Package.resolved` manually, do not change `.package()`
+  calls to use `.exact()` or a hardcoded `revision:`. Dependencies track `branch: "main"` — leave
+  them that way. If a dependency's API changes, fix the call site in the app; do not lock the dep.
 - **Don't disable lint rules or delete regression guards** to make a build pass — fix the cause.
 - Never commit secrets or tokens.
 
