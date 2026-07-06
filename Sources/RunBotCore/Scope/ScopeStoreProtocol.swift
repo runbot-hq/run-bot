@@ -31,3 +31,12 @@ public protocol ScopeStoreProtocol: AnyObject, Sendable {
     /// or search the full list regardless of enabled state.
     var entries: [ScopeEntry] { get }
 }
+
+// MARK: - Production conformance
+//
+// Moved from RunnerPollerConformances.swift (#1618).
+// Both the concrete type and the protocol are Core-resident; the conformance belongs here.
+
+/// Conforms `ScopeStore` to `ScopeStoreProtocol` so the live singleton can be
+/// injected at the production call site without any wrapper.
+extension ScopeStore: ScopeStoreProtocol {}
