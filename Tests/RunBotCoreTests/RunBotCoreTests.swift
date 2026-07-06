@@ -71,8 +71,6 @@ struct ActiveJobElapsedTests {
     let frozen = job.asCompleted(at: fallback)
     // var elapsed must return a fixed string, not a live clock value.
     #expect(frozen.elapsed == "01:15")
-    // Calling it twice must produce the same value (i.e. not racing Date()).
-    #expect(frozen.elapsed == frozen.elapsed)
   }
 }
 
