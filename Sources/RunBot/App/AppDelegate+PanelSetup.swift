@@ -315,6 +315,6 @@ extension AppDelegate: NSPopoverDelegate {
         // The launch-time check above already ran once; the scheduler fires only
         // after the first interval elapses — this is intentional.
         autoUpdater.scheduleBackgroundCheck(state: runnerState)
-        log("AppDelegate › startup — update background scheduler registered (interval=\(AppUpdater.checkInterval)s)")
+        log("AppDelegate › startup — update background scheduler registered (interval=\(autoUpdater.checkInterval)s)")
     }
 }
