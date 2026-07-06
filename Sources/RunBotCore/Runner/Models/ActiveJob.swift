@@ -81,7 +81,7 @@ public struct ActiveJob: Identifiable, Equatable, Sendable {
     /// `raw.completedDate` is nil.
     public func elapsed(now: Date) -> String {
         formatElapsed(
-            start: startDate,
+            start: startDate ?? createdDate,
             end: completedDate,
             isCompleted: jobStatus == .completed || jobConclusion != nil,
             now: now
