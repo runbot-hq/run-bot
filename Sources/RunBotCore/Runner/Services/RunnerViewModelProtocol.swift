@@ -50,4 +50,11 @@ public protocol RunnerViewModelProtocol: AnyObject, Sendable {
 /// `RunnerState` satisfies `RunnerViewModelProtocol` with no additional implementation.
 /// Both `localRunners` and `isLocalScanning` are declared `public var` — see the
 /// protocol-level doc comment for the access-level rationale.
+///
+/// **Why the conformance lives here, not in `RunnerState.swift`:**
+/// Declaring the conformance in the same file as the protocol keeps the
+/// protocol/conformer pair co-located and avoids a cross-file circular
+/// dependency (both files are in `RunBotCore`, but `RunnerState.swift` would
+/// need to import the protocol it indirectly defines). Co-location is an
+/// established Swift convention for thin retroactive conformances.
 extension RunnerState: RunnerViewModelProtocol {}
