@@ -1,5 +1,5 @@
 // RunnerPoller.swift
-// RunBot
+// RunBotCore
 //
 // Step 10: RunnerStore renamed to RunnerPoller and moved into RunBotCore.
 // Step 14: applyFetchResult writes only to RunnerState (no viewModel.* writes remain).
@@ -13,6 +13,31 @@ import Collections
 import Foundation
 import GitHubClient
 import os
+
+// MARK: - Typealiases
+//
+// Moved from RunnerPollerObservers.swift → ObservationRelay.swift → here.
+// Co-located with RunnerPoller, the only consumer of these aliases.
+// Step 10: Moved from RunBot app target to RunBotCore.
+// F-35: PreferencesObserver and ScopesObserver replaced by ObservationRelay<Element>.
+
+/// Drives the `pollingInterval → TimeInterval` observation stream.
+///
+/// Alias for `ObservationRelay<TimeInterval>` — preserves call-site names in
+/// `RunnerPoller` so the F-35 refactor requires no renaming diff outside this file.
+///
+/// - Note: `internal` to match original visibility. Do not narrow to `private`
+///   (breaks cross-file reference) or widen to `public` (unnecessary API surface).
+typealias PreferencesObserver = ObservationRelay<TimeInterval>
+
+/// Drives the `activeScopes → [String]` observation stream.
+///
+/// Alias for `ObservationRelay<[String]>` — preserves call-site names in
+/// `RunnerPoller` so the F-35 refactor requires no renaming diff outside this file.
+///
+/// - Note: `internal` to match original visibility. Do not narrow to `private`
+///   (breaks cross-file reference) or widen to `public` (unnecessary API surface).
+typealias ScopesObserver = ObservationRelay<[String]>
 
 // MARK: - RunnerPoller
 
