@@ -1,5 +1,8 @@
 // TaskBox.swift
 // RunBot
+//
+// General-purpose @Observable-compatible task wrapper.
+// Usable by any @MainActor @Observable class that needs to hold a cancellable Task.
 import Foundation
 
 // MARK: - TaskBox
