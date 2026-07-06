@@ -30,8 +30,15 @@ let package = Package(
         ),
         .executableTarget(
             name: "RunBot",
-            // AppUpdater and GitHubClient are consumed transitively via RunBotCore.
-            dependencies: ["RunBotCore"],
+            // GitHubClient is declared explicitly because AppDelegate+StoreSetup.swift
+            // calls configureGHAPI / configureGHRaw / configureGHAPIPaginated / configureGHLogger
+            // directly. SwiftPM does not re-export transitive dependencies, so the symbols
+            // are only visible when GitHubClient is a direct dependency of this target.
+            // AppUpdater is consumed transitively via RunBotCore and needs no explicit entry.
+            dependencies: [
+                "RunBotCore",
+                .product(name: "GitHubClient", package: "GitHubClient")
+            ],
             path: "Sources/RunBot",
             swiftSettings: [
                 .enableUpcomingFeature("NonisolatedNonsendingByDefault")

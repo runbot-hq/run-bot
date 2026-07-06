@@ -51,29 +51,8 @@ extension AppDelegate {
     func applicationDidFinishLaunching(_ _: Notification) {
         log("AppDelegate › applicationDidFinishLaunching — START")
 
-        // Wire all three shim transports to github.transport.
-        // Token resolution goes through TokenCache (wired inside GitHubClient)
-        // rather than the raw Keychain box — no configureGHToken call needed.
-        let transport = github.transport
-        // Wire the shared shim logger so free-function diagnostics in
-        // GitHubHelpers.swift and GitHubTransportShims.swift are not silently
-        // dropped. Without this, sharedGitHubTransport.logger (a separate instance
-        // from transport) remains nil for the process lifetime.
-        if let logger = transport.logger {
-            configureGHLogger(logger)
-        }
-        configureGHAPI { endpoint in
-            await transport.apiAsync(endpoint)
-        }
-        configureGHRaw { endpoint in
-            await transport.raw(endpoint)
-        }
-        // Both `endpoint` and `timeout` must be forwarded so callers that pass
-        // a custom timeout via ghAPIPaginated(endpoint, timeout:) are not silently
-        // overridden by apiPaginated's 60-second default.
-        configureGHAPIPaginated { endpoint, timeout in
-            await transport.apiPaginated(endpoint, timeout: timeout)
-        }
+        // GitHubClient.init now wires sharedGitHubTransport directly — no
+        // configureGH* calls needed here.
 
         // Read knownScopes synchronously before the Task — ScopeStore.shared is
         // @MainActor and we are already on @MainActor here. (#1538)
