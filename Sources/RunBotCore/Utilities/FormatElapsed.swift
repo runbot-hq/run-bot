@@ -16,11 +16,16 @@ import Foundation
 ///     (timing data unavailable) instead of `"00:00"` (not yet started).
 /// - Returns: A `mm:ss` string such as `"02:47"`, or a sentinel value
 ///   (`"--:--"` / `"00:00"`) when timing data is absent.
-public func formatElapsed(start: Date?, end: Date?, isCompleted: Bool) -> String {
+public func formatElapsed(
+    start: Date?,
+    end: Date?,
+    isCompleted: Bool,
+    now: Date = Date()
+) -> String {
     guard let start else {
         return isCompleted ? "--:--" : "00:00"
     }
-    let resolved = end ?? Date()
+    let resolved = end ?? now
     let secs = max(0, Int(resolved.timeIntervalSince(start)))
     return String(format: "%02d:%02d", secs / 60, secs % 60)
 }

@@ -36,32 +36,41 @@ struct ActiveJobElapsedTests {
     #expect(job.elapsed == "--:--")
   }
 
-  /// An in-progress job calculates elapsed time from startedAt to now, within a reasonable tolerance.
+  /// An in-progress job calculates elapsed time from startedAt using an injected clock.
   @Test func elapsedInProgressUsesStartedAt() {
-    let start = Date(timeIntervalSinceNow: -90)
+    let now = Date(timeIntervalSinceReferenceDate: 10_000)
+    let start = now.addingTimeInterval(-90)
     let job = ActiveJob(id: 1, name: "J", status: "in_progress", startedAt: start)
-    let mins = Int(job.elapsed.prefix(2))!
-    let secs = Int(job.elapsed.suffix(2))!
-    let total = mins * 60 + secs
-    #expect(total >= 89)
-    #expect(total <= 95)
+    #expect(job.elapsed(now: now) == "01:30")
   }
 
-  /// An in-progress job falls back to createdAt when startedAt is nil (still queued/assigning).
+  /// An in-progress job falls back to createdAt when startedAt is nil, using an injected clock.
   @Test func elapsedInProgressFallsBackToCreatedAt() {
-    let created = Date(timeIntervalSinceNow: -60)
+    let now = Date(timeIntervalSinceReferenceDate: 20_000)
+    let created = now.addingTimeInterval(-60)
     let job = ActiveJob(id: 1, name: "J", status: "in_progress", createdAt: created)
-    let mins = Int(job.elapsed.prefix(2))!
-    let secs = Int(job.elapsed.suffix(2))!
-    let total = mins * 60 + secs
-    #expect(total >= 59)
-    #expect(total <= 65)
+    #expect(job.elapsed(now: now) == "01:00")
   }
 
   /// An in-progress job with neither startedAt nor createdAt returns "00:00".
   @Test func elapsedInProgressNeitherDateReturnsZero() {
     let job = ActiveJob(id: 1, name: "J", status: "in_progress")
     #expect(job.elapsed == "00:00")
+  }
+
+  /// `var elapsed` on a job frozen via `asCompleted()` returns a fixed "mm:ss" string.
+  ///
+  /// `asCompleted()` guarantees `raw.completedAt` is non-nil (writing `fallbackDate` when the
+  /// API value is absent), so `raw.elapsed` always produces a fixed duration rather than a
+  /// live "time since start" value. This test pins that guarantee so any future change to
+  /// `asCompleted()` that breaks the invariant surfaces immediately.
+  @Test func elapsedVarOnFrozenJobReturnFixedDuration() {
+    let start = Date(timeIntervalSinceReferenceDate: 0)
+    let fallback = Date(timeIntervalSinceReferenceDate: 75) // 1m 15s after start
+    let job = ActiveJob(id: 1, name: "J", status: "in_progress", startedAt: start)
+    let frozen = job.asCompleted(at: fallback)
+    // var elapsed must return a fixed string, not a live clock value.
+    #expect(frozen.elapsed == "01:15")
   }
 }
 

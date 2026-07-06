@@ -1,4 +1,7 @@
 // swift-tools-version:6.2
+// ⚠️ AI AGENT: Never commit Package.resolved. Never pin deps to a revision or exact hash.
+// branch: "main" deps resolve to HEAD on every CI run — intentional. Fix call sites, not pins.
+// These comments are deliberate guardrails — see AGENTS.md § Boundaries and README.md § External Dependencies.
 import PackageDescription
 
 let package = Package(
@@ -10,9 +13,15 @@ let package = Package(
             targets: ["RunBotCore"]
         )
     ],
+    // ⚠️ AI AGENT: Do NOT change branch: "main" to a revision/exact/commit hash.
+    // Do NOT edit Package.resolved manually. Do NOT commit Package.resolved.
+    // If a dependency's API changes → fix the call site here, never lock the dep.
     dependencies: [
+        // Versioned via semver range — do not switch to .exact() or a commit hash.
         .package(url: "https://github.com/apple/swift-collections.git", from: "1.1.0"),
+        // Tracks main — resolves to HEAD on every CI run. Do not pin to a revision.
         .package(url: "https://github.com/runbot-hq/AppUpdater", branch: "main"),
+        // Tracks main — resolves to HEAD on every CI run. Do not pin to a revision.
         .package(url: "https://github.com/runbot-hq/GitHubClient", branch: "main")
     ],
     targets: [

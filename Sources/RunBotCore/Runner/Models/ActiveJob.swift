@@ -71,7 +71,31 @@ public struct ActiveJob: Identifiable, Equatable, Sendable {
     // MARK: Forwarded computed properties (defined on GitHubJob extension)
 
     /// Human-readable elapsed duration forwarded from `raw.elapsed`.
+    ///
+    /// - Note: Delegates to `raw.elapsed`, which reads `raw.jobStatus` and `raw.jobConclusion`
+    ///   directly — not the override-aware `jobStatus`/`jobConclusion` computed properties on
+    ///   `ActiveJob`. In practice this is safe because `asCompleted()` always writes a
+    ///   `completedAt` date into `raw` (falling back to its `fallbackDate` argument when the
+    ///   API value is nil), so `raw.elapsed` returns a fixed `mm:ss` string regardless of
+    ///   `statusOverride`. If `asCompleted()` ever stops guaranteeing a non-nil `completedAt`,
+    ///   this property should be rewritten to call `formatElapsed` directly like `elapsed(now:)`.
     public var elapsed: String { raw.elapsed }
+
+    /// Elapsed duration using an injected clock — use in tests for deterministic results.
+    ///
+    /// Uses the override-aware `jobStatus` and `jobConclusion` computed properties rather
+    /// than delegating to `raw.elapsed(now:)`, so a job frozen via `asCompleted()` (which
+    /// sets `statusOverride = .completed`) is correctly treated as completed even when
+    /// `raw.completedDate` is nil.
+    public func elapsed(now: Date) -> String {
+        formatElapsed(
+            start: startDate ?? createdDate,
+            end: completedDate,
+            isCompleted: jobStatus == .completed || jobConclusion != nil,
+            now: now
+        )
+    }
+
     /// Display title forwarded from `raw.displayTitle`.
     public var displayTitle: String { raw.displayTitle }
     /// Whether the job ran on a local runner, forwarded from `raw.isLocalRunner`.
