@@ -134,7 +134,7 @@ private func prLabel(from run: RunPayload) -> String {
 ///
 /// Accepts any `GitHubTransportProtocol` conformer so the hot polling path
 /// is testable without live network access. Production callers use the
-/// default `sharedGitHubTransport`; tests inject a stub.
+/// default `currentTransport`; tests inject a stub via `withTransport(_:operation:)`.
 ///
 /// - SeeAlso: ``GitHubTransportProtocol``
 public struct WorkflowActionGroupFetcher: Sendable, WorkflowActionGroupFetcherProtocol {
@@ -158,9 +158,10 @@ public struct WorkflowActionGroupFetcher: Sendable, WorkflowActionGroupFetcherPr
 
   /// Creates a fetcher backed by the given transport.
   ///
-  /// - Parameter transport: Defaults to `sharedGitHubTransport` so existing
-  ///   production call sites need no change beyond switching to the instance method.
-  public init(transport: any GitHubTransportProtocol = sharedGitHubTransport) {
+  /// - Parameter transport: Defaults to `currentTransport` — the live `@TaskLocal`
+  ///   read path wired by `GitHubClient.init`. Tests can override via
+  ///   `withTransport(_:operation:)` without touching any global.
+  public init(transport: any GitHubTransportProtocol = currentTransport) {
     self.transport = transport
   }
 

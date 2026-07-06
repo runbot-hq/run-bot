@@ -29,9 +29,10 @@ public struct LogFetcher: Sendable {
 
     /// Creates a fetcher backed by the given transport.
     ///
-    /// - Parameter transport: Defaults to `sharedGitHubTransport` so existing
-    ///   production call sites need no change beyond switching to the instance method.
-    public init(transport: any GitHubTransportProtocol = sharedGitHubTransport) {
+    /// - Parameter transport: Defaults to `currentTransport` — the live `@TaskLocal`
+    ///   read path wired by `GitHubClient.init`. Tests can override via
+    ///   `withTransport(_:operation:)` without touching any global.
+    public init(transport: any GitHubTransportProtocol = currentTransport) {
         self.transport = transport
     }
 
@@ -41,7 +42,7 @@ public struct LogFetcher: Sendable {
     ///
     /// `/actions/jobs/{id}/logs` 302-redirects to a short-lived S3 URL; the transport follows it.
     /// Returns `nil` when `scope` is not in `owner/repo` form, the request fails,
-    /// or the response body looks like a JSON error object (starts with `"{"`).
+    /// or the response body looks like a JSON error object (starts with `"{"”`).
     ///
     /// - Parameters:
     ///   - jobID: The GitHub Actions job ID.
