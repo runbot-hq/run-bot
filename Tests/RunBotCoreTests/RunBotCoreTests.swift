@@ -906,6 +906,38 @@ struct ProcessRunnerRunAsyncStdinTests {
     )
     #expect(result.exitCode == 1)
   }
+
+  /// #1983 Step 5 — A process that writes to stderr must complete normally.
+  /// The exit code must reflect the process result (non-zero here) and the
+  /// runner must not hang waiting for stderr to drain.
+  @Test(.timeLimit(.minutes(1)))
+  func runAsyncStderrDoesNotHang() async {
+    // /bin/sh writes "err" to stderr then exits 1.
+    let result = await ProcessRunner.runAsync(
+      executableURL: URL(fileURLWithPath: "/bin/sh"),
+      arguments: ["-c", "echo err >&2; exit 1"],
+      stdin: nil
+    )
+    #expect(result.exitCode == 1, "process exit code must be 1")
+    // stdout must be empty — the message went to stderr, not stdout.
+    #expect(result.output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            "stdout must be empty when output is written only to stderr")
+  }
+
+  /// #1983 Step 5 — A process killed by SIGTERM must return a non-zero exit
+  /// code and must not hang. On Darwin, a process that kills itself with
+  /// SIGTERM exits with code 1 (shell exit code for signal termination).
+  @Test(.timeLimit(.minutes(1)))
+  func runAsyncSIGTERMExitsNonZero() async {
+    // /bin/sh kills its own process group with SIGTERM then exits.
+    // The shell catches SIGTERM and maps it to exit status 1.
+    let result = await ProcessRunner.runAsync(
+      executableURL: URL(fileURLWithPath: "/bin/sh"),
+      arguments: ["-c", "kill -TERM $$; exit 0"],
+      stdin: nil
+    )
+    #expect(result.exitCode != 0, "SIGTERM-killed process must exit non-zero")
+  }
 }
 
 // MARK: - RunnerConfigStoreError.errorDescription
