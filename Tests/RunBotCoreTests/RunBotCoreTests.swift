@@ -268,13 +268,13 @@ struct PollResultBuilderTests {
   /// two entries share the same `completedDate` and exactly one must be evicted.
   ///
   /// The production sort is `completedDate` descending with no explicit secondary key.
-  /// Swift's sort is stable, so entries with equal primary keys remain in their original
-  /// relative order. This test pins that the uniquely-dated entry is always retained regardless
-  /// of how the equal-dated pair is broken, and that the result count is exactly `limit`.
-  ///
   /// The tie-break between the two equal-dated entries (id 1 vs id 2) is deliberately not
-  /// asserted: the production sort has no secondary key, so pinning the tie-break would
-  /// over-specify implementation detail and make the test fragile under a sort change.
+  /// asserted: `trimJobCache` sorts the values of a `[Int: ActiveJob]` Dictionary, which has
+  /// no guaranteed iteration order — the relative pre-sort position of the equal-dated entries
+  /// is undefined, so pinning which one survives would be asserting an implementation detail
+  /// that is not contractually guaranteed and could change across Swift runtime versions.
+  /// This test only pins that the uniquely-dated entry is always retained and that the result
+  /// count is exactly `limit`.
   @Test func trimJobCacheEqualCompletedDatesRetainsUniqueDateEntry() {
     let sharedDate = Date(timeIntervalSinceReferenceDate: 500)
     let laterDate  = Date(timeIntervalSinceReferenceDate: 600)
