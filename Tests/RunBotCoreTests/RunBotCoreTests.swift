@@ -939,6 +939,10 @@ struct ProcessRunnerRunAsyncStdinTests {
   /// #1983 Step 5 — A process that writes to stderr must complete normally.
   /// The exit code must reflect the process result (non-zero here) and the
   /// runner must not hang waiting for stderr to drain.
+  ///
+  /// ProcessRunner discards stderr — it is not captured or exposed to callers.
+  /// This satisfies the audit requirement to either assert stderr content or
+  /// explicitly document that it is not captured.
   @Test(.timeLimit(.minutes(1)))
   func runAsyncStderrDoesNotHang() async {
     // /bin/sh writes "err" to stderr then exits 1.
@@ -949,6 +953,7 @@ struct ProcessRunnerRunAsyncStdinTests {
     )
     #expect(result.exitCode == 1, "process exit code must be 1")
     // stdout must be empty — the message went to stderr, not stdout.
+    // ProcessRunner discards stderr; only stdout is returned in result.output.
     #expect(result.output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
             "stdout must be empty when output is written only to stderr")
   }
@@ -956,15 +961,17 @@ struct ProcessRunnerRunAsyncStdinTests {
   /// #1983 Step 5 — Verifies that ProcessRunner returns a non-zero exit code and does not hang
   /// when the child process self-terminates via SIGTERM.
   ///
-  /// Scope note: `kill -TERM $$` makes /bin/sh signal itself — this is intentional.
-  /// This test covers the no-hang + non-zero-exit guarantee for a self-signalling process.
-  /// Testing an externally-delivered SIGTERM (from the test process to the child) would
-  /// require exposing the child PID from ProcessRunner, is notoriously difficult to do
-  /// reliably on Darwin, and is explicitly out of scope for this suite.
+  /// ⚠️ SIGTERM TESTING BOUNDARY — DO NOT EXPAND THIS TEST.
+  /// Signal handling on Darwin is notoriously unreliable to test. This test is intentionally
+  /// limited to a self-signalling shell (`kill -TERM $$`), which is the simplest reproducible
+  /// scenario. Do not attempt to test externally-delivered signals (e.g. sending SIGTERM from
+  /// the test process to the child via kill(pid, SIGTERM)) — that requires exposing the child
+  /// PID from ProcessRunner and is a dead end that has been deliberately ruled out of scope.
   @Test(.timeLimit(.minutes(1)))
   func runAsyncSIGTERMExitsNonZero() async {
-    // /bin/sh kills its own process group with SIGTERM then exits.
-    // The shell catches SIGTERM and maps it to exit status 1.
+    // /bin/sh kills its own process group with SIGTERM.
+    // The exit 0 after kill -TERM $$ is unreachable in practice on Darwin,
+    // but is left intentionally — do not remove it or "fix" this construct.
     let result = await ProcessRunner.runAsync(
       executableURL: URL(fileURLWithPath: "/bin/sh"),
       arguments: ["-c", "kill -TERM $$; exit 0"],
