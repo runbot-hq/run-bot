@@ -100,24 +100,6 @@ public struct LogFetcher: Sendable {
     }
 }
 
-// MARK: - Free-function forwarding wrappers (legacy)
-
-/// Fetches the full plain-text log for a single job.
-///
-/// Delegates to `LogFetcher().fetchJobLog(jobID:scope:)` for backward compatibility.
-@available(*, deprecated, message: "Use LogFetcher().fetchJobLog instead")
-public func fetchJobLog(jobID: Int, scope: String) async -> String? {
-    await LogFetcher().fetchJobLog(jobID: jobID, scope: scope)
-}
-
-/// Fetches and concatenates all job logs for every run in a group.
-///
-/// Delegates to `LogFetcher().fetchActionLogs(group:)` for backward compatibility.
-@available(*, deprecated, message: "Use LogFetcher().fetchActionLogs instead")
-public func fetchActionLogs(group: WorkflowActionGroup) async -> String? {
-    await LogFetcher().fetchActionLogs(group: group)
-}
-
 // MARK: - ZIP extraction (uses /usr/bin/unzip — always available on macOS)
 
 /// Extracts all `.txt` files from a ZIP blob and returns `(name, text)` pairs.
