@@ -436,6 +436,7 @@ struct WorkflowActionGroupFetcherTests {
             "Each SHA must appear exactly once")
 
     // Each group must carry the run status from its source bucket.
+    // `group` is a local lookup closure scoped to this test — not a type or namespace.
     let group = { (sha: String) in r.first(where: { $0.headSha == sha }) }
     #expect(
       group(shaInProgress)?.runs.first?.status == .inProgress,
