@@ -462,15 +462,25 @@ struct PollResultBuilderTests {
 @Suite("JobStatus.isActive")
 struct JobStatusIsActiveTests {
 
-  /// Verifies that queued, in-progress, waiting, requested, and pending statuses are active, while completed and unknown are not.
-  @Test func activeStatuses() {
-    #expect(JobStatus.queued.isActive)
-    #expect(JobStatus.inProgress.isActive)
-    #expect(JobStatus.waiting.isActive)
-    #expect(JobStatus.requested.isActive)
-    #expect(JobStatus.pending.isActive)
-    #expect(!JobStatus.completed.isActive)
-    #expect(!JobStatus.unknown("draining").isActive)
+  /// Verifies that each active status returns `true` for `isActive`.
+  @Test(arguments: [
+    JobStatus.queued,
+    .inProgress,
+    .waiting,
+    .requested,
+    .pending,
+  ])
+  func isActiveTrue(status: JobStatus) {
+    #expect(status.isActive)
+  }
+
+  /// Verifies that each inactive status returns `false` for `isActive`.
+  @Test(arguments: [
+    JobStatus.completed,
+    .unknown("draining"),
+  ])
+  func isActiveFalse(status: JobStatus) {
+    #expect(!status.isActive)
   }
 }
 
