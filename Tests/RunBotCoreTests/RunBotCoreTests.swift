@@ -945,6 +945,11 @@ struct ProcessRunnerRunAsyncStdinTests {
 @Suite("RunnerConfigStoreError.errorDescription")
 struct RunnerConfigStoreErrorDescriptionTests {
 
+  // MARK: - malformedExistingFile
+
+  /// Verifies that `malformedExistingFile` description contains the install path, the word
+  /// "malformed", and a reference to "agent-managed" keys — all three are load-bearing
+  /// substrings that distinguish this error from others and communicate the consequence.
   @Test func malformedExistingFileDescriptionContainsPathAndConsequence() {
     let error = RunnerConfigStoreError.malformedExistingFile("/opt/runners/my-runner")
     let desc = error.errorDescription ?? ""
@@ -953,9 +958,93 @@ struct RunnerConfigStoreErrorDescriptionTests {
     #expect(desc.contains("agent-managed"))
   }
 
+  /// Verifies that `malformedExistingFile` and `decodeFailed` have distinct descriptions
+  /// even when given the same install path, so callers can distinguish the two error kinds.
   @Test func malformedExistingFileDescriptionDiffersFromDecodeFailed() {
     let malformed = RunnerConfigStoreError.malformedExistingFile("/opt/runners/r")
     let decode = RunnerConfigStoreError.decodeFailed("/opt/runners/r")
     #expect(malformed.errorDescription != decode.errorDescription)
+  }
+
+  // MARK: - decodeFailed
+
+  /// Verifies that `decodeFailed` description contains the install path and the word "decode",
+  /// confirming the error message identifies both the location and the failure kind.
+  @Test func decodeFailedDescriptionContainsPathAndKeyword() {
+    let error = RunnerConfigStoreError.decodeFailed("/opt/runners/decode-runner")
+    let desc = error.errorDescription ?? ""
+    #expect(desc.contains("/opt/runners/decode-runner"),
+            "description must include the install path")
+    #expect(desc.contains("decode"),
+            "description must contain a distinctive keyword identifying the failure kind")
+  }
+
+  // MARK: - readFailed
+
+  /// Verifies that `readFailed` description contains the install path, a reference to "read",
+  /// and the underlying error's localised description — all required for actionable diagnostics.
+  @Test func readFailedDescriptionContainsPathAndUnderlyingError() {
+    struct FakeError: LocalizedError {
+      var errorDescription: String? { "disk not found" }
+    }
+    let error = RunnerConfigStoreError.readFailed("/opt/runners/read-runner", FakeError())
+    let desc = error.errorDescription ?? ""
+    #expect(desc.contains("/opt/runners/read-runner"),
+            "description must include the install path")
+    #expect(desc.contains("read"),
+            "description must reference the read operation")
+    #expect(desc.contains("disk not found"),
+            "description must embed the underlying error's localised description")
+  }
+
+  // MARK: - writeFailed
+
+  /// Verifies that `writeFailed` description contains the install path, a reference to "write",
+  /// and the underlying error's localised description.
+  @Test func writeFailedDescriptionContainsPathAndUnderlyingError() {
+    struct FakeError: LocalizedError {
+      var errorDescription: String? { "no space left on device" }
+    }
+    let error = RunnerConfigStoreError.writeFailed("/opt/runners/write-runner", FakeError())
+    let desc = error.errorDescription ?? ""
+    #expect(desc.contains("/opt/runners/write-runner"),
+            "description must include the install path")
+    #expect(desc.contains("write"),
+            "description must reference the write operation")
+    #expect(desc.contains("no space left on device"),
+            "description must embed the underlying error's localised description")
+  }
+
+  // MARK: - ioReadFailedDuringSave
+
+  /// Verifies that `ioReadFailedDuringSave` description contains the install path, a reference
+  /// to "agent-managed" keys (to communicate the consequence), and the underlying error's
+  /// localised description.
+  @Test func ioReadFailedDuringSaveDescriptionContainsPathConsequenceAndUnderlyingError() {
+    struct FakeError: LocalizedError {
+      var errorDescription: String? { "permission denied" }
+    }
+    let error = RunnerConfigStoreError.ioReadFailedDuringSave(
+      "/opt/runners/save-runner", FakeError())
+    let desc = error.errorDescription ?? ""
+    #expect(desc.contains("/opt/runners/save-runner"),
+            "description must include the install path")
+    #expect(desc.contains("agent-managed"),
+            "description must communicate that agent-managed keys would be lost")
+    #expect(desc.contains("permission denied"),
+            "description must embed the underlying error's localised description")
+  }
+
+  /// Verifies that `ioReadFailedDuringSave` and `readFailed` have distinct descriptions
+  /// even when given the same path and underlying error, so callers can distinguish
+  /// the two I/O read failure origins (save-time vs. load-time).
+  @Test func ioReadFailedDuringSaveDiffersFromReadFailed() {
+    struct FakeError: LocalizedError {
+      var errorDescription: String? { "some io error" }
+    }
+    let ioSave = RunnerConfigStoreError.ioReadFailedDuringSave("/opt/runners/r", FakeError())
+    let read = RunnerConfigStoreError.readFailed("/opt/runners/r", FakeError())
+    #expect(ioSave.errorDescription != read.errorDescription,
+            "ioReadFailedDuringSave and readFailed must produce distinct descriptions")
   }
 }
