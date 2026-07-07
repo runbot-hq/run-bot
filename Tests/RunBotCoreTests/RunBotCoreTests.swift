@@ -264,6 +264,31 @@ struct PollResultBuilderTests {
     #expect(cache.count == 2)
   }
 
+  /// Verifies that `trimJobCache` retains the entry with a distinct (later) `completedDate` when
+  /// two entries share the same `completedDate` and exactly one must be evicted.
+  ///
+  /// The production sort is `completedDate` descending with no explicit secondary key.
+  /// Swift's sort is stable, so entries with equal primary keys remain in their original
+  /// relative order. This test pins that the uniquely-dated entry is always retained regardless
+  /// of how the equal-dated pair is broken, and that the result count is exactly `limit`.
+  @Test func trimJobCacheEqualCompletedDatesRetainsUniqueDateEntry() {
+    let sharedDate = Date(timeIntervalSinceReferenceDate: 500)
+    let laterDate  = Date(timeIntervalSinceReferenceDate: 600)
+    var cache: [Int: ActiveJob] = [
+      1: ActiveJob(
+        id: 1, name: "A", status: "completed", completedAt: sharedDate),
+      2: ActiveJob(
+        id: 2, name: "B", status: "completed", completedAt: sharedDate),
+      3: ActiveJob(
+        id: 3, name: "C", status: "completed", completedAt: laterDate),
+    ]
+    PollResultBuilder.trimJobCache(&cache, limit: 2)
+    // The entry with the uniquely later date must always survive.
+    #expect(cache[3] != nil, "Entry with the most-recent completedDate must be retained")
+    // Exactly `limit` entries must remain.
+    #expect(cache.count == 2, "Cache must be trimmed to exactly the limit")
+  }
+
   // MARK: buildJobDisplay
 
   /// Verifies that `buildJobDisplay` places live (in-progress) jobs before cached (completed) jobs.
