@@ -57,6 +57,18 @@ struct StubTransport: GitHubTransportProtocol {
     self.responses = sorted
   }
 
+  // Intentionally a computed property — each call returns a fresh, unconfigured
+  // JSONDecoder. This is correct for a stateless test stub: no shared decoder
+  // state can leak between calls. Do not change to a stored `let` unless the
+  // protocol explicitly requires a shared, pre-configured instance.
+  //
+  // No divergence from a production pre-configured decoder is possible here:
+  // StubTransport never decodes anything itself. Every response is pre-serialised
+  // Data owned by the test fixture; WorkflowActionGroupFetcher decodes that Data
+  // using its own internal decoder, not transport.decoder. The `decoder` property
+  // on this stub satisfies the protocol requirement but is never invoked during
+  // any test in this file.
+  var decoder: JSONDecoder { JSONDecoder() }
   var logger: (any GitHubLogger)? { nil }
 
   func apiAsync(_ endpoint: String, timeout _: TimeInterval) async -> Data? {
@@ -390,5 +402,57 @@ struct WorkflowActionGroupFetcherTests {
     let f = WorkflowActionGroupFetcher(transport: t)
     let r = await f.fetch(for: "owner/repo")
     #expect(r.first?.repo == "owner/repo")
+  }
+
+  // MARK: - Three-way status-bucket merge (#1983 Step 6)
+
+  /// Verifies the three-way merge path: each of the three status endpoints
+  /// (`in_progress`, `queued`, `completed`) returns a run with a *distinct* SHA.
+  ///
+  /// The production poll always calls all three buckets concurrently and merges
+  /// the results by `head_sha`. This test ensures that:
+  /// 1. All three groups appear in the result (no bucket is silently dropped).
+  /// 2. Each group carries the correct `JobStatus` reflecting its source bucket.
+  /// 3. No cross-SHA merging occurs (each SHA stays in its own group).
+  @Test func fetchActionGroupsThreeWayBucketMergeProducesThreeDistinctGroups() async {
+    let shaInProgress = "sha-inprogress-001"
+    let shaQueued     = "sha-queued-002"
+    let shaCompleted  = "sha-completed-003"
+    let j = envelope(key: "jobs", [])
+    let t = makeTransport(with: [
+      "repos/owner/repo/actions/runs?status=in_progress": envelope(
+        key: "workflow_runs",
+        [minimalRun(id: 10, sha: shaInProgress, status: "in_progress", conclusion: nil)]),
+      "repos/owner/repo/actions/runs?status=queued": envelope(
+        key: "workflow_runs",
+        [minimalRun(id: 20, sha: shaQueued, status: "queued", conclusion: nil)]),
+      "repos/owner/repo/actions/runs?status=completed": envelope(
+        key: "workflow_runs",
+        [minimalRun(id: 30, sha: shaCompleted, status: "completed", conclusion: "success")]),
+      "repos/owner/repo/actions/runs/10/jobs": j,
+      "repos/owner/repo/actions/runs/20/jobs": j,
+      "repos/owner/repo/actions/runs/30/jobs": j,
+    ])
+    let f = WorkflowActionGroupFetcher(transport: t)
+    let r = await f.fetch(for: "owner/repo")
+
+    // All three distinct SHAs must produce exactly three groups.
+    #expect(r.count == 3, "Three distinct SHAs must produce exactly three groups")
+    let shas = Set(r.map { $0.headSha })
+    #expect(shas == [shaInProgress, shaQueued, shaCompleted],
+            "Each SHA must appear exactly once")
+
+    // Each group must carry the run status from its source bucket.
+    // `group` is a local lookup closure scoped to this test — not a type or namespace.
+    let group = { (sha: String) in r.first(where: { $0.headSha == sha }) }
+    #expect(
+      group(shaInProgress)?.runs.first?.status == .inProgress,
+      "in_progress bucket run must have status .inProgress")
+    #expect(
+      group(shaQueued)?.runs.first?.status == .queued,
+      "queued bucket run must have status .queued")
+    #expect(
+      group(shaCompleted)?.runs.first?.status == .completed,
+      "completed bucket run must have status .completed")
   }
 }

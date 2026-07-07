@@ -58,9 +58,9 @@ final class RunBotUITests: XCTestCase {
         continueAfterFailure = false
 
         // Kill any stale RunBot process that may be running without
-        // UI_TESTING=1. If we don’t do this, app.launch() re-activates the
+        // UI_TESTING=1. If we don't do this, app.launch() re-activates the
         // existing instance (which lacks the env var) and the app never
-        // reaches .runningForeground from XCTest’s perspective.
+        // reaches .runningForeground from XCTest's perspective.
         let stale = XCUIApplication(bundleIdentifier: "dev.eonist.runbot")
         if stale.state != .notRunning {
             print("[UITest] setUp: terminating stale RunBot (state=\(stale.state.rawValue))")
@@ -109,7 +109,7 @@ final class RunBotUITests: XCTestCase {
     }
 
     /// Returns the Add-Runner button, probing the stable explicit identifier first
-    /// and falling back to the legacy ‘plus’ + index approach.
+    /// and falling back to the legacy 'plus' + index approach.
     ///
     /// Local builds expose identifier="plus" (boundBy:0 = Add Runner).
     /// Remote/PR-merge builds expose identifier="addRunnerButton".
@@ -126,7 +126,7 @@ final class RunBotUITests: XCTestCase {
     }
 
     /// Returns the Add-Scope button, probing the stable explicit identifier first
-    /// and falling back to the legacy ‘plus’ + index approach.
+    /// and falling back to the legacy 'plus' + index approach.
     ///
     /// Local builds expose identifier="plus" (boundBy:1 = Add Scope).
     /// Remote/PR-merge builds expose identifier="addScopeButton".
@@ -150,7 +150,7 @@ final class RunBotUITests: XCTestCase {
         // buttons that are siblings of the "Active local runners" text and
         // are NOT the add/refresh control buttons.
         // Simplest: find the first button after the section header that
-        // contains a "chevron.right" image child — that’s a runner row.
+        // contains a "chevron.right" image child — that's a runner row.
         let allButtons = app.buttons.allElementsBoundByIndex
         for btn in allButtons {
             // Runner rows contain a chevron.right image as a descendant.
@@ -179,7 +179,7 @@ final class RunBotUITests: XCTestCase {
     func testSettingsNavigationFlow() {
         openPanel()
 
-        // ── 1. Open Settings ──────────────────────────────────────────────
+        // ── 1. Open Settings ─────────────────────────────────────────────────
         tapButton(app.buttons["Settings"])
         XCTAssertTrue(app.staticTexts["Active local runners"].waitForExistence(timeout: 5),
                       "Active local runners section")
@@ -241,13 +241,13 @@ final class RunBotUITests: XCTestCase {
             "RunnerDetailPopover must appear with Runner Info and Configuration sections"
         )
 
-        // ── 2. Verify no inline Save buttons exist ────────────────────────
+        // ── 2. Verify no inline Save buttons exist ──────────────────────
         XCTAssertFalse(
             app.buttons["Save"].exists,
             "No inline Save buttons must exist in RunnerDetailPopover"
         )
 
-        // ── 3. Verify Cancel and OK are present ─────────────────────────
+        // ── 3. Verify Cancel and OK are present ───────────────────────
         XCTAssertTrue(app.buttons["Cancel"].exists, "Cancel button must exist in popover")
         XCTAssertTrue(app.buttons["OK"].exists, "OK button must exist in popover")
 
@@ -268,60 +268,61 @@ final class RunBotUITests: XCTestCase {
     /// Opens the popover, clears the Labels field and types a sentinel value,
     /// taps Cancel, re-opens the same runner, and asserts the sentinel is gone.
     ///
-    /// Skipped gracefully when no local runners are installed on the test machine.
-    func testRunnerDetailPopoverCancelDiscards() {
+    /// Skipped (via XCTSkip) when no local runners are installed on the test machine,
+    /// or when the Labels field is absent — ensuring CI never silently passes a
+    /// broken UI path. (#1983 Step 4)
+    func testRunnerDetailPopoverCancelDiscards() throws {
         openPanel()
         tapButton(app.buttons["Settings"])
         XCTAssertTrue(app.staticTexts["Active local runners"].waitForExistence(timeout: 5),
                       "Settings must open")
 
         guard let runnerRow = firstRunnerRow() else {
-            print("[UITest] testRunnerDetailPopoverCancelDiscards: no runner rows — skipping")
-            return
+            throw XCTSkip("No runner rows found — skipping (no local runners installed on this machine)")
         }
 
-        // ── 1. Open popover ────────────────────────────────────────────────
+        // ── 1. Open popover ────────────────────────────────────────────
         tapButton(runnerRow)
         XCTAssertTrue(runnerDetailPopoverExists(), "Popover must open")
 
-        // ── 2. Edit Labels field with sentinel ───────────────────────────
+        // ── 2. Edit Labels field with sentinel ─────────────────────────
         let sentinel = "UI_TEST_CANCEL_SENTINEL"
-        // The Labels text field is the first editable text field in the popover.
-        // Use the placeholder text as the AX identifier anchor.
         let labelsField = app.textFields["comma-separated"]
-        if labelsField.waitForExistence(timeout: 2) {
-            labelsField.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).click()
-            // Select all + type to replace any existing label text
-            labelsField.typeKey("a", modifierFlags: .command)
-            labelsField.typeText(sentinel)
-            print("[UITest] testRunnerDetailPopoverCancelDiscards: typed sentinel into Labels field")
-        } else {
-            print("[UITest] testRunnerDetailPopoverCancelDiscards: Labels field not found — skipping edit step")
+        guard labelsField.waitForExistence(timeout: 2) else {
+            // Dismiss cleanly before skipping so tearDown doesn't hang.
+            tapButton(app.buttons["Cancel"])
+            throw XCTSkip("Labels text field not found in popover — skipping")
         }
+        labelsField.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).click()
+        labelsField.typeKey("a", modifierFlags: .command)
+        labelsField.typeText(sentinel)
 
-        // ── 3. Cancel ───────────────────────────────────────────────────
+        // ── 3. Cancel ────────────────────────────────────────────────
         tapButton(app.buttons["Cancel"])
         XCTAssertTrue(app.staticTexts["Active local runners"].waitForExistence(timeout: 3),
                       "Settings must be visible after Cancel")
 
         // ── 4. Re-open same runner row ────────────────────────────────────
-        // Re-fetch the row (SwiftUI may have re-rendered the list)
         guard let runnerRowAgain = firstRunnerRow() else {
-            print("[UITest] testRunnerDetailPopoverCancelDiscards: runner row gone after Cancel — skipping verify")
-            return
+            throw XCTSkip("Runner row gone after Cancel — cannot verify discard behaviour")
         }
         tapButton(runnerRowAgain)
         XCTAssertTrue(runnerDetailPopoverExists(), "Popover must re-open")
 
         // ── 5. Sentinel must not appear in the Labels field ────────────────
         let labelsFieldAgain = app.textFields["comma-separated"]
-        if labelsFieldAgain.waitForExistence(timeout: 2) {
-            let fieldValue = labelsFieldAgain.value as? String ?? ""
-            XCTAssertFalse(
-                fieldValue.contains(sentinel),
-                "Labels field must not contain sentinel after Cancel — got: \(fieldValue)"
-            )
+        guard labelsFieldAgain.waitForExistence(timeout: 2) else {
+            // Dismiss cleanly before skipping — the popover is open at this point
+            // (tapButton(runnerRowAgain) succeeded above). Skipping without
+            // dismissing would leave tearDown with a live popover and hang it.
+            tapButton(app.buttons["Cancel"])
+            throw XCTSkip("Labels field absent on re-open — cannot verify discard behaviour")
         }
+        let fieldValue = labelsFieldAgain.value as? String ?? ""
+        XCTAssertFalse(
+            fieldValue.contains(sentinel),
+            "Labels field must not contain sentinel after Cancel — got: \(fieldValue)"
+        )
 
         // Dismiss cleanly
         tapButton(app.buttons["Cancel"])
