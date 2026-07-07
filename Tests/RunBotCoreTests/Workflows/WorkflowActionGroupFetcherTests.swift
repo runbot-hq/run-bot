@@ -57,6 +57,10 @@ struct StubTransport: GitHubTransportProtocol {
     self.responses = sorted
   }
 
+  // Intentionally a computed property — each call returns a fresh, unconfigured
+  // JSONDecoder. This is correct for a stateless test stub: no shared decoder
+  // state can leak between calls. Do not change to a stored `let` unless the
+  // protocol explicitly requires a shared, pre-configured instance.
   var decoder: JSONDecoder { JSONDecoder() }
   var logger: (any GitHubLogger)? { nil }
 
