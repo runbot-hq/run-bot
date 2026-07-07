@@ -312,6 +312,9 @@ final class RunBotUITests: XCTestCase {
         // ── 5. Sentinel must not appear in the Labels field ────────────────
         let labelsFieldAgain = app.textFields["comma-separated"]
         guard labelsFieldAgain.waitForExistence(timeout: 2) else {
+            // Dismiss cleanly before skipping — the popover is open at this point
+            // (tapButton(runnerRowAgain) succeeded above). Skipping without
+            // dismissing would leave tearDown with a live popover and hang it.
             tapButton(app.buttons["Cancel"])
             throw XCTSkip("Labels field absent on re-open — cannot verify discard behaviour")
         }

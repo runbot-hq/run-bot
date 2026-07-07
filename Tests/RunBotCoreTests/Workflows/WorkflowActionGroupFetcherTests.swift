@@ -61,6 +61,13 @@ struct StubTransport: GitHubTransportProtocol {
   // JSONDecoder. This is correct for a stateless test stub: no shared decoder
   // state can leak between calls. Do not change to a stored `let` unless the
   // protocol explicitly requires a shared, pre-configured instance.
+  //
+  // No divergence from a production pre-configured decoder is possible here:
+  // StubTransport never decodes anything itself. Every response is pre-serialised
+  // Data owned by the test fixture; WorkflowActionGroupFetcher decodes that Data
+  // using its own internal decoder, not transport.decoder. The `decoder` property
+  // on this stub satisfies the protocol requirement but is never invoked during
+  // any test in this file.
   var decoder: JSONDecoder { JSONDecoder() }
   var logger: (any GitHubLogger)? { nil }
 
