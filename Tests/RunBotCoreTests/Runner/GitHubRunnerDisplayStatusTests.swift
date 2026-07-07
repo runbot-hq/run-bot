@@ -24,10 +24,17 @@ struct GitHubRunnerDisplayStatusTests {
         #expect(makeRunner(status: .unknown("draining")).displayStatus(metrics: nil) == "offline")
     }
 
+    /// #1983 Step 3 — .unknown + busy: true must still return "offline" regardless of busy flag.
+    @Test func unknownBusyTrueReturnsOffline() {
+        #expect(
+            makeRunner(status: .unknown("draining"), busy: true).displayStatus(metrics: nil)
+                == "offline")
+    }
+
     @Test func onlineIdleNoMetrics() {
         #expect(
             makeRunner(status: .online, busy: false).displayStatus(metrics: nil)
-                == "idle (CPU: \u{2014} MEM: \u{2014})")
+                == "idle (CPU: — MEM: —)")
     }
 
     @Test func onlineBusyWithMetrics() {
@@ -35,6 +42,13 @@ struct GitHubRunnerDisplayStatusTests {
         #expect(
             makeRunner(status: .online, busy: true).displayStatus(metrics: m)
                 == "active (CPU: 45.0% MEM: 12.3%)")
+    }
+
+    /// #1983 Step 3 — online + busy: true + metrics: nil must fall back to the dash placeholder string.
+    @Test func onlineBusyNilMetricsFallsBackToDashes() {
+        #expect(
+            makeRunner(status: .online, busy: true).displayStatus(metrics: nil)
+                == "active (CPU: — MEM: —)")
     }
 
     @Test func busyStatusShowsActiveWithMetrics() {
