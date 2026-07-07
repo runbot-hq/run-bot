@@ -57,6 +57,7 @@ struct StubTransport: GitHubTransportProtocol {
     self.responses = sorted
   }
 
+  var decoder: JSONDecoder { JSONDecoder() }
   var logger: (any GitHubLogger)? { nil }
 
   func apiAsync(_ endpoint: String, timeout _: TimeInterval) async -> Data? {
