@@ -12,6 +12,17 @@
 ![SPM 6.2](https://img.shields.io/badge/SPM-6.2-F05138?logo=swift&logoColor=white)
 ![Liquid Glass](https://img.shields.io/badge/UI-Liquid%20Glass-0A84FF?style=flat-square&logo=apple&logoColor=white)
 
+**Activity**
+
+[![Version](https://img.shields.io/github/v/release/runbot-hq/run-bot?label=version)](https://github.com/runbot-hq/run-bot/releases/latest)
+[![Beta](https://img.shields.io/github/v/tag/runbot-hq/run-bot?include_prereleases&label=beta&filter=*beta*)](https://github.com/runbot-hq/run-bot/releases)
+[![Downloads](https://img.shields.io/github/downloads/runbot-hq/run-bot/RunBot.zip?label=downloads&displayAssetName=false)](https://github.com/runbot-hq/run-bot/releases)
+[![Latest release](https://img.shields.io/github/release-date/runbot-hq/run-bot?label=latest%20release)](https://github.com/runbot-hq/run-bot/releases/latest)
+[![Open PRs](https://img.shields.io/github/issues-pr/runbot-hq/run-bot)](https://github.com/runbot-hq/run-bot/pulls)
+[![Closed PRs](https://img.shields.io/github/issues-pr-closed/runbot-hq/run-bot)](https://github.com/runbot-hq/run-bot/pulls?q=is%3Apr+is%3Aclosed)
+[![Open Issues](https://img.shields.io/github/issues/runbot-hq/run-bot)](https://github.com/runbot-hq/run-bot/issues)
+[![Closed Issues](https://img.shields.io/github/issues-closed/runbot-hq/run-bot)](https://github.com/runbot-hq/run-bot/issues?q=is%3Aissue+is%3Aclosed)
+
 **CI Checks**
 
 ![UI Tests](https://github.com/runbot-hq/run-bot/actions/workflows/ui-tests.yml/badge.svg)
@@ -38,17 +49,6 @@
 [![Code Smells](https://sonarcloud.io/api/project_badges/measure?project=eoncode_runner-bar&metric=code_smells)](https://sonarcloud.io/summary/new_code?id=eoncode_runner-bar)
 [![Duplicated Lines (%)](https://sonarcloud.io/api/project_badges/measure?project=eoncode_runner-bar&metric=duplicated_lines_density)](https://sonarcloud.io/summary/new_code?id=eoncode_runner-bar)
 [![Lines of Code](https://sonarcloud.io/api/project_badges/measure?project=eoncode_runner-bar&metric=ncloc)](https://sonarcloud.io/summary/new_code?id=eoncode_runner-bar)
-
-**Activity**
-
-[![Version](https://img.shields.io/github/v/release/runbot-hq/run-bot?label=version)](https://github.com/runbot-hq/run-bot/releases/latest)
-[![Beta](https://img.shields.io/github/v/tag/runbot-hq/run-bot?include_prereleases&label=beta&filter=*beta*)](https://github.com/runbot-hq/run-bot/releases)
-[![Downloads](https://img.shields.io/github/downloads/runbot-hq/run-bot/RunBot.zip?label=downloads&displayAssetName=false)](https://github.com/runbot-hq/run-bot/releases)
-[![Latest release](https://img.shields.io/github/release-date/runbot-hq/run-bot?label=latest%20release)](https://github.com/runbot-hq/run-bot/releases/latest)
-[![Open PRs](https://img.shields.io/github/issues-pr/runbot-hq/run-bot)](https://github.com/runbot-hq/run-bot/pulls)
-[![Closed PRs](https://img.shields.io/github/issues-pr-closed/runbot-hq/run-bot)](https://github.com/runbot-hq/run-bot/pulls?q=is%3Apr+is%3Aclosed)
-[![Open Issues](https://img.shields.io/github/issues/runbot-hq/run-bot)](https://github.com/runbot-hq/run-bot/issues)
-[![Closed Issues](https://img.shields.io/github/issues-closed/runbot-hq/run-bot)](https://github.com/runbot-hq/run-bot/issues?q=is%3Aissue+is%3Aclosed)
 
 ---
 
