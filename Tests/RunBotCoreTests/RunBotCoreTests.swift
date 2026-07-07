@@ -275,6 +275,11 @@ struct PollResultBuilderTests {
   /// that is not contractually guaranteed and could change across Swift runtime versions.
   /// This test only pins that the uniquely-dated entry is always retained and that the result
   /// count is exactly `limit`.
+  ///
+  /// Note: `ActiveJob(id:name:status:completedAt:)` is a test-only convenience init defined in
+  /// `TestModelHelpers.swift`. The production model exposes `completedDate: Date?` (computed);
+  /// the helper accepts `completedAt: Date?` and ISO-encodes it into the underlying `GitHubJob`.
+  /// The call below is not a type mismatch — it is intentional and correct.
   @Test func trimJobCacheEqualCompletedDatesRetainsUniqueDateEntry() {
     let sharedDate = Date(timeIntervalSinceReferenceDate: 500)
     let laterDate  = Date(timeIntervalSinceReferenceDate: 600)
