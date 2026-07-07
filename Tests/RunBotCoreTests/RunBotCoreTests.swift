@@ -271,6 +271,10 @@ struct PollResultBuilderTests {
   /// Swift's sort is stable, so entries with equal primary keys remain in their original
   /// relative order. This test pins that the uniquely-dated entry is always retained regardless
   /// of how the equal-dated pair is broken, and that the result count is exactly `limit`.
+  ///
+  /// The tie-break between the two equal-dated entries (id 1 vs id 2) is deliberately not
+  /// asserted: the production sort has no secondary key, so pinning the tie-break would
+  /// over-specify implementation detail and make the test fragile under a sort change.
   @Test func trimJobCacheEqualCompletedDatesRetainsUniqueDateEntry() {
     let sharedDate = Date(timeIntervalSinceReferenceDate: 500)
     let laterDate  = Date(timeIntervalSinceReferenceDate: 600)
@@ -949,9 +953,14 @@ struct ProcessRunnerRunAsyncStdinTests {
             "stdout must be empty when output is written only to stderr")
   }
 
-  /// #1983 Step 5 — A process killed by SIGTERM must return a non-zero exit
-  /// code and must not hang. On Darwin, a process that kills itself with
-  /// SIGTERM exits with code 1 (shell exit code for signal termination).
+  /// #1983 Step 5 — Verifies that ProcessRunner returns a non-zero exit code and does not hang
+  /// when the child process self-terminates via SIGTERM.
+  ///
+  /// Scope note: `kill -TERM $$` makes /bin/sh signal itself — this is intentional.
+  /// This test covers the no-hang + non-zero-exit guarantee for a self-signalling process.
+  /// Testing an externally-delivered SIGTERM (from the test process to the child) would
+  /// require exposing the child PID from ProcessRunner, is notoriously difficult to do
+  /// reliably on Darwin, and is explicitly out of scope for this suite.
   @Test(.timeLimit(.minutes(1)))
   func runAsyncSIGTERMExitsNonZero() async {
     // /bin/sh kills its own process group with SIGTERM then exits.
