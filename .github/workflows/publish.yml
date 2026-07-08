@@ -1,5 +1,5 @@
 # Triggered via workflow_dispatch from main only.
-# Use: gh workflow run publish.yml --ref main --field channel=release --field dry_run=false
+# Use: gh workflow run publish.yml --ref main --field channel=beta --field dry_run=false
 #
 # Responsibilities:
 #   1. Compute the next semver tag from git history.
@@ -20,11 +20,11 @@ on:
       channel:
         description: "Release channel"
         required: true
-        default: "release"
+        default: "beta"
         type: choice
         options:
-          - "release"
           - "beta"
+          - "release"
       dry_run:
         description: "Dry run (skip plist commit, tag, and release creation)"
         required: false
