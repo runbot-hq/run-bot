@@ -57,8 +57,8 @@ zipping, and creating the GitHub Release — is handled by CI automatically.
 
 | Command | Routing branch | Tag format | Release type | Marked latest |
 |---|---|---|---|---|
-| `./publish.sh -beta` | `beta` | `vX.Y.Z-beta.N` | Pre-release | No |
-| `./publish.sh` | `release` | `vX.Y.Z` | Full release | Yes |
+| `./publish.sh -beta` | `beta` | `vX.Y.(Z+1)-beta.N` | Pre-release | No |
+| `./publish.sh` | `release` | `vX.Y.(Z+1)` | Full release | Yes |
 
 The `beta` and `release` branches are **ephemeral CI trigger targets**.
 Do not commit to them directly or use them for long-lived work — they are
@@ -71,7 +71,7 @@ always force-pushed by `publish.sh`.
 - **Source of truth:** `Resources/Info.plist`
   - `CFBundleShortVersionString` — the human-visible version (`X.Y.Z`)
   - `RBVersionString` — the full semver including pre-release suffix
-    (e.g. `0.7.0-beta.2`). This is the key `UpdateChecker` reads at runtime
+    (e.g. `0.7.3-beta.2`). This is the key `UpdateChecker` reads at runtime
     for version comparison; it carries the beta suffix that
     `CFBundleShortVersionString` omits.
   - `CFBundleVersion` — monotonically increasing build number (git commit
@@ -81,15 +81,21 @@ always force-pushed by `publish.sh`.
 - **Rollover:** PATCH rolls over from 9 → 0 and MINOR increments; MINOR
   rolls over from 9 → 0 and MAJOR increments. This keeps all components
   single-digit by convention.
-- **Beta sequence:** multiple betas for the same base share the **current
-  stable** `vX.Y.Z` base and increment only the `beta.N` suffix
-  (e.g. `v0.7.0-beta.1`, `v0.7.0-beta.2`, …). The base is *not*
-  pre-incremented — betas sit on the current stable so the stable release
-  simply bumps PATCH when it ships:
-  `v0.7.0-beta.1` → `v0.7.0-beta.2` → `v0.7.1` (stable).
+- **Beta sequence:** betas are pre-releases of the **next** patch version,
+  not the current stable. CI computes `NEXT_BASE = MAJOR.MINOR.(PATCH+1)`
+  and tags betas as `vNEXT_BASE-beta.N`:
+  ```
+  v0.7.2 ships (stable)
+    → v0.7.3-beta.1, v0.7.3-beta.2, …
+    → v0.7.3 ships (stable)
+  ```
+  This is correct per the [semver spec §9](https://semver.org/#spec-item-9):
+  `v0.7.3-beta.1 > v0.7.2`, so beta users are semver-ahead of stable users.
+  Stable users are not offered betas via the update channel preference in
+  `UpdateChecker`, not by semver precedence.
 - **Promoting to stable:** run `./publish.sh` — CI bumps PATCH from the
-  latest stable tag and creates `vX.Y.(Z+1)` regardless of how many betas
-  preceded it.
+  latest stable tag and creates `vX.Y.(Z+1)`, which is the same base the
+  betas were already under. No version gap, no collision.
 
 ---
 
@@ -253,8 +259,8 @@ or after any changes to `publish.yml` or `build.sh`.
 
 ### What to check in the log
 
-- **Compute next tag** — the computed tag looks correct (e.g. `v0.7.0-beta.1`
-  for a beta dry run, `v0.7.1` for a stable dry run)
+- **Compute next tag** — the computed tag looks correct (e.g. `v0.7.3-beta.1`
+  for a beta dry run when latest stable is `v0.7.2`, or `v0.7.3` for a stable dry run)
 - **Guard against duplicate tag** — passes without aborting
 - **Patch Info.plist** — log line reads:
   `Patched Info.plist: shortVersion=X.Y.Z fullVersion=X.Y.Z[-beta.N] build=NNN`
