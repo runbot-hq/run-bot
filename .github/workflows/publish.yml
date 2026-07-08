@@ -157,6 +157,13 @@ jobs:
             # Beta base is PATCH+1 — pre-releases of the next version, not the
             # current stable. This ensures semver precedence is correct:
             #   v0.7.3-beta.1  >  v0.7.2  (beta users are ahead of stable)
+            #
+            # HIGHEST_N scans only tags under NEXT_BASE (e.g. v0.7.3-beta.*).
+            # Any legacy beta tags from before this scheme (e.g. v0.7.2-beta.*)
+            # will not be matched — this is intentional. Those tags lived under
+            # a different base and are not part of the current beta sequence.
+            # NEXT_N correctly resets to 1 for the new base; there is no
+            # collision risk because the bases are different.
             HIGHEST_N=$(git tag --list "v${NEXT_BASE}-beta.*" \
               | grep -oE 'beta\.[0-9]+$' \
               | grep -oE '[0-9]+$' \
