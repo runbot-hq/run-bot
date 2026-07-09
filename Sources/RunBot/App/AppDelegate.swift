@@ -178,13 +178,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         currentVersion: Bundle.main.rbVersionString,
         assetName: { _ in "RunBot.zip" },
         // 32-byte Ed25519 public key — safe to commit (public key, not secret).
-        // Force-unwrap is intentional: this is a compile-time constant and a nil result
-        // means the base64 string was accidentally corrupted. AppUpdater.init already
-        // has a precondition(publicKey.count == 32) one line later — crashing here is
-        // equivalent and surfaces the mistake immediately at launch. Do not replace with
-        // a guard/fallback: silently skipping update verification is worse than crashing.
+        // preconditionFailure gives a readable crash message on key rotation typos;
+        // silent fallback would be worse (update verification silently disabled).
+        // AppUpdater.init also has precondition(publicKey.count == 32) as a second guard.
         // Private key lives in Actions secret ED25519_PRIVATE_KEY — never commit it.
-        publicKey: Data(base64Encoded: "lECb0Xv0zTET/Biw00rTtCl/sVdbzGG4WICYlG7g/oc=")!,
+        publicKey: Data(base64Encoded: "lECb0Xv0zTET/Biw00rTtCl/sVdbzGG4WICYlG7g/oc=")
+            ?? { preconditionFailure("Ed25519 public key is not valid base64 — check key after rotation") }(),
         schedulerIdentifier: "io.github.runbot-hq.update-check",
         betaChannelProvider: { AppPreferencesStore.shared.betaChannel }
     )
