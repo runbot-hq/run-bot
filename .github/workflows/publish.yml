@@ -290,13 +290,18 @@ jobs:
             exit 1
           fi
           # Assert the secret's public key matches the literal committed in AppDelegate.swift.
-          # COMMITTED_PUB is read from source — not hardcoded here — so there is exactly one
-          # source of truth. Rotation requires updating only AppDelegate.swift; CI picks it up.
+          # Read the committed public key directly from AppDelegate.swift so there is one
+          # source of truth. The pattern matches the specific publicKey: argument line only.
+          # If the grep returns empty (line moved/reformatted), we fail loudly here rather
+          # than silently comparing empty strings.
           # openssl pkey -pubout -outform DER emits a 12-byte SubjectPublicKeyInfo header
           # (fixed for Ed25519 per RFC 8410) followed by the 32-byte raw key; tail -c 32
-          # strips the header. This is a load-bearing assumption: if OpenSSL ever changes the
-          # DER encoding the check will fail loudly at release time, not silently.
-          COMMITTED_PUB=$(grep -o 'base64Encoded: "[^"]*"' Sources/RunBot/App/AppDelegate.swift | grep -o '"[^"]*"$' | tr -d '"')
+          # strips the header. Load-bearing assumption: fails loudly if encoding ever changes.
+          COMMITTED_PUB=$(grep -o 'publicKey: Data(base64Encoded: "[^"]*")' Sources/RunBot/App/AppDelegate.swift | grep -o '"[^"]*"' | tr -d '"')
+          if [[ -z "${COMMITTED_PUB:-}" ]]; then
+            echo "::error::Could not extract public key from AppDelegate.swift — check grep pattern after refactor" >&2
+            exit 1
+          fi
           DERIVED_PUB=$(openssl pkey -in <(echo "$ED25519_PRIVATE_KEY") -pubout -outform DER | tail -c 32 | base64)
           if [[ "$DERIVED_PUB" != "$COMMITTED_PUB" ]]; then
             echo "::error::ED25519_PRIVATE_KEY does not match the public key committed in AppDelegate.swift — rotate both together" >&2
