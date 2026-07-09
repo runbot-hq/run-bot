@@ -312,7 +312,7 @@ jobs:
           # was stored, or it was base64-encoded before storing).
           # BSD wc -c (macOS) pads with leading spaces; -ne in arithmetic context
           # strips them. Do not change to == (string comparison with padding fails).
-          SIG_BYTES=$(wc -c < "$SIG")
+          SIG_BYTES=$(wc -c < "$SIG" | tr -d ' ')
           echo "Signed: $SIG ($SIG_BYTES bytes)"
           if [[ "$SIG_BYTES" -ne 64 ]]; then
             echo "error: expected 64-byte Ed25519 signature, got $SIG_BYTES bytes — check ED25519_PRIVATE_KEY secret format (must be full PEM block)" >&2
@@ -326,6 +326,9 @@ jobs:
           # grep pattern targets the specific publicKey: Data(base64Encoded:) line.
           # If the line is moved or reformatted the grep returns empty and the guard
           # below fails loudly — it will never silently compare two empty strings.
+          # FRAGILE: this pattern is whitespace- and quote-sensitive — it expects
+          # exactly one space before the opening " and double-quotes (not single).
+          # If an auto-formatter rewraps or reformats this line, update the pattern here.
           COMMITTED_PUB=$(grep -o 'publicKey: Data(base64Encoded: "[^"]*")' Sources/RunBot/App/AppDelegate.swift | grep -o '"[^"]*"' | tr -d '"')
           if [[ -z "${COMMITTED_PUB:-}" ]]; then
             echo "::error::Could not extract public key from AppDelegate.swift — check grep pattern after refactor" >&2
