@@ -256,15 +256,22 @@ jobs:
           echo "zip_path=$ZIP" >> "$GITHUB_OUTPUT"
 
       # ── Sign release zip with Ed25519 ─────────────────────────────────────────────────
-      # Produces RunBot.zip.sig (raw 64-byte Ed25519 signature of the zip bytes).
-      # ED25519_PRIVATE_KEY must be stored as the full PEM block (-----BEGIN PRIVATE KEY-----
-      # ... -----END PRIVATE KEY-----). The <(echo ...) process substitution feeds it to
-      # openssl without writing to disk. openssl is tolerant of the trailing newline echo
-      # appends — PEM parsers skip trailing whitespace. Do not switch to printf to "fix"
-      # the newline: it makes no difference and obscures intent.
-      # AppUpdater looks for an asset named exactly "<assetName>.sig" at update time.
-      # Intentionally not dry_run-gated: the upload step is gated, but signing must run
-      # first so the .sig output exists. Dry runs therefore require ED25519_PRIVATE_KEY set.
+      # Produces RunBot.zip.sig — a raw 64-byte Ed25519 signature of the zip bytes.
+      # AppUpdater downloads this sidecar, reads it as raw Data, and passes it to
+      # Curve25519.Signing.PublicKey.isValidSignature(_:for:). The file is binary, not
+      # base64 — do not base64-encode the .sig output.
+      #
+      # ED25519_PRIVATE_KEY must be the full PEM block (-----BEGIN PRIVATE KEY----- ...).
+      # The <(echo ...) process substitution passes it to openssl without writing to disk.
+      # openssl's PEM parser tolerates the trailing newline echo appends — do not switch
+      # to printf to "fix" this; it makes no difference and obscures intent.
+      #
+      # Dry-run behaviour: this step is intentionally NOT gated on dry_run != 'true'.
+      # The upload step IS gated, but it consumes sig_path from this step's output —
+      # if signing is skipped, the upload step has no .sig to reference. Consequence:
+      # dry runs require ED25519_PRIVATE_KEY to be set; they will fail at the
+      # empty-secret guard below if it isn't. This is intentional — a dry run that
+      # can't sign is not a useful simulation of a real release.
       - name: Sign release zip with Ed25519
         id: sign
         env:
@@ -278,36 +285,55 @@ jobs:
           fi
           ZIP="${{ steps.verify.outputs.zip_path }}"
           SIG="${ZIP}.sig"
+          # -rawin: sign the raw file bytes with no digest wrapping (Ed25519 hashes
+          # internally via SHA-512; adding an outer digest here would be wrong).
+          # Output is a raw 64-byte binary signature — not base64, not PEM.
           openssl pkeyutl -sign -rawin \
             -inkey <(echo "$ED25519_PRIVATE_KEY") \
             -in "$ZIP" -out "$SIG"
-          # BSD wc -c (macOS) pads output with leading spaces; -ne strips whitespace
-          # in arithmetic context so the comparison is correct. Do not change to == (string).
+          # Ed25519 signatures are always exactly 64 bytes (RFC 8032 §5.1.6).
+          # Anything else means the secret is malformed (e.g. only the public half
+          # was stored, or it was base64-encoded before storing).
+          # BSD wc -c (macOS) pads with leading spaces; -ne in arithmetic context
+          # strips them. Do not change to == (string comparison with padding fails).
           SIG_BYTES=$(wc -c < "$SIG")
           echo "Signed: $SIG ($SIG_BYTES bytes)"
           if [[ "$SIG_BYTES" -ne 64 ]]; then
             echo "error: expected 64-byte Ed25519 signature, got $SIG_BYTES bytes — check ED25519_PRIVATE_KEY secret format (must be full PEM block)" >&2
             exit 1
           fi
-          # Assert the secret's public key matches the literal committed in AppDelegate.swift.
-          # Read the committed public key directly from AppDelegate.swift so there is one
-          # source of truth. The pattern matches the specific publicKey: argument line only.
-          # If the grep returns empty (line moved/reformatted), we fail loudly here rather
-          # than silently comparing empty strings.
-          # openssl pkey -pubout -outform DER emits a 12-byte SubjectPublicKeyInfo header
-          # (fixed for Ed25519 per RFC 8410) followed by the 32-byte raw key; tail -c 32
-          # strips the header. Load-bearing assumption: fails loudly if encoding ever changes.
+          # ── Public-key mismatch guard ────────────────────────────────────────────────
+          # Catches a rotation where the CI secret was updated but AppDelegate.swift
+          # wasn't (or vice versa). There is exactly one source of truth: the base64
+          # literal in AppDelegate.swift. This step reads it — nothing is hardcoded here.
+          #
+          # grep pattern targets the specific publicKey: Data(base64Encoded:) line.
+          # If the line is moved or reformatted the grep returns empty and the guard
+          # below fails loudly — it will never silently compare two empty strings.
           COMMITTED_PUB=$(grep -o 'publicKey: Data(base64Encoded: "[^"]*")' Sources/RunBot/App/AppDelegate.swift | grep -o '"[^"]*"' | tr -d '"')
           if [[ -z "${COMMITTED_PUB:-}" ]]; then
             echo "::error::Could not extract public key from AppDelegate.swift — check grep pattern after refactor" >&2
             exit 1
           fi
+          # Derive the public key from the private key in PEM form:
+          #   openssl pkey -pubout -outform DER  →  44-byte SubjectPublicKeyInfo blob
+          #   tail -c 32                          →  strip the 12-byte DER header
+          #                                          (fixed for Ed25519 per RFC 8410 §4)
+          #   base64 -w 0                         →  single-line base64, no line wrapping
+          # -w 0 is explicit: BSD base64 (macOS) wraps at 76 chars by default.
+          # A 32-byte key encodes to 44 chars so wrapping never triggers in practice,
+          # but -w 0 makes the no-wrap behaviour unconditional across key types and
+          # future rotations. Without it the comparison would silently fail if the
+          # encoded output ever exceeded 76 chars.
           DERIVED_PUB=$(openssl pkey -in <(echo "$ED25519_PRIVATE_KEY") -pubout -outform DER | tail -c 32 | base64 -w 0)
           if [[ "$DERIVED_PUB" != "$COMMITTED_PUB" ]]; then
             echo "::error::ED25519_PRIVATE_KEY does not match the public key committed in AppDelegate.swift — rotate both together" >&2
             exit 1
           fi
-          # Verify sig with the derived public key (not the private key) — catches corrupt sig
+          # Final round-trip verification: re-derive the public key and verify the
+          # signature we just produced. Uses -pubin (verifies against the public key,
+          # not the private key) so this is a genuine independent check — it catches
+          # a corrupt .sig output, not just a re-sign of the same input.
           openssl pkeyutl -verify -rawin -pubin \
             -inkey <(openssl pkey -in <(echo "$ED25519_PRIVATE_KEY") -pubout) \
             -in "$ZIP" -sigfile "$SIG"
