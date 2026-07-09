@@ -177,6 +177,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         repo: "runbot-hq/run-bot",
         currentVersion: Bundle.main.rbVersionString,
         assetName: { _ in "RunBot.zip" },
+        // 32-byte Ed25519 public key — safe to commit (public key, not secret).
+        // Parameter is `publicKey: Data` (raw bytes); the issue spec draft said
+        // `ed25519PublicKey: String` but AppUpdater#46 shipped the API as Data — this is correct.
+        // preconditionFailure gives a readable crash on key-rotation typos; silent fallback
+        // would be worse (update verification silently disabled). AppUpdater.init also has
+        // its own precondition(publicKey.count == 32) as a second guard.
+        // Private key lives in Actions secret ED25519_PRIVATE_KEY — never commit it.
+        publicKey: Data(base64Encoded: "lECb0Xv0zTET/Biw00rTtCl/sVdbzGG4WICYlG7g/oc=")
+            ?? { preconditionFailure("Ed25519 public key is not valid base64 — check key after rotation") }(),
         schedulerIdentifier: "io.github.runbot-hq.update-check",
         betaChannelProvider: { AppPreferencesStore.shared.betaChannel }
     )

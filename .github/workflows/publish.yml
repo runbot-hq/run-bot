@@ -7,7 +7,7 @@
 #   3. Patch Info.plist with the computed version + incremented build number.
 #   4. Build + zip via build.sh.
 #   5. Verify the zip contains RunBot.app/Contents/MacOS/RunBot.
-#   6. Generate SHA-256 sidecar (RunBot.zip.sha256).
+#   6. Sign release zip with Ed25519 (RunBot.zip.sig).
 #   7. Commit patched Info.plist back to main via --force-with-lease (skipped on dry_run).
 #   8. Tag the plist commit SHA directly — race-free (skipped on dry_run).
 #   9. Create GitHub Release with release_notes if provided, --generate-notes otherwise (skipped on dry_run).
@@ -255,20 +255,117 @@ jobs:
           echo "Zip verified: RunBot.app/Contents/MacOS/RunBot is present at archive root."
           echo "zip_path=$ZIP" >> "$GITHUB_OUTPUT"
 
-      # ── Generate SHA-256 sidecar ───────────────────────────────────────────────────────
-      # AppUpdater.downloadUpdate fetches checksumURL from the release assets
-      # and treats a missing sidecar as a hard failure. The sidecar format is:
-      #   <hex-digest>  RunBot.zip
-      # which matches `shasum -a 256` output and is what verifyChecksum parses.
-      - name: Generate SHA-256 sidecar
-        id: checksum
+      # ── Sign release zip with Ed25519 ─────────────────────────────────────────────────
+      # Produces RunBot.zip.sig — a raw 64-byte Ed25519 signature of the zip bytes.
+      # AppUpdater#46 downloads this sidecar, reads it with Data(contentsOf:) (raw bytes,
+      # no decoding step), and passes it directly to
+      # Curve25519.Signing.PublicKey.isValidSignature(_:for:). CryptoKit expects raw
+      # 64-byte binary — not base64, not DER/PEM-wrapped. Do not base64-encode the .sig.
+      # Note: issue #2002's draft signing snippet base64-encoded the output; that draft
+      # was written before the AppUpdater API was finalised. The shipped API is raw Data.
+      #
+      # ED25519_PRIVATE_KEY must be the full PEM block (-----BEGIN PRIVATE KEY----- ...).
+      # The <(echo ...) process substitution passes it to openssl without writing to disk.
+      # echo is used (not printf) because echo is a bash builtin — it never forks a
+      # subprocess and therefore never exposes secret material via /proc/<pid>/cmdline
+      # or the process table. This is safe on both macOS and Linux when shell: bash is
+      # declared (as it is here); bash's builtin echo is guaranteed, not /bin/echo.
+      # openssl's PEM parser tolerates the trailing newline echo appends.
+      # Do not switch to printf to "fix" this; it makes no difference and obscures intent.
+      # This runner is macos-26 (self-hosted) — the Linux /proc exposure path does not
+      # apply, but the builtin guarantee makes it safe on either platform regardless.
+      #
+      # Dry-run behaviour: this step is intentionally NOT gated on dry_run != 'true'.
+      # The upload step IS gated, but it consumes sig_path from this step's output —
+      # if signing is skipped, the upload step has no .sig to reference. Consequence:
+      # dry runs require ED25519_PRIVATE_KEY to be set; they will fail at the
+      # empty-secret guard below if it isn't. This is intentional — a dry run that
+      # can't sign is not a useful simulation of a real release.
+      - name: Sign release zip with Ed25519
+        id: sign
+        env:
+          ED25519_PRIVATE_KEY: ${{ secrets.ED25519_PRIVATE_KEY }}
+        shell: bash
         run: |
           set -euo pipefail
+          if [[ -z "${ED25519_PRIVATE_KEY:-}" ]]; then
+            echo "::error::ED25519_PRIVATE_KEY secret is not set — cannot sign release" >&2
+            exit 1
+          fi
+          # Validate PEM parseability before attempting to sign. Catches a malformed or
+          # truncated secret (e.g. copied without the header/footer lines) with a clear
+          # error rather than a confusing 64-byte size assertion failure later.
+          # Note: for Ed25519, openssl pkey -check only verifies the key parses as valid
+          # PKCS#8 PEM — it does NOT assert the key type is Ed25519 specifically. A wrong
+          # key type (e.g. RSA stored by mistake) passes this guard but then fails at the
+          # 64-byte size assertion below, which is the correct downstream catch.
+          if ! openssl pkey -in <(echo "$ED25519_PRIVATE_KEY") -check -noout 2>/dev/null; then
+            echo "::error::ED25519_PRIVATE_KEY is not a valid PEM private key — check the secret format (must be full -----BEGIN PRIVATE KEY----- block)" >&2
+            exit 1
+          fi
           ZIP="${{ steps.verify.outputs.zip_path }}"
-          SIDECAR="${ZIP}.sha256"
-          /usr/bin/shasum -a 256 "$ZIP" > "$SIDECAR"
-          echo "SHA-256 sidecar: $(cat $SIDECAR)"
-          echo "sidecar_path=$SIDECAR" >> "$GITHUB_OUTPUT"
+          SIG="${ZIP}.sig"
+          # -rawin: sign the raw file bytes with no digest wrapping (Ed25519 hashes
+          # internally via SHA-512; adding an outer digest here would be wrong).
+          # Output is a raw 64-byte binary signature — not base64, not PEM.
+          openssl pkeyutl -sign -rawin \
+            -inkey <(echo "$ED25519_PRIVATE_KEY") \
+            -in "$ZIP" -out "$SIG"
+          # Ed25519 signatures are always exactly 64 bytes (RFC 8032 §5.1.6).
+          # Anything else means the secret is malformed (e.g. only the public half
+          # was stored, or it was base64-encoded before storing).
+          # BSD wc -c (macOS) pads with leading spaces; -ne in arithmetic context
+          # strips them. Do not change to == (string comparison with padding fails).
+          SIG_BYTES=$(wc -c < "$SIG" | tr -d ' ')
+          echo "Signed: $SIG ($SIG_BYTES bytes)"
+          if [[ "$SIG_BYTES" -ne 64 ]]; then
+            echo "error: expected 64-byte Ed25519 signature, got $SIG_BYTES bytes — check ED25519_PRIVATE_KEY secret format (must be full PEM block)" >&2
+            exit 1
+          fi
+          # ── Public-key mismatch guard ────────────────────────────────────────────────
+          # Catches a rotation where the CI secret was updated but AppDelegate.swift
+          # wasn't (or vice versa). There is exactly one source of truth: the base64
+          # literal in AppDelegate.swift. This step reads it — nothing is hardcoded here.
+          #
+          # grep pattern targets the specific publicKey: Data(base64Encoded:) line.
+          # If the line is moved or reformatted the grep returns empty and the guard
+          # below fails loudly — it will never silently compare two empty strings.
+          # FRAGILE: this pattern is whitespace- and quote-sensitive — it expects
+          # exactly one space before the opening " and double-quotes (not single).
+          # If an auto-formatter rewraps or reformats this line, update the pattern here.
+          COMMITTED_PUB=$(grep -o 'publicKey: Data(base64Encoded: "[^"]*")' Sources/RunBot/App/AppDelegate.swift | grep -o '"[^"]*"' | tr -d '"')
+          if [[ -z "${COMMITTED_PUB:-}" ]]; then
+            echo "::error::Could not extract public key from AppDelegate.swift — check grep pattern after refactor" >&2
+            exit 1
+          fi
+          # Derive the public key from the private key in PEM form:
+          #   openssl pkey -pubout -outform DER  →  44-byte SubjectPublicKeyInfo blob
+          #   tail -c 32                          →  strip the 12-byte DER header
+          #                                          (fixed for Ed25519 per RFC 8410 §4)
+          #   base64 | tr -d '\n'                →  single-line base64, no line wrapping
+          # The 12-byte SPKI header is unconditionally fixed for Ed25519 — RFC 8410 §4
+          # defines a mandatory, constant OID prefix with no optional parameters.
+          # OpenSSL 3.x optional public-key params apply to X25519/X448 only, not
+          # Ed25519; the DER output for Ed25519 is always exactly 44 bytes on any
+          # conforming OpenSSL version. tail -c 32 is therefore stable, not fragile.
+          # tr -d '\n' is POSIX and works identically on macOS (BSD) and Linux (GNU).
+          # A 32-byte key encodes to 44 chars so BSD base64's default 76-char wrap
+          # never triggers in practice, but the explicit strip makes the no-wrap
+          # behaviour unconditional across any future key rotation or platform change.
+          DERIVED_PUB=$(openssl pkey -in <(echo "$ED25519_PRIVATE_KEY") -pubout -outform DER | tail -c 32 | base64 | tr -d '\n')
+          if [[ "$DERIVED_PUB" != "$COMMITTED_PUB" ]]; then
+            echo "::error::ED25519_PRIVATE_KEY does not match the public key committed in AppDelegate.swift — rotate both together" >&2
+            exit 1
+          fi
+          # Final round-trip verification: re-derive the public key and verify the
+          # signature we just produced. Uses -pubin (verifies against the public key,
+          # not the private key) so this is a genuine independent check — it catches
+          # a corrupt .sig output, not just a re-sign of the same input.
+          openssl pkeyutl -verify -rawin -pubin \
+            -inkey <(openssl pkey -in <(echo "$ED25519_PRIVATE_KEY") -pubout) \
+            -in "$ZIP" -sigfile "$SIG"
+          echo "Signature verified OK (public key match confirmed)."
+          echo "sig_path=$SIG" >> "$GITHUB_OUTPUT"
 
       # ── Commit patched Info.plist back to main ─────────────────────────────────────────
       # Pushes the version-bumped Info.plist back to main so that main always
@@ -314,10 +411,8 @@ jobs:
           echo "Pushed tag $TAG (at plist commit $PLIST_SHA)."
 
       # ── Create GitHub Release ──────────────────────────────────────────────────────────
-      # Both the zip and the .sha256 sidecar are uploaded as release assets.
-      # UpdateChecker decodes checksumURL from the asset list by matching the
-      # ".sha256" suffix. Omitting the sidecar would cause checksumURL to be nil,
-      # which downloadUpdate treats as a hard failure.
+      # Uploads the zip and its Ed25519 .sig sidecar as release assets.
+      # AppUpdater looks for "<assetName>.sig" at update time — both files must be present.
       #
       # Release notes: if the release_notes input is provided, it is used verbatim.
       # If left blank, --generate-notes auto-generates notes from commits since
@@ -331,7 +426,7 @@ jobs:
           TAG="${{ steps.tag.outputs.tag }}"
           CHANNEL="${{ steps.tag.outputs.channel }}"
           ZIP="${{ steps.verify.outputs.zip_path }}"
-          SIDECAR="${{ steps.checksum.outputs.sidecar_path }}"
+          SIG="${{ steps.sign.outputs.sig_path }}"
 
           FLAGS=()
           if [[ "$CHANNEL" == "beta" ]]; then
@@ -349,7 +444,7 @@ jobs:
 
           gh release create "$TAG" \
             "$ZIP" \
-            "$SIDECAR" \
+            "$SIG" \
             --title "$TAG" \
             "${FLAGS[@]}"
 
