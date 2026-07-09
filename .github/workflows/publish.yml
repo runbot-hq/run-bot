@@ -343,6 +343,11 @@ jobs:
           #   tail -c 32                          →  strip the 12-byte DER header
           #                                          (fixed for Ed25519 per RFC 8410 §4)
           #   base64 | tr -d '\n'                →  single-line base64, no line wrapping
+          # The 12-byte SPKI header is unconditionally fixed for Ed25519 — RFC 8410 §4
+          # defines a mandatory, constant OID prefix with no optional parameters.
+          # OpenSSL 3.x optional public-key params apply to X25519/X448 only, not
+          # Ed25519; the DER output for Ed25519 is always exactly 44 bytes on any
+          # conforming OpenSSL version. tail -c 32 is therefore stable, not fragile.
           # tr -d '\n' is POSIX and works identically on macOS (BSD) and Linux (GNU).
           # A 32-byte key encodes to 44 chars so BSD base64's default 76-char wrap
           # never triggers in practice, but the explicit strip makes the no-wrap
