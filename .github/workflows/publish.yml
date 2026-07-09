@@ -302,7 +302,7 @@ jobs:
             echo "::error::Could not extract public key from AppDelegate.swift — check grep pattern after refactor" >&2
             exit 1
           fi
-          DERIVED_PUB=$(openssl pkey -in <(echo "$ED25519_PRIVATE_KEY") -pubout -outform DER | tail -c 32 | base64)
+          DERIVED_PUB=$(openssl pkey -in <(echo "$ED25519_PRIVATE_KEY") -pubout -outform DER | tail -c 32 | base64 -w 0)
           if [[ "$DERIVED_PUB" != "$COMMITTED_PUB" ]]; then
             echo "::error::ED25519_PRIVATE_KEY does not match the public key committed in AppDelegate.swift — rotate both together" >&2
             exit 1
