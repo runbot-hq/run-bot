@@ -292,9 +292,13 @@ jobs:
             echo "::error::ED25519_PRIVATE_KEY secret is not set — cannot sign release" >&2
             exit 1
           fi
-          # Validate PEM structure before attempting to sign. Catches a malformed or
+          # Validate PEM parseability before attempting to sign. Catches a malformed or
           # truncated secret (e.g. copied without the header/footer lines) with a clear
-          # OpenSSL error rather than a confusing 64-byte size assertion failure later.
+          # error rather than a confusing 64-byte size assertion failure later.
+          # Note: for Ed25519, openssl pkey -check only verifies the key parses as valid
+          # PKCS#8 PEM — it does NOT assert the key type is Ed25519 specifically. A wrong
+          # key type (e.g. RSA stored by mistake) passes this guard but then fails at the
+          # 64-byte size assertion below, which is the correct downstream catch.
           if ! openssl pkey -in <(echo "$ED25519_PRIVATE_KEY") -check -noout 2>/dev/null; then
             echo "::error::ED25519_PRIVATE_KEY is not a valid PEM private key — check the secret format (must be full -----BEGIN PRIVATE KEY----- block)" >&2
             exit 1
