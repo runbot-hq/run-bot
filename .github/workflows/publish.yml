@@ -257,7 +257,11 @@ jobs:
 
       # ── Sign release zip with Ed25519 ─────────────────────────────────────────────────
       # Produces RunBot.zip.sig (raw 64-byte Ed25519 signature of the zip bytes).
-      # The private key is fed via <(...) process substitution — never written to disk.
+      # ED25519_PRIVATE_KEY must be stored as the full PEM block (-----BEGIN PRIVATE KEY-----
+      # ... -----END PRIVATE KEY-----). The <(echo ...) process substitution feeds it to
+      # openssl without writing to disk. openssl is tolerant of the trailing newline echo
+      # appends — PEM parsers skip trailing whitespace. Do not switch to printf to "fix"
+      # the newline: it makes no difference and obscures intent.
       # AppUpdater looks for an asset named exactly "<assetName>.sig" at update time.
       - name: Sign release zip with Ed25519
         id: sign
