@@ -283,6 +283,13 @@ jobs:
             echo "::error::ED25519_PRIVATE_KEY secret is not set — cannot sign release" >&2
             exit 1
           fi
+          # Validate PEM structure before attempting to sign. Catches a malformed or
+          # truncated secret (e.g. copied without the header/footer lines) with a clear
+          # OpenSSL error rather than a confusing 64-byte size assertion failure later.
+          if ! openssl pkey -in <(echo "$ED25519_PRIVATE_KEY") -check -noout 2>/dev/null; then
+            echo "::error::ED25519_PRIVATE_KEY is not a valid PEM private key — check the secret format (must be full -----BEGIN PRIVATE KEY----- block)" >&2
+            exit 1
+          fi
           ZIP="${{ steps.verify.outputs.zip_path }}"
           SIG="${ZIP}.sig"
           # -rawin: sign the raw file bytes with no digest wrapping (Ed25519 hashes
