@@ -177,6 +177,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         repo: "runbot-hq/run-bot",
         currentVersion: Bundle.main.rbVersionString,
         assetName: { _ in "RunBot.zip" },
+        publicKey: Data(base64Encoded: "lECb0Xv0zTET/Biw00rTtCl/sVdbzGG4WICYlG7g/oc=")!, // Ed25519 public key — safe to commit; private key is in Actions secret ED25519_PRIVATE_KEY
         schedulerIdentifier: "io.github.runbot-hq.update-check",
         betaChannelProvider: { AppPreferencesStore.shared.betaChannel }
     )

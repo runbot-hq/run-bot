@@ -255,20 +255,24 @@ jobs:
           echo "Zip verified: RunBot.app/Contents/MacOS/RunBot is present at archive root."
           echo "zip_path=$ZIP" >> "$GITHUB_OUTPUT"
 
-      # ── Generate SHA-256 sidecar ───────────────────────────────────────────────────────
-      # AppUpdater.downloadUpdate fetches checksumURL from the release assets
-      # and treats a missing sidecar as a hard failure. The sidecar format is:
-      #   <hex-digest>  RunBot.zip
-      # which matches `shasum -a 256` output and is what verifyChecksum parses.
-      - name: Generate SHA-256 sidecar
-        id: checksum
+      # ── Sign release zip with Ed25519 ─────────────────────────────────────────────────
+      # Produces RunBot.zip.sig (raw 64-byte Ed25519 signature of the zip bytes).
+      # The private key is fed via <(...) process substitution — never written to disk.
+      # AppUpdater looks for an asset named exactly "<assetName>.sig" at update time.
+      - name: Sign release zip with Ed25519
+        id: sign
+        env:
+          ED25519_PRIVATE_KEY: ${{ secrets.ED25519_PRIVATE_KEY }}
+        shell: bash
         run: |
           set -euo pipefail
           ZIP="${{ steps.verify.outputs.zip_path }}"
-          SIDECAR="${ZIP}.sha256"
-          /usr/bin/shasum -a 256 "$ZIP" > "$SIDECAR"
-          echo "SHA-256 sidecar: $(cat $SIDECAR)"
-          echo "sidecar_path=$SIDECAR" >> "$GITHUB_OUTPUT"
+          SIG="${ZIP}.sig"
+          openssl pkeyutl -sign -rawin \
+            -inkey <(echo "$ED25519_PRIVATE_KEY") \
+            -in "$ZIP" -out "$SIG"
+          echo "Signed: $SIG ($(wc -c < "$SIG") bytes)"
+          echo "sig_path=$SIG" >> "$GITHUB_OUTPUT"
 
       # ── Commit patched Info.plist back to main ─────────────────────────────────────────
       # Pushes the version-bumped Info.plist back to main so that main always
@@ -314,10 +318,8 @@ jobs:
           echo "Pushed tag $TAG (at plist commit $PLIST_SHA)."
 
       # ── Create GitHub Release ──────────────────────────────────────────────────────────
-      # Both the zip and the .sha256 sidecar are uploaded as release assets.
-      # UpdateChecker decodes checksumURL from the asset list by matching the
-      # ".sha256" suffix. Omitting the sidecar would cause checksumURL to be nil,
-      # which downloadUpdate treats as a hard failure.
+      # Uploads the zip and its Ed25519 .sig sidecar as release assets.
+      # AppUpdater looks for "<assetName>.sig" at update time — both files must be present.
       #
       # Release notes: if the release_notes input is provided, it is used verbatim.
       # If left blank, --generate-notes auto-generates notes from commits since
@@ -331,7 +333,7 @@ jobs:
           TAG="${{ steps.tag.outputs.tag }}"
           CHANNEL="${{ steps.tag.outputs.channel }}"
           ZIP="${{ steps.verify.outputs.zip_path }}"
-          SIDECAR="${{ steps.checksum.outputs.sidecar_path }}"
+          SIG="${{ steps.sign.outputs.sig_path }}"
 
           FLAGS=()
           if [[ "$CHANNEL" == "beta" ]]; then
@@ -349,7 +351,7 @@ jobs:
 
           gh release create "$TAG" \
             "$ZIP" \
-            "$SIDECAR" \
+            "$SIG" \
             --title "$TAG" \
             "${FLAGS[@]}"
 
