@@ -287,11 +287,24 @@ jobs:
             echo "error: expected 64-byte Ed25519 signature, got $SIG_BYTES bytes — check ED25519_PRIVATE_KEY secret format (must be full PEM block)" >&2
             exit 1
           fi
-          # Round-trip verify before upload — catches key mismatch or corrupt sig
-          openssl pkeyutl -verify -rawin \
-            -inkey <(echo "$ED25519_PRIVATE_KEY") \
+          # Assert the secret's public key matches the literal committed in AppDelegate.swift.
+          # openssl pkey -pubout -outform DER emits a 44-byte SubjectPublicKeyInfo header
+          # followed by the 32-byte raw key; tail -c 32 strips the header, base64 gives the
+          # same 44-char string stored in publicKey: Data(base64Encoded:).
+          # This is the only check that catches a rotation where the secret was updated but
+          # AppDelegate.swift was not (or vice versa) — the private-key-only verify below
+          # cannot detect that mismatch.
+          COMMITTED_PUB="lECb0Xv0zTET/Biw00rTtCl/sVdbzGG4WICYlG7g/oc="
+          DERIVED_PUB=$(openssl pkey -in <(echo "$ED25519_PRIVATE_KEY") -pubout -outform DER | tail -c 32 | base64)
+          if [[ "$DERIVED_PUB" != "$COMMITTED_PUB" ]]; then
+            echo "::error::ED25519_PRIVATE_KEY does not match the public key committed in AppDelegate.swift — rotate both together" >&2
+            exit 1
+          fi
+          # Verify sig with the derived public key (not the private key) — catches corrupt sig
+          openssl pkeyutl -verify -rawin -pubin \
+            -inkey <(openssl pkey -in <(echo "$ED25519_PRIVATE_KEY") -pubout) \
             -in "$ZIP" -sigfile "$SIG"
-          echo "Signature verified OK."
+          echo "Signature verified OK (public key match confirmed)."
           echo "sig_path=$SIG" >> "$GITHUB_OUTPUT"
 
       # ── Commit patched Info.plist back to main ─────────────────────────────────────────
