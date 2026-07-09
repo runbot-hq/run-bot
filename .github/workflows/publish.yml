@@ -257,14 +257,20 @@ jobs:
 
       # ── Sign release zip with Ed25519 ─────────────────────────────────────────────────
       # Produces RunBot.zip.sig — a raw 64-byte Ed25519 signature of the zip bytes.
-      # AppUpdater downloads this sidecar, reads it as raw Data, and passes it to
-      # Curve25519.Signing.PublicKey.isValidSignature(_:for:). The file is binary, not
-      # base64 — do not base64-encode the .sig output.
+      # AppUpdater#46 downloads this sidecar, reads it with Data(contentsOf:) (raw bytes,
+      # no decoding step), and passes it directly to
+      # Curve25519.Signing.PublicKey.isValidSignature(_:for:). CryptoKit expects raw
+      # 64-byte binary — not base64, not DER/PEM-wrapped. Do not base64-encode the .sig.
+      # Note: issue #2002's draft signing snippet base64-encoded the output; that draft
+      # was written before the AppUpdater API was finalised. The shipped API is raw Data.
       #
       # ED25519_PRIVATE_KEY must be the full PEM block (-----BEGIN PRIVATE KEY----- ...).
       # The <(echo ...) process substitution passes it to openssl without writing to disk.
-      # openssl's PEM parser tolerates the trailing newline echo appends — do not switch
-      # to printf to "fix" this; it makes no difference and obscures intent.
+      # echo is used (not printf) because echo is a bash builtin — it never forks a
+      # subprocess and therefore never appears in the process table, making it safe for
+      # secret material. openssl's PEM parser tolerates the trailing newline echo appends.
+      # Do not switch to printf to "fix" this; it makes no difference and obscures intent.
+      # This step declares shell: bash explicitly — builtin echo behaviour is guaranteed.
       #
       # Dry-run behaviour: this step is intentionally NOT gated on dry_run != 'true'.
       # The upload step IS gated, but it consumes sig_path from this step's output —
