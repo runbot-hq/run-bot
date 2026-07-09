@@ -33,9 +33,11 @@ public final class APICallCounterViewModel {
     /// The counter actor injected at init time (P7).
     private let counter: any APICallCounterProtocol
 
-    /// Box holding the structured polling task so `deinit` can cancel it.
-    /// `TaskBox` is `Sendable`; `nonisolated(unsafe)` is not needed.
-    private let taskBox = TaskBox()
+    /// Holds the structured polling task so `deinit` can cancel it.
+    /// Written only from `@MainActor` context; `nonisolated(unsafe)` is safe
+    /// because `Task.cancel()` is concurrency-safe and `deinit` only reads
+    /// this value to cancel — it never writes it.
+    nonisolated(unsafe) private var _task: Task<Void, Never>?
 
     /// Creates the view-model.
     /// - Parameter counter: Counter to poll. Defaults to `apiCallCounter`.
@@ -44,14 +46,14 @@ public final class APICallCounterViewModel {
         // Polling is not started here — call startPolling() from onAppear.
     }
 
-    deinit { taskBox.task?.cancel() }
+    deinit { _task?.cancel() }
 
     // MARK: - Lifecycle
 
     /// Starts the polling loop. Call from `onAppear` or `.counterPolling()`.
     public func startPolling() {
-        guard taskBox.task == nil else { return }
-        taskBox.task = Task { [weak self] in
+        guard _task == nil else { return }
+        _task = Task { [weak self] in
             while !Task.isCancelled {
                 if let self { self.snap = await self.counter.snapshot() }
                 do {
@@ -66,8 +68,8 @@ public final class APICallCounterViewModel {
 
     /// Stops the polling loop. Call from `onDisappear` or `.counterPolling()`.
     public func stopPolling() {
-        taskBox.task?.cancel()
-        taskBox.task = nil
+        _task?.cancel()
+        _task = nil
     }
 
     // MARK: - Derived display state
