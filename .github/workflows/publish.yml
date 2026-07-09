@@ -332,14 +332,12 @@ jobs:
           #   openssl pkey -pubout -outform DER  →  44-byte SubjectPublicKeyInfo blob
           #   tail -c 32                          →  strip the 12-byte DER header
           #                                          (fixed for Ed25519 per RFC 8410 §4)
-          #   base64 -w 0                         →  single-line base64, no line wrapping
-          # -w 0 suppresses line wrapping. Despite appearances this is NOT GNU-only:
-          # macOS ships FreeBSD base64, which also accepts -w 0 (verified on macos-26).
-          # A 32-byte key encodes to 44 chars so wrapping never triggers in practice,
-          # but -w 0 makes the no-wrap behaviour unconditional and explicit across any
-          # future key rotation. Without it a longer key could silently wrap and the
-          # string comparison with COMMITTED_PUB would always fail.
-          DERIVED_PUB=$(openssl pkey -in <(echo "$ED25519_PRIVATE_KEY") -pubout -outform DER | tail -c 32 | base64 -w 0)
+          #   base64 | tr -d '\n'                →  single-line base64, no line wrapping
+          # tr -d '\n' is POSIX and works identically on macOS (BSD) and Linux (GNU).
+          # A 32-byte key encodes to 44 chars so BSD base64's default 76-char wrap
+          # never triggers in practice, but the explicit strip makes the no-wrap
+          # behaviour unconditional across any future key rotation or platform change.
+          DERIVED_PUB=$(openssl pkey -in <(echo "$ED25519_PRIVATE_KEY") -pubout -outform DER | tail -c 32 | base64 | tr -d '\n')
           if [[ "$DERIVED_PUB" != "$COMMITTED_PUB" ]]; then
             echo "::error::ED25519_PRIVATE_KEY does not match the public key committed in AppDelegate.swift — rotate both together" >&2
             exit 1
