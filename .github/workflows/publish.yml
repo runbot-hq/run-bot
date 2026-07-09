@@ -270,6 +270,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          if [[ -z "${ED25519_PRIVATE_KEY:-}" ]]; then
+            echo "::error::ED25519_PRIVATE_KEY secret is not set — cannot sign release" >&2
+            exit 1
+          fi
           ZIP="${{ steps.verify.outputs.zip_path }}"
           SIG="${ZIP}.sig"
           openssl pkeyutl -sign -rawin \
@@ -283,6 +287,11 @@ jobs:
             echo "error: expected 64-byte Ed25519 signature, got $SIG_BYTES bytes — check ED25519_PRIVATE_KEY secret format (must be full PEM block)" >&2
             exit 1
           fi
+          # Round-trip verify before upload — catches key mismatch or corrupt sig
+          openssl pkeyutl -verify -rawin \
+            -inkey <(echo "$ED25519_PRIVATE_KEY") \
+            -in "$ZIP" -sigfile "$SIG"
+          echo "Signature verified OK."
           echo "sig_path=$SIG" >> "$GITHUB_OUTPUT"
 
       # ── Commit patched Info.plist back to main ─────────────────────────────────────────
