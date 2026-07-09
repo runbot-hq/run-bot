@@ -7,7 +7,7 @@
 #   3. Patch Info.plist with the computed version + incremented build number.
 #   4. Build + zip via build.sh.
 #   5. Verify the zip contains RunBot.app/Contents/MacOS/RunBot.
-#   6. Generate SHA-256 sidecar (RunBot.zip.sha256).
+#   6. Sign release zip with Ed25519 (RunBot.zip.sig).
 #   7. Commit patched Info.plist back to main via --force-with-lease (skipped on dry_run).
 #   8. Tag the plist commit SHA directly — race-free (skipped on dry_run).
 #   9. Create GitHub Release with release_notes if provided, --generate-notes otherwise (skipped on dry_run).
