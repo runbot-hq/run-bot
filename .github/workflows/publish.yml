@@ -275,6 +275,8 @@ jobs:
           openssl pkeyutl -sign -rawin \
             -inkey <(echo "$ED25519_PRIVATE_KEY") \
             -in "$ZIP" -out "$SIG"
+          # BSD wc -c (macOS) pads output with leading spaces; -ne strips whitespace
+          # in arithmetic context so the comparison is correct. Do not change to == (string).
           SIG_BYTES=$(wc -c < "$SIG")
           echo "Signed: $SIG ($SIG_BYTES bytes)"
           if [[ "$SIG_BYTES" -ne 64 ]]; then
