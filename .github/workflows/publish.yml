@@ -271,7 +271,12 @@ jobs:
           openssl pkeyutl -sign -rawin \
             -inkey <(echo "$ED25519_PRIVATE_KEY") \
             -in "$ZIP" -out "$SIG"
-          echo "Signed: $SIG ($(wc -c < "$SIG") bytes)"
+          SIG_BYTES=$(wc -c < "$SIG")
+          echo "Signed: $SIG ($SIG_BYTES bytes)"
+          if [[ "$SIG_BYTES" -ne 64 ]]; then
+            echo "error: expected 64-byte Ed25519 signature, got $SIG_BYTES bytes — check ED25519_PRIVATE_KEY secret format (must be full PEM block)" >&2
+            exit 1
+          fi
           echo "sig_path=$SIG" >> "$GITHUB_OUTPUT"
 
       # ── Commit patched Info.plist back to main ─────────────────────────────────────────
