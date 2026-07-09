@@ -263,6 +263,8 @@ jobs:
       # appends — PEM parsers skip trailing whitespace. Do not switch to printf to "fix"
       # the newline: it makes no difference and obscures intent.
       # AppUpdater looks for an asset named exactly "<assetName>.sig" at update time.
+      # Intentionally not dry_run-gated: the upload step is gated, but signing must run
+      # first so the .sig output exists. Dry runs therefore require ED25519_PRIVATE_KEY set.
       - name: Sign release zip with Ed25519
         id: sign
         env:
@@ -288,13 +290,13 @@ jobs:
             exit 1
           fi
           # Assert the secret's public key matches the literal committed in AppDelegate.swift.
-          # openssl pkey -pubout -outform DER emits a 44-byte SubjectPublicKeyInfo header
-          # followed by the 32-byte raw key; tail -c 32 strips the header, base64 gives the
-          # same 44-char string stored in publicKey: Data(base64Encoded:).
-          # This is the only check that catches a rotation where the secret was updated but
-          # AppDelegate.swift was not (or vice versa) — the private-key-only verify below
-          # cannot detect that mismatch.
-          COMMITTED_PUB="lECb0Xv0zTET/Biw00rTtCl/sVdbzGG4WICYlG7g/oc="
+          # COMMITTED_PUB is read from source — not hardcoded here — so there is exactly one
+          # source of truth. Rotation requires updating only AppDelegate.swift; CI picks it up.
+          # openssl pkey -pubout -outform DER emits a 12-byte SubjectPublicKeyInfo header
+          # (fixed for Ed25519 per RFC 8410) followed by the 32-byte raw key; tail -c 32
+          # strips the header. This is a load-bearing assumption: if OpenSSL ever changes the
+          # DER encoding the check will fail loudly at release time, not silently.
+          COMMITTED_PUB=$(grep -o 'base64Encoded: "[^"]*"' Sources/RunBot/App/AppDelegate.swift | grep -o '"[^"]*"$' | tr -d '"')
           DERIVED_PUB=$(openssl pkey -in <(echo "$ED25519_PRIVATE_KEY") -pubout -outform DER | tail -c 32 | base64)
           if [[ "$DERIVED_PUB" != "$COMMITTED_PUB" ]]; then
             echo "::error::ED25519_PRIVATE_KEY does not match the public key committed in AppDelegate.swift — rotate both together" >&2
