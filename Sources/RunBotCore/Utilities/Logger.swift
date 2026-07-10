@@ -34,7 +34,6 @@ public enum LogCategory: String, CaseIterable {
     /// OS-level services: Keychain, LoginItem, ProcessRunner,
     /// TerminalLauncher, LogFetcher.
     case services
-
 }
 
 // MARK: - Logger instances
