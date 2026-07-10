@@ -316,7 +316,7 @@ public struct WorkflowActionGroup: Identifiable, Equatable, Sendable {
     /// `.startupFailure`, `.actionRequired`) rather than raw-string comparison.
     ///
     /// Falls back to run-level conclusions when `jobs` is empty (loading state), mirroring
-    /// the same fallback logic used by `conclusion`. This ensures badge/hook callers get
+    /// the same fallback logic used by `conclusion`. This ensures badge callers get
     /// a consistent result before jobs have loaded — a group whose runs already report a
     /// failure-class conclusion will not show a false-negative here during the fetch window.
     ///
