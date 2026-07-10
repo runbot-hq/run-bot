@@ -147,6 +147,9 @@ public enum PollResultBuilder {
       category: .runner
     )
     let enriched = await enrichDisplay(display, enrichJobs: enrichJobs)
+    // Intentionally enriches the full newCache, not just live groups. The cache feeds
+    // the next poll's display list; dimmed/completed groups that carry stale job data
+    // would surface as incorrect enrichment on the following cycle if skipped here.
     let enrichedCache = await enrichCache(newCache, enrichJobs: enrichJobs)
     return GroupPollResult(
       display: enriched,
@@ -281,11 +284,11 @@ public enum PollResultBuilder {
           category: .runner)
         continue
       }
-      // willOverwrite=true: an entry exists but failed the fast-path guard above —
-      // either not yet dimmed, or dimmed with a stale (smaller) job count.
-      // This log line is only reached when the entry will be overwritten below.
+      // alreadyCached=true: a stale entry exists (not yet dimmed, or dimmed with fewer
+      // jobs than the snapshot) and will be replaced below.
+      // alreadyCached=false: no prior cache entry — this is a clean first-time freeze.
       log(
-        "PollResultBuilder › freezeVanishedGroups — vanished groupID=\(group.id) willOverwrite=\(cache[groupID] != nil) jobs=\(group.jobs.count)",
+        "PollResultBuilder › freezeVanishedGroups — vanished groupID=\(group.id) alreadyCached=\(cache[groupID] != nil) jobs=\(group.jobs.count)",
         category: .runner)
       if group.lastJobCompletedAt == nil {
         cache[groupID] = group.copying(isDimmed: true, settingCompletedAt: now)
