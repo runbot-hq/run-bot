@@ -145,8 +145,8 @@ actor MockScopePreferencesStore: ScopePreferencesStoreProtocol {
     func notifyOnFailure(for _: String) -> Bool? { nil }
     func setNotifyOnFailure(_: Bool?, for _: String) {}
     func cleanUp(scope _: String) {}
-    func modifyPreferences(for _: String, with mutation: @Sendable (inout ScopePreferences) -> Void) {
-        var prefs = ScopePreferences()
+    func modifyPreferences(for scope: String, with mutation: @Sendable (inout ScopePreferences) -> Void) {
+        var prefs = preferences(for: scope)
         mutation(&prefs)
     }
 }
