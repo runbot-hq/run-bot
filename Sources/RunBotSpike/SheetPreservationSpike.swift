@@ -103,7 +103,8 @@ struct SpikeRootView: View {
             await MainActor.run { appState.taskStartCount += 1 }
             print("\u{1F535} [Spike] .task started (count=\(appState.taskStartCount)) — should only print ONCE")
             // Simulate RunBot's long-lived poll loop.
-            for await _ in AsyncStream<Void> { _ in } (continuation in) { }
+            let stream = AsyncStream<Void> { _ in }
+            for await _ in stream { }
         }
     }
 }
