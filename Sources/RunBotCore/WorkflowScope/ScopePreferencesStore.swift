@@ -63,7 +63,6 @@ public actor ScopePreferencesStore: ScopePreferencesStoreProtocol {
   /// If a new field is ever added here it will automatically be cleaned up.
   private static let legacyFields = [
     "alias", "pollingInterval", "notifyOnSuccess", "notifyOnFailure",
-
   ]
 
   // MARK: - Init
