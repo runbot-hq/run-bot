@@ -21,8 +21,8 @@ import SwiftUI
 //        synchronous. confirmSave() is async — called via plain Task{} to keep
 //        @MainActor isolation after the actor awaits (P9).
 //        Header now shows alias (from snapshot) when set, raw scope otherwise.
-//        confirmSave() uses modifyPreferences(for:with:) for an atomic RMW (P10).
 // #1633: Route refreshDisplayNames() through injected scopeStore instead of .shared.
+// #2009: Failure-hook fields removed; sheet is now read-only. confirmSave() only dismisses.
 /// Modal sheet for editing settings of a single scope (org or repo).
 /// Presented when the user taps a scope row in `ScopesView`.
 ///
@@ -236,23 +236,13 @@ extension ScopeEditSheet {
 // MARK: - Actions
 /// User-initiated actions: save and cancel.
 extension ScopeEditSheet {
-    /// Single commit point: atomically reads, mutates, and writes the `ScopePreferences`
-    /// blob via `modifyPreferences(for:with:)` — a single actor hop that eliminates
-    /// the TOCTOU window of the former two-hop `preferences(for:)` + `setPreferences(_:for:)`
-    /// pattern warned about in P10 and the store's own doc comment.
+    /// Commits the sheet action.
     ///
-    /// After saving, calls `scopeStore.refreshDisplayNames()` so `ScopesView` reflects
-    /// any alias change immediately without an app restart. (#1538)
-    ///
-    /// Called via `Task { await confirmSave() }` in `buttonFooter` — a plain
-    /// (non-detached) Task that inherits `@MainActor` from the SwiftUI button
-    /// context, so `isPresented = false` after the await still runs on
-    /// `@MainActor` with no isolation gap. (P9)
+    /// This sheet is currently read-only after failure-hook preference removal, so
+    /// Save simply dismisses the sheet. The method remains async to preserve the
+    /// existing `Task { await confirmSave() }` call site and keep future editable
+    /// fields easy to reintroduce without rewiring the button action.
     @MainActor func confirmSave() async {
-        await ScopePreferencesStore.shared.modifyPreferences(for: scope) { _ in }
-        // Refresh cached display names so ScopesView reflects the newly saved alias
-        // immediately after the sheet closes, without requiring an app restart. (#1538)
-        await scopeStore.refreshDisplayNames()
         isPresented = false
     }
 }
