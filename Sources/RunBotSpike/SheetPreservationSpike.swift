@@ -247,6 +247,7 @@ struct SettingsSpikeView: View {
             }
             .sheet(isPresented: $showChildSheet) {
                 SheetSpikeView(parentText: .constant(""))
+                    .frame(minWidth: 480)
             }
 
             Button("\u{2190} Back") {
