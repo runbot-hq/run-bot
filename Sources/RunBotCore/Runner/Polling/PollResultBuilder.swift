@@ -259,7 +259,7 @@ public enum PollResultBuilder {
         continue
       }
       log(
-        "PollResultBuilder › freezeVanishedGroups — vanished groupID=\(group.id) existsUndimmed=\(cache[groupID] != nil) jobs=\(group.jobs.count)",
+        "PollResultBuilder › freezeVanishedGroups — vanished groupID=\(group.id) existsInCache=\(cache[groupID] != nil) jobs=\(group.jobs.count)",
         category: .runner)
       if group.lastJobCompletedAt == nil {
         cache[groupID] = group.copying(isDimmed: true, settingCompletedAt: now)
