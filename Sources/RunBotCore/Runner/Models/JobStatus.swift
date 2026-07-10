@@ -175,6 +175,7 @@ public enum JobConclusion: Hashable, Sendable {
     /// - `.cancelled` — user-initiated or superseded; not a CI error.
     /// - `.skipped` — controlled by `if:` conditions; informational only.
     /// - `.neutral` — inconclusive; no definitive pass/fail signal.
+    /// - `.stale` — GitHub marks abandoned jobs stale; not an actionable failure.
     public var isFailure: Bool {
         switch self {
         case .failure, .timedOut, .startupFailure, .actionRequired: return true

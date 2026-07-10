@@ -137,7 +137,7 @@ public actor RunnerPoller {
 
   /// Starts (or restarts) the `pollingInterval` observation loop.
   ///
-  /// Uses `AsyncStream<TimeInterval>` to match the relay's `continuation` which is
+  /// Uses `AsyncStream<TimeInterval>` to match the `ObservationRelay`'s `continuation` which is
   /// typed `AsyncStream<TimeInterval>.Continuation` and yields
   /// `TimeInterval(store.pollingInterval)`. The stream element type must match the
   /// continuation type exactly — `pollingInterval` is an `Int` (seconds) but the observer
