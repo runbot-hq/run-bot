@@ -320,7 +320,7 @@ public enum PollResultBuilder {
   /// faithfully restored after `withTaskGroup` yields results in completion order.
   private static func enrichDisplay(
     _ display: [WorkflowActionGroup],
-    enrichJobs: @Sendable ([ActiveJob]) async -> [ActiveJob]
+    enrichJobs: @escaping @Sendable ([ActiveJob]) async -> [ActiveJob]
   ) async -> [WorkflowActionGroup] {
     await withTaskGroup(of: (Int, WorkflowActionGroup).self) { group in
       for (idx, actionGroup) in display.enumerated() {
@@ -341,7 +341,7 @@ public enum PollResultBuilder {
   /// (display array vs cache dict).
   private static func enrichCache(
     _ cache: [String: WorkflowActionGroup],
-    enrichJobs: @Sendable ([ActiveJob]) async -> [ActiveJob]
+    enrichJobs: @escaping @Sendable ([ActiveJob]) async -> [ActiveJob]
   ) async -> [String: WorkflowActionGroup] {
     await withTaskGroup(of: (String, WorkflowActionGroup).self) { group in
       for (key, actionGroup) in cache {
@@ -373,7 +373,7 @@ private extension Array {
   ///   without leaking it as `public` API. It is **not** intended for use outside
   ///   the polling pipeline; treat it as an implementation detail of
   ///   `buildJobDisplay` and `buildGroupDisplay`.
-  fileprivate mutating func appendUpTo<S>(
+  mutating func appendUpTo<S>(
     _ limit: Int,
     from source: S,
     where shouldAppend: (S.Element) -> Bool = { _ in true }
