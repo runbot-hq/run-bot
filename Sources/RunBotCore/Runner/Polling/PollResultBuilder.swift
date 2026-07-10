@@ -91,7 +91,12 @@ public enum PollResultBuilder {
   /// (an escaping context) inside `enrichDisplay` and `enrichCache`. Removing `@escaping`
   /// here will produce a compiler error in those private helpers.
   ///
-  /// Enrichment is split into two sequential sweeps — see inline comments for rationale.
+  /// Enrichment runs as two separate sweeps — once over the display array and once over
+  /// the full cache — because they are distinct collections that cannot be derived from
+  /// each other. The display array is a capped, ordered subset (up to `groupDisplayLimit`
+  /// entries, sorted by status then recency). The cache is the complete, unordered
+  /// dictionary of all retained groups. Enriching only the display and rebuilding the
+  /// cache from it would silently drop cache entries that fall outside the display cap.
   public static func buildGroupState(
     snapPrevGroups: [String: WorkflowActionGroup],
     snapGroupCache: [String: WorkflowActionGroup],
@@ -160,6 +165,11 @@ public enum PollResultBuilder {
   /// GitHub sets when a user explicitly cancels via the UI; a job that silently vanishes
   /// from the feed never received that API update. Using `.neutral` avoids misattributing
   /// the cause and keeps the display consistent with GitHub's own status page.
+  ///
+  /// Existing cache entries are intentionally skipped (`guard cache[jobID] == nil`).
+  /// By the time this function runs, `backfill` may have already enriched those entries
+  /// with step-level data from a previous poll cycle. Overwriting them here would silently
+  /// discard that enrichment and replace a detailed entry with a bare vanished-job stub.
   public static func applyVanishedJobs(
     snapPrev: [Int: ActiveJob],
     liveIDs: Set<Int>,
@@ -210,6 +220,15 @@ public enum PollResultBuilder {
   // MARK: - Group helpers
 
   /// Returns a copy of the cache re-keyed by `headSha` instead of group ID.
+  ///
+  /// Used to pass a SHA-indexed snapshot to `fetchGroups` so the fetcher can detect
+  /// re-runs on the same commit (same `headSha`, new group ID) and avoid returning
+  /// stale cached data for them.
+  ///
+  /// When two cache entries share the same `headSha` (possible if a re-run was cached
+  /// before the original was evicted), the tie-break keeps the entry with the larger
+  /// group ID. Group IDs are monotonically increasing — a higher ID means a newer run
+  /// — so this retains the most recent run's cache entry for each SHA.
   public static func makeShaKeyedCache(_ cache: [String: WorkflowActionGroup]) -> [String: WorkflowActionGroup] {
     Dictionary(
       cache.values.map { ($0.headSha, $0) },
