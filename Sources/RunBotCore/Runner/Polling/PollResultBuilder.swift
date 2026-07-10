@@ -58,6 +58,15 @@ public enum PollResultBuilder {
     let liveIDs: Set<Int> = Set(liveJobs.map { $0.id })
     let now = Date()
     var newCache: [Int: ActiveJob] = snapCache
+    // Operation order is intentional:
+    // 1. applyVanishedJobs: promotes jobs that disappeared from the live feed into
+    //    the cache as stubs (guarded by cache[jobID] == nil, so safe to run first).
+    // 2. freshDone loop: writes authoritative completed entries from the API response.
+    //    If a job appears in both snapPrev (vanished) and freshDone (came back completed
+    //    in the same poll), the freshDone entry wins — the API is authoritative and the
+    //    vanished stub written in step 1 is silently replaced. This is correct behaviour.
+    // 3. trimJobCache + backfill: operate on the fully merged cache produced by 1 & 2.
+    //    backfill must run last so it enriches the complete set of cache entries.
     applyVanishedJobs(snapPrev: snapPrev, liveIDs: liveIDs, now: now, into: &newCache)
     for job in freshDone {
       newCache[job.id] = job.asCompleted(at: now)
@@ -302,6 +311,14 @@ public enum PollResultBuilder {
   ///
   /// The sort is O(n log n), but with `groupCacheLimit = 30` this is completely
   /// irrelevant at runtime scale — do not optimise.
+  ///
+  /// The sort key uses two fallback levels (`lastJobCompletedAt ?? createdAt ?? .distantPast`)
+  /// because groups can enter the cache before any of their jobs have finished — for example
+  /// when `freezeVanishedGroups` freezes a group that had no recorded completion time.
+  /// In that case `lastJobCompletedAt` is nil, so `createdAt` is used as a secondary
+  /// recency signal to avoid all nil-date groups collapsing to `.distantPast` and being
+  /// evicted arbitrarily. `trimJobCache` has no equivalent second fallback because
+  /// `completedDate` is always set before a job is written into the job cache.
   public static func trimGroupCache(_ cache: inout [String: WorkflowActionGroup], limit: Int) {
     guard cache.count > limit else { return }
     let sorted = cache.values.sorted { lhs, rhs in
