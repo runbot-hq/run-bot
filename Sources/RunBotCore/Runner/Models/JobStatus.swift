@@ -173,7 +173,7 @@ public enum JobConclusion: Hashable, Sendable {
     ///   infrastructure problems that need attention.
     /// - `.actionRequired` — a required check (e.g. a code-scanning tool) determined
     ///   that manual review is needed before the run can be considered passing.
-    ///   Intentionally treated as a failure so the badge and failure hook both fire,
+    ///   Intentionally treated as a failure so the badge fires,
     ///   prompting the developer to act. If your workflow uses `action_required` for
     ///   routine deployment approvals and you find this noisy, introduce a separate
     ///   predicate at the call site rather than removing it here.

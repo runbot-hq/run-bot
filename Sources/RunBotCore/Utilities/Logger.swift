@@ -21,7 +21,7 @@ import os
 ///
 /// **Raw value convention:** all raw values are lowercase kebab-case so
 /// Console.app category predicates are visually consistent.
-/// Example: `category == "failure-hook"` not `category == "failureHook"`.
+/// Example: `category == "poll-bridge"` not `category == "pollBridge"`.
 public enum LogCategory: String, CaseIterable {
     /// Fallback / uncategorised (migration default).
     case general
