@@ -130,8 +130,13 @@ actor HookCounter {
 /// Stub conformance for `ScopePreferencesStoreProtocol` (Actor-constrained).
 ///
 /// Implemented as an `actor` to satisfy the protocol constraint.
-/// All stored properties return defaults — only the remaining protocol surface
-/// used by current tests is implemented.
+/// This mock is **intentionally stateless** — all reads return defaults and all
+/// writes are no-ops. It exists only to satisfy the protocol at the call site
+/// for tests that do not exercise state round-trips.
+///
+/// For tests that need real state persistence, use `FakeScopePreferencesStore`
+/// in `ScopeEditSheetTests.swift`, which has a backing `[String: ScopePreferences]`
+/// store and a write log.
 actor MockScopePreferencesStore: ScopePreferencesStoreProtocol {
     func preferences(for _: String) -> ScopePreferences { ScopePreferences() }
     func setPreferences(_: ScopePreferences, for _: String) {}
@@ -145,6 +150,9 @@ actor MockScopePreferencesStore: ScopePreferencesStoreProtocol {
     func notifyOnFailure(for _: String) -> Bool? { nil }
     func setNotifyOnFailure(_: Bool?, for _: String) {}
     func cleanUp(scope _: String) {}
+    // Intentionally does not write back — this mock is stateless by design.
+    // `setPreferences` is also a no-op here. If you need state persistence,
+    // use `FakeScopePreferencesStore` instead.
     func modifyPreferences(for scope: String, with mutation: @Sendable (inout ScopePreferences) -> Void) {
         var prefs = preferences(for: scope)
         mutation(&prefs)
