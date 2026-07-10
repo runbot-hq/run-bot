@@ -151,23 +151,6 @@ actor MockScopePreferencesStore: ScopePreferencesStoreProtocol {
     }
 }
 
-// MARK: - SpyTerminalLauncher
-
-/// Spy conformance for `TerminalLauncherProtocol`.
-///
-/// `final class` + `@unchecked Sendable`: `open(command:)` is `@MainActor` so
-/// all mutations of `openCallCount` and `lastCommand` occur exclusively on the
-/// main actor — `@unchecked` is safe here.
-final class SpyTerminalLauncher: TerminalLauncherProtocol, @unchecked Sendable {
-    private(set) var openCallCount = 0
-    private(set) var lastCommand: String?
-
-    @MainActor func open(_ command: String) {
-        openCallCount += 1
-        lastCommand = command
-    }
-}
-
 // MARK: - TestError
 
 enum TestError: Error { case saveFailed }

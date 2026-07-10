@@ -245,9 +245,7 @@ extension AppDelegate: NSPopoverDelegate {
             applyMetrics: { [localRunnerStore] metrics, id, name in
                 await localRunnerStore.applyMetrics(metrics, forRunnerId: id, name: name)
             },
-            fireFailureHook: { group, scope in
-                await FailureHookRunner.fireIfNeeded(group: group, scope: scope, callsite: "pollResultBuilder")
-            }
+            fireFailureHook: { _, _ in }
         )
         log("AppDelegate › setupSubscriptions — RunnerPoller created with injected stores")
 
