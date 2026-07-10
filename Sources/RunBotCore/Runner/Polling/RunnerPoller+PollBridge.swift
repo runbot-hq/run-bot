@@ -22,27 +22,20 @@ import os
 /// when called from the main actor itself.
 extension RunnerPoller {
 
-    // MARK: - [weak self] in GroupStateDeps closures
+    // MARK: - [weak self] in closures passed to buildJobState and buildGroupState
     //
-    // The closures passed to `GroupStateDeps` are stored inside a struct value that is
-    // passed by value to `PollResultBuilder.buildGroupState`. Although `buildGroupState`
-    // is `async` and returns before the struct is freed, the struct is heap-allocated as
-    // part of the async frame and keeps its closure captures alive for the full duration
-    // of that async call. A strong `self` capture would create a temporary reference cycle:
+    // The closures passed to both `buildJobState` and `buildGroupState` are captured
+    // by the async frame for the full duration of each call. A strong `self` capture
+    // would create a temporary reference cycle:
     //
-    //   RunnerPoller (actor) → GroupStateDeps (value in async frame)
-    //                        → closures → RunnerPoller (strong)
+    //   RunnerPoller (actor) → closures (in async frame) → RunnerPoller (strong)
     //
-    // This cycle resolves once `buildGroupState` returns, so it is not a permanent leak.
+    // This cycle resolves once the builder call returns, so it is not a permanent leak.
     // However, it can delay deallocation if the actor is released while a fetch is in
-    // flight (e.g. in tests or on settings change). `[weak self]` is the correct and
-    // idiomatic pattern here: it breaks the cycle eagerly without requiring a separate
-    // cancellation mechanism, and the guard-let / optional-chain fallbacks in each
-    // closure handle the nil case safely.
+    // flight (e.g. in tests or on settings change). `[weak self]` breaks the cycle
+    // eagerly; the guard-let / optional-chain fallbacks in each closure handle nil safely.
     //
-    // Note: `[weak self]` on a Swift actor is valid. Actors are reference types; the
-    // `weak` modifier prevents the closure from holding a strong reference to the actor
-    // instance, exactly as it would for a class.
+    // Note: `[weak self]` on a Swift actor is valid — actors are reference types.
 
     /// Builds a `JobPollResult` by fetching live jobs for all monitored scopes,
     /// backfilling step data from the cache, and diffing against `snapPrev`.
@@ -59,12 +52,12 @@ extension RunnerPoller {
             snapPrev: snapPrev,
             snapCache: snapCache,
             fetchJobs: { [weak self] in
-                // weak: see [weak self] in GroupStateDeps closures note above.
+                // weak: see [weak self] note above.
                 guard let self else { return [] }
                 return await self.fetchAllJobs(scopes: scopes)
             },
             backfill: { [weak self] cache in
-                // weak: see [weak self] in GroupStateDeps closures note above.
+                // weak: see [weak self] note above.
                 // `self?` optional-chaining cannot be used with an inout argument.
                 // Guard-unwrap to a concrete reference so the compiler accepts &cache.
                 guard let self else { return }
@@ -88,14 +81,14 @@ extension RunnerPoller {
         return await PollResultBuilder.buildGroupState(
             snapPrevGroups: snapPrevGroups,
             snapGroupCache: snapGroupCache,
-            deps: GroupStateDeps(
-                fetchGroups: { [weak self] shaKeyedCache in
-                    await self?.fetchActionGroups(scopes: scopes, shaKeyedCache: shaKeyedCache) ?? []
-                },
-                enrichJobs: { [weak self] jobs in
-                    self?.enrichGroupJobs(jobs, jobCache: jobCache) ?? jobs
-                }
-            )
+            fetchGroups: { [weak self] shaKeyedCache in
+                // weak: see [weak self] note above.
+                await self?.fetchActionGroups(scopes: scopes, shaKeyedCache: shaKeyedCache) ?? []
+            },
+            enrichJobs: { [weak self] jobs in
+                // weak: see [weak self] note above.
+                self?.enrichGroupJobs(jobs, jobCache: jobCache) ?? jobs
+            }
         )
     }
 
