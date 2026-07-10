@@ -37,13 +37,13 @@ public struct GroupStateDeps: Sendable {
 /// Packs the three snapshot/timestamp values needed by `freezeVanishedGroups`
 /// so `freezeVanishedGroups` stays within SwiftLint's
 /// `function_parameter_count` limit (≤ 6).
-public struct FreezeVanishedConfig: Sendable {
+struct FreezeVanishedConfig: Sendable {
   /// Live-group snapshot from the previous poll cycle (keyed by group ID).
-  public let snapPrev: [String: WorkflowActionGroup]
+  let snapPrev: [String: WorkflowActionGroup]
   /// Group IDs present in the current live poll.
-  public let liveIDs: Set<String>
+  let liveIDs: Set<String>
   /// Timestamp used as `lastJobCompletedAt` for vanished groups that lack one.
-  public let now: Date
+  let now: Date
 
   /// Creates a `FreezeVanishedConfig`.
   ///
@@ -51,7 +51,7 @@ public struct FreezeVanishedConfig: Sendable {
   ///   - snapPrev: Live-group snapshot from the previous poll cycle.
   ///   - liveIDs: Group IDs present in the current live poll.
   ///   - now: Timestamp for groups whose `lastJobCompletedAt` is nil.
-  public init(
+  init(
     snapPrev: [String: WorkflowActionGroup],
     liveIDs: Set<String>,
     now: Date
