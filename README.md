@@ -2,7 +2,7 @@
 
 # RunBot 
 
-> GitHub Actions, local runners, and AI failure recovery — in your macOS menu bar.
+> GitHub Actions and local runners — in your macOS menu bar.
 
 **Platform & Stack**
 
@@ -66,12 +66,6 @@
 - Start, stop, and deregister runners directly from the UI — no Terminal or github.com required
 - Active runners show live **CPU & memory** badges while a job is in progress
 
-**🪝 Failure hooks**
-- When a run fails, automatically fire a custom shell command in Terminal
-- Tokens substituted before the command runs: `$SCOPE`, `$LOCAL_PATH`, `$BRANCH`, `$RUN_ID`, `$COMMIT_SHA`, `$WORKFLOW_NAME`, `$FAILURE_LOG`, `$RUN_LINK`, `$COMMIT_LINK`, `$BRANCH_LINK`, `$REPO_LINK`
-- Works with any AI CLI — Claude Code, Gemini, Aider, Codex, or anything that accepts terminal input
-- Configurable per repo or org; optionally filter by branch
-- **Test** button fires the command immediately from the settings sheet
 
 ---
 
@@ -87,7 +81,6 @@ curl -fsSL https://runbot-hq.github.io/run-bot/install.sh | bash
 
 - **[AppUpdater](https://github.com/runbot-hq/AppUpdater)** (first-party) — headless auto-update library; polls GitHub Releases for new versions, verifies each release via **Ed25519 signature** (`CryptoKit.Curve25519.Signing`) before install, and hands update state to the host app via `UpdateStateProviding`
 - **[GitHubClient](https://github.com/runbot-hq/GitHubClient)** (first-party) — lightweight GitHub REST client; OAuth Authorization Code flow, layered token resolution (Keychain → env var), paginated API calls, and rate-limit handling; currently embedded as a local SPM target and extracted to its own repo as part of the ongoing modularisation effort
-- **[swift-collections](https://github.com/apple/swift-collections)** (Apple) — ordered and efficient collection types used internally in `RunBotCore`; primarily `OrderedDictionary` for stable, insertion-ordered workflow state
 
 ---
 

@@ -223,9 +223,9 @@ final class RunnerStore { … }
 ```
 
 ```swift
-/// The branch currently selected as the failure-hook filter.
-/// `nil` means no filter is active — the hook fires for all branches.
-@State private var hookBranch: String?
+/// The search query entered by the user.
+/// `nil` means no filter is active — all results are shown.
+@State private var searchQuery: String?
 ```
 
 ### Rule 2 — Structured DocC Tags
@@ -274,7 +274,6 @@ Extension files use a dash for each extension block:
 
 ```swift
 // MARK: - Sections
-// MARK: - Failure Hook Rows
 // MARK: - Sub-view Helpers
 ```
 

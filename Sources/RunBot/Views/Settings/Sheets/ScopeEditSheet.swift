@@ -27,7 +27,7 @@ import SwiftUI
 /// Presented when the user taps a scope row in `ScopesView`.
 ///
 /// ## Why no ScrollView
-/// The content is a fixed set of sections (Info, Monitoring, optionally Failure Hook)
+/// The content is a fixed set of sections (Info, Monitoring)
 /// that never needs to scroll. A ScrollView prevents SwiftUI from computing a real
 /// `preferredContentSize` for the sheet window — it reports the container height
 /// (the NSPopover panel size) instead of the content height. Removing it lets the
