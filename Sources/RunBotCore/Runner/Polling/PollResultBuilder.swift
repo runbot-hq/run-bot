@@ -411,15 +411,15 @@ public enum PollResultBuilder {
     config: FreezeVanishedConfig,
     into cache: inout [String: WorkflowActionGroup]
   ) {
-    log(
-      "PollResultBuilder › freezeVanishedGroups — vanished groupID=\(group.id) inCache=\(cache[groupID] != nil)",
-      category: .runner)
     if let existing = cache[groupID], existing.isDimmed, existing.jobs.count >= group.jobs.count {
       log(
-        "PollResultBuilder › freezeVanishedGroups — groupID=\(group.id) already cached+dimmed, skipping",
+        "PollResultBuilder › freezeVanishedGroups — groupID=\(group.id) skipped (already cached+dimmed, jobs=\(existing.jobs.count)≥\(group.jobs.count))",
         category: .runner)
       return
     }
+    log(
+      "PollResultBuilder › freezeVanishedGroups — vanished groupID=\(group.id) inCache=\(cache[groupID] != nil) jobs=\(group.jobs.count)",
+      category: .runner)
     if group.lastJobCompletedAt == nil {
       cache[groupID] = group.copying(isDimmed: true, settingCompletedAt: config.now)
     } else {
