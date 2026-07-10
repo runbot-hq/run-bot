@@ -29,8 +29,11 @@ public protocol ScopePreferencesStoreProtocol: Actor {
     /// Reads, mutates, and writes the `ScopePreferences` for `scope` atomically
     /// within a single actor hop.
     ///
-    /// Use this instead of a separate `preferences(for:)` + `setPreferences(_:for:)`
-    /// pair when you need to mutate a subset of fields while preserving the rest.
+    /// **Always prefer this over a separate `preferences(for:)` + `setPreferences(_:for:)`
+    /// pair.** The two-hop pattern introduces a TOCTOU window: another caller can
+    /// write between your read and your write, silently discarding their changes (P10).
+    /// This method closes that window by performing the entire read-modify-write
+    /// inside the actor without suspension.
     func modifyPreferences(for scope: String, with mutation: @Sendable (inout ScopePreferences) -> Void)
 
     // MARK: - Alias
