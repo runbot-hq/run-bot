@@ -273,6 +273,13 @@ public enum PollResultBuilder {
   /// `internal` (not `public`): exercised indirectly through `buildGroupState` in tests;
   /// no direct external callers exist outside `RunBotCore`.
   ///
+  /// Fast-path guard safety: the skip condition is `existing.jobs.count >= group.jobs.count`.
+  /// `group` comes from `snapPrev`, which is the previous poll's *live* snapshot captured
+  /// before enrichment runs. `enrichCache` only mutates `newCache`, never `snapPrev`.
+  /// Therefore `group.jobs.count` (unenriched snapshot) can never exceed
+  /// `existing.jobs.count` (a cache entry that may have been enriched on a prior cycle),
+  /// and the `>=` guard never skips a genuinely fresher entry.
+  ///
   /// - Parameters:
   ///   - snapPrev: Live-group snapshot from the previous poll cycle (keyed by group ID).
   ///   - liveIDs: Group IDs present in the current live poll (non-completed only — see
