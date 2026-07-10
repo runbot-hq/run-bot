@@ -5,8 +5,7 @@ import SwiftUI
 // MARK: - FlowLayout
 
 /// A custom `Layout` that wraps child views into rows like a word-wrapped line of text.
-/// Used to arrange variable-insertion pill buttons beneath the command editor in
-/// `FailureHookCommandSheet`.
+/// Used to arrange variable-insertion pill buttons beneath a command editor.
 struct FlowLayout: Layout {
     /// Horizontal and vertical gap between child views.
     var spacing: CGFloat = 6
