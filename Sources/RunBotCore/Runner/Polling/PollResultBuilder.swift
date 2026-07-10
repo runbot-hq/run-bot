@@ -172,8 +172,11 @@ public enum PollResultBuilder {
     // Dim and cache every completed group that came back from fetchGroups.
     // `freezeVanishedGroups` (below) handles the complementary case: groups that
     // were live last poll but are now absent from the feed entirely.
-    // Note: `wasNotCached` reflects post-eviction cache state only — it is NOT
-    // a cross-poll novelty check (seenGroupIDs was removed in a prior refactor).
+    //
+    // `wasNotCached`: diagnostic only — true when this group was absent from the
+    // cache after SHA-eviction. This is intentionally a within-poll cache check,
+    // not a cross-poll novelty signal. Cross-poll deduplication (seenGroupIDs)
+    // was removed along with the failure-hook feature and is not coming back.
     for group in doneGroups {
       let runSummary = group.runs.map { "\($0.id):\($0.conclusion?.rawValue ?? "nil")" }.joined(separator: ", ")
       let wasNotCached = newCache[group.id] == nil
