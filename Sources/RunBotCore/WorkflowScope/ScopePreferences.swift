@@ -12,8 +12,6 @@ import Foundation
 ///
 /// All fields are optional (or have safe defaults) so that a missing key in the
 /// stored JSON decodes cleanly with no migration needed for future additions.
-/// `failureHookEnabled` defaults to `false`, matching the legacy
-/// `UserDefaults.standard.bool(forKey:)` default for a missing key.
 public struct ScopePreferences: Codable, Equatable, Sendable {
 
     // MARK: - Fields
@@ -30,18 +28,6 @@ public struct ScopePreferences: Codable, Equatable, Sendable {
     /// Per-scope notify-on-failure override. `nil` = use global setting.
     public var notifyOnFailure: Bool?
 
-    /// Whether the failure hook is enabled for this scope.
-    public var failureHookEnabled: Bool
-
-    /// The shell command to run on failure. `nil` = use the default command.
-    public var failureHookCommand: String?
-
-    /// Local filesystem path to the repository for this scope. `nil` = not set.
-    public var localRepoPath: String?
-
-    /// Branch to restrict the failure hook to. `nil` = fire for all branches.
-    public var failureHookBranch: String?
-
     // MARK: - Init
 
     /// Creates a `ScopePreferences` value.
@@ -52,19 +38,11 @@ public struct ScopePreferences: Codable, Equatable, Sendable {
         alias: String? = nil,
         pollingInterval: Int? = nil,
         notifyOnSuccess: Bool? = nil,
-        notifyOnFailure: Bool? = nil,
-        failureHookEnabled: Bool = false,
-        failureHookCommand: String? = nil,
-        localRepoPath: String? = nil,
-        failureHookBranch: String? = nil
+        notifyOnFailure: Bool? = nil
     ) {
         self.alias = alias
         self.pollingInterval = pollingInterval
         self.notifyOnSuccess = notifyOnSuccess
         self.notifyOnFailure = notifyOnFailure
-        self.failureHookEnabled = failureHookEnabled
-        self.failureHookCommand = failureHookCommand
-        self.localRepoPath = localRepoPath
-        self.failureHookBranch = failureHookBranch
     }
 }
