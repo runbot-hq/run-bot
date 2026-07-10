@@ -171,7 +171,10 @@ public enum PollResultBuilder {
     var newCache = evictFreshShas(from: snapGroupCache, freshGroups: allFetched)
     for group in doneGroups {
       let runSummary = group.runs.map { "\($0.id):\($0.conclusion?.rawValue ?? "nil")" }.joined(separator: ", ")
-      log("PollResultBuilder › doneGroups — groupID=\(group.id) runs=[\(runSummary)]", category: .runner)
+      let isNew = newCache[group.id] == nil
+      log(
+        "PollResultBuilder › doneGroups — groupID=\(group.id) isNew=\(isNew) runs=[\(runSummary)]",
+        category: .runner)
       newCache[group.id] = group.copying(isDimmed: true)
     }
     let freezeConfig = FreezeVanishedConfig(snapPrev: snapPrevGroups, liveIDs: liveIDs, now: now)
@@ -287,6 +290,9 @@ public enum PollResultBuilder {
   /// `cache` are keyed by `WorkflowActionGroup.id`; `config.liveIDs` must also be
   /// a `Set<String>` of `WorkflowActionGroup.id` values for the containment check
   /// to be correct.
+  ///
+  /// `internal` (not `public`): exercised indirectly through `buildGroupState` in tests;
+  /// no direct external callers exist outside `RunBotCore`.
   ///
   /// - Parameters:
   ///   - config: Snapshot, live-IDs, and timestamp bundled into a `FreezeVanishedConfig`.
