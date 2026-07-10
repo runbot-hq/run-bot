@@ -13,15 +13,9 @@ import SwiftUI
 //       Enable toggle moved from header into its own Monitoring section.
 //       Monitoring row removed from Scope Info card.
 // #539: Layout improvements -- section labels, card structure aligned with spec.
-// #544: Failure Hook section added between Monitoring and Danger Zone.
-// #546: Local Path row — inline editing, NSOpenPanel folder picker, tilde pre-fill.
-// #559: Failure Hook section hidden for org scopes — only shown for repo scopes.
-// #560: Branch selector row added to Failure Hook section.
 // #973: Remove Danger Zone and monitoring toggle — Settings is single source of truth.
 // #992: Converted from nav drill-down to modal sheet with explicit Cancel / Save.
 //       All edits are staged locally; ScopePreferencesStore is only written on Save.
-//       NSOpenPanel runs without closing the panel — the NSPanel is non-activating
-//       so it does not obscure the picker.
 // #1263: Removed ScrollView so sheet height is intrinsic (same fix as #1262).
 // #1538: init now receives a pre-fetched ScopePreferences snapshot so seeds are
 //        synchronous. confirmSave() is async — called via plain Task{} to keep
@@ -53,23 +47,7 @@ struct ScopeEditSheet: View {
     /// stores the reference itself (not a copy), so both presentations point
     /// at the same `ScopeStore.shared` instance.
     @State private var scopeStore = ScopeStore.shared
-    /// Controls visibility of the failure-hook configuration sheet.
-    @State private var showHookSheet = false
-    /// Controls visibility of the branch-filter picker sheet.
-    @State private var showBranchSheet = false
-    /// Draft: whether the failure hook is enabled. Written to store only on Save.
-    @State private var hookEnabled: Bool
-    /// Draft: selected branch filter. Written to store only on Save.
-    @State private var hookBranch: String?
-    /// Draft: failure-hook command. Written to store only on Save.
-    @State private var hookCommand: String
-    /// Draft: local repo path. Written to store only on Save.
-    @State private var localRepoPath: String
-    /// Tracks whether the inline path text field is in edit mode.
-    @State private var isEditingPath = false
-    /// The NSWindow hosting this sheet, captured early via WindowGrabber so
-    /// it is reliably available when openFolderPicker() is called. (#1195)
-    @State private var hostWindow: NSWindow?
+
     /// Display name shown in the sheet header: alias if set, raw scope string otherwise.
     /// Derived from the pre-fetched `ScopePreferences` snapshot in `init` so the
     /// header always reflects the user's alias without an extra actor hop. (#1538)
@@ -98,14 +76,6 @@ struct ScopeEditSheet: View {
             return trimmed.isEmpty ? nil : trimmed
         }
         self.headerDisplayName = alias ?? scopeEntry.scope
-        _hookEnabled = State(initialValue: preferences.failureHookEnabled)
-        _hookBranch = State(initialValue: preferences.failureHookBranch)
-        // Seed with the persisted value or empty string — never the default command.
-        // FailureHookRunner falls back to its own default at runtime when the stored
-        // value is nil, so seeding with the default here would silently persist it
-        // on the first Save even when the user never opened FailureHookCommandSheet.
-        _hookCommand = State(initialValue: preferences.failureHookCommand ?? "")
-        _localRepoPath = State(initialValue: preferences.localRepoPath ?? "")
     }
 
     /// The up-to-date entry from `ScopeStore`, or `nil` if the scope has been
@@ -135,7 +105,6 @@ struct ScopeEditSheet: View {
             VStack(alignment: .leading, spacing: 0) {
                 infoSection
                 monitoringSection
-                if isRepo { failureHookSection }
             }
             .padding(.bottom, 16)
             Divider()
@@ -143,25 +112,6 @@ struct ScopeEditSheet: View {
         }
         .frame(width: 440)
         .accessibilityIdentifier("scopeEditSheet")
-        // Capture the hosting NSWindow as early as possible so beginSheetModal
-        // has a reliable reference when openFolderPicker() is called. (#1195)
-        .background(WindowGrabber { w in
-            if hostWindow == nil, let w { hostWindow = w }
-        })
-        .sheet(isPresented: $showHookSheet) {
-            FailureHookCommandSheet(scope: scope, localRepoPath: localRepoPath, commandText: $hookCommand) { showHookSheet = false }
-        }
-        .sheet(isPresented: $showBranchSheet) {
-            BranchSelectorSheet(
-                scope: scope,
-                onDismiss: { showBranchSheet = false },
-                onSelect: { chosen in
-                    // Stage locally only — not persisted until Save.
-                    hookBranch = chosen
-                    showBranchSheet = false
-                }
-            )
-        }
     }
 }
 
@@ -282,297 +232,31 @@ extension ScopeEditSheet {
         }
     }
 
-    /// Card section for configuring the failure-hook command.
-    /// Only rendered for repository scopes (`isRepo == true`).
-    var failureHookSection: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            sectionHeader("Failure Hook")
-            infoCard {
-                hookToggleRow
-                Divider().padding(.leading, RBSpacing.md)
-                branchRow
-                Divider().padding(.leading, RBSpacing.md)
-                localPathRow
-                Divider().padding(.leading, RBSpacing.md)
-                commandRow
-            }
-        }
-    }
-}
-
-// MARK: - Failure Hook Rows
-/// Row views for the failure-hook toggle and branch-filter picker.
-extension ScopeEditSheet {
-    /// Toggle row enabling or disabling the failure-hook for this scope.
-    /// Updates draft state only — not persisted until Save.
-    var hookToggleRow: some View {
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Call this terminal call on failure detection")
-                    .font(.system(size: 12, weight: .medium))
-                Text("This will call terminal with a call of your choosing. Can be used for AI auto-recovery.")
-                    .font(.caption2)
-                    .foregroundColor(Color.rbTextSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer()
-            Toggle("", isOn: $hookEnabled)
-                .toggleStyle(.switch)
-                .tint(Color.rbSuccess)
-                .labelsHidden()
-        }
-        .padding(.horizontal, RBSpacing.md).padding(.vertical, 10)
-    }
-
-    /// Row for selecting the branch filter applied by the failure hook.
-    /// Tapping opens `BranchSelectorSheet`; an ×-button clears the draft filter.
-    var branchRow: some View {
-        Button { showBranchSheet = true } label: {
-            HStack(spacing: 8) {
-                Text("Branch")
-                    .font(.system(size: 12))
-                    .foregroundColor(Color.rbTextSecondary)
-                    .frame(width: 100, alignment: .leading)
-                    .fixedSize()
-                if let branch = hookBranch {
-                    Text(branch)
-                        .font(.system(size: 11, design: .monospaced))
-                        .foregroundColor(Color.rbTextPrimary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    Button(action: clearBranchFilter) {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 11))
-                            .foregroundColor(Color.rbTextTertiary)
-                    }
-                    .buttonStyle(.plain)
-                    .help("Clear branch filter")
-                } else {
-                    Text("All branches")
-                        .font(.system(size: 11))
-                        .foregroundColor(Color.rbTextTertiary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 10))
-                    .foregroundColor(Color.rbTextTertiary)
-            }
-            .padding(.horizontal, RBSpacing.md).padding(.vertical, 9)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-    }
-
-    /// Row for setting the local repository path used by the failure hook.
-    /// Supports inline text editing and an NSOpenPanel folder-picker.
-    var localPathRow: some View {
-        HStack(spacing: 8) {
-            Text("Local Path")
-                .font(.system(size: 12))
-                .foregroundColor(Color.rbTextSecondary)
-                .frame(width: 100, alignment: .leading)
-                .fixedSize()
-            if isEditingPath {
-                TextField("~/code/org/repo", text: $localRepoPath) // NOSONAR — UI placeholder text, not a configurable URI
-                    .font(.system(size: 11, design: .monospaced))
-                    .textFieldStyle(.plain)
-                    .foregroundColor(Color.rbTextPrimary)
-                    .frame(maxWidth: .infinity)
-                    .onSubmit { commitLocalPath() }
-                Button("Done") { commitLocalPath() }
-                    .buttonStyle(.plain)
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(Color.rbAccent)
-            } else {
-                Button {
-                    log("[PICKER] localPathRow — text button tapped, calling startEditingPath")
-                    startEditingPath()
-                } label: {
-                    Text(localRepoPath.isEmpty ? "Tap to set path…" : localRepoPath)
-                        .font(.system(size: 11, design: .monospaced))
-                        .foregroundColor(localRepoPath.isEmpty ? Color.rbTextTertiary : Color.rbTextPrimary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .buttonStyle(.plain)
-                Button(action: {
-                    log("[PICKER] localPathRow — folder button tapped, calling openFolderPicker")
-                    openFolderPicker()
-                }) {
-                    Image(systemName: "folder")
-                        .font(.system(size: 11))
-                        .foregroundColor(Color.rbTextSecondary)
-                }
-                .buttonStyle(.plain)
-                .help("Browse for folder…")
-                if !localRepoPath.isEmpty {
-                    // Clears draft only — not persisted until Save.
-                    Button(action: { localRepoPath = "" }) {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 11))
-                            .foregroundColor(Color.rbTextTertiary)
-                    }
-                    .buttonStyle(.plain)
-                    .help("Clear local path")
-                }
-            }
-        }
-        .padding(.horizontal, RBSpacing.md).padding(.vertical, 9)
-    }
-
-    /// Row for configuring the hook command. Tapping opens
-    /// `FailureHookCommandSheet` where the user can enter or edit the command.
-    var commandRow: some View {
-        Button { showHookSheet = true } label: {
-            HStack(spacing: 8) {
-                Text("Command")
-                    .font(.system(size: 12))
-                    .foregroundColor(Color.rbTextSecondary)
-                    .frame(width: 100, alignment: .leading)
-                    .fixedSize()
-                if !hookCommand.isEmpty {
-                    Text(hookCommand)
-                        .font(.system(size: 11, design: .monospaced))
-                        .foregroundColor(Color.rbTextPrimary)
-                        .lineLimit(2)
-                        .truncationMode(.tail)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                } else {
-                    Text("Tap to set a command…")
-                        .font(.system(size: 11, design: .monospaced))
-                        .foregroundColor(Color.rbTextTertiary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 10))
-                    .foregroundColor(Color.rbTextTertiary)
-            }
-            .padding(.horizontal, RBSpacing.md).padding(.vertical, 9)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-    }
 }
 
 // MARK: - Actions
-/// User-initiated actions: path editing, save, and cancel.
+/// User-initiated actions: save and cancel.
 extension ScopeEditSheet {
-    /// Enters inline editing mode for the local-path field, pre-filling `~/`
-    /// if the path is currently empty.
-    func startEditingPath() {
-        if localRepoPath.isEmpty { localRepoPath = "~/" }
-        isEditingPath = true
-    }
-
-    /// Normalises the draft local path: trims whitespace and clears the `~/` placeholder.
-    /// Does NOT write to `ScopePreferencesStore` — that happens in `confirmSave()`.
-    func commitLocalPath() {
-        isEditingPath = false
-        let trimmed = localRepoPath.trimmingCharacters(in: .whitespacesAndNewlines)
-        localRepoPath = (trimmed == "~/") ? "" : trimmed
-    }
-
-    /// Clears the draft branch filter. Does NOT write to `ScopePreferencesStore`.
-    func clearBranchFilter() {
-        hookBranch = nil
-    }
-
     /// Single commit point: atomically reads, mutates, and writes the `ScopePreferences`
     /// blob via `modifyPreferences(for:with:)` — a single actor hop that eliminates
     /// the TOCTOU window of the former two-hop `preferences(for:)` + `setPreferences(_:for:)`
     /// pattern warned about in P10 and the store's own doc comment.
     ///
-    /// Fields not editable in this sheet (alias, pollingInterval, notifyOnSuccess,
-    /// notifyOnFailure) are preserved automatically because `modifyPreferences` starts
-    /// from the live stored blob and the closure only touches the four fields above.
-    ///
     /// After saving, calls `scopeStore.refreshDisplayNames()` so `ScopesView` reflects
     /// any alias change immediately without an app restart. (#1538)
-    ///
-    /// ## Isolation note (P9)
-    /// `@MainActor` state (`hookEnabled`, `hookBranch`, `hookCommand`, `localRepoPath`)
-    /// cannot be read inside the actor-isolated `modifyPreferences` closure. All four
-    /// are captured into locals before the `await` so the closure is free of any
-    /// `@MainActor` references and the compiler is satisfied.
     ///
     /// Called via `Task { await confirmSave() }` in `buttonFooter` — a plain
     /// (non-detached) Task that inherits `@MainActor` from the SwiftUI button
     /// context, so `isPresented = false` after the await still runs on
     /// `@MainActor` with no isolation gap. (P9)
     @MainActor func confirmSave() async {
-        let command = hookCommand.trimmingCharacters(in: .whitespacesAndNewlines)
-        let path    = localRepoPath.trimmingCharacters(in: .whitespacesAndNewlines)
-        // Capture @MainActor state before the actor hop — the modifyPreferences
-        // closure runs inside the actor and cannot access @MainActor properties directly.
-        let enabled = hookEnabled
-        let branch  = hookBranch
-        await ScopePreferencesStore.shared.modifyPreferences(for: scope) { prefs in
-            prefs.failureHookEnabled = enabled
-            prefs.failureHookBranch  = branch
-            prefs.failureHookCommand = command.isEmpty ? nil : command
-            prefs.localRepoPath      = path.isEmpty    ? nil : path
-        }
+        await ScopePreferencesStore.shared.modifyPreferences(for: scope) { _ in }
         // Refresh cached display names so ScopesView reflects the newly saved alias
         // immediately after the sheet closes, without requiring an app restart. (#1538)
         await scopeStore.refreshDisplayNames()
         isPresented = false
     }
 
-    /// Presents an `NSOpenPanel` as a sheet attached to the popover's own window.
-    ///
-    /// Uses `beginSheetModal(for:)` so the panel attaches as a child sheet.
-    /// AppKit never considers clicks inside the sheet as "outside clicks",
-    /// so the popover is never dismissed during the picker session. (#1195)
-    ///
-    /// The host window reference is captured early by `WindowGrabber` (attached in
-    /// `body`) so there is no key-window race at call time.
-    func openFolderPicker() {
-        let delegate = NSApp.delegate as? AppDelegate
-        log("[PICKER] openFolderPicker — ENTER hostWindow=\(String(describing: hostWindow)) panelIsOpen=\(delegate?.panelIsOpen ?? false)")
-
-        guard let window = hostWindow else {
-            log("[PICKER] openFolderPicker — ERROR: hostWindow is nil — picker will NOT open. popoverWindow=\(String(describing: delegate?.popover?.contentViewController?.view.window))")
-            return
-        }
-
-        log("[PICKER] openFolderPicker — window OK: \(window) isKey=\(window.isKeyWindow) isVisible=\(window.isVisible) sheets=\(window.sheets.count)")
-
-        let picker = NSOpenPanel()
-        picker.canChooseFiles = false
-        picker.canChooseDirectories = true
-        picker.allowsMultipleSelection = false
-        picker.prompt = "Select"
-        picker.message = "Choose the local folder for \(scope)"
-        if !localRepoPath.isEmpty {
-            let expanded = NSString(string: localRepoPath).expandingTildeInPath
-            picker.directoryURL = URL(fileURLWithPath: expanded)
-        } else {
-            picker.directoryURL = FileManager.default.homeDirectoryForCurrentUser
-        }
-
-        log("[PICKER] openFolderPicker — calling beginSheetModal on window")
-        picker.beginSheetModal(for: window) { response in
-            log("[PICKER] openFolderPicker — completion: response=\(response.rawValue) panelIsOpen=\(delegate?.panelIsOpen ?? false)")
-            if response == .OK, let url = picker.url {
-                let home = FileManager.default.homeDirectoryForCurrentUser.path
-                let abs = url.path
-                let tilde: String
-                if abs == home {
-                    tilde = "~/"
-                } else if abs.hasPrefix(home + "/") {
-                    tilde = "~/" + abs.dropFirst(home.count + 1)
-                } else {
-                    tilde = abs
-                }
-                log("[PICKER] openFolderPicker — user picked path=\(tilde)")
-                localRepoPath = tilde
-            } else {
-                log("[PICKER] openFolderPicker — user cancelled or no URL")
-            }
-        }
-    }
 }
 
 // MARK: - Sub-view helpers
