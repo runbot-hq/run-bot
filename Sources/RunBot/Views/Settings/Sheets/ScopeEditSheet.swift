@@ -37,8 +37,8 @@ struct ScopeEditSheet: View {
     /// The scope entry being inspected. Treated as a snapshot; live state is
     /// re-read from `ScopeStore` via `liveEntry`.
     let scopeEntry: ScopeEntry
-    /// Controls sheet dismissal. Set to `false` to close without saving;
-    /// `confirmSave()` sets it to `false` after persisting changes.
+    /// Controls sheet dismissal. Set to `false` to close the sheet.
+    /// `confirmSave()` sets it to `false` on Save; Cancel sets it directly.
     @Binding var isPresented: Bool
 
     /// Shared store providing the full list of scope entries.
@@ -150,9 +150,10 @@ extension ScopeEditSheet {
             Spacer()
             Button("Cancel") { isPresented = false }
                 .keyboardShortcut(.escape, modifiers: [])
-            // Task{} is kept so the call site stays async-shaped: if confirmSave()
-            // reacquires awaits when editable fields return, this button needs no
-            // rewiring. The async boundary is currently a no-op placeholder. (P9)
+            // ⚠️ DO NOT simplify to a sync call. confirmSave() is intentionally
+            // async so this Task{} call site needs no rewiring when editable fields
+            // (alias, polling interval, etc.) are re-added and restore actual awaits.
+            // The async boundary is a load-bearing placeholder, not dead code. (#2009)
             Button {
                 Task { await confirmSave() }
             } label: {
@@ -236,12 +237,17 @@ extension ScopeEditSheet {
 // MARK: - Actions
 /// User-initiated actions: save and cancel.
 extension ScopeEditSheet {
-    /// Commits the sheet action.
+    /// Commits the sheet action and dismisses.
     ///
-    /// This sheet is currently read-only after failure-hook preference removal, so
-    /// Save simply dismisses the sheet. The method remains async to preserve the
-    /// existing `Task { await confirmSave() }` call site and keep future editable
-    /// fields easy to reintroduce without rewiring the button action.
+    /// ## Why `async` with no `await`
+    /// The sheet is currently read-only (`#2009` removed all editable fields), so
+    /// there is nothing to persist and no actor hop required. The `async` signature
+    /// is **intentionally kept** so the `Task { await confirmSave() }` call site in
+    /// `buttonFooter` requires zero rewiring when editable fields return.
+    ///
+    /// **Do not remove `async` or collapse this to a direct `isPresented = false`**
+    /// at the call site — doing so will force a button-action rewrite when the next
+    /// field is added.
     @MainActor func confirmSave() async {
         isPresented = false
     }
