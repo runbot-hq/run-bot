@@ -111,6 +111,10 @@ public enum PollResultBuilder {
     log("PollResultBuilder › buildGroupState — allFetched=\(allFetched.count)", category: .runner)
     let liveGroups = allFetched.filter { $0.groupStatus != .completed }
     let doneGroups = allFetched.filter { $0.groupStatus == .completed }
+    // liveIDs intentionally excludes completed groups (doneGroups). Groups in doneGroups
+    // are written into newCache as isDimmed below. If one of those completed groups also
+    // appears in snapPrevGroups, freezeVanishedGroups will encounter it — but its
+    // fast-path guard (existing.isDimmed && jobs >= snapshot) will skip it cleanly.
     let liveIDs = Set(liveGroups.map { $0.id })
     let now = Date()
     var newCache = evictFreshShas(from: snapGroupCache, freshGroups: allFetched)
@@ -238,7 +242,8 @@ public enum PollResultBuilder {
   ///
   /// - Parameters:
   ///   - snapPrev: Live-group snapshot from the previous poll cycle (keyed by group ID).
-  ///   - liveIDs: Group IDs present in the current live poll.
+  ///   - liveIDs: Group IDs present in the current live poll (non-completed only — see
+  ///     `buildGroupState` for why completed groups are intentionally excluded).
   ///   - now: Timestamp used as `lastJobCompletedAt` for vanished groups that lack one.
   ///   - cache: Group cache to mutate in place.
   static func freezeVanishedGroups(
@@ -257,11 +262,11 @@ public enum PollResultBuilder {
           category: .runner)
         continue
       }
-      // `existsInCache=true` means an entry exists but failed the fast-path guard above:
-      // either it is not yet dimmed, or it is dimmed but has a smaller job count than the
-      // snapshot (stale). In both cases the entry will be overwritten below.
+      // willOverwrite=true: an entry exists but failed the fast-path guard above —
+      // either not yet dimmed, or dimmed with a stale (smaller) job count.
+      // This log line is only reached when the entry will be overwritten below.
       log(
-        "PollResultBuilder › freezeVanishedGroups — vanished groupID=\(group.id) existsInCache=\(cache[groupID] != nil) jobs=\(group.jobs.count)",
+        "PollResultBuilder › freezeVanishedGroups — vanished groupID=\(group.id) willOverwrite=\(cache[groupID] != nil) jobs=\(group.jobs.count)",
         category: .runner)
       if group.lastJobCompletedAt == nil {
         cache[groupID] = group.copying(isDimmed: true, settingCompletedAt: now)
