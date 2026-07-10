@@ -5,8 +5,6 @@ import Foundation
 import GitHubClient
 import os
 
-// MARK: - Typealiases
-
 // MARK: - RunnerPoller
 
 /// Swift 6 actor that owns the GitHub poll loop and all derived runner/job/action state.
@@ -500,7 +498,7 @@ public actor RunnerPoller {
   /// `applyError` passes `nil` display lists to preserve stale data during error
   /// cycles. Do not pass `nil` intending to clear — use explicit empty arrays.
   ///
-  // nil-means-keep over enum DisplayUpdate: two call sites, same file, no safety gain.
+  /// - Note: nil-means-keep over enum DisplayUpdate: two call sites, same file, no safety gain.
   func setDisplayState(
     isRateLimited newIsRateLimited: Bool,
     rateLimitResetDate newResetDate: Date?,
