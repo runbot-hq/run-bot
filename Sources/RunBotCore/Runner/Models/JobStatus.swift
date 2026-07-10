@@ -179,11 +179,10 @@ public enum JobConclusion: Hashable, Sendable {
     ///   predicate at the call site rather than removing it here.
     ///
     /// **Exclusion rationale:**
-    /// - `.cancelled` — user-initiated or triggered by a superseding push; not a CI
+    /// - `.cancelled` — user-initiated or triggered by a superseding push; not a CI error.
     /// - `.skipped` — dependency-driven, controlled by `if:` conditions; informational.
     /// - `.neutral` — inconclusive outcome with no definitive pass/fail signal;
     ///   same class as `.skipped`: informational, not actionable.
-    /// - `.cancelled` — user-initiated or triggered by a superseding push; not a CI error.
     public var isFailure: Bool {
         switch self {
         case .failure, .timedOut, .startupFailure, .actionRequired: return true
