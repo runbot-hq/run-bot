@@ -295,12 +295,17 @@ public enum PollResultBuilder {
           category: .runner)
         continue
       }
-      // failedFastPath=true: the fast-path guard above was not taken — either the entry
-      // is not yet dimmed, or it is dimmed but has a smaller job count than the snapshot.
-      // failedFastPath=false: no prior cache entry at all; this is a clean first-time freeze.
-      // In both cases the entry is written (or overwritten) immediately below.
+      // This log line is only reached when the fast-path guard above was not taken.
+      // dimmed= and cachedJobCount= expose exactly which subcase caused it:
+      //   dimmed=false, cachedJobCount=0  → no prior cache entry (first-time freeze)
+      //   dimmed=false, cachedJobCount>0  → entry exists but is not yet dimmed
+      //   dimmed=true,  cachedJobCount<N  → entry is dimmed but has a stale job count
+      let existing = cache[groupID]
       log(
-        "PollResultBuilder › freezeVanishedGroups — vanished groupID=\(group.id) failedFastPath=\(cache[groupID] != nil) jobs=\(group.jobs.count)",
+        "PollResultBuilder › freezeVanishedGroups — vanished groupID=\(group.id)"
+          + " dimmed=\(existing?.isDimmed ?? false)"
+          + " cachedJobCount=\(existing?.jobs.count ?? 0)"
+          + " snapshotJobCount=\(group.jobs.count)",
         category: .runner)
       if group.lastJobCompletedAt == nil {
         cache[groupID] = group.copying(isDimmed: true, settingCompletedAt: now)
