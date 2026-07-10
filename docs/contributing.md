@@ -276,12 +276,12 @@ Every `extension` in a separate file or at the bottom of a file gets its own `//
 Every file begins with a minimal standard header. Issue history belongs in git log, not the file top. Multi-line issue-log blocks should be removed from file headers and replaced with a type-level `///` doc comment so they surface in Xcode Quick Help instead.
 
 ```swift
-// FailureHookRunner.swift
-// RunBot
+// ScopePreferencesStore.swift
+// RunBotCore
 //
-// Fires a per-scope terminal command when a WorkflowActionGroup transitions
-// to a failure conclusion. Resolves all $TOKEN variables before shell handoff.
-// See: TerminalLauncher, ScopePreferencesStore, WorkflowActionGroup
+// Persists per-scope user preferences (alias, polling interval, notifications)
+// as a single Codable blob in UserDefaults.
+// See: ScopePreferencesStoreProtocol, WorkflowScope, ScopeEditSheet
 ```
 
 The `See:` line lists the primary collaborators so a new contributor knows where to look next without reading the full file.

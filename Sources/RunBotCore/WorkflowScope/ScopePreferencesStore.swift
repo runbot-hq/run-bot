@@ -63,7 +63,6 @@ public actor ScopePreferencesStore: ScopePreferencesStoreProtocol {
   /// If a new field is ever added here it will automatically be cleaned up.
   private static let legacyFields = [
     "alias", "pollingInterval", "notifyOnSuccess", "notifyOnFailure",
-    "failureHookEnabled", "failureHookCommand", "localRepoPath", "failureHookBranch",
   ]
 
   // MARK: - Init
@@ -213,72 +212,6 @@ public actor ScopePreferencesStore: ScopePreferencesStoreProtocol {
     write(prefs, for: scope)
     log(
       "ScopePreferencesStore › notifyOnFailure for \(scope) = \(value.map(String.init) ?? "nil (use global)")",
-      category: .scope)
-  }
-
-  // MARK: - ScopePreferencesStoreProtocol — failure hook
-
-  /// - Note: For single-field updates prefer this setter. For multi-field
-  ///   updates use `modifyPreferences(for:with:)` to avoid redundant
-  ///   encode/decode round-trips. (P10)
-  public func failureHookEnabled(for scope: String) -> Bool {
-    read(scope: scope).failureHookEnabled
-  }
-
-  /// Enables or disables the failure hook for `scope`.
-  public func setFailureHookEnabled(_ enabled: Bool, for scope: String) {
-    var prefs = read(scope: scope)
-    prefs.failureHookEnabled = enabled
-    write(prefs, for: scope)
-    log("ScopePreferencesStore › failureHookEnabled for \(scope) = \(enabled)", category: .scope)
-  }
-
-  /// Returns the failure hook shell command for `scope`, or `nil` if unset or blank.
-  public func failureHookCommand(for scope: String) -> String? {
-    read(scope: scope).failureHookCommand.flatMap { $0.isEmpty ? nil : $0 }
-  }
-
-  /// Sets the failure hook shell command for `scope`, trimming whitespace. Passing `nil` or blank clears it.
-  public func setFailureHookCommand(_ command: String?, for scope: String) {
-    var prefs = read(scope: scope)
-    let trimmed = command?.trimmingCharacters(in: .whitespacesAndNewlines)
-    prefs.failureHookCommand = (trimmed?.isEmpty == false) ? trimmed : nil
-    write(prefs, for: scope)
-    log(
-      "ScopePreferencesStore › failureHookCommand for \(scope) = \(prefs.failureHookCommand ?? "nil (cleared)")",
-      category: .scope)
-  }
-
-  /// Returns the local repository path for `scope`, or `nil` if unset or blank.
-  public func localRepoPath(for scope: String) -> String? {
-    read(scope: scope).localRepoPath.flatMap { $0.isEmpty ? nil : $0 }
-  }
-
-  /// Sets the local repository path for `scope`, trimming whitespace. Passing `nil` or blank clears it.
-  public func setLocalRepoPath(_ path: String?, for scope: String) {
-    var prefs = read(scope: scope)
-    let trimmed = path?.trimmingCharacters(in: .whitespacesAndNewlines)
-    prefs.localRepoPath = (trimmed?.isEmpty == false) ? trimmed : nil
-    write(prefs, for: scope)
-    log(
-      "ScopePreferencesStore › localRepoPath for \(scope) = \(prefs.localRepoPath ?? "nil (cleared)")",
-      category: .scope)
-  }
-
-  /// Returns the failure hook branch filter for `scope`, or `nil` if unset (runs on all branches).
-  public func failureHookBranch(for scope: String) -> String? {
-    read(scope: scope).failureHookBranch.flatMap { $0.isEmpty ? nil : $0 }
-  }
-
-  /// Sets the failure hook branch filter for `scope`, trimming whitespace.
-  /// Pass `nil` or blank to run on all branches.
-  public func setFailureHookBranch(_ branch: String?, for scope: String) {
-    var prefs = read(scope: scope)
-    let trimmed = branch?.trimmingCharacters(in: .whitespacesAndNewlines)
-    prefs.failureHookBranch = (trimmed?.isEmpty == false) ? trimmed : nil
-    write(prefs, for: scope)
-    log(
-      "ScopePreferencesStore › failureHookBranch for \(scope) = \(prefs.failureHookBranch ?? "nil (all branches)")",
       category: .scope)
   }
 

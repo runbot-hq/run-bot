@@ -79,10 +79,6 @@ From `ScopePreferencesStore.swift`:
 | Polling interval override | `pollingInterval` | Integer |
 | Notify on success override | `notifyOnSuccess` | Boolean |
 | Notify on failure override | `notifyOnFailure` | Boolean |
-| Failure hook enabled | `failureHookEnabled` | Boolean |
-| Failure hook shell command | `failureHookCommand` | String |
-| Local repo path | `localRepoPath` | String |
-| Failure hook branch filter | `failureHookBranch` | String |
 
 All per-scope keys are removed when a scope is deleted (`ScopePreferencesStore.cleanUp(scope:)`).
 

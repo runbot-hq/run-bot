@@ -132,7 +132,7 @@ bash build.sh && \
 sleep 1 && \
 log stream --level debug \
   --predicate 'subsystem == "com.eoncode.run-bot"' 2>/dev/null \
-| grep -v -E "PollResult|RunnerStore|FailureHook|RunnerViewModel|RunnerPollState|Enricher|LocalRunnerStore"
+| grep -v -E "PollResult|RunnerStore|RunnerViewModel|RunnerPollState|Enricher|LocalRunnerStore"
 ```
 
 `Ctrl+C` stops the stream. To also capture to a file, append `| tee /tmp/runbot_log.txt` to the last line.

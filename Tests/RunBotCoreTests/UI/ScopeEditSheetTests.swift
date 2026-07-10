@@ -1,6 +1,8 @@
 // ScopeEditSheetTests.swift
 // RunBotCoreTests
-// Tests for the atomic-save contract introduced by the ScopeEditSheet DI rewrite — refs #1540.
+// Store contract tests for ScopePreferencesStoreProtocol — originally introduced
+// alongside the ScopeEditSheet DI rewrite (#1540); confirmSave helper removed in
+// #2009 when the sheet became read-only and no longer writes on Save.
 import Foundation
 import RunBotCore
 import Testing
@@ -9,7 +11,7 @@ import Testing
 
 /// In-memory stand-in for `ScopePreferencesStoreProtocol` (Actor-constrained).
 /// Records every `setPreferences(_:for:)` call so tests can assert
-/// that exactly one write occurred and that it carried the correct values.
+/// write isolation and cross-scope safety.
 actor FakeScopePreferencesStore: ScopePreferencesStoreProtocol {
 
   // MARK: Stored state
@@ -78,30 +80,6 @@ actor FakeScopePreferencesStore: ScopePreferencesStoreProtocol {
     store[scope] = prefs
   }
 
-  func setFailureHookEnabled(_ enabled: Bool, for scope: String) {
-    var prefs = store[scope] ?? ScopePreferences()
-    prefs.failureHookEnabled = enabled
-    store[scope] = prefs
-  }
-
-  func setFailureHookCommand(_ command: String?, for scope: String) {
-    var prefs = store[scope] ?? ScopePreferences()
-    prefs.failureHookCommand = command
-    store[scope] = prefs
-  }
-
-  func setLocalRepoPath(_ path: String?, for scope: String) {
-    var prefs = store[scope] ?? ScopePreferences()
-    prefs.localRepoPath = path
-    store[scope] = prefs
-  }
-
-  func setFailureHookBranch(_ branch: String?, for scope: String) {
-    var prefs = store[scope] ?? ScopePreferences()
-    prefs.failureHookBranch = branch
-    store[scope] = prefs
-  }
-
   func cleanUp(scope: String) {
     store.removeValue(forKey: scope)
     writeLog.removeAll()
@@ -115,22 +93,6 @@ actor FakeScopePreferencesStore: ScopePreferencesStoreProtocol {
     store[scope] = prefs
   }
 
-  func failureHookEnabled(for scope: String) -> Bool {
-    store[scope]?.failureHookEnabled ?? false
-  }
-
-  func failureHookCommand(for scope: String) -> String? {
-    store[scope]?.failureHookCommand
-  }
-
-  func failureHookBranch(for scope: String) -> String? {
-    store[scope]?.failureHookBranch
-  }
-
-  func localRepoPath(for scope: String) -> String? {
-    store[scope]?.localRepoPath
-  }
-
   // MARK: Convenience
 
   /// Seeds the store with a known value so tests can control the initial state.
@@ -139,62 +101,10 @@ actor FakeScopePreferencesStore: ScopePreferencesStoreProtocol {
   }
 }
 
-// MARK: - Helpers
-
-/// Mimics the save logic from `ScopeEditSheet.confirmSave()`.
-/// Extracted here so the core contract can be tested without importing SwiftUI.
-private func confirmSave(
-  scope: String,
-  updated: ScopePreferences,
-  into store: any ScopePreferencesStoreProtocol
-) async {
-  await store.setPreferences(updated, for: scope)
-}
-
 // MARK: - Test suite
 
-@Suite("ScopeEditSheet atomic save")
+@Suite("ScopePreferencesStore contract")
 struct ScopeEditSheetTests {
-
-  // MARK: Single-write contract
-
-  /// Verifies that `confirmSave` calls `setPreferences` exactly once per invocation — no duplicate writes.
-  @Test("confirmSave writes exactly once")
-  func confirmSaveWritesExactlyOnce() async {
-    let fake = FakeScopePreferencesStore()
-    let prefs = ScopePreferences(alias: "My Org", failureHookEnabled: true)
-    await confirmSave(scope: "eoncode", updated: prefs, into: fake)
-    #expect(await fake.writeLog.count == 1)
-  }
-
-  /// Verifies that `confirmSave` writes to the scope key that was passed in, not to any other key.
-  @Test("confirmSave targets the correct scope")
-  func confirmSaveTargetsCorrectScope() async {
-    let fake = FakeScopePreferencesStore()
-    let prefs = ScopePreferences(alias: "My Repo")
-    await confirmSave(scope: "runbot-hq/run-bot", updated: prefs, into: fake)
-    #expect(await fake.writeLog.first?.scope == "runbot-hq/run-bot")
-  }
-
-  /// Verifies that a single `confirmSave` call persists every field of `ScopePreferences` atomically in one write.
-  @Test("confirmSave persists all fields in a single write")
-  func confirmSavePersistsAllFields() async {
-    let fake = FakeScopePreferencesStore()
-    let prefs = ScopePreferences(
-      alias: "CI Org",
-      failureHookEnabled: true,
-      failureHookCommand: "./notify.sh",
-      localRepoPath: "/Users/dev/ci",
-      failureHookBranch: "main"
-    )
-    await confirmSave(scope: "acme", updated: prefs, into: fake)
-    let written = await fake.writeLog[0].prefs
-    #expect(written.alias == "CI Org")
-    #expect(written.failureHookEnabled == true)
-    #expect(written.failureHookCommand == "./notify.sh")
-    #expect(written.failureHookBranch == "main")
-    #expect(written.localRepoPath == "/Users/dev/ci")
-  }
 
   // MARK: No spurious writes
 
@@ -207,35 +117,34 @@ struct ScopeEditSheetTests {
     #expect(await fake.writeLog.isEmpty)
   }
 
-  /// Verifies that saving preferences for one scope does not modify the stored value for any other scope.
-  @Test("confirmSave for one scope does not touch another scope")
+  /// Verifies that writing preferences for one scope does not modify the stored value for any other scope.
+  @Test("write for one scope does not touch another scope")
   func saveDoesNotCrossContaminateScopes() async {
     let fake = FakeScopePreferencesStore()
     await fake.seed(ScopePreferences(alias: "Original"), for: "other-scope")
-    await confirmSave(scope: "my-scope", updated: ScopePreferences(alias: "New"), into: fake)
+    await fake.setPreferences(ScopePreferences(alias: "New"), for: "my-scope")
     let untouched = await fake.preferences(for: "other-scope")
     #expect(untouched.alias == "Original")
   }
 
   // MARK: Round-trip
 
-  /// Verifies that `preferences(for:)` returns exactly the value that was written by `confirmSave`.
-  @Test("preferences(for:) returns the value written by confirmSave")
+  /// Verifies that `preferences(for:)` returns exactly the value that was written.
+  @Test("preferences(for:) returns the value written by setPreferences")
   func roundTrip() async {
     let fake = FakeScopePreferencesStore()
-    let prefs = ScopePreferences(alias: "Round Trip", failureHookEnabled: false)
-    await confirmSave(scope: "rt-scope", updated: prefs, into: fake)
+    let prefs = ScopePreferences(alias: "Round Trip")
+    await fake.setPreferences(prefs, for: "rt-scope")
     let readBack = await fake.preferences(for: "rt-scope")
     #expect(readBack.alias == "Round Trip")
-    #expect(readBack.failureHookEnabled == false)
   }
 
-  /// Verifies that a second `confirmSave` for the same scope overwrites the first value, and that the write log records both calls.
-  @Test("second confirmSave overwrites the first")
+  /// Verifies that a second write for the same scope overwrites the first, and that the write log records both calls.
+  @Test("second write overwrites the first")
   func secondSaveOverwritesFirst() async {
     let fake = FakeScopePreferencesStore()
-    await confirmSave(scope: "s", updated: ScopePreferences(alias: "v1"), into: fake)
-    await confirmSave(scope: "s", updated: ScopePreferences(alias: "v2"), into: fake)
+    await fake.setPreferences(ScopePreferences(alias: "v1"), for: "s")
+    await fake.setPreferences(ScopePreferences(alias: "v2"), for: "s")
     #expect(await fake.writeLog.count == 2)
     #expect(await fake.preferences(for: "s").alias == "v2")
   }

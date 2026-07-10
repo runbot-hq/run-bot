@@ -59,7 +59,7 @@ func makeGitHubRunner(
 // MARK: - WorkflowActionGroup
 
 extension WorkflowActionGroup {
-    /// Returns a minimal `WorkflowActionGroup` suitable for `FailureHookRunnerUseCaseTests`.
+    /// Returns a minimal `WorkflowActionGroup` for use in polling and hook-related tests.
     ///
     /// - Parameters:
     ///   - conclusion: The conclusion of the single synthetic run. Defaults to `.failure`.

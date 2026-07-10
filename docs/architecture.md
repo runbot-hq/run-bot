@@ -416,7 +416,7 @@ Synchronous disk I/O is placed in `@concurrent` async free functions, keeping bl
 
 ## Pillar 6: Sendable Use-Cases & Non-Isolated Structs (P8, P17)
 
-Business logic lives in `Sendable` use-case structs (e.g. `WorkflowActionsUseCase`, `FailureHookRunnerUseCase`) with no isolation annotation. Because they are non-actor `Sendable` structs, all methods run on the cooperative thread pool when called with `await` from inside a `Task {}` (P18). `JSONDecoder` instances are `nonisolated` on actors where captured inside closures, expressing that they have no mutable state post-init — not as a workaround, but as a precise compiler-checked immutability guarantee (P17).
+Business logic lives in `Sendable` use-case structs (e.g. `WorkflowActionsUseCase`) with no isolation annotation. Because they are non-actor `Sendable` structs, all methods run on the cooperative thread pool when called with `await` from inside a `Task {}` (P18). `JSONDecoder` instances are `nonisolated` on actors where captured inside closures, expressing that they have no mutable state post-init — not as a workaround, but as a precise compiler-checked immutability guarantee (P17).
 
 ***
 
@@ -429,7 +429,6 @@ Business logic lives in `Sendable` use-case structs (e.g. `WorkflowActionsUseCas
 | `RunnerConfigStore` | actor | `@concurrent` disk I/O helpers |
 | `RateLimitActor` | actor | `snapshot()` atomic reads (P10) |
 | `GitHubRateLimitHandler` | actor | generation counter for stale-task guard |
-| `FailureHookRunnerUseCase` | Sendable struct | inline `async`, no `Task.detached` |
 | `LogFetcher` | Sendable struct | `async` entry points, `Task.detached` callers |
 | All SwiftUI Views | `@MainActor` | Plain `Task {}` inherits isolation |
 | `ProcessRunner` | nonisolated | Legacy `withCheckedContinuation` + `DispatchQueue` (deliberate) |

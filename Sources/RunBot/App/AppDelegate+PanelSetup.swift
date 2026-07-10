@@ -245,8 +245,10 @@ extension AppDelegate: NSPopoverDelegate {
             applyMetrics: { [localRunnerStore] metrics, id, name in
                 await localRunnerStore.applyMetrics(metrics, forRunnerId: id, name: name)
             },
-            fireFailureHook: { group, scope in
-                await FailureHookRunner.fireIfNeeded(group: group, scope: scope, callsite: "pollResultBuilder")
+            fireFailureHook: { _, _ in
+                // No-op: failure-hook feature removed in #2009. The closure slot is
+                // preserved so the poller's call site compiles unchanged and the feature
+                // can be re-wired here (e.g. a GitHub Actions trigger) without touching Core.
             }
         )
         log("AppDelegate › setupSubscriptions — RunnerPoller created with injected stores")
