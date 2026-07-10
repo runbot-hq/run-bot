@@ -63,13 +63,7 @@ public actor ScopePreferencesStore: ScopePreferencesStoreProtocol {
   /// If a new field is ever added here it will automatically be cleaned up.
   private static let legacyFields = [
     "alias", "pollingInterval", "notifyOnSuccess", "notifyOnFailure",
-    // ⚠️ DO NOT remove these yet. The failure-hook feature was deleted in #2009
-    // but these flat keys must stay here so cleanUp(scope:) keeps scrubbing
-    // orphaned UserDefaults entries on installs that had the hook configured
-    // before the blob migration. They are never read at runtime — only used by
-    // cleanUp to delete stale data. Drop them once the pre-migration install
-    // cohort is gone. Tracked in #2010.
-    "failureHookEnabled", "failureHookCommand", "localRepoPath", "failureHookBranch",
+
   ]
 
   // MARK: - Init
