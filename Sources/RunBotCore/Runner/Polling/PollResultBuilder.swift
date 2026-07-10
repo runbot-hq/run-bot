@@ -169,11 +169,16 @@ public enum PollResultBuilder {
     let liveIDs = Set(liveGroups.map { $0.id })
     let now = Date()
     var newCache = evictFreshShas(from: snapGroupCache, freshGroups: allFetched)
+    // Dim and cache every completed group that came back from fetchGroups.
+    // `freezeVanishedGroups` (below) handles the complementary case: groups that
+    // were live last poll but are now absent from the feed entirely.
+    // Note: `wasNotCached` reflects post-eviction cache state only — it is NOT
+    // a cross-poll novelty check (seenGroupIDs was removed with the failure-hook).
     for group in doneGroups {
       let runSummary = group.runs.map { "\($0.id):\($0.conclusion?.rawValue ?? "nil")" }.joined(separator: ", ")
-      let isNew = newCache[group.id] == nil
+      let wasNotCached = newCache[group.id] == nil
       log(
-        "PollResultBuilder › doneGroups — groupID=\(group.id) isNew=\(isNew) runs=[\(runSummary)]",
+        "PollResultBuilder › doneGroups — groupID=\(group.id) wasNotCached=\(wasNotCached) runs=[\(runSummary)]",
         category: .runner)
       newCache[group.id] = group.copying(isDimmed: true)
     }
