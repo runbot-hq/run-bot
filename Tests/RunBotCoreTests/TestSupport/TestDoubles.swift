@@ -130,8 +130,8 @@ actor HookCounter {
 /// Stub conformance for `ScopePreferencesStoreProtocol` (Actor-constrained).
 ///
 /// Implemented as an `actor` to satisfy the protocol constraint.
-/// All stored properties return defaults — only the protocol surface needed by
-/// `FailureHookRunnerUseCase` tests is implemented.
+/// All stored properties return defaults — only the remaining protocol surface
+/// used by current tests is implemented.
 actor MockScopePreferencesStore: ScopePreferencesStoreProtocol {
     func preferences(for _: String) -> ScopePreferences { ScopePreferences() }
     func setPreferences(_: ScopePreferences, for _: String) {}

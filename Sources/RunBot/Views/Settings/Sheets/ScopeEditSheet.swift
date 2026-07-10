@@ -168,7 +168,7 @@ extension ScopeEditSheet {
 }
 
 // MARK: - Sections
-/// Content section views: scope info, monitoring status, and failure-hook configuration.
+/// Content section views: scope info and monitoring status.
 extension ScopeEditSheet {
     /// Card section displaying read-only scope metadata: raw scope string,
     /// type (repo vs org), and a link to open the scope on GitHub.
