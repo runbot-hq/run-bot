@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleIdentifier</key>
+    <string>io.github.runbot-hq.RunBotSpike</string>
+    <key>CFBundleName</key>
+    <string>RunBotSpike</string>
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleURLName</key>
+            <string>RunBot Spike OAuth Callback</string>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>runbotspike</string>
+            </array>
+        </dict>
+    </array>
+    <key>LSUIElement</key>
+    <true/>
+    <key>NSPrincipalClass</key>
+    <string>NSApplication</string>
+</dict>
+</plist>
