@@ -231,7 +231,6 @@ extension ScopeEditSheet {
             }
         }
     }
-
 }
 
 // MARK: - Actions
@@ -256,7 +255,6 @@ extension ScopeEditSheet {
         await scopeStore.refreshDisplayNames()
         isPresented = false
     }
-
 }
 
 // MARK: - Sub-view helpers
@@ -309,5 +307,3 @@ extension ScopeEditSheet {
         .padding(.horizontal, RBSpacing.md).padding(.vertical, 7)
     }
 }
-
-// swiftlint:disable:this file_length

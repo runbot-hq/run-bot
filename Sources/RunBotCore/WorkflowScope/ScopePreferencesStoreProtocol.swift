@@ -72,6 +72,7 @@ public protocol ScopePreferencesStoreProtocol: Actor {
 /// Default implementation of `modifyPreferences` — performs a full read-modify-write
 /// inside the actor in a single hop. Concrete conformers can override if needed.
 public extension ScopePreferencesStoreProtocol {
+    /// Reads, applies `mutation`, and writes — all inside the actor in a single hop.
     func modifyPreferences(for scope: String, with mutation: @Sendable (inout ScopePreferences) -> Void) {
         var prefs = preferences(for: scope)
         mutation(&prefs)
