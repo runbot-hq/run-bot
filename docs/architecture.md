@@ -354,7 +354,7 @@ LocalRunnerStore (actor, Core)
 RunnerPoller (actor, Core)
   ├─ fetchAndEnrichRunners()    ← GitHub API → [Runner]  (two withTaskGroup phases)
   ├─ enriches busy runners      ← reads CPU/MEM metrics from disk
-  ├─ tracks jobs + action groups, fires failure hooks on vanished items
+  ├─ tracks jobs + action groups, detects vanished items
   ├─ handles rate limiting      ← actor-local copy + mirrored to state
   └─ applyFetchResult()         ← await MainActor.run { state.runners/jobs/actions = … }
         │

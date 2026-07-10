@@ -106,21 +106,6 @@ defaults delete dev.eonist.runbot
 
 ---
 
-## Failure Hooks
-
-When a workflow run fails, RunBot can optionally fire a **user-defined shell command** in Terminal (`FailureHookRunner.swift`). The following tokens are substituted before the command runs:
-
-| Token | Substituted with |
-|---|---|
-| `$FAILURE_LOG` | The workflow job log text fetched from GitHub |
-| `$LOCAL_PATH` | The local filesystem path you configured for this scope |
-| `$BRANCH` | The branch name of the failed run |
-| `$RUN_LINK` | The GitHub URL of the failed run |
-
-The command, path, and branch filter are stored in `UserDefaults` as described above. **RunBot does not transmit failure logs anywhere** — they are fetched from `api.github.com` and passed directly to your local shell command.
-
----
-
 ## Network Activity
 
 RunBot makes HTTPS requests **only** to:
@@ -183,4 +168,3 @@ RunBot is open source. You can audit every network call, every persistence write
 - Token storage: [`Sources/RunBotCore/GitHub/Keychain.swift`](../../Sources/RunBotCore/GitHub/Keychain.swift)
 - GitHub API calls: [`Sources/RunBot/GitHub/GitHubURLSessionTransport.swift`](../../Sources/RunBot/GitHub/GitHubURLSessionTransport.swift)
 - Per-scope preferences: [`Sources/RunBotCore/Scope/ScopePreferencesStore.swift`](../../Sources/RunBotCore/Scope/ScopePreferencesStore.swift)
-- Failure hooks: [`Sources/RunBot/Services/FailureHookRunner.swift`](../../Sources/RunBot/Services/FailureHookRunner.swift)

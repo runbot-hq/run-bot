@@ -320,7 +320,7 @@ public struct WorkflowActionGroup: Identifiable, Equatable, Sendable {
     /// a consistent result before jobs have loaded — a group whose runs already report a
     /// failure-class conclusion will not show a false-negative here during the fetch window.
     ///
-    /// TODO: wire into display-layer badge colouring / hook-triggering call sites when
+    /// TODO: wire into display-layer badge colouring when
     /// those paths are migrated off their existing inline checks.
     public var hasFailedJob: Bool {
         if !jobs.isEmpty {
