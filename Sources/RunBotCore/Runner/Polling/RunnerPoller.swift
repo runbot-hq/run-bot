@@ -1,42 +1,11 @@
 // RunnerPoller.swift
 // RunBotCore
-//
-// Step 10: RunnerStore renamed to RunnerPoller and moved into RunBotCore.
-// Step 14: applyFetchResult writes only to RunnerState (no viewModel.* writes remain).
-// App-layer dependencies replaced with protocol-typed injections and closures
-// so Core has no import of the RunBot app target.
-// F-35: startObservingPreferences and startObservingScopes updated to use
-//       ObservationRelay's trailing-closure init (read closure) instead of store: parameter.
-// Step 6: runners property changed from [Runner] to [GitHubRunner].
 
 import Foundation
 import GitHubClient
 import os
 
 // MARK: - Typealiases
-//
-// Moved from RunnerPollerObservers.swift → ObservationRelay.swift → here.
-// Co-located with RunnerPoller, the only consumer of these aliases.
-// Step 10: Moved from RunBot app target to RunBotCore.
-// F-35: PreferencesObserver and ScopesObserver replaced by ObservationRelay<Element>.
-
-/// Drives the `pollingInterval → TimeInterval` observation stream.
-///
-/// Alias for `ObservationRelay<TimeInterval>` — preserves call-site names in
-/// `RunnerPoller` so the F-35 refactor requires no renaming diff outside this file.
-///
-/// - Note: `internal` to match original visibility. Do not narrow to `private`
-///   (breaks cross-file reference) or widen to `public` (unnecessary API surface).
-typealias PreferencesObserver = ObservationRelay<TimeInterval>
-
-/// Drives the `activeScopes → [String]` observation stream.
-///
-/// Alias for `ObservationRelay<[String]>` — preserves call-site names in
-/// `RunnerPoller` so the F-35 refactor requires no renaming diff outside this file.
-///
-/// - Note: `internal` to match original visibility. Do not narrow to `private`
-///   (breaks cross-file reference) or widen to `public` (unnecessary API surface).
-typealias ScopesObserver = ObservationRelay<[String]>
 
 // MARK: - RunnerPoller
 
@@ -170,7 +139,7 @@ public actor RunnerPoller {
 
   /// Starts (or restarts) the `pollingInterval` observation loop.
   ///
-  /// Uses `AsyncStream<TimeInterval>` to match `PreferencesObserver.continuation` which is
+  /// Uses `AsyncStream<TimeInterval>` to match the relay's `continuation` which is
   /// typed `AsyncStream<TimeInterval>.Continuation` and yields
   /// `TimeInterval(store.pollingInterval)`. The stream element type must match the
   /// continuation type exactly — `pollingInterval` is an `Int` (seconds) but the observer
@@ -187,8 +156,8 @@ public actor RunnerPoller {
     let injectedStore = preferencesStore
     let newTask = Task { [weak self] in
       let (stream, continuation) = AsyncStream<TimeInterval>.makeStream()
-      let observer: PreferencesObserver = await MainActor.run {
-        let relay = PreferencesObserver(continuation: continuation) {
+      let observer: ObservationRelay<TimeInterval> = await MainActor.run {
+        let relay = ObservationRelay<TimeInterval>(continuation: continuation) {
           TimeInterval(injectedStore.pollingInterval)
         }
         relay.start()
@@ -223,8 +192,8 @@ public actor RunnerPoller {
     let injectedStore = scopeStore
     let newTask = Task { [weak self] in
       let (stream, continuation) = AsyncStream<[String]>.makeStream()
-      let observer: ScopesObserver = await MainActor.run {
-        let relay = ScopesObserver(continuation: continuation) {
+      let observer: ObservationRelay<[String]> = await MainActor.run {
+        let relay = ObservationRelay<[String]>(continuation: continuation) {
           injectedStore.activeScopes
         }
         relay.start()
@@ -531,13 +500,7 @@ public actor RunnerPoller {
   /// `applyError` passes `nil` display lists to preserve stale data during error
   /// cycles. Do not pass `nil` intending to clear — use explicit empty arrays.
   ///
-  /// **Why not `enum DisplayUpdate<T> { case keep; case set(T) }`?**
-  /// The nil-means-keep contract is entirely internal to this one actor and has
-  /// exactly two call sites (`applyFetchResult`, `applyError`), both in the same
-  /// file. An enum wrapper would add a generic type, a new declaration, and
-  /// wrapping/unwrapping boilerplate at every call site with no real safety gain
-  /// at this scope. The `nil` semantics are fully documented here and enforced by
-  /// code review — that is sufficient.
+  // nil-means-keep over enum DisplayUpdate: two call sites, same file, no safety gain.
   func setDisplayState(
     isRateLimited newIsRateLimited: Bool,
     rateLimitResetDate newResetDate: Date?,

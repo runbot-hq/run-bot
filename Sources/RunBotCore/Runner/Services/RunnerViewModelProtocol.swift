@@ -7,10 +7,6 @@ import Foundation
 /// Push-receiver interface through which `LocalRunnerStore` delivers
 /// its computed snapshots to the main-actor presentation layer.
 ///
-/// The five GitHub API props (`runners`, `jobs`, `actions`, `isRateLimited`,
-/// `rateLimitResetDate`) moved to `RunnerState` in Step 3 and are no longer
-/// part of this protocol (removed in Step 15).
-///
 /// Declaring the protocol in `RunBotCore` (rather than the app target) achieves two goals:
 /// 1. `RunnerPoller` and `LocalRunnerStore` can reference it without importing AppKit or SwiftUI.
 /// 2. Test doubles (`MockRunnerViewModel`) can be defined inside `RunBotCoreTests` and

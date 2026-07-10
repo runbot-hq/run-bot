@@ -1,7 +1,5 @@
 // RunnerPoller+PollBridge.swift
 // RunBotCore
-//
-// Step 10: Moved to RunBotCore as `extension RunnerPoller`.
 
 import Foundation
 import GitHubClient
