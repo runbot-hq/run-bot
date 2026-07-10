@@ -49,7 +49,6 @@ public enum PollResultBuilder {
     backfill: @Sendable (inout [Int: ActiveJob]) async -> Void
   ) async -> JobPollResult {
     let allFetched: [ActiveJob] = await fetchJobs()
-    // Step 8: job.jobConclusion / job.jobStatus (renamed from .conclusion / .status)
     let liveJobs: [ActiveJob] = allFetched.filter { job in
       job.jobConclusion == nil && job.jobStatus != .completed
     }
@@ -68,7 +67,6 @@ public enum PollResultBuilder {
     let newPrevLive: [Int: ActiveJob] = [Int: ActiveJob](
       uniqueKeysWithValues: liveJobs.map { ($0.id, $0) })
     let display = buildJobDisplay(live: liveJobs, cache: newCache)
-    // Step 8: job.jobStatus (renamed from .status)
     let inProgCount = liveJobs.filter { $0.jobStatus == .inProgress }.count
     let queuedCount = liveJobs.filter { $0.jobStatus == .queued }.count
     log(
@@ -88,6 +86,10 @@ public enum PollResultBuilder {
   ///   - snapGroupCache: Completed-group cache from the previous poll.
   ///   - fetchGroups: Async closure that fetches live groups for every active scope.
   ///   - enrichJobs: Async closure that enriches a job list from the job cache.
+  ///
+  /// Both closures are `@escaping` because they are forwarded into `withTaskGroup.addTask`
+  /// (an escaping context) inside `enrichDisplay` and `enrichCache`. Removing `@escaping`
+  /// here will produce a compiler error in those private helpers.
   ///
   /// Enrichment is split into two sequential sweeps — see inline comments for rationale.
   public static func buildGroupState(
@@ -172,7 +174,6 @@ public enum PollResultBuilder {
   /// irrelevant at runtime scale — do not optimise.
   public static func trimJobCache(_ cache: inout [Int: ActiveJob], limit: Int) {
     guard cache.count > limit else { return }
-    // Step 8: job.completedDate (renamed from .completedAt)
     let sorted = cache.values.sorted { lhs, rhs in
       (lhs.completedDate ?? .distantPast) > (rhs.completedDate ?? .distantPast)
     }
@@ -186,10 +187,8 @@ public enum PollResultBuilder {
   /// Live jobs are never capped by `jobCacheLimit`; the combined list is capped
   /// at `jobDisplayLimit` so the panel UI stays manageable.
   public static func buildJobDisplay(live: [ActiveJob], cache: [Int: ActiveJob]) -> [ActiveJob] {
-    // Step 8: job.jobStatus (renamed from .status)
     let inProgress: [ActiveJob] = live.filter { $0.jobStatus == .inProgress }
     let queued: [ActiveJob] = live.filter { $0.jobStatus == .queued }
-    // Step 8: job.completedDate (renamed from .completedAt)
     let cached: [ActiveJob] = cache.values.sorted { lhs, rhs in
       (lhs.completedDate ?? .distantPast) > (rhs.completedDate ?? .distantPast)
     }
@@ -258,6 +257,9 @@ public enum PollResultBuilder {
           category: .runner)
         continue
       }
+      // `existsInCache=true` means an entry exists but failed the fast-path guard above:
+      // either it is not yet dimmed, or it is dimmed but has a smaller job count than the
+      // snapshot (stale). In both cases the entry will be overwritten below.
       log(
         "PollResultBuilder › freezeVanishedGroups — vanished groupID=\(group.id) existsInCache=\(cache[groupID] != nil) jobs=\(group.jobs.count)",
         category: .runner)
@@ -316,6 +318,7 @@ public enum PollResultBuilder {
   /// Enriches the display array by running `enrichJobs` over each group's jobs
   /// concurrently via a `withTaskGroup`, preserving the original display sort order.
   ///
+  /// `enrichJobs` must be `@escaping` because `addTask` captures it in an escaping closure.
   /// Keyed by `Int` (array index) so the order produced by `buildGroupDisplay` is
   /// faithfully restored after `withTaskGroup` yields results in completion order.
   private static func enrichDisplay(
@@ -335,6 +338,7 @@ public enum PollResultBuilder {
   /// Enriches the group cache by running `enrichJobs` over each cached group's
   /// jobs concurrently via a `withTaskGroup`.
   ///
+  /// `enrichJobs` must be `@escaping` because `addTask` captures it in an escaping closure.
   /// Keyed by `String` (group ID) because `newCache` is a dictionary and its
   /// semantic identity IS the group ID. Kept separate from `enrichDisplay` because
   /// the key types differ (Int vs String) and the source collections differ
@@ -364,15 +368,10 @@ private extension Array {
   /// individual elements (e.g. cached groups that are already live) without
   /// breaking the "fill until full" semantics.
   ///
-  /// - Note: `internal` (not `private`) because Swift does not allow `private`
-  ///   on extensions that are not in the same file as the primary type declaration.
-  ///   `Array` is defined in the standard library, so `private` here would mean
-  ///   file-private — invisible to `PollResultBuilder`'s callers within the same
-  ///   module but also invisible across files. `internal` is the narrowest access
-  ///   level that lets `PollResultBuilder` (and its test targets) call this method
-  ///   without leaking it as `public` API. It is **not** intended for use outside
-  ///   the polling pipeline; treat it as an implementation detail of
-  ///   `buildJobDisplay` and `buildGroupDisplay`.
+  /// Declared inside a `private extension` so it is file-scoped and not
+  /// visible outside `PollResultBuilder.swift`. Not intended for use outside
+  /// the polling pipeline; treat it as an implementation detail of
+  /// `buildJobDisplay` and `buildGroupDisplay`.
   mutating func appendUpTo<S>(
     _ limit: Int,
     from source: S,
