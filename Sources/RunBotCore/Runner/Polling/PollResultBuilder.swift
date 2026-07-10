@@ -98,7 +98,9 @@ public enum PollResultBuilder {
   ///
   /// Both closures are `@escaping` because they are forwarded into `withTaskGroup.addTask`
   /// (an escaping context) inside `enrichDisplay` and `enrichCache`. Removing `@escaping`
-  /// here will produce a compiler error in those private helpers.
+  /// here will produce a compiler error in those private helpers. By contrast,
+  /// `buildJobState`'s closures are non-escaping because they are called directly
+  /// and never forwarded into an escaping context — the asymmetry is intentional.
   ///
   /// Enrichment runs as two separate sweeps — once over the display array and once over
   /// the full cache — because they are distinct collections that cannot be derived from
@@ -293,11 +295,12 @@ public enum PollResultBuilder {
           category: .runner)
         continue
       }
-      // alreadyCached=true: a stale entry exists (not yet dimmed, or dimmed with fewer
-      // jobs than the snapshot) and will be replaced below.
-      // alreadyCached=false: no prior cache entry — this is a clean first-time freeze.
+      // failedFastPath=true: the fast-path guard above was not taken — either the entry
+      // is not yet dimmed, or it is dimmed but has a smaller job count than the snapshot.
+      // failedFastPath=false: no prior cache entry at all; this is a clean first-time freeze.
+      // In both cases the entry is written (or overwritten) immediately below.
       log(
-        "PollResultBuilder › freezeVanishedGroups — vanished groupID=\(group.id) alreadyCached=\(cache[groupID] != nil) jobs=\(group.jobs.count)",
+        "PollResultBuilder › freezeVanishedGroups — vanished groupID=\(group.id) failedFastPath=\(cache[groupID] != nil) jobs=\(group.jobs.count)",
         category: .runner)
       if group.lastJobCompletedAt == nil {
         cache[groupID] = group.copying(isDimmed: true, settingCompletedAt: now)
