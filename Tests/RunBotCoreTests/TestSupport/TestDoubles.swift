@@ -130,22 +130,9 @@ actor HookCounter {
 /// Stub conformance for `ScopePreferencesStoreProtocol` (Actor-constrained).
 ///
 /// Implemented as an `actor` to satisfy the protocol constraint.
-/// All stored properties are set at init time and accessed synchronously within
-/// the actor — no concurrent mutation occurs inside a single test method.
+/// All stored properties return defaults — only the protocol surface needed by
+/// `FailureHookRunnerUseCase` tests is implemented.
 actor MockScopePreferencesStore: ScopePreferencesStoreProtocol {
-    var hookEnabled: Bool    = false
-    var command:     String? = nil
-    var branch:      String? = nil
-    var localRepoPath:   String? = nil
-
-    func setProperties(hookEnabled: Bool, command: String?, branch: String?, localRepoPath: String?) {
-        self.hookEnabled = hookEnabled
-        self.command = command
-        self.branch = branch
-        self.localRepoPath = localRepoPath
-    }
-
-    // Scoped to failure-hook only — unused properties return defaults.
     func preferences(for _: String) -> ScopePreferences { ScopePreferences() }
     func setPreferences(_: ScopePreferences, for _: String) {}
     func alias(for _: String) -> String? { nil }
@@ -157,20 +144,11 @@ actor MockScopePreferencesStore: ScopePreferencesStoreProtocol {
     func setNotifyOnSuccess(_: Bool?, for _: String) {}
     func notifyOnFailure(for _: String) -> Bool? { nil }
     func setNotifyOnFailure(_: Bool?, for _: String) {}
-    func setFailureHookEnabled(_: Bool, for _: String) {}
-    func setFailureHookCommand(_: String?, for _: String) {}
-    func setLocalRepoPath(_: String?, for _: String) {}
-    func setFailureHookBranch(_: String?, for _: String) {}
     func cleanUp(scope _: String) {}
     func modifyPreferences(for _: String, with mutation: @Sendable (inout ScopePreferences) -> Void) {
         var prefs = ScopePreferences()
         mutation(&prefs)
     }
-
-    func failureHookEnabled(for _: String) -> Bool    { hookEnabled }
-    func failureHookCommand(for _: String) -> String? { command }
-    func failureHookBranch(for _:  String) -> String? { branch }
-    func localRepoPath(for _:      String) -> String? { localRepoPath }
 }
 
 // MARK: - SpyTerminalLauncher

@@ -78,30 +78,6 @@ actor FakeScopePreferencesStore: ScopePreferencesStoreProtocol {
     store[scope] = prefs
   }
 
-  func setFailureHookEnabled(_ enabled: Bool, for scope: String) {
-    var prefs = store[scope] ?? ScopePreferences()
-    prefs.failureHookEnabled = enabled
-    store[scope] = prefs
-  }
-
-  func setFailureHookCommand(_ command: String?, for scope: String) {
-    var prefs = store[scope] ?? ScopePreferences()
-    prefs.failureHookCommand = command
-    store[scope] = prefs
-  }
-
-  func setLocalRepoPath(_ path: String?, for scope: String) {
-    var prefs = store[scope] ?? ScopePreferences()
-    prefs.localRepoPath = path
-    store[scope] = prefs
-  }
-
-  func setFailureHookBranch(_ branch: String?, for scope: String) {
-    var prefs = store[scope] ?? ScopePreferences()
-    prefs.failureHookBranch = branch
-    store[scope] = prefs
-  }
-
   func cleanUp(scope: String) {
     store.removeValue(forKey: scope)
     writeLog.removeAll()
@@ -113,22 +89,6 @@ actor FakeScopePreferencesStore: ScopePreferencesStoreProtocol {
     var prefs = store[scope] ?? ScopePreferences()
     mutation(&prefs)
     store[scope] = prefs
-  }
-
-  func failureHookEnabled(for scope: String) -> Bool {
-    store[scope]?.failureHookEnabled ?? false
-  }
-
-  func failureHookCommand(for scope: String) -> String? {
-    store[scope]?.failureHookCommand
-  }
-
-  func failureHookBranch(for scope: String) -> String? {
-    store[scope]?.failureHookBranch
-  }
-
-  func localRepoPath(for scope: String) -> String? {
-    store[scope]?.localRepoPath
   }
 
   // MARK: Convenience
@@ -162,7 +122,7 @@ struct ScopeEditSheetTests {
   @Test("confirmSave writes exactly once")
   func confirmSaveWritesExactlyOnce() async {
     let fake = FakeScopePreferencesStore()
-    let prefs = ScopePreferences(alias: "My Org", failureHookEnabled: true)
+    let prefs = ScopePreferences(alias: "My Org")
     await confirmSave(scope: "eoncode", updated: prefs, into: fake)
     #expect(await fake.writeLog.count == 1)
   }
@@ -174,26 +134,6 @@ struct ScopeEditSheetTests {
     let prefs = ScopePreferences(alias: "My Repo")
     await confirmSave(scope: "runbot-hq/run-bot", updated: prefs, into: fake)
     #expect(await fake.writeLog.first?.scope == "runbot-hq/run-bot")
-  }
-
-  /// Verifies that a single `confirmSave` call persists every field of `ScopePreferences` atomically in one write.
-  @Test("confirmSave persists all fields in a single write")
-  func confirmSavePersistsAllFields() async {
-    let fake = FakeScopePreferencesStore()
-    let prefs = ScopePreferences(
-      alias: "CI Org",
-      failureHookEnabled: true,
-      failureHookCommand: "./notify.sh",
-      localRepoPath: "/Users/dev/ci",
-      failureHookBranch: "main"
-    )
-    await confirmSave(scope: "acme", updated: prefs, into: fake)
-    let written = await fake.writeLog[0].prefs
-    #expect(written.alias == "CI Org")
-    #expect(written.failureHookEnabled == true)
-    #expect(written.failureHookCommand == "./notify.sh")
-    #expect(written.failureHookBranch == "main")
-    #expect(written.localRepoPath == "/Users/dev/ci")
   }
 
   // MARK: No spurious writes
@@ -223,11 +163,10 @@ struct ScopeEditSheetTests {
   @Test("preferences(for:) returns the value written by confirmSave")
   func roundTrip() async {
     let fake = FakeScopePreferencesStore()
-    let prefs = ScopePreferences(alias: "Round Trip", failureHookEnabled: false)
+    let prefs = ScopePreferences(alias: "Round Trip")
     await confirmSave(scope: "rt-scope", updated: prefs, into: fake)
     let readBack = await fake.preferences(for: "rt-scope")
     #expect(readBack.alias == "Round Trip")
-    #expect(readBack.failureHookEnabled == false)
   }
 
   /// Verifies that a second `confirmSave` for the same scope overwrites the first value, and that the write log records both calls.
