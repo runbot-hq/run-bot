@@ -200,7 +200,7 @@ public enum PollResultBuilder {
 
   /// Builds the ordered job display list from live jobs and the completed cache.
   ///
-  /// Display order: in-progress → queued → cached (most-recently-completed first).
+  /// Display order: in-progress -> queued -> cached (most-recently-completed first).
   /// Live jobs are never capped by `jobCacheLimit`; the combined list is capped
   /// at `jobDisplayLimit` so the panel UI stays manageable.
   public static func buildJobDisplay(live: [ActiveJob], cache: [Int: ActiveJob]) -> [ActiveJob] {
@@ -275,12 +275,12 @@ public enum PollResultBuilder {
     into cache: inout [String: WorkflowActionGroup]
   ) {
     log(
-      "PollResultBuilder › freezeVanishedGroups — snapPrev=\(snapPrev.count) liveIDs=\(liveIDs)",
+      "PollResultBuilder › freezeVanishedGroups — snapPrev=\(snapPrev.count) liveIDs=\(liveIDs.count)",
       category: .runner)
     for (groupID, group) in snapPrev where !liveIDs.contains(groupID) {
       if let existing = cache[groupID], existing.isDimmed, existing.jobs.count >= group.jobs.count {
         log(
-          "PollResultBuilder › freezeVanishedGroups — groupID=\(group.id) skipped (already cached+dimmed, jobs=\(existing.jobs.count)≥\(group.jobs.count))",
+          "PollResultBuilder › freezeVanishedGroups — groupID=\(group.id) skipped (already cached+dimmed, jobs=\(existing.jobs.count)>=\(group.jobs.count))",
           category: .runner)
         continue
       }
@@ -314,7 +314,7 @@ public enum PollResultBuilder {
 
   /// Builds the ordered group display list from live groups and the completed cache.
   ///
-  /// Display order: in-progress → loading → queued → cached (most-recently-completed first).
+  /// Display order: in-progress -> loading -> queued -> cached (most-recently-completed first).
   /// Capped at `groupDisplayLimit` — analogous to `jobDisplayLimit` for jobs.
   public static func buildGroupDisplay(
     live: [WorkflowActionGroup],
