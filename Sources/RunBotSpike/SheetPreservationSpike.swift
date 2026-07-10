@@ -3,7 +3,7 @@
 //
 // PURPOSE:
 // Self-contained test for SwiftUI MenuBarExtra behaviour on macOS 26.
-// Answers all 9 questions required before migrating AppDelegate → RunBotApp.
+// Answers all 8 questions required before migrating AppDelegate → RunBotApp.
 // See docs/spike-results.md for the test checklist.
 // See issue #1987 for the migration context.
 //
@@ -32,12 +32,6 @@ struct SheetSpikeApp: App {
                 .environment(appState)
         }
         .menuBarExtraStyle(.window)
-        .onOpenURL { url in
-            // Scenario 9: onOpenURL replaces NSAppleEventManager.
-            // Test by running: open "runbotspike://test"
-            print("\u{1F535} [Spike] onOpenURL fired: \(url)")
-            appState.lastOAuthURL = url.absoluteString
-        }
     }
 }
 
@@ -54,9 +48,6 @@ final class SpikeAppState {
     // tears down view-local @State on close.
     var showSettingsSheet: Bool = false
     var sheetDraftText: String = ""
-
-    // OAuth callback result (Scenario 9)
-    var lastOAuthURL: String = "(none yet — run: open 'runbotspike://test')"
 
     // Counter to detect .task re-execution (Scenario 5)
     var taskStartCount: Int = 0
@@ -204,16 +195,6 @@ struct MainSpikeView: View {
             }
             .frame(maxWidth: .infinity)
             .buttonStyle(.borderedProminent)
-
-            // ── Scenario 9: OAuth URL readout ────────────────────────────
-            GroupBox("Scenario 9 — .onOpenURL") {
-                Text(appState.lastOAuthURL)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Text("Run: open 'runbotspike://test' in Terminal")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-            }
         }
         .padding(16)
         .frame(width: 320)
