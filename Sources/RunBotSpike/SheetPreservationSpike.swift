@@ -145,7 +145,7 @@ struct MainSpikeView: View {
                     .foregroundStyle(.secondary)
             }
             .sheet(isPresented: $showLocalSheet) {
-                SheetSpikeView(parentText: $localText)
+                SheetSpikeView(parentText: $localText, isPresented: $showLocalSheet)
             }
 
             // ── Scenario 6: App-level lifted sheet state ─────────────────
@@ -161,7 +161,7 @@ struct MainSpikeView: View {
                     .foregroundStyle(.secondary)
             }
             .sheet(isPresented: $appState.showSettingsSheet) {
-                SheetSpikeView(parentText: $appState.sheetDraftText)
+                SheetSpikeView(parentText: $appState.sheetDraftText, isPresented: $appState.showSettingsSheet)
             }
 
             // ── Scenario 7: .fileImporter — does picker dismiss app? ─────
@@ -246,7 +246,7 @@ struct SettingsSpikeView: View {
                     .foregroundStyle(.secondary)
             }
             .sheet(isPresented: $showChildSheet) {
-                SheetSpikeView(parentText: .constant(""))
+                SheetSpikeView(parentText: .constant(""), isPresented: $showChildSheet)
                     .frame(minWidth: 480)
             }
 
@@ -264,7 +264,10 @@ struct SettingsSpikeView: View {
 
 struct SheetSpikeView: View {
     @Binding var parentText: String
-    @Environment(\.dismiss) private var dismiss
+    // Use an explicit isPresented binding instead of @Environment(\.dismiss).
+    // On macOS, \dismiss inside a MenuBarExtra panel bubbles up and closes
+    // the entire app rather than just the sheet.
+    @Binding var isPresented: Bool
 
     // Scenario 3b + 4: sheet-local @State preservation
     @State private var sheetCounter: Int = 0
@@ -303,7 +306,7 @@ struct SheetSpikeView: View {
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
 
-            Button("Dismiss") { dismiss() }
+            Button("Dismiss") { isPresented = false }
                 .buttonStyle(.borderedProminent)
         }
         .padding(24)
