@@ -3,7 +3,7 @@
 //
 // PURPOSE:
 // Self-contained test for SwiftUI MenuBarExtra behaviour on macOS 26.
-// Answers all 8 questions required before migrating AppDelegate → RunBotApp.
+// Answers all 9 questions required before migrating AppDelegate → RunBotApp.
 // See docs/spike-results.md for the test checklist.
 // See issue #1987 for the migration context.
 //
@@ -17,10 +17,31 @@ import SwiftUI
 import AppKit
 import UniformTypeIdentifiers
 
+// MARK: - AppDelegate shim
+// Suppresses the MenuBarExtra hide-on-deactivate that fires when a sheet
+// dismisses and causes focus to briefly leave the app window.
+// applicationShouldTerminateAfterLastWindowClosed returning false keeps
+// the app alive; applicationDidResignActive returning without hiding
+// prevents the popover collapsing on sheet dismiss.
+
+final class SpikeAppDelegate: NSObject, NSApplicationDelegate {
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        false
+    }
+
+    func applicationDidResignActive(_ notification: Notification) {
+        // Do nothing — suppresses the default MenuBarExtra hide-on-deactivate.
+        // Without this, dismissing a sheet briefly deactivates the app and
+        // collapses the MenuBarExtra window as if the user clicked outside.
+    }
+}
+
 // MARK: - Entry point
 
 @main
 struct SheetSpikeApp: App {
+    @NSApplicationDelegateAdaptor(SpikeAppDelegate.self) var appDelegate
+
     // @State on the App struct — NOT on a view.
     // This is the proposed AppState ownership model.
     // If state survives close/reopen when owned here → architecture is valid.
@@ -82,7 +103,8 @@ struct SpikeRootView: View {
             await MainActor.run { appState.taskStartCount += 1 }
             print("\u{1F535} [Spike] .task started (count=\(appState.taskStartCount)) — should only print ONCE")
             // Simulate RunBot's long-lived poll loop.
-            for await _ in AsyncStream<Void> { _ in } { }
+            let stream = AsyncStream<Void> { _ in }
+            for await _ in stream { }
         }
     }
 }
@@ -247,6 +269,7 @@ struct SettingsSpikeView: View {
             }
             .sheet(isPresented: $showChildSheet) {
                 SheetSpikeView(parentText: .constant(""), isPresented: $showChildSheet)
+                    .frame(minWidth: 480)
             }
 
             Button("\u{2190} Back") {
@@ -264,7 +287,7 @@ struct SettingsSpikeView: View {
 struct SheetSpikeView: View {
     @Binding var parentText: String
     // Use an explicit isPresented binding instead of @Environment(\.dismiss).
-    // On macOS, \dismiss inside a MenuBarExtra panel bubbles up and closes
+    // On macOS, \.dismiss inside a MenuBarExtra panel bubbles up and closes
     // the entire app rather than just the sheet.
     @Binding var isPresented: Bool
 
@@ -309,5 +332,6 @@ struct SheetSpikeView: View {
                 .buttonStyle(.borderedProminent)
         }
         .padding(24)
+        .frame(width: 320, height: 360)
     }
 }
