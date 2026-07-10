@@ -310,25 +310,6 @@ public struct WorkflowActionGroup: Identifiable, Equatable, Sendable {
     /// Human-readable job progress fraction, e.g. `"3/5"`. Returns `"—"` while jobs load.
     public var jobProgress: String { jobs.isEmpty ? "—" : "\(jobsDone)/\(jobsTotal)" }
 
-    /// `true` when at least one job in this group has a failure-class conclusion.
-    ///
-    /// Uses the typed `JobConclusion.isFailure` check (covers `.failure`, `.timedOut`,
-    /// `.startupFailure`, `.actionRequired`) rather than raw-string comparison.
-    ///
-    /// Falls back to run-level conclusions when `jobs` is empty (loading state), mirroring
-    /// the same fallback logic used by `conclusion`. This ensures badge callers get
-    /// a consistent result before jobs have loaded — a group whose runs already report a
-    /// failure-class conclusion will not show a false-negative here during the fetch window.
-    ///
-    /// TODO: wire into display-layer badge colouring when
-    /// those paths are migrated off their existing inline checks.
-    public var hasFailedJob: Bool {
-        if !jobs.isEmpty {
-            return jobs.contains { $0.jobConclusion?.isFailure == true }
-        }
-        return runs.contains { $0.conclusion?.isFailure == true }
-    }
-
     /// Name of the first in-progress job, or first queued job, or `"—"`.
     public var currentJobName: String {
         if let job = jobs.first(where: { $0.jobStatus == .inProgress }) { return job.name }
