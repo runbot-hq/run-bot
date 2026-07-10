@@ -195,6 +195,12 @@ struct MainSpikeView: View {
             }
             .frame(maxWidth: .infinity)
             .buttonStyle(.borderedProminent)
+
+            // ── Close / quit ─────────────────────────────────────────────
+            Button("Close") {
+                NSApplication.shared.terminate(nil)
+            }
+            .frame(maxWidth: .infinity)
         }
         .padding(16)
         .frame(width: 320)
@@ -206,6 +212,8 @@ struct MainSpikeView: View {
 struct SettingsSpikeView: View {
     @Environment(SpikeAppState.self) private var appState
     @State private var settingsCounter: Int = 0
+    // Scenario 9: sheet presented from child view inside nav stack
+    @State private var showChildSheet: Bool = false
 
     var body: some View {
         VStack(spacing: 14) {
@@ -223,6 +231,22 @@ struct SettingsSpikeView: View {
                 Text("Navigate away + back. Counter should survive.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+            }
+
+            // ── Scenario 9: Sheet from child view in nav stack ────────────
+            GroupBox("Scenario 9 — Sheet from child (NavStack)") {
+                Button("Open child sheet") { showChildSheet = true }
+                Label(
+                    showChildSheet ? "Child sheet IS open" : "Child sheet is closed",
+                    systemImage: showChildSheet ? "checkmark.circle.fill" : "xmark.circle"
+                )
+                .foregroundStyle(showChildSheet ? .green : .secondary)
+                Text("Verifies .sheet works from a child view inside the nav stack.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .sheet(isPresented: $showChildSheet) {
+                SheetSpikeView(parentText: .constant(""))
             }
 
             Button("\u{2190} Back") {
