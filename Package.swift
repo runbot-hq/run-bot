@@ -50,6 +50,23 @@ let package = Package(
                 .enableUpcomingFeature("NonisolatedNonsendingByDefault")
             ]
         ),
+        // ── Spike target ────────────────────────────────────────────────────────
+        // Self-contained MenuBarExtra behaviour test for the SwiftUI lifecycle
+        // migration (issue #1987). Zero RunBot dependencies — pure SwiftUI.
+        // Run with: swift run RunBotSpike
+        // Remove this target once spike-results.md is filled in and the
+        // migration PRs are underway.
+        .executableTarget(
+            name: "RunBotSpike",
+            dependencies: [],
+            path: "Sources/RunBotSpike",
+            resources: [
+                .process("Info.plist")
+            ],
+            swiftSettings: [
+                .swiftLanguageVersion(.v6)
+            ]
+        ),
         .testTarget(
             name: "RunBotCoreTests",
             dependencies: [
