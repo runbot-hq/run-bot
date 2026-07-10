@@ -44,22 +44,6 @@ struct FreezeVanishedConfig: Sendable {
   let liveIDs: Set<String>
   /// Timestamp used as `lastJobCompletedAt` for vanished groups that lack one.
   let now: Date
-
-  /// Creates a `FreezeVanishedConfig`.
-  ///
-  /// - Parameters:
-  ///   - snapPrev: Live-group snapshot from the previous poll cycle.
-  ///   - liveIDs: Group IDs present in the current live poll.
-  ///   - now: Timestamp for groups whose `lastJobCompletedAt` is nil.
-  init(
-    snapPrev: [String: WorkflowActionGroup],
-    liveIDs: Set<String>,
-    now: Date
-  ) {
-    self.snapPrev = snapPrev
-    self.liveIDs = liveIDs
-    self.now = now
-  }
 }
 
 // MARK: - PollResultBuilder
