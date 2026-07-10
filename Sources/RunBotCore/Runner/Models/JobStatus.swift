@@ -173,15 +173,13 @@ public enum JobConclusion: Hashable, Sendable {
     ///   infrastructure problems that need attention.
     /// - `.actionRequired` — a required check (e.g. a code-scanning tool) determined
     ///   that manual review is needed before the run can be considered passing.
-    ///   Intentionally treated as a failure so the badge and failure hook both fire,
+    ///   Intentionally treated as a failure so the badge fires,
     ///   prompting the developer to act. If your workflow uses `action_required` for
     ///   routine deployment approvals and you find this noisy, introduce a separate
     ///   predicate at the call site rather than removing it here.
     ///
     /// **Exclusion rationale:**
-    /// - `.cancelled` — user-initiated or triggered by a superseding push; not a CI
-    ///   error. The failure hook uses `isHookConclusion` which additionally includes
-    ///   `.cancelled`, so cancelled runs still fire the hook.
+    /// - `.cancelled` — user-initiated or triggered by a superseding push; not a CI error.
     /// - `.skipped` — dependency-driven, controlled by `if:` conditions; informational.
     /// - `.neutral` — inconclusive outcome with no definitive pass/fail signal;
     ///   same class as `.skipped`: informational, not actionable.
@@ -190,20 +188,6 @@ public enum JobConclusion: Hashable, Sendable {
         case .failure, .timedOut, .startupFailure, .actionRequired: return true
         default: return false
         }
-    }
-
-    /// Returns `true` for conclusions that should trigger the failure hook.
-    ///
-    /// A superset of `isFailure` that additionally includes `.cancelled`.
-    /// Cancelled runs are user-initiated rather than genuine CI failures, but a
-    /// cancellation often signals a problem (e.g. a superseding push that broke the
-    /// build mid-run) that the user wants to be notified about.
-    ///
-    /// Use `isHookConclusion` at the hook-firing gate in `PollResultBuilder`.
-    /// Use `isFailure` for badge colouring and display logic where `.cancelled`
-    /// should not be shown as a failure.
-    public var isHookConclusion: Bool {
-        isFailure || self == .cancelled
     }
 }
 

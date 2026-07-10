@@ -2,11 +2,7 @@
 // RunBotCore
 //
 // Step 10: Moved to RunBotCore as `extension RunnerPoller`.
-// `FailureHookRunner` is decoupled — the injected `fireFailureHook` closure
-// stored on `RunnerPoller` is the sole integration point, keeping
-// `FailureHookRunner` in the app target and out of `RunBotCore`.
 
-import Collections
 import Foundation
 import GitHubClient
 import os
@@ -24,10 +20,6 @@ import os
 /// `await MainActor.run { }` replaces the old `DispatchQueue.main.sync` pattern;
 /// unlike `main.sync`, `MainActor.run` is re-entrant-safe and will not deadlock
 /// when called from the main actor itself.
-///
-/// `FailureHookRunner` is intentionally **not** referenced here — the
-/// injected `fireFailureHook` closure on `RunnerPoller` is the sole integration
-/// point, keeping `FailureHookRunner` in the app target and out of `RunBotCore`.
 extension RunnerPoller {
 
     // MARK: - [weak self] in GroupStateDeps closures
@@ -82,8 +74,7 @@ extension RunnerPoller {
     }
 
     /// Builds a `GroupPollResult` by fetching live workflow action groups for all monitored scopes,
-    /// firing failure hooks for newly-failed groups, enriching jobs from the job cache,
-    /// and diffing against `snapPrevGroups`.
+    /// enriching jobs from the job cache, and diffing against `snapPrevGroups`.
     ///
     /// - Parameter scopes: The scope snapshot captured by `fetchInternal`, threaded
     ///   through to `fetchActionGroups(scopes:shaKeyedCache:)` to avoid a TOCTOU re-read
@@ -92,82 +83,23 @@ extension RunnerPoller {
         snapPrevGroups: [String: WorkflowActionGroup],
         snapGroupCache: [String: WorkflowActionGroup],
         jobCache: [Int: ActiveJob],
-        scopes: [String],
-        snapSeenGroupIDs: OrderedSet<String> = OrderedSet()
+        scopes: [String]
     ) async -> GroupPollResult {
         return await PollResultBuilder.buildGroupState(
             snapPrevGroups: snapPrevGroups,
             snapGroupCache: snapGroupCache,
             deps: GroupStateDeps(
                 fetchGroups: { [weak self] shaKeyedCache in
-                    // weak: see [weak self] in GroupStateDeps closures note above.
                     await self?.fetchActionGroups(scopes: scopes, shaKeyedCache: shaKeyedCache) ?? []
                 },
-                scopeFromGroup: { [weak self] group in
-                    // weak: see [weak self] in GroupStateDeps closures note above.
-                    guard let self else {
-                        log(
-                            "RunnerPoller › scopeFromGroup — ⚠️ self is nil, returning empty scope for groupID=\(group.id)",
-                            category: .runner)
-                        return ""
-                    }
-                    return self.scopeFromActionGroup(group)
-                },
-                fireFailureHook: { [weak self] group, scope in
-                    // weak: see [weak self] in GroupStateDeps closures note above.
-                    // PollResultBuilder.buildGroupState (and freezeVanishedGroups) already
-                    // `await` this closure directly — no Task wrapper needed or correct here.
-                    // The hook runs inline on the cooperative thread pool as part of the
-                    // structured async chain that buildGroupState owns.
-                    // `fireFailureHook` is injected at init by the app layer so Core never
-                    // imports `FailureHookRunner`.
-                    await self?.fireFailureHook(group, scope)
-                },
                 enrichJobs: { [weak self] jobs in
-                    // weak: see [weak self] in GroupStateDeps closures note above.
                     self?.enrichGroupJobs(jobs, jobCache: jobCache) ?? jobs
                 }
-            ),
-            snapSeenGroupIDs: snapSeenGroupIDs
+            )
         )
     }
 
     // MARK: - Group helpers
-
-    /// Derives the scope string (repo or org URL) from a `WorkflowActionGroup`.
-    ///
-    /// `nonisolated`: reads only `group` (a `Sendable` value type passed as a parameter)
-    /// and calls `scopeFromHtmlUrl` (a pure free function). No main-actor state is accessed,
-    /// so the `@MainActor` hop at every call site in `buildGroupState` is unnecessary.
-    ///
-    /// `internal` (not `public`): called only via the `scopeFromGroup` closure passed to
-    /// `PollResultBuilder` — no external callers exist outside `RunBotCore`.
-    nonisolated func scopeFromActionGroup(_ group: WorkflowActionGroup) -> String {
-        log(
-            "RunnerPoller › scopeFromActionGroup — group.repo='\(group.repo)' groupID=\(group.id)",
-            category: .runner)
-        if !group.repo.isEmpty {
-            log(
-                "RunnerPoller › scopeFromActionGroup — using group.repo='\(group.repo)'",
-                category: .runner)
-            return group.repo
-        }
-        log(
-            "RunnerPoller › scopeFromActionGroup — group.repo is empty, trying htmlUrl of first run",
-            category: .runner)
-        if let firstRun = group.runs.first,
-           let url = firstRun.htmlUrl,
-           let scope = scopeFromHtmlUrl(url) {
-            log(
-                "RunnerPoller › scopeFromActionGroup — derived scope '\(scope)' from htmlUrl '\(url)'",
-                category: .runner)
-            return scope
-        }
-        log(
-            "RunnerPoller › scopeFromActionGroup — ⚠️ could not derive scope for groupID=\(group.id)",
-            category: .runner)
-        return ""
-    }
 
     /// Enriches a group's job list with step and conclusion data from the job cache.
     ///

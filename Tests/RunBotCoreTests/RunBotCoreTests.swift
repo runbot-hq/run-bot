@@ -1,6 +1,5 @@
 // RunBotCoreTests.swift
 // RunBotCoreTests
-import Collections
 import Foundation
 import GitHubClient
 import RunBotCore
@@ -352,7 +351,7 @@ struct PollResultBuilderTests {
   /// Vanished jobs fall back to `.neutral` (not `.cancelled`) because `.cancelled` is the
   /// conclusion GitHub assigns when a user explicitly cancels via the UI. A job that silently
   /// disappears from the feed never received that API update, so using `.neutral` avoids
-  /// misattributing the cause and avoids triggering isHookConclusion side-effects.
+  /// misattributing the cause.
   @Test func applyVanishedJobsMovesVanishedJobToCache() {
     let vanished = ActiveJob(id: 55, name: "Vanished", status: "in_progress")
     var cache: [Int: ActiveJob] = [:]
@@ -367,7 +366,7 @@ struct PollResultBuilderTests {
     #expect(cache[55]?.isDimmed == true)
     #expect(
       cache[55]?.jobConclusion == .neutral,
-      "Missing conclusion defaults to neutral (.cancelled has isHookConclusion side-effects)")
+      "Missing conclusion defaults to neutral")
   }
 
   /// Verifies that `applyVanishedJobs` does not overwrite a cache entry that already exists for the same job ID.
@@ -454,41 +453,6 @@ struct PollResultBuilderTests {
     #expect(result.newCache[11]?.jobStatus == .completed)
   }
 
-  // MARK: trimSeenGroupIDs
-
-  /// Verifies that `trimSeenGroupIDs` is a no-op when the set is exactly at the limit.
-  @Test func trimSeenGroupIDsNoopAtLimit() {
-    var ids: OrderedSet<String> = OrderedSet((1...10).map { "group-\($0)" })
-    PollResultBuilder.trimSeenGroupIDs(&ids, limit: 10)
-    #expect(ids.count == 10)
-  }
-
-  /// Verifies that `trimSeenGroupIDs` trims to exactly the limit (not to limit/2) when one entry over.
-  @Test func trimSeenGroupIDsTrimsToLimitNotHalf() {
-    let limit = 10
-    var ids: OrderedSet<String> = OrderedSet((1...(limit + 1)).map { "group-\($0)" })
-    PollResultBuilder.trimSeenGroupIDs(&ids, limit: limit)
-    #expect(ids.count == limit)
-  }
-
-  /// Verifies that `trimSeenGroupIDs` correctly trims a set that is well over the limit down to exactly the limit.
-  @Test func trimSeenGroupIDsWellOverLimit() {
-    let limit = 10
-    var ids: OrderedSet<String> = OrderedSet((1...25).map { "group-\($0)" })
-    PollResultBuilder.trimSeenGroupIDs(&ids, limit: limit)
-    #expect(ids.count == limit)
-  }
-
-  /// Oldest entries (lowest indices) must be evicted first — FIFO.
-  @Test func trimSeenGroupIDsEvictsOldestFirst() {
-    var ids: OrderedSet<String> = OrderedSet((1...12).map { "group-\($0)" })
-    PollResultBuilder.trimSeenGroupIDs(&ids, limit: 10)
-    #expect(ids.count == 10)
-    #expect(!ids.contains("group-1"))
-    #expect(!ids.contains("group-2"))
-    #expect(ids.first == "group-3")
-    #expect(ids.last == "group-12")
-  }
 }
 
 // MARK: - JobStatus.isActive
@@ -545,42 +509,6 @@ struct JobConclusionIsFailureTests {
   ])
   func isFailureFalse(conclusion: JobConclusion) {
     #expect(!conclusion.isFailure)
-  }
-}
-
-// MARK: - JobConclusion.isHookConclusion
-
-@Suite("JobConclusion.isHookConclusion")
-struct JobConclusionIsHookConclusionTests {
-
-  /// Verifies that `.failure`, `.timedOut`, `.startupFailure`, `.actionRequired`, and `.cancelled` all return `true` for `isHookConclusion`.
-  @Test(arguments: [
-    JobConclusion.failure,
-    .timedOut,
-    .startupFailure,
-    .actionRequired,
-    .cancelled,
-  ])
-  func isHookConclusionTrue(conclusion: JobConclusion) {
-    #expect(conclusion.isHookConclusion)
-  }
-
-  /// Verifies that `.cancelled` is a hook conclusion but not a failure — it must not trigger isFailure side-effects.
-  @Test func cancelledIsHookConclusionButNotFailure() {
-    #expect(JobConclusion.cancelled.isHookConclusion)
-    #expect(!JobConclusion.cancelled.isFailure)
-  }
-
-  /// Verifies that `.success`, `.skipped`, `.neutral`, `.stale`, and unknown conclusions return `false` for `isHookConclusion`.
-  @Test(arguments: [
-    JobConclusion.success,
-    .skipped,
-    .neutral,
-    .stale,
-    .unknown("some_future_value"),
-  ])
-  func isHookConclusionFalse(conclusion: JobConclusion) {
-    #expect(!conclusion.isHookConclusion)
   }
 }
 
@@ -648,8 +576,6 @@ struct PollResultBuilderGroupStateTests {
       snapGroupCache: [:],
       deps: GroupStateDeps(
         fetchGroups: { _ in [completedGroup] },
-        scopeFromGroup: { $0.repo },
-        fireFailureHook: { _, _ in },
         enrichJobs: { $0 }
       )
     )
@@ -668,68 +594,10 @@ struct PollResultBuilderGroupStateTests {
       snapGroupCache: [:],
       deps: GroupStateDeps(
         fetchGroups: { _ in [liveGroup] },
-        scopeFromGroup: { $0.repo },
-        fireFailureHook: { _, _ in },
         enrichJobs: { $0 }
       )
     )
     #expect(result.display.contains(where: { !$0.isDimmed }))
-  }
-
-  /// Verifies that `fireFailureHook` is called exactly once for a new failed group that has not been seen before.
-  @Test func fireFailureHookCalledOnceForNewFailedGroup() async {
-    let failedGroup = makeGroup(
-      id: 700, sha: "112233", groupStatus: .completed, conclusion: "failure")
-    let counter = HookCounter()
-    _ = await PollResultBuilder.buildGroupState(
-      snapPrevGroups: [:],
-      snapGroupCache: [:],
-      deps: GroupStateDeps(
-        fetchGroups: { _ in [failedGroup] },
-        scopeFromGroup: { $0.repo },
-        fireFailureHook: { _, _ in await counter.increment() },
-        enrichJobs: { $0 }
-      )
-    )
-    #expect(
-      await counter.value == 1, "fireFailureHook must fire exactly once for a new failed group")
-  }
-
-  /// Verifies that `fireFailureHook` is not called when a completed group has a successful conclusion.
-  @Test func fireFailureHookNotCalledForSuccessGroup() async {
-    let successGroup = makeGroup(
-      id: 750, sha: "aabbdd", groupStatus: .completed, conclusion: "success")
-    let counter = HookCounter()
-    _ = await PollResultBuilder.buildGroupState(
-      snapPrevGroups: [:],
-      snapGroupCache: [:],
-      deps: GroupStateDeps(
-        fetchGroups: { _ in [successGroup] },
-        scopeFromGroup: { $0.repo },
-        fireFailureHook: { _, _ in await counter.increment() },
-        enrichJobs: { $0 }
-      )
-    )
-    #expect(await counter.value == 0)
-  }
-
-  /// Verifies that `fireFailureHook` is not called for a group whose ID is already present in `snapSeenGroupIDs`, even if the group cache has been evicted.
-  @Test func fireFailureHookNotCalledWhenGroupAlreadySeenEvenIfEvictedFromCache() async {
-    let completedGroup = makeGroup(
-      id: 800, sha: "445566", groupStatus: .completed, conclusion: "failure", isDimmed: true)
-    let counter = HookCounter()
-    _ = await PollResultBuilder.buildGroupState(
-      snapPrevGroups: [:],
-      snapGroupCache: [:],
-      deps: GroupStateDeps(
-        fetchGroups: { _ in [completedGroup] },
-        scopeFromGroup: { $0.repo },
-        fireFailureHook: { _, _ in await counter.increment() },
-        enrichJobs: { $0 }
-      ),
-      snapSeenGroupIDs: [completedGroup.id]
-    )
-    #expect(await counter.value == 0)
   }
 
   /// Verifies that a previously live group transitions cleanly to cache once it completes, leaving no live (non-dimmed) rows.
@@ -743,8 +611,6 @@ struct PollResultBuilderGroupStateTests {
       snapGroupCache: [:],
       deps: GroupStateDeps(
         fetchGroups: { _ in [completedGroup] },
-        scopeFromGroup: { $0.repo },
-        fireFailureHook: { _, _ in },
         enrichJobs: { $0 }
       )
     )
@@ -783,8 +649,6 @@ struct PollResultBuilderGroupStateTests {
       snapGroupCache: [:],
       deps: GroupStateDeps(
         fetchGroups: { _ in [mixedGroup] },
-        scopeFromGroup: { $0.repo },
-        fireFailureHook: { _, _ in },
         enrichJobs: { $0 }
       )
     )
@@ -794,110 +658,6 @@ struct PollResultBuilderGroupStateTests {
     #expect(cacheForSha.count == 0)
   }
 
-  @Test func evictedGroupIDRefiresHookOnNextPoll() async {
-    let failedGroup = makeGroup(
-      id: 1001, sha: "dead01", groupStatus: .completed, conclusion: "failure")
-    let counter = HookCounter()
-
-    let poll1 = await PollResultBuilder.buildGroupState(
-      snapPrevGroups: [:],
-      snapGroupCache: [:],
-      deps: GroupStateDeps(
-        fetchGroups: { _ in [failedGroup] },
-        scopeFromGroup: { $0.repo },
-        fireFailureHook: { _, _ in await counter.increment() },
-        enrichJobs: { $0 }
-      )
-    )
-    #expect(await counter.value == 1, "hook must fire once on first poll")
-    #expect(poll1.newSeenGroupIDs.contains(failedGroup.id))
-
-    var seenAfterEviction: OrderedSet<String> = [failedGroup.id]
-    for i in 0..<(PollResultBuilder.seenGroupIDsLimit - 1) {
-      seenAfterEviction.append("filler-\(i)")
-    }
-    #expect(seenAfterEviction.count == PollResultBuilder.seenGroupIDsLimit)
-    PollResultBuilder.trimSeenGroupIDs(
-      &seenAfterEviction, limit: PollResultBuilder.seenGroupIDsLimit - 1)
-    #expect(
-      !seenAfterEviction.contains(failedGroup.id),
-      "real group ID must be evicted (it was the oldest entry)")
-
-    _ = await PollResultBuilder.buildGroupState(
-      snapPrevGroups: [:],
-      snapGroupCache: [:],
-      deps: GroupStateDeps(
-        fetchGroups: { _ in [failedGroup] },
-        scopeFromGroup: { $0.repo },
-        fireFailureHook: { _, _ in await counter.increment() },
-        enrichJobs: { $0 }
-      ),
-      snapSeenGroupIDs: seenAfterEviction
-    )
-    #expect(await counter.value == 2, "hook must re-fire after FIFO eviction from seenGroupIDs")
-  }
-
-  @Test func doneGroupsSeenBeforeFreezeVanishedGroupsPreventsDoubleFire() async {
-    let sha = "ff0011"
-    let liveVersion = makeGroup(
-      id: 1002, sha: sha, groupStatus: .inProgress, jobStatus: .inProgress)
-    let completedVersion = makeGroup(
-      id: 1002, sha: sha, groupStatus: .completed, conclusion: "failure")
-    let counter = HookCounter()
-    _ = await PollResultBuilder.buildGroupState(
-      snapPrevGroups: [liveVersion.id: liveVersion],
-      snapGroupCache: [:],
-      deps: GroupStateDeps(
-        fetchGroups: { _ in [completedVersion] },
-        scopeFromGroup: { $0.repo },
-        fireFailureHook: { _, _ in await counter.increment() },
-        enrichJobs: { $0 }
-      )
-    )
-    #expect(
-      await counter.value == 1,
-      "doneGroups must be marked seen before freezeVanishedGroups runs to prevent double-fire")
-  }
-
-  @Test func vanishPathHookDoesNotRefireAfterCacheEviction() async {
-    let sha = "cc0011"
-    let vanishedGroup = makeGroup(
-      id: 1003, sha: sha, groupStatus: .completed, conclusion: "failure", isDimmed: false)
-
-    let counter = HookCounter()
-    let poll1 = await PollResultBuilder.buildGroupState(
-      snapPrevGroups: [vanishedGroup.id: vanishedGroup],
-      snapGroupCache: [:],
-      deps: GroupStateDeps(
-        fetchGroups: { _ in [] },
-        scopeFromGroup: { $0.repo },
-        fireFailureHook: { _, _ in await counter.increment() },
-        enrichJobs: { $0 }
-      )
-    )
-    #expect(await counter.value == 1, "hook must fire on first vanish")
-    #expect(
-      poll1.newSeenGroupIDs.contains(vanishedGroup.id), "vanish path must insert into seenGroupIDs")
-
-    var evictedCache = poll1.newGroupCache
-    PollResultBuilder.trimGroupCache(&evictedCache, limit: 0)
-    #expect(evictedCache.isEmpty, "cache must be empty after eviction")
-
-    _ = await PollResultBuilder.buildGroupState(
-      snapPrevGroups: [vanishedGroup.id: vanishedGroup],
-      snapGroupCache: evictedCache,
-      deps: GroupStateDeps(
-        fetchGroups: { _ in [] },
-        scopeFromGroup: { $0.repo },
-        fireFailureHook: { _, _ in await counter.increment() },
-        enrichJobs: { $0 }
-      ),
-      snapSeenGroupIDs: poll1.newSeenGroupIDs
-    )
-    #expect(
-      await counter.value == 1,
-      "hook must not re-fire after cache eviction when seenGroupIDs still holds the ID")
-  }
 }
 
 // MARK: - ProcessRunner.runAsync stdin

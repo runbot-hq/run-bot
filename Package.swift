@@ -17,8 +17,6 @@ let package = Package(
     // Do NOT edit Package.resolved manually. Do NOT commit Package.resolved.
     // If a dependency's API changes → fix the call site here, never lock the dep.
     dependencies: [
-        // Versioned via semver range — do not switch to .exact() or a commit hash.
-        .package(url: "https://github.com/apple/swift-collections.git", from: "1.1.0"),
         // Tracks main — resolves to HEAD on every CI run. Do not pin to a revision.
         .package(url: "https://github.com/runbot-hq/AppUpdater", branch: "main"),
         // Tracks main — resolves to HEAD on every CI run. Do not pin to a revision.
@@ -29,8 +27,7 @@ let package = Package(
             name: "RunBotCore",
             dependencies: [
                 .product(name: "GitHubClient", package: "GitHubClient"),
-                .product(name: "AppUpdater", package: "AppUpdater"),
-                .product(name: "Collections", package: "swift-collections")
+                .product(name: "AppUpdater", package: "AppUpdater")
             ],
             path: "Sources/RunBotCore",
             swiftSettings: [
@@ -57,8 +54,7 @@ let package = Package(
             name: "RunBotCoreTests",
             dependencies: [
                 "RunBotCore",
-                .product(name: "GitHubClient", package: "GitHubClient"),
-                .product(name: "Collections", package: "swift-collections")
+                .product(name: "GitHubClient", package: "GitHubClient")
             ],
             path: "Tests/RunBotCoreTests",
             swiftSettings: [

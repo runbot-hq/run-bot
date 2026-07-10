@@ -1,6 +1,5 @@
 // PollResults.swift
 // RunBotCore
-import Collections
 import Foundation
 
 // MARK: - Poll result value types
@@ -34,32 +33,19 @@ public struct GroupPollResult: Sendable {
     public let newGroupCache: [String: WorkflowActionGroup]
     /// Live-group snapshot for the next poll's diff.
     public let newPrevLiveGroups: [String: WorkflowActionGroup]
-    /// Ordered set of group IDs that have already fired the failure hook.
-    ///
-    /// `OrderedSet` preserves insertion order so `trimSeenGroupIDs` always evicts
-    /// the oldest entries first (FIFO), preventing recently-seen IDs from being
-    /// dropped before stale ones under high churn.
-    /// Kept separate from `newGroupCache` so that eviction of old display entries
-    /// (trimmed at `groupCacheLimit = 30`) does not accidentally re-arm the hook
-    /// for groups that were already processed in an earlier poll cycle.
-    /// Capped at `PollResultBuilder.seenGroupIDsLimit` entries.
-    public let newSeenGroupIDs: OrderedSet<String>
 
     /// Creates a `GroupPollResult` with all fields.
     /// - Parameters:
     ///   - display: Groups to show in the popover.
     ///   - newGroupCache: Updated group cache.
     ///   - newPrevLiveGroups: Live-group snapshot for the next poll's diff.
-    ///   - newSeenGroupIDs: Ordered set of seen group IDs.
     public init(
         display: [WorkflowActionGroup],
         newGroupCache: [String: WorkflowActionGroup],
-        newPrevLiveGroups: [String: WorkflowActionGroup],
-        newSeenGroupIDs: OrderedSet<String>
+        newPrevLiveGroups: [String: WorkflowActionGroup]
     ) {
         self.display = display
         self.newGroupCache = newGroupCache
         self.newPrevLiveGroups = newPrevLiveGroups
-        self.newSeenGroupIDs = newSeenGroupIDs
     }
 }

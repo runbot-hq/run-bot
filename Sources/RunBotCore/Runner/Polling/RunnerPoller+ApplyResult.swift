@@ -25,7 +25,6 @@ extension RunnerPoller {
         prevLiveJobs = jobResult.newPrevLive
         actionGroupCache = groupResult.newGroupCache
         prevLiveGroups = groupResult.newPrevLiveGroups
-        seenGroupIDs = groupResult.newSeenGroupIDs
         // setDisplayState writes the actor-local copies (self.runners / .jobs / .actions)
         // consumed by nextPollInterval() and other internal actor logic.
         setDisplayState(
