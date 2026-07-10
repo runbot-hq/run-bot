@@ -1,3 +1,9 @@
+## Contents
+
+- [Why NSPopover Instead of NSPanel](#why-nspopover-instead-of-nspanel)
+- [Preventing Side-Jump on Resize](#preventing-side-jump-on-resize)
+- [Dismiss, Sheets, and File Pickers](#dismiss-sheets-and-file-pickers)
+
 # NSPopover — UI Decisions
 
 Everything you need to know before touching `AppDelegate.swift`,

@@ -1,3 +1,15 @@
+## Contents
+
+- [Authentication & Credentials](#authentication--credentials)
+- [GitHub OAuth Scopes](#github-oauth-scopes)
+- [Preferences & Settings](#preferences--settings)
+- [Failure Hooks](#failure-hooks)
+- [Network Activity](#network-activity)
+- [In-Memory Data](#in-memory-data)
+- [macOS Permissions](#macos-permissions)
+- [GitHub OAuth Permissions](#github-oauth-permissions)
+- [Open Source](#open-source)
+
 # Privacy & Data Storage
 
 RunBot is a macOS status-bar app that monitors GitHub Actions on your own repositories. This document explains exactly what data the app stores, where, and how — verified directly from the source code.

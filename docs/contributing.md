@@ -1,6 +1,15 @@
-# Contributing
+## Contents
 
-Two areas that consistently trip up new contributors: stacked PRs and the commenting standard. Both are covered here.
+- [Stacked PRs](#stacked-prs)
+- [The Mental Model](#the-mental-model)
+- [Creating the Stack](#creating-the-stack)
+- [Keeping the Stack in Sync](#keeping-the-stack-in-sync)
+- [Making Changes to a Middle Branch](#making-changes-to-a-middle-branch)
+- [Landing the Stack](#landing-the-stack-merging-without-conflict-fuss)
+- [Conflict Prevention Checklist](#conflict-prevention-checklist)
+- [If a Conflict Does Occur During Rebase](#if-a-conflict-does-occur-during-rebase)
+- [Landing with --onto (squash-merge stacks)](#landing-with---onto-squash-merge-stacks)
+- [Code Comments](#code-comments)
 
 ---
 

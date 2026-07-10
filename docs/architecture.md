@@ -1,3 +1,17 @@
+## Contents
+
+- [panelVisibilityState and wrapEnv()](#panelvisibilitystate-and-wrapenv)
+- [@MainActor isolation on AppDelegate](#mainactor-isolation-on-appdelegate)
+- [Nav-state persistence across panel close/open](#nav-state-persistence-across-panel-closeopen)
+- [OAuth URL handling](#oauth-url-handling)
+- [KeyablePanel access level](#keyablepanel-access-level)
+- [Dark Mode & Light Mode Support](#dark-mode--light-mode-support)
+- [RunBotCore Library Rationale](#runbotcore-library-rationale)
+- [GitHubClient Package](#githubclient-package-runbot-hqgithubclient)
+- [AppUpdater Package](#appupdater-package-runbot-hqappupdater)
+- [Data Model](#data-model)
+- [Concurrency Model](#concurrency-model)
+
 # RunBot — UI Architecture Decisions
 
 Regression guards and architectural decisions enforced inline in the source.

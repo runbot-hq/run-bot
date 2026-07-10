@@ -1,3 +1,9 @@
+## Contents
+
+- [Triggering UI Tests](#triggering-ui-tests)
+- [1. Grant Accessibility permission to Xcode](#1-grant-accessibility-permission-to-xcode)
+- [2. Confirm the runner has a GUI session](#2-confirm-the-runner-has-a-gui-session)
+
 # Testing — UI Test Runner Setup
 
 One-time manual steps required on the self-hosted Mac before UI tests will run unattended in CI.

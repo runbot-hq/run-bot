@@ -1,3 +1,8 @@
+## Contents
+
+- [Principles](#principles)
+- [Reach-Goal Principles](#reach-goal-principles)
+
 # RunBot — Technical Principles
 
 Engineering and design principles that govern the RunBot codebase.

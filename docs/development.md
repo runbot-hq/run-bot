@@ -1,8 +1,14 @@
-# Development
+## Contents
 
-How to build, run, and verify RunBot locally. For agent-specific rules see
-[`AGENTS.md`](../../AGENTS.md); for the full source map see
-[`docs/architecture/file-hierarchy.md`](../architecture/file-hierarchy.md).
+- [Philosophy](#philosophy)
+- [Prerequisites](#prerequisites)
+- [Targets](#targets)
+- [Editor](#editor)
+- [Dev Loop](#dev-loop)
+- [Verification](#verification-run-before-every-commit--pr)
+- [Auth during Development](#auth-during-development)
+- [Adding Dependencies](#adding-dependencies)
+- [Building for Release](#building-for-release)
 
 ## Philosophy
 

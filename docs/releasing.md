@@ -1,3 +1,19 @@
+## Contents
+
+- [Quick reference](#quick-reference)
+- [How the pipeline works](#how-the-pipeline-works)
+- [Channels](#channels)
+- [Versioning rules](#versioning-rules)
+- [Build internals](#build-internals)
+- [Distribution & install](#distribution--install)
+- [Branch rules](#branch-rules)
+- [`deploy.sh` deprecation](#deploysh-deprecation)
+- [Rollback procedure](#rollback-procedure)
+- [In-app update check](#in-app-update-check)
+- [Dry run](#dry-run)
+- [Update Flow](#update-flow)
+- [Related](#related)
+
 # Releasing RunBot
 
 This document is the single source of truth for shipping a new build — from
