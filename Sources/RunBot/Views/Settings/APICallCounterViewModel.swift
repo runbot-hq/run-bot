@@ -34,9 +34,14 @@ public final class APICallCounterViewModel {
     private let counter: any APICallCounterProtocol
 
     /// Holds the structured polling task so `deinit` can cancel it.
-    /// Written only from `@MainActor` context; `nonisolated(unsafe)` is safe
-    /// because `Task.cancel()` is concurrency-safe and `deinit` only reads
-    /// this value to cancel — it never writes it.
+    /// `nonisolated(unsafe)` is required here because `@Observable` expands
+    /// this into a mutable backing var that `nonisolated` (without `unsafe`)
+    /// cannot be applied to. The manual safety guarantee holds: all writes
+    /// go through `startPolling()` and `stopPolling()` (both `@MainActor`);
+    /// `deinit` only reads to call `Task.cancel()`, which is concurrency-safe.
+    /// Suppress the compiler warning with `@ObservationIgnored` so the
+    /// `@Observable` macro does not wrap this property at all.
+    @ObservationIgnored
     nonisolated(unsafe) private var _task: Task<Void, Never>?
 
     /// Creates the view-model.
