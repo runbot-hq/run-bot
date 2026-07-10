@@ -68,7 +68,7 @@ public actor ScopePreferencesStore: ScopePreferencesStoreProtocol {
     // orphaned UserDefaults entries on installs that had the hook configured
     // before the blob migration. They are never read at runtime — only used by
     // cleanUp to delete stale data. Drop them once the pre-migration install
-    // cohort is gone (track via the follow-up issue filed after #2009).
+    // cohort is gone. Tracked in #2010.
     "failureHookEnabled", "failureHookCommand", "localRepoPath", "failureHookBranch",
   ]
 

@@ -245,6 +245,9 @@ extension ScopeEditSheet {
     /// is **intentionally kept** so the `Task { await confirmSave() }` call site in
     /// `buttonFooter` requires zero rewiring when editable fields return.
     ///
+    /// Swift does **not** emit a no-`await` warning for `async` functions on
+    /// `@MainActor` types, so this is CI-clean as-is — no suppression needed.
+    ///
     /// **Do not remove `async` or collapse this to a direct `isPresented = false`**
     /// at the call site — doing so will force a button-action rewrite when the next
     /// field is added.
