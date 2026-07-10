@@ -252,6 +252,9 @@ extension ScopeEditSheet {
     /// at the call site — doing so will force a button-action rewrite when the next
     /// field is added.
     @MainActor func confirmSave() async {
+        // No-op await keeps the async keyword structurally load-bearing.
+        // Prevents a future cleanup pass from silently removing `async`.
+        _ = await Task<Void, Never> { }.value
         isPresented = false
     }
 }

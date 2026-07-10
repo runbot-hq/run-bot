@@ -249,7 +249,6 @@ extension AppDelegate: NSPopoverDelegate {
                 // No-op: failure-hook feature removed in #2009. The closure slot is
                 // preserved so the poller's call site compiles unchanged and the feature
                 // can be re-wired here (e.g. a GitHub Actions trigger) without touching Core.
-                Logger.failureHook.debug("fireFailureHook invoked — no-op (feature removed in #2009)")
             }
         )
         log("AppDelegate › setupSubscriptions — RunnerPoller created with injected stores")
