@@ -180,30 +180,15 @@ public enum JobConclusion: Hashable, Sendable {
     ///
     /// **Exclusion rationale:**
     /// - `.cancelled` — user-initiated or triggered by a superseding push; not a CI
-    ///   error. The failure hook uses `isHookConclusion` which additionally includes
-    ///   `.cancelled`, so cancelled runs still fire the hook.
     /// - `.skipped` — dependency-driven, controlled by `if:` conditions; informational.
     /// - `.neutral` — inconclusive outcome with no definitive pass/fail signal;
     ///   same class as `.skipped`: informational, not actionable.
+    /// - `.cancelled` — user-initiated or triggered by a superseding push; not a CI error.
     public var isFailure: Bool {
         switch self {
         case .failure, .timedOut, .startupFailure, .actionRequired: return true
         default: return false
         }
-    }
-
-    /// Returns `true` for conclusions that should trigger the failure hook.
-    ///
-    /// A superset of `isFailure` that additionally includes `.cancelled`.
-    /// Cancelled runs are user-initiated rather than genuine CI failures, but a
-    /// cancellation often signals a problem (e.g. a superseding push that broke the
-    /// build mid-run) that the user wants to be notified about.
-    ///
-    /// Use `isHookConclusion` at the hook-firing gate in `PollResultBuilder`.
-    /// Use `isFailure` for badge colouring and display logic where `.cancelled`
-    /// should not be shown as a failure.
-    public var isHookConclusion: Bool {
-        isFailure || self == .cancelled
     }
 }
 

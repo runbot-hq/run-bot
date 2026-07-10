@@ -117,14 +117,6 @@ actor SpyProxyStore: RunnerProxyStoreProtocol {
     }
 }
 
-// MARK: - HookCounter
-
-/// Actor-isolated counter for tracking fireFailureHook call counts in async tests.
-actor HookCounter {
-    private(set) var value = 0
-    func increment() { value += 1 }
-}
-
 // MARK: - MockScopePreferencesStore
 
 /// Stub conformance for `ScopePreferencesStoreProtocol` (Actor-constrained).

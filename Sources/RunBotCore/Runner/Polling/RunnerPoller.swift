@@ -9,7 +9,6 @@
 //       ObservationRelay's trailing-closure init (read closure) instead of store: parameter.
 // Step 6: runners property changed from [Runner] to [GitHubRunner].
 
-import Collections
 import Foundation
 import GitHubClient
 import os
@@ -94,14 +93,6 @@ public actor RunnerPoller {
   /// Group cache keyed by group ID; capped at `PollResultBuilder.groupCacheLimit`.
   /// Written by `applyFetchResult` (via `RunnerPoller+ApplyResult`).
   var actionGroupCache: [String: WorkflowActionGroup] = [:]
-  /// IDs of action groups whose failure hook has already fired.
-  ///
-  /// Kept separate from `actionGroupCache` so that cache eviction does not re-arm
-  /// the hook for old completed groups still present in GitHub's last-completed feed.
-  /// `OrderedSet` preserves insertion order so `trimSeenGroupIDs` evicts the
-  /// oldest entries first (FIFO), rather than arbitrary ones as `Set` would.
-  /// Written by `applyFetchResult` (via `RunnerPoller+ApplyResult`).
-  var seenGroupIDs: OrderedSet<String> = []
   /// Whether the GitHub API is currently rate-limiting this client.
   /// Written by `applyFetchResult` and `applyError` (via `RunnerPoller+ApplyResult`).
   private(set) var isRateLimited = false
@@ -122,10 +113,6 @@ public actor RunnerPoller {
   /// Injected at init to decouple Core from the app-layer `LocalRunnerStore` actor.
   let applyMetrics:
     @Sendable (_ metrics: RunnerMetrics?, _ runnerId: Int, _ name: String) async -> Void
-  /// Fires a failure hook for a newly-failed workflow action group.
-  /// Injected at init so Core never imports the app-layer `FailureHookRunner`.
-  /// `internal` so that extension files (e.g. `RunnerPoller+PollBridge`) can call it.
-  let fireFailureHook: @Sendable (_ group: WorkflowActionGroup, _ scope: String) async -> Void
   /// Injected preferences store. Provides `pollingInterval`.
   let preferencesStore: any AppPreferencesStoreProtocol
   /// Injected scope store. Provides `activeScopes`.
@@ -150,7 +137,6 @@ public actor RunnerPoller {
   ///   - scopeStore: Provides `activeScopes`.
   ///   - localRunners: Closure returning the current local-runner snapshot on `@MainActor`.
   ///   - applyMetrics: Closure that writes enriched metrics back to the local runner store.
-  ///   - fireFailureHook: Closure that fires a failure hook for a newly-failed action group.
   ///   - actionGroupFetcher: Fetcher for workflow action groups.
   public init(
     state: RunnerState,
@@ -159,8 +145,6 @@ public actor RunnerPoller {
     localRunners: @escaping @MainActor @Sendable () -> [RunnerModel],
     applyMetrics: @escaping @Sendable (_ metrics: RunnerMetrics?, _ runnerId: Int, _ name: String)
       async -> Void,
-    fireFailureHook: @escaping @Sendable
-    (_ group: WorkflowActionGroup, _ scope: String) async -> Void = { _, _ in },
     actionGroupFetcher: any WorkflowActionGroupFetcherProtocol = WorkflowActionGroupFetcher()
   ) {
     self.state = state
@@ -168,7 +152,6 @@ public actor RunnerPoller {
     self.scopeStore = scopeStore
     self.localRunners = localRunners
     self.applyMetrics = applyMetrics
-    self.fireFailureHook = fireFailureHook
     self.actionGroupFetcher = actionGroupFetcher
     Task(name: "RunnerPoller.init: startObservingPreferences") {
       await self.startObservingPreferences()
@@ -372,7 +355,6 @@ public actor RunnerPoller {
     let snapCache = completedCache
     let snapPrevGroups = prevLiveGroups
     let snapGroupCache = actionGroupCache
-    let snapSeenGroupIDs = seenGroupIDs
     let localRunnersSnapshot = await MainActor.run { localRunners() }
     log(
       "RunnerPoller › fetch — localRunners.count=\(localRunnersSnapshot.count) (used for installPathMap)",
@@ -423,8 +405,7 @@ public actor RunnerPoller {
       snapPrevGroups: snapPrevGroups,
       snapGroupCache: snapGroupCache,
       jobCache: jobResult.newCache,
-      scopes: scopesSnapshot,
-      snapSeenGroupIDs: snapSeenGroupIDs
+      scopes: scopesSnapshot
     )
     await applyFetchResult(
       enrichedRunners: enrichedRunners,
