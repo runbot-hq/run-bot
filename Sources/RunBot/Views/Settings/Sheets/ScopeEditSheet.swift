@@ -150,9 +150,9 @@ extension ScopeEditSheet {
             Spacer()
             Button("Cancel") { isPresented = false }
                 .keyboardShortcut(.escape, modifiers: [])
-            // confirmSave() is async (actor writes). Plain Task{} inherits @MainActor
-            // from the SwiftUI context so `isPresented = false` after the awaits
-            // still runs on @MainActor — no isolation gap. (P9)
+            // Task{} is kept so the call site stays async-shaped: if confirmSave()
+            // reacquires awaits when editable fields return, this button needs no
+            // rewiring. The async boundary is currently a no-op placeholder. (P9)
             Button {
                 Task { await confirmSave() }
             } label: {
