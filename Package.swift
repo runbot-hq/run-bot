@@ -60,11 +60,8 @@ let package = Package(
             name: "RunBotSpike",
             dependencies: [],
             path: "Sources/RunBotSpike",
-            resources: [
-                .process("Info.plist")
-            ],
             swiftSettings: [
-                .swiftLanguageVersion(.v6)
+                .swiftLanguageMode(.v6)
             ]
         ),
         .testTarget(
