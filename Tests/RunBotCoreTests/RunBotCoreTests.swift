@@ -574,10 +574,8 @@ struct PollResultBuilderGroupStateTests {
     let result = await PollResultBuilder.buildGroupState(
       snapPrevGroups: [:],
       snapGroupCache: [:],
-      deps: GroupStateDeps(
-        fetchGroups: { _ in [completedGroup] },
-        enrichJobs: { $0 }
-      )
+      fetchGroups: { _ in [completedGroup] },
+      enrichJobs: { $0 }
     )
     #expect(
       result.display.filter { !$0.isDimmed }.isEmpty,
@@ -592,10 +590,8 @@ struct PollResultBuilderGroupStateTests {
     let result = await PollResultBuilder.buildGroupState(
       snapPrevGroups: [:],
       snapGroupCache: [:],
-      deps: GroupStateDeps(
-        fetchGroups: { _ in [liveGroup] },
-        enrichJobs: { $0 }
-      )
+      fetchGroups: { _ in [liveGroup] },
+      enrichJobs: { $0 }
     )
     #expect(result.display.contains(where: { !$0.isDimmed }))
   }
@@ -609,10 +605,8 @@ struct PollResultBuilderGroupStateTests {
     let result = await PollResultBuilder.buildGroupState(
       snapPrevGroups: [liveGroup.id: liveGroup],
       snapGroupCache: [:],
-      deps: GroupStateDeps(
-        fetchGroups: { _ in [completedGroup] },
-        enrichJobs: { $0 }
-      )
+      fetchGroups: { _ in [completedGroup] },
+      enrichJobs: { $0 }
     )
     #expect(result.display.filter { !$0.isDimmed }.isEmpty)
     #expect(result.newGroupCache[completedGroup.id] != nil)
@@ -647,10 +641,8 @@ struct PollResultBuilderGroupStateTests {
     let result = await PollResultBuilder.buildGroupState(
       snapPrevGroups: [:],
       snapGroupCache: [:],
-      deps: GroupStateDeps(
-        fetchGroups: { _ in [mixedGroup] },
-        enrichJobs: { $0 }
-      )
+      fetchGroups: { _ in [mixedGroup] },
+      enrichJobs: { $0 }
     )
     let displayForSha = result.display.filter { $0.headSha == sha }
     let cacheForSha = result.newGroupCache.values.filter { $0.headSha == sha }

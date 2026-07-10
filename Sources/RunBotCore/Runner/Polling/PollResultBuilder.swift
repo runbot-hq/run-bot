@@ -3,49 +3,6 @@
 
 import Foundation
 
-// MARK: - GroupStateDeps
-
-/// Dependency bundle for `PollResultBuilder.buildGroupState`.
-///
-/// Groups the two injected closures needed by `buildGroupState` within SwiftLint's
-/// `function_parameter_count` limit (≤ 6) while preserving full testability via
-/// closure injection.
-public struct GroupStateDeps: Sendable {
-  /// Fetches live groups for every active scope.
-  public let fetchGroups: @Sendable ([String: WorkflowActionGroup]) async -> [WorkflowActionGroup]
-  /// Enriches a job list by backfilling step data from the job cache.
-  public let enrichJobs: @Sendable ([ActiveJob]) async -> [ActiveJob]
-
-  /// Creates a `GroupStateDeps` with the two injected closures.
-  ///
-  /// - Parameters:
-  ///   - fetchGroups: Async closure that fetches live groups for every active scope.
-  ///   - enrichJobs: Async closure that enriches a job list from the job cache.
-  public init(
-    fetchGroups: @escaping @Sendable ([String: WorkflowActionGroup]) async -> [WorkflowActionGroup],
-    enrichJobs: @escaping @Sendable ([ActiveJob]) async -> [ActiveJob]
-  ) {
-    self.fetchGroups = fetchGroups
-    self.enrichJobs = enrichJobs
-  }
-}
-
-// MARK: - FreezeVanishedConfig
-
-/// Parameter bundle for `PollResultBuilder.freezeVanishedGroups`.
-///
-/// Packs the three snapshot/timestamp values needed by `freezeVanishedGroups`
-/// so `freezeVanishedGroups` stays within SwiftLint's
-/// `function_parameter_count` limit (≤ 6).
-struct FreezeVanishedConfig: Sendable {
-  /// Live-group snapshot from the previous poll cycle (keyed by group ID).
-  let snapPrev: [String: WorkflowActionGroup]
-  /// Group IDs present in the current live poll.
-  let liveIDs: Set<String>
-  /// Timestamp used as `lastJobCompletedAt` for vanished groups that lack one.
-  let now: Date
-}
-
 // MARK: - PollResultBuilder
 
 /// Pure static helpers for assembling display lists and caches from poll snapshots.
@@ -129,19 +86,21 @@ public enum PollResultBuilder {
   /// - Parameters:
   ///   - snapPrevGroups: Live-group snapshot from the previous poll.
   ///   - snapGroupCache: Completed-group cache from the previous poll.
-  ///   - deps: Injected async/sync closures (fetch, enrich).
+  ///   - fetchGroups: Async closure that fetches live groups for every active scope.
+  ///   - enrichJobs: Async closure that enriches a job list from the job cache.
   ///
   /// Enrichment is split into two sequential sweeps — see inline comments for rationale.
   public static func buildGroupState(
     snapPrevGroups: [String: WorkflowActionGroup],
     snapGroupCache: [String: WorkflowActionGroup],
-    deps: GroupStateDeps
+    fetchGroups: @Sendable ([String: WorkflowActionGroup]) async -> [WorkflowActionGroup],
+    enrichJobs: @Sendable ([ActiveJob]) async -> [ActiveJob]
   ) async -> GroupPollResult {
     log(
       "PollResultBuilder › buildGroupState — snapPrevGroups=\(snapPrevGroups.count) snapGroupCache=\(snapGroupCache.count)",
       category: .runner)
     let shaKeyedCache = makeShaKeyedCache(snapGroupCache)
-    let allFetched = await deps.fetchGroups(shaKeyedCache)
+    let allFetched = await fetchGroups(shaKeyedCache)
     if allFetched.isEmpty {
       log(
         "PollResultBuilder › buildGroupState — ⚠️ fetchGroups returned 0 groups; activeScopes may be empty or all scopes are unreachable",
@@ -156,21 +115,14 @@ public enum PollResultBuilder {
     // Dim and cache every completed group that came back from fetchGroups.
     // `freezeVanishedGroups` (below) handles the complementary case: groups that
     // were live last poll but are now absent from the feed entirely.
-    //
-    // `wasNotCached`: diagnostic only — true when this group was absent from the
-    // cache after SHA-eviction. This is intentionally a within-poll cache check,
-    // not a cross-poll novelty signal. Cross-poll deduplication (seenGroupIDs)
-    // was removed along with the failure-hook feature and is not coming back.
     for group in doneGroups {
       let runSummary = group.runs.map { "\($0.id):\($0.conclusion?.rawValue ?? "nil")" }.joined(separator: ", ")
-      let wasNotCached = newCache[group.id] == nil
       log(
-        "PollResultBuilder › doneGroups — groupID=\(group.id) wasNotCached=\(wasNotCached) runs=[\(runSummary)]",
+        "PollResultBuilder › doneGroups — groupID=\(group.id) runs=[\(runSummary)]",
         category: .runner)
       newCache[group.id] = group.copying(isDimmed: true)
     }
-    let freezeConfig = FreezeVanishedConfig(snapPrev: snapPrevGroups, liveIDs: liveIDs, now: now)
-    freezeVanishedGroups(config: freezeConfig, into: &newCache)
+    freezeVanishedGroups(snapPrev: snapPrevGroups, liveIDs: liveIDs, now: now, into: &newCache)
     trimGroupCache(&newCache, limit: groupCacheLimit)
     let newPrevLive = [String: WorkflowActionGroup](
       uniqueKeysWithValues: liveGroups.map { ($0.id, $0) })
@@ -183,8 +135,8 @@ public enum PollResultBuilder {
         + " | cache: \(newCache.count) | display: \(display.count)",
       category: .runner
     )
-    let enriched = await enrichDisplay(display, deps: deps)
-    let enrichedCache = await enrichCache(newCache, deps: deps)
+    let enriched = await enrichDisplay(display, enrichJobs: enrichJobs)
+    let enrichedCache = await enrichCache(newCache, enrichJobs: enrichJobs)
     return GroupPollResult(
       display: enriched,
       newGroupCache: enrichedCache,
@@ -278,26 +230,42 @@ public enum PollResultBuilder {
   /// Freezes action groups that were live in the previous poll but have since
   /// vanished from the live feed (i.e. completed without appearing in fetchGroups).
   ///
-  /// Vanished groups are written into `cache` dimmed. Both `config.snapPrev` and
-  /// `cache` are keyed by `WorkflowActionGroup.id`; `config.liveIDs` must also be
-  /// a `Set<String>` of `WorkflowActionGroup.id` values for the containment check
-  /// to be correct.
+  /// Vanished groups are written into `cache` dimmed. Both `snapPrev` and `cache`
+  /// are keyed by `WorkflowActionGroup.id`; `liveIDs` must also be a `Set<String>`
+  /// of `WorkflowActionGroup.id` values for the containment check to be correct.
   ///
   /// `internal` (not `public`): exercised indirectly through `buildGroupState` in tests;
   /// no direct external callers exist outside `RunBotCore`.
   ///
   /// - Parameters:
-  ///   - config: Snapshot, live-IDs, and timestamp bundled into a `FreezeVanishedConfig`.
+  ///   - snapPrev: Live-group snapshot from the previous poll cycle (keyed by group ID).
+  ///   - liveIDs: Group IDs present in the current live poll.
+  ///   - now: Timestamp used as `lastJobCompletedAt` for vanished groups that lack one.
   ///   - cache: Group cache to mutate in place.
   static func freezeVanishedGroups(
-    config: FreezeVanishedConfig,
+    snapPrev: [String: WorkflowActionGroup],
+    liveIDs: Set<String>,
+    now: Date,
     into cache: inout [String: WorkflowActionGroup]
   ) {
     log(
-      "PollResultBuilder › freezeVanishedGroups — snapPrev=\(config.snapPrev.count) liveIDs=\(config.liveIDs)",
+      "PollResultBuilder › freezeVanishedGroups — snapPrev=\(snapPrev.count) liveIDs=\(liveIDs)",
       category: .runner)
-    for (groupID, group) in config.snapPrev where !config.liveIDs.contains(groupID) {
-      processVanishedGroup(groupID: groupID, group: group, config: config, into: &cache)
+    for (groupID, group) in snapPrev where !liveIDs.contains(groupID) {
+      if let existing = cache[groupID], existing.isDimmed, existing.jobs.count >= group.jobs.count {
+        log(
+          "PollResultBuilder › freezeVanishedGroups — groupID=\(group.id) skipped (already cached+dimmed, jobs=\(existing.jobs.count)≥\(group.jobs.count))",
+          category: .runner)
+        continue
+      }
+      log(
+        "PollResultBuilder › freezeVanishedGroups — vanished groupID=\(group.id) existsUndimmed=\(cache[groupID] != nil) jobs=\(group.jobs.count)",
+        category: .runner)
+      if group.lastJobCompletedAt == nil {
+        cache[groupID] = group.copying(isDimmed: true, settingCompletedAt: now)
+      } else {
+        cache[groupID] = group.copying(isDimmed: true)
+      }
     }
   }
 
@@ -345,18 +313,18 @@ public enum PollResultBuilder {
 
   // MARK: - Private helpers
 
-  /// Enriches the display array by running `deps.enrichJobs` over each group's jobs
+  /// Enriches the display array by running `enrichJobs` over each group's jobs
   /// concurrently via a `withTaskGroup`, preserving the original display sort order.
   ///
   /// Keyed by `Int` (array index) so the order produced by `buildGroupDisplay` is
   /// faithfully restored after `withTaskGroup` yields results in completion order.
   private static func enrichDisplay(
     _ display: [WorkflowActionGroup],
-    deps: GroupStateDeps
+    enrichJobs: @Sendable ([ActiveJob]) async -> [ActiveJob]
   ) async -> [WorkflowActionGroup] {
     await withTaskGroup(of: (Int, WorkflowActionGroup).self) { group in
       for (idx, actionGroup) in display.enumerated() {
-        group.addTask { (idx, actionGroup.withJobs(await deps.enrichJobs(actionGroup.jobs))) }
+        group.addTask { (idx, actionGroup.withJobs(await enrichJobs(actionGroup.jobs))) }
       }
       var out: [(Int, WorkflowActionGroup)] = []
       for await pair in group { out.append(pair) }
@@ -364,7 +332,7 @@ public enum PollResultBuilder {
     }
   }
 
-  /// Enriches the group cache by running `deps.enrichJobs` over each cached group's
+  /// Enriches the group cache by running `enrichJobs` over each cached group's
   /// jobs concurrently via a `withTaskGroup`.
   ///
   /// Keyed by `String` (group ID) because `newCache` is a dictionary and its
@@ -373,11 +341,11 @@ public enum PollResultBuilder {
   /// (display array vs cache dict).
   private static func enrichCache(
     _ cache: [String: WorkflowActionGroup],
-    deps: GroupStateDeps
+    enrichJobs: @Sendable ([ActiveJob]) async -> [ActiveJob]
   ) async -> [String: WorkflowActionGroup] {
     await withTaskGroup(of: (String, WorkflowActionGroup).self) { group in
       for (key, actionGroup) in cache {
-        group.addTask { (key, actionGroup.withJobs(await deps.enrichJobs(actionGroup.jobs))) }
+        group.addTask { (key, actionGroup.withJobs(await enrichJobs(actionGroup.jobs))) }
       }
       var out: [String: WorkflowActionGroup] = [:]
       for await (key, actionGroup) in group { out[key] = actionGroup }
@@ -385,34 +353,6 @@ public enum PollResultBuilder {
     }
   }
 
-  /// Handles a single vanished group inside `freezeVanishedGroups`.
-  ///
-  /// Fast-path skips groups already cached and dimmed with at least as many jobs
-  /// as the previous snapshot. Otherwise writes the frozen entry into `cache`.
-  private static func processVanishedGroup(
-    groupID: String,
-    group: WorkflowActionGroup,
-    config: FreezeVanishedConfig,
-    into cache: inout [String: WorkflowActionGroup]
-  ) {
-    if let existing = cache[groupID], existing.isDimmed, existing.jobs.count >= group.jobs.count {
-      log(
-        "PollResultBuilder › freezeVanishedGroups — groupID=\(group.id) skipped (already cached+dimmed, jobs=\(existing.jobs.count)≥\(group.jobs.count))",
-        category: .runner)
-      return
-    }
-    // `existsUndimmed=true` means a cache entry exists but failed the fast-path guard —
-    // either it is not yet dimmed, or its job count is smaller than the snapshot.
-    // This is distinct from general cache presence: the entry will be overwritten below.
-    log(
-      "PollResultBuilder › freezeVanishedGroups — vanished groupID=\(group.id) existsUndimmed=\(cache[groupID] != nil) jobs=\(group.jobs.count)",
-      category: .runner)
-    if group.lastJobCompletedAt == nil {
-      cache[groupID] = group.copying(isDimmed: true, settingCompletedAt: config.now)
-    } else {
-      cache[groupID] = group.copying(isDimmed: true)
-    }
-  }
 }
 
 // MARK: - Array fill helper
