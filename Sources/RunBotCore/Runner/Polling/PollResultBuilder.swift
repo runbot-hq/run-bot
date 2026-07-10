@@ -352,7 +352,6 @@ public enum PollResultBuilder {
       return out
     }
   }
-
 }
 
 // MARK: - Array fill helper
