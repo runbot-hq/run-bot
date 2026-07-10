@@ -291,7 +291,7 @@ public enum PollResultBuilder {
   /// - Parameters:
   ///   - config: Snapshot, live-IDs, and timestamp bundled into a `FreezeVanishedConfig`.
   ///   - cache: Group cache to mutate in place.
-  public static func freezeVanishedGroups(
+  static func freezeVanishedGroups(
     config: FreezeVanishedConfig,
     into cache: inout [String: WorkflowActionGroup]
   ) {
@@ -347,7 +347,6 @@ public enum PollResultBuilder {
 
   // MARK: - Private helpers
 
-  /// Processes the `doneGroups` list: fires the failure hook for newly-seen groups
   /// Enriches the display array by running `deps.enrichJobs` over each group's jobs
   /// concurrently via a `withTaskGroup`, preserving the original display sort order.
   ///
