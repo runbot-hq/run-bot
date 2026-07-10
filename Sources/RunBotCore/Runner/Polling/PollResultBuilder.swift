@@ -417,8 +417,11 @@ public enum PollResultBuilder {
         category: .runner)
       return
     }
+    // `existsUndimmed=true` means a cache entry exists but failed the fast-path guard —
+    // either it is not yet dimmed, or its job count is smaller than the snapshot.
+    // This is distinct from general cache presence: the entry will be overwritten below.
     log(
-      "PollResultBuilder › freezeVanishedGroups — vanished groupID=\(group.id) inCache=\(cache[groupID] != nil) jobs=\(group.jobs.count)",
+      "PollResultBuilder › freezeVanishedGroups — vanished groupID=\(group.id) existsUndimmed=\(cache[groupID] != nil) jobs=\(group.jobs.count)",
       category: .runner)
     if group.lastJobCompletedAt == nil {
       cache[groupID] = group.copying(isDimmed: true, settingCompletedAt: config.now)
