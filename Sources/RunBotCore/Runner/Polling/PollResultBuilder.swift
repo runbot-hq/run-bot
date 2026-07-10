@@ -93,8 +93,8 @@ public enum PollResultBuilder {
   public static func buildGroupState(
     snapPrevGroups: [String: WorkflowActionGroup],
     snapGroupCache: [String: WorkflowActionGroup],
-    fetchGroups: @Sendable ([String: WorkflowActionGroup]) async -> [WorkflowActionGroup],
-    enrichJobs: @Sendable ([ActiveJob]) async -> [ActiveJob]
+    fetchGroups: @escaping @Sendable ([String: WorkflowActionGroup]) async -> [WorkflowActionGroup],
+    enrichJobs: @escaping @Sendable ([ActiveJob]) async -> [ActiveJob]
   ) async -> GroupPollResult {
     log(
       "PollResultBuilder › buildGroupState — snapPrevGroups=\(snapPrevGroups.count) snapGroupCache=\(snapGroupCache.count)",
