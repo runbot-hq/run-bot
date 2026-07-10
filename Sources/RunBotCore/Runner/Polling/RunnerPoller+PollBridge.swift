@@ -22,15 +22,15 @@ import os
 /// when called from the main actor itself.
 extension RunnerPoller {
 
-    // MARK: - [weak self] in closures passed to buildGroupState
+    // MARK: - [weak self] in closures passed to buildJobState and buildGroupState
     //
-    // The two closures passed to `buildGroupState` are captured by the async frame
-    // for the full duration of that call. A strong `self` capture would create a
-    // temporary reference cycle:
+    // The closures passed to both `buildJobState` and `buildGroupState` are captured
+    // by the async frame for the full duration of each call. A strong `self` capture
+    // would create a temporary reference cycle:
     //
     //   RunnerPoller (actor) → closures (in async frame) → RunnerPoller (strong)
     //
-    // This cycle resolves once `buildGroupState` returns, so it is not a permanent leak.
+    // This cycle resolves once the builder call returns, so it is not a permanent leak.
     // However, it can delay deallocation if the actor is released while a fetch is in
     // flight (e.g. in tests or on settings change). `[weak self]` breaks the cycle
     // eagerly; the guard-let / optional-chain fallbacks in each closure handle nil safely.
@@ -52,12 +52,12 @@ extension RunnerPoller {
             snapPrev: snapPrev,
             snapCache: snapCache,
             fetchJobs: { [weak self] in
-                // weak: see [weak self] in closures passed to buildGroupState note above.
+                // weak: see [weak self] note above.
                 guard let self else { return [] }
                 return await self.fetchAllJobs(scopes: scopes)
             },
             backfill: { [weak self] cache in
-                // weak: see [weak self] in closures passed to buildGroupState note above.
+                // weak: see [weak self] note above.
                 // `self?` optional-chaining cannot be used with an inout argument.
                 // Guard-unwrap to a concrete reference so the compiler accepts &cache.
                 guard let self else { return }
@@ -82,11 +82,11 @@ extension RunnerPoller {
             snapPrevGroups: snapPrevGroups,
             snapGroupCache: snapGroupCache,
             fetchGroups: { [weak self] shaKeyedCache in
-                // weak: see [weak self] in closures passed to buildGroupState note above.
+                // weak: see [weak self] note above.
                 await self?.fetchActionGroups(scopes: scopes, shaKeyedCache: shaKeyedCache) ?? []
             },
             enrichJobs: { [weak self] jobs in
-                // weak: see [weak self] in closures passed to buildGroupState note above.
+                // weak: see [weak self] note above.
                 self?.enrichGroupJobs(jobs, jobCache: jobCache) ?? jobs
             }
         )
