@@ -1,7 +1,5 @@
 // ObservationRelay.swift
 // RunBotCore
-//
-// F-35: Generic replacement for PreferencesObserver and ScopesObserver.
 
 import Foundation
 import Observation
@@ -109,10 +107,8 @@ final class ObservationRelay<Element: Sendable> {
                     // read() is called here rather than captured at onChange time.
                     // If the observed value changes again before this Task executes,
                     // rapid back-to-back changes coalesce — the consumer sees only
-                    // the latest value. This is inherited behaviour (present in the
-                    // original PreferencesObserver/ScopesObserver) and intentional:
-                    // current use-sites are restart-only consumers, so skipping
-                    // intermediate values is harmless.
+                    // the latest value. This is intentional: current use-sites are
+                    // restart-only consumers, so skipping intermediate values is harmless.
                     self.continuation.yield(self.read())
                     self.start()
                 }

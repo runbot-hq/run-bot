@@ -40,8 +40,8 @@ extension RunnerPoller {
         // (state.*) are two separate copies. setDisplayState (above) already wrote the
         // actor-local copies; the MainActor.run block below writes state.* — the view-layer
         // source of truth. The two writes are sequential, not atomic; no external code reads
-        // actor-local state between them. This two-copy design pre-dates this PR — see
-        // RunnerPoller.setDisplayState for the write-through rationale.
+        // actor-local state between them. See RunnerPoller.setDisplayState for the
+        // write-through rationale.
         await MainActor.run { [state] in
             state.runners = enrichedRunners
             state.jobs = jobResult.display

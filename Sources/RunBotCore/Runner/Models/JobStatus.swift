@@ -163,26 +163,18 @@ public enum JobConclusion: Hashable, Sendable {
         }
     }
 
-    /// Returns `true` for terminal failure-like conclusions that should trigger alerts
-    /// and display the failure badge.
+    /// Returns `true` for conclusions that represent a terminal, actionable failure.
     ///
-    /// **Inclusion rationale:**
-    /// - `.failure` — a step explicitly failed.
-    /// - `.timedOut` — the job exceeded its configured timeout; always actionable.
-    /// - `.startupFailure` — the runner itself failed to initialise; indicates
-    ///   infrastructure problems that need attention.
-    /// - `.actionRequired` — a required check (e.g. a code-scanning tool) determined
-    ///   that manual review is needed before the run can be considered passing.
-    ///   Intentionally treated as a failure so the badge fires,
-    ///   prompting the developer to act. If your workflow uses `action_required` for
-    ///   routine deployment approvals and you find this noisy, introduce a separate
-    ///   predicate at the call site rather than removing it here.
+    /// **Included:**
+    /// - `.failure` — one or more steps explicitly failed.
+    /// - `.timedOut` — the job exceeded its configured timeout.
+    /// - `.startupFailure` — the runner itself failed to initialise.
+    /// - `.actionRequired` — a required check flagged the run as needing manual review.
     ///
-    /// **Exclusion rationale:**
-    /// - `.cancelled` — user-initiated or triggered by a superseding push; not a CI error.
-    /// - `.skipped` — dependency-driven, controlled by `if:` conditions; informational.
-    /// - `.neutral` — inconclusive outcome with no definitive pass/fail signal;
-    ///   same class as `.skipped`: informational, not actionable.
+    /// **Excluded:**
+    /// - `.cancelled` — user-initiated or superseded; not a CI error.
+    /// - `.skipped` — controlled by `if:` conditions; informational only.
+    /// - `.neutral` — inconclusive; no definitive pass/fail signal.
     public var isFailure: Bool {
         switch self {
         case .failure, .timedOut, .startupFailure, .actionRequired: return true
