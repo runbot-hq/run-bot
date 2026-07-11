@@ -1,20 +1,23 @@
-# Spike: NSOpenPanel from a statusbar (accessory) app
+# Spike: file picker inside a `.window`-style `MenuBarExtra`
 
 ## Status: IN PROGRESS
 
 ## Goal
 
-Verify that `NSOpenPanel` can be reliably shown from a menubar-only app
-(`.accessory` activation policy, no Dock icon) and that the panel comes
-to the front correctly without extra user interaction.
+Verify that a file picker can be reliably shown from a `.window`-style
+`MenuBarExtra` (SwiftUI popover panel) and that the panel stays open
+while the picker is active.
 
-## Background
+## Two approaches under test
 
-Menubar apps use `NSApplication.ActivationPolicy.accessory`. macOS does not
-consider them "active" in the traditional sense, so `NSOpenPanel.runModal()`
-can appear behind other windows unless the app is explicitly activated first.
+### A — SwiftUI `.fileImporter`
 
-## Approach
+Wired directly to a `Button` inside the `ContentView`. Native SwiftUI API.
+The open panel is presented as a sheet attached to the `MenuBarExtra` window.
+
+### B — `NSOpenPanel` + activation-policy dance
+
+Fallback for cases where `.fileImporter` closes the panel:
 
 ```swift
 NSApp.setActivationPolicy(.regular)
@@ -23,20 +26,19 @@ let result = panel.runModal()
 NSApp.setActivationPolicy(.accessory)
 ```
 
-Temporarily promote to `.regular` before the panel, restore to `.accessory`
-afterward. This is the standard workaround.
-
 ## Scenarios to verify
 
-| Scenario | Expected | Result |
-| :-- | :-- | :-- |
-| Panel appears in front of other windows | ✅ | ⬜ |
-| Panel is key / focusable immediately | ✅ | ⬜ |
-| Cancel returns nil | ✅ | ⬜ |
-| OK returns correct URL | ✅ | ⬜ |
-| Status icon survives open/cancel cycle | ✅ | ⬜ |
-| No Dock icon while panel is closed | ✅ | ⬜ |
-| Dock icon disappears after panel closes | ✅ | ⬜ |
+| # | Scenario | Expected | Result |
+| :-- | :-- | :-- | :-- |
+| A1 | `.fileImporter` picker appears while panel stays open | ✅ | ⬜ |
+| A2 | Cancel → picked URL stays nil | ✅ | ⬜ |
+| A3 | OK → label updates to file name | ✅ | ⬜ |
+| A4 | Panel survives 5+ open/cancel cycles | ✅ | ⬜ |
+| B1 | `NSOpenPanel` appears in front of all other windows | ✅ | ⬜ |
+| B2 | Cancel → picked URL stays nil | ✅ | ⬜ |
+| B3 | OK → label updates to file name | ✅ | ⬜ |
+| B4 | Dock icon disappears after panel closes | ✅ | ⬜ |
+| B5 | Panel survives 5+ open/cancel cycles | ✅ | ⬜ |
 
 ## To run
 
@@ -45,9 +47,11 @@ git checkout spike/statusbar-filepicker
 swift run StatusBarFilePickerSpike
 ```
 
-Click the **folder.badge.plus** icon in the menu bar → **Pick File…**
+Click the **folder.badge.plus** icon in the menu bar to open the window panel.
 
 ## Notes
 
-- `allowedFileTypes` is deprecated on macOS 12+; swap for `allowedContentTypes: [UTType]` when integrating into the main target.
-- If the panel still renders behind windows on your OS version, try adding a short `DispatchQueue.main.asyncAfter(deadline: .now() + 0.1)` before `runModal()`.
+- If `.fileImporter` closes the `MenuBarExtra` panel, the `AnchoredSheetModifier`
+  pattern from `spike/statusbar-sheet-swiftui` (PR #2033) may be needed here too.
+- `allowedContentTypes: [.item]` accepts all file types; narrow as needed.
+- Tested on: _(fill in macOS version + chip)_
