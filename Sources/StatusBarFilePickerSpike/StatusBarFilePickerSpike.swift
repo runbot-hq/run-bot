@@ -1,4 +1,14 @@
 // StatusBarFilePickerSpike.swift
+//
+// MenuBarExtra(.window) uses a NSPanel with .nonactivatingPanel style mask.
+// AppKit silently refuses to attach sheets to non-activating panels, so
+// beginSheetModal never visually appears after the first outside-dismiss.
+//
+// Fix: activate the app, then run NSOpenPanel modally with begin().
+// The completion clears state exactly as before.
+//
+// REQUIREMENTS: macOS 14+, Swift 6
+
 import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
@@ -56,25 +66,16 @@ struct ContentView: View {
 final class FilePicker {
     static let shared = FilePicker()
     private var panel: NSOpenPanel?
-    private weak var parentWindow: NSWindow?
 
     func show(completion: @escaping @MainActor (URL?) -> Void) {
-        // Stale panel = panel exists but AppKit already tore down the sheet
-        // (outside-click dismissed the popover). The reliable signal is:
-        //   panel.isVisible == false AND panel.sheetParent == nil
-        // parentWindow.isVisible is NOT reliable — MenuBarExtraWindow is
-        // reused across opens and stays visible when the popover re-opens.
+        // Stale: panel exists but is no longer visible and has no sheet parent.
         if let p = panel, !p.isVisible, p.sheetParent == nil {
-            log("stale panel (isVisible=false, sheetParent=nil) — clearing")
+            log("stale panel — clearing")
+            p.cancel(nil)
             panel = nil
-            parentWindow = nil
         }
 
         guard panel == nil else { log("already open"); return }
-
-        guard let window = NSApp.windows.first(where: {
-            $0.styleMask.contains(.nonactivatingPanel) && $0.isVisible
-        }) else { log("ERROR: no MenuBarExtraWindow visible"); return }
 
         let p = NSOpenPanel()
         p.canChooseFiles = true
@@ -82,13 +83,15 @@ final class FilePicker {
         p.allowsMultipleSelection = false
         p.canCreateDirectories = false
         panel = p
-        parentWindow = window
-        log("opening sheet on \(type(of: window))")
+        log("opening panel")
 
-        p.beginSheetModal(for: window) { [weak self] response in
-            log("sheet done response=\(response == .OK ? "OK" : "Cancel")")
+        // Activate so the panel becomes key and actually appears.
+        // ignoringOtherApps:true is required from a background/accessory app.
+        NSApp.activate(ignoringOtherApps: true)
+
+        p.begin { [weak self] response in
+            log("done response=\(response == .OK ? "OK" : "Cancel")")
             self?.panel = nil
-            self?.parentWindow = nil
             completion(response == .OK ? p.url : nil)
         }
     }
