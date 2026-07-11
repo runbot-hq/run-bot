@@ -17,30 +17,21 @@
 // Pinned to popover.isShown via popoverWillShow / popoverDidClose.
 //
 // POPOVER ACTIVE APPEARANCE:
-// object_setClass patches the popover window to AlwaysActivePopoverWindow
-// after it is created, so isKeyWindow always returns true and AppKit always
-// renders the popover with active/focused appearance.
+// object_setClass on the live popover window crashes SwiftUI's material/
+// vibrancy render pass (MaterialProviderBox.resolveLayers). Instead:
+// observe NSWindow.didResignKeyNotification on the popover window and
+// immediately call makeKey() so it never stays inactive. AppKit then
+// always renders it as the key (active/focused) window.
 //
 // REQUIREMENTS: macOS 26+, Swift 6.2
 
 import AppKit
-import ObjectiveC
 import SwiftUI
 
 // MARK: - Logging
 
 private func log(_ tag: String, _ msg: String) {
     print("[NavSheet][\(tag)] \(msg)")
-}
-
-// MARK: - AlwaysActivePopoverWindow
-
-final class AlwaysActivePopoverWindow: NSPanel {
-    override var isKeyWindow: Bool {
-        // Do not log here — called very frequently by AppKit during rendering.
-        return true
-    }
-    override var canBecomeKey: Bool { true }
 }
 
 // MARK: - Entry point
@@ -88,8 +79,9 @@ final class NavSheetAppDelegate: NSObject, NSApplicationDelegate {
     private var popover: NSPopover!
     private var hostingController: NSHostingController<AnyView>!
     nonisolated(unsafe) private var eventMonitor: Any?
+    // Observes resignKey so we can immediately re-assert key on the popover.
+    private var resignKeyObserver: (any NSObjectProtocol)?
     private var appState = NavSheetAppState()
-    private var windowPatched = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         log("AppDelegate", "applicationDidFinishLaunching")
@@ -140,24 +132,42 @@ final class NavSheetAppDelegate: NSObject, NSApplicationDelegate {
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         button.isHighlighted = true
         log("Popover", "shown, button.isHighlighted=true")
-        patchPopoverWindowClass()
         startEventMonitor()
     }
 
-    private func patchPopoverWindowClass() {
-        guard !windowPatched else {
-            log("Window", "patchPopoverWindowClass: already patched, skipping")
+    // MARK: - Keep popover perpetually key
+    // When the popover window loses key status (sheet/picker/other app takes
+    // focus), immediately call makeKey() so AppKit re-renders it as active.
+    // Guard: only re-assert while overlayCount == 0 (no sheet/picker open)
+    // so we don't fight sheets for key focus.
+    private func startResignKeyObserver(for window: NSWindow) {
+        guard resignKeyObserver == nil else {
+            log("ResignKey", "observer already running")
             return
         }
-        guard let window = popover.contentViewController?.view.window else {
-            log("Window", "patchPopoverWindowClass: window not available yet, will retry in popoverDidShow")
-            return
+        resignKeyObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didResignKeyNotification,
+            object: window,
+            queue: .main
+        ) { [weak self, weak window] _ in
+            guard let self, let window else { return }
+            log("ResignKey", "popover resigned key overlayCount=\(self.appState.overlayCount)")
+            if self.appState.overlayCount == 0 {
+                log("ResignKey", "re-asserting makeKey")
+                window.makeKey()
+            } else {
+                log("ResignKey", "overlay active, skipping makeKey")
+            }
         }
-        let before = NSStringFromClass(type(of: window))
-        object_setClass(window, AlwaysActivePopoverWindow.self)
-        let after = NSStringFromClass(type(of: window))
-        windowPatched = true
-        log("Window", "patched \(before) -> \(after) ptr=\(Unmanaged.passUnretained(window).toOpaque())")
+        log("ResignKey", "observer started for window \(Unmanaged.passUnretained(window).toOpaque())")
+    }
+
+    private func stopResignKeyObserver() {
+        if let obs = resignKeyObserver {
+            NotificationCenter.default.removeObserver(obs)
+            resignKeyObserver = nil
+            log("ResignKey", "observer stopped")
+        }
     }
 
     private func setButtonHighlight(_ on: Bool) {
@@ -221,7 +231,7 @@ final class NavSheetAppDelegate: NSObject, NSApplicationDelegate {
         panel.message = target == .sheet ? "Pick folder from inside sheet" : "Select a folder"
         panel.prompt = "Select"
         appState.overlayCount += 1
-        log("FilePicker", "[\(label)] beginSheetModal, overlayCount=\(appState.overlayCount)")
+        log("FilePicker", "[\(label)] beginSheetModal overlayCount=\(appState.overlayCount)")
         panel.beginSheetModal(for: window) { [weak self] response in
             self?.appState.overlayCount -= 1
             log("FilePicker", "[\(label)] closed response=\(response.rawValue) overlayCount=\(self?.appState.overlayCount ?? -1)")
@@ -243,7 +253,11 @@ extension NavSheetAppDelegate: NSPopoverDelegate {
     func popoverDidShow(_ notification: Notification) {
         let windowClass = popover.contentViewController?.view.window.map { NSStringFromClass(type(of: $0)) } ?? "nil"
         log("Popover", "popoverDidShow window=\(windowClass)")
-        patchPopoverWindowClass()
+        if let window = popoverWindow {
+            startResignKeyObserver(for: window)
+        } else {
+            log("Popover", "popoverDidShow: window nil, cannot start resignKey observer")
+        }
     }
     func popoverShouldClose(_ popover: NSPopover) -> Bool {
         let allow = appState.overlayCount == 0
@@ -254,6 +268,7 @@ extension NavSheetAppDelegate: NSPopoverDelegate {
         log("Popover", "popoverDidClose")
         setButtonHighlight(false)
         stopEventMonitor()
+        stopResignKeyObserver()
     }
 }
 
