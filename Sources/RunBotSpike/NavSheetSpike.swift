@@ -4,10 +4,14 @@
 // Builds on Option 3 (NSPopover + @NSApplicationDelegateAdaptor).
 //
 // DISMISS STRATEGY:
-// .behavior = .transient — AppKit auto-dismisses on outside click.
-// popoverShouldClose blocks dismissal while appState.overlayCount > 0.
-// overlayCount is incremented/decremented explicitly by AnchoredSheet
-// and by the file picker callbacks — no childWindows inspection (stale).
+// NSPopover in a .accessory app uses a nonactivatingPanel window, so
+// .transient never reliably fires. Instead:
+//   - .behavior = .applicationDefined (AppKit never auto-closes)
+//   - A global NSEvent monitor fires on every outside click and calls
+//     popover.performClose(). No logic in the monitor — it just calls close.
+//   - popoverShouldClose returns false when overlayCount > 0, blocking
+//     dismissal while a sheet or file picker is open.
+//   - overlayCount is managed explicitly (no childWindows inspection).
 //
 // REQUIREMENTS: macOS 26+, Swift 6.2
 
@@ -46,8 +50,8 @@ final class NavSheetAppState {
     var pickedFolderPath: String = ""
     var sheetPickedFolderPath: String = ""
     var showSheetAlert: Bool = false
-    // Incremented when a sheet or picker opens, decremented when it closes.
-    // popoverShouldClose returns false while this is > 0.
+    // Incremented when a sheet/picker opens, decremented on close.
+    // popoverShouldClose returns false while > 0.
     var overlayCount: Int = 0
 }
 
@@ -58,6 +62,9 @@ final class NavSheetAppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
     private var popover: NSPopover!
     private var hostingController: NSHostingController<AnyView>!
+    // Stored as nonisolated(unsafe) because NSEvent monitor callbacks are
+    // nonisolated — we only ever write this on the main thread.
+    nonisolated(unsafe) private var eventMonitor: Any?
     private var appState = NavSheetAppState()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -74,7 +81,11 @@ final class NavSheetAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func togglePopover() {
-        popover.isShown ? popover.performClose(nil) : openPopover()
+        if popover.isShown {
+            popover.performClose(nil)
+        } else {
+            openPopover()
+        }
     }
 
     private func setupPopover() {
@@ -88,13 +99,30 @@ final class NavSheetAppDelegate: NSObject, NSApplicationDelegate {
         popover.contentViewController = hostingController
         popover.contentSize = NSSize(width: 320, height: 300)
         popover.animates = true
-        popover.behavior = .transient
+        popover.behavior = .applicationDefined
         popover.delegate = self
     }
 
     private func openPopover() {
         guard let button = statusItem.button else { return }
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        startEventMonitor()
+    }
+
+    // MARK: - Global event monitor
+    // Calls performClose on every outside click. All overlay logic lives in
+    // popoverShouldClose — the monitor itself is fire-and-forget.
+    private func startEventMonitor() {
+        guard eventMonitor == nil else { return }
+        eventMonitor = NSEvent.addGlobalMonitorForEvents(
+            matching: [.leftMouseDown, .rightMouseDown]
+        ) { [weak self] _ in
+            self?.popover.performClose(nil)
+        }
+    }
+
+    private func stopEventMonitor() {
+        if let m = eventMonitor { NSEvent.removeMonitor(m); eventMonitor = nil }
     }
 
     private var popoverWindow: NSWindow? {
@@ -135,8 +163,12 @@ final class NavSheetAppDelegate: NSObject, NSApplicationDelegate {
 }
 
 extension NavSheetAppDelegate: NSPopoverDelegate {
+    // Block auto-close while a sheet or picker is active.
     func popoverShouldClose(_ popover: NSPopover) -> Bool {
         appState.overlayCount == 0
+    }
+    func popoverDidClose(_ notification: Notification) {
+        stopEventMonitor()
     }
 }
 
@@ -324,10 +356,9 @@ struct NavSheetSheetView: View {
     }
 }
 
-// MARK: - AnchoredSheet
-// Overload used in NavSheetSpike: takes an overlayCount binding so the
-// popover delegate knows whether a sheet is active without inspecting
-// childWindows (which are never cleaned up by SwiftUI).
+// MARK: - AnchoredSheet (NavSheetSpike variant)
+// Takes an overlayCount binding so popoverShouldClose knows a sheet is
+// active without inspecting childWindows (which SwiftUI never cleans up).
 
 extension View {
     func anchoredSheet<SheetContent: View>(
