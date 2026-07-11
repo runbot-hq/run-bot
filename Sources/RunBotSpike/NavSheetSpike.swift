@@ -1,26 +1,37 @@
 // NavSheetSpike.swift
 // RunBotSpike - spike/swiftui-nav-sheet branch
 //
-// Builds on Option 3 (NSPopover + @NSApplicationDelegateAdaptor).
+// Proof of concept for NSPopover + SwiftUI navigation + .sheet + file picker
+// in a .accessory (menu bar) app.
+//
+// ARCHITECTURE:
+// - @main is here. NSApplicationDelegateAdaptor wires NavSheetAppDelegate.
+// - All app state lives in NavSheetAppState (@Observable).
+// - Navigation is a route enum on appState — no NavigationStack.
 //
 // DISMISS STRATEGY:
 // NSPopover in a .accessory app uses a nonactivatingPanel window, so
 // .transient never reliably fires. Instead:
 //   - .behavior = .applicationDefined (AppKit never auto-closes)
-//   - A global NSEvent monitor fires on every outside click and calls
-//     popover.performClose(). No logic in the monitor — it just calls close.
+//   - A global NSEvent monitor fires on every outside click → performClose()
 //   - popoverShouldClose returns false when overlayCount > 0, blocking
-//     dismissal while a sheet or file picker is open.
-//   - overlayCount is managed explicitly (no childWindows inspection).
-//
-// STATUS BUTTON HIGHLIGHT:
-// Pinned to popover.isShown via popoverWillShow / popoverDidClose.
+//     dismissal while a sheet or file picker is open
+//   - overlayCount is managed explicitly
 //
 // ACTIVE APPEARANCE:
-// NSApp.activate(ignoringOtherApps: true) is called in openPopover().
-// This promotes the app to key/active so AppKit renders all controls
-// (buttons, toggles, text fields) in their active state.
-// This is the same fix used in production (main branch makeKeyForTextInput).
+// NSApp.activate(ignoringOtherApps: true) is called on every openPopover().
+// This promotes the app to key/active so AppKit renders all controls in their
+// active state. Same mechanism as production (makeKeyForTextInput in main).
+//
+// SHEET ANCHORING:
+// SwiftUI .sheet() creates a borderless child NSWindow. AnchoredSheet walks
+// NSApp.windows to find it and calls addChildWindow(_:ordered:) so it stays
+// attached to the popover window.
+//
+// FILE PICKER:
+// NSOpenPanel.beginSheetModal(for: window) attaches the picker as a sheet,
+// making it visible in window.sheets. overlayCount blocks outside-click
+// dismiss while either a .sheet or picker is open.
 //
 // REQUIREMENTS: macOS 26+, Swift 6.2
 
