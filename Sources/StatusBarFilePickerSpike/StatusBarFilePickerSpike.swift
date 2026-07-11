@@ -1,32 +1,14 @@
 // StatusBarFilePickerSpike.swift
-// StatusBarFilePickerSpike — spike/statusbar-filepicker branch
-//
-// APPROACH: MenuBarExtra(.window) + .fileImporter + anchoredFileImporter
-//
-// REQUIREMENTS: macOS 14+, Swift 6
-// DEPENDENCIES: none
-
 import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
+import OSLog
 
-// MARK: - Logging
-// GUI apps don’t have stdout connected to the terminal.
-// Write directly to a file so `tail -f` works in a single terminal session.
-
-private let logFile: FileHandle? = {
-    let path = "/tmp/filepicker-spike.log"
-    FileManager.default.createFile(atPath: path, contents: nil)
-    return FileHandle(forWritingAtPath: path)
-}()
+private let logger = Logger(subsystem: "com.runbot.StatusBarFilePickerSpike", category: "picker")
 
 private func log(_ msg: String, function: String = #function, line: Int = #line) {
-    let ts = ISO8601DateFormatter().string(from: Date())
-    let line = "[\(ts)] \(function):\(line) \(msg)\n"
-    logFile?.write(line.data(using: .utf8)!)
+    logger.debug("\(function):\(line) \(msg)")
 }
-
-// MARK: - Entry point
 
 @main
 struct StatusBarFilePickerApp: App {
@@ -40,8 +22,6 @@ struct StatusBarFilePickerApp: App {
     }
 }
 
-// MARK: - Content
-
 struct ContentView: View {
     @State private var isImporting = false
     @State private var fileImporterID = 0
@@ -49,12 +29,8 @@ struct ContentView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("File Picker Spike")
-                .font(.headline)
-                .frame(maxWidth: .infinity, alignment: .center)
-
+            Text("File Picker Spike").font(.headline).frame(maxWidth: .infinity, alignment: .center)
             Divider()
-
             Button("Pick File") {
                 log("► tapped isImporting=\(isImporting) id=\(fileImporterID)")
                 isImporting = false
@@ -64,24 +40,17 @@ struct ContentView: View {
                 }
             }
             .frame(maxWidth: .infinity)
-
             Divider()
-
             GroupBox("Last picked") {
                 Text(pickedURL?.lastPathComponent ?? "(none)")
                     .font(.system(.body, design: .monospaced))
                     .foregroundStyle(pickedURL == nil ? .secondary : .primary)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .lineLimit(2).truncationMode(.middle)
-                if pickedURL != nil {
-                    Button("Clear") { pickedURL = nil }.font(.caption)
-                }
+                if pickedURL != nil { Button("Clear") { pickedURL = nil }.font(.caption) }
             }
-
             Divider()
-
-            Button("Quit") { NSApplication.shared.terminate(nil) }
-                .foregroundStyle(.red).frame(maxWidth: .infinity)
+            Button("Quit") { NSApplication.shared.terminate(nil) }.foregroundStyle(.red).frame(maxWidth: .infinity)
         }
         .padding(16)
         .frame(minWidth: 320, minHeight: 280)
@@ -99,8 +68,6 @@ struct ContentView: View {
         .onChange(of: fileImporterID) { _, v in log("fileImporterID → \(v)") }
     }
 }
-
-// MARK: - anchoredFileImporter
 
 extension View {
     func anchoredFileImporter(
@@ -130,39 +97,23 @@ private struct AnchoredFileImporterModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .fileImporter(
-                isPresented: $isPresented,
-                allowedContentTypes: allowedContentTypes,
-                allowsMultipleSelection: allowsMultipleSelection
-            ) { result in
+            .fileImporter(isPresented: $isPresented, allowedContentTypes: allowedContentTypes, allowsMultipleSelection: allowsMultipleSelection) { result in
                 log("[fileImporter] completion")
                 removeObserver()
                 switch result {
-                case .success(let urls):
-                    if let url = urls.first { onCompletion(.success(url)) }
-                case .failure(let err):
-                    onCompletion(.failure(err))
+                case .success(let urls): if let url = urls.first { onCompletion(.success(url)) }
+                case .failure(let err): onCompletion(.failure(err))
                 }
             }
             .onChange(of: isPresented) { _, newValue in
                 log("[modifier] onChange isPresented=\(newValue)")
                 guard newValue else { removeObserver(); return }
-                Task { @MainActor in
-                    anchorAndObserve(
-                        isPresented: $isPresented,
-                        fileImporterID: $fileImporterID,
-                        closeObserver: $closeObserver
-                    )
-                }
+                Task { @MainActor in anchorAndObserve(isPresented: $isPresented, fileImporterID: $fileImporterID, closeObserver: $closeObserver) }
             }
     }
 
     private func removeObserver() {
-        if let obs = closeObserver {
-            NotificationCenter.default.removeObserver(obs)
-            closeObserver = nil
-            log("[modifier] observer removed")
-        }
+        if let obs = closeObserver { NotificationCenter.default.removeObserver(obs); closeObserver = nil }
     }
 }
 
@@ -173,52 +124,33 @@ private func anchorAndObserve(
     closeObserver: Binding<(any NSObjectProtocol)?>
 ) {
     log("[anchor] called")
-    dumpWindows(label: "anchor-start")
-
-    guard let menuBarWindow = NSApp.windows.first(where: {
-        $0.styleMask.contains(.nonactivatingPanel) && $0.isVisible
-    }) else { log("[anchor] ERROR: no menuBarWindow"); return }
+    guard let menuBarWindow = NSApp.windows.first(where: { $0.styleMask.contains(.nonactivatingPanel) && $0.isVisible })
+    else { log("[anchor] ERROR: no menuBarWindow"); return }
 
     DispatchQueue.main.async {
-        log("[anchor] async hop")
-        dumpWindows(label: "anchor-async")
+        log("[anchor] async hop windows=\(NSApp.windows.count)")
+        for (i,w) in NSApp.windows.enumerated() {
+            log("  [\(i)] \(type(of:w)) isKey=\(w.isKeyWindow) isVisible=\(w.isVisible) parent=\(w.parent==nil ? "nil":"set")")
+        }
+        guard let panel = NSApp.windows.first(where: { $0 is NSOpenPanel && $0.isKeyWindow && $0.parent == nil })
+        else { log("[anchor] ERROR: NSOpenPanel not found"); return }
 
-        guard let panel = NSApp.windows.first(where: {
-            $0 is NSOpenPanel && $0.isKeyWindow && $0.parent == nil
-        }) else { log("[anchor] ERROR: no NSOpenPanel found"); return }
-
-        log("[anchor] found panel, anchoring")
+        log("[anchor] anchoring panel")
         panel.center()
         menuBarWindow.addChildWindow(panel, ordered: .above)
 
-        let obs = NotificationCenter.default.addObserver(
-            forName: NSWindow.willCloseNotification,
-            object: panel,
-            queue: .main
-        ) { [weak panel] _ in
+        let obs = NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: panel, queue: .main) { [weak panel] _ in
             guard let panel else { return }
             log("[anchor] willClose isPresented=\(isPresented.wrappedValue)")
             if let parent = panel.parent { parent.removeChildWindow(panel) }
             NotificationCenter.default.removeObserver(closeObserver.wrappedValue as Any)
             closeObserver.wrappedValue = nil
-            guard isPresented.wrappedValue else {
-                log("[anchor] willClose: OK/Cancel path, nothing to do")
-                return
-            }
-            log("[anchor] willClose: outside-dismiss detected, bumping id")
+            guard isPresented.wrappedValue else { log("[anchor] OK/Cancel path"); return }
+            log("[anchor] outside-dismiss: bumping id")
             fileImporterID.wrappedValue += 1
             isPresented.wrappedValue = false
         }
         closeObserver.wrappedValue = obs
         log("[anchor] observer registered")
-    }
-}
-
-@MainActor
-private func dumpWindows(label: String) {
-    let wins = NSApp.windows
-    log("[windows:\(label)] total=\(wins.count)")
-    for (i, w) in wins.enumerated() {
-        log("  [\(i)] \(type(of: w)) isKey=\(w.isKeyWindow) isVisible=\(w.isVisible) parent=\(w.parent == nil ? "nil" : "set")")
     }
 }
