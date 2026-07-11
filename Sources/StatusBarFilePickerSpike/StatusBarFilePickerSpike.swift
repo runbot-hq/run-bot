@@ -1,19 +1,21 @@
 // StatusBarFilePickerSpike.swift
 // StatusBarFilePickerSpike — spike/statusbar-filepicker branch
 //
-// APPROACH: .fileImporter with Int counter state
+// APPROACH A ONLY: .fileImporter + anchoredFileImporter
 //
-// Problem with Bool binding:
-//   SwiftUI coalesces false→true on the same run loop pass and skips
-//   re-presentation if the underlying NSOpenPanel was dismissed externally
-//   (outside-click). The panel stays invisible/stale but isPresented is
-//   already false, so the next true is a no-op.
+// The anchoredFileImporter modifier hooks .onChange(of: isPresented),
+// waits one run-loop turn for SwiftUI to create the picker NSWindow,
+// then calls menuBarWindow.addChildWindow(pickerWindow, ordered: .above).
+// This puts the picker in the MenuBarExtra focus group so clicks inside
+// it are NOT treated as outside-clicks that dismiss the panel.
 //
-// Fix: drive .fileImporter with an Int (presentationID) instead of Bool.
-//   SwiftUI treats any change in the bound value as a new event.
-//   Incrementing on every tap always triggers a fresh presentation —
-//   even if the previous one was dismissed externally.
-//   The modifier maps Int != 0 as "presented".
+// STATE FIX for outside-dismiss reopen:
+//   When the user clicks outside the picker (not OK/Cancel), SwiftUI
+//   sets isImporting = false but the NSOpenPanel is still alive/stale.
+//   A subsequent tap sets isImporting = true but SwiftUI coalesces the
+//   false→true on the same run-loop pass and skips re-presentation.
+//   Fix: explicitly set false first, then async-dispatch true, forcing
+//   a genuine two-step state transition SwiftUI must process.
 //
 // REQUIREMENTS: macOS 26, Swift 6
 // DEPENDENCIES: none
@@ -46,10 +48,7 @@ struct StatusBarFilePickerApp: App {
 // MARK: - Content
 
 struct ContentView: View {
-    /// Incremented on every button tap. .fileImporter sees a new value
-    /// each time, which forces SwiftUI to re-present the panel even if
-    /// it was previously dismissed externally.
-    @State private var presentationID = 0
+    @State private var isImporting = false
     @State private var pickedURL: URL?
 
     var body: some View {
@@ -61,9 +60,14 @@ struct ContentView: View {
             Divider()
 
             Button("Pick File") {
-                log("► tapped presentationID=\(presentationID)")
-                presentationID += 1
-                log("► presentationID now \(presentationID)")
+                log("A ► tapped isImporting=\(isImporting)")
+                // Force a real false→true transition even if a previous
+                // outside-dismiss already left isImporting = false.
+                isImporting = false
+                DispatchQueue.main.async {
+                    log("A ► async: setting isImporting = true")
+                    isImporting = true
+                }
             }
             .frame(maxWidth: .infinity)
 
@@ -90,32 +94,22 @@ struct ContentView: View {
         }
         .padding(16)
         .frame(minWidth: 320, minHeight: 280)
-        // fileImporter is driven by a Binding<Bool> derived from the counter.
-        // We map presentationID != 0 as "presented" and reset to 0 on dismiss.
-        .fileImporter(
-            isPresented: Binding(
-                get: { presentationID != 0 },
-                set: { isPresented in
-                    if !isPresented {
-                        log("► fileImporter set false — resetting presentationID")
-                        presentationID = 0
-                    }
-                }
-            ),
+        .anchoredFileImporter(
+            isPresented: $isImporting,
             allowedContentTypes: [.item],
             allowsMultipleSelection: false
         ) { result in
             switch result {
-            case .success(let urls):
-                log("► success url=\(urls.first?.path ?? "nil")")
-                pickedURL = urls.first
+            case .success(let url):
+                log("A ► success url=\(url.path)")
+                pickedURL = url
             case .failure(let err):
-                log("► failure err=\(err)")
+                log("A ► failure err=\(err)")
             }
         }
-        .onChange(of: presentationID) { old, new in
-            log("► presentationID \(old)→\(new)")
-            dumpWindows(label: "presentationID-\(new)")
+        .onChange(of: isImporting) { old, new in
+            log("A ► isImporting \(old)→\(new)")
+            dumpWindows(label: "isImporting-\(new)")
         }
     }
 }
@@ -128,5 +122,92 @@ private func dumpWindows(label: String) {
     log("[windows:\(label)] total=\(wins.count)")
     for (i, w) in wins.enumerated() {
         log("  [\(i)] \(type(of: w)) isKey=\(w.isKeyWindow) isVisible=\(w.isVisible) styleMask=\(w.styleMask.rawValue) frame=\(NSStringFromRect(w.frame)) parent=\(w.parent == nil ? "nil" : "set") children=\(w.childWindows?.count ?? 0)")
+    }
+}
+
+// MARK: - anchoredFileImporter
+//
+// Drop-in replacement for .fileImporter. After SwiftUI creates the picker
+// NSWindow (detected one run-loop turn after isPresented flips true), it
+// calls menuBarWindow.addChildWindow(pickerWindow, ordered: .above) so
+// the picker is in the MenuBarExtra focus group and clicks inside it are
+// not treated as outside-clicks.
+
+extension View {
+    func anchoredFileImporter(
+        isPresented: Binding<Bool>,
+        allowedContentTypes: [UTType],
+        allowsMultipleSelection: Bool,
+        onCompletion: @escaping (Result<URL, Error>) -> Void
+    ) -> some View {
+        self
+            .fileImporter(
+                isPresented: isPresented,
+                allowedContentTypes: allowedContentTypes,
+                allowsMultipleSelection: allowsMultipleSelection
+            ) { result in
+                switch result {
+                case .success(let urls):
+                    if let url = urls.first { onCompletion(.success(url)) }
+                case .failure(let err):
+                    onCompletion(.failure(err))
+                }
+            }
+            .onChange(of: isPresented.wrappedValue) { _, newValue in
+                log("[anchoredFileImporter] onChange isPresented=\(newValue)")
+                guard newValue else {
+                    log("[anchoredFileImporter] isPresented false — skipping")
+                    return
+                }
+                log("[anchoredFileImporter] scheduling anchorAndCenterPickerWindow")
+                Task { @MainActor in anchorAndCenterPickerWindow() }
+            }
+    }
+}
+
+@MainActor
+private func anchorAndCenterPickerWindow() {
+    log("[anchorAndCenter] called")
+    dumpWindows(label: "anchorAndCenter-start")
+
+    guard let menuBarWindow = NSApp.windows.first(where: {
+        $0.styleMask.contains(.nonactivatingPanel) && $0.isVisible
+    }) else {
+        log("[anchorAndCenter] ERROR: MenuBarExtra window not found")
+        return
+    }
+    log("[anchorAndCenter] menuBarWindow=\(NSStringFromRect(menuBarWindow.frame)) children=\(menuBarWindow.childWindows?.count ?? 0)")
+
+    // One run-loop pass to let SwiftUI finish creating the picker window.
+    DispatchQueue.main.async {
+        log("[anchorAndCenter] async hop")
+        dumpWindows(label: "anchorAndCenter-async")
+
+        guard let pickerWindow = NSApp.windows.first(where: {
+            $0 !== menuBarWindow
+                && $0.isKeyWindow
+                && $0.parent == nil
+        }) else {
+            log("[anchorAndCenter] ERROR: picker window not found after async hop")
+            // Second hop in case SwiftUI needs another pass.
+            DispatchQueue.main.async {
+                log("[anchorAndCenter] second async hop")
+                dumpWindows(label: "anchorAndCenter-second-hop")
+                guard let pickerWindow = NSApp.windows.first(where: {
+                    $0 !== menuBarWindow && $0.isKeyWindow && $0.parent == nil
+                }) else {
+                    log("[anchorAndCenter] ERROR: picker window STILL not found — giving up")
+                    return
+                }
+                pickerWindow.center()
+                menuBarWindow.addChildWindow(pickerWindow, ordered: .above)
+                log("[anchorAndCenter] second-hop anchor done — menuBar.children=\(menuBarWindow.childWindows?.count ?? 0)")
+            }
+            return
+        }
+
+        pickerWindow.center()
+        menuBarWindow.addChildWindow(pickerWindow, ordered: .above)
+        log("[anchorAndCenter] anchor done — menuBar.children=\(menuBarWindow.childWindows?.count ?? 0)")
     }
 }
