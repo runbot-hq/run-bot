@@ -50,6 +50,14 @@ let package = Package(
                 .enableUpcomingFeature("NonisolatedNonsendingByDefault")
             ]
         ),
+        .executableTarget(
+            name: "RunBotFileImporterSpike",
+            dependencies: [],
+            path: "Sources/RunBotFileImporterSpike",
+            swiftSettings: [
+                .enableUpcomingFeature("NonisolatedNonsendingByDefault")
+            ]
+        ),
         .testTarget(
             name: "RunBotCoreTests",
             dependencies: [
