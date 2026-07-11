@@ -73,6 +73,26 @@ final class PopoverLifecycleCoordinator {
         preservedSheetWindowHide = value
     }
 
+    /// Suppresses `hidePanel` for one runloop turn.
+    ///
+    /// Call this immediately **before** setting the `.sheet(item:)` binding to
+    /// `nil` from an intentional user dismiss (Cancel / Save). The flag gates
+    /// both the outside-click monitor and the workspace observer so neither
+    /// fires `hidePanel` while the sheet NSWindow is being detached by AppKit.
+    ///
+    /// The flag is cleared by a `Task { @MainActor }` that is enqueued on the
+    /// same runloop turn — it runs after all synchronous SwiftUI state
+    /// propagation and AppKit sheet-detach work has completed.
+    func suppressHidePanel() {
+        guard !isSheetDismissing else { return }
+        isSheetDismissing = true
+        log("PopoverLifecycleCoordinator › suppressHidePanel — isSheetDismissing=true")
+        Task { @MainActor [weak self] in
+            self?.isSheetDismissing = false
+            log("PopoverLifecycleCoordinator › suppressHidePanel — isSheetDismissing cleared")
+        }
+    }
+
     // MARK: - Monitor lifecycle
 
     /// Installs the outside-click monitor and app-switch observer.
