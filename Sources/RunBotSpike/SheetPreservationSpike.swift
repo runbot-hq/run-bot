@@ -13,8 +13,8 @@
 // REQUIREMENTS: macOS 26+, Swift 6.2
 // DEPENDENCIES: none (zero RunBot modules imported)
 
-import SwiftUI
 import AppKit
+import SwiftUI
 import UniformTypeIdentifiers
 
 // MARK: - Entry point
@@ -124,8 +124,8 @@ struct MainSpikeView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
-            .sheet(isPresented: $showLocalSheet) {
-                SheetSpikeView(parentText: $localText)
+            .anchoredSheet(isPresented: $showLocalSheet) {
+                SheetSpikeView(parentText: $localText, isPresented: $showLocalSheet)
             }
 
             GroupBox("Scenario 6 — App-level sheet state") {
@@ -139,8 +139,8 @@ struct MainSpikeView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
-            .sheet(isPresented: $appState.showSettingsSheet) {
-                SheetSpikeView(parentText: $appState.sheetDraftText)
+            .anchoredSheet(isPresented: $appState.showSettingsSheet) {
+                SheetSpikeView(parentText: $appState.sheetDraftText, isPresented: $appState.showSettingsSheet)
             }
 
             GroupBox("Scenario 7 — .fileImporter") {
@@ -217,8 +217,8 @@ struct SettingsSpikeView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
-            .sheet(isPresented: $showChildSheet) {
-                SheetSpikeView(parentText: .constant(""))
+            .anchoredSheet(isPresented: $showChildSheet) {
+                SheetSpikeView(parentText: .constant(""), isPresented: $showChildSheet)
             }
 
             Button("\u{2190} Back") {
@@ -232,12 +232,13 @@ struct SettingsSpikeView: View {
 }
 
 // MARK: - Sheet view
+//
+// Dismisses via binding (isPresented = false), NOT @Environment(\.dismiss).
+// On MenuBarExtra, dismiss() bubbles past the sheet and closes the window.
 
 struct SheetSpikeView: View {
     @Binding var parentText: String
-    // @Environment(\.dismiss) resolves to the sheet's own dismiss action
-    // when used inside a .sheet — it does NOT bubble up to close the MenuBarExtra window.
-    @Environment(\.dismiss) private var dismiss
+    @Binding var isPresented: Bool
 
     @State private var sheetCounter: Int = 0
     @State private var sheetText: String = ""
@@ -274,9 +275,73 @@ struct SheetSpikeView: View {
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
 
-            Button("Dismiss") { dismiss() }
+            Button("Dismiss") { isPresented = false }
                 .buttonStyle(.borderedProminent)
+                .keyboardShortcut(.cancelAction)
         }
         .padding(24)
+    }
+}
+
+// MARK: - AnchoredSheet
+//
+// Wraps .sheet and parents the NSPanel SwiftUI creates to the MenuBarExtra
+// window via addChildWindow(_:ordered:).
+//
+// When the sheet becomes key, AppKit would normally treat it as an outside
+// click and close the MenuBarExtra window. Making it a child window puts it
+// in the same focus group, preventing that.
+//
+// Detection: after isPresented flips true, find an NSWindow that:
+//   - is NOT the MenuBarExtra window (.nonactivatingPanel)
+//   - has .borderless styleMask  (SwiftUI sheet panels are borderless)
+//   - is currently key           (just became active)
+
+extension View {
+    func anchoredSheet<SheetContent: View>(
+        isPresented: Binding<Bool>,
+        @ViewBuilder content: @escaping () -> SheetContent
+    ) -> some View {
+        modifier(AnchoredSheetModifier(isPresented: isPresented, sheetContent: content))
+    }
+}
+
+private struct AnchoredSheetModifier<SheetContent: View>: ViewModifier {
+    @Binding var isPresented: Bool
+    let sheetContent: () -> SheetContent
+
+    func body(content: Content) -> some View {
+        content
+            .sheet(isPresented: $isPresented, content: sheetContent)
+            .onChange(of: isPresented) { _, newValue in
+                guard newValue else { return }
+                Task { @MainActor in anchorSheetWindow() }
+            }
+    }
+
+    @MainActor
+    private func anchorSheetWindow() {
+        guard let menuBarWindow = NSApp.windows.first(where: {
+            $0.styleMask.contains(.nonactivatingPanel)
+        }) else {
+            print("[AnchoredSheet] MenuBarExtra window not found")
+            return
+        }
+
+        DispatchQueue.main.async {
+            if let sheetWindow = NSApp.windows.first(where: {
+                $0 !== menuBarWindow
+                    && $0.styleMask.contains(.borderless)
+                    && $0.isKeyWindow
+            }) {
+                print("[AnchoredSheet] anchoring sheet window: \(sheetWindow)")
+                menuBarWindow.addChildWindow(sheetWindow, ordered: .above)
+            } else {
+                print("[AnchoredSheet] sheet window not found — anchor skipped")
+                NSApp.windows.forEach {
+                    print("  window: \($0) styleMask: \($0.styleMask) isKey: \($0.isKeyWindow)")
+                }
+            }
+        }
     }
 }
