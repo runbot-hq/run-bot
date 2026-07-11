@@ -4,21 +4,14 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 private func log(_ msg: String, function: String = #function, line: Int = #line) {
-    // stderr is inherited from the launching shell and is unbuffered.
-    // This is the only reliable way to get inline terminal output from a GUI app.
-    var stderr = FileHandle.standardError
+    let stderr = FileHandle.standardError
     let ts = ISO8601DateFormatter().string(from: Date())
-    let out = "[\(ts)] \(function):\(line) \(msg)\n"
-    stderr.write(out.data(using: .utf8)!)
+    stderr.write("[\(ts)] \(function):\(line) \(msg)\n".data(using: .utf8)!)
 }
 
 @main
 struct StatusBarFilePickerApp: App {
-    init() {
-        // Disable buffering on stderr so every log() call appears immediately.
-        setvbuf(Foundation.stderr, nil, _IONBF, 0)
-        log("app init")
-    }
+    init() { setvbuf(Foundation.stderr, nil, _IONBF, 0); log("app init") }
     var body: some Scene {
         MenuBarExtra {
             ContentView()
@@ -41,10 +34,7 @@ struct ContentView: View {
             Button("Pick File") {
                 log("► tapped isImporting=\(isImporting) id=\(fileImporterID)")
                 isImporting = false
-                DispatchQueue.main.async {
-                    log("► async: setting isImporting=true")
-                    isImporting = true
-                }
+                DispatchQueue.main.async { isImporting = true }
             }
             .frame(maxWidth: .infinity)
             Divider()
@@ -71,8 +61,6 @@ struct ContentView: View {
             log("► picked \(pickedURL?.lastPathComponent ?? "nil")")
         }
         .id(fileImporterID)
-        .onChange(of: isImporting) { _, v in log("isImporting → \(v) id=\(fileImporterID)") }
-        .onChange(of: fileImporterID) { _, v in log("fileImporterID → \(v)") }
     }
 }
 
@@ -100,6 +88,7 @@ private struct AnchoredFileImporterModifier: ViewModifier {
     let allowedContentTypes: [UTType]
     let allowsMultipleSelection: Bool
     let onCompletion: (Result<URL, Error>) -> Void
+    @State private var knownPanels: Set<ObjectIdentifier> = []
     @State private var closeObserver: (any NSObjectProtocol)?
 
     func body(content: Content) -> some View {
@@ -115,7 +104,7 @@ private struct AnchoredFileImporterModifier: ViewModifier {
             .onChange(of: isPresented) { _, newValue in
                 log("[modifier] onChange isPresented=\(newValue)")
                 guard newValue else { removeObserver(); return }
-                Task { @MainActor in anchorAndObserve(isPresented: $isPresented, fileImporterID: $fileImporterID, closeObserver: $closeObserver) }
+                Task { @MainActor in anchorAndObserve(isPresented: $isPresented, fileImporterID: $fileImporterID, knownPanels: $knownPanels, closeObserver: $closeObserver) }
             }
     }
 
@@ -128,32 +117,39 @@ private struct AnchoredFileImporterModifier: ViewModifier {
 private func anchorAndObserve(
     isPresented: Binding<Bool>,
     fileImporterID: Binding<Int>,
+    knownPanels: Binding<Set<ObjectIdentifier>>,
     closeObserver: Binding<(any NSObjectProtocol)?>
 ) {
-    log("[anchor] called")
     guard let menuBarWindow = NSApp.windows.first(where: { $0.styleMask.contains(.nonactivatingPanel) && $0.isVisible })
     else { log("[anchor] ERROR: no menuBarWindow"); return }
 
     DispatchQueue.main.async {
-        log("[anchor] async hop windows=\(NSApp.windows.count)")
-        for (i,w) in NSApp.windows.enumerated() {
-            log("  [\(i)] \(type(of:w)) isKey=\(w.isKeyWindow) isVisible=\(w.isVisible) parent=\(w.parent==nil ? "nil":"set")")
+        // KEY FIX: don’t require isKeyWindow — panels under a NonactivatingPanel
+        // are NEVER key. Find the new NSOpenPanel that isn’t in our known set.
+        let allPanels = NSApp.windows.filter { $0 is NSOpenPanel }
+        log("[anchor] panels total=\(allPanels.count) known=\(knownPanels.wrappedValue.count)")
+        for (i,w) in allPanels.enumerated() {
+            log("  [\(i)] isKey=\(w.isKeyWindow) isVisible=\(w.isVisible) parent=\(w.parent==nil ? "nil":"set")")
         }
-        guard let panel = NSApp.windows.first(where: { $0 is NSOpenPanel && $0.isKeyWindow && $0.parent == nil })
-        else { log("[anchor] ERROR: NSOpenPanel not found"); return }
 
-        log("[anchor] anchoring panel")
+        guard let panel = allPanels.first(where: { !knownPanels.wrappedValue.contains(ObjectIdentifier($0)) })
+        else { log("[anchor] ERROR: no new NSOpenPanel found"); return }
+
+        knownPanels.wrappedValue.insert(ObjectIdentifier(panel))
+        log("[anchor] anchoring new panel")
         panel.center()
         menuBarWindow.addChildWindow(panel, ordered: .above)
+        panel.makeKeyAndOrderFront(nil)
+        log("[anchor] after makeKeyAndOrderFront isKey=\(panel.isKeyWindow) isVisible=\(panel.isVisible)")
 
         let obs = NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: panel, queue: .main) { [weak panel] _ in
             guard let panel else { return }
-            log("[anchor] willClose isPresented=\(isPresented.wrappedValue)")
+            knownPanels.wrappedValue.remove(ObjectIdentifier(panel))
             if let parent = panel.parent { parent.removeChildWindow(panel) }
             NotificationCenter.default.removeObserver(closeObserver.wrappedValue as Any)
             closeObserver.wrappedValue = nil
-            guard isPresented.wrappedValue else { log("[anchor] OK/Cancel path"); return }
-            log("[anchor] outside-dismiss: bumping id")
+            guard isPresented.wrappedValue else { log("[anchor] willClose: OK/Cancel"); return }
+            log("[anchor] willClose: outside-dismiss, bumping id")
             fileImporterID.wrappedValue += 1
             isPresented.wrappedValue = false
         }
