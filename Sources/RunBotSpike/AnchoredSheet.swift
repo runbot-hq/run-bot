@@ -12,7 +12,7 @@
 //
 // SOLUTION:
 //   After SwiftUI presents the sheet (i.e. after isPresented flips true), walk
-//   NSApp.windows to find the new borderless window and call
+//   NSApp.windows to find the new borderless+key window and call
 //   addChildWindow(_:ordered:) on the popover window.
 //   Once it is a child:
 //     - It follows the popover on screen.
@@ -37,25 +37,22 @@
 //   attached via addChildWindow) directly — no counters needed.
 //
 // SHEET WINDOW DISCRIMINATOR:
-//   We match the sheet window by: borderless + visible + frame intersects the
-//   popover window's frame + is not the popover window itself.
+//   We match the sheet window by: borderless + isKeyWindow + not the popover window.
+//   isKeyWindow is the most reliable signal at the moment the sheet is presented —
+//   SwiftUI makes the sheet window key immediately on creation.
 //
-//   Why not NSHostingController<AnyView> type check:
-//     Tried this — SwiftUI's internal sheet window does not use that exact type
-//     so the check never matched and addChildWindow never fired.
+//   Alternatives tried and rejected:
+//   - NSHostingController<AnyView> type check: SwiftUI's internal sheet window does
+//     not use that exact generic type, so the check never matched.
+//   - frame.intersects(popoverWindow.frame): matched the wrong window on macOS 26,
+//     causing addChildWindow to be called on an incompatible window, which triggered
+//     an infinite recursion crash in _applyWindowLevelWithTagUpdateNeeded.
 //
-//   Why not isKeyWindow:
-//     Fragile — other borderless windows (NSOpenPanel during dismiss, OS
-//     animations) can transiently become key.
-//
-//   Why frame intersection:
-//     The sheet always appears centred over or near the popover. No other
-//     borderless visible window should be overlapping the popover frame at
-//     the moment the sheet is being presented.
-//
-//   MIGRATION NOTE: revalidate this heuristic on major OS updates. If multiple
-//   borderless windows can legitimately overlap the popover simultaneously,
-//   a more specific discriminator will be needed.
+//   MIGRATION NOTE: isKeyWindow can transiently match other borderless windows
+//   (e.g. NSOpenPanel during dismiss, OS animations). This is acceptable here
+//   because anchorSheetWindow() only runs when isPresented flips to true —
+//   a moment when no other borderless window should be key. Revalidate on
+//   major OS updates.
 
 import AppKit
 import SwiftUI
@@ -98,18 +95,17 @@ struct NavAnchoredSheetModifier<SheetContent: View>: ViewModifier {
             return
         }
         DispatchQueue.main.async {
-            // Find the sheet window: borderless, visible, overlaps the popover,
-            // and is not the popover window itself.
+            // The sheet window SwiftUI just created: borderless and key,
+            // but not the popover window itself.
             if let sheetWindow = NSApp.windows.first(where: {
                 $0 !== popoverWindow
                     && $0.styleMask.contains(.borderless)
-                    && $0.isVisible
-                    && $0.frame.intersects(popoverWindow.frame)
+                    && $0.isKeyWindow
             }) {
                 log("AnchoredSheet", "addChildWindow")
                 popoverWindow.addChildWindow(sheetWindow, ordered: .above)
             } else {
-                log("AnchoredSheet", "no matching sheet window found")
+                log("AnchoredSheet", "no borderless+key window found")
             }
         }
     }
