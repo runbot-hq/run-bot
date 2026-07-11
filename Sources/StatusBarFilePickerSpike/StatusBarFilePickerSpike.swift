@@ -2,16 +2,16 @@
 //
 // MenuBarExtra(.window) + NSOpenPanel via beginSheetModal.
 //
-// OUTSIDE-DISMISS STATE FIX:
-// When the user clicks outside the MenuBarExtraWindow, the window hides
-// but beginSheetModal's completion never fires — so activePanel stays
-// non-nil and the next tap hits the "already open" guard.
+// ROOT CAUSE OF STUCK STATE:
+//   When the user clicks outside, MenuBarExtraWindow hides and the sheet is
+//   torn down by AppKit internally. beginSheetModal's completion block does
+//   NOT fire in this case. Calling cancel() on an already-detached panel is
+//   also a no-op for the completion. So panel stays non-nil forever.
 //
-// Fix: at the top of show(), synchronously check parentWindow.isVisible.
-// If it's gone, the panel is stale — call panel.cancel(nil) right there.
-// cancel() fires the beginSheetModal completion synchronously, which clears
-// activePanel. Then we fall through and open fresh.
-// No notifications. No KVO. No async delay.
+// FIX:
+//   On the next show() call, detect the stale panel (parentWindow gone or
+//   not visible), nil out panel + parentWindow directly — do NOT rely on
+//   cancel() to trigger the completion. Then fall through to open fresh.
 //
 // REQUIREMENTS: macOS 14+, Swift 6
 
@@ -75,20 +75,22 @@ final class FilePicker {
     private weak var parentWindow: NSWindow?
 
     func show(completion: @escaping @MainActor (URL?) -> Void) {
-        // Synchronous stale-panel cleanup.
-        // If the parent window is gone (outside-click dismissed it),
-        // the beginSheetModal completion never fired. Cancel now so
-        // the completion runs and clears self.panel before we continue.
-        if let stale = panel, parentWindow?.isVisible != true {
-            log("stale panel — cancelling")
-            stale.cancel(nil)  // fires completion synchronously -> clears self.panel
+        // Stale-panel cleanup.
+        // beginSheetModal's completion does NOT fire when the parent window
+        // is dismissed externally, so we cannot rely on it to clear state.
+        // Nil out directly here instead.
+        if panel != nil, parentWindow?.isVisible != true {
+            log("stale panel detected — clearing directly")
+            panel?.orderOut(nil)
+            panel = nil
+            parentWindow = nil
         }
 
         guard panel == nil else { log("already open"); return }
 
         guard let window = NSApp.windows.first(where: {
             $0.styleMask.contains(.nonactivatingPanel) && $0.isVisible
-        }) else { log("ERROR: no MenuBarExtraWindow"); return }
+        }) else { log("ERROR: no MenuBarExtraWindow visible"); return }
 
         let p = NSOpenPanel()
         p.canChooseFiles = true
@@ -97,7 +99,7 @@ final class FilePicker {
         p.canCreateDirectories = false
         panel = p
         parentWindow = window
-        log("opening sheet")
+        log("opening sheet on \(type(of: window))")
 
         p.beginSheetModal(for: window) { [weak self] response in
             log("done response=\(response == .OK ? "OK" : "Cancel")")
