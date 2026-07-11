@@ -10,7 +10,6 @@
 //
 // HOW TO RUN:
 //   swift run RunBotSpike
-//   (@main is on NavSheetApp below — Option3Spike.swift has @main commented out)
 //
 // REQUIREMENTS: macOS 26+, Swift 6.2
 
@@ -37,23 +36,14 @@ enum NavSheetRoute: Equatable {
 @Observable
 @MainActor
 final class NavSheetAppState {
-    // Navigation
     var route: NavSheetRoute = .main
-
-    // Main view state
     var counter: Int = 0
     var text: String = ""
-
-    // Settings view state
     var settingsCounter: Int = 0
     var settingsToggle: Bool = false
     var showSettingsSheet: Bool = false
-
-    // Sheet state (survives sheet dismiss + popover hide)
     var sheetCounter: Int = 0
     var sheetText: String = ""
-
-    // Observability probe
     var taskFireCount: Int = 0
 }
 
@@ -85,8 +75,7 @@ final class NavSheetAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func setupPopover() {
-        let root = NavSheetRootView()
-            .environment(appState)
+        let root = NavSheetRootView().environment(appState)
         hostingController = NSHostingController(rootView: AnyView(root))
         hostingController.sizingOptions = .preferredContentSize
         popover = NSPopover()
@@ -142,7 +131,7 @@ extension NavSheetAppDelegate: NSPopoverDelegate {
     func popoverDidClose(_ notification: Notification) { removeOutsideClickMonitor() }
 }
 
-// MARK: - Root view (switches on nav state)
+// MARK: - Root view
 
 struct NavSheetRootView: View {
     @Environment(NavSheetAppState.self) private var appState
@@ -179,32 +168,27 @@ struct NavSheetMainView: View {
 
             GroupBox("Counter (persists on hide)") {
                 HStack {
-                    Text("\(appState.counter)")
-                        .monospacedDigit()
-                        .frame(minWidth: 24)
+                    Text("\(appState.counter)").monospacedDigit().frame(minWidth: 24)
                     Spacer()
                     Button("+1") { appState.counter += 1 }
                 }
             }
 
             GroupBox("TextField (persists on hide)") {
-                TextField("Type here…", text: $appState.text)
+                TextField("Type here\u{2026}", text: $appState.text)
                     .textFieldStyle(.roundedBorder)
             }
 
             GroupBox(".task fire count") {
-                Text("\(appState.taskFireCount)x")
-                    .monospacedDigit()
-                Text(appState.taskFireCount > 1 ? "❌ Fired more than once — view recreated" : "✅ Fired once")
+                Text("\(appState.taskFireCount)x").monospacedDigit()
+                Text(appState.taskFireCount > 1 ? "\u274C Fired more than once \u2014 view recreated" : "\u2705 Fired once")
                     .font(.caption)
                     .foregroundStyle(appState.taskFireCount > 1 ? .red : .green)
             }
 
-            Button("Go to Settings →") {
-                appState.route = .settings
-            }
-            .frame(maxWidth: .infinity)
-            .buttonStyle(.borderedProminent)
+            Button("Go to Settings \u2192") { appState.route = .settings }
+                .frame(maxWidth: .infinity)
+                .buttonStyle(.borderedProminent)
         }
         .padding(16)
         .frame(width: 320)
@@ -227,9 +211,7 @@ struct NavSheetSettingsView: View {
 
             GroupBox("Settings counter (persists on hide)") {
                 HStack {
-                    Text("\(appState.settingsCounter)")
-                        .monospacedDigit()
-                        .frame(minWidth: 24)
+                    Text("\(appState.settingsCounter)").monospacedDigit().frame(minWidth: 24)
                     Spacer()
                     Button("+1") { appState.settingsCounter += 1 }
                 }
@@ -240,24 +222,20 @@ struct NavSheetSettingsView: View {
             }
 
             GroupBox(".sheet from settings") {
-                Button("Open sheet…") { appState.showSettingsSheet = true }
+                Button("Open sheet\u{2026}") { appState.showSettingsSheet = true }
                 Label(
                     appState.showSettingsSheet ? "Sheet is open" : "Sheet is closed",
-                    systemImage: appState.showSettingsSheet
-                        ? "checkmark.circle.fill" : "xmark.circle"
+                    systemImage: appState.showSettingsSheet ? "checkmark.circle.fill" : "xmark.circle"
                 )
                 .foregroundStyle(appState.showSettingsSheet ? .green : .secondary)
                 .font(.caption)
             }
             .anchoredSheet(isPresented: $appState.showSettingsSheet) {
-                NavSheetSheetView()
-                    .environment(appState)
+                NavSheetSheetView().environment(appState)
             }
 
-            Button("← Back") {
-                appState.route = .main
-            }
-            .frame(maxWidth: .infinity)
+            Button("\u2190 Back") { appState.route = .main }
+                .frame(maxWidth: .infinity)
         }
         .padding(16)
         .frame(width: 320)
@@ -272,25 +250,22 @@ struct NavSheetSheetView: View {
     var body: some View {
         @Bindable var appState = appState
         VStack(spacing: 16) {
-            Text("Settings Sheet")
-                .font(.headline)
+            Text("Settings Sheet").font(.headline)
 
             GroupBox("Sheet counter (persists across hide/dismiss)") {
                 HStack {
-                    Text("\(appState.sheetCounter)")
-                        .monospacedDigit()
-                        .frame(minWidth: 24)
+                    Text("\(appState.sheetCounter)").monospacedDigit().frame(minWidth: 24)
                     Spacer()
                     Button("+1") { appState.sheetCounter += 1 }
                 }
             }
 
             GroupBox("Sheet text (persists across hide/dismiss)") {
-                TextField("Type in sheet…", text: $appState.sheetText)
+                TextField("Type in sheet\u{2026}", text: $appState.sheetText)
                     .textFieldStyle(.roundedBorder)
             }
 
-            Text("Hide the app while this sheet is open.\nReopen — sheet should still be here.")
+            Text("Hide the app while this sheet is open.\nReopen \u2014 sheet should still be here.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -301,47 +276,5 @@ struct NavSheetSheetView: View {
         }
         .padding(24)
         .frame(minWidth: 300)
-    }
-}
-
-// MARK: - AnchoredSheet (port from spike/statusbar-sheet-swiftui PR #2033)
-//
-// Uses addChildWindow so the sheet window shares a focus group with the
-// popover window. The popover never sees an outside-click when the sheet
-// is key. Identical approach to the working solution in PR #2033.
-
-extension View {
-    func anchoredSheet<C: View>(
-        isPresented: Binding<Bool>,
-        @ViewBuilder content: @escaping () -> C
-    ) -> some View {
-        modifier(AnchoredSheetModifier2(isPresented: isPresented, sheetContent: content))
-    }
-}
-
-private struct AnchoredSheetModifier2<C: View>: ViewModifier {
-    @Binding var isPresented: Bool
-    let sheetContent: () -> C
-
-    func body(content: Content) -> some View {
-        content
-            .sheet(isPresented: $isPresented, content: sheetContent)
-            .onChange(of: isPresented) { _, new in
-                guard new else { return }
-                Task { @MainActor in anchorSheet() }
-            }
-    }
-
-    @MainActor
-    private func anchorSheet() {
-        guard let parent = NSApp.windows.first(where: {
-            !$0.styleMask.contains(.nonactivatingPanel) && $0.isVisible
-        }) else { return }
-        DispatchQueue.main.async {
-            guard let sheet = NSApp.windows.first(where: {
-                $0 !== parent && $0.isKeyWindow
-            }) else { return }
-            parent.addChildWindow(sheet, ordered: .above)
-        }
     }
 }
