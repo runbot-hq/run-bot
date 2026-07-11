@@ -1,20 +1,4 @@
 // StatusBarFilePickerSpike.swift
-//
-// MenuBarExtra(.window) + NSOpenPanel via beginSheetModal.
-//
-// ROOT CAUSE OF STUCK STATE:
-//   When the user clicks outside, MenuBarExtraWindow hides and the sheet is
-//   torn down by AppKit internally. beginSheetModal's completion block does
-//   NOT fire in this case. Calling cancel() on an already-detached panel is
-//   also a no-op for the completion. So panel stays non-nil forever.
-//
-// FIX:
-//   On the next show() call, detect the stale panel (parentWindow gone or
-//   not visible), nil out panel + parentWindow directly — do NOT rely on
-//   cancel() to trigger the completion. Then fall through to open fresh.
-//
-// REQUIREMENTS: macOS 14+, Swift 6
-
 import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
@@ -75,12 +59,25 @@ final class FilePicker {
     private weak var parentWindow: NSWindow?
 
     func show(completion: @escaping @MainActor (URL?) -> Void) {
-        // Stale-panel cleanup.
-        // beginSheetModal's completion does NOT fire when the parent window
-        // is dismissed externally, so we cannot rely on it to clear state.
-        // Nil out directly here instead.
+        // ── DIAGNOSTICS ──────────────────────────────────────────────────────
+        let panelState: String
+        if let p = panel {
+            panelState = "panel=\(type(of: p)) isVisible=\(p.isVisible) sheetParent=\(p.sheetParent.map { String(describing: type(of: $0)) } ?? "nil")"
+        } else {
+            panelState = "panel=nil"
+        }
+        let winState: String
+        if let w = parentWindow {
+            winState = "parentWindow=\(type(of: w)) isVisible=\(w.isVisible)"
+        } else {
+            winState = "parentWindow=nil(weak)"
+        }
+        log("show() called — \(panelState) | \(winState)")
+        log("all windows: \(NSApp.windows.map { "\(type(of: $0))(visible=\($0.isVisible))" }.joined(separator: ", "))")
+        // ─────────────────────────────────────────────────────────────────────
+
         if panel != nil, parentWindow?.isVisible != true {
-            log("stale panel detected — clearing directly")
+            log("stale panel — clearing directly")
             panel?.orderOut(nil)
             panel = nil
             parentWindow = nil
@@ -102,7 +99,7 @@ final class FilePicker {
         log("opening sheet on \(type(of: window))")
 
         p.beginSheetModal(for: window) { [weak self] response in
-            log("done response=\(response == .OK ? "OK" : "Cancel")")
+            log("sheet done response=\(response == .OK ? "OK" : "Cancel")")
             self?.panel = nil
             self?.parentWindow = nil
             completion(response == .OK ? p.url : nil)
