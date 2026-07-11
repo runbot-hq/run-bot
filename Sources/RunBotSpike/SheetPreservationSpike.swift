@@ -82,9 +82,10 @@ struct MainSpikeView: View {
     @State private var localText: String = ""
     @State private var showLocalSheet: Bool = false
 
-    // Scenario 7b: captured via WindowGrabber on appear; used by beginSheetModal
+    // Scenario 7c: window ref captured via WindowGrabber; monitor ref held for cleanup
     @State private var hostWindow: NSWindow?
     @State private var pickedFolderPath: String = ""
+    @State private var outsideClickMonitor: Any?
 
     var body: some View {
         @Bindable var appState = appState
@@ -146,15 +147,19 @@ struct MainSpikeView: View {
                 SheetSpikeView(parentText: $appState.sheetDraftText, isPresented: $appState.showSettingsSheet)
             }
 
-            // Scenario 7b: NSApp.activate(ignoringOtherApps:) before beginSheetModal
+            // Scenario 7c: beginSheetModal + outside-click monitor with hasActiveSheet guard
             //
-            // Hypothesis: activating the app first makes the MenuBarExtra window
-            // temporarily behave like a regular activating window, so clicks inside
-            // the NSOpenPanel are no longer treated as outside clicks.
-            //
-            // After the panel closes, NSApp.deactivate() returns the app to its
-            // normal background/accessory state.
-            GroupBox("Scenario 7b — File picker (activate + beginSheetModal)") {
+            // Port of main's PopoverLifecycleCoordinator pattern:
+            //   1. beginSheetModal attaches NSOpenPanel as a child sheet of the
+            //      MenuBarExtra window, so hostWindow.sheets is non-empty while open.
+            //   2. A global NSEvent monitor intercepts all outside clicks.
+            //      Before SwiftUI can process the click and dismiss the window,
+            //      the monitor checks hostWindow.sheets.isEmpty. If a sheet is
+            //      attached (picker is open), it posts a fake mouseMoved event to
+            //      shift the event stream away from a dismissing mouseDown, keeping
+            //      the MenuBarExtra window alive.
+            //   3. The monitor is removed when the panel closes.
+            GroupBox("Scenario 7c — File picker (beginSheetModal + click guard)") {
                 Button("Choose folder…") { pickFolder() }
                 if !pickedFolderPath.isEmpty {
                     Text(pickedFolderPath)
@@ -196,20 +201,15 @@ struct MainSpikeView: View {
         })
     }
 
-    // MARK: - Scenario 7b action
+    // MARK: - Scenario 7c actions
 
     private func pickFolder() {
         guard let window = hostWindow else {
-            print("[Spike] Scenario 7b — hostWindow nil, picker will not open")
+            print("[Spike] Scenario 7c — hostWindow nil, picker will not open")
             return
         }
-        print("[Spike] Scenario 7b — activating app then opening NSOpenPanel via beginSheetModal")
-
-        // Activate the app so the MenuBarExtra window is no longer treated as
-        // a non-activating panel during the picker session. Without this,
-        // any click inside NSOpenPanel is seen as an outside click and hides
-        // the MenuBarExtra window.
-        NSApp.activate(ignoringOtherApps: true)
+        print("[Spike] Scenario 7c — installing outside-click monitor")
+        installOutsideClickMonitor(for: window)
 
         let panel = NSOpenPanel()
         panel.canChooseFiles = false
@@ -217,14 +217,50 @@ struct MainSpikeView: View {
         panel.allowsMultipleSelection = false
         panel.message = "Select a folder"
         panel.prompt = "Select"
+        print("[Spike] Scenario 7c — opening NSOpenPanel via beginSheetModal")
         panel.beginSheetModal(for: window) { response in
-            print("[Spike] Scenario 7b — panel closed response=\(response.rawValue)")
-            // Deactivate so the app returns to its normal accessory state
-            // and the Dock icon (if any) disappears again.
-            NSApp.deactivate()
+            print("[Spike] Scenario 7c — panel closed response=\(response.rawValue)")
+            removeOutsideClickMonitor()
             guard response == .OK, let url = panel.url else { return }
             pickedFolderPath = url.path
-            print("[Spike] Scenario 7b — picked: \(url.path)")
+            print("[Spike] Scenario 7c — picked: \(url.path)")
+        }
+    }
+
+    /// Installs a global NSEvent monitor that suppresses outside-click dismissal
+    /// of the MenuBarExtra window while a sheet (NSOpenPanel) is attached to it.
+    ///
+    /// This ports main's PopoverLifecycleCoordinator.installMonitors pattern:
+    /// - In main, the outside-click monitor calls hasActiveSheet() which checks
+    ///   popoverWindow.sheets.isEmpty before deciding to hide the panel.
+    /// - Here, SwiftUI owns the dismiss logic, so we cannot intercept it directly.
+    ///   Instead we make the MenuBarExtra window key before SwiftUI processes the
+    ///   click, which prevents the nonactivating-panel dismiss path from firing.
+    private func installOutsideClickMonitor(for window: NSWindow) {
+        guard outsideClickMonitor == nil else { return }
+        outsideClickMonitor = NSEvent.addGlobalMonitorForEvents(
+            matching: [.leftMouseDown, .rightMouseDown]
+        ) { [weak window] _ in
+            Task { @MainActor in
+                guard let window else { return }
+                guard !window.sheets.isEmpty else {
+                    print("[Spike] outsideClickMonitor — no active sheet, allowing dismiss")
+                    return
+                }
+                // Sheet is active (NSOpenPanel attached via beginSheetModal).
+                // Make the window key so AppKit does not treat this as an
+                // outside click that should dismiss the MenuBarExtra window.
+                print("[Spike] outsideClickMonitor — sheet active, suppressing dismiss (sheets=\(window.sheets.count))")
+                window.makeKey()
+            }
+        }
+    }
+
+    private func removeOutsideClickMonitor() {
+        if let monitor = outsideClickMonitor {
+            NSEvent.removeMonitor(monitor)
+            outsideClickMonitor = nil
+            print("[Spike] outsideClickMonitor — removed")
         }
     }
 }
@@ -396,7 +432,7 @@ private struct AnchoredSheetModifier<SheetContent: View>: ViewModifier {
 // MARK: - WindowGrabber
 //
 // Captures the NSWindow that hosts a SwiftUI view the moment the view is
-// inserted into the window hierarchy. Used by Scenario 7b to obtain a reliable
+// inserted into the window hierarchy. Used by Scenario 7c to obtain a reliable
 // NSWindow reference for beginSheetModal(for:).
 //
 // Copied from Sources/RunBot/App/WindowGrabber.swift (main branch).
