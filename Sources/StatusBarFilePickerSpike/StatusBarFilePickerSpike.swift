@@ -1,14 +1,17 @@
 // StatusBarFilePickerSpike.swift
 //
-// MenuBarExtra(.window) + own NSOpenPanel via beginSheetModal.
+// MenuBarExtra(.window) + NSOpenPanel as a CHILD WINDOW (not a sheet).
 //
-// OUTSIDE-DISMISS FIX:
-// didChangeOcclusionStateNotification is throttled (fires seconds late).
-// willCloseNotification doesn’t fire — MenuBarExtraWindow never “closes”,
-// it just hides via orderOut.
-// Fix: poll isVisible on the next run-loop after each tap. If the window
-// is gone when the user taps again, cancel the stale panel immediately.
-// This is O(1), synchronous, and requires no notifications.
+// WHY NOT beginSheetModal:
+//   MenuBarExtraWindow is NSNonactivatingPanel. Any click inside the sheet
+//   is treated as an “outside click” and causes the parent to orderOut,
+//   collapsing the sheet immediately.
+//
+// FIX:
+//   Show NSOpenPanel as a standalone window via runModal() on a background
+//   thread so the main thread stays live. Add it as a child window of
+//   MenuBarExtraWindow BEFORE running so clicks inside don’t dismiss parent.
+//   On outside-dismiss (parent hides), cancel the panel via KVO on isVisible.
 //
 // REQUIREMENTS: macOS 14+, Swift 6
 
@@ -35,7 +38,6 @@ struct StatusBarFilePickerApp: App {
 
 struct ContentView: View {
     @State private var pickedURL: URL?
-
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text("File Picker Spike").font(.headline).frame(maxWidth: .infinity, alignment: .center)
@@ -66,32 +68,21 @@ struct ContentView: View {
 }
 
 // MARK: - FilePicker
-//
-// On each show() call:
-//   1. If a panel is active, check if its parent window is still visible.
-//      If not, cancel it immediately (synchronous cleanup).
-//   2. Otherwise guard against double-open.
-//   3. Show sheet on the current MenuBarExtraWindow.
 
 @MainActor
-final class FilePicker {
+final class FilePicker: NSObject {
     static let shared = FilePicker()
     private var panel: NSOpenPanel?
     private weak var parentWindow: NSWindow?
+    private var visibilityObservation: NSKeyValueObservation?
 
     func show(completion: @escaping @MainActor (URL?) -> Void) {
-        // If we have an active panel but its window has hidden, cancel it now.
-        if let existing = panel {
-            if parentWindow?.isVisible != true {
-                log("[picker] stale panel detected — cancelling")
-                existing.cancel(nil)
-                // cancel() fires completion synchronously in beginSheetModal,
-                // which clears self.panel. Fall through to open fresh.
-            } else {
-                log("[picker] already open")
-                return
-            }
+        // Stale panel: parent hid without our panel being cancelled yet.
+        if let existing = panel, parentWindow?.isVisible != true {
+            log("[picker] stale — aborting existing panel")
+            teardown(existing)
         }
+        guard panel == nil else { log("[picker] already open"); return }
 
         guard let window = NSApp.windows.first(where: {
             $0.styleMask.contains(.nonactivatingPanel) && $0.isVisible
@@ -102,15 +93,52 @@ final class FilePicker {
         p.canChooseDirectories = false
         p.allowsMultipleSelection = false
         p.canCreateDirectories = false
+        p.center()
         panel = p
         parentWindow = window
-        log("[picker] opening sheet on \(type(of: window))")
 
-        p.beginSheetModal(for: window) { [weak self] response in
-            log("[picker] completion response=\(response == .OK ? "OK" : "Cancel")")
-            self?.panel = nil
-            self?.parentWindow = nil
-            completion(response == .OK ? p.url : nil)
+        // Add as child so clicks inside panel don’t trigger parent’s outside-click dismiss.
+        window.addChildWindow(p, ordered: .above)
+        p.makeKeyAndOrderFront(nil)
+        log("[picker] opened as child window")
+
+        // If parent hides (outside-click elsewhere), cancel the panel.
+        visibilityObservation = window.observe(\.isVisible, options: [.new]) { [weak self] _, change in
+            guard let self else { return }
+            if change.newValue == false {
+                log("[picker] parent hidden — cancelling")
+                DispatchQueue.main.async { [weak self] in
+                    guard let self, let p = self.panel else { return }
+                    self.teardown(p)
+                    completion(nil)
+                }
+            }
         }
+
+        // Handle OK / Cancel via notification (beginSheetModal not used).
+        NotificationCenter.default.addObserver(
+            forName: NSWindow.willCloseNotification,
+            object: p,
+            queue: .main
+        ) { [weak self, weak p] _ in
+            guard let self, let p else { return }
+            // Only handle if parent is still visible (OK/Cancel click, not parent-hide).
+            guard self.parentWindow?.isVisible == true else { return }
+            log("[picker] willClose — response=\(p.url != nil ? "OK" : "Cancel")")
+            let url = p.url
+            self.teardown(p)
+            completion(url)
+        }
+    }
+
+    private func teardown(_ p: NSOpenPanel) {
+        visibilityObservation?.invalidate()
+        visibilityObservation = nil
+        NotificationCenter.default.removeObserver(self, name: NSWindow.willCloseNotification, object: p)
+        if let parent = p.parent { parent.removeChildWindow(p) }
+        p.orderOut(nil)
+        panel = nil
+        parentWindow = nil
+        log("[picker] teardown done")
     }
 }
