@@ -43,9 +43,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         eventMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
             guard let self else { return }
             if FilePicker.shared.isOpen {
-                log("[monitor] outside click ignored — panel open")
+                log("[monitor] outside click ignored - panel open")
             } else {
-                log("[monitor] outside click — closing popover")
+                log("[monitor] outside click - closing popover")
                 self.popover.performClose(nil)
             }
         }
@@ -71,10 +71,10 @@ struct ContentView: View {
             Text("File Picker Spike").font(.headline).frame(maxWidth: .infinity, alignment: .center)
             Divider()
             Button("Pick File") {
-                log("\u25ba tapped")
+                log("tapped")
                 FilePicker.shared.show { url in
                     pickedURL = url
-                    log("\u25ba picked \(url?.lastPathComponent ?? "nil")")
+                    log("picked \(url?.lastPathComponent ?? "nil")")
                 }
             }
             .frame(maxWidth: .infinity)
