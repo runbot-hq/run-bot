@@ -34,6 +34,15 @@ final class PopoverLifecycleCoordinator {
     /// ❌ NEVER read outside the three methods that manage it.
     private(set) var preservedSheetWindowHide: Bool = false
 
+    /// Set to `true` for one runloop turn by `suppressHidePanel(for:)` when a
+    /// SwiftUI sheet is being intentionally dismissed by the user (e.g. Cancel /
+    /// Save inside RunnerDetailSheet). Prevents the outside-click monitor and
+    /// workspace observer from mis-firing during the brief window between the
+    /// user's tap and the sheet NSWindow being fully detached.
+    ///
+    /// ❌ NEVER set this from anything other than `suppressHidePanel(for:)`.
+    private(set) var isSheetDismissing: Bool = false
+
     // MARK: - Private monitor storage
 
     /// Global NSEvent monitor installed by `installMonitors(…)`.
