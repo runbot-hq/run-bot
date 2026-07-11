@@ -1,11 +1,12 @@
 // StatusBarFilePickerSpike.swift
 //
-// MenuBarExtra(.window) uses a NSPanel with .nonactivatingPanel style mask.
-// AppKit silently refuses to attach sheets to non-activating panels, so
-// beginSheetModal never visually appears after the first outside-dismiss.
+// MenuBarExtraWindow is a .nonactivatingPanel — AppKit cannot attach sheets
+// to it. begin() works but the panel appears behind the popover.
 //
-// Fix: activate the app, then run NSOpenPanel modally with begin().
-// The completion clears state exactly as before.
+// Fix: spin up a minimal, borderless, 1×1 NSWindow (real activating window),
+// make it key, attach the sheet to it. The host window is invisible to the
+// user but gives AppKit the keyWindow it needs to front the sheet properly.
+// Close the host when the sheet completes.
 //
 // REQUIREMENTS: macOS 14+, Swift 6
 
@@ -66,16 +67,35 @@ struct ContentView: View {
 final class FilePicker {
     static let shared = FilePicker()
     private var panel: NSOpenPanel?
+    private var hostWindow: NSWindow?
 
     func show(completion: @escaping @MainActor (URL?) -> Void) {
-        // Stale: panel exists but is no longer visible and has no sheet parent.
+        // Stale: panel exists but sheet was torn down externally.
         if let p = panel, !p.isVisible, p.sheetParent == nil {
             log("stale panel — clearing")
-            p.cancel(nil)
             panel = nil
+            hostWindow?.close()
+            hostWindow = nil
         }
 
         guard panel == nil else { log("already open"); return }
+
+        // Invisible 1×1 activating window — gives AppKit a keyWindow to
+        // attach the sheet to so it appears in front of everything.
+        let host = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 1, height: 1),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        host.isReleasedWhenClosed = false
+        host.backgroundColor = .clear
+        host.isOpaque = false
+        host.level = .floating
+        host.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        hostWindow = host
+        log("host window created, isKey=\(host.isKeyWindow)")
 
         let p = NSOpenPanel()
         p.canChooseFiles = true
@@ -83,15 +103,13 @@ final class FilePicker {
         p.allowsMultipleSelection = false
         p.canCreateDirectories = false
         panel = p
-        log("opening panel")
+        log("opening sheet on host window")
 
-        // Activate so the panel becomes key and actually appears.
-        // ignoringOtherApps:true is required from a background/accessory app.
-        NSApp.activate(ignoringOtherApps: true)
-
-        p.begin { [weak self] response in
+        p.beginSheetModal(for: host) { [weak self] response in
             log("done response=\(response == .OK ? "OK" : "Cancel")")
             self?.panel = nil
+            self?.hostWindow?.close()
+            self?.hostWindow = nil
             completion(response == .OK ? p.url : nil)
         }
     }
