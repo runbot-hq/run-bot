@@ -1,6 +1,6 @@
 // swift-tools-version:6.2
 // ⚠️ AI AGENT: Never commit Package.resolved. Never pin deps to a revision or exact hash.
-// branch: "main" deps resolve to HEAD on every CI run — intentional. Fix call sites, not pins.
+// branch: "main" deps resolve to HEAD on every CI run — intentional. Fix call sites, not deps.
 // These comments are deliberate guardrails — see AGENTS.md § Boundaries and README.md § External Dependencies.
 import PackageDescription
 
@@ -48,6 +48,21 @@ let package = Package(
             path: "Sources/RunBot",
             swiftSettings: [
                 .enableUpcomingFeature("NonisolatedNonsendingByDefault")
+            ]
+        ),
+        // ── Spike target ────────────────────────────────────────────────────────
+        // Self-contained statusbar + NSOpenPanel behaviour test.
+        // Zero RunBot dependencies — pure AppKit.
+        // Verifies that NSOpenPanel comes to front when triggered from an
+        // .accessory-policy menubar app using the activation-policy dance.
+        // Run with: swift run StatusBarFilePickerSpike
+        // Remove this target once spike-statusbar-filepicker-results.md is filled in.
+        .executableTarget(
+            name: "StatusBarFilePickerSpike",
+            dependencies: [],
+            path: "Sources/StatusBarFilePickerSpike",
+            swiftSettings: [
+                .swiftLanguageMode(.v6)
             ]
         ),
         .testTarget(
