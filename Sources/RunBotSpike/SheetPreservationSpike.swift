@@ -143,6 +143,10 @@ struct MainSpikeView: View {
                 SheetSpikeView(parentText: $appState.sheetDraftText, isPresented: $appState.showSettingsSheet)
             }
 
+            // Scenario 7: .fileImporter
+            // NSOpenPanel is anchored the same way as SwiftUI sheets — via
+            // addChildWindow(_:ordered:). Without this, clicking inside the
+            // picker is treated as an outside click and hides the MenuBarExtra window.
             GroupBox("Scenario 7 — .fileImporter") {
                 Button("Open file picker") { showFilePicker = true }
                 Text("Click inside the picker. App should NOT dismiss.")
@@ -154,6 +158,10 @@ struct MainSpikeView: View {
                 allowedContentTypes: [.folder]
             ) { result in
                 print("\u{1F535} [Spike] fileImporter result: \(result)")
+            }
+            .onChange(of: showFilePicker) { _, newValue in
+                guard newValue else { return }
+                Task { @MainActor in anchorOpenPanel() }
             }
 
             Divider()
@@ -179,6 +187,24 @@ struct MainSpikeView: View {
         }
         .padding(16)
         .frame(width: 320)
+    }
+
+    @MainActor
+    private func anchorOpenPanel() {
+        guard let menuBarWindow = NSApp.windows.first(where: {
+            $0.styleMask.contains(.nonactivatingPanel)
+        }) else {
+            print("[AnchoredSheet] MenuBarExtra window not found for open panel")
+            return
+        }
+        DispatchQueue.main.async {
+            if let panel = NSApp.windows.first(where: { $0 is NSOpenPanel }) {
+                print("[AnchoredSheet] anchoring NSOpenPanel: \(panel)")
+                menuBarWindow.addChildWindow(panel, ordered: .above)
+            } else {
+                print("[AnchoredSheet] NSOpenPanel not found")
+            }
+        }
     }
 }
 
