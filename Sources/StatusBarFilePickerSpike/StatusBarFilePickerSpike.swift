@@ -3,19 +3,21 @@
 //
 // APPROACH: MenuBarExtra(.window) + SwiftUI .fileImporter
 //
-// anchoredFileImporter wraps .fileImporter and hooks onChange(of: isPresented).
-// When isPresented flips true, it waits one run-loop turn for SwiftUI to
-// create the NSOpenPanel window, then calls
-// menuBarWindow.addChildWindow(panel, ordered: .above) to put the panel
-// in the MenuBarExtra focus group. Clicks inside the panel are then NOT
-// treated as outside-clicks.
+// OUTSIDE-DISMISS FIX:
+// SwiftUI’s .fileImporter retains a stale NSOpenPanel after outside-dismiss.
+// Setting isPresented = false is a no-op (it’s already false internally).
+// The next tap’s false→true transition is coalesced and the panel never shows.
 //
-// OUTSIDE-DISMISS REOPEN FIX:
-// When the user clicks outside the panel (not OK/Cancel), the NSOpenPanel
-// resigns key. We observe NSWindow.didResignKeyNotification on the panel
-// and force-reset isPresented = false on the next run-loop so SwiftUI
-// sees a clean false state. The button tap then does the normal
-// false → async-true two-step which reliably re-triggers .fileImporter.
+// Fix: track a `fileImporterID` integer. On outside-dismiss (detected via
+// NSWindow.didResignKeyNotification while isPresented is still true),
+// increment fileImporterID. The .id(fileImporterID) on the fileImporter
+// target view forces SwiftUI to tear down and recreate the modifier entirely,
+// discarding the zombie NSOpenPanel. The next tap then gets a fresh panel.
+//
+// ANCHOR:
+// anchoredFileImporter wraps .fileImporter and calls addChildWindow after
+// one run-loop hop so the panel is in the MenuBarExtra focus group and
+// clicks inside it are not treated as outside-clicks.
 //
 // REQUIREMENTS: macOS 14+, Swift 6
 // DEPENDENCIES: none
@@ -42,6 +44,7 @@ struct StatusBarFilePickerApp: App {
 
 struct ContentView: View {
     @State private var isImporting = false
+    @State private var fileImporterID = 0   // increment to force .fileImporter teardown
     @State private var pickedURL: URL?
 
     var body: some View {
@@ -53,7 +56,6 @@ struct ContentView: View {
             Divider()
 
             Button("Pick File") {
-                // Force a genuine false→true transition every tap.
                 isImporting = false
                 DispatchQueue.main.async { isImporting = true }
             }
@@ -79,29 +81,32 @@ struct ContentView: View {
         }
         .padding(16)
         .frame(minWidth: 320, minHeight: 280)
+        // .id forces SwiftUI to tear down and rebuild this modifier when
+        // fileImporterID changes, discarding any stale NSOpenPanel.
         .anchoredFileImporter(
             isPresented: $isImporting,
             allowedContentTypes: [.item],
-            allowsMultipleSelection: false
+            allowsMultipleSelection: false,
+            onOutsideDismiss: {
+                // Increment ID — SwiftUI recreates .fileImporter from scratch.
+                fileImporterID += 1
+                isImporting = false
+            }
         ) { result in
             pickedURL = try? result.get()
         }
+        .id(fileImporterID)
     }
 }
 
 // MARK: - anchoredFileImporter
-//
-// Drop-in .fileImporter replacement that:
-//   1. Anchors the NSOpenPanel as a child of the MenuBarExtra window so
-//      clicks inside it don’t count as outside-clicks.
-//   2. Observes NSWindow.didResignKeyNotification on the panel to detect
-//      outside-dismiss and reset isPresented cleanly.
 
 extension View {
     func anchoredFileImporter(
         isPresented: Binding<Bool>,
         allowedContentTypes: [UTType],
         allowsMultipleSelection: Bool,
+        onOutsideDismiss: @escaping @MainActor () -> Void,
         onCompletion: @escaping (Result<URL, Error>) -> Void
     ) -> some View {
         self.modifier(
@@ -109,6 +114,7 @@ extension View {
                 isPresented: isPresented,
                 allowedContentTypes: allowedContentTypes,
                 allowsMultipleSelection: allowsMultipleSelection,
+                onOutsideDismiss: onOutsideDismiss,
                 onCompletion: onCompletion
             )
         )
@@ -119,9 +125,8 @@ private struct AnchoredFileImporterModifier: ViewModifier {
     @Binding var isPresented: Bool
     let allowedContentTypes: [UTType]
     let allowsMultipleSelection: Bool
+    let onOutsideDismiss: @MainActor () -> Void
     let onCompletion: (Result<URL, Error>) -> Void
-
-    // Holds the resign-key observer so we can remove it when done.
     @State private var resignObserver: (any NSObjectProtocol)?
 
     func body(content: Content) -> some View {
@@ -131,6 +136,7 @@ private struct AnchoredFileImporterModifier: ViewModifier {
                 allowedContentTypes: allowedContentTypes,
                 allowsMultipleSelection: allowsMultipleSelection
             ) { result in
+                removeObserver()
                 switch result {
                 case .success(let urls):
                     if let url = urls.first { onCompletion(.success(url)) }
@@ -139,17 +145,18 @@ private struct AnchoredFileImporterModifier: ViewModifier {
                 }
             }
             .onChange(of: isPresented) { _, newValue in
-                if newValue {
-                    // Panel just appeared — anchor it on next run-loop.
-                    Task { @MainActor in anchorPickerWindow(isPresented: $isPresented, resignObserver: $resignObserver) }
-                } else {
-                    // Dismissed via OK/Cancel — remove observer.
-                    removeResignObserver()
+                guard newValue else { removeObserver(); return }
+                Task { @MainActor in
+                    anchorAndObserve(
+                        isPresented: $isPresented,
+                        resignObserver: $resignObserver,
+                        onOutsideDismiss: onOutsideDismiss
+                    )
                 }
             }
     }
 
-    private func removeResignObserver() {
+    private func removeObserver() {
         if let obs = resignObserver {
             NotificationCenter.default.removeObserver(obs)
             resignObserver = nil
@@ -158,9 +165,10 @@ private struct AnchoredFileImporterModifier: ViewModifier {
 }
 
 @MainActor
-private func anchorPickerWindow(
+private func anchorAndObserve(
     isPresented: Binding<Bool>,
-    resignObserver: Binding<(any NSObjectProtocol)?>
+    resignObserver: Binding<(any NSObjectProtocol)?>,
+    onOutsideDismiss: @MainActor @escaping () -> Void
 ) {
     guard let menuBarWindow = NSApp.windows.first(where: {
         $0.styleMask.contains(.nonactivatingPanel) && $0.isVisible
@@ -174,19 +182,17 @@ private func anchorPickerWindow(
         panel.center()
         menuBarWindow.addChildWindow(panel, ordered: .above)
 
-        // Observe outside-dismiss: panel resigns key without OK/Cancel.
-        // Reset isPresented so the next tap gets a clean false state.
+        // Detect outside-dismiss: panel loses key while isPresented is still true.
+        // OK/Cancel completion clears isPresented first, so the guard filters those.
         let obs = NotificationCenter.default.addObserver(
             forName: NSWindow.didResignKeyNotification,
             object: panel,
             queue: .main
         ) { _ in
-            // Only act if SwiftUI hasn’t already cleared isPresented
-            // (OK/Cancel clears it first; outside-dismiss doesn’t).
             guard isPresented.wrappedValue else { return }
-            DispatchQueue.main.async {
-                isPresented.wrappedValue = false
-            }
+            NotificationCenter.default.removeObserver(resignObserver.wrappedValue as Any)
+            resignObserver.wrappedValue = nil
+            onOutsideDismiss()
         }
         resignObserver.wrappedValue = obs
     }
