@@ -93,6 +93,16 @@ final class PopoverLifecycleCoordinator {
     /// runloop turn, which runs after all synchronous SwiftUI state propagation
     /// and AppKit sheet-detach work has completed.
     ///
+    /// TASK ORDERING NOTE: `Task { @MainActor }` schedules a Swift concurrency
+    /// task, not a runloop observer. The one-turn clear is reliable from
+    /// synchronous call sites because the enqueued Task runs after the current
+    /// synchronous call stack unwinds. However, Task ordering relative to AppKit's
+    /// own sheet-detach callbacks is informal — not guaranteed by the Swift
+    /// runtime spec. A `DispatchQueue.main.asyncAfter(deadline: .now())` or
+    /// `RunLoop.main` observer would give a formally guaranteed one-turn delay.
+    /// This is acceptable for the current synchronous call sites; re-evaluate
+    /// before adding async call sites or if AppKit callback ordering changes.
+    ///
     /// **Synchronous call sites only.** The one-turn clear contract holds because
     /// the enqueued `Task` runs after the current synchronous work drains. If a
     /// call site introduces an `await` between `suppressHidePanel()` and the
@@ -203,6 +213,13 @@ final class PopoverLifecycleCoordinator {
         // already on the main actor — no Task hop needed. The body accesses
         // @MainActor-isolated state (`panelIsOpen`) and calls @MainActor
         // closures (`hasActiveSheet`, `onHide`) directly.
+        //
+        // ASYMMETRY WITH MBKPopoverController:
+        // MBKPopoverController uses queue: nil + Task { @MainActor }, which is
+        // strictly Swift 6-correct (compiler-enforced isolation). This file uses
+        // queue: .main + MainActor.assumeIsolated, which is a runtime assertion.
+        // Both are safe in practice; the spike uses the stricter pattern.
+        // This coordinator should be updated to match when time permits.
         workspaceObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didActivateApplicationNotification,
             object: nil,

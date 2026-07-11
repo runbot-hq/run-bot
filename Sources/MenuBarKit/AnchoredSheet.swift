@@ -54,6 +54,20 @@
 //   NSOpenPanel re-open) may be key at the same moment. Both races are
 //   eliminated by the TARGET IMPLEMENTATION below.
 //
+// DISMISS-SAFETY GAP — gate clears before child-window teardown completes:
+//   The false path in onChange clears overlayGate.hasActiveOverlay = false
+//   synchronously, before SwiftUI has finished animating the sheet out and
+//   before the child-window relationship is removed by AppKit. If
+//   popoverShouldClose fires in this window (e.g. from a pending outside-click
+//   Task), the gate is already false and the popover closes while the sheet is
+//   still visible and animating out.
+//
+//   This is a known spike limitation — it is the same fundamental race that
+//   the TARGET IMPLEMENTATION (NSWindow.didBecomeKeyNotification) resolves,
+//   because notification-based tracking ties the gate lifetime to the actual
+//   window lifecycle rather than to SwiftUI's binding state. Do not paper over
+//   this with an artificial delay; fix it properly during the migration PR.
+//
 // TARGET IMPLEMENTATION (deferred — see notes):
 //   Replace Hop 2 with NSWindow.didBecomeKeyNotification observation:
 //
@@ -118,6 +132,8 @@ public struct MBKAnchoredSheetModifier<SheetContent: View>: ViewModifier {
             .onChange(of: isPresented) { _, newValue in
                 // Set the dismiss gate synchronously — before the window
                 // lookup so popoverShouldClose sees the flag immediately.
+                // NOTE: the false path clears the gate before teardown completes
+                // — see DISMISS-SAFETY GAP in the file header.
                 overlayGate.hasActiveOverlay = newValue
                 if newValue {
                     // Hop 1: actor-isolation crossing only (see WHY TWO ASYNC HOPS).

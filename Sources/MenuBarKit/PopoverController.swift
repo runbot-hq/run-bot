@@ -35,6 +35,14 @@
 //   the Swift 6-correct hop to the main actor — compiler-enforced, not
 //   asserted. The asymmetry with the production coordinator is intentional
 //   and correct. The production coordinator should be updated to match.
+//
+// WORKSPACE OBSERVER — performClose on already-closed popover:
+//   If the workspace observer Task is still enqueued when popoverDidClose fires
+//   (e.g. user Command-Tabs and popoverDidClose has already run by the time the
+//   Task hops to MainActor), performClose(nil) is called on a closed popover.
+//   NSPopover.performClose on a closed popover is documented as a no-op, so
+//   this is safe. The guard self.popover.isShown at the top of the Task body
+//   makes the intent explicit — it is not defensive cargo-culting.
 
 import AppKit
 import SwiftUI
@@ -52,6 +60,11 @@ public final class MBKPopoverController: NSObject {
 
     /// SF Symbol name for the status-bar icon.
     private let symbolName: String
+
+    /// Initial popover content size. The hosting controller's
+    /// preferredContentSize may override this at runtime as SwiftUI measures
+    /// the root view, but this value anchors the first-show size.
+    private let contentSize: NSSize
 
     // MARK: - Owned objects
 
@@ -72,11 +85,13 @@ public final class MBKPopoverController: NSObject {
     public init<Content: View>(
         rootView: Content,
         overlayGate: MBKOverlayGate,
-        symbolName: String = "menubar.rectangle"
+        symbolName: String = "menubar.rectangle",
+        contentSize: NSSize = NSSize(width: 320, height: 300)
     ) {
         self.rootView = AnyView(rootView)
         self.overlayGate = overlayGate
         self.symbolName = symbolName
+        self.contentSize = contentSize
     }
 
     // MARK: - Setup
@@ -110,7 +125,10 @@ public final class MBKPopoverController: NSObject {
         guard let button = statusItem.button else { return }
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         NSApp.activate(ignoringOtherApps: true)
-        button.isHighlighted = true
+        // NOTE: isHighlighted is NOT set here. popoverWillShow handles it via
+        // the delegate so all show paths (including programmatic) are covered.
+        // Setting it here too would be redundant and could diverge if a future
+        // show path bypasses openPopover().
         mbkLog("PopoverController", "popover shown")
         startEventMonitor()
     }
@@ -126,7 +144,7 @@ public final class MBKPopoverController: NSObject {
         hostingController.sizingOptions = .preferredContentSize
         popover = NSPopover()
         popover.contentViewController = hostingController
-        popover.contentSize = NSSize(width: 320, height: 300)
+        popover.contentSize = contentSize
         popover.animates = true
         // .applicationDefined = we handle all dismiss logic ourselves.
         // This disables AppKit's built-in auto-dismiss entirely — nothing
@@ -149,6 +167,9 @@ public final class MBKPopoverController: NSObject {
             let activated = notification.userInfo?[NSWorkspace.applicationUserInfoKey]
                 as? NSRunningApplication
             Task { @MainActor [weak self] in
+                // isShown guard: if popoverDidClose already ran before this Task
+                // hops to MainActor, performClose on a closed popover is a no-op
+                // per NSPopover docs — but the guard makes the intent explicit.
                 guard let self, self.popover.isShown else { return }
                 guard activated != NSRunningApplication.current else {
                     // NSApp.activate() in openPopover() fires this for ourselves;
@@ -191,6 +212,8 @@ public final class MBKPopoverController: NSObject {
 // MARK: - NSPopoverDelegate
 
 extension MBKPopoverController: NSPopoverDelegate {
+    // Single source of truth for the highlight — handles all show paths,
+    // not just the openPopover() path.
     public func popoverWillShow(_ notification: Notification) {
         setButtonHighlight(true)
     }
