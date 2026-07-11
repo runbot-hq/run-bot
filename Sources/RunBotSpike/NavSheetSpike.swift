@@ -30,14 +30,14 @@ import SwiftUI
 // MARK: - Logging
 
 private func log(_ tag: String, _ msg: String) {
-    print("[NavSheet][\ (tag)] \(msg)")
+    print("[NavSheet][\(tag)] \(msg)")
 }
 
 // MARK: - AlwaysActivePopoverWindow
 
 final class AlwaysActivePopoverWindow: NSPanel {
     override var isKeyWindow: Bool {
-        log("Window", "isKeyWindow queried -> returning true (class=\(type(of: self)))")
+        // Do not log here — called very frequently by AppKit during rendering.
         return true
     }
     override var canBecomeKey: Bool { true }
@@ -78,7 +78,6 @@ final class NavSheetAppState {
     var overlayCount: Int = 0 {
         didSet { log("State", "overlayCount \(oldValue) -> \(overlayCount)") }
     }
-    var route_log: NavSheetRoute = .main
 }
 
 // MARK: - AppDelegate
@@ -151,7 +150,7 @@ final class NavSheetAppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         guard let window = popover.contentViewController?.view.window else {
-            log("Window", "patchPopoverWindowClass: window not available yet")
+            log("Window", "patchPopoverWindowClass: window not available yet, will retry in popoverDidShow")
             return
         }
         let before = NSStringFromClass(type(of: window))
@@ -175,7 +174,7 @@ final class NavSheetAppDelegate: NSObject, NSApplicationDelegate {
         eventMonitor = NSEvent.addGlobalMonitorForEvents(
             matching: [.leftMouseDown, .rightMouseDown]
         ) { [weak self] event in
-            log("EventMonitor", "outside click (type=\(event.type.rawValue)) -> calling performClose")
+            log("EventMonitor", "outside click type=\(event.type.rawValue) -> performClose")
             self?.popover.performClose(nil)
         }
         log("EventMonitor", "started")
@@ -222,12 +221,12 @@ final class NavSheetAppDelegate: NSObject, NSApplicationDelegate {
         panel.message = target == .sheet ? "Pick folder from inside sheet" : "Select a folder"
         panel.prompt = "Select"
         appState.overlayCount += 1
-        log("FilePicker", "[\(label)] beginSheetModal, overlayCount now \(appState.overlayCount)")
+        log("FilePicker", "[\(label)] beginSheetModal, overlayCount=\(appState.overlayCount)")
         panel.beginSheetModal(for: window) { [weak self] response in
             self?.appState.overlayCount -= 1
-            log("FilePicker", "[\(label)] panel closed response=\(response.rawValue), overlayCount now \(self?.appState.overlayCount ?? -1)")
+            log("FilePicker", "[\(label)] closed response=\(response.rawValue) overlayCount=\(self?.appState.overlayCount ?? -1)")
             guard response == .OK, let url = panel.url else { return }
-            log("FilePicker", "[\(label)] picked path=\(url.path)")
+            log("FilePicker", "[\(label)] picked=\(url.path)")
             switch target {
             case .popover: self?.appState.pickedFolderPath = url.path
             case .sheet:   self?.appState.sheetPickedFolderPath = url.path
@@ -242,7 +241,8 @@ extension NavSheetAppDelegate: NSPopoverDelegate {
         setButtonHighlight(true)
     }
     func popoverDidShow(_ notification: Notification) {
-        log("Popover", "popoverDidShow, window=\(popover.contentViewController?.view.window.map { NSStringFromClass(type(of: $0)) } ?? "nil")")
+        let windowClass = popover.contentViewController?.view.window.map { NSStringFromClass(type(of: $0)) } ?? "nil"
+        log("Popover", "popoverDidShow window=\(windowClass)")
         patchPopoverWindowClass()
     }
     func popoverShouldClose(_ popover: NSPopover) -> Bool {
@@ -298,7 +298,7 @@ struct NavSheetMainView: View {
                 HStack {
                     Text("\(appState.counter)").monospacedDigit().frame(minWidth: 24)
                     Spacer()
-                    Button("+1") { 
+                    Button("+1") {
                         appState.counter += 1
                         log("MainView", "counter=\(appState.counter)")
                     }
@@ -501,13 +501,13 @@ private struct NavAnchoredSheetModifier<SheetContent: View>: ViewModifier {
         content
             .sheet(isPresented: $isPresented, onDismiss: {
                 overlayCount = max(0, overlayCount - 1)
-                log("AnchoredSheet", "onDismiss, overlayCount now \(overlayCount)")
+                log("AnchoredSheet", "onDismiss overlayCount=\(overlayCount)")
             }, content: sheetContent)
             .onChange(of: isPresented) { _, newValue in
                 log("AnchoredSheet", "isPresented -> \(newValue)")
                 if newValue {
                     overlayCount += 1
-                    log("AnchoredSheet", "overlayCount now \(overlayCount), scheduling anchorSheetWindow")
+                    log("AnchoredSheet", "overlayCount=\(overlayCount), scheduling anchorSheetWindow")
                     Task { @MainActor in anchorSheetWindow() }
                 }
             }
@@ -528,10 +528,10 @@ private struct NavAnchoredSheetModifier<SheetContent: View>: ViewModifier {
                     && $0.styleMask.contains(.borderless)
                     && $0.isKeyWindow
             }) {
-                log("AnchoredSheet", "addChildWindow \(NSStringFromClass(type(of: sheetWindow)))")
+                log("AnchoredSheet", "addChildWindow class=\(NSStringFromClass(type(of: sheetWindow)))")
                 popoverWindow.addChildWindow(sheetWindow, ordered: .above)
             } else {
-                log("AnchoredSheet", "anchorSheetWindow: no matching sheet window found (borderless+key)")
+                log("AnchoredSheet", "anchorSheetWindow: no borderless+key window found")
             }
         }
     }
