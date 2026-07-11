@@ -17,11 +17,10 @@
 // Pinned to popover.isShown via popoverWillShow / popoverDidClose.
 //
 // POPOVER ACTIVE APPEARANCE:
-// object_setClass on the live popover window crashes SwiftUI's material/
-// vibrancy render pass (MaterialProviderBox.resolveLayers). Instead:
-// observe NSWindow.didResignKeyNotification on the popover window and
-// immediately call makeKey() so it never stays inactive. AppKit then
-// always renders it as the key (active/focused) window.
+// AppKit derives active/inactive rendering from the view's resolved appearance.
+// Pinning hostingController.view.appearance = NSAppearance(named: .aqua)
+// forces it to always draw as active, regardless of key window state.
+// One line. No class patching, no observers.
 //
 // REQUIREMENTS: macOS 26+, Swift 6.2
 
@@ -79,8 +78,6 @@ final class NavSheetAppDelegate: NSObject, NSApplicationDelegate {
     private var popover: NSPopover!
     private var hostingController: NSHostingController<AnyView>!
     nonisolated(unsafe) private var eventMonitor: Any?
-    // Observes resignKey so we can immediately re-assert key on the popover.
-    private var resignKeyObserver: (any NSObjectProtocol)?
     private var appState = NavSheetAppState()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -115,6 +112,13 @@ final class NavSheetAppDelegate: NSObject, NSApplicationDelegate {
         ).environment(appState)
         hostingController = NSHostingController(rootView: AnyView(root))
         hostingController.sizingOptions = .preferredContentSize
+
+        // Fix: pin to .aqua so the view always renders with active appearance
+        // regardless of whether the popover window is key. This is purely
+        // visual — no class patching, no observers needed.
+        hostingController.view.appearance = NSAppearance(named: .aqua)
+        log("Popover", "hostingController.view.appearance pinned to .aqua")
+
         popover = NSPopover()
         popover.contentViewController = hostingController
         popover.contentSize = NSSize(width: 320, height: 300)
@@ -133,41 +137,6 @@ final class NavSheetAppDelegate: NSObject, NSApplicationDelegate {
         button.isHighlighted = true
         log("Popover", "shown, button.isHighlighted=true")
         startEventMonitor()
-    }
-
-    // MARK: - Keep popover perpetually key
-    // When the popover window loses key status (sheet/picker/other app takes
-    // focus), immediately call makeKey() so AppKit re-renders it as active.
-    // Guard: only re-assert while overlayCount == 0 (no sheet/picker open)
-    // so we don't fight sheets for key focus.
-    private func startResignKeyObserver(for window: NSWindow) {
-        guard resignKeyObserver == nil else {
-            log("ResignKey", "observer already running")
-            return
-        }
-        resignKeyObserver = NotificationCenter.default.addObserver(
-            forName: NSWindow.didResignKeyNotification,
-            object: window,
-            queue: .main
-        ) { [weak self, weak window] _ in
-            guard let self, let window else { return }
-            log("ResignKey", "popover resigned key overlayCount=\(self.appState.overlayCount)")
-            if self.appState.overlayCount == 0 {
-                log("ResignKey", "re-asserting makeKey")
-                window.makeKey()
-            } else {
-                log("ResignKey", "overlay active, skipping makeKey")
-            }
-        }
-        log("ResignKey", "observer started for window \(Unmanaged.passUnretained(window).toOpaque())")
-    }
-
-    private func stopResignKeyObserver() {
-        if let obs = resignKeyObserver {
-            NotificationCenter.default.removeObserver(obs)
-            resignKeyObserver = nil
-            log("ResignKey", "observer stopped")
-        }
     }
 
     private func setButtonHighlight(_ on: Bool) {
@@ -253,11 +222,6 @@ extension NavSheetAppDelegate: NSPopoverDelegate {
     func popoverDidShow(_ notification: Notification) {
         let windowClass = popover.contentViewController?.view.window.map { NSStringFromClass(type(of: $0)) } ?? "nil"
         log("Popover", "popoverDidShow window=\(windowClass)")
-        if let window = popoverWindow {
-            startResignKeyObserver(for: window)
-        } else {
-            log("Popover", "popoverDidShow: window nil, cannot start resignKey observer")
-        }
     }
     func popoverShouldClose(_ popover: NSPopover) -> Bool {
         let allow = appState.overlayCount == 0
@@ -268,7 +232,6 @@ extension NavSheetAppDelegate: NSPopoverDelegate {
         log("Popover", "popoverDidClose")
         setButtonHighlight(false)
         stopEventMonitor()
-        stopResignKeyObserver()
     }
 }
 
