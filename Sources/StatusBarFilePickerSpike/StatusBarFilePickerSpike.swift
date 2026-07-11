@@ -1,24 +1,21 @@
 // StatusBarFilePickerSpike.swift
 // StatusBarFilePickerSpike — spike/statusbar-filepicker branch
 //
-// APPROACH A ONLY: .fileImporter + anchoredFileImporter
+// ROOT CAUSE OF ALL PREVIOUS FAILURES:
+//   .fileImporter keeps the NSOpenPanel alive after outside-dismiss.
+//   .close() is a no-op on SwiftUI-owned panels. Every tap leaks another
+//   invisible zombie. The anchor search (isKeyWindow==true) always fails
+//   because SwiftUI never makes the reused panel key.
 //
-// The anchoredFileImporter modifier hooks .onChange(of: isPresented),
-// waits one run-loop turn for SwiftUI to create the picker NSWindow,
-// then calls menuBarWindow.addChildWindow(pickerWindow, ordered: .above).
-// This puts the picker in the MenuBarExtra focus group so clicks inside
-// it are NOT treated as outside-clicks that dismiss the panel.
+// SOLUTION:
+//   Own the NSOpenPanel ourselves. Keep a single optional instance.
+//   On each tap: cancel() the old one (if any), create a fresh panel,
+//   call addChildWindow to anchor it, then makeKeyAndOrderFront.
+//   Use begin(completionHandler:) (non-blocking async) so the menubar
+//   panel stays open throughout.
 //
-// STATE / ZOMBIE FIX:
-//   After an outside-dismiss, SwiftUI leaves the NSOpenPanel alive but
-//   invisible (isVisible=false, isKey=false, parent=nil). On the next
-//   tap SwiftUI reuses that same instance — it never becomes key, so the
-//   old anchor search (isKeyWindow==true) always fails.
-//
-//   Fix: in anchorAndCenterPickerWindow, before hunting for a key window,
-//   close and remove ALL stale invisible NSOpenPanel instances from
-//   NSApp.windows. This forces SwiftUI to create a fresh one, which will
-//   become key as normal.
+//   No activation policy change. No runModal(). No .fileImporter.
+//   The panel is always fresh — no reuse, no zombie, no state issues.
 //
 // REQUIREMENTS: macOS 26, Swift 6
 // DEPENDENCIES: none
@@ -51,7 +48,6 @@ struct StatusBarFilePickerApp: App {
 // MARK: - Content
 
 struct ContentView: View {
-    @State private var isImporting = false
     @State private var pickedURL: URL?
 
     var body: some View {
@@ -63,11 +59,10 @@ struct ContentView: View {
             Divider()
 
             Button("Pick File") {
-                log("A ► tapped isImporting=\(isImporting)")
-                isImporting = false
-                DispatchQueue.main.async {
-                    log("A ► async: setting isImporting = true")
-                    isImporting = true
+                log("► tapped")
+                FilePickerController.shared.show { url in
+                    log("► completion url=\(url?.path ?? "nil")")
+                    pickedURL = url
                 }
             }
             .frame(maxWidth: .infinity)
@@ -82,7 +77,7 @@ struct ContentView: View {
                     .lineLimit(2).truncationMode(.middle)
                 if pickedURL != nil {
                     Button("Clear") {
-                        log("clear tapped")
+                        log("clear")
                         pickedURL = nil
                     }.font(.caption)
                 }
@@ -95,23 +90,6 @@ struct ContentView: View {
         }
         .padding(16)
         .frame(minWidth: 320, minHeight: 280)
-        .anchoredFileImporter(
-            isPresented: $isImporting,
-            allowedContentTypes: [.item],
-            allowsMultipleSelection: false
-        ) { result in
-            switch result {
-            case .success(let url):
-                log("A ► success url=\(url.path)")
-                pickedURL = url
-            case .failure(let err):
-                log("A ► failure err=\(err)")
-            }
-        }
-        .onChange(of: isImporting) { old, new in
-            log("A ► isImporting \(old)→\(new)")
-            dumpWindows(label: "isImporting-\(new)")
-        }
     }
 }
 
@@ -126,93 +104,73 @@ private func dumpWindows(label: String) {
     }
 }
 
-// MARK: - anchoredFileImporter
-
-extension View {
-    func anchoredFileImporter(
-        isPresented: Binding<Bool>,
-        allowedContentTypes: [UTType],
-        allowsMultipleSelection: Bool,
-        onCompletion: @escaping (Result<URL, Error>) -> Void
-    ) -> some View {
-        self
-            .fileImporter(
-                isPresented: isPresented,
-                allowedContentTypes: allowedContentTypes,
-                allowsMultipleSelection: allowsMultipleSelection
-            ) { result in
-                switch result {
-                case .success(let urls):
-                    if let url = urls.first { onCompletion(.success(url)) }
-                case .failure(let err):
-                    onCompletion(.failure(err))
-                }
-            }
-            .onChange(of: isPresented.wrappedValue) { _, newValue in
-                log("[anchoredFileImporter] onChange isPresented=\(newValue)")
-                guard newValue else { return }
-                Task { @MainActor in anchorAndCenterPickerWindow() }
-            }
-    }
-}
-
-// MARK: - Anchor helper
+// MARK: - FilePickerController
 //
-// Strategy:
-//   1. Kill all stale invisible NSOpenPanel zombies FIRST. These are panels
-//      from prior outside-dismissals that SwiftUI left alive. SwiftUI will
-//      reuse them and they never become key, breaking the anchor search.
-//      Closing them forces SwiftUI to allocate a fresh panel that will
-//      become key as expected.
-//   2. Wait one run-loop turn for SwiftUI to create (or show) the new panel.
-//   3. Find it by isKeyWindow == true, center it, addChildWindow.
+// Owns a single NSOpenPanel. On each show() call:
+//   1. cancel() + removeChildWindow on any existing panel (clean slate).
+//   2. Find the MenuBarExtra window by styleMask.
+//   3. Create a fresh NSOpenPanel.
+//   4. addChildWindow — puts it in the MenuBarExtra focus group so clicks
+//      inside don’t count as outside-clicks.
+//   5. makeKeyAndOrderFront — brings it to front.
+//   6. begin(completionHandler:) — non-blocking, fires on OK/Cancel.
 
 @MainActor
-private func anchorAndCenterPickerWindow() {
-    log("[anchorAndCenter] called")
-
-    guard let menuBarWindow = NSApp.windows.first(where: {
-        $0.styleMask.contains(.nonactivatingPanel) && $0.isVisible
-    }) else {
-        log("[anchorAndCenter] ERROR: MenuBarExtra window not found")
-        return
+final class FilePickerController {
+    static let shared = FilePickerController()
+    private var panel: NSOpenPanel?
+    private var menuBarWindow: NSWindow? {
+        NSApp.windows.first { $0.styleMask.contains(.nonactivatingPanel) && $0.isVisible }
     }
 
-    // Step 1: close stale invisible NSOpenPanel zombies.
-    let zombies = NSApp.windows.filter { $0 is NSOpenPanel && !$0.isVisible }
-    if !zombies.isEmpty {
-        log("[anchorAndCenter] closing \(zombies.count) zombie NSOpenPanel(s)")
-        zombies.forEach {
-            if let parent = $0.parent { parent.removeChildWindow($0) }
-            $0.close()
-        }
-        dumpWindows(label: "after-zombie-close")
-    }
+    func show(completion: @escaping @MainActor (URL?) -> Void) {
+        log("[picker] show called")
+        dumpWindows(label: "show-start")
 
-    // Step 2: one run-loop pass for SwiftUI to create/show the fresh panel.
-    DispatchQueue.main.async {
-        log("[anchorAndCenter] async hop")
-        dumpWindows(label: "anchorAndCenter-async")
-
-        func anchor(in windows: [NSWindow]) -> Bool {
-            guard let pickerWindow = windows.first(where: {
-                $0 is NSOpenPanel && $0.isKeyWindow && $0.parent == nil
-            }) else { return false }
-            pickerWindow.center()
-            menuBarWindow.addChildWindow(pickerWindow, ordered: .above)
-            log("[anchorAndCenter] anchored \(type(of: pickerWindow)) — menuBar.children=\(menuBarWindow.childWindows?.count ?? 0)")
-            return true
+        // Cancel and detach any existing panel.
+        if let old = panel {
+            log("[picker] cancelling existing panel isVisible=\(old.isVisible)")
+            old.cancel(nil)
+            if let parent = old.parent { parent.removeChildWindow(old) }
+            panel = nil
         }
 
-        if anchor(in: NSApp.windows) { return }
-
-        // One more hop in case SwiftUI needs an extra pass.
-        log("[anchorAndCenter] picker not key yet — second hop")
-        DispatchQueue.main.async {
-            dumpWindows(label: "anchorAndCenter-second-hop")
-            if !anchor(in: NSApp.windows) {
-                log("[anchorAndCenter] ERROR: picker STILL not key — giving up")
-            }
+        guard let menuBarWindow else {
+            log("[picker] ERROR: MenuBarExtra window not found")
+            return
         }
+        log("[picker] menuBarWindow=\(NSStringFromRect(menuBarWindow.frame))")
+
+        let p = NSOpenPanel()
+        p.canChooseFiles = true
+        p.canChooseDirectories = false
+        p.allowsMultipleSelection = false
+        p.canCreateDirectories = false
+        p.center()
+        panel = p
+
+        log("[picker] panel created, frame=\(NSStringFromRect(p.frame))")
+
+        // Anchor: put the panel in the MenuBarExtra focus group.
+        menuBarWindow.addChildWindow(p, ordered: .above)
+        log("[picker] addChildWindow done — menuBar.children=\(menuBarWindow.childWindows?.count ?? 0)")
+
+        // Bring to front.
+        p.makeKeyAndOrderFront(nil)
+        log("[picker] makeKeyAndOrderFront — isKey=\(p.isKeyWindow) isVisible=\(p.isVisible)")
+
+        dumpWindows(label: "after-show")
+
+        // Non-blocking: returns immediately, fires completion on OK/Cancel.
+        p.begin { [weak self, weak p] response in
+            guard let self, let p else { return }
+            log("[picker] completion response=\(response == .OK ? "OK" : "Cancel") url=\(p.url?.path ?? "nil")")
+            if let parent = p.parent { parent.removeChildWindow(p) }
+            self.panel = nil
+            dumpWindows(label: "after-completion")
+            completion(response == .OK ? p.url : nil)
+        }
+
+        log("[picker] begin(completionHandler:) registered")
     }
 }
