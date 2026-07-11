@@ -26,6 +26,23 @@
 //     Drains one more run-loop turn, by which point SwiftUI has created the
 //     sheet NSWindow and NSApp.windows contains it.
 //
+// SHEET WINDOW DISCRIMINATOR — why .borderless && isKeyWindow:
+//   The sheet window is matched by: not the popover window, borderless styleMask,
+//   and isKeyWindow at the moment Hop 2 fires.
+//
+//   An earlier version used `contentViewController is NSHostingController<AnyView>`
+//   as a stronger discriminator, but SwiftUI's internal sheet window does NOT use
+//   that exact generic specialisation — the check never matched in practice and
+//   was reverted. Do not re-attempt this without first verifying the concrete
+//   NSHostingController generic type SwiftUI uses for sheet windows on the
+//   target OS version.
+//
+//   isKeyWindow is the most reliable signal available at the moment the sheet
+//   is presented — SwiftUI makes the sheet window key immediately on creation.
+//   Known fragility: other transient borderless windows (OS animations, fast
+//   NSOpenPanel re-open) may be key at the same moment. Both races are
+//   eliminated by the TARGET IMPLEMENTATION below.
+//
 // TARGET IMPLEMENTATION (deferred — see notes):
 //   Replace Hop 2 with NSWindow.didBecomeKeyNotification observation:
 //
@@ -108,6 +125,8 @@ public struct MBKAnchoredSheetModifier<SheetContent: View>: ViewModifier {
         }
         // Hop 2: drain one run-loop turn so the sheet NSWindow exists.
         // ⚠️ SPIKE ONLY — replace with NSWindow.didBecomeKeyNotification.
+        // See SHEET WINDOW DISCRIMINATOR note in the file header before
+        // attempting to strengthen the predicate below.
         DispatchQueue.main.async {
             if let sheetWindow = NSApp.windows.first(where: {
                 $0 !== popoverWindow

@@ -36,6 +36,10 @@ public func mbkOpenFilePicker(
     let popoverWindow = NSApp.windows.first(where: {
         $0.styleMask.contains(.nonactivatingPanel)
     })
+    // TODO: When porting to the main app, strengthen this predicate — the main
+    // app may have other visible child windows. Use the same discriminator
+    // settled on for AnchoredSheet.anchorSheetWindow() (see that file's
+    // SHEET WINDOW DISCRIMINATOR note) so both lookups stay in sync.
     let sheetChildWindow = popoverWindow?.childWindows?.first(where: { $0.isVisible })
 
     let window: NSWindow?
