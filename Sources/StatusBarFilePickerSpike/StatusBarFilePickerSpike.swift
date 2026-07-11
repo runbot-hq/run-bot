@@ -3,26 +3,28 @@
 //
 // APPROACH: MenuBarExtra(.window) + .fileImporter + anchoredFileImporter
 //
-// ANCHOR: onChange(of: isPresented) → wait one run-loop → find NSOpenPanel
-// → addChildWindow so clicks inside don’t dismiss the MenuBarExtra.
-//
-// OUTSIDE-DISMISS REOPEN FIX:
-// Child windows never resign key, so didResignKeyNotification doesn’t fire.
-// Instead observe NSWindow.willCloseNotification on the panel.
-// willClose fires for ALL dismissals (OK, Cancel, outside-click).
-// OK/Cancel also call the .fileImporter completion handler which sets
-// isPresented = false. Outside-click does NOT — so we detect it by
-// checking isPresented.wrappedValue == true inside willClose.
-// On outside-dismiss: increment fileImporterID to force SwiftUI to
-// tear down and recreate .fileImporter (discarding the zombie panel),
-// then set isPresented = false.
-//
 // REQUIREMENTS: macOS 14+, Swift 6
 // DEPENDENCIES: none
 
 import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
+
+// MARK: - Logging
+// GUI apps don’t have stdout connected to the terminal.
+// Write directly to a file so `tail -f` works in a single terminal session.
+
+private let logFile: FileHandle? = {
+    let path = "/tmp/filepicker-spike.log"
+    FileManager.default.createFile(atPath: path, contents: nil)
+    return FileHandle(forWritingAtPath: path)
+}()
+
+private func log(_ msg: String, function: String = #function, line: Int = #line) {
+    let ts = ISO8601DateFormatter().string(from: Date())
+    let line = "[\(ts)] \(function):\(line) \(msg)\n"
+    logFile?.write(line.data(using: .utf8)!)
+}
 
 // MARK: - Entry point
 
@@ -54,8 +56,12 @@ struct ContentView: View {
             Divider()
 
             Button("Pick File") {
+                log("► tapped isImporting=\(isImporting) id=\(fileImporterID)")
                 isImporting = false
-                DispatchQueue.main.async { isImporting = true }
+                DispatchQueue.main.async {
+                    log("► async: setting isImporting=true")
+                    isImporting = true
+                }
             }
             .frame(maxWidth: .infinity)
 
@@ -86,8 +92,11 @@ struct ContentView: View {
             allowsMultipleSelection: false
         ) { result in
             pickedURL = try? result.get()
+            log("► picked \(pickedURL?.lastPathComponent ?? "nil")")
         }
         .id(fileImporterID)
+        .onChange(of: isImporting) { _, v in log("isImporting → \(v) id=\(fileImporterID)") }
+        .onChange(of: fileImporterID) { _, v in log("fileImporterID → \(v)") }
     }
 }
 
@@ -126,6 +135,7 @@ private struct AnchoredFileImporterModifier: ViewModifier {
                 allowedContentTypes: allowedContentTypes,
                 allowsMultipleSelection: allowsMultipleSelection
             ) { result in
+                log("[fileImporter] completion")
                 removeObserver()
                 switch result {
                 case .success(let urls):
@@ -135,6 +145,7 @@ private struct AnchoredFileImporterModifier: ViewModifier {
                 }
             }
             .onChange(of: isPresented) { _, newValue in
+                log("[modifier] onChange isPresented=\(newValue)")
                 guard newValue else { removeObserver(); return }
                 Task { @MainActor in
                     anchorAndObserve(
@@ -150,6 +161,7 @@ private struct AnchoredFileImporterModifier: ViewModifier {
         if let obs = closeObserver {
             NotificationCenter.default.removeObserver(obs)
             closeObserver = nil
+            log("[modifier] observer removed")
         }
     }
 }
@@ -160,36 +172,53 @@ private func anchorAndObserve(
     fileImporterID: Binding<Int>,
     closeObserver: Binding<(any NSObjectProtocol)?>
 ) {
+    log("[anchor] called")
+    dumpWindows(label: "anchor-start")
+
     guard let menuBarWindow = NSApp.windows.first(where: {
         $0.styleMask.contains(.nonactivatingPanel) && $0.isVisible
-    }) else { return }
+    }) else { log("[anchor] ERROR: no menuBarWindow"); return }
 
     DispatchQueue.main.async {
+        log("[anchor] async hop")
+        dumpWindows(label: "anchor-async")
+
         guard let panel = NSApp.windows.first(where: {
             $0 is NSOpenPanel && $0.isKeyWindow && $0.parent == nil
-        }) else { return }
+        }) else { log("[anchor] ERROR: no NSOpenPanel found"); return }
 
+        log("[anchor] found panel, anchoring")
         panel.center()
         menuBarWindow.addChildWindow(panel, ordered: .above)
 
-        // willClose fires for every dismissal path.
-        // If isPresented is still true when it fires, SwiftUI didn’t handle
-        // it (outside-click). Force a teardown so next tap gets a fresh panel.
         let obs = NotificationCenter.default.addObserver(
             forName: NSWindow.willCloseNotification,
             object: panel,
             queue: .main
         ) { [weak panel] _ in
             guard let panel else { return }
+            log("[anchor] willClose isPresented=\(isPresented.wrappedValue)")
             if let parent = panel.parent { parent.removeChildWindow(panel) }
             NotificationCenter.default.removeObserver(closeObserver.wrappedValue as Any)
             closeObserver.wrappedValue = nil
-            guard isPresented.wrappedValue else { return }
-            // Outside-dismiss: SwiftUI still thinks panel is open.
-            // Bump ID to force modifier teardown, then clear state.
+            guard isPresented.wrappedValue else {
+                log("[anchor] willClose: OK/Cancel path, nothing to do")
+                return
+            }
+            log("[anchor] willClose: outside-dismiss detected, bumping id")
             fileImporterID.wrappedValue += 1
             isPresented.wrappedValue = false
         }
         closeObserver.wrappedValue = obs
+        log("[anchor] observer registered")
+    }
+}
+
+@MainActor
+private func dumpWindows(label: String) {
+    let wins = NSApp.windows
+    log("[windows:\(label)] total=\(wins.count)")
+    for (i, w) in wins.enumerated() {
+        log("  [\(i)] \(type(of: w)) isKey=\(w.isKeyWindow) isVisible=\(w.isVisible) parent=\(w.parent == nil ? "nil" : "set")")
     }
 }
