@@ -1,5 +1,8 @@
 // Views/SettingsView.swift
 // RunBotSpike - spike/swiftui-nav-sheet
+//
+// Scenario 2: sheet anchors + blocks dismiss
+// Scenario 3: file picker from popover level
 
 import SwiftUI
 
@@ -8,68 +11,30 @@ struct NavSheetSettingsView: View {
 
     var body: some View {
         @Bindable var appState = appState
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Settings")
-                .font(.headline)
-                .frame(maxWidth: .infinity, alignment: .center)
-
+        VStack(spacing: 12) {
+            Text("Settings").font(.headline)
             Divider()
 
-            GroupBox("Settings counter (persists on hide)") {
-                HStack {
-                    Text("\(appState.settingsCounter)").monospacedDigit().frame(minWidth: 24)
-                    Spacer()
-                    Button("+1") {
-                        appState.settingsCounter += 1
-                        log("SettingsView", "settingsCounter=\(appState.settingsCounter)")
-                    }
-                }
+            // Scenario 2
+            Button("Open sheet") { appState.showSheet = true }
+            .anchoredSheet(isPresented: $appState.showSheet) {
+                NavSheetSheetView().environment(appState)
             }
 
-            GroupBox("Toggle (persists on hide)") {
-                Toggle("Enable something", isOn: $appState.settingsToggle)
-                    .onChange(of: appState.settingsToggle) { _, v in
-                        log("SettingsView", "toggle=\(v)")
-                    }
+            // Scenario 3
+            Button("Pick folder (popover)") {
+                openFilePicker(target: .popover, appState: appState)
+            }
+            if !appState.pickedPath.isEmpty {
+                Text(appState.pickedPath)
+                    .font(.system(size: 11, design: .monospaced))
+                    .lineLimit(1).truncationMode(.middle)
             }
 
-            GroupBox(".sheet (with alert + picker inside)") {
-                Button("Open sheet...") {
-                    log("SettingsView", "opening sheet")
-                    appState.showSettingsSheet = true
-                }
-                Label(
-                    appState.showSettingsSheet ? "Sheet is open" : "Sheet is closed",
-                    systemImage: appState.showSettingsSheet ? "checkmark.circle.fill" : "xmark.circle"
-                )
-                .foregroundStyle(appState.showSettingsSheet ? .green : .secondary)
-                .font(.caption)
-            }
-            .anchoredSheet(isPresented: $appState.showSettingsSheet) {
-                NavSheetSheetView()
-                    .environment(appState)
-            }
-
-            GroupBox("File picker (from settings)") {
-                Button("Choose folder...") {
-                    openFilePicker(target: .popover, appState: appState)
-                }
-                if !appState.pickedFolderPath.isEmpty {
-                    Text(appState.pickedFolderPath)
-                        .font(.system(size: 11, design: .monospaced))
-                        .lineLimit(1).truncationMode(.head)
-                } else {
-                    Text("No folder picked yet").font(.caption).foregroundStyle(.secondary)
-                }
-            }
-
-            Button("Back") {
-                log("Nav", "route: settings -> main")
-                appState.route = .main
-            }
-            .frame(maxWidth: .infinity)
+            Divider()
+            Button("← Back") { appState.route = .main }
         }
         .padding(16)
-        .frame(width: 320)
+        .frame(width: 260)
     }
 }

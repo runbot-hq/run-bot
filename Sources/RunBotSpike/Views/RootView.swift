@@ -8,16 +8,8 @@ struct NavSheetRootView: View {
 
     var body: some View {
         switch appState.route {
-        case .main:
-            NavSheetMainView()
-                .environment(appState)
-                .task {
-                    await MainActor.run { appState.taskFireCount += 1 }
-                    log("Task", ".task fired count=\(appState.taskFireCount) (should be 1)")
-                }
-        case .settings:
-            NavSheetSettingsView()
-                .environment(appState)
+        case .main:     NavSheetMainView().environment(appState)
+        case .settings: NavSheetSettingsView().environment(appState)
         }
     }
 }
