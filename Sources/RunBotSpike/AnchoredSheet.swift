@@ -43,8 +43,17 @@
 //   fragile: other borderless windows (e.g. NSOpenPanel during dismiss, OS
 //   animations) can briefly become key and cause addChildWindow to attach the
 //   wrong window.
-//   MIGRATION NOTE: if SwiftUI changes its hosting controller type this check
-//   will stop matching. Validate on each major OS update.
+//
+//   MIGRATION NOTES:
+//   1. OS updates: if SwiftUI changes its internal hosting controller type this
+//      check will stop matching silently. Validate on each major OS update.
+//   2. AnyView coupling: this discriminator only matches NSHostingController<AnyView>.
+//      It will silently fail if a call site wraps content in a typed
+//      NSHostingController<ConcreteView> instead of AnyView. This is an implicit
+//      contract — all call sites must wrap their root view in AnyView.
+//      In this spike, AppDelegate.setupPopover() does this explicitly:
+//        NSHostingController(rootView: AnyView(NavSheetRootView()...))
+//      Maintain this convention in the main app migration.
 
 import AppKit
 import SwiftUI
@@ -89,8 +98,7 @@ struct NavAnchoredSheetModifier<SheetContent: View>: ViewModifier {
         DispatchQueue.main.async {
             // Match by contentViewController type — NSHostingController<AnyView>
             // is only ever set on the window SwiftUI creates for .sheet().
-            // This is more precise than .isKeyWindow which can transiently match
-            // unrelated borderless windows (NSOpenPanel, OS animations).
+            // See MIGRATION NOTES above re: AnyView coupling.
             if let sheetWindow = NSApp.windows.first(where: {
                 $0 !== popoverWindow
                     && $0.styleMask.contains(.borderless)
