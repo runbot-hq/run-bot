@@ -11,7 +11,15 @@ let package = Package(
         .library(
             name: "RunBotCore",
             targets: ["RunBotCore"]
-        )
+        ),
+        // ── MenuBarKit ─────────────────────────────────────────────────────────
+        // Reusable NSPopover + SwiftUI sheet layer. Zero RunBot dependencies.
+        // Will eventually move to its own package; lives here while the API
+        // is being validated by RunBotSpike.
+        .library(
+            name: "MenuBarKit",
+            targets: ["MenuBarKit"]
+        ),
     ],
     // ⚠️ AI AGENT: Do NOT change branch: "main" to a revision/exact/commit hash.
     // Do NOT edit Package.resolved manually. Do NOT commit Package.resolved.
@@ -36,11 +44,6 @@ let package = Package(
         ),
         .executableTarget(
             name: "RunBot",
-            // GitHubClient is declared explicitly because AppDelegate+StoreSetup.swift
-            // calls configureGHAPI / configureGHRaw / configureGHAPIPaginated / configureGHLogger
-            // directly. SwiftPM does not re-export transitive dependencies, so the symbols
-            // are only visible when GitHubClient is a direct dependency of this target.
-            // AppUpdater is consumed transitively via RunBotCore and needs no explicit entry.
             dependencies: [
                 "RunBotCore",
                 .product(name: "GitHubClient", package: "GitHubClient")
@@ -50,15 +53,22 @@ let package = Package(
                 .enableUpcomingFeature("NonisolatedNonsendingByDefault")
             ]
         ),
-        // ── Spike target ────────────────────────────────────────────────────────
-        // Self-contained MenuBarExtra behaviour test for the SwiftUI lifecycle
-        // migration (issue #1987). Zero RunBot dependencies — pure SwiftUI.
+        // ── MenuBarKit ─────────────────────────────────────────────────────────
+        // Reusable popover/sheet layer. No RunBot or RunBotCore dependencies.
+        .target(
+            name: "MenuBarKit",
+            dependencies: [],
+            path: "Sources/MenuBarKit",
+            swiftSettings: [
+                .swiftLanguageMode(.v6)
+            ]
+        ),
+        // ── Spike target ───────────────────────────────────────────────────────
+        // Thin example app consuming MenuBarKit. Zero direct lifecycle code.
         // Run with: swift run RunBotSpike
-        // Remove this target once spike-results.md is filled in and the
-        // migration PRs are underway.
         .executableTarget(
             name: "RunBotSpike",
-            dependencies: [],
+            dependencies: ["MenuBarKit"],
             path: "Sources/RunBotSpike",
             swiftSettings: [
                 .swiftLanguageMode(.v6)
