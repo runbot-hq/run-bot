@@ -3,16 +3,13 @@
 //
 // Builds on Option 3 (NSPopover + @NSApplicationDelegateAdaptor).
 //
-// TESTS:
-// 1. Navigation: main -> settings -> back. Does nav state survive hide/show?
-// 2. Settings sheet: open .sheet from settings view. Does it work?
-// 3. State persistence: counter + text field values survive hide/show.
-// 4. File picker from settings view: beginSheetModal keeps popover alive.
-// 5. Error alert inside sheet: .alert on sheet view stays open, popover survives.
-// 6. File picker from inside sheet: beginSheetModal on sheet window (not popover).
-//
-// HOW TO RUN:
-//   swift run RunBotSpike
+// DISMISS STRATEGY:
+// .behavior = .applicationDefined so AppKit never auto-closes.
+// We close on popoverWindowDidResignKey UNLESS a sheet/picker is active
+// (popoverWindow.sheets is non-empty, or a child window is visible).
+// This means: click anywhere outside -> popover loses key -> closes.
+// But: open a sheet/picker -> popover window is no longer key but sheets
+// guard fires -> stays open.
 //
 // REQUIREMENTS: macOS 26+, Swift 6.2
 
@@ -60,7 +57,7 @@ final class NavSheetAppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
     private var popover: NSPopover!
     private var hostingController: NSHostingController<AnyView>!
-    nonisolated(unsafe) private var outsideClickMonitor: Any?
+    private var resignKeyObserver: NSObjectProtocol?
     private var appState = NavSheetAppState()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -90,7 +87,7 @@ final class NavSheetAppDelegate: NSObject, NSApplicationDelegate {
         popover = NSPopover()
         popover.contentViewController = hostingController
         popover.contentSize = NSSize(width: 320, height: 300)
-        popover.animates = false
+        popover.animates = true
         popover.behavior = .applicationDefined
         popover.delegate = self
     }
@@ -98,42 +95,63 @@ final class NavSheetAppDelegate: NSObject, NSApplicationDelegate {
     private func openPopover() {
         guard let button = statusItem.button else { return }
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-        installOutsideClickMonitor()
+        installResignKeyObserver()
     }
 
     private func closePopover() {
         popover.performClose(nil)
-        removeOutsideClickMonitor()
     }
 
     private var popoverWindow: NSWindow? {
         popover.contentViewController?.view.window
     }
 
-    // The sheet window is the child window added by AnchoredSheetModifier.
-    // It is the key window while the sheet is open.
     private var sheetWindow: NSWindow? {
         guard let pop = popoverWindow else { return nil }
         return pop.childWindows?.first(where: { $0.isVisible && $0 !== pop })
+    }
+
+    private var hasActiveOverlay: Bool {
+        guard let pop = popoverWindow else { return false }
+        // Active sheet via beginSheetModal
+        if !(pop.sheets.isEmpty) { return true }
+        // Active child window (AnchoredSheet via addChildWindow)
+        if let children = pop.childWindows, !children.isEmpty { return true }
+        return false
+    }
+
+    // MARK: - Resign-key observer
+    // Close whenever the popover window loses key focus,
+    // UNLESS a sheet or child window (AnchoredSheet) is active.
+    private func installResignKeyObserver() {
+        guard resignKeyObserver == nil else { return }
+        resignKeyObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didResignKeyNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let self else { return }
+            guard let window = notification.object as? NSWindow,
+                  window === self.popoverWindow else { return }
+            guard !self.hasActiveOverlay else { return }
+            self.closePopover()
+        }
+    }
+
+    private func removeResignKeyObserver() {
+        if let o = resignKeyObserver { NotificationCenter.default.removeObserver(o); resignKeyObserver = nil }
     }
 
     // MARK: - File picker
     enum PickerTarget { case popover, sheet }
 
     func openFilePicker(attachedTo target: PickerTarget) {
-        // When called from inside an open sheet, attach the picker to the sheet
-        // window. A window can only host one sheet at a time, so attaching to
-        // popoverWindow while it already has a sheet would be silently ignored.
         let window: NSWindow?
         switch target {
-        case .popover:
-            window = popoverWindow
-        case .sheet:
-            // Fall back to popoverWindow if sheet window is not found.
-            window = sheetWindow ?? popoverWindow
+        case .popover: window = popoverWindow
+        case .sheet:   window = sheetWindow ?? popoverWindow
         }
         guard let window else { return }
-
         let panel = NSOpenPanel()
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
@@ -149,35 +167,12 @@ final class NavSheetAppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    // MARK: - Outside-click monitor
-    private func installOutsideClickMonitor() {
-        guard outsideClickMonitor == nil else { return }
-        outsideClickMonitor = NSEvent.addGlobalMonitorForEvents(
-            matching: [.leftMouseDown, .rightMouseDown]
-        ) { [weak self] event in
-            Task { @MainActor [weak self] in
-                guard let self, self.popover.isShown else { return }
-                let hasActiveSheet = !(self.popoverWindow?.sheets.isEmpty ?? true)
-                guard !hasActiveSheet else { return }
-                let loc = event.window?.convertToScreen(
-                    NSRect(origin: event.locationInWindow, size: .zero)
-                ).origin ?? NSEvent.mouseLocation
-                if let w = self.popoverWindow, w.frame.contains(loc) { return }
-                self.closePopover()
-            }
-        }
-    }
-
-    private func removeOutsideClickMonitor() {
-        if let m = outsideClickMonitor { NSEvent.removeMonitor(m); outsideClickMonitor = nil }
-    }
-
-    deinit { if let m = outsideClickMonitor { NSEvent.removeMonitor(m) } }
+    deinit { removeResignKeyObserver() }
 }
 
 extension NavSheetAppDelegate: NSPopoverDelegate {
     func popoverShouldClose(_ popover: NSPopover) -> Bool { true }
-    func popoverDidClose(_ notification: Notification) { removeOutsideClickMonitor() }
+    func popoverDidClose(_ notification: Notification) { removeResignKeyObserver() }
 }
 
 // MARK: - Root view
