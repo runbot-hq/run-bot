@@ -68,7 +68,7 @@ struct SpikeRootView: View {
         .task {
             await MainActor.run { appState.taskStartCount += 1 }
             print("\u{1F535} [Spike] .task started (count=\(appState.taskStartCount)) — should only print ONCE")
-            for await _ in AsyncStream<Void>(continuation: { _ in }) { }
+            for await _ in AsyncStream<Void> { _ in } { }
         }
     }
 }
@@ -82,7 +82,7 @@ struct MainSpikeView: View {
     @State private var localText: String = ""
     @State private var showLocalSheet: Bool = false
 
-    // Scenario 7: captured via WindowGrabber on appear; used by beginSheetModal
+    // Scenario 7b: captured via WindowGrabber on appear; used by beginSheetModal
     @State private var hostWindow: NSWindow?
     @State private var pickedFolderPath: String = ""
 
