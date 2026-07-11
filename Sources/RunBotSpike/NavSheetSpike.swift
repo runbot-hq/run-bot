@@ -14,15 +14,25 @@
 //   - overlayCount is managed explicitly (no childWindows inspection).
 //
 // STATUS BUTTON HIGHLIGHT:
-// AppKit ties button.isHighlighted to the popover window's key status,
-// which flickers whenever a sheet or picker steals key focus.
-// Fix: manually set button.isHighlighted in popoverWillShow / popoverDidClose
-// so it tracks popover.isShown only, ignoring key-window changes.
+// Pinned to popover.isShown via popoverWillShow / popoverDidClose.
+//
+// POPOVER ACTIVE APPEARANCE:
+// The popover window is an NSPanel. When a sheet or picker steals key focus
+// the panel renders as "inactive" (dimmed border, washed-out controls).
+// Fix: inject an AlwaysActivePopoverWindow subclass via NSPopover.setValue
+// that overrides isKeyWindow -> true so AppKit always draws it as active.
 //
 // REQUIREMENTS: macOS 26+, Swift 6.2
 
 import AppKit
 import SwiftUI
+
+// MARK: - AlwaysActivePopoverWindow
+// Overrides isKeyWindow so the popover always draws with active (focused)
+// appearance regardless of which window actually holds key status.
+final class AlwaysActivePopoverWindow: NSPanel {
+    override var isKeyWindow: Bool { true }
+}
 
 // MARK: - Entry point
 
@@ -56,8 +66,6 @@ final class NavSheetAppState {
     var pickedFolderPath: String = ""
     var sheetPickedFolderPath: String = ""
     var showSheetAlert: Bool = false
-    // Incremented when a sheet/picker opens, decremented on close.
-    // popoverShouldClose returns false while > 0.
     var overlayCount: Int = 0
 }
 
@@ -105,12 +113,14 @@ final class NavSheetAppDelegate: NSObject, NSApplicationDelegate {
         popover.animates = true
         popover.behavior = .applicationDefined
         popover.delegate = self
+        // Inject our always-active window class before the popover is shown
+        // so AppKit uses it when creating the panel.
+        popover.setValue(AlwaysActivePopoverWindow.self, forKeyPath: "windowClass")
     }
 
     private func openPopover() {
         guard let button = statusItem.button else { return }
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-        // popoverWillShow fires before the window is key, so also set here.
         button.isHighlighted = true
         startEventMonitor()
     }
