@@ -21,9 +21,6 @@ import UniformTypeIdentifiers
 
 @main
 struct SheetSpikeApp: App {
-    // @State on the App struct — NOT on a view.
-    // This is the proposed AppState ownership model.
-    // If state survives close/reopen when owned here → architecture is valid.
     @State private var appState = SpikeAppState()
 
     var body: some Scene {
@@ -36,20 +33,13 @@ struct SheetSpikeApp: App {
 }
 
 // MARK: - App-level state (@Observable, owned by App struct)
-// Mirrors the proposed AppState in the real migration.
 
 @Observable
 @MainActor
 final class SpikeAppState {
-    // Navigation (mirrors AppState.navState)
     var navState: SpikeNavState = .main
-
-    // Sheet flags lifted to app level — the fallback if MenuBarExtra
-    // tears down view-local @State on close.
     var showSettingsSheet: Bool = false
     var sheetDraftText: String = ""
-
-    // Counter to detect .task re-execution (Scenario 5)
     var taskStartCount: Int = 0
 }
 
@@ -75,13 +65,9 @@ struct SpikeRootView: View {
                     .environment(appState)
             }
         }
-        // Scenario 5: .task lifecycle — watch console for repeat prints.
-        // Expected: prints ONCE at app launch, never again on close/reopen.
-        // If it prints on every open: scene recreates → .task is NOT app-lifetime.
         .task {
             await MainActor.run { appState.taskStartCount += 1 }
             print("\u{1F535} [Spike] .task started (count=\(appState.taskStartCount)) — should only print ONCE")
-            // Simulate RunBot's long-lived poll loop.
             for await _ in AsyncStream<Void> { _ in } { }
         }
     }
@@ -92,9 +78,6 @@ struct SpikeRootView: View {
 struct MainSpikeView: View {
     @Environment(SpikeAppState.self) private var appState
 
-    // View-local @State — the critical test.
-    // If these survive close/reopen, view-local @State is preserved.
-    // If they reset, they must move to SpikeAppState.
     @State private var localCounter: Int = 0
     @State private var localText: String = ""
     @State private var showLocalSheet: Bool = false
@@ -110,7 +93,6 @@ struct MainSpikeView: View {
 
             Divider()
 
-            // ── Scenario 1: View-local @State integer ────────────────────
             GroupBox("Scenario 1 — View-local @State counter") {
                 HStack {
                     Text("Counter: \(localCounter)")
@@ -123,7 +105,6 @@ struct MainSpikeView: View {
                     .foregroundStyle(.secondary)
             }
 
-            // ── Scenario 2: View-local TextField @State ──────────────────
             GroupBox("Scenario 2 — View-local TextField") {
                 TextField("Type here...", text: $localText)
                     .textFieldStyle(.roundedBorder)
@@ -132,7 +113,6 @@ struct MainSpikeView: View {
                     .foregroundStyle(.secondary)
             }
 
-            // ── Scenario 3: View-local sheet open state ──────────────────
             GroupBox("Scenario 3 — Sheet open across hide/show") {
                 Button("Open local sheet") { showLocalSheet = true }
                 Label(
@@ -145,10 +125,9 @@ struct MainSpikeView: View {
                     .foregroundStyle(.secondary)
             }
             .sheet(isPresented: $showLocalSheet) {
-                SheetSpikeView(parentText: $localText, isPresented: $showLocalSheet)
+                SheetSpikeView(parentText: $localText)
             }
 
-            // ── Scenario 6: App-level lifted sheet state ─────────────────
             GroupBox("Scenario 6 — App-level sheet state") {
                 Button("Open app-state sheet") { appState.showSettingsSheet = true }
                 Label(
@@ -161,10 +140,9 @@ struct MainSpikeView: View {
                     .foregroundStyle(.secondary)
             }
             .sheet(isPresented: $appState.showSettingsSheet) {
-                SheetSpikeView(parentText: $appState.sheetDraftText, isPresented: $appState.showSettingsSheet)
+                SheetSpikeView(parentText: $appState.sheetDraftText)
             }
 
-            // ── Scenario 7: .fileImporter — does picker dismiss app? ─────
             GroupBox("Scenario 7 — .fileImporter") {
                 Button("Open file picker") { showFilePicker = true }
                 Text("Click inside the picker. App should NOT dismiss.")
@@ -180,7 +158,6 @@ struct MainSpikeView: View {
 
             Divider()
 
-            // ── Scenario 5: .task lifecycle readout ─────────────────────
             GroupBox("Scenario 5 — .task start count") {
                 Text(".task started \(appState.taskStartCount)x")
                     .monospacedDigit()
@@ -189,14 +166,12 @@ struct MainSpikeView: View {
                     .foregroundStyle(appState.taskStartCount > 1 ? .red : .secondary)
             }
 
-            // ── Navigation to settings ───────────────────────────────────
             Button("Go to Settings") {
                 appState.navState = .settings
             }
             .frame(maxWidth: .infinity)
             .buttonStyle(.borderedProminent)
 
-            // ── Close / quit ─────────────────────────────────────────────
             Button("Close") {
                 NSApplication.shared.terminate(nil)
             }
@@ -207,12 +182,11 @@ struct MainSpikeView: View {
     }
 }
 
-// MARK: - Settings view (mirrors RunBot's SettingsView navigation)
+// MARK: - Settings view
 
 struct SettingsSpikeView: View {
     @Environment(SpikeAppState.self) private var appState
     @State private var settingsCounter: Int = 0
-    // Scenario 9: sheet presented from child view inside nav stack
     @State private var showChildSheet: Bool = false
 
     var body: some View {
@@ -220,7 +194,6 @@ struct SettingsSpikeView: View {
             Text("Settings")
                 .font(.headline)
 
-            // ── Scenario 4: Nav-state @State preservation ────────────────
             GroupBox("Scenario 4 — Settings-local @State") {
                 HStack {
                     Text("Counter: \(settingsCounter)")
@@ -233,7 +206,6 @@ struct SettingsSpikeView: View {
                     .foregroundStyle(.secondary)
             }
 
-            // ── Scenario 9: Sheet from child view in nav stack ────────────
             GroupBox("Scenario 9 — Sheet from child (NavStack)") {
                 Button("Open child sheet") { showChildSheet = true }
                 Label(
@@ -246,7 +218,7 @@ struct SettingsSpikeView: View {
                     .foregroundStyle(.secondary)
             }
             .sheet(isPresented: $showChildSheet) {
-                SheetSpikeView(parentText: .constant(""), isPresented: $showChildSheet)
+                SheetSpikeView(parentText: .constant(""))
             }
 
             Button("\u{2190} Back") {
@@ -259,16 +231,14 @@ struct SettingsSpikeView: View {
     }
 }
 
-// MARK: - Sheet view (mirrors RunBot's modal sheets)
+// MARK: - Sheet view
 
 struct SheetSpikeView: View {
     @Binding var parentText: String
-    // Use an explicit isPresented binding instead of @Environment(\.dismiss).
-    // On macOS, \dismiss inside a MenuBarExtra panel bubbles up and closes
-    // the entire app rather than just the sheet.
-    @Binding var isPresented: Bool
+    // @Environment(\.dismiss) resolves to the sheet's own dismiss action
+    // when used inside a .sheet — it does NOT bubble up to close the MenuBarExtra window.
+    @Environment(\.dismiss) private var dismiss
 
-    // Scenario 3b + 4: sheet-local @State preservation
     @State private var sheetCounter: Int = 0
     @State private var sheetText: String = ""
 
@@ -299,13 +269,12 @@ struct SheetSpikeView: View {
                     .foregroundStyle(.secondary)
             }
 
-            // ── Scenario 8: Rounded corners survive sheet presentation ───
             Text("Scenario 8: Check the app window still has\nrounded corners while this sheet is open.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
 
-            Button("Dismiss") { isPresented = false }
+            Button("Dismiss") { dismiss() }
                 .buttonStyle(.borderedProminent)
         }
         .padding(24)
