@@ -2,7 +2,13 @@
 // RunBotSpike - spike/swiftui-nav-sheet
 //
 // Entry point shown when the popover first opens.
-// Only job: navigate to SettingsView where the actual scenarios are tested.
+// Only job: navigate to SettingsView where the actual scenarios are exercised.
+//
+// WHY SO MINIMAL:
+//   Earlier versions had a counter, a task-fire-count display, and a settings
+//   toggle. All were removed — they tested things outside the scope of this
+//   spike (state persistence, .task lifecycle) and added noise that made it
+//   harder to verify the two scenarios we actually care about.
 
 import SwiftUI
 

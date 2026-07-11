@@ -4,9 +4,19 @@
 // Minimal nav host. Switches between Main and Settings based on appState.route.
 //
 // WHY NOT NavigationStack:
-//   NavigationStack uses a scroll view internally which adds unwanted chrome
-//   and geometry inside a popover. A plain switch over an enum keeps the
-//   popover size clean and transition behaviour explicit.
+//   NavigationStack wraps content in a scroll view internally, which adds
+//   unwanted chrome and geometry side effects inside a fixed-size popover.
+//   A plain switch over an enum keeps the popover size clean and makes
+//   transitions explicit — no implicit push/pop animation surprises.
+//
+// WHY NOT NavigationSplitView:
+//   Designed for multi-column layouts. Overkill and visually wrong inside
+//   a narrow popover.
+//
+// WHY enum-based route instead of a Bool:
+//   A Bool (isShowingSettings) only works for two screens. An enum scales
+//   to N screens without adding more state properties, and makes exhaustive
+//   switch handling compiler-enforced.
 
 import SwiftUI
 
