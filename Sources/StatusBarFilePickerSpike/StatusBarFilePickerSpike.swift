@@ -159,7 +159,9 @@ enum FilePickerHelper {
         let delegate = PanelDelegate()
         panel.delegate = delegate
         // Retain delegate for the lifetime of the panel.
-        objc_setAssociatedObject(panel, &AssociatedKeys.delegate, delegate, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        // `let` key: address is constant, only the pointee (UInt8) is what
+        // objc_setAssociatedObject needs — using var was a spurious mutation.
+        objc_setAssociatedObject(panel, &delegateKey, delegate, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
 
         log("[picker] calling beginSheetModal")
         panel.beginSheetModal(for: menuBarWindow) { response in
@@ -185,11 +187,11 @@ enum FilePickerHelper {
         NSApp.setActivationPolicy(.accessory)
         return result == .OK ? panel.url : nil
     }
-
-    private enum AssociatedKeys {
-        static var delegate: UInt8 = 0
-    }
 }
+
+// `let` satisfies Swift 6 strict concurrency: the address is immutable,
+// which is all objc_setAssociatedObject requires for a key pointer.
+private var delegateKey: UInt8 = 0
 
 // MARK: - Panel delegate (logging)
 
