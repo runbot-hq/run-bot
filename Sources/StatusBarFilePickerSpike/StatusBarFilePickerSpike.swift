@@ -1,118 +1,47 @@
 // StatusBarFilePickerSpike.swift
 // StatusBarFilePickerSpike — spike/statusbar-filepicker branch
 //
-// Manual NSStatusBar + NSPanel + NSOpenPanel as sheet.
-// Outside-click dismissal via NSEvent.addGlobalMonitorForEvents.
-// While the file picker sheet is open, outside clicks are ignored so
-// the popover stays alive for the sheet.
+// APPROACH: MenuBarExtra(.window) + SwiftUI .fileImporter
+//
+// anchoredFileImporter wraps .fileImporter and hooks onChange(of: isPresented).
+// When isPresented flips true, it waits one run-loop turn for SwiftUI to
+// create the NSOpenPanel window, then calls
+// menuBarWindow.addChildWindow(panel, ordered: .above) to put the panel
+// in the MenuBarExtra focus group. Clicks inside the panel are then NOT
+// treated as outside-clicks.
+//
+// OUTSIDE-DISMISS REOPEN FIX:
+// When the user clicks outside the panel (not OK/Cancel), the NSOpenPanel
+// resigns key. We observe NSWindow.didResignKeyNotification on the panel
+// and force-reset isPresented = false on the next run-loop so SwiftUI
+// sees a clean false state. The button tap then does the normal
+// false → async-true two-step which reliably re-triggers .fileImporter.
 //
 // REQUIREMENTS: macOS 14+, Swift 6
 // DEPENDENCIES: none
 
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 // MARK: - Entry point
 
 @main
 struct StatusBarFilePickerApp: App {
-    @NSApplicationDelegateAdaptor(AppDelegate.self) var delegate
-    var body: some Scene { Settings { EmptyView() } }
-}
-
-// MARK: - AppDelegate
-
-@MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate {
-    private var statusItem: NSStatusItem!
-    private var popoverWindow: NSPanel!
-    private var hostingView: NSHostingView<ContentView>!
-    private var eventMonitor: Any?
-    private var sheetIsOpen = false
-
-    func applicationDidFinishLaunching(_ notification: Notification) {
-        NSApp.setActivationPolicy(.accessory)
-
-        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        statusItem.button?.image = NSImage(systemSymbolName: "folder.badge.plus", accessibilityDescription: nil)
-        statusItem.button?.action = #selector(togglePopover)
-        statusItem.button?.target = self
-
-        let size = CGSize(width: 320, height: 280)
-        popoverWindow = NSPanel(
-            contentRect: NSRect(origin: .zero, size: size),
-            styleMask: [.borderless, .nonactivatingPanel],
-            backing: .buffered,
-            defer: false
-        )
-        popoverWindow.isFloatingPanel = true
-        popoverWindow.becomesKeyOnlyIfNeeded = true
-        popoverWindow.isMovable = false
-        popoverWindow.backgroundColor = .windowBackgroundColor
-        popoverWindow.hasShadow = true
-
-        let contentView = ContentView(pickFile: { [weak self] completion in
-            self?.showFilePicker(completion: completion)
-        })
-        hostingView = NSHostingView(rootView: contentView)
-        hostingView.frame = NSRect(origin: .zero, size: size)
-        popoverWindow.contentView = hostingView
-    }
-
-    @objc private func togglePopover() {
-        if popoverWindow.isVisible {
-            closePopover()
-        } else {
-            openPopover()
+    var body: some Scene {
+        MenuBarExtra {
+            ContentView()
+        } label: {
+            Image(systemName: "folder.badge.plus")
         }
-    }
-
-    private func openPopover() {
-        positionPopover()
-        popoverWindow.makeKeyAndOrderFront(nil)
-        // Global monitor: fires for clicks in OTHER apps / outside our window.
-        eventMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
-            guard let self, !self.sheetIsOpen else { return }
-            self.closePopover()
-        }
-    }
-
-    private func closePopover() {
-        popoverWindow.orderOut(nil)
-        if let monitor = eventMonitor {
-            NSEvent.removeMonitor(monitor)
-            eventMonitor = nil
-        }
-    }
-
-    private func positionPopover() {
-        guard let button = statusItem.button,
-              let screen = button.window?.screen ?? NSScreen.main else { return }
-        let buttonRect = button.window!.convertToScreen(button.frame)
-        let x = buttonRect.midX - popoverWindow.frame.width / 2
-        let y = buttonRect.minY - popoverWindow.frame.height - 4
-        let clamped = max(screen.visibleFrame.minX, min(x, screen.visibleFrame.maxX - popoverWindow.frame.width))
-        popoverWindow.setFrameOrigin(NSPoint(x: clamped, y: y))
-    }
-
-    private func showFilePicker(completion: @escaping @MainActor (URL?) -> Void) {
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = true
-        panel.canChooseDirectories = false
-        panel.allowsMultipleSelection = false
-        panel.canCreateDirectories = false
-        sheetIsOpen = true
-        panel.beginSheetModal(for: popoverWindow) { [weak self] response in
-            self?.sheetIsOpen = false
-            completion(response == .OK ? panel.url : nil)
-        }
+        .menuBarExtraStyle(.window)
     }
 }
 
 // MARK: - Content
 
 struct ContentView: View {
-    let pickFile: (@escaping @MainActor (URL?) -> Void) -> Void
+    @State private var isImporting = false
     @State private var pickedURL: URL?
 
     var body: some View {
@@ -124,7 +53,9 @@ struct ContentView: View {
             Divider()
 
             Button("Pick File") {
-                pickFile { url in pickedURL = url }
+                // Force a genuine false→true transition every tap.
+                isImporting = false
+                DispatchQueue.main.async { isImporting = true }
             }
             .frame(maxWidth: .infinity)
 
@@ -148,5 +79,115 @@ struct ContentView: View {
         }
         .padding(16)
         .frame(minWidth: 320, minHeight: 280)
+        .anchoredFileImporter(
+            isPresented: $isImporting,
+            allowedContentTypes: [.item],
+            allowsMultipleSelection: false
+        ) { result in
+            pickedURL = try? result.get()
+        }
+    }
+}
+
+// MARK: - anchoredFileImporter
+//
+// Drop-in .fileImporter replacement that:
+//   1. Anchors the NSOpenPanel as a child of the MenuBarExtra window so
+//      clicks inside it don’t count as outside-clicks.
+//   2. Observes NSWindow.didResignKeyNotification on the panel to detect
+//      outside-dismiss and reset isPresented cleanly.
+
+extension View {
+    func anchoredFileImporter(
+        isPresented: Binding<Bool>,
+        allowedContentTypes: [UTType],
+        allowsMultipleSelection: Bool,
+        onCompletion: @escaping (Result<URL, Error>) -> Void
+    ) -> some View {
+        self.modifier(
+            AnchoredFileImporterModifier(
+                isPresented: isPresented,
+                allowedContentTypes: allowedContentTypes,
+                allowsMultipleSelection: allowsMultipleSelection,
+                onCompletion: onCompletion
+            )
+        )
+    }
+}
+
+private struct AnchoredFileImporterModifier: ViewModifier {
+    @Binding var isPresented: Bool
+    let allowedContentTypes: [UTType]
+    let allowsMultipleSelection: Bool
+    let onCompletion: (Result<URL, Error>) -> Void
+
+    // Holds the resign-key observer so we can remove it when done.
+    @State private var resignObserver: (any NSObjectProtocol)?
+
+    func body(content: Content) -> some View {
+        content
+            .fileImporter(
+                isPresented: $isPresented,
+                allowedContentTypes: allowedContentTypes,
+                allowsMultipleSelection: allowsMultipleSelection
+            ) { result in
+                switch result {
+                case .success(let urls):
+                    if let url = urls.first { onCompletion(.success(url)) }
+                case .failure(let err):
+                    onCompletion(.failure(err))
+                }
+            }
+            .onChange(of: isPresented) { _, newValue in
+                if newValue {
+                    // Panel just appeared — anchor it on next run-loop.
+                    Task { @MainActor in anchorPickerWindow(isPresented: $isPresented, resignObserver: $resignObserver) }
+                } else {
+                    // Dismissed via OK/Cancel — remove observer.
+                    removeResignObserver()
+                }
+            }
+    }
+
+    private func removeResignObserver() {
+        if let obs = resignObserver {
+            NotificationCenter.default.removeObserver(obs)
+            resignObserver = nil
+        }
+    }
+}
+
+@MainActor
+private func anchorPickerWindow(
+    isPresented: Binding<Bool>,
+    resignObserver: Binding<(any NSObjectProtocol)?>
+) {
+    guard let menuBarWindow = NSApp.windows.first(where: {
+        $0.styleMask.contains(.nonactivatingPanel) && $0.isVisible
+    }) else { return }
+
+    DispatchQueue.main.async {
+        guard let panel = NSApp.windows.first(where: {
+            $0 is NSOpenPanel && $0.isKeyWindow && $0.parent == nil
+        }) else { return }
+
+        panel.center()
+        menuBarWindow.addChildWindow(panel, ordered: .above)
+
+        // Observe outside-dismiss: panel resigns key without OK/Cancel.
+        // Reset isPresented so the next tap gets a clean false state.
+        let obs = NotificationCenter.default.addObserver(
+            forName: NSWindow.didResignKeyNotification,
+            object: panel,
+            queue: .main
+        ) { _ in
+            // Only act if SwiftUI hasn’t already cleared isPresented
+            // (OK/Cancel clears it first; outside-dismiss doesn’t).
+            guard isPresented.wrappedValue else { return }
+            DispatchQueue.main.async {
+                isPresented.wrappedValue = false
+            }
+        }
+        resignObserver.wrappedValue = obs
     }
 }
