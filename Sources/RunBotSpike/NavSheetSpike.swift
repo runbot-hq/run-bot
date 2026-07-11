@@ -17,10 +17,11 @@
 // Pinned to popover.isShown via popoverWillShow / popoverDidClose.
 //
 // POPOVER ACTIVE APPEARANCE:
-// AppKit derives active/inactive rendering from the view's resolved appearance.
-// Pinning hostingController.view.appearance = NSAppearance(named: .aqua)
-// forces it to always draw as active, regardless of key window state.
-// One line. No class patching, no observers.
+// NSVisualEffectView.state = .active forces the vibrancy/material system to
+// always render in the active state, regardless of key window status.
+// We wrap the NSHostingView inside an NSVisualEffectView with state=.active
+// and set that as the popover's contentViewController view.
+// This is the canonical AppKit way — no class patching, no appearance override.
 //
 // REQUIREMENTS: macOS 26+, Swift 6.2
 
@@ -70,13 +71,53 @@ final class NavSheetAppState {
     }
 }
 
+// MARK: - PopoverContentViewController
+// Hosts the SwiftUI view inside an NSVisualEffectView with state=.active.
+// This forces AppKit to always render controls and text with active appearance
+// regardless of whether the popover window is the key window.
+
+@MainActor
+final class PopoverContentViewController: NSViewController {
+    private let hostingView: NSHostingView<AnyView>
+
+    init(rootView: AnyView) {
+        self.hostingView = NSHostingView(rootView: rootView)
+        super.init(nibName: nil, bundle: nil)
+    }
+    required init?(coder: NSCoder) { fatalError() }
+
+    override func loadView() {
+        // NSVisualEffectView with .active state = always-active appearance
+        let effectView = NSVisualEffectView()
+        effectView.material = .popover
+        effectView.blendingMode = .behindWindow
+        effectView.state = .active  // <-- the fix: never go inactive
+        log("PopoverVC", "NSVisualEffectView state=.active material=.popover")
+
+        hostingView.translatesAutoresizingMaskIntoConstraints = false
+        effectView.addSubview(hostingView)
+        NSLayoutConstraint.activate([
+            hostingView.topAnchor.constraint(equalTo: effectView.topAnchor),
+            hostingView.bottomAnchor.constraint(equalTo: effectView.bottomAnchor),
+            hostingView.leadingAnchor.constraint(equalTo: effectView.leadingAnchor),
+            hostingView.trailingAnchor.constraint(equalTo: effectView.trailingAnchor),
+        ])
+        self.view = effectView
+    }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        log("PopoverVC", "viewDidLoad")
+    }
+}
+
 // MARK: - AppDelegate
 
 @MainActor
 final class NavSheetAppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
     private var popover: NSPopover!
-    private var hostingController: NSHostingController<AnyView>!
+    private var contentVC: PopoverContentViewController!
     nonisolated(unsafe) private var eventMonitor: Any?
     private var appState = NavSheetAppState()
 
@@ -110,22 +151,17 @@ final class NavSheetAppDelegate: NSObject, NSApplicationDelegate {
             onPickFolder: { [weak self] in self?.openFilePicker(attachedTo: .popover) },
             onPickFolderFromSheet: { [weak self] in self?.openFilePicker(attachedTo: .sheet) }
         ).environment(appState)
-        hostingController = NSHostingController(rootView: AnyView(root))
-        hostingController.sizingOptions = .preferredContentSize
 
-        // Fix: pin to .aqua so the view always renders with active appearance
-        // regardless of whether the popover window is key. This is purely
-        // visual — no class patching, no observers needed.
-        hostingController.view.appearance = NSAppearance(named: .aqua)
-        log("Popover", "hostingController.view.appearance pinned to .aqua")
+        contentVC = PopoverContentViewController(rootView: AnyView(root))
+        contentVC.preferredContentSize = NSSize(width: 320, height: 300)
 
         popover = NSPopover()
-        popover.contentViewController = hostingController
+        popover.contentViewController = contentVC
         popover.contentSize = NSSize(width: 320, height: 300)
         popover.animates = true
         popover.behavior = .applicationDefined
         popover.delegate = self
-        log("Popover", "configured behavior=.applicationDefined")
+        log("Popover", "configured, contentVC=PopoverContentViewController")
     }
 
     private func openPopover() {
