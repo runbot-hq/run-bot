@@ -17,21 +17,24 @@
 // Pinned to popover.isShown via popoverWillShow / popoverDidClose.
 //
 // POPOVER ACTIVE APPEARANCE:
-// The popover window is an NSPanel. When a sheet or picker steals key focus
+// The popover window is an NSPanel. When another window steals key focus
 // the panel renders as "inactive" (dimmed border, washed-out controls).
-// Fix: inject an AlwaysActivePopoverWindow subclass via NSPopover.setValue
-// that overrides isKeyWindow -> true so AppKit always draws it as active.
+// Fix: after the popover window exists, use object_setClass to replace its
+// runtime class with AlwaysActivePopoverWindow, which overrides isKeyWindow
+// to always return true. AppKit then always draws it as focused/active.
 //
 // REQUIREMENTS: macOS 26+, Swift 6.2
 
 import AppKit
+import ObjectiveC
 import SwiftUI
 
 // MARK: - AlwaysActivePopoverWindow
-// Overrides isKeyWindow so the popover always draws with active (focused)
-// appearance regardless of which window actually holds key status.
+// Applied via object_setClass after the popover window is created.
+// Overrides isKeyWindow so AppKit always renders with active appearance.
 final class AlwaysActivePopoverWindow: NSPanel {
     override var isKeyWindow: Bool { true }
+    override var canBecomeKey: Bool { true }
 }
 
 // MARK: - Entry point
@@ -78,6 +81,7 @@ final class NavSheetAppDelegate: NSObject, NSApplicationDelegate {
     private var hostingController: NSHostingController<AnyView>!
     nonisolated(unsafe) private var eventMonitor: Any?
     private var appState = NavSheetAppState()
+    private var windowPatched = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -113,16 +117,25 @@ final class NavSheetAppDelegate: NSObject, NSApplicationDelegate {
         popover.animates = true
         popover.behavior = .applicationDefined
         popover.delegate = self
-        // Inject our always-active window class before the popover is shown
-        // so AppKit uses it when creating the panel.
-        popover.setValue(AlwaysActivePopoverWindow.self, forKeyPath: "windowClass")
     }
 
     private func openPopover() {
         guard let button = statusItem.button else { return }
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         button.isHighlighted = true
+        patchPopoverWindowClass()
         startEventMonitor()
+    }
+
+    // Patch the popover window's runtime class to AlwaysActivePopoverWindow
+    // so isKeyWindow always returns true. Must run after show so the window
+    // exists. Only needs to happen once — the same window is reused.
+    private func patchPopoverWindowClass() {
+        guard !windowPatched,
+              let window = popover.contentViewController?.view.window
+        else { return }
+        object_setClass(window, AlwaysActivePopoverWindow.self)
+        windowPatched = true
     }
 
     private func setButtonHighlight(_ on: Bool) {
@@ -183,6 +196,10 @@ final class NavSheetAppDelegate: NSObject, NSApplicationDelegate {
 extension NavSheetAppDelegate: NSPopoverDelegate {
     func popoverWillShow(_ notification: Notification) {
         setButtonHighlight(true)
+    }
+    func popoverDidShow(_ notification: Notification) {
+        // Window now exists — patch if not done yet.
+        patchPopoverWindowClass()
     }
     func popoverShouldClose(_ popover: NSPopover) -> Bool {
         appState.overlayCount == 0
