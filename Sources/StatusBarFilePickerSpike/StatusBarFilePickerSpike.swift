@@ -2,16 +2,23 @@
 import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
-import OSLog
-
-private let logger = Logger(subsystem: "com.runbot.StatusBarFilePickerSpike", category: "picker")
 
 private func log(_ msg: String, function: String = #function, line: Int = #line) {
-    logger.debug("\(function):\(line) \(msg)")
+    // stderr is inherited from the launching shell and is unbuffered.
+    // This is the only reliable way to get inline terminal output from a GUI app.
+    var stderr = FileHandle.standardError
+    let ts = ISO8601DateFormatter().string(from: Date())
+    let out = "[\(ts)] \(function):\(line) \(msg)\n"
+    stderr.write(out.data(using: .utf8)!)
 }
 
 @main
 struct StatusBarFilePickerApp: App {
+    init() {
+        // Disable buffering on stderr so every log() call appears immediately.
+        setvbuf(Foundation.stderr, nil, _IONBF, 0)
+        log("app init")
+    }
     var body: some Scene {
         MenuBarExtra {
             ContentView()
