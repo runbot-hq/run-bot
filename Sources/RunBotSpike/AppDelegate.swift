@@ -121,11 +121,18 @@ final class NavSheetAppDelegate: NSObject, NSApplicationDelegate {
         NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didActivateApplicationNotification,
             object: nil,
-            queue: .main
+            queue: nil  // nil = deliver on the poster's thread; we hop to MainActor below
         ) { [weak self] notification in
+            // Capture activated before the actor hop — NSRunningApplication is
+            // Sendable so this crosses the isolation boundary safely.
             let activated = notification.userInfo?[NSWorkspace.applicationUserInfoKey]
                 as? NSRunningApplication
-            MainActor.assumeIsolated {
+            // Task { @MainActor } is the Swift 6-correct hop: compiler-enforced
+            // actor isolation (P4). Previously used MainActor.assumeIsolated with
+            // queue: .main — that is a runtime assertion, not a compile-time
+            // guarantee, and violates P4. queue: nil + Task { @MainActor } gives
+            // the same delivery ordering with full actor-checking.
+            Task { @MainActor [weak self] in
                 guard let self, self.popover.isShown else { return }
                 guard activated != NSRunningApplication.current else {
                     // NSApp.activate() above triggers this notification for ourselves;
@@ -146,7 +153,7 @@ final class NavSheetAppDelegate: NSObject, NSApplicationDelegate {
         guard eventMonitor == nil else { return }
         // Task { @MainActor } rather than DispatchQueue.main.async — the global
         // monitor callback is a non-isolated closure; Task { @MainActor } is the
-        // Swift 6-correct way to hop to the main actor. DispatchQueue.main.async
+        // Swift 6-correct way to hop to the main actor (P4). DispatchQueue.main.async
         // bypasses actor checking and should not be copied into the main app.
         eventMonitor = NSEvent.addGlobalMonitorForEvents(
             matching: [.leftMouseDown, .rightMouseDown]
