@@ -38,6 +38,15 @@
 //     appState.hasActiveOverlay is set synchronously when isPresented flips,
 //     so it can never lag behind the actual UI state.
 //
+// WHY hasActiveOverlay IS CLEARED IN popoverDidClose:
+//   anchoredSheet and openFilePicker clear hasActiveOverlay on normal dismiss.
+//   But if the popover is closed by a path that bypasses those flows (system
+//   gesture, future code path, crash recovery), the flag could be left true.
+//   A stale true means popoverShouldClose blocks every subsequent dismiss
+//   permanently until the app restarts. Clearing it unconditionally in
+//   popoverDidClose is the safety net — the popover closing is ground truth
+//   that no overlay can still be live.
+//
 // DIVERGENCE FROM PopoverLifecycleCoordinator:
 //   The production PopoverLifecycleCoordinator uses isSheetDismissing +
 //   suppressHidePanel() to suppress the workspace observer during sheet teardown.
@@ -192,5 +201,12 @@ extension NavSheetAppDelegate: NSPopoverDelegate {
         log("Popover", "popoverDidClose")
         setButtonHighlight(false)
         stopEventMonitor()
+        // Safety net: clear the dismiss gate unconditionally. Under normal flow
+        // anchoredSheet and openFilePicker clear hasActiveOverlay themselves, but
+        // if the popover is closed by any path that bypasses those flows the flag
+        // would be left true, permanently blocking all future dismiss attempts.
+        // The popover closing is ground truth that no overlay can still be live.
+        appState.hasActiveOverlay = false
+        log("Popover", "hasActiveOverlay reset to false on close")
     }
 }
