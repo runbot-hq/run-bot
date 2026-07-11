@@ -14,6 +14,9 @@
 // .transient never reliably fires. Instead:
 //   - .behavior = .applicationDefined (AppKit never auto-closes)
 //   - A global NSEvent monitor fires on every outside click → performClose()
+//   - NSWorkspace.didActivateApplicationNotification closes on Cmd+Tab /
+//     clicking into another app; self-activation (e.g. after NSOpenPanel
+//     closes) is ignored via NSRunningApplication.current guard
 //   - popoverShouldClose returns false when overlayCount > 0, blocking
 //     dismissal while a sheet or file picker is open
 //   - overlayCount is managed explicitly
@@ -89,6 +92,7 @@ final class NavSheetAppDelegate: NSObject, NSApplicationDelegate {
     private var popover: NSPopover!
     private var hostingController: NSHostingController<AnyView>!
     nonisolated(unsafe) private var eventMonitor: Any?
+    private var workspaceObserver: (any NSObjectProtocol)?
     private var appState = NavSheetAppState()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -96,6 +100,7 @@ final class NavSheetAppDelegate: NSObject, NSApplicationDelegate {
         NSApp.setActivationPolicy(.accessory)
         setupStatusItem()
         setupPopover()
+        setupWorkspaceObserver()
     }
 
     private func setupStatusItem() {
@@ -132,6 +137,28 @@ final class NavSheetAppDelegate: NSObject, NSApplicationDelegate {
         log("Popover", "configured behavior=.applicationDefined")
     }
 
+    // MARK: - Workspace observer (close on app-switch)
+
+    private func setupWorkspaceObserver() {
+        workspaceObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didActivateApplicationNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let self else { return }
+            guard self.popover.isShown else { return }
+            let activated = notification.userInfo?[NSWorkspace.applicationUserInfoKey]
+                as? NSRunningApplication
+            guard activated != NSRunningApplication.current else {
+                log("WorkspaceObserver", "self-activation (e.g. after panel close), ignoring")
+                return
+            }
+            log("WorkspaceObserver", "other app activated (\(activated?.localizedName ?? "?")) -> performClose")
+            self.popover.performClose(nil)
+        }
+        log("WorkspaceObserver", "installed")
+    }
+
     private func openPopover() {
         guard let button = statusItem.button else {
             log("Popover", "openPopover: no status button, aborting")
@@ -151,7 +178,8 @@ final class NavSheetAppDelegate: NSObject, NSApplicationDelegate {
         log("StatusItem", "isHighlighted=\(on)")
     }
 
-    // MARK: - Global event monitor
+    // MARK: - Global event monitor (outside click)
+
     private func startEventMonitor() {
         guard eventMonitor == nil else {
             log("EventMonitor", "already running, skipping")
