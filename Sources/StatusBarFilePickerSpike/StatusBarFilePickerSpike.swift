@@ -1,19 +1,24 @@
 // StatusBarFilePickerSpike.swift
 // StatusBarFilePickerSpike — spike/statusbar-filepicker branch
 //
-// Swift 6 marks NSOpenPanel.runModal() as @MainActor. Calling it from a
-// detached Thread triggers a runtime actor-isolation trap even though
-// AppKit explicitly supports runModal() from any thread (it pumps its own
-// event loop via NSModalSession and is thread-safe at the ObjC level).
+// WHY WE DROPPED MenuBarExtra:
+//   MenuBarExtraWindow is NSNonactivatingPanel. Child windows of a
+//   non-activating panel can’t receive key events without hacks (activation
+//   policy dance, ObjC selector trampolines, etc). Every workaround either
+//   crashes under Swift 6 strict concurrency or causes a visible Dock bounce.
 //
-// Fix: wrap the thread body in a helper class and use
-// performSelector(onThread:) to drive the ObjC-level -runModal call.
-// This bypasses Swift’s actor checker entirely — same as every AppKit app
-// before Swift actors existed.
+// SOLUTION: manual NSStatusBar + borderless NSWindow.
+//   A plain NSWindow has no activation constraints. NSOpenPanel works
+//   as a normal child window with no tricks required.
 //
-// No activation policy change. No Dock bounce.
+//   • NSStatusItem holds the menu bar icon.
+//   • Clicking the icon toggles a borderless NSWindow (the “panel”).
+//   • The window uses NSPanel subclass with .nonactivatingPanel so clicking
+//     it doesn’t steal focus from other apps — same UX as MenuBarExtra.
+//   • NSOpenPanel is shown with beginSheetModal(for:) which attaches it as
+//     a sheet to our window — no child window wrangling needed at all.
 //
-// REQUIREMENTS: macOS 26, Swift 6
+// REQUIREMENTS: macOS 14+, Swift 6
 // DEPENDENCIES: none
 
 import AppKit
@@ -23,19 +28,85 @@ import SwiftUI
 
 @main
 struct StatusBarFilePickerApp: App {
-    var body: some Scene {
-        MenuBarExtra {
-            ContentView()
-        } label: {
-            Image(systemName: "folder.badge.plus")
+    @NSApplicationDelegateAdaptor(AppDelegate.self) var delegate
+    var body: some Scene { Settings { EmptyView() } }
+}
+
+// MARK: - AppDelegate
+
+@MainActor
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    private var statusItem: NSStatusItem!
+    private var popoverWindow: NSPanel!
+    private var hostingView: NSHostingView<ContentView>!
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        NSApp.setActivationPolicy(.accessory)
+
+        // Status bar icon
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        statusItem.button?.image = NSImage(systemSymbolName: "folder.badge.plus", accessibilityDescription: nil)
+        statusItem.button?.action = #selector(togglePopover)
+        statusItem.button?.target = self
+
+        // Borderless non-activating panel — same feel as MenuBarExtra(.window)
+        let size = CGSize(width: 320, height: 280)
+        popoverWindow = NSPanel(
+            contentRect: NSRect(origin: .zero, size: size),
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
+        )
+        popoverWindow.isFloatingPanel = true
+        popoverWindow.becomesKeyOnlyIfNeeded = true
+        popoverWindow.isMovable = false
+        popoverWindow.backgroundColor = .windowBackgroundColor
+        popoverWindow.hasShadow = true
+
+        let contentView = ContentView(pickFile: { [weak self] completion in
+            self?.showFilePicker(completion: completion)
+        })
+        hostingView = NSHostingView(rootView: contentView)
+        hostingView.frame = NSRect(origin: .zero, size: size)
+        popoverWindow.contentView = hostingView
+    }
+
+    @objc private func togglePopover() {
+        if popoverWindow.isVisible {
+            popoverWindow.orderOut(nil)
+        } else {
+            positionPopover()
+            popoverWindow.makeKeyAndOrderFront(nil)
         }
-        .menuBarExtraStyle(.window)
+    }
+
+    private func positionPopover() {
+        guard let button = statusItem.button,
+              let screen = button.window?.screen ?? NSScreen.main else { return }
+        let buttonRect = button.window!.convertToScreen(button.frame)
+        let x = buttonRect.midX - popoverWindow.frame.width / 2
+        let y = buttonRect.minY - popoverWindow.frame.height - 4
+        let clamped = max(screen.visibleFrame.minX, min(x, screen.visibleFrame.maxX - popoverWindow.frame.width))
+        popoverWindow.setFrameOrigin(NSPoint(x: clamped, y: y))
+    }
+
+    private func showFilePicker(completion: @escaping @MainActor (URL?) -> Void) {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.canCreateDirectories = false
+        // Sheet attaches to our window — no child window tricks, no activation
+        panel.beginSheetModal(for: popoverWindow) { response in
+            completion(response == .OK ? panel.url : nil)
+        }
     }
 }
 
 // MARK: - Content
 
 struct ContentView: View {
+    let pickFile: (@escaping @MainActor (URL?) -> Void) -> Void
     @State private var pickedURL: URL?
 
     var body: some View {
@@ -47,7 +118,7 @@ struct ContentView: View {
             Divider()
 
             Button("Pick File") {
-                FilePickerRunner.run { url in pickedURL = url }
+                pickFile { url in pickedURL = url }
             }
             .frame(maxWidth: .infinity)
 
@@ -71,46 +142,5 @@ struct ContentView: View {
         }
         .padding(16)
         .frame(minWidth: 320, minHeight: 280)
-    }
-}
-
-// MARK: - FilePickerRunner
-//
-// NSObject subclass so we can use performSelector(onThread:) to call
-// -runModal at the ObjC level, bypassing Swift’s @MainActor enforcement.
-// AppKit’s runModal has always been callable from any thread — this is
-// the standard pattern pre-Swift-actors.
-
-final class FilePickerRunner: NSObject, @unchecked Sendable {
-    private let panel: NSOpenPanel
-    private let completion: @MainActor (URL?) -> Void
-
-    private init(panel: NSOpenPanel, completion: @escaping @MainActor (URL?) -> Void) {
-        self.panel = panel
-        self.completion = completion
-    }
-
-    /// Call from the main actor. Creates the panel on main, then runs modal
-    /// on a detached thread without blocking the main run loop.
-    @MainActor
-    static func run(completion: @escaping @MainActor (URL?) -> Void) {
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = true
-        panel.canChooseDirectories = false
-        panel.allowsMultipleSelection = false
-        panel.canCreateDirectories = false
-
-        let runner = FilePickerRunner(panel: panel, completion: completion)
-        let thread = Thread(target: runner, selector: #selector(runOnThread), object: nil)
-        thread.start()
-    }
-
-    @objc private func runOnThread() {
-        // ObjC-level call — not subject to Swift actor isolation checks.
-        let response = panel.runModal()
-        let url = response == .OK ? panel.url : nil
-        DispatchQueue.main.async { [completion] in
-            Task { @MainActor in completion(url) }
-        }
     }
 }
