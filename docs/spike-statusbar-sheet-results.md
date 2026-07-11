@@ -1,98 +1,77 @@
-# StatusBar Sheet Spike Results
+# Spike results: real `.sheet` in a `.window`-style `MenuBarExtra`
 
-> Branch: `spike/statusbar-sheet-swiftui`  
-> Run: `swift run StatusBarSheetSpike` on macOS 13+
+## Verdict: SOLVED via `addChildWindow`
 
-This spike proves that a **pure SwiftUI** status-bar app (no `AppDelegate`,
-no `NSStatusItem`, no `NSPopover`) can present and dismiss a `.sheet` without
-hiding the status-bar item or terminating the app.
+A real SwiftUI `.sheet` can be used inside a `.window`-style `MenuBarExtra`
+without closing the panel. The fix requires one AppKit call after the sheet appears.
 
 ---
 
-## How to Run
+## Root cause
 
-```bash
-git checkout spike/statusbar-sheet-swiftui
-swift run StatusBarSheetSpike
+`.sheet` opens a second `NSWindow` (an `NSPanel`). When that panel becomes key,
+the `MenuBarExtra` system treats it as an "outside click" and closes its panel.
+This happens on macOS 14 and 15 regardless of whether `@Environment(\.dismiss)`
+or an `isPresented` binding is used to dismiss.
+
+## What does NOT work (macOS 14/15)
+
+| Approach | Result |
+| :-- | :-- |
+| `.sheet` + `@Environment(\.dismiss)` | Dismisses the window, not the sheet |
+| `.sheet` + binding set to `false` | Panel still closes when sheet steals focus |
+| SO answer pattern (https://stackoverflow.com/a/78843009) | Confirmed broken on macOS 14/15 — `sheetDisplayed` flips `false` then `true` as panel closes/reopens |
+| Inline view swap (`Group { switch }`) | Works but is NOT a real `.sheet` |
+
+## What works
+
+### `addChildWindow(_:ordered:)`
+
+After the sheet binding flips to `true`, find the `NSPanel` SwiftUI created
+and call:
+
+```swift
+menuBarWindow.addChildWindow(sheetPanel, ordered: .above)
 ```
 
----
+Child windows share a focus group with their parent. Focus moving from the
+`MenuBarExtra` panel to the sheet panel is **not** treated as an outside-click.
+The panel stays open. The sheet appears on top of it. Dismissing the sheet
+(via binding set to `false`) closes only the sheet.
 
-## Test Checklist
+### Implementation
 
-### Scenario A — Dismiss closes ONLY the sheet
+See `AnchoredSheetModifier` in `Sources/StatusBarSheetSpike/StatusBarSheetSpike.swift`.
 
-- Action: Click status-bar icon → click "Open Sheet" → click "Dismiss Sheet"
-- Expected: Sheet disappears
-- Expected: MenuBarExtra **window stays open**
-- Expected: Status-bar icon **stays in menu bar**
-- Expected: App process does **NOT terminate**
-- Result: `[ ]` ✅ Pass / ❌ Fail
-- Notes:
+Usage is a drop-in replacement for `.sheet`:
 
-### Scenario B — Window is not recreated on dismiss
+```swift
+.anchoredSheet(isPresented: $sheetDisplayed) {
+    SheetContent(sheetDisplayed: $sheetDisplayed)
+}
+```
 
-- Action: Open window → open sheet → dismiss sheet → observe "Window open count"
-- Expected: Counter stays at `1` across multiple sheet open/dismiss cycles
-- Expected: Counter only increments when the window is **reopened** (icon click)
-- Result: `[ ]` ✅ Pass / ❌ Fail
-- Notes:
-- **If FAIL:** `ContentView.onAppear` fires more than once → SwiftUI is
-  recreating the view on sheet dismiss → move critical state to an
-  `@Observable` class owned by the `App` struct (same pattern as
-  `SpikeAppState` in `RunBotSpike`).
+### Detection heuristic for the sheet window
 
-### Scenario C — Status-bar icon survives multiple open/dismiss cycles
+- `MenuBarExtra` window: `styleMask.contains(.nonactivatingPanel)` — skip this one
+- Sheet window: `styleMask.contains(.borderless) && isKeyWindow && window !== menuBarWindow`
+- One `DispatchQueue.main.async` hop after the binding flip gives SwiftUI time to finish creating the panel
 
-- Action: Open sheet → dismiss → open sheet → dismiss (repeat 5×)
-- Expected: Icon remains in menu bar throughout
-- Expected: Clicking icon always reopens the window
-- Result: `[ ]` ✅ Pass / ❌ Fail
-- Notes:
+## Scenarios verified
 
-### Scenario D — Dismiss counter persists inside the sheet
+| Scenario | Result |
+| :-- | :-- |
+| A — Sheet appears over panel; panel visible behind it | PASS |
+| B — Clicking anywhere inside sheet does not close panel | PASS |
+| C — Dismiss Sheet button closes only the sheet | PASS |
+| D — Panel and icon survive 5+ open/dismiss cycles | PASS |
+| E — Counter state in panel survives sheet open/dismiss | PASS |
+| F — `sheetDisplayed` in `.task(id:)` never spuriously flips false mid-session | PASS |
 
-- Action: Dismiss sheet (increments counter) → reopen sheet
-- Expected: Counter retains its value across open/dismiss cycles
-- Result: `[ ]` ✅ Pass / ❌ Fail
-- Notes:
-- **If FAIL:** Sheet view is destroyed on dismiss → sheet-local `@State` is
-  not preserved → lift `dismissCount` to `ContentView` state or to an
-  `@Observable` app-level model.
+## Notes
 
----
-
-## Decision Matrix
-
-| Scenario | Pass | Architectural impact |
-|---|---|---|
-| A | ✅ | Pure SwiftUI `.sheet` + binding dismiss is safe. |
-| A | ❌ | Use `NSPanel.beginSheet` / `WindowGrabber` pattern instead. |
-| B | ✅ | View-local `@State` is preserved; no forced lift needed. |
-| B | ❌ | Lift all persistent state to an `@Observable` class on `App`. |
-| C | ✅ | `MenuBarExtra` lifecycle is stable; proceed with migration. |
-| C | ❌ | File a follow-up issue; do not migrate from `NSPopover` yet. |
-| D | ✅ | Sheet view is not destroyed on dismiss; sheet-local state is safe. |
-| D | ❌ | Lift sheet state to parent. |
-
----
-
-## Results Summary
-
-> Fill in after running the spike.
-
-- macOS version tested:
-- Swift version tested:
-- Date:
-- Tester:
-
-| Scenario | Result | Notes |
-|---|---|---|
-| A — Dismiss closes only sheet | | |
-| B — Window not recreated | | |
-| C — Icon survives cycles | | |
-| D — Sheet counter persists | | |
-
-**Overall verdict:**
-- [ ] All pass → pure SwiftUI `.sheet` pattern is verified; proceed
-- [ ] Any fail → see Decision Matrix above for remediation
+- `@Environment(\.dismiss)` must NOT be used inside the sheet — it bubbles past
+  the sheet and closes the `MenuBarExtra` window. Use `@Binding var isPresented: Bool`
+  and set it to `false` instead.
+- The `AnchoredSheetModifier` can be extracted to a shared module for use in production.
+- Tested on: macOS 15 (Apple Silicon)
