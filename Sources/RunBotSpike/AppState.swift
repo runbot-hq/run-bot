@@ -3,14 +3,10 @@
 
 import Foundation
 
-// MARK: - Route
-
 enum NavSheetRoute: Equatable {
     case main
     case settings
 }
-
-// MARK: - App state
 
 @Observable
 @MainActor

@@ -34,7 +34,7 @@ struct NavSheetMainView: View {
             GroupBox(".task fire count") {
                 Text("\(appState.taskFireCount)x").monospacedDigit()
                 if appState.taskFireCount > 1 {
-                    Text("FAIL: fired more than once - view recreated")
+                    Text("FAIL: fired more than once")
                         .font(.caption).foregroundStyle(.red)
                 } else {
                     Text("PASS: fired once")

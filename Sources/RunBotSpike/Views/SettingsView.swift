@@ -5,8 +5,6 @@ import SwiftUI
 
 struct NavSheetSettingsView: View {
     @Environment(NavSheetAppState.self) private var appState
-    let onPickFolder: () -> Void
-    let onPickFolderFromSheet: () -> Void
 
     var body: some View {
         @Bindable var appState = appState
@@ -48,14 +46,13 @@ struct NavSheetSettingsView: View {
                 .font(.caption)
             }
             .anchoredSheet(isPresented: $appState.showSettingsSheet, overlayCount: $appState.overlayCount) {
-                NavSheetSheetView(onPickFolder: onPickFolderFromSheet)
+                NavSheetSheetView()
                     .environment(appState)
             }
 
             GroupBox("File picker (from settings)") {
                 Button("Choose folder...") {
-                    log("SettingsView", "requesting file picker from settings")
-                    onPickFolder()
+                    openFilePicker(target: .popover, appState: appState)
                 }
                 if !appState.pickedFolderPath.isEmpty {
                     Text(appState.pickedFolderPath)

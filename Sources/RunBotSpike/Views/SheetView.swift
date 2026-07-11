@@ -5,7 +5,6 @@ import SwiftUI
 
 struct NavSheetSheetView: View {
     @Environment(NavSheetAppState.self) private var appState
-    let onPickFolder: () -> Void
 
     var body: some View {
         @Bindable var appState = appState
@@ -41,8 +40,7 @@ struct NavSheetSheetView: View {
 
             GroupBox("File picker from sheet") {
                 Button("Choose folder...") {
-                    log("SheetView", "requesting file picker from sheet")
-                    onPickFolder()
+                    openFilePicker(target: .sheet, appState: appState)
                 }
                 if !appState.sheetPickedFolderPath.isEmpty {
                     Text(appState.sheetPickedFolderPath)

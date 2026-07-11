@@ -5,8 +5,6 @@ import SwiftUI
 
 struct NavSheetRootView: View {
     @Environment(NavSheetAppState.self) private var appState
-    let onPickFolder: () -> Void
-    let onPickFolderFromSheet: () -> Void
 
     var body: some View {
         switch appState.route {
@@ -18,11 +16,8 @@ struct NavSheetRootView: View {
                     log("Task", ".task fired count=\(appState.taskFireCount) (should be 1)")
                 }
         case .settings:
-            NavSheetSettingsView(
-                onPickFolder: onPickFolder,
-                onPickFolderFromSheet: onPickFolderFromSheet
-            )
-            .environment(appState)
+            NavSheetSettingsView()
+                .environment(appState)
         }
     }
 }
