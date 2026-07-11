@@ -1,6 +1,6 @@
 // swift-tools-version:6.2
 // ⚠️ AI AGENT: Never commit Package.resolved. Never pin deps to a revision or exact hash.
-// branch: "main" deps resolve to HEAD on every CI run — intentional. Fix call sites, not pins.
+// branch: "main" deps resolve to HEAD on every CI run — intentional. Fix call sites, not deps.
 // These comments are deliberate guardrails — see AGENTS.md § Boundaries and README.md § External Dependencies.
 import PackageDescription
 
@@ -48,6 +48,21 @@ let package = Package(
             path: "Sources/RunBot",
             swiftSettings: [
                 .enableUpcomingFeature("NonisolatedNonsendingByDefault")
+            ]
+        ),
+        // ── Spike target ────────────────────────────────────────────────────────
+        // Self-contained StatusBar + sheet behaviour test.
+        // Zero RunBot dependencies — pure SwiftUI + AppKit.
+        // Verifies that dismiss() inside a .sheet on a .window-style MenuBarExtra
+        // hides only the sheet, NOT the status-bar item or the app process.
+        // Run with: swift run StatusBarSheetSpike
+        // Remove this target once spike-results.md is filled in.
+        .executableTarget(
+            name: "StatusBarSheetSpike",
+            dependencies: [],
+            path: "Sources/StatusBarSheetSpike",
+            swiftSettings: [
+                .swiftLanguageMode(.v6)
             ]
         ),
         .testTarget(
