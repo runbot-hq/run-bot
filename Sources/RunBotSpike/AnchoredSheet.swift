@@ -35,6 +35,16 @@
 //   fragile (counter could desync on error paths). popoverShouldClose now reads
 //   win.sheets (NSOpenPanel attached as sheet) and win.childWindows (SwiftUI sheet
 //   attached via addChildWindow) directly — no counters needed.
+//
+// SHEET WINDOW DISCRIMINATOR:
+//   We match the sheet window by checking its contentViewController is an
+//   NSHostingController<AnyView>. This is an exact type match — only the SwiftUI
+//   sheet window will pass it. The previous approach used .isKeyWindow, which is
+//   fragile: other borderless windows (e.g. NSOpenPanel during dismiss, OS
+//   animations) can briefly become key and cause addChildWindow to attach the
+//   wrong window.
+//   MIGRATION NOTE: if SwiftUI changes its hosting controller type this check
+//   will stop matching. Validate on each major OS update.
 
 import AppKit
 import SwiftUI
@@ -77,17 +87,19 @@ struct NavAnchoredSheetModifier<SheetContent: View>: ViewModifier {
             return
         }
         DispatchQueue.main.async {
-            // Find the sheet window SwiftUI just created: it will be borderless
-            // and key (focused) but is not the popover window itself.
+            // Match by contentViewController type — NSHostingController<AnyView>
+            // is only ever set on the window SwiftUI creates for .sheet().
+            // This is more precise than .isKeyWindow which can transiently match
+            // unrelated borderless windows (NSOpenPanel, OS animations).
             if let sheetWindow = NSApp.windows.first(where: {
                 $0 !== popoverWindow
                     && $0.styleMask.contains(.borderless)
-                    && $0.isKeyWindow
+                    && $0.contentViewController is NSHostingController<AnyView>
             }) {
                 log("AnchoredSheet", "addChildWindow")
                 popoverWindow.addChildWindow(sheetWindow, ordered: .above)
             } else {
-                log("AnchoredSheet", "no borderless+key window found")
+                log("AnchoredSheet", "no NSHostingController<AnyView> window found")
             }
         }
     }

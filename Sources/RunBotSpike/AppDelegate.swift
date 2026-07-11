@@ -36,6 +36,14 @@
 //     window (see AnchoredSheet.swift). Same reason — block dismiss.
 //
 //   Both checks read live window state, so they cannot desync the way a counter would.
+//
+// DIVERGENCE FROM PopoverLifecycleCoordinator:
+//   The production PopoverLifecycleCoordinator uses isSheetDismissing +
+//   suppressHidePanel() to suppress the workspace observer during sheet teardown.
+//   This spike does NOT use that flag — it relies solely on window hierarchy
+//   inspection (win.sheets / win.childWindows). Do not conflate the two
+//   approaches when migrating; the production flag exists to handle a teardown
+//   race that this spike does not cover.
 
 import AppKit
 import SwiftUI
@@ -135,10 +143,14 @@ final class NavSheetAppDelegate: NSObject, NSApplicationDelegate {
 
     private func startEventMonitor() {
         guard eventMonitor == nil else { return }
+        // Task { @MainActor } rather than DispatchQueue.main.async — the global
+        // monitor callback is a non-isolated closure; Task { @MainActor } is the
+        // Swift 6-correct way to hop to the main actor. DispatchQueue.main.async
+        // bypasses actor checking and should not be copied into the main app.
         eventMonitor = NSEvent.addGlobalMonitorForEvents(
             matching: [.leftMouseDown, .rightMouseDown]
         ) { [weak self] _ in
-            DispatchQueue.main.async {
+            Task { @MainActor [weak self] in
                 // Goes through popoverShouldClose — will be blocked if a sheet
                 // or file picker is open.
                 self?.popover.performClose(nil)
