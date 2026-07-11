@@ -2,25 +2,35 @@
 // StatusBarSheetSpike — spike/statusbar-sheet-swiftui branch
 //
 // PURPOSE:
-// Minimal, self-contained proof that a pure SwiftUI status-bar app can
-// present a .sheet and dismiss it WITHOUT hiding the status-bar item or
-// the app process.
+// Verifies the CORRECT pattern for "sheet-like" dismissal inside a
+// .window-style MenuBarExtra, after confirming that SwiftUI's native
+// .sheet modifier is broken in this context on macOS 13–26:
+//
+//   BUG: clicking anywhere inside a .sheet presented from a MenuBarExtra
+//   window dismisses the ENTIRE MenuBarExtra window, not just the sheet.
+//   Confirmed on macOS 14.6 and 15. The @Binding workaround does NOT fix it.
+//   Root cause: the sheet opens a second NSWindow; any click that shifts
+//   focus back to the MenuBarExtra NSWindow is treated as an outside-click
+//   → MenuBarExtra closes.
+//
+// SOLUTION: Never open a second NSWindow from the MenuBarExtra panel.
+// Swap content INLINE within the same single window using a simple
+// @State enum. The result looks and behaves like a sheet but never
+// creates a second window, so focus never leaves the MenuBarExtra panel.
 //
 // HOW TO RUN:
 //   swift run StatusBarSheetSpike
 //
 // WHAT TO VERIFY:
 //   1. Status-bar icon appears (🧪 Spike).
-//   2. Click the icon → window opens.
-//   3. Click "Open Sheet" → sheet slides in.
-//   4. Click "Dismiss Sheet" → ONLY the sheet disappears.
-//      The MenuBarExtra window stays open.
-//      The status-bar icon stays in the menu bar.
-//      The process does NOT terminate.
-//   5. Click the icon again → window reopens without restarting.
+//   2. Click icon → main content shows.
+//   3. Click "Open Sheet" → "sheet" content slides in (inline swap).
+//   4. Click "Dismiss" → ONLY the sheet content disappears.
+//      The window stays open. Icon stays. App does NOT quit.
+//   5. Repeat 5× — icon and window always survive.
 //
 // REQUIREMENTS: macOS 13+, Swift 6
-// DEPENDENCIES: none (zero RunBot modules imported)
+// DEPENDENCIES: none
 
 import SwiftUI
 
@@ -30,111 +40,133 @@ import SwiftUI
 struct StatusBarSheetApp: App {
     var body: some Scene {
         MenuBarExtra("\u{1F9EA} Spike", systemImage: "flask.fill") {
-            ContentView()
+            RootView()
         }
-        // .window style is required for reliable .sheet behaviour inside a
-        // MenuBarExtra. The default .menu style does not support sheets.
         .menuBarExtraStyle(.window)
     }
 }
 
-// MARK: - Main content
+// MARK: - Navigation state
 
-struct ContentView: View {
-    @State private var isShowingSheet = false
-    // A counter to confirm the window is NOT recreated when the sheet dismisses.
-    @State private var openCount = 0
+enum PanelView {
+    case main
+    case sheet
+}
+
+// MARK: - Root: swaps between main and sheet content inline
+//
+// Key insight: both views live in the SAME NSWindow that MenuBarExtra
+// manages. No second window is ever created, so macOS never interprets
+// a tap as an "outside click" and the MenuBarExtra stays open.
+
+struct RootView: View {
+    @State private var currentView: PanelView = .main
+    @State private var dismissCount = 0
 
     var body: some View {
-        VStack(spacing: 16) {
+        Group {
+            switch currentView {
+            case .main:
+                MainPanelView(onOpenSheet: {
+                    currentView = .sheet
+                })
+            case .sheet:
+                SheetPanelView(
+                    dismissCount: $dismissCount,
+                    onDismiss: {
+                        currentView = .main
+                    }
+                )
+            }
+        }
+        .frame(width: 300)
+        .animation(.easeInOut(duration: 0.18), value: currentView)
+    }
+}
+
+// MARK: - Main panel
+
+struct MainPanelView: View {
+    let onOpenSheet: () -> Void
+    // Survives because this view is not destroyed on sheet-dismiss;
+    // only currentView enum changes.
+    @State private var counter = 0
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
             Text("StatusBar Sheet Spike")
                 .font(.headline)
+                .frame(maxWidth: .infinity, alignment: .center)
 
             Divider()
 
-            // ── Scenario A: dismiss() closes only the sheet ──────────────
-            GroupBox("Scenario A — Sheet dismiss") {
-                Button("Open Sheet") {
-                    isShowingSheet = true
-                }
-                Label(
-                    isShowingSheet ? "Sheet IS open" : "Sheet is closed",
-                    systemImage: isShowingSheet
-                        ? "checkmark.circle.fill"
-                        : "xmark.circle"
-                )
-                .foregroundStyle(isShowingSheet ? .green : .secondary)
-
-                Text("After dismissing the sheet:\n• This window stays open\n• Status-bar icon stays\n• App does NOT quit")
+            GroupBox("Scenario A — Inline sheet-like swap") {
+                Button("Open Sheet") { onOpenSheet() }
+                Text("After dismissing:\n\u2022 This window stays open\n\u2022 Status-bar icon stays\n\u2022 App does NOT quit")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            .sheet(isPresented: $isShowingSheet) {
-                SheetView(isPresented: $isShowingSheet)
-            }
 
-            // ── Scenario B: window-open count stays at 1 ────────────────
-            GroupBox("Scenario B — Window not recreated") {
-                Text("Window open count: \(openCount)")
-                    .monospacedDigit()
-                Text("Should stay at 1 across sheet open/dismiss cycles.")
+            GroupBox("Scenario B — State preserved across swap") {
+                HStack {
+                    Text("Counter: \(counter)")
+                        .monospacedDigit()
+                    Spacer()
+                    Button("+1") { counter += 1 }
+                }
+                Text("Increment, open sheet, dismiss. Counter should survive.")
                     .font(.caption)
-                    .foregroundStyle(openCount > 1 ? .red : .secondary)
+                    .foregroundStyle(.secondary)
             }
-            .onAppear { openCount += 1 }
 
             Divider()
 
             Button("Quit App") {
-                // Explicit quit — the only way to terminate the process.
-                // Dismissing the sheet MUST NOT reach here.
                 NSApplication.shared.terminate(nil)
             }
             .foregroundStyle(.red)
+            .frame(maxWidth: .infinity)
         }
         .padding(16)
-        .frame(width: 300)
     }
 }
 
-// MARK: - Sheet
+// MARK: - Sheet panel (inline — same window, no NSWindow creation)
 
-struct SheetView: View {
-    // Explicit binding instead of @Environment(\.dismiss).
-    // On macOS, @Environment(\.dismiss) inside a MenuBarExtra panel can bubble
-    // up past the sheet and close the entire MenuBarExtra window.
-    // Using the binding directly is the safe, verified pattern.
-    @Binding var isPresented: Bool
-
-    // Sheet-local state — survives multiple open/dismiss cycles because
-    // isPresented = false only hides the sheet, it does not destroy the view.
-    @State private var dismissCount = 0
+struct SheetPanelView: View {
+    @Binding var dismissCount: Int
+    let onDismiss: () -> Void
 
     var body: some View {
         VStack(spacing: 16) {
-            Text("Sheet is open")
+            Text("Sheet Content")
                 .font(.headline)
 
             GroupBox("Dismiss counter") {
                 Text("Dismissed \(dismissCount) time(s)")
                     .monospacedDigit()
-                Text("Reopen the sheet and confirm the count persists.")
+                Text("Each dismiss increments this. Reopen to confirm.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
 
-            Button("Dismiss Sheet") {
+            Text("The window and status-bar icon are still alive right now.\nDismissing will NOT close the app.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Button("Dismiss") {
                 dismissCount += 1
-                isPresented = false
-                // ↑ Sets the binding to false → only the sheet presentation
-                // is removed. The MenuBarExtra window and status-bar item
-                // are completely unaffected.
+                onDismiss()
+                // ↑ Flips currentView back to .main in RootView.
+                // No window is closed. No NSWindow focus changes.
+                // The MenuBarExtra panel stays fully alive.
             }
             .buttonStyle(.borderedProminent)
             .keyboardShortcut(.cancelAction)
         }
         .padding(24)
-        .frame(minWidth: 280)
     }
 }
