@@ -2,35 +2,23 @@
 // StatusBarSheetSpike — spike/statusbar-sheet branch
 //
 // PURPOSE:
-// Verifies that a pure-SwiftUI (no AppDelegate) macOS status bar app can
-// present a .sheet() INSIDE the MenuBarExtra window itself, and that
-// tapping Dismiss closes only the sheet — NOT the MenuBarExtra window
-// and NOT the status-bar icon.
+// Tests whether MenuBarExtra(.window) can host a .sheet() whose Dismiss
+// button closes ONLY the sheet and not the MenuBarExtra window.
 //
-// THE FIX (no AppKit hacks needed):
-//   1. Attach .sheet() to the outermost view in the root content struct.
-//   2. Put sheet content in a separate named View struct.
-//   Inline/anonymous sheet content causes SwiftUI's dismiss to walk up
-//   the responder chain and close the host window. A named child struct
-//   scopes the dismiss environment correctly.
-//
-// Source: https://stackoverflow.com/questions/78835562
+// APPROACH: NSWindowDelegate.windowShouldClose interception.
+// willClose fires AFTER the window is already gone.
+// windowShouldClose fires BEFORE — returning false blocks the close.
+// We only block it during the one runloop turn when a sheet dismiss
+// triggers the spurious close. Genuine outside-click closes pass through.
 //
 // HOW TO RUN:
 //   swift run StatusBarSheetSpike
-//
-// THEN:
-// 1. Click the 🧪 flask icon in the menu bar.
-// 2. Increment the counter.
-// 3. Click "Open Sheet" — sheet slides up inside the same window.
-// 4. Click "Dismiss" — only the sheet closes.
-//    Counter must be unchanged. 🧪 icon stays in menu bar.
-// 5. Click the icon again — it still works.
 //
 // REQUIREMENTS: macOS 26+, Swift 6.2
 // DEPENDENCIES: none
 
 import SwiftUI
+import AppKit
 
 // MARK: - Entry point
 
@@ -44,7 +32,7 @@ struct StatusBarSheetSpikeApp: App {
     }
 }
 
-// MARK: - Root content (lives inside MenuBarExtra)
+// MARK: - Root content
 
 struct SpikeContentView: View {
     @State private var isSheetPresented = false
@@ -64,7 +52,7 @@ struct SpikeContentView: View {
                     Spacer()
                     Button("+1") { counter += 1 }
                 }
-                Text("Increment, open sheet, dismiss. Counter must not reset.")
+                Text("Increment → open sheet → dismiss. Counter must not reset.")
                     .font(.caption).foregroundStyle(.secondary)
             }
 
@@ -79,34 +67,24 @@ struct SpikeContentView: View {
                 )
                 .foregroundStyle(isSheetPresented ? .green : .secondary)
 
-                Text("After Dismiss: only the sheet closes.\nThis window and the 🧪 icon must stay alive.")
+                Text("After Dismiss: only the sheet closes.\nThis window + 🧪 icon must stay alive.")
                     .font(.caption).foregroundStyle(.secondary)
             }
         }
         .padding(16)
         .frame(width: 320)
-        // KEY: .sheet() is on the outermost view in this struct,
-        // not on a nested child (GroupBox, Button, etc.).
         .sheet(isPresented: $isSheetPresented) {
-            // KEY: content is a separate named View struct, not an
-            // inline closure with views directly inside.
             SheetView(isPresented: $isSheetPresented)
         }
+        // Installs NSWindowDelegate on the host window to intercept
+        // the spurious windowShouldClose that fires on sheet dismiss.
+        .background(SheetDismissGuardView(isSheetPresented: isSheetPresented))
     }
 }
 
-// MARK: - Sheet content
-//
-// KEY: this is a separate named View struct.
-// If the sheet content were inline (e.g. VStack { ... } directly inside
-// the .sheet closure), SwiftUI's dismiss environment would walk up the
-// responder chain to the host NSWindow and close the entire MenuBarExtra
-// window. A named struct creates a new SwiftUI environment boundary that
-// scopes dismiss to the sheet only.
+// MARK: - Sheet
 
 struct SheetView: View {
-    // Explicit @Binding instead of @Environment(\.dismiss).
-    // Belt-and-suspenders: keeps dismiss fully local to this struct.
     @Binding var isPresented: Bool
     @State private var sheetCounter = 0
 
@@ -124,7 +102,7 @@ struct SheetView: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
 
-            Text("Tap Dismiss.\nOnly THIS sheet should close.\nThe MenuBarExtra window and 🧪 icon must survive.")
+            Text("Tap Dismiss.\nOnly THIS sheet should close.\nThe MenuBarExtra window + 🧪 icon must survive.")
                 .font(.callout)
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.secondary)
@@ -135,5 +113,77 @@ struct SheetView: View {
         }
         .padding(24)
         .frame(minWidth: 300)
+    }
+}
+
+// MARK: - SheetDismissGuardView
+//
+// Zero-size NSViewRepresentable. Its only job is to hand the current
+// isSheetPresented value to SheetDismissGuard on every SwiftUI render
+// so the delegate can detect the true→false transition.
+
+private struct SheetDismissGuardView: NSViewRepresentable {
+    let isSheetPresented: Bool   // plain value, not a Binding
+
+    func makeNSView(context: Context) -> NSView { NSView(frame: .zero) }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        guard let window = nsView.window else { return }
+        SheetDismissGuard.install(on: window, isSheetPresented: isSheetPresented)
+    }
+
+    func makeCoordinator() -> Void { }
+}
+
+// MARK: - SheetDismissGuard (NSWindowDelegate)
+//
+// Intercepts windowShouldClose before the close happens.
+//
+// Timeline on Dismiss tap:
+//   1. isPresented = false fires
+//   2. SwiftUI re-renders SpikeContentView with isSheetPresented=false
+//   3. updateNSView fires — guard detects true→false, sets suppressNextClose
+//   4. AppKit fires windowShouldClose on the host window
+//   5. We return false — close is blocked
+//   6. suppressNextClose is cleared
+//
+// Timeline on genuine outside-click:
+//   1. No isSheetPresented transition — suppressNextClose stays false
+//   2. windowShouldClose — we return true — window closes normally
+
+@MainActor
+private final class SheetDismissGuard: NSObject, NSWindowDelegate {
+    private static nonisolated(unsafe) var key: UInt8 = 0
+
+    static func install(on window: NSWindow, isSheetPresented: Bool) {
+        let guard_: SheetDismissGuard
+        if let existing = objc_getAssociatedObject(window, &key) as? SheetDismissGuard {
+            guard_ = existing
+        } else {
+            guard_ = SheetDismissGuard()
+            objc_setAssociatedObject(window, &key, guard_, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+            window.delegate = guard_
+        }
+        guard_.update(isSheetPresented: isSheetPresented)
+    }
+
+    private var suppressNextClose = false
+    private var wasPresented = false
+
+    func update(isSheetPresented: Bool) {
+        if wasPresented && !isSheetPresented {
+            // Sheet is being dismissed — arm the suppressor.
+            suppressNextClose = true
+        }
+        wasPresented = isSheetPresented
+    }
+
+    // NSWindowDelegate — called BEFORE the window closes.
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        if suppressNextClose {
+            suppressNextClose = false
+            return false   // block this close: it's the sheet-dismiss side-effect
+        }
+        return true        // allow: genuine outside-click or quit
     }
 }
