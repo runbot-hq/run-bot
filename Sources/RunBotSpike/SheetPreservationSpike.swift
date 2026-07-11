@@ -3,7 +3,7 @@
 //
 // PURPOSE:
 // Self-contained test for SwiftUI MenuBarExtra behaviour on macOS 26.
-// Answers all 8 questions required before migrating AppDelegate → RunBotApp.
+// Answers all 9 questions required before migrating AppDelegate → RunBotApp.
 // See docs/spike-results.md for the test checklist.
 // See issue #1987 for the migration context.
 //
@@ -12,10 +12,28 @@
 //
 // REQUIREMENTS: macOS 26+, Swift 6.2
 // DEPENDENCIES: none (zero RunBot modules imported)
+//
+// KEY DESIGN DECISION — no .sheet inside MenuBarExtra:
+// Presenting a .sheet directly inside a MenuBarExtra(.window) causes macOS to
+// treat the sheet as a separate window. When that sheet appears/dismisses, the
+// app briefly "loses focus", triggering MenuBarExtra's hide-on-deactivate and
+// collapsing the popover. This is a known macOS/SwiftUI bug (FB13290249).
+//
+// FIX: Use a dedicated Window scene for anything that was previously a sheet.
+// Open it imperatively via @Environment(\.openWindow). The MenuBarExtra never
+// sees a focus change because the Window scene is a sibling scene, not a child
+// of the MenuBarExtra content view tree.
 
 import SwiftUI
 import AppKit
 import UniformTypeIdentifiers
+
+// MARK: - Window scene IDs
+
+enum SpikeWindowID {
+    static let settings = "spike-settings"
+    static let childSheet = "spike-child-sheet"
+}
 
 // MARK: - Entry point
 
@@ -27,27 +45,43 @@ struct SheetSpikeApp: App {
     @State private var appState = SpikeAppState()
 
     var body: some Scene {
+        // ── Scene 1: MenuBarExtra — NO .sheet modifiers anywhere inside ──
         MenuBarExtra("\u{1F9EA} Spike", systemImage: "flask.fill") {
             SpikeRootView()
                 .environment(appState)
         }
         .menuBarExtraStyle(.window)
+
+        // ── Scene 2: Settings window (replaces .sheet) ───────────────────
+        // Opened via openWindow(id:) from inside MenuBarExtra content.
+        // Lives as a sibling scene so MenuBarExtra never loses focus.
+        Window("Spike Settings", id: SpikeWindowID.settings) {
+            SettingsWindowView()
+                .environment(appState)
+        }
+        .windowResizability(.contentSize)
+        .defaultSize(width: 360, height: 420)
+
+        // ── Scene 3: Child sheet window (Scenario 9) ─────────────────────
+        Window("Child Sheet", id: SpikeWindowID.childSheet) {
+            ChildSheetWindowView()
+                .environment(appState)
+        }
+        .windowResizability(.contentSize)
+        .defaultSize(width: 360, height: 320)
     }
 }
 
 // MARK: - App-level state (@Observable, owned by App struct)
-// Mirrors the proposed AppState in the real migration.
 
 @Observable
 @MainActor
 final class SpikeAppState {
-    // Navigation (mirrors AppState.navState)
     var navState: SpikeNavState = .main
 
-    // Sheet flags lifted to app level — the fallback if MenuBarExtra
-    // tears down view-local @State on close.
-    var showSettingsSheet: Bool = false
-    var sheetDraftText: String = ""
+    // Text shared between the MenuBarExtra and the Settings window,
+    // via @Observable — mirrors the AppState binding pattern in RunBot.
+    var sharedText: String = ""
 
     // Counter to detect .task re-execution (Scenario 5)
     var taskStartCount: Int = 0
@@ -62,6 +96,7 @@ enum SpikeNavState {
 
 struct SpikeRootView: View {
     @Environment(SpikeAppState.self) private var appState
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         @Bindable var appState = appState
@@ -77,12 +112,11 @@ struct SpikeRootView: View {
         }
         // Scenario 5: .task lifecycle — watch console for repeat prints.
         // Expected: prints ONCE at app launch, never again on close/reopen.
-        // If it prints on every open: scene recreates → .task is NOT app-lifetime.
         .task {
             await MainActor.run { appState.taskStartCount += 1 }
             print("\u{1F535} [Spike] .task started (count=\(appState.taskStartCount)) — should only print ONCE")
-            // Simulate RunBot's long-lived poll loop.
-            for await _ in AsyncStream<Void> { _ in } { }
+            let stream = AsyncStream<Void> { _ in }
+            for await _ in stream { }
         }
     }
 }
@@ -91,13 +125,9 @@ struct SpikeRootView: View {
 
 struct MainSpikeView: View {
     @Environment(SpikeAppState.self) private var appState
+    @Environment(\.openWindow) private var openWindow
 
-    // View-local @State — the critical test.
-    // If these survive close/reopen, view-local @State is preserved.
-    // If they reset, they must move to SpikeAppState.
     @State private var localCounter: Int = 0
-    @State private var localText: String = ""
-    @State private var showLocalSheet: Bool = false
     @State private var showFilePicker: Bool = false
 
     var body: some View {
@@ -123,45 +153,25 @@ struct MainSpikeView: View {
                     .foregroundStyle(.secondary)
             }
 
-            // ── Scenario 2: View-local TextField @State ──────────────────
-            GroupBox("Scenario 2 — View-local TextField") {
-                TextField("Type here...", text: $localText)
+            // ── Scenario 2: Shared @Observable text ──────────────────────
+            GroupBox("Scenario 2 — Shared @Observable TextField") {
+                TextField("Type here...", text: $appState.sharedText)
                     .textFieldStyle(.roundedBorder)
-                Text("Close + reopen. Text should survive.")
+                Text("Text lives on SpikeAppState. Close + reopen. Should survive.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
 
-            // ── Scenario 3: View-local sheet open state ──────────────────
-            GroupBox("Scenario 3 — Sheet open across hide/show") {
-                Button("Open local sheet") { showLocalSheet = true }
-                Label(
-                    showLocalSheet ? "Sheet IS open" : "Sheet is closed",
-                    systemImage: showLocalSheet ? "checkmark.circle.fill" : "xmark.circle"
-                )
-                .foregroundStyle(showLocalSheet ? .green : .secondary)
-                Text("Open sheet, click outside to close app, reopen.\nSheet should still be visible.")
+            // ── Scenario 3: Open Settings as Window scene (no .sheet) ────
+            // This is the fix for MenuBarExtra hide-on-dismiss.
+            // openWindow opens a sibling scene — MenuBarExtra stays visible.
+            GroupBox("Scenario 3 — Settings via Window scene") {
+                Button("Open Settings window") {
+                    openWindow(id: SpikeWindowID.settings)
+                }
+                Text("MenuBarExtra must NOT hide when Settings opens or closes.\nThis replaces the broken .sheet-inside-MenuBarExtra pattern.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-            }
-            .sheet(isPresented: $showLocalSheet) {
-                SheetSpikeView(parentText: $localText, isPresented: $showLocalSheet)
-            }
-
-            // ── Scenario 6: App-level lifted sheet state ─────────────────
-            GroupBox("Scenario 6 — App-level sheet state") {
-                Button("Open app-state sheet") { appState.showSettingsSheet = true }
-                Label(
-                    appState.showSettingsSheet ? "App sheet IS open" : "App sheet is closed",
-                    systemImage: appState.showSettingsSheet ? "checkmark.circle.fill" : "xmark.circle"
-                )
-                .foregroundStyle(appState.showSettingsSheet ? .green : .secondary)
-                Text("If Scenario 3 fails, this is the fallback.\nState lives on SpikeAppState (@Observable).")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            .sheet(isPresented: $appState.showSettingsSheet) {
-                SheetSpikeView(parentText: $appState.sheetDraftText, isPresented: $appState.showSettingsSheet)
             }
 
             // ── Scenario 7: .fileImporter — does picker dismiss app? ─────
@@ -190,13 +200,12 @@ struct MainSpikeView: View {
             }
 
             // ── Navigation to settings ───────────────────────────────────
-            Button("Go to Settings") {
+            Button("Go to Settings (in-popover nav)") {
                 appState.navState = .settings
             }
             .frame(maxWidth: .infinity)
             .buttonStyle(.borderedProminent)
 
-            // ── Close / quit ─────────────────────────────────────────────
             Button("Close") {
                 NSApplication.shared.terminate(nil)
             }
@@ -207,17 +216,16 @@ struct MainSpikeView: View {
     }
 }
 
-// MARK: - Settings view (mirrors RunBot's SettingsView navigation)
+// MARK: - Settings view (in-popover nav — Scenario 4)
 
 struct SettingsSpikeView: View {
     @Environment(SpikeAppState.self) private var appState
+    @Environment(\.openWindow) private var openWindow
     @State private var settingsCounter: Int = 0
-    // Scenario 9: sheet presented from child view inside nav stack
-    @State private var showChildSheet: Bool = false
 
     var body: some View {
         VStack(spacing: 14) {
-            Text("Settings")
+            Text("Settings (in-popover)")
                 .font(.headline)
 
             // ── Scenario 4: Nav-state @State preservation ────────────────
@@ -233,20 +241,14 @@ struct SettingsSpikeView: View {
                     .foregroundStyle(.secondary)
             }
 
-            // ── Scenario 9: Sheet from child view in nav stack ────────────
-            GroupBox("Scenario 9 — Sheet from child (NavStack)") {
-                Button("Open child sheet") { showChildSheet = true }
-                Label(
-                    showChildSheet ? "Child sheet IS open" : "Child sheet is closed",
-                    systemImage: showChildSheet ? "checkmark.circle.fill" : "xmark.circle"
-                )
-                .foregroundStyle(showChildSheet ? .green : .secondary)
-                Text("Verifies .sheet works from a child view inside the nav stack.")
+            // ── Scenario 9: Child sheet as Window scene ───────────────────
+            GroupBox("Scenario 9 — Child window from nav view") {
+                Button("Open child window") {
+                    openWindow(id: SpikeWindowID.childSheet)
+                }
+                Text("Opens via Window scene — MenuBarExtra must stay visible.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-            }
-            .sheet(isPresented: $showChildSheet) {
-                SheetSpikeView(parentText: .constant(""), isPresented: $showChildSheet)
             }
 
             Button("\u{2190} Back") {
@@ -259,55 +261,76 @@ struct SettingsSpikeView: View {
     }
 }
 
-// MARK: - Sheet view (mirrors RunBot's modal sheets)
+// MARK: - Settings Window view (Scenario 3 — sibling Window scene)
 
-struct SheetSpikeView: View {
-    @Binding var parentText: String
-    // Use an explicit isPresented binding instead of @Environment(\.dismiss).
-    // On macOS, \dismiss inside a MenuBarExtra panel bubbles up and closes
-    // the entire app rather than just the sheet.
-    @Binding var isPresented: Bool
+struct SettingsWindowView: View {
+    @Environment(SpikeAppState.self) private var appState
 
-    // Scenario 3b + 4: sheet-local @State preservation
-    @State private var sheetCounter: Int = 0
-    @State private var sheetText: String = ""
+    @State private var windowCounter: Int = 0
+    @State private var windowText: String = ""
 
     var body: some View {
-        VStack(spacing: 14) {
-            Text("Sheet is open")
+        @Bindable var appState = appState
+        VStack(spacing: 16) {
+            Text("Settings Window")
                 .font(.headline)
 
-            GroupBox("Sheet-local @State") {
+            GroupBox("Window-local @State") {
                 HStack {
-                    Text("Sheet counter: \(sheetCounter)")
+                    Text("Counter: \(windowCounter)")
                         .monospacedDigit()
                     Spacer()
-                    Button("+1") { sheetCounter += 1 }
+                    Button("+1") { windowCounter += 1 }
                 }
-                TextField("Sheet text", text: $sheetText)
+                TextField("Window text...", text: $windowText)
                     .textFieldStyle(.roundedBorder)
-                Text("Hide app (click outside), reopen.\nCounter + text should survive.")
+                Text("Close + reopen this window. State resets — window-local\n@State is NOT preserved across Window scene open/close.\nPersistent data must live on SpikeAppState.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
 
-            GroupBox("Parent binding") {
-                Text("Parent text: \"\(parentText)\"")
+            GroupBox("Shared @Observable text (from MenuBarExtra)") {
+                Text("\"\(appState.sharedText)\"")
                     .foregroundStyle(.secondary)
-                Text("Editing the parent TextField should reflect here.")
+                Text("Should reflect what you typed in Scenario 2.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
 
-            // ── Scenario 8: Rounded corners survive sheet presentation ───
-            Text("Scenario 8: Check the app window still has\nrounded corners while this sheet is open.")
+            // ── Scenario 8: MenuBarExtra rounded corners ─────────────────
+            Text("Scenario 8: While this window is open,\ncheck the MenuBarExtra still has rounded corners.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
-
-            Button("Dismiss") { isPresented = false }
-                .buttonStyle(.borderedProminent)
         }
         .padding(24)
+        .frame(width: 320)
+    }
+}
+
+// MARK: - Child Sheet Window view (Scenario 9)
+
+struct ChildSheetWindowView: View {
+    @State private var childCounter: Int = 0
+
+    var body: some View {
+        VStack(spacing: 16) {
+            Text("Child Window")
+                .font(.headline)
+
+            GroupBox("Scenario 9 — Child window @State") {
+                HStack {
+                    Text("Counter: \(childCounter)")
+                        .monospacedDigit()
+                    Spacer()
+                    Button("+1") { childCounter += 1 }
+                }
+                Text("MenuBarExtra must remain visible while this is open.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(24)
+        .frame(width: 280)
     }
 }
