@@ -9,7 +9,7 @@
 // 3. State persistence: counter + text field values survive hide/show.
 // 4. File picker from settings view: beginSheetModal keeps popover alive.
 // 5. Error alert inside sheet: .alert on sheet view stays open, popover survives.
-// 6. File picker from inside sheet: beginSheetModal on popover window while sheet is open.
+// 6. File picker from inside sheet: beginSheetModal on sheet window (not popover).
 //
 // HOW TO RUN:
 //   swift run RunBotSpike
@@ -110,14 +110,30 @@ final class NavSheetAppDelegate: NSObject, NSApplicationDelegate {
         popover.contentViewController?.view.window
     }
 
+    // The sheet window is the child window added by AnchoredSheetModifier.
+    // It is the key window while the sheet is open.
+    private var sheetWindow: NSWindow? {
+        guard let pop = popoverWindow else { return nil }
+        return pop.childWindows?.first(where: { $0.isVisible && $0 !== pop })
+    }
+
     // MARK: - File picker
     enum PickerTarget { case popover, sheet }
 
     func openFilePicker(attachedTo target: PickerTarget) {
-        // Always attach to the popover window.
-        // When called from inside the sheet, the sheet is already a child window,
-        // so attaching to popoverWindow still works correctly.
-        guard let window = popoverWindow else { return }
+        // When called from inside an open sheet, attach the picker to the sheet
+        // window. A window can only host one sheet at a time, so attaching to
+        // popoverWindow while it already has a sheet would be silently ignored.
+        let window: NSWindow?
+        switch target {
+        case .popover:
+            window = popoverWindow
+        case .sheet:
+            // Fall back to popoverWindow if sheet window is not found.
+            window = sheetWindow ?? popoverWindow
+        }
+        guard let window else { return }
+
         let panel = NSOpenPanel()
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
@@ -281,8 +297,7 @@ struct NavSheetSettingsView: View {
                 if !appState.pickedFolderPath.isEmpty {
                     Text(appState.pickedFolderPath)
                         .font(.system(size: 11, design: .monospaced))
-                        .lineLimit(1)
-                        .truncationMode(.head)
+                        .lineLimit(1).truncationMode(.head)
                 } else {
                     Text("No folder picked yet").font(.caption).foregroundStyle(.secondary)
                 }
@@ -331,13 +346,12 @@ struct NavSheetSheetView: View {
                 if !appState.sheetPickedFolderPath.isEmpty {
                     Text(appState.sheetPickedFolderPath)
                         .font(.system(size: 11, design: .monospaced))
-                        .lineLimit(1)
-                        .truncationMode(.head)
+                        .lineLimit(1).truncationMode(.head)
                 } else {
                     Text("No folder picked from sheet yet")
                         .font(.caption).foregroundStyle(.secondary)
                 }
-                Text("Picker should open and stay open while clicking.")
+                Text("Picker attaches to the sheet window itself.")
                     .font(.caption).foregroundStyle(.secondary)
             }
 
