@@ -9,7 +9,7 @@
 // B) NSOpenPanel anchored + centered manually
 //
 // HOW TO RUN:
-//   swift run StatusBarFilePickerSpike
+//   swift run StatusBarFilePickerSpike 2>&1 | tee /tmp/filepicker-spike.log
 //
 // REQUIREMENTS: macOS 26, Swift 6
 // DEPENDENCIES: none
@@ -20,7 +20,7 @@ import UniformTypeIdentifiers
 
 // MARK: - Logging
 
-private func log(_ msg: String, file: String = #file, line: Int = #line, function: String = #function) {
+private func log(_ msg: String, file: String = #fileID, line: Int = #line, function: String = #function) {
     let ts = ISO8601DateFormatter().string(from: Date())
     print("[\(ts)] \(function):\(line) \(msg)")
 }
@@ -57,7 +57,7 @@ struct ContentView: View {
                 Button("Pick File (fileImporter)") {
                     log("A ► button tapped — isImporting before reset: \(isImporting)")
                     isImporting = false
-                    log("A ► isImporting set to false, scheduling async true")
+                    log("A ► isImporting set false, scheduling async true")
                     DispatchQueue.main.async {
                         log("A ► async block fired — setting isImporting = true")
                         isImporting = true
@@ -118,7 +118,7 @@ struct ContentView: View {
             }
         }
         .onChange(of: isImporting) { old, new in
-            log("A ► isImporting changed \(old) → \(new) — windows at this moment:")
+            log("A ► isImporting changed \(old) → \(new) — windows:")
             dumpWindows()
         }
     }
@@ -131,7 +131,7 @@ private func dumpWindows() {
     let wins = NSApp.windows
     log("  total windows: \(wins.count)")
     for (i, w) in wins.enumerated() {
-        log("  [\(i)] \(type(of: w)) isKey=\(w.isKeyWindow) isMain=\(w.isMainWindow) isVisible=\(w.isVisible) styleMask=\(w.styleMask.rawValue) frame=\(w.frame) parent=\(w.parent == nil ? "nil" : String(describing: type(of: w.parent!))) childCount=\(w.childWindows?.count ?? 0)")
+        log("  [\(i)] \(type(of: w)) isKey=\(w.isKeyWindow) isMain=\(w.isMainWindow) isVisible=\(w.isVisible) styleMask=\(w.styleMask.rawValue) frame=\(NSStringFromRect(w.frame)) parent=\(w.parent == nil ? "nil" : String(describing: type(of: w.parent!))) children=\(w.childWindows?.count ?? 0)")
     }
 }
 
@@ -163,7 +163,7 @@ extension View {
             .onChange(of: isPresented.wrappedValue) { _, newValue in
                 log("[anchoredFileImporter] onChange isPresented=\(newValue)")
                 guard newValue else {
-                    log("[anchoredFileImporter] isPresented flipped false — skipping anchor")
+                    log("[anchoredFileImporter] isPresented false — skipping")
                     return
                 }
                 log("[anchoredFileImporter] scheduling anchorAndCenterPickerWindow")
@@ -183,7 +183,7 @@ private func anchorAndCenterPickerWindow() {
         log("[anchorAndCenter] ERROR: MenuBarExtra window not found")
         return
     }
-    log("[anchorAndCenter] menuBarWindow=\(menuBarWindow.frame) styleMask=\(menuBarWindow.styleMask.rawValue)")
+    log("[anchorAndCenter] menuBarWindow frame=\(NSStringFromRect(menuBarWindow.frame)) styleMask=\(menuBarWindow.styleMask.rawValue) children=\(menuBarWindow.childWindows?.count ?? 0)")
 
     DispatchQueue.main.async {
         log("[anchorAndCenter] async hop — windows now:")
@@ -192,19 +192,37 @@ private func anchorAndCenterPickerWindow() {
         guard let pickerWindow = NSApp.windows.first(where: {
             $0 !== menuBarWindow && $0.isKeyWindow && $0.parent == nil
         }) else {
-            log("[anchorAndCenter] ERROR: picker window not found after async hop — full dump above")
+            log("[anchorAndCenter] ERROR: picker window not found after async hop")
+            // Second hop in case SwiftUI needs more time
+            DispatchQueue.main.async {
+                log("[anchorAndCenter] second async hop — windows now:")
+                dumpWindows()
+                guard let pickerWindow2 = NSApp.windows.first(where: {
+                    $0 !== menuBarWindow && $0.isKeyWindow && $0.parent == nil
+                }) else {
+                    log("[anchorAndCenter] ERROR: picker window STILL not found after second hop — giving up")
+                    return
+                }
+                log("[anchorAndCenter] found picker on second hop: \(type(of: pickerWindow2)) frame=\(NSStringFromRect(pickerWindow2.frame))")
+                pickerWindow2.center()
+                menuBarWindow.addChildWindow(pickerWindow2, ordered: .above)
+                log("[anchorAndCenter] second-hop anchor done — menuBar.children=\(menuBarWindow.childWindows?.count ?? 0)")
+            }
             return
         }
-        log("[anchorAndCenter] found picker=\(type(of: pickerWindow)) frame=\(pickerWindow.frame) styleMask=\(pickerWindow.styleMask.rawValue)")
+        log("[anchorAndCenter] found picker: \(type(of: pickerWindow)) frame=\(NSStringFromRect(pickerWindow.frame)) styleMask=\(pickerWindow.styleMask.rawValue)")
         pickerWindow.center()
-        log("[anchorAndCenter] picker centered to frame=\(pickerWindow.frame)")
+        log("[anchorAndCenter] picker centered to frame=\(NSStringFromRect(pickerWindow.frame))")
         menuBarWindow.addChildWindow(pickerWindow, ordered: .above)
-        log("[anchorAndCenter] addChildWindow done — menuBar.childWindows=\(menuBarWindow.childWindows?.count ?? 0)")
+        log("[anchorAndCenter] addChildWindow done — menuBar.children=\(menuBarWindow.childWindows?.count ?? 0)")
     }
 }
 
 // MARK: - NSOpenPanel helper (Approach B)
+//
+// @MainActor is required: all AppKit window/panel APIs are main-actor-isolated.
 
+@MainActor
 enum FilePickerHelper {
 
     static func pickFile(canChooseDirectories: Bool = false) -> URL? {
@@ -214,10 +232,10 @@ enum FilePickerHelper {
         guard let menuBarWindow = NSApp.windows.first(where: {
             $0.styleMask.contains(.nonactivatingPanel)
         }) else {
-            log("[B] ERROR: MenuBarExtra window not found — falling back to activation-dance")
+            log("[B] ERROR: MenuBarExtra window not found — falling back")
             return plainPickFile(canChooseDirectories: canChooseDirectories)
         }
-        log("[B] menuBarWindow=\(menuBarWindow.frame) styleMask=\(menuBarWindow.styleMask.rawValue) childWindows=\(menuBarWindow.childWindows?.count ?? 0)")
+        log("[B] menuBarWindow frame=\(NSStringFromRect(menuBarWindow.frame)) styleMask=\(menuBarWindow.styleMask.rawValue) children=\(menuBarWindow.childWindows?.count ?? 0)")
 
         let panel = NSOpenPanel()
         panel.title = "Choose a File"
@@ -226,32 +244,35 @@ enum FilePickerHelper {
         panel.allowsMultipleSelection = false
         panel.canCreateDirectories = false
 
-        log("[B] panel created — frame before center: \(panel.frame)")
+        log("[B] panel frame before center: \(NSStringFromRect(panel.frame))")
         panel.center()
-        log("[B] panel frame after center(): \(panel.frame)")
+        log("[B] panel frame after center: \(NSStringFromRect(panel.frame))")
+
+        let delegate = PanelDelegate()
+        panel.delegate = delegate
+        log("[B] delegate installed")
 
         log("[B] calling addChildWindow")
         menuBarWindow.addChildWindow(panel, ordered: .above)
-        log("[B] addChildWindow done — menuBar.childWindows=\(menuBarWindow.childWindows?.count ?? 0) panel.parent=\(String(describing: panel.parent))")
+        log("[B] addChildWindow done — menuBar.children=\(menuBarWindow.childWindows?.count ?? 0) panel.parent=\(panel.parent == nil ? "nil" : "set")")
 
         log("[B] calling makeKeyAndOrderFront")
         panel.makeKeyAndOrderFront(nil)
-        log("[B] panel isKeyWindow=\(panel.isKeyWindow) isVisible=\(panel.isVisible) frame=\(panel.frame)")
+        log("[B] panel isKeyWindow=\(panel.isKeyWindow) isVisible=\(panel.isVisible) frame=\(NSStringFromRect(panel.frame))")
 
-        // Install a delegate to log panel close events
-        let delegate = PanelDelegate()
-        panel.delegate = delegate
-        log("[B] delegate installed: \(delegate)")
+        log("[B] windows before runModal:")
+        dumpWindows()
 
-        log("[B] calling runModal — blocking until user responds")
+        log("[B] calling runModal — blocking")
         let result = panel.runModal()
         log("[B] runModal returned: \(result == .OK ? "OK" : "Cancel") url=\(panel.url?.path ?? "nil")")
 
+        log("[B] windows after runModal:")
+        dumpWindows()
+
         log("[B] calling removeChildWindow")
         menuBarWindow.removeChildWindow(panel)
-        log("[B] removeChildWindow done — menuBar.childWindows=\(menuBarWindow.childWindows?.count ?? 0)")
-        log("[B] windows after close:")
-        dumpWindows()
+        log("[B] removeChildWindow done — menuBar.children=\(menuBarWindow.childWindows?.count ?? 0)")
 
         return result == .OK ? panel.url : nil
     }
