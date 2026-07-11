@@ -33,9 +33,12 @@ final class NavSheetAppDelegate: NSObject, NSApplicationDelegate {
 
     private func setupStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        statusItem.button?.title = "Flask"
-        statusItem.button?.action = #selector(togglePopover)
-        statusItem.button?.target = self
+        if let button = statusItem.button {
+            button.image = NSImage(systemSymbolName: "flask.fill", accessibilityDescription: "Spike")
+            button.image?.isTemplate = true
+            button.action = #selector(togglePopover)
+            button.target = self
+        }
         log("StatusItem", "set up")
     }
 
@@ -122,8 +125,6 @@ extension NavSheetAppDelegate: NSPopoverDelegate {
     }
     func popoverShouldClose(_ popover: NSPopover) -> Bool {
         guard let win = popover.contentViewController?.view.window else { return true }
-        // Block dismiss if NSOpenPanel is attached (win.sheets) or a SwiftUI
-        // sheet child window is visible (win.childWindows).
         let hasOverlay = !win.sheets.isEmpty
             || !(win.childWindows?.filter { $0.isVisible } ?? []).isEmpty
         log("Popover", "popoverShouldClose hasOverlay=\(hasOverlay)")
