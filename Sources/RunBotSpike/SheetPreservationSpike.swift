@@ -68,7 +68,7 @@ struct SpikeRootView: View {
         .task {
             await MainActor.run { appState.taskStartCount += 1 }
             print("\u{1F535} [Spike] .task started (count=\(appState.taskStartCount)) — should only print ONCE")
-            for await _ in AsyncStream<Void> { _ in } { }
+            for await _ in AsyncStream<Void>(continuation: { _ in }) { }
         }
     }
 }
@@ -146,14 +146,15 @@ struct MainSpikeView: View {
                 SheetSpikeView(parentText: $appState.sheetDraftText, isPresented: $appState.showSettingsSheet)
             }
 
-            // Scenario 7: NSOpenPanel via beginSheetModal(for: hostWindow)
+            // Scenario 7b: NSApp.activate(ignoringOtherApps:) before beginSheetModal
             //
-            // Adopts the same pattern as main's AddRunnerSheet:
-            //   - WindowGrabber captures the hosting NSWindow on appear
-            //   - beginSheetModal attaches the panel as a child sheet at the
-            //     AppKit level, preventing outside-click dismissal of the
-            //     MenuBarExtra window — no manual addChildWindow needed.
-            GroupBox("Scenario 7 — File picker (beginSheetModal)") {
+            // Hypothesis: activating the app first makes the MenuBarExtra window
+            // temporarily behave like a regular activating window, so clicks inside
+            // the NSOpenPanel are no longer treated as outside clicks.
+            //
+            // After the panel closes, NSApp.deactivate() returns the app to its
+            // normal background/accessory state.
+            GroupBox("Scenario 7b — File picker (activate + beginSheetModal)") {
                 Button("Choose folder…") { pickFolder() }
                 if !pickedFolderPath.isEmpty {
                     Text(pickedFolderPath)
@@ -195,20 +196,21 @@ struct MainSpikeView: View {
         })
     }
 
-    // MARK: - Scenario 7 action
+    // MARK: - Scenario 7b action
 
-    /// Opens an NSOpenPanel as a sheet attached to the MenuBarExtra window.
-    ///
-    /// Uses beginSheetModal(for:) — the same pattern as main's AddRunnerSheet —
-    /// so AppKit attaches the panel as a child sheet. This prevents clicks
-    /// inside the panel from being treated as outside clicks that would
-    /// hide the MenuBarExtra window.
     private func pickFolder() {
         guard let window = hostWindow else {
-            print("[Spike] Scenario 7 — hostWindow nil, picker will not open")
+            print("[Spike] Scenario 7b — hostWindow nil, picker will not open")
             return
         }
-        print("[Spike] Scenario 7 — opening NSOpenPanel via beginSheetModal")
+        print("[Spike] Scenario 7b — activating app then opening NSOpenPanel via beginSheetModal")
+
+        // Activate the app so the MenuBarExtra window is no longer treated as
+        // a non-activating panel during the picker session. Without this,
+        // any click inside NSOpenPanel is seen as an outside click and hides
+        // the MenuBarExtra window.
+        NSApp.activate(ignoringOtherApps: true)
+
         let panel = NSOpenPanel()
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
@@ -216,10 +218,13 @@ struct MainSpikeView: View {
         panel.message = "Select a folder"
         panel.prompt = "Select"
         panel.beginSheetModal(for: window) { response in
-            print("[Spike] Scenario 7 — panel closed response=\(response.rawValue)")
+            print("[Spike] Scenario 7b — panel closed response=\(response.rawValue)")
+            // Deactivate so the app returns to its normal accessory state
+            // and the Dock icon (if any) disappears again.
+            NSApp.deactivate()
             guard response == .OK, let url = panel.url else { return }
             pickedFolderPath = url.path
-            print("[Spike] Scenario 7 — picked: \(url.path)")
+            print("[Spike] Scenario 7b — picked: \(url.path)")
         }
     }
 }
@@ -263,7 +268,7 @@ struct SettingsSpikeView: View {
                 SheetSpikeView(parentText: .constant(""), isPresented: $showChildSheet)
             }
 
-            Button("\u{2190} Back") {
+            Button("← Back") {
                 appState.navState = .main
             }
             .frame(maxWidth: .infinity)
@@ -391,7 +396,7 @@ private struct AnchoredSheetModifier<SheetContent: View>: ViewModifier {
 // MARK: - WindowGrabber
 //
 // Captures the NSWindow that hosts a SwiftUI view the moment the view is
-// inserted into the window hierarchy. Used by Scenario 7 to obtain a reliable
+// inserted into the window hierarchy. Used by Scenario 7b to obtain a reliable
 // NSWindow reference for beginSheetModal(for:).
 //
 // Copied from Sources/RunBot/App/WindowGrabber.swift (main branch).
