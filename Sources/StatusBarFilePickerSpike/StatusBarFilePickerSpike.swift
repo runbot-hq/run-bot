@@ -1,37 +1,27 @@
 // StatusBarFilePickerSpike.swift
 // StatusBarFilePickerSpike — spike/statusbar-filepicker branch
 //
-// PROBLEM HISTORY:
+// APPROACH: NSOpenPanel.runModal() on a detached Thread.
 //
-// ✗ .fileImporter: SwiftUI owns panels, close() is no-op, zombies accumulate.
+// WHY NOT DispatchQueue.global:
+//   runModal() spins its own NSRunLoop. GCD threads don’t have a run loop
+//   by default and the call returns immediately. NSThread does.
 //
-// ✗ addChildWindow + makeKeyAndOrderFront alone:
-//   MenuBarExtraWindow is NSNonactivatingPanel. A child of a non-activating
-//   panel cannot become key unless the app is active. makeKeyAndOrderFront
-//   silently fails (isKeyWindow stays false). Any click on the panel is
-//   treated as an outside-click and dismisses the menubar.
+// WHY THIS WORKS WITHOUT ACTIVATION:
+//   runModal() calls orderFrontRegardless() internally, which bypasses the
+//   normal activation requirement. The panel appears on screen and receives
+//   events without the app needing to be active or have a Dock icon.
 //
-// ✓ SOLUTION:
-//   Own the NSOpenPanel. addChildWindow to anchor it. Then briefly activate
-//   the app (setActivationPolicy(.regular) + activate) so the panel CAN
-//   become key, call makeKeyAndOrderFront, then immediately restore
-//   .accessory on the next run-loop turn — before any user interaction.
-//   This means the Dock icon appears for at most one frame.
-//   begin(completionHandler:) keeps it non-blocking.
+// WHY THE MENUBAR STAYS OPEN:
+//   The main run loop keeps pumping normally — we’re not blocking it.
+//   MenuBarExtra continues to handle events. The panel has its own modal
+//   event loop on the secondary thread.
 //
 // REQUIREMENTS: macOS 26, Swift 6
 // DEPENDENCIES: none
 
 import AppKit
 import SwiftUI
-import UniformTypeIdentifiers
-
-// MARK: - Logging
-
-private func log(_ msg: String, file: String = #fileID, line: Int = #line, function: String = #function) {
-    let ts = ISO8601DateFormatter().string(from: Date())
-    print("[\(ts)] \(function):\(line) \(msg)")
-}
 
 // MARK: - Entry point
 
@@ -61,11 +51,7 @@ struct ContentView: View {
             Divider()
 
             Button("Pick File") {
-                log("► tapped")
-                FilePickerController.shared.show { url in
-                    log("► completion url=\(url?.path ?? "nil")")
-                    pickedURL = url
-                }
+                pickFile { url in pickedURL = url }
             }
             .frame(maxWidth: .infinity)
 
@@ -78,10 +64,7 @@ struct ContentView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .lineLimit(2).truncationMode(.middle)
                 if pickedURL != nil {
-                    Button("Clear") {
-                        log("clear")
-                        pickedURL = nil
-                    }.font(.caption)
+                    Button("Clear") { pickedURL = nil }.font(.caption)
                 }
             }
 
@@ -95,97 +78,22 @@ struct ContentView: View {
     }
 }
 
-// MARK: - Window dump
-
-@MainActor
-private func dumpWindows(label: String) {
-    let wins = NSApp.windows
-    log("[windows:\(label)] total=\(wins.count)")
-    for (i, w) in wins.enumerated() {
-        log("  [\(i)] \(type(of: w)) isKey=\(w.isKeyWindow) isVisible=\(w.isVisible) styleMask=\(w.styleMask.rawValue) frame=\(NSStringFromRect(w.frame)) parent=\(w.parent == nil ? "nil" : "set") children=\(w.childWindows?.count ?? 0)")
-    }
-}
-
-// MARK: - FilePickerController
+// MARK: - File picker
 //
-// Owns the NSOpenPanel lifecycle.
-//
-// show() sequence:
-//   1. cancel() + removeChildWindow any existing panel.
-//   2. Find MenuBarExtra window.
-//   3. Fresh NSOpenPanel, addChildWindow to anchor in focus group.
-//   4. Briefly setActivationPolicy(.regular) + activate so the non-activating
-//      parent’s child can actually become key.
-//   5. makeKeyAndOrderFront.
-//   6. Restore .accessory on the NEXT run-loop turn (before any click lands).
-//   7. begin(completionHandler:) — non-blocking.
+// Runs NSOpenPanel.runModal() on a detached NSThread so the main run loop
+// is never blocked. Delivers the result back on the main actor.
 
-@MainActor
-final class FilePickerController {
-    static let shared = FilePickerController()
-    private var panel: NSOpenPanel?
-
-    private var menuBarWindow: NSWindow? {
-        NSApp.windows.first { $0.styleMask.contains(.nonactivatingPanel) && $0.isVisible }
-    }
-
-    func show(completion: @escaping @MainActor (URL?) -> Void) {
-        log("[picker] show")
-        dumpWindows(label: "show-start")
-
-        // Clean up any previous panel we own.
-        if let old = panel {
-            log("[picker] cancelling old panel isVisible=\(old.isVisible) isKey=\(old.isKeyWindow)")
-            old.cancel(nil)
-            if let parent = old.parent { parent.removeChildWindow(old) }
-            panel = nil
-        }
-
-        guard let menuBarWindow else {
-            log("[picker] ERROR: MenuBarExtra window not found")
-            return
-        }
-        log("[picker] menuBarWindow frame=\(NSStringFromRect(menuBarWindow.frame))")
-
-        let p = NSOpenPanel()
-        p.canChooseFiles = true
-        p.canChooseDirectories = false
-        p.allowsMultipleSelection = false
-        p.canCreateDirectories = false
-        p.center()
-        panel = p
-        log("[picker] panel frame=\(NSStringFromRect(p.frame))")
-
-        // Anchor in the MenuBarExtra focus group.
-        menuBarWindow.addChildWindow(p, ordered: .above)
-        log("[picker] addChildWindow — menuBar.children=\(menuBarWindow.childWindows?.count ?? 0)")
-
-        // A child of NSNonactivatingPanel can’t become key unless the app is
-        // active. Activate briefly, make key, then restore .accessory on the
-        // next run-loop so the Dock icon appears for at most one frame.
-        NSApp.setActivationPolicy(.regular)
-        NSApp.activate(ignoringOtherApps: true)
-        log("[picker] activated — policy=regular")
-
-        p.makeKeyAndOrderFront(nil)
-        log("[picker] makeKeyAndOrderFront — isKey=\(p.isKeyWindow) isVisible=\(p.isVisible)")
-
-        // Restore .accessory before the user can click anything.
+func pickFile(completion: @escaping @MainActor (URL?) -> Void) {
+    Thread.detachNewThread {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.canCreateDirectories = false
+        let response = panel.runModal()
+        let url = response == .OK ? panel.url : nil
         DispatchQueue.main.async {
-            NSApp.setActivationPolicy(.accessory)
-            log("[picker] policy restored to .accessory")
+            Task { @MainActor in completion(url) }
         }
-
-        dumpWindows(label: "after-show")
-
-        p.begin { [weak self, weak p] response in
-            guard let self, let p else { return }
-            log("[picker] completion response=\(response == .OK ? "OK" : "Cancel") url=\(p.url?.path ?? "nil")")
-            if let parent = p.parent { parent.removeChildWindow(p) }
-            self.panel = nil
-            dumpWindows(label: "after-completion")
-            completion(response == .OK ? p.url : nil)
-        }
-        log("[picker] begin registered — returning")
     }
 }
