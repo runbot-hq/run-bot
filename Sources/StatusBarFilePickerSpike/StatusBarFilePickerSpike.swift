@@ -116,6 +116,10 @@ private func dumpWindows(label: String) {
     }
 }
 
+// Key for objc_setAssociatedObject. Must be `let` so Swift 6 sees it as
+// immutable shared state (the address never changes; the value is irrelevant).
+private let delegateKey: UInt8 = 0
+
 // MARK: - NSOpenPanel helper
 //
 // Uses beginSheetModal(for:) to attach the picker as an AppKit sheet on
@@ -158,10 +162,11 @@ enum FilePickerHelper {
 
         let delegate = PanelDelegate()
         panel.delegate = delegate
-        // Retain delegate for the lifetime of the panel.
-        // `let` key: address is constant, only the pointee (UInt8) is what
-        // objc_setAssociatedObject needs — using var was a spurious mutation.
-        objc_setAssociatedObject(panel, &delegateKey, delegate, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        // Retain the delegate for the lifetime of the panel via associated object.
+        // withUnsafePointer gives us a stable pointer to the let constant.
+        withUnsafePointer(to: delegateKey) {
+            objc_setAssociatedObject(panel, $0, delegate, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        }
 
         log("[picker] calling beginSheetModal")
         panel.beginSheetModal(for: menuBarWindow) { response in
@@ -188,10 +193,6 @@ enum FilePickerHelper {
         return result == .OK ? panel.url : nil
     }
 }
-
-// `let` satisfies Swift 6 strict concurrency: the address is immutable,
-// which is all objc_setAssociatedObject requires for a key pointer.
-private var delegateKey: UInt8 = 0
 
 // MARK: - Panel delegate (logging)
 
