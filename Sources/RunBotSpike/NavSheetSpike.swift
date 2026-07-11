@@ -17,11 +17,9 @@
 // Pinned to popover.isShown via popoverWillShow / popoverDidClose.
 //
 // POPOVER ACTIVE APPEARANCE:
-// The popover window is an NSPanel. When another window steals key focus
-// the panel renders as "inactive" (dimmed border, washed-out controls).
-// Fix: after the popover window exists, use object_setClass to replace its
-// runtime class with AlwaysActivePopoverWindow, which overrides isKeyWindow
-// to always return true. AppKit then always draws it as focused/active.
+// object_setClass patches the popover window to AlwaysActivePopoverWindow
+// after it is created, so isKeyWindow always returns true and AppKit always
+// renders the popover with active/focused appearance.
 //
 // REQUIREMENTS: macOS 26+, Swift 6.2
 
@@ -29,11 +27,19 @@ import AppKit
 import ObjectiveC
 import SwiftUI
 
+// MARK: - Logging
+
+private func log(_ tag: String, _ msg: String) {
+    print("[NavSheet][\ (tag)] \(msg)")
+}
+
 // MARK: - AlwaysActivePopoverWindow
-// Applied via object_setClass after the popover window is created.
-// Overrides isKeyWindow so AppKit always renders with active appearance.
+
 final class AlwaysActivePopoverWindow: NSPanel {
-    override var isKeyWindow: Bool { true }
+    override var isKeyWindow: Bool {
+        log("Window", "isKeyWindow queried -> returning true (class=\(type(of: self)))")
+        return true
+    }
     override var canBecomeKey: Bool { true }
 }
 
@@ -69,7 +75,10 @@ final class NavSheetAppState {
     var pickedFolderPath: String = ""
     var sheetPickedFolderPath: String = ""
     var showSheetAlert: Bool = false
-    var overlayCount: Int = 0
+    var overlayCount: Int = 0 {
+        didSet { log("State", "overlayCount \(oldValue) -> \(overlayCount)") }
+    }
+    var route_log: NavSheetRoute = .main
 }
 
 // MARK: - AppDelegate
@@ -84,6 +93,7 @@ final class NavSheetAppDelegate: NSObject, NSApplicationDelegate {
     private var windowPatched = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        log("AppDelegate", "applicationDidFinishLaunching")
         NSApp.setActivationPolicy(.accessory)
         setupStatusItem()
         setupPopover()
@@ -94,12 +104,15 @@ final class NavSheetAppDelegate: NSObject, NSApplicationDelegate {
         statusItem.button?.title = "Flask"
         statusItem.button?.action = #selector(togglePopover)
         statusItem.button?.target = self
+        log("StatusItem", "set up")
     }
 
     @objc private func togglePopover() {
         if popover.isShown {
+            log("Popover", "togglePopover -> closing")
             popover.performClose(nil)
         } else {
+            log("Popover", "togglePopover -> opening")
             openPopover()
         }
     }
@@ -117,43 +130,65 @@ final class NavSheetAppDelegate: NSObject, NSApplicationDelegate {
         popover.animates = true
         popover.behavior = .applicationDefined
         popover.delegate = self
+        log("Popover", "configured behavior=.applicationDefined")
     }
 
     private func openPopover() {
-        guard let button = statusItem.button else { return }
+        guard let button = statusItem.button else {
+            log("Popover", "openPopover: no status button, aborting")
+            return
+        }
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         button.isHighlighted = true
+        log("Popover", "shown, button.isHighlighted=true")
         patchPopoverWindowClass()
         startEventMonitor()
     }
 
-    // Patch the popover window's runtime class to AlwaysActivePopoverWindow
-    // so isKeyWindow always returns true. Must run after show so the window
-    // exists. Only needs to happen once — the same window is reused.
     private func patchPopoverWindowClass() {
-        guard !windowPatched,
-              let window = popover.contentViewController?.view.window
-        else { return }
+        guard !windowPatched else {
+            log("Window", "patchPopoverWindowClass: already patched, skipping")
+            return
+        }
+        guard let window = popover.contentViewController?.view.window else {
+            log("Window", "patchPopoverWindowClass: window not available yet")
+            return
+        }
+        let before = NSStringFromClass(type(of: window))
         object_setClass(window, AlwaysActivePopoverWindow.self)
+        let after = NSStringFromClass(type(of: window))
         windowPatched = true
+        log("Window", "patched \(before) -> \(after) ptr=\(Unmanaged.passUnretained(window).toOpaque())")
     }
 
     private func setButtonHighlight(_ on: Bool) {
         statusItem.button?.isHighlighted = on
+        log("StatusItem", "isHighlighted=\(on)")
     }
 
     // MARK: - Global event monitor
     private func startEventMonitor() {
-        guard eventMonitor == nil else { return }
+        guard eventMonitor == nil else {
+            log("EventMonitor", "already running, skipping")
+            return
+        }
         eventMonitor = NSEvent.addGlobalMonitorForEvents(
             matching: [.leftMouseDown, .rightMouseDown]
-        ) { [weak self] _ in
+        ) { [weak self] event in
+            log("EventMonitor", "outside click (type=\(event.type.rawValue)) -> calling performClose")
             self?.popover.performClose(nil)
         }
+        log("EventMonitor", "started")
     }
 
     private func stopEventMonitor() {
-        if let m = eventMonitor { NSEvent.removeMonitor(m); eventMonitor = nil }
+        guard let m = eventMonitor else {
+            log("EventMonitor", "stopEventMonitor: already nil")
+            return
+        }
+        NSEvent.removeMonitor(m)
+        eventMonitor = nil
+        log("EventMonitor", "stopped")
     }
 
     private var popoverWindow: NSWindow? {
@@ -169,12 +204,17 @@ final class NavSheetAppDelegate: NSObject, NSApplicationDelegate {
     enum PickerTarget { case popover, sheet }
 
     func openFilePicker(attachedTo target: PickerTarget) {
+        let label = target == .popover ? "popover" : "sheet"
         let window: NSWindow?
         switch target {
         case .popover: window = popoverWindow
         case .sheet:   window = sheetWindow ?? popoverWindow
         }
-        guard let window else { return }
+        guard let window else {
+            log("FilePicker", "[\(label)] no window found, aborting")
+            return
+        }
+        log("FilePicker", "[\(label)] opening panel attached to \(NSStringFromClass(type(of: window)))")
         let panel = NSOpenPanel()
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
@@ -182,9 +222,12 @@ final class NavSheetAppDelegate: NSObject, NSApplicationDelegate {
         panel.message = target == .sheet ? "Pick folder from inside sheet" : "Select a folder"
         panel.prompt = "Select"
         appState.overlayCount += 1
+        log("FilePicker", "[\(label)] beginSheetModal, overlayCount now \(appState.overlayCount)")
         panel.beginSheetModal(for: window) { [weak self] response in
             self?.appState.overlayCount -= 1
+            log("FilePicker", "[\(label)] panel closed response=\(response.rawValue), overlayCount now \(self?.appState.overlayCount ?? -1)")
             guard response == .OK, let url = panel.url else { return }
+            log("FilePicker", "[\(label)] picked path=\(url.path)")
             switch target {
             case .popover: self?.appState.pickedFolderPath = url.path
             case .sheet:   self?.appState.sheetPickedFolderPath = url.path
@@ -195,16 +238,20 @@ final class NavSheetAppDelegate: NSObject, NSApplicationDelegate {
 
 extension NavSheetAppDelegate: NSPopoverDelegate {
     func popoverWillShow(_ notification: Notification) {
+        log("Popover", "popoverWillShow")
         setButtonHighlight(true)
     }
     func popoverDidShow(_ notification: Notification) {
-        // Window now exists — patch if not done yet.
+        log("Popover", "popoverDidShow, window=\(popover.contentViewController?.view.window.map { NSStringFromClass(type(of: $0)) } ?? "nil")")
         patchPopoverWindowClass()
     }
     func popoverShouldClose(_ popover: NSPopover) -> Bool {
-        appState.overlayCount == 0
+        let allow = appState.overlayCount == 0
+        log("Popover", "popoverShouldClose -> \(allow) (overlayCount=\(appState.overlayCount))")
+        return allow
     }
     func popoverDidClose(_ notification: Notification) {
+        log("Popover", "popoverDidClose")
         setButtonHighlight(false)
         stopEventMonitor()
     }
@@ -224,7 +271,7 @@ struct NavSheetRootView: View {
                 .environment(appState)
                 .task {
                     await MainActor.run { appState.taskFireCount += 1 }
-                    print("[NavSheetSpike] .task fired (count=\(appState.taskFireCount)) - should be 1")
+                    log("Task", ".task fired count=\(appState.taskFireCount) (should be 1)")
                 }
         case .settings:
             NavSheetSettingsView(onPickFolder: onPickFolder, onPickFolderFromSheet: onPickFolderFromSheet)
@@ -251,7 +298,10 @@ struct NavSheetMainView: View {
                 HStack {
                     Text("\(appState.counter)").monospacedDigit().frame(minWidth: 24)
                     Spacer()
-                    Button("+1") { appState.counter += 1 }
+                    Button("+1") { 
+                        appState.counter += 1
+                        log("MainView", "counter=\(appState.counter)")
+                    }
                 }
             }
 
@@ -271,9 +321,12 @@ struct NavSheetMainView: View {
                 }
             }
 
-            Button("Go to Settings") { appState.route = .settings }
-                .frame(maxWidth: .infinity)
-                .buttonStyle(.borderedProminent)
+            Button("Go to Settings") {
+                log("Nav", "route: main -> settings")
+                appState.route = .settings
+            }
+            .frame(maxWidth: .infinity)
+            .buttonStyle(.borderedProminent)
         }
         .padding(16)
         .frame(width: 320)
@@ -300,16 +353,25 @@ struct NavSheetSettingsView: View {
                 HStack {
                     Text("\(appState.settingsCounter)").monospacedDigit().frame(minWidth: 24)
                     Spacer()
-                    Button("+1") { appState.settingsCounter += 1 }
+                    Button("+1") {
+                        appState.settingsCounter += 1
+                        log("SettingsView", "settingsCounter=\(appState.settingsCounter)")
+                    }
                 }
             }
 
             GroupBox("Toggle (persists on hide)") {
                 Toggle("Enable something", isOn: $appState.settingsToggle)
+                    .onChange(of: appState.settingsToggle) { _, v in
+                        log("SettingsView", "toggle=\(v)")
+                    }
             }
 
             GroupBox(".sheet (with alert + picker inside)") {
-                Button("Open sheet...") { appState.showSettingsSheet = true }
+                Button("Open sheet...") {
+                    log("SettingsView", "opening sheet")
+                    appState.showSettingsSheet = true
+                }
                 Label(
                     appState.showSettingsSheet ? "Sheet is open" : "Sheet is closed",
                     systemImage: appState.showSettingsSheet ? "checkmark.circle.fill" : "xmark.circle"
@@ -323,7 +385,10 @@ struct NavSheetSettingsView: View {
             }
 
             GroupBox("File picker (from settings)") {
-                Button("Choose folder...") { onPickFolder() }
+                Button("Choose folder...") {
+                    log("SettingsView", "requesting file picker from popover")
+                    onPickFolder()
+                }
                 if !appState.pickedFolderPath.isEmpty {
                     Text(appState.pickedFolderPath)
                         .font(.system(size: 11, design: .monospaced))
@@ -333,8 +398,11 @@ struct NavSheetSettingsView: View {
                 }
             }
 
-            Button("Back") { appState.route = .main }
-                .frame(maxWidth: .infinity)
+            Button("Back") {
+                log("Nav", "route: settings -> main")
+                appState.route = .main
+            }
+            .frame(maxWidth: .infinity)
         }
         .padding(16)
         .frame(width: 320)
@@ -356,23 +424,34 @@ struct NavSheetSheetView: View {
                 HStack {
                     Text("\(appState.sheetCounter)").monospacedDigit().frame(minWidth: 24)
                     Spacer()
-                    Button("+1") { appState.sheetCounter += 1 }
+                    Button("+1") {
+                        appState.sheetCounter += 1
+                        log("SheetView", "sheetCounter=\(appState.sheetCounter)")
+                    }
                 }
             }
 
             GroupBox("Alert from sheet") {
-                Button("Show error alert") { appState.showSheetAlert = true }
+                Button("Show error alert") {
+                    log("SheetView", "showing alert")
+                    appState.showSheetAlert = true
+                }
                 Text("Alert should appear, sheet + popover stay alive.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             .alert("Simulated Error", isPresented: $appState.showSheetAlert) {
-                Button("OK", role: .cancel) {}
+                Button("OK", role: .cancel) {
+                    log("SheetView", "alert dismissed")
+                }
             } message: {
                 Text("This is a test error alert shown from inside a sheet.")
             }
 
             GroupBox("File picker from sheet") {
-                Button("Choose folder...") { onPickFolder() }
+                Button("Choose folder...") {
+                    log("SheetView", "requesting file picker from sheet")
+                    onPickFolder()
+                }
                 if !appState.sheetPickedFolderPath.isEmpty {
                     Text(appState.sheetPickedFolderPath)
                         .font(.system(size: 11, design: .monospaced))
@@ -385,16 +464,19 @@ struct NavSheetSheetView: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
 
-            Button("Dismiss") { appState.showSettingsSheet = false }
-                .buttonStyle(.borderedProminent)
-                .keyboardShortcut(.cancelAction)
+            Button("Dismiss") {
+                log("SheetView", "dismissed by user")
+                appState.showSettingsSheet = false
+            }
+            .buttonStyle(.borderedProminent)
+            .keyboardShortcut(.cancelAction)
         }
         .padding(24)
         .frame(minWidth: 320)
     }
 }
 
-// MARK: - AnchoredSheet (NavSheetSpike variant)
+// MARK: - AnchoredSheet
 
 extension View {
     func anchoredSheet<SheetContent: View>(
@@ -419,10 +501,13 @@ private struct NavAnchoredSheetModifier<SheetContent: View>: ViewModifier {
         content
             .sheet(isPresented: $isPresented, onDismiss: {
                 overlayCount = max(0, overlayCount - 1)
+                log("AnchoredSheet", "onDismiss, overlayCount now \(overlayCount)")
             }, content: sheetContent)
             .onChange(of: isPresented) { _, newValue in
+                log("AnchoredSheet", "isPresented -> \(newValue)")
                 if newValue {
                     overlayCount += 1
+                    log("AnchoredSheet", "overlayCount now \(overlayCount), scheduling anchorSheetWindow")
                     Task { @MainActor in anchorSheetWindow() }
                 }
             }
@@ -432,14 +517,21 @@ private struct NavAnchoredSheetModifier<SheetContent: View>: ViewModifier {
     private func anchorSheetWindow() {
         guard let popoverWindow = NSApp.windows.first(where: {
             $0.styleMask.contains(.nonactivatingPanel)
-        }) else { return }
+        }) else {
+            log("AnchoredSheet", "anchorSheetWindow: no nonactivatingPanel window found")
+            return
+        }
+        log("AnchoredSheet", "popoverWindow=\(NSStringFromClass(type(of: popoverWindow)))")
         DispatchQueue.main.async {
             if let sheetWindow = NSApp.windows.first(where: {
                 $0 !== popoverWindow
                     && $0.styleMask.contains(.borderless)
                     && $0.isKeyWindow
             }) {
+                log("AnchoredSheet", "addChildWindow \(NSStringFromClass(type(of: sheetWindow)))")
                 popoverWindow.addChildWindow(sheetWindow, ordered: .above)
+            } else {
+                log("AnchoredSheet", "anchorSheetWindow: no matching sheet window found (borderless+key)")
             }
         }
     }
