@@ -26,6 +26,17 @@
 //     Drains one more run-loop turn, by which point SwiftUI has created the
 //     sheet NSWindow and NSApp.windows contains it.
 //
+//   They solve different problems. Collapsing to one hop loses either actor
+//   isolation (if only DispatchQueue) or the window (if only Task { @MainActor }).
+//
+// WHY onChange MAY FIRE TWICE ON FIRST PRESENTATION:
+//   SwiftUI performs a double render on first sheet presentation — onChange
+//   fires for false→true and may fire again as SwiftUI stabilises its state.
+//   addChildWindow(_:ordered:) on an already-child window is a no-op on all
+//   tested macOS versions, so the duplicate call is safe. The TARGET
+//   IMPLEMENTATION (notification-based) eliminates this by construction since
+//   the notification only fires once per window becoming key.
+//
 // SHEET WINDOW DISCRIMINATOR — why .borderless && isKeyWindow:
 //   The sheet window is matched by: not the popover window, borderless styleMask,
 //   and isKeyWindow at the moment Hop 2 fires.
@@ -109,9 +120,12 @@ public struct MBKAnchoredSheetModifier<SheetContent: View>: ViewModifier {
                 // lookup so popoverShouldClose sees the flag immediately.
                 overlayGate.hasActiveOverlay = newValue
                 if newValue {
-                    // Hop 1: actor-isolation crossing only.
+                    // Hop 1: actor-isolation crossing only (see WHY TWO ASYNC HOPS).
                     Task { @MainActor in anchorSheetWindow() }
                 }
+                // NOTE: onChange may fire twice on first presentation due to
+                // SwiftUI's double render. See WHY onChange MAY FIRE TWICE in
+                // the file header. The second addChildWindow call is a no-op.
             }
     }
 
@@ -125,8 +139,9 @@ public struct MBKAnchoredSheetModifier<SheetContent: View>: ViewModifier {
         }
         // Hop 2: drain one run-loop turn so the sheet NSWindow exists.
         // ⚠️ SPIKE ONLY — replace with NSWindow.didBecomeKeyNotification.
-        // See SHEET WINDOW DISCRIMINATOR note in the file header before
-        // attempting to strengthen the predicate below.
+        // See SHEET WINDOW DISCRIMINATOR in the file header before attempting
+        // to strengthen the predicate — NSHostingController<AnyView> was tried
+        // and does not match SwiftUI's internal sheet window type.
         DispatchQueue.main.async {
             if let sheetWindow = NSApp.windows.first(where: {
                 $0 !== popoverWindow

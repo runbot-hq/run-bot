@@ -10,7 +10,7 @@
 //   - Manage the NSStatusItem button highlight
 //   - Install/remove the outside-click NSEvent monitor
 //   - Install the NSWorkspace app-switch observer
-//   - Implement popoverShouldClose via the injected hasActiveOverlay closure
+//   - Implement popoverShouldClose via the MBKOverlayGate
 //   - Reset the overlay gate in popoverDidClose (safety net)
 //
 // USAGE:
@@ -27,9 +27,14 @@
 //   Started when the popover opens, stopped when it closes. Never leaks a
 //   persistent global listener.
 //
-// WORKSPACE OBSERVER:
-//   Installed once at setup(). Closes the popover whenever another app
-//   becomes active. Self-activations (NSApp.activate) are ignored.
+// WORKSPACE OBSERVER — why queue: nil + Task { @MainActor } (not queue: .main):
+//   The production PopoverLifecycleCoordinator uses queue: .main +
+//   MainActor.assumeIsolated. That pattern is a runtime assertion, not a
+//   compile-time guarantee, and violates Swift 6's actor-isolation rules (P4).
+//   queue: nil delivers on the poster's thread; Task { @MainActor } is then
+//   the Swift 6-correct hop to the main actor — compiler-enforced, not
+//   asserted. The asymmetry with the production coordinator is intentional
+//   and correct. The production coordinator should be updated to match.
 
 import AppKit
 import SwiftUI
@@ -54,8 +59,12 @@ public final class MBKPopoverController: NSObject {
     private var popover: NSPopover!
     private var hostingController: NSHostingController<AnyView>!
 
-    // nonisolated(unsafe): NSEvent monitor token must be stored but is only
-    // ever touched on MainActor.
+    // nonisolated(unsafe): The NSEvent monitor API returns an opaque Any? token
+    // that must be stored for later removal. The token itself has no actor
+    // requirement — only our read/write of this property is actor-sensitive,
+    // and every access is gated behind @MainActor methods (startEventMonitor /
+    // stopEventMonitor). nonisolated(unsafe) is the correct Swift 6 annotation
+    // for a stored property that is manually guaranteed to be safe.
     nonisolated(unsafe) private var eventMonitor: Any?
 
     // MARK: - Init
@@ -120,6 +129,8 @@ public final class MBKPopoverController: NSObject {
         popover.contentSize = NSSize(width: 320, height: 300)
         popover.animates = true
         // .applicationDefined = we handle all dismiss logic ourselves.
+        // This disables AppKit's built-in auto-dismiss entirely — nothing
+        // closes the popover unless we call performClose() ourselves.
         popover.behavior = .applicationDefined
         popover.delegate = self
     }
@@ -127,16 +138,21 @@ public final class MBKPopoverController: NSObject {
     // MARK: - Workspace observer
 
     private func setupWorkspaceObserver() {
+        // queue: nil delivers on the poster's thread (not necessarily main).
+        // Task { @MainActor } is the Swift 6-correct hop — see file header.
         NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didActivateApplicationNotification,
             object: nil,
             queue: nil
         ) { [weak self] notification in
+            // Capture before the actor hop — NSRunningApplication is Sendable.
             let activated = notification.userInfo?[NSWorkspace.applicationUserInfoKey]
                 as? NSRunningApplication
             Task { @MainActor [weak self] in
                 guard let self, self.popover.isShown else { return }
                 guard activated != NSRunningApplication.current else {
+                    // NSApp.activate() in openPopover() fires this for ourselves;
+                    // ignore it or we'd immediately close the popover we just opened.
                     mbkLog("PopoverController", "workspace observer — self-activation, ignoring")
                     return
                 }
@@ -150,10 +166,14 @@ public final class MBKPopoverController: NSObject {
 
     private func startEventMonitor() {
         guard eventMonitor == nil else { return }
+        // The global monitor closure is non-isolated. Task { @MainActor } is
+        // the Swift 6-correct hop (P4). DispatchQueue.main.async bypasses actor
+        // checking and must not be used here.
         eventMonitor = NSEvent.addGlobalMonitorForEvents(
             matching: [.leftMouseDown, .rightMouseDown]
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
+                // Goes through popoverShouldClose — blocked if gate is armed.
                 self?.popover.performClose(nil)
             }
         }
@@ -186,9 +206,15 @@ extension MBKPopoverController: NSPopoverDelegate {
         setButtonHighlight(false)
         stopEventMonitor()
         // Safety net: MBKAnchoredSheet and mbkOpenFilePicker clear the gate
-        // on normal dismiss, but if the popover closes via any other path the
-        // flag would be left true, permanently blocking future dismissals.
+        // on normal dismiss. This reset handles any path that bypasses those
+        // flows (system gesture, future code path, crash recovery) — a stale
+        // true would permanently block all future dismiss attempts until restart.
         // The popover closing is ground truth that no overlay can still be live.
+        //
+        // ORDER NOTE: stopEventMonitor() before gate reset is intentional and
+        // safe. stopEventMonitor() is synchronous — the token is removed before
+        // this line returns, so no queued outside-click Task can fire after this
+        // point. Reversing the order would also be safe but buys nothing.
         overlayGate.hasActiveOverlay = false
         mbkLog("PopoverController", "overlay gate reset on close")
     }
