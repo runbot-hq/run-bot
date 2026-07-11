@@ -7,22 +7,14 @@
 //   File picker via beginSheetModal(for: popoverWindow) — same pattern as main.
 //   No MenuBarExtra. No .nonactivatingPanel. No outside-click fight.
 //
-// HOW TO RUN:
-//   Swap @main from SheetSpikeApp to Option3App in this file,
-//   or comment out @main on SheetSpikeApp in SheetPreservationSpike.swift.
-//
 // REQUIREMENTS: macOS 26+, Swift 6.2
 
 import AppKit
 import SwiftUI
 
 // MARK: - Entry point
-//
-// NOTE: Only one @main is allowed per module.
-// To run this spike, comment out @main on SheetSpikeApp
-// in SheetPreservationSpike.swift and uncomment it here.
 
-// @main  ← uncomment to run Option 3, comment out @main in SheetPreservationSpike.swift
+@main
 struct Option3App: App {
     @NSApplicationDelegateAdaptor(Option3AppDelegate.self) var appDelegate
 
@@ -149,7 +141,6 @@ final class Option3AppDelegate: NSObject, NSApplicationDelegate {
             self?.appState.pickedFolderPath = url.path
             print("[Option3] openFilePicker — picked: \(url.path)")
         }
-        // Log sheets count synchronously — should be 1 now.
         print("[Option3] openFilePicker — after beginSheetModal sheets=\(window.sheets.count)")
     }
 
@@ -167,16 +158,12 @@ final class Option3AppDelegate: NSObject, NSApplicationDelegate {
             Task { @MainActor [weak self] in
                 guard let self, self.popover.isShown else { return }
 
-                // THE KEY GUARD — same as main's hasActiveSheet check.
-                // While NSOpenPanel is attached as a sheet, sheets is non-empty
-                // and every outside click is ignored.
                 let hasActiveSheet = !(self.popoverWindow?.sheets.isEmpty ?? true)
                 guard !hasActiveSheet else {
                     print("[Option3] outsideClickMonitor — sheet active, suppressing dismiss")
                     return
                 }
 
-                // Check the click landed outside the popover window.
                 let screenLoc = event.window?.convertToScreen(
                     NSRect(origin: event.locationInWindow, size: .zero)
                 ).origin ?? NSEvent.mouseLocation
@@ -207,9 +194,6 @@ final class Option3AppDelegate: NSObject, NSApplicationDelegate {
 
 extension Option3AppDelegate: NSPopoverDelegate {
     func popoverShouldClose(_ popover: NSPopover) -> Bool {
-        // Always true — never block AppKit here.
-        // The outside-click monitor is the sole gatekeeper.
-        // Same rationale as main's AppDelegate+PanelSetup.swift.
         true
     }
 
@@ -243,7 +227,7 @@ struct Option3RootView: View {
 
             Divider()
 
-            GroupBox("@State counter (survives open/close)") {
+            GroupBox("Counter (survives open/close)") {
                 HStack {
                     Text("Counter: \(appState.counter)")
                         .monospacedDigit()
