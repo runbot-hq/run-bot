@@ -7,8 +7,8 @@
 //   - popover window: the nonactivatingPanel window
 //   - sheet window: a visible borderless child of the popover window
 //
-// No overlayCount needed — while NSOpenPanel is open it is attached as a sheet
-// to the window, so win.sheets is non-empty and popoverShouldClose blocks.
+// While NSOpenPanel is open it is attached as a sheet to the window,
+// so win.sheets is non-empty and popoverShouldClose blocks automatically.
 
 import AppKit
 
@@ -33,20 +33,18 @@ func openFilePicker(target: PickerTarget, appState: NavSheetAppState) {
         log("FilePicker", "[\(label)] no window found, aborting")
         return
     }
-    log("FilePicker", "[\(label)] opening panel on \(NSStringFromClass(type(of: window)))")
 
     let panel = NSOpenPanel()
     panel.canChooseFiles = false
     panel.canChooseDirectories = true
     panel.allowsMultipleSelection = false
-    panel.message = target == .sheet ? "Pick folder from inside sheet" : "Select a folder"
     panel.prompt = "Select"
     panel.beginSheetModal(for: window) { response in
         guard response == .OK, let url = panel.url else { return }
         log("FilePicker", "[\(label)] picked=\(url.path)")
         switch target {
-        case .popover: appState.pickedFolderPath = url.path
-        case .sheet:   appState.sheetPickedFolderPath = url.path
+        case .popover: appState.pickedPath = url.path
+        case .sheet:   appState.sheetPickedPath = url.path
         }
     }
 }
