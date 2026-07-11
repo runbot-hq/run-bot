@@ -14,16 +14,14 @@
 //   - Reset the overlay gate in popoverDidClose (safety net)
 //
 // USAGE:
-//   1. Create a PopoverController with your root SwiftUI view.
-//   2. Inject a `hasActiveOverlay` closure that returns true while any sheet
-//      or file picker is open on top of the popover.
-//   3. Call `setup()` from applicationDidFinishLaunching.
+//   1. Create a MBKPopoverController with your root SwiftUI view and an
+//      MBKOverlayGate instance.
+//   2. Call `setup()` from applicationDidFinishLaunching.
 //
 // DISMISS GATE CONTRACT:
-//   popoverShouldClose reads `hasActiveOverlay()`. The caller is responsible
-//   for returning true from that closure whenever any overlay (SwiftUI sheet,
-//   NSOpenPanel) is live. MBKAnchoredSheet and MBKFilePicker manage this
-//   automatically via the MBKOverlayGate they receive at init.
+//   popoverShouldClose reads overlayGate.hasActiveOverlay. MBKAnchoredSheet
+//   and mbkOpenFilePicker manage the gate automatically — the host app never
+//   needs to touch it directly.
 //
 // OUTSIDE-CLICK MONITOR:
 //   Started when the popover opens, stopped when it closes. Never leaks a
@@ -41,9 +39,8 @@ public final class MBKPopoverController: NSObject {
 
     // MARK: - Configuration
 
-    /// Returns true while any overlay (sheet, file picker) is live.
-    /// Set by the caller at init; read by popoverShouldClose.
-    private let hasActiveOverlay: () -> Bool
+    /// Overlay gate — read in popoverShouldClose and reset in popoverDidClose.
+    private let overlayGate: MBKOverlayGate
 
     /// The root SwiftUI view hosted inside the popover.
     private let rootView: AnyView
@@ -65,12 +62,12 @@ public final class MBKPopoverController: NSObject {
 
     public init<Content: View>(
         rootView: Content,
-        symbolName: String = "menubar.rectangle",
-        hasActiveOverlay: @escaping () -> Bool
+        overlayGate: MBKOverlayGate,
+        symbolName: String = "menubar.rectangle"
     ) {
         self.rootView = AnyView(rootView)
+        self.overlayGate = overlayGate
         self.symbolName = symbolName
-        self.hasActiveOverlay = hasActiveOverlay
     }
 
     // MARK: - Setup
@@ -179,7 +176,7 @@ extension MBKPopoverController: NSPopoverDelegate {
     }
 
     public func popoverShouldClose(_ popover: NSPopover) -> Bool {
-        let block = hasActiveOverlay()
+        let block = overlayGate.hasActiveOverlay
         mbkLog("PopoverController", "popoverShouldClose blocked=\(block)")
         return !block
     }
@@ -188,19 +185,11 @@ extension MBKPopoverController: NSPopoverDelegate {
         mbkLog("PopoverController", "popoverDidClose")
         setButtonHighlight(false)
         stopEventMonitor()
-        // Safety net: the gate is normally cleared by MBKAnchoredSheet /
-        // MBKFilePicker, but if the popover closes via any other path the flag
-        // would be left true, permanently blocking future dismissals.
-        // Cleared here as ground truth that no overlay can still be live.
-        _overlayGateSafetyReset?()
+        // Safety net: MBKAnchoredSheet and mbkOpenFilePicker clear the gate
+        // on normal dismiss, but if the popover closes via any other path the
+        // flag would be left true, permanently blocking future dismissals.
+        // The popover closing is ground truth that no overlay can still be live.
+        overlayGate.hasActiveOverlay = false
         mbkLog("PopoverController", "overlay gate reset on close")
     }
-
-    // Called by MBKOverlayGate to register the safety-reset closure.
-    // Internal — not public API.
-    var _overlayGateSafetyReset: (() -> Void)? {
-        get { __overlayGateSafetyReset }
-        set { __overlayGateSafetyReset = newValue }
-    }
-    private var __overlayGateSafetyReset: (() -> Void)?
 }
