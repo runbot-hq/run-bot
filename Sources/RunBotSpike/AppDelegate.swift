@@ -83,10 +83,11 @@ final class NavSheetAppDelegate: NSObject, NSApplicationDelegate {
             object: nil,
             queue: .main
         ) { [weak self] notification in
+            // Extract from notification before crossing into MainActor context.
+            let activated = notification.userInfo?[NSWorkspace.applicationUserInfoKey]
+                as? NSRunningApplication
             MainActor.assumeIsolated {
                 guard let self, self.popover.isShown else { return }
-                let activated = notification.userInfo?[NSWorkspace.applicationUserInfoKey]
-                    as? NSRunningApplication
                 guard activated != NSRunningApplication.current else {
                     log("WorkspaceObserver", "self-activation, ignoring")
                     return
