@@ -65,7 +65,7 @@ final class NavSheetAppDelegate: NSObject, NSApplicationDelegate {
 
     private func setupStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        statusItem.button?.title = "\u{1F9EA}"
+        statusItem.button?.title = "🧪"
         statusItem.button?.action = #selector(togglePopover)
         statusItem.button?.target = self
     }
@@ -175,18 +175,22 @@ struct NavSheetMainView: View {
             }
 
             GroupBox("TextField (persists on hide)") {
-                TextField("Type here\u{2026}", text: $appState.text)
+                TextField("Type here...", text: $appState.text)
                     .textFieldStyle(.roundedBorder)
             }
 
             GroupBox(".task fire count") {
                 Text("\(appState.taskFireCount)x").monospacedDigit()
-                Text(appState.taskFireCount > 1 ? "\u274C Fired more than once \u2014 view recreated" : "\u2705 Fired once")
-                    .font(.caption)
-                    .foregroundStyle(appState.taskFireCount > 1 ? .red : .green)
+                if appState.taskFireCount > 1 {
+                    Text("FAIL: fired more than once — view recreated")
+                        .font(.caption).foregroundStyle(.red)
+                } else {
+                    Text("PASS: fired once")
+                        .font(.caption).foregroundStyle(.green)
+                }
             }
 
-            Button("Go to Settings \u2192") { appState.route = .settings }
+            Button("Go to Settings") { appState.route = .settings }
                 .frame(maxWidth: .infinity)
                 .buttonStyle(.borderedProminent)
         }
@@ -222,7 +226,7 @@ struct NavSheetSettingsView: View {
             }
 
             GroupBox(".sheet from settings") {
-                Button("Open sheet\u{2026}") { appState.showSettingsSheet = true }
+                Button("Open sheet...") { appState.showSettingsSheet = true }
                 Label(
                     appState.showSettingsSheet ? "Sheet is open" : "Sheet is closed",
                     systemImage: appState.showSettingsSheet ? "checkmark.circle.fill" : "xmark.circle"
@@ -234,7 +238,7 @@ struct NavSheetSettingsView: View {
                 NavSheetSheetView().environment(appState)
             }
 
-            Button("\u2190 Back") { appState.route = .main }
+            Button("Back") { appState.route = .main }
                 .frame(maxWidth: .infinity)
         }
         .padding(16)
@@ -261,11 +265,11 @@ struct NavSheetSheetView: View {
             }
 
             GroupBox("Sheet text (persists across hide/dismiss)") {
-                TextField("Type in sheet\u{2026}", text: $appState.sheetText)
+                TextField("Type in sheet...", text: $appState.sheetText)
                     .textFieldStyle(.roundedBorder)
             }
 
-            Text("Hide the app while this sheet is open.\nReopen \u2014 sheet should still be here.")
+            Text("Hide the app while this sheet is open. Reopen - sheet should still be here.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
