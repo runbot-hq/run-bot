@@ -8,58 +8,37 @@
 //   No MenuBarExtra. No .nonactivatingPanel. No outside-click fight.
 //
 // REQUIREMENTS: macOS 26+, Swift 6.2
+//
+// NOTE: @main lives in NavSheetSpike.swift on spike/swiftui-nav-sheet.
 
 import AppKit
 import SwiftUI
 
-// MARK: - Entry point
-
-@main
+// @main ← moved to NavSheetSpike.swift
 struct Option3App: App {
     @NSApplicationDelegateAdaptor(Option3AppDelegate.self) var appDelegate
 
     var body: some Scene {
-        // No WindowGroup, no MenuBarExtra.
-        // All UI lives inside the NSPopover owned by Option3AppDelegate.
-        // SwiftUI requires at least one Scene — Settings{} is the standard
-        // empty placeholder for menu-bar-only apps.
         Settings { EmptyView() }
     }
 }
 
 // MARK: - AppDelegate
-//
-// Owns NSStatusItem and NSPopover — exactly the same shape as main's AppDelegate.
-// SwiftUI views live inside NSHostingController, which is long-lived (owned by
-// the popover). .task, @Observable, @Environment all behave correctly because
-// the hosting controller is never recreated.
 
 @MainActor
 final class Option3AppDelegate: NSObject, NSApplicationDelegate {
 
-    // MARK: AppKit objects
     private var statusItem: NSStatusItem!
     private var popover: NSPopover!
     private var hostingController: NSHostingController<AnyView>!
-
-    // MARK: Outside-click monitor
-    // Direct port of PopoverLifecycleCoordinator.outsideClickMonitor from main.
-    // Guards against dismissal while NSOpenPanel is attached as a sheet.
     nonisolated(unsafe) private var outsideClickMonitor: Any?
-
-    // MARK: App state
-    // Owned here so it outlives the popover open/close cycle.
     private var appState = Option3AppState()
-
-    // MARK: - Application lifecycle
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         setupStatusItem()
         setupPopover()
     }
-
-    // MARK: - Status item
 
     private func setupStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -76,8 +55,6 @@ final class Option3AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    // MARK: - Popover
-
     private func setupPopover() {
         let root = Option3RootView(onPickFolder: { [weak self] in
             self?.openFilePicker()
@@ -91,9 +68,6 @@ final class Option3AppDelegate: NSObject, NSApplicationDelegate {
         popover.contentViewController = hostingController
         popover.contentSize = NSSize(width: 320, height: 200)
         popover.animates = false
-        // .applicationDefined: we control dismiss via the outside-click monitor.
-        // Same as main — popoverShouldClose always returns true; the monitor
-        // guards against picker clicks via hasActiveSheet.
         popover.behavior = .applicationDefined
         popover.delegate = self
     }
@@ -109,26 +83,12 @@ final class Option3AppDelegate: NSObject, NSApplicationDelegate {
         removeOutsideClickMonitor()
     }
 
-    // Convenience: the popover's backing NSWindow.
-    // Non-nil only while the popover is shown.
     private var popoverWindow: NSWindow? {
         popover.contentViewController?.view.window
     }
 
-    // MARK: - File picker
-    //
-    // Direct port of the working pattern from main:
-    //   beginSheetModal(for: popoverWindow) attaches NSOpenPanel as a real sheet.
-    //   popoverWindow.sheets is non-empty while the panel is open.
-    //   The outside-click monitor checks hasActiveSheet before calling closePopover().
-
     func openFilePicker() {
-        guard let window = popoverWindow else {
-            print("[Option3] openFilePicker — popoverWindow nil")
-            return
-        }
-        print("[Option3] openFilePicker — opening NSOpenPanel via beginSheetModal")
-
+        guard let window = popoverWindow else { return }
         let panel = NSOpenPanel()
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
@@ -136,19 +96,10 @@ final class Option3AppDelegate: NSObject, NSApplicationDelegate {
         panel.message = "Select a folder"
         panel.prompt = "Select"
         panel.beginSheetModal(for: window) { [weak self] response in
-            print("[Option3] openFilePicker — response=\(response.rawValue) sheets=\(window.sheets.count)")
             guard response == .OK, let url = panel.url else { return }
             self?.appState.pickedFolderPath = url.path
-            print("[Option3] openFilePicker — picked: \(url.path)")
         }
-        print("[Option3] openFilePicker — after beginSheetModal sheets=\(window.sheets.count)")
     }
-
-    // MARK: - Outside-click monitor
-    //
-    // Port of PopoverLifecycleCoordinator.installMonitors from main.
-    // Key guard: skip closePopover() when hasActiveSheet is true
-    // (i.e. NSOpenPanel is attached via beginSheetModal).
 
     private func installOutsideClickMonitor() {
         guard outsideClickMonitor == nil else { return }
@@ -157,49 +108,27 @@ final class Option3AppDelegate: NSObject, NSApplicationDelegate {
         ) { [weak self] event in
             Task { @MainActor [weak self] in
                 guard let self, self.popover.isShown else { return }
-
                 let hasActiveSheet = !(self.popoverWindow?.sheets.isEmpty ?? true)
-                guard !hasActiveSheet else {
-                    print("[Option3] outsideClickMonitor — sheet active, suppressing dismiss")
-                    return
-                }
-
-                let screenLoc = event.window?.convertToScreen(
+                guard !hasActiveSheet else { return }
+                let loc = event.window?.convertToScreen(
                     NSRect(origin: event.locationInWindow, size: .zero)
                 ).origin ?? NSEvent.mouseLocation
-
-                if let window = self.popoverWindow, window.frame.contains(screenLoc) {
-                    return
-                }
-
-                print("[Option3] outsideClickMonitor — outside click, closing popover")
+                if let w = self.popoverWindow, w.frame.contains(loc) { return }
                 self.closePopover()
             }
         }
     }
 
     private func removeOutsideClickMonitor() {
-        if let m = outsideClickMonitor {
-            NSEvent.removeMonitor(m)
-            outsideClickMonitor = nil
-        }
+        if let m = outsideClickMonitor { NSEvent.removeMonitor(m); outsideClickMonitor = nil }
     }
 
-    deinit {
-        if let m = outsideClickMonitor { NSEvent.removeMonitor(m) }
-    }
+    deinit { if let m = outsideClickMonitor { NSEvent.removeMonitor(m) } }
 }
 
-// MARK: - NSPopoverDelegate
-
 extension Option3AppDelegate: NSPopoverDelegate {
-    func popoverShouldClose(_ popover: NSPopover) -> Bool {
-        true
-    }
-
-    func popoverDidClose(_ notification: Notification) {
-        removeOutsideClickMonitor()
-    }
+    func popoverShouldClose(_ popover: NSPopover) -> Bool { true }
+    func popoverDidClose(_ notification: Notification) { removeOutsideClickMonitor() }
 }
 
 // MARK: - App state
