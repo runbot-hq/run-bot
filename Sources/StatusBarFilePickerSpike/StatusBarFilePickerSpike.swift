@@ -2,32 +2,35 @@
 // StatusBarFilePickerSpike — spike/statusbar-filepicker branch
 //
 // PURPOSE:
-// Verifies that a file picker (.fileImporter / NSOpenPanel) works reliably
-// inside a .window-style MenuBarExtra without closing the panel.
+// Verifies that a file picker works reliably inside a .window-style
+// MenuBarExtra without closing the panel.
 //
 // TWO APPROACHES UNDER TEST:
 //
-// A) SwiftUI .fileImporter modifier (preferred)
-//    Wired directly to a Button inside the window-style panel.
-//    The panel must stay visible while the file picker sheet is open.
+// A) SwiftUI .fileImporter (preferred)
+//    Native modifier wired to a Button inside the window-style panel.
+//    KNOWN RISK: .fileImporter may close the MenuBarExtra panel because the
+//    open sheet steals key-window status (same root cause as .sheet — see PR #2033).
+//    The .task(id: isImporting) log will reveal if the panel reopens mid-session.
 //
 // B) NSOpenPanel + activation-policy dance (fallback)
-//    Used when .fileImporter is unavailable or closes the panel.
-//    Temporarily promotes the app to .regular activation policy so the
-//    open panel comes to front, then restores .accessory afterward.
+//    Temporarily promotes the app to .regular so the panel comes to front,
+//    then restores .accessory afterward.
+//    Bypasses SwiftUI entirely — panel close is not a risk.
 //
 // HOW TO RUN:
 //   swift run StatusBarFilePickerSpike
 //
 // WHAT TO VERIFY:
 //   1. Status-bar icon appears.
-//   2. Click icon -> panel shows (window-style popover, NOT a plain menu).
-//   3. Click "Pick File (fileImporter)" -> file picker appears over/beside the panel.
-//      Panel must remain visible / not close.
-//   4. Cancel -> picked URL stays nil. Label shows "(none)".
-//   5. Pick a file -> label updates to the file path.
-//   6. Click "Pick File (NSOpenPanel)" -> NSOpenPanel appears IN FRONT of all windows.
-//   7. Repeat both paths 5x — no crashes, no stuck state.
+//   2. Click icon → window-style panel shows (NOT a plain menu list).
+//   3. Click "Pick File (fileImporter)" → file picker appears.
+//      ✔ Panel stays open behind the picker (check console — no "isImporting: false" mid-session).
+//   4. Cancel → label stays "(none)".
+//   5. Pick a file → label updates to the file name.
+//   6. Click "Pick File (NSOpenPanel)" → NSOpenPanel appears IN FRONT of all windows.
+//   7. Cancel → label unchanged. Pick → label updates.
+//   8. Repeat both paths 5x — no crashes, no stuck state.
 //
 // REQUIREMENTS: macOS 26, Swift 6
 // DEPENDENCIES: none (zero RunBot deps)
@@ -70,21 +73,19 @@ struct ContentView: View {
                     isImporting = true
                 }
                 .frame(maxWidth: .infinity)
-                Text("Panel must stay open while picker is shown.")
+                Text("Panel must stay open while picker is shown.\nWatch console for spurious isImporting=false.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            // Approach B: NSOpenPanel via activation-policy dance
+            // Approach B: NSOpenPanel + activation-policy dance
             GroupBox("Approach B — NSOpenPanel") {
                 Button("Pick File (NSOpenPanel)") {
-                    if let url = FilePickerHelper.pickFile() {
-                        pickedURL = url
-                    }
+                    pickedURL = FilePickerHelper.pickFile()
                 }
                 .frame(maxWidth: .infinity)
-                Text("Uses activation-policy dance to bring panel to front.")
+                Text("Activation-policy dance: .regular → runModal() → .accessory.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -120,9 +121,12 @@ struct ContentView: View {
             allowedContentTypes: [.item],
             allowsMultipleSelection: false
         ) { result in
-            if case .success(let urls) = result {
-                pickedURL = urls.first
-            }
+            pickedURL = try? result.get()
+        }
+        // Diagnostic: logs every time isImporting flips.
+        // Spurious false during an open session = panel closed and reopened.
+        .task(id: isImporting) {
+            print("[FilePickerSpike] isImporting: \(isImporting)")
         }
     }
 }
@@ -130,15 +134,18 @@ struct ContentView: View {
 // MARK: - NSOpenPanel helper (Approach B)
 //
 // .window-style MenuBarExtra runs with .accessory activation policy.
-// Without the dance below, NSOpenPanel can appear behind other windows.
+// Without the dance below, NSOpenPanel appears behind other windows.
 
 enum FilePickerHelper {
 
-    /// Presents an `NSOpenPanel` and returns the selected URL, or `nil` if cancelled.
+    /// Presents an `NSOpenPanel` and returns the selected `URL`, or `nil` if cancelled.
     ///
     /// Temporarily promotes the app to `.regular` activation policy so the panel
     /// becomes key and appears in front, then restores `.accessory` afterward.
+    ///
+    /// - Parameter canChooseDirectories: Also allow picking directories. Default `false`.
     static func pickFile(canChooseDirectories: Bool = false) -> URL? {
+        // 1. Promote so the open panel can become key.
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
 
@@ -151,6 +158,7 @@ enum FilePickerHelper {
 
         let result = panel.runModal()
 
+        // 2. Restore .accessory so the Dock icon disappears again.
         NSApp.setActivationPolicy(.accessory)
 
         return result == .OK ? panel.url : nil
