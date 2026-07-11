@@ -4,12 +4,10 @@
 // Builds on Option 3 (NSPopover + @NSApplicationDelegateAdaptor).
 //
 // DISMISS STRATEGY:
-// .behavior = .applicationDefined so AppKit never auto-closes.
-// We close on popoverWindowDidResignKey UNLESS a sheet/picker is active
-// (popoverWindow.sheets is non-empty, or a child window is visible).
-// This means: click anywhere outside -> popover loses key -> closes.
-// But: open a sheet/picker -> popover window is no longer key but sheets
-// guard fires -> stays open.
+// .behavior = .transient — AppKit auto-dismisses on outside click.
+// popoverShouldClose blocks dismissal when a sheet or child window
+// (AnchoredSheet) is active, so pickers and sheets keep the popover alive.
+// No NotificationCenter, no Task, no concurrency surface area.
 //
 // REQUIREMENTS: macOS 26+, Swift 6.2
 
@@ -57,7 +55,6 @@ final class NavSheetAppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
     private var popover: NSPopover!
     private var hostingController: NSHostingController<AnyView>!
-    private var resignKeyObserver: NSObjectProtocol?
     private var appState = NavSheetAppState()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -74,7 +71,7 @@ final class NavSheetAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func togglePopover() {
-        popover.isShown ? closePopover() : openPopover()
+        popover.isShown ? popover.performClose(nil) : openPopover()
     }
 
     private func setupPopover() {
@@ -88,18 +85,15 @@ final class NavSheetAppDelegate: NSObject, NSApplicationDelegate {
         popover.contentViewController = hostingController
         popover.contentSize = NSSize(width: 320, height: 300)
         popover.animates = true
-        popover.behavior = .applicationDefined
+        // .transient: AppKit closes on any outside click.
+        // popoverShouldClose below blocks that when a sheet/picker is active.
+        popover.behavior = .transient
         popover.delegate = self
     }
 
     private func openPopover() {
         guard let button = statusItem.button else { return }
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-        installResignKeyObserver()
-    }
-
-    private func closePopover() {
-        popover.performClose(nil)
     }
 
     private var popoverWindow: NSWindow? {
@@ -117,43 +111,6 @@ final class NavSheetAppDelegate: NSObject, NSApplicationDelegate {
         if let children = pop.childWindows, !children.isEmpty { return true }
         return false
     }
-
-    // MARK: - Resign-key observer
-    // Pull `notification.object` out of the closure as a plain NSWindow?
-    // *before* crossing the actor boundary into the Task. NSWindow is
-    // @MainActor-bound but is not Sendable; extracting it as a local
-    // variable in the nonisolated closure and sending that single value
-    // into the Task avoids the data-race the compiler complains about
-    // when the whole Notification (non-Sendable) is captured.
-    private func installResignKeyObserver() {
-        guard resignKeyObserver == nil else { return }
-        resignKeyObserver = NotificationCenter.default.addObserver(
-            forName: NSWindow.didResignKeyNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] notification in
-            // Extract before the Task boundary — NSWindow? is a class ref,
-            // safe to pass as a @Sendable value across the hop.
-            let resignedWindow = notification.object as? NSWindow
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                guard resignedWindow === self.popoverWindow else { return }
-                guard !self.hasActiveOverlay else { return }
-                self.closePopover()
-            }
-        }
-    }
-
-    private func removeResignKeyObserver() {
-        if let o = resignKeyObserver {
-            NotificationCenter.default.removeObserver(o)
-            resignKeyObserver = nil
-        }
-    }
-
-    // NOTE: no deinit — deinit on a @MainActor class is nonisolated in
-    // Swift 6.2 and cannot synchronously call main-actor methods.
-    // removeResignKeyObserver() is called from popoverDidClose instead.
 
     // MARK: - File picker
     enum PickerTarget { case popover, sheet }
@@ -182,8 +139,11 @@ final class NavSheetAppDelegate: NSObject, NSApplicationDelegate {
 }
 
 extension NavSheetAppDelegate: NSPopoverDelegate {
-    func popoverShouldClose(_ popover: NSPopover) -> Bool { true }
-    func popoverDidClose(_ notification: Notification) { removeResignKeyObserver() }
+    // Called synchronously on the main thread — no concurrency needed.
+    // Return false to keep the popover alive while a sheet or picker is open.
+    func popoverShouldClose(_ popover: NSPopover) -> Bool {
+        !hasActiveOverlay
+    }
 }
 
 // MARK: - Root view
