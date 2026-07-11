@@ -113,16 +113,17 @@ final class NavSheetAppDelegate: NSObject, NSApplicationDelegate {
 
     private var hasActiveOverlay: Bool {
         guard let pop = popoverWindow else { return false }
-        // Active sheet via beginSheetModal
-        if !(pop.sheets.isEmpty) { return true }
-        // Active child window (AnchoredSheet via addChildWindow)
+        if !pop.sheets.isEmpty { return true }
         if let children = pop.childWindows, !children.isEmpty { return true }
         return false
     }
 
     // MARK: - Resign-key observer
-    // Close whenever the popover window loses key focus,
-    // UNLESS a sheet or child window (AnchoredSheet) is active.
+    // Wrap body in Task { @MainActor in } so the closure can legally
+    // access @MainActor-isolated properties (popoverWindow, hasActiveOverlay,
+    // closePopover). Without the Task wrapper Swift 6.2 treats the
+    // NotificationCenter closure as Sendable/nonisolated and rejects those
+    // accesses at compile time.
     private func installResignKeyObserver() {
         guard resignKeyObserver == nil else { return }
         resignKeyObserver = NotificationCenter.default.addObserver(
@@ -130,17 +131,26 @@ final class NavSheetAppDelegate: NSObject, NSApplicationDelegate {
             object: nil,
             queue: .main
         ) { [weak self] notification in
-            guard let self else { return }
-            guard let window = notification.object as? NSWindow,
-                  window === self.popoverWindow else { return }
-            guard !self.hasActiveOverlay else { return }
-            self.closePopover()
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                guard let window = notification.object as? NSWindow,
+                      window === self.popoverWindow else { return }
+                guard !self.hasActiveOverlay else { return }
+                self.closePopover()
+            }
         }
     }
 
     private func removeResignKeyObserver() {
-        if let o = resignKeyObserver { NotificationCenter.default.removeObserver(o); resignKeyObserver = nil }
+        if let o = resignKeyObserver {
+            NotificationCenter.default.removeObserver(o)
+            resignKeyObserver = nil
+        }
     }
+
+    // NOTE: no deinit — deinit on a @MainActor class is nonisolated in
+    // Swift 6.2 and cannot synchronously call main-actor methods.
+    // removeResignKeyObserver() is called from popoverDidClose instead.
 
     // MARK: - File picker
     enum PickerTarget { case popover, sheet }
@@ -166,8 +176,6 @@ final class NavSheetAppDelegate: NSObject, NSApplicationDelegate {
             }
         }
     }
-
-    deinit { removeResignKeyObserver() }
 }
 
 extension NavSheetAppDelegate: NSPopoverDelegate {
