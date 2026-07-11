@@ -8,7 +8,6 @@
 //   - popoverShouldClose checks the window hierarchy directly:
 //       win.sheets non-empty  → NSOpenPanel is attached, block dismiss
 //       win.childWindows non-empty → SwiftUI sheet is attached, block dismiss
-//     No manual overlayCount counter needed.
 
 import AppKit
 import SwiftUI
@@ -17,7 +16,7 @@ import SwiftUI
 final class NavSheetAppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
     private var popover: NSPopover!
-    private var hostingController: NSHostingController<AnyView>!
+    private var hostingController: NSHostingController<NavSheetRootView>!
     nonisolated(unsafe) private var eventMonitor: Any?
     private let appState = NavSheetAppState()
 
@@ -62,8 +61,7 @@ final class NavSheetAppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Popover setup
 
     private func setupPopover() {
-        let root = NavSheetRootView().environment(appState)
-        hostingController = NSHostingController(rootView: AnyView(root))
+        hostingController = NSHostingController(rootView: NavSheetRootView().environment(appState))
         hostingController.sizingOptions = .preferredContentSize
         popover = NSPopover()
         popover.contentViewController = hostingController
