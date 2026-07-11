@@ -144,11 +144,12 @@ struct MainSpikeView: View {
             }
 
             // Scenario 7: .fileImporter
-            // NSOpenPanel is anchored on open (so taps inside don't close the MenuBarExtra)
-            // and unanchored on close (so an outside-click dismiss still hides the MenuBarExtra).
+            // NSOpenPanel is anchored the same way as SwiftUI sheets — via
+            // addChildWindow(_:ordered:). Without this, clicking inside the
+            // picker is treated as an outside click and hides the MenuBarExtra window.
             GroupBox("Scenario 7 — .fileImporter") {
                 Button("Open file picker") { showFilePicker = true }
-                Text("Tap inside: app stays open. Tap outside: both close.")
+                Text("Click inside the picker. App should NOT dismiss.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -159,11 +160,8 @@ struct MainSpikeView: View {
                 print("\u{1F535} [Spike] fileImporter result: \(result)")
             }
             .onChange(of: showFilePicker) { _, newValue in
-                if newValue {
-                    Task { @MainActor in anchorOpenPanel() }
-                } else {
-                    Task { @MainActor in unanchorOpenPanel() }
-                }
+                guard newValue else { return }
+                Task { @MainActor in anchorOpenPanel() }
             }
 
             Divider()
@@ -206,17 +204,6 @@ struct MainSpikeView: View {
             } else {
                 print("[AnchoredSheet] NSOpenPanel not found")
             }
-        }
-    }
-
-    @MainActor
-    private func unanchorOpenPanel() {
-        guard let menuBarWindow = NSApp.windows.first(where: {
-            $0.styleMask.contains(.nonactivatingPanel)
-        }) else { return }
-        for child in menuBarWindow.childWindows ?? [] where child is NSOpenPanel {
-            print("[AnchoredSheet] unanchoring NSOpenPanel: \(child)")
-            menuBarWindow.removeChildWindow(child)
         }
     }
 }
