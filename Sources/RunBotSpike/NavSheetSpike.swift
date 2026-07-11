@@ -4,9 +4,10 @@
 // Builds on Option 3 (NSPopover + @NSApplicationDelegateAdaptor).
 //
 // TESTS:
-// 1. Navigation: main → settings → back. Does nav state survive hide/show?
+// 1. Navigation: main -> settings -> back. Does nav state survive hide/show?
 // 2. Settings sheet: open .sheet from settings view. Does it work?
 // 3. State persistence: counter + text field values survive hide/show.
+// 4. File picker from settings view: beginSheetModal keeps popover alive.
 //
 // HOW TO RUN:
 //   swift run RunBotSpike
@@ -45,6 +46,7 @@ final class NavSheetAppState {
     var sheetCounter: Int = 0
     var sheetText: String = ""
     var taskFireCount: Int = 0
+    var pickedFolderPath: String = ""
 }
 
 // MARK: - AppDelegate
@@ -65,7 +67,7 @@ final class NavSheetAppDelegate: NSObject, NSApplicationDelegate {
 
     private func setupStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        statusItem.button?.title = "🧪"
+        statusItem.button?.title = "Flask"
         statusItem.button?.action = #selector(togglePopover)
         statusItem.button?.target = self
     }
@@ -75,7 +77,9 @@ final class NavSheetAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func setupPopover() {
-        let root = NavSheetRootView().environment(appState)
+        let root = NavSheetRootView(onPickFolder: { [weak self] in
+            self?.openFilePicker()
+        }).environment(appState)
         hostingController = NSHostingController(rootView: AnyView(root))
         hostingController.sizingOptions = .preferredContentSize
         popover = NSPopover()
@@ -101,6 +105,25 @@ final class NavSheetAppDelegate: NSObject, NSApplicationDelegate {
         popover.contentViewController?.view.window
     }
 
+    // MARK: - File picker
+    // beginSheetModal attaches NSOpenPanel as a real sheet on the popover window.
+    // popoverWindow.sheets becomes non-empty -> hasActiveSheet guard fires
+    // -> outside clicks are suppressed while picker is open.
+    func openFilePicker() {
+        guard let window = popoverWindow else { return }
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.message = "Select a folder"
+        panel.prompt = "Select"
+        panel.beginSheetModal(for: window) { [weak self] response in
+            guard response == .OK, let url = panel.url else { return }
+            self?.appState.pickedFolderPath = url.path
+        }
+    }
+
+    // MARK: - Outside-click monitor
     private func installOutsideClickMonitor() {
         guard outsideClickMonitor == nil else { return }
         outsideClickMonitor = NSEvent.addGlobalMonitorForEvents(
@@ -135,6 +158,7 @@ extension NavSheetAppDelegate: NSPopoverDelegate {
 
 struct NavSheetRootView: View {
     @Environment(NavSheetAppState.self) private var appState
+    let onPickFolder: () -> Void
 
     var body: some View {
         switch appState.route {
@@ -143,10 +167,10 @@ struct NavSheetRootView: View {
                 .environment(appState)
                 .task {
                     await MainActor.run { appState.taskFireCount += 1 }
-                    print("[NavSheetSpike] .task fired (count=\(appState.taskFireCount)) — should be 1")
+                    print("[NavSheetSpike] .task fired (count=\(appState.taskFireCount)) - should be 1")
                 }
         case .settings:
-            NavSheetSettingsView()
+            NavSheetSettingsView(onPickFolder: onPickFolder)
                 .environment(appState)
         }
     }
@@ -182,7 +206,7 @@ struct NavSheetMainView: View {
             GroupBox(".task fire count") {
                 Text("\(appState.taskFireCount)x").monospacedDigit()
                 if appState.taskFireCount > 1 {
-                    Text("FAIL: fired more than once — view recreated")
+                    Text("FAIL: fired more than once - view recreated")
                         .font(.caption).foregroundStyle(.red)
                 } else {
                     Text("PASS: fired once")
@@ -203,6 +227,7 @@ struct NavSheetMainView: View {
 
 struct NavSheetSettingsView: View {
     @Environment(NavSheetAppState.self) private var appState
+    let onPickFolder: () -> Void
 
     var body: some View {
         @Bindable var appState = appState
@@ -236,6 +261,20 @@ struct NavSheetSettingsView: View {
             }
             .anchoredSheet(isPresented: $appState.showSettingsSheet) {
                 NavSheetSheetView().environment(appState)
+            }
+
+            GroupBox("File picker (stays open while clicking)") {
+                Button("Choose folder...") { onPickFolder() }
+                if !appState.pickedFolderPath.isEmpty {
+                    Text(appState.pickedFolderPath)
+                        .font(.system(size: 11, design: .monospaced))
+                        .lineLimit(1)
+                        .truncationMode(.head)
+                } else {
+                    Text("No folder picked yet")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
 
             Button("Back") { appState.route = .main }
