@@ -16,10 +16,11 @@
 // STATUS BUTTON HIGHLIGHT:
 // Pinned to popover.isShown via popoverWillShow / popoverDidClose.
 //
-// POPOVER ACTIVE APPEARANCE:
-// NSPopover already owns an NSVisualEffectView in its window hierarchy.
-// We just walk the popover window's view tree in popoverDidShow and set
-// .state = .active on that existing view. No second vibrancy layer added.
+// ACTIVE APPEARANCE:
+// NSApp.activate(ignoringOtherApps: true) is called in openPopover().
+// This promotes the app to key/active so AppKit renders all controls
+// (buttons, toggles, text fields) in their active state.
+// This is the same fix used in production (main branch makeKeyForTextInput).
 //
 // REQUIREMENTS: macOS 26+, Swift 6.2
 
@@ -126,30 +127,12 @@ final class NavSheetAppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        // Promote to key/active so controls render in active state.
+        // Same as main branch makeKeyForTextInput().
+        NSApp.activate(ignoringOtherApps: true)
         button.isHighlighted = true
-        log("Popover", "shown, button.isHighlighted=true")
+        log("Popover", "shown + activated, button.isHighlighted=true")
         startEventMonitor()
-    }
-
-    // Walk the popover window's view hierarchy and set state=.active on
-    // the NSVisualEffectView that NSPopover already created. This is the
-    // only view that needs it — no second layer added.
-    private func forceActiveAppearance() {
-        guard let window = popover.contentViewController?.view.window else {
-            log("Appearance", "forceActiveAppearance: no window")
-            return
-        }
-        var found = 0
-        func walk(_ view: NSView) {
-            if let vev = view as? NSVisualEffectView {
-                vev.state = .active
-                found += 1
-                log("Appearance", "set state=.active on \(NSStringFromClass(type(of: vev))) in hierarchy")
-            }
-            view.subviews.forEach { walk($0) }
-        }
-        walk(window.contentView ?? window.contentViewController?.view ?? NSView())
-        log("Appearance", "forceActiveAppearance done, patched \(found) NSVisualEffectView(s)")
     }
 
     private func setButtonHighlight(_ on: Bool) {
@@ -235,7 +218,6 @@ extension NavSheetAppDelegate: NSPopoverDelegate {
     func popoverDidShow(_ notification: Notification) {
         let windowClass = popover.contentViewController?.view.window.map { NSStringFromClass(type(of: $0)) } ?? "nil"
         log("Popover", "popoverDidShow window=\(windowClass)")
-        forceActiveAppearance()
     }
     func popoverShouldClose(_ popover: NSPopover) -> Bool {
         let allow = appState.overlayCount == 0
