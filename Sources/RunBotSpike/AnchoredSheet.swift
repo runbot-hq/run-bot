@@ -12,7 +12,7 @@
 //
 // SOLUTION:
 //   After SwiftUI presents the sheet (i.e. after isPresented flips true), walk
-//   NSApp.windows to find the new borderless+key window and call
+//   NSApp.windows to find the new borderless window and call
 //   addChildWindow(_:ordered:) on the popover window.
 //   Once it is a child:
 //     - It follows the popover on screen.
@@ -37,23 +37,25 @@
 //   attached via addChildWindow) directly — no counters needed.
 //
 // SHEET WINDOW DISCRIMINATOR:
-//   We match the sheet window by checking its contentViewController is an
-//   NSHostingController<AnyView>. This is an exact type match — only the SwiftUI
-//   sheet window will pass it. The previous approach used .isKeyWindow, which is
-//   fragile: other borderless windows (e.g. NSOpenPanel during dismiss, OS
-//   animations) can briefly become key and cause addChildWindow to attach the
-//   wrong window.
+//   We match the sheet window by: borderless + visible + frame intersects the
+//   popover window's frame + is not the popover window itself.
 //
-//   MIGRATION NOTES:
-//   1. OS updates: if SwiftUI changes its internal hosting controller type this
-//      check will stop matching silently. Validate on each major OS update.
-//   2. AnyView coupling: this discriminator only matches NSHostingController<AnyView>.
-//      It will silently fail if a call site wraps content in a typed
-//      NSHostingController<ConcreteView> instead of AnyView. This is an implicit
-//      contract — all call sites must wrap their root view in AnyView.
-//      In this spike, AppDelegate.setupPopover() does this explicitly:
-//        NSHostingController(rootView: AnyView(NavSheetRootView()...))
-//      Maintain this convention in the main app migration.
+//   Why not NSHostingController<AnyView> type check:
+//     Tried this — SwiftUI's internal sheet window does not use that exact type
+//     so the check never matched and addChildWindow never fired.
+//
+//   Why not isKeyWindow:
+//     Fragile — other borderless windows (NSOpenPanel during dismiss, OS
+//     animations) can transiently become key.
+//
+//   Why frame intersection:
+//     The sheet always appears centred over or near the popover. No other
+//     borderless visible window should be overlapping the popover frame at
+//     the moment the sheet is being presented.
+//
+//   MIGRATION NOTE: revalidate this heuristic on major OS updates. If multiple
+//   borderless windows can legitimately overlap the popover simultaneously,
+//   a more specific discriminator will be needed.
 
 import AppKit
 import SwiftUI
@@ -96,18 +98,18 @@ struct NavAnchoredSheetModifier<SheetContent: View>: ViewModifier {
             return
         }
         DispatchQueue.main.async {
-            // Match by contentViewController type — NSHostingController<AnyView>
-            // is only ever set on the window SwiftUI creates for .sheet().
-            // See MIGRATION NOTES above re: AnyView coupling.
+            // Find the sheet window: borderless, visible, overlaps the popover,
+            // and is not the popover window itself.
             if let sheetWindow = NSApp.windows.first(where: {
                 $0 !== popoverWindow
                     && $0.styleMask.contains(.borderless)
-                    && $0.contentViewController is NSHostingController<AnyView>
+                    && $0.isVisible
+                    && $0.frame.intersects(popoverWindow.frame)
             }) {
                 log("AnchoredSheet", "addChildWindow")
                 popoverWindow.addChildWindow(sheetWindow, ordered: .above)
             } else {
-                log("AnchoredSheet", "no NSHostingController<AnyView> window found")
+                log("AnchoredSheet", "no matching sheet window found")
             }
         }
     }
