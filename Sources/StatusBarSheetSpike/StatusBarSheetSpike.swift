@@ -1,18 +1,24 @@
 // StatusBarSheetSpike.swift
 // StatusBarSheetSpike — spike/statusbar-sheet branch
 //
-// PURPOSE:
-// Tests whether MenuBarExtra(.window) can host a .sheet() whose Dismiss
-// button closes ONLY the sheet, not the MenuBarExtra window.
+// ROOT CAUSE:
+// .sheet opens a second NSPanel. When that panel becomes key, MenuBarExtra
+// treats it as an "outside click" and closes its own window. This happens
+// regardless of @Binding vs @Environment(\.dismiss) and regardless of
+// whether the sheet content is a separate View struct.
 //
-// THE FIX: @Environment(\.dismiss) inside a separate named View struct.
-// Already verified in RunBotSpike (spike/swiftui-lifecycle):
-//   "@Environment(\.dismiss) resolves to the sheet’s own dismiss action
-//    when used inside a .sheet — it does NOT bubble up to close the
-//    MenuBarExtra window."
+// THE FIX: anchoredSheet(_:)
+// After isPresented flips true, find the new NSPanel SwiftUI created and
+// call menuBarWindow.addChildWindow(sheetPanel, ordered: .above).
+// Child windows share a focus group with their parent, so focus moving to
+// the sheet is no longer treated as an outside-click. Panel stays open.
 //
-// @Binding + isPresented = false does NOT work — it does not scope the
-// dismiss to the sheet and causes the host window to close.
+// Standard SwiftUI .sheet API is preserved. No fake overlay, no NSWindowDelegate.
+//
+// ALSO: use @Binding to dismiss, NOT @Environment(\.dismiss).
+// On MenuBarExtra, dismiss() bubbles past the sheet and closes the window.
+//
+// Ported from: spike/statusbar-sheet-swiftui
 //
 // HOW TO RUN:
 //   swift run StatusBarSheetSpike
@@ -21,6 +27,7 @@
 // DEPENDENCIES: none
 
 import SwiftUI
+import AppKit
 
 @main
 struct StatusBarSheetSpikeApp: App {
@@ -71,16 +78,19 @@ struct SpikeContentView: View {
         }
         .padding(16)
         .frame(width: 320)
-        .sheet(isPresented: $isSheetPresented) {
-            SheetView()
+        // Use anchoredSheet, not plain .sheet.
+        // See AnchoredSheetModifier below for why.
+        .anchoredSheet(isPresented: $isSheetPresented) {
+            SheetView(isPresented: $isSheetPresented)
         }
     }
 }
 
-// @Environment(\.dismiss) scopes dismiss to this sheet only.
-// Do NOT use @Binding + isPresented = false — that closes the host window.
+// @Binding dismiss — NOT @Environment(\.dismiss).
+// On MenuBarExtra, @Environment(\.dismiss) bubbles past the sheet
+// and closes the host window.
 struct SheetView: View {
-    @Environment(\.dismiss) private var dismiss
+    @Binding var isPresented: Bool
     @State private var sheetCounter = 0
 
     var body: some View {
@@ -102,11 +112,72 @@ struct SheetView: View {
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.secondary)
 
-            Button("Dismiss") { dismiss() }
+            Button("Dismiss") { isPresented = false }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
         }
         .padding(24)
         .frame(minWidth: 300)
+    }
+}
+
+// MARK: - anchoredSheet
+//
+// Wraps .sheet and parents the NSPanel SwiftUI creates to the MenuBarExtra
+// window via addChildWindow(_:ordered:).
+//
+// Why this works:
+// Child windows share a focus group with their parent. When the sheet
+// NSPanel becomes key, AppKit no longer treats it as an outside-click
+// on the MenuBarExtra window.
+//
+// Sheet detection: after isPresented flips true, find an NSWindow that:
+//   - is NOT the MenuBarExtra window (which has .nonactivatingPanel style)
+//   - has .borderless styleMask (SwiftUI sheet panels are borderless)
+//   - is currently key (just became active)
+
+extension View {
+    func anchoredSheet<Content: View>(
+        isPresented: Binding<Bool>,
+        @ViewBuilder content: @escaping () -> Content
+    ) -> some View {
+        modifier(AnchoredSheetModifier(isPresented: isPresented, sheetContent: content))
+    }
+}
+
+private struct AnchoredSheetModifier<SheetContent: View>: ViewModifier {
+    @Binding var isPresented: Bool
+    let sheetContent: () -> SheetContent
+
+    func body(content: Content) -> some View {
+        content
+            .sheet(isPresented: $isPresented, content: sheetContent)
+            .onChange(of: isPresented) { _, newValue in
+                guard newValue else { return }
+                Task { @MainActor in anchorSheetWindow() }
+            }
+    }
+
+    @MainActor
+    private func anchorSheetWindow() {
+        guard let menuBarWindow = NSApp.windows.first(where: {
+            $0.styleMask.contains(.nonactivatingPanel)
+        }) else {
+            print("[AnchoredSheet] MenuBarExtra window not found")
+            return
+        }
+        // One run-loop pass to let SwiftUI finish creating the sheet NSPanel.
+        DispatchQueue.main.async {
+            if let sheetWindow = NSApp.windows.first(where: {
+                $0 !== menuBarWindow
+                    && $0.styleMask.contains(.borderless)
+                    && $0.isKeyWindow
+            }) {
+                print("[AnchoredSheet] anchoring \(sheetWindow) to \(menuBarWindow)")
+                menuBarWindow.addChildWindow(sheetWindow, ordered: .above)
+            } else {
+                print("[AnchoredSheet] sheet window not found — anchor skipped")
+            }
+        }
     }
 }
