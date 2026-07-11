@@ -31,10 +31,31 @@
 //   it is set exactly when isPresented flips true and cleared when it flips
 //   false, with no window-walk needed.
 //
-// WHY THE ASYNC DISPATCH:
-//   At the point onChange fires, SwiftUI has set the binding but hasn't yet
-//   created the NSWindow for the sheet. The inner DispatchQueue.main.async
-//   defers until the next run-loop turn by which point the window exists.
+// WHY TWO ASYNC HOPS (not one):
+//   Two distinct problems require two distinct deferrals:
+//
+//   Hop 1 — Task { @MainActor } in onChange:
+//     onChange fires in a non-isolated SwiftUI closure. The Task hop is purely
+//     an actor-isolation crossing (P4) — it gets us onto the MainActor executor
+//     so we can safely call @MainActor-isolated code. It does NOT guarantee the
+//     NSWindow exists yet; it only guarantees we're on the right actor.
+//
+//   Hop 2 — DispatchQueue.main.async inside anchorSheetWindow():
+//     Even after the actor hop, SwiftUI hasn't necessarily created the NSWindow
+//     for the sheet yet. The inner DispatchQueue.main.async drains one more
+//     run-loop turn, by which point the window exists and NSApp.windows contains
+//     it. This is the deferral that actually makes the window lookup work.
+//
+//   They solve different problems. Collapsing to one hop would either lose actor
+//   isolation (if only DispatchQueue) or find no window (if only Task { @MainActor }).
+//
+//   MIGRATION NOTE: The inner DispatchQueue.main.async mixes GCD with Swift
+//   concurrency and bypasses actor checking (P4). Replace with a deterministic
+//   mechanism before carrying this into the main app — options:
+//     - Observe NSWindow.didBecomeKeyNotification
+//     - KVO on isKeyWindow of the expected window
+//     - try? await Task.sleep(nanoseconds: 1) inside the @MainActor task
+//       (keeps actor isolation; one cooperative-thread yield ≈ one run-loop turn)
 //
 // WHY nonactivatingPanel AS THE ANCHOR:
 //   NSPopover uses an NSPanel with .nonactivatingPanel in its styleMask as its
@@ -90,13 +111,13 @@ struct NavAnchoredSheetModifier<SheetContent: View>: ViewModifier {
         content
             .sheet(isPresented: $isPresented, content: sheetContent)
             .onChange(of: isPresented) { _, newValue in
-                // Update the dismiss gate synchronously — before the window
-                // lookup so popoverShouldClose sees the flag immediately.
+                // Set the dismiss gate synchronously — before the window lookup
+                // so popoverShouldClose sees the flag immediately.
                 appState.hasActiveOverlay = newValue
                 if newValue {
-                    // SwiftUI has flipped the binding; defer to next run-loop
-                    // turn so the sheet NSWindow actually exists by the time
-                    // we go looking for it.
+                    // Hop 1: actor isolation crossing only (see WHY TWO ASYNC HOPS above).
+                    // The run-loop deferral that makes the NSWindow exist is Hop 2,
+                    // inside anchorSheetWindow() itself.
                     Task { @MainActor in anchorSheetWindow() }
                 }
             }
@@ -107,9 +128,17 @@ struct NavAnchoredSheetModifier<SheetContent: View>: ViewModifier {
         guard let popoverWindow = NSApp.windows.first(where: {
             $0.styleMask.contains(.nonactivatingPanel)
         }) else {
-            log("AnchoredSheet", "no nonactivatingPanel window found")
+            // The popover window is gone — this should not happen in normal flow
+            // since onChange only fires while the popover is shown. If it does,
+            // hasActiveOverlay is already true so the dismiss gate is correctly
+            // armed. The sheet won't be anchored as a child window, but
+            // popoverDidClose will reset hasActiveOverlay = false unconditionally
+            // when the popover eventually closes, leaving no stale state.
+            log("AnchoredSheet", "no nonactivatingPanel window found — sheet will not be anchored")
             return
         }
+        // Hop 2: drain one more run-loop turn so SwiftUI's sheet NSWindow exists
+        // in NSApp.windows by the time we search for it (see WHY TWO ASYNC HOPS).
         DispatchQueue.main.async {
             // The sheet window SwiftUI just created: borderless and key,
             // but not the popover window itself.
