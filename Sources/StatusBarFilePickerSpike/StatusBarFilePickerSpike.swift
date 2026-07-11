@@ -1,17 +1,25 @@
 // StatusBarFilePickerSpike.swift
+//
+// MenuBarExtra(.window) for the SwiftUI popover.
+// Own NSOpenPanel shown as a sheet via beginSheetModal(for:).
+// No .fileImporter. No window hunting. No state tricks.
+//
+// REQUIREMENTS: macOS 14+, Swift 6
+
 import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 
 private func log(_ msg: String, function: String = #function, line: Int = #line) {
-    let stderr = FileHandle.standardError
     let ts = ISO8601DateFormatter().string(from: Date())
-    stderr.write("[\(ts)] \(function):\(line) \(msg)\n".data(using: .utf8)!)
+    FileHandle.standardError.write("[\(ts)] \(function):\(line) \(msg)\n".data(using: .utf8)!)
 }
+
+// MARK: - Entry point
 
 @main
 struct StatusBarFilePickerApp: App {
-    init() { setvbuf(Foundation.stderr, nil, _IONBF, 0); log("app init") }
+    init() { setvbuf(Foundation.stderr, nil, _IONBF, 0) }
     var body: some Scene {
         MenuBarExtra {
             ContentView()
@@ -22,9 +30,9 @@ struct StatusBarFilePickerApp: App {
     }
 }
 
+// MARK: - Content
+
 struct ContentView: View {
-    @State private var isImporting = false
-    @State private var fileImporterID = 0
     @State private var pickedURL: URL?
 
     var body: some View {
@@ -32,9 +40,11 @@ struct ContentView: View {
             Text("File Picker Spike").font(.headline).frame(maxWidth: .infinity, alignment: .center)
             Divider()
             Button("Pick File") {
-                log("► tapped isImporting=\(isImporting) id=\(fileImporterID)")
-                isImporting = false
-                DispatchQueue.main.async { isImporting = true }
+                log("► tapped")
+                showFilePicker { url in
+                    pickedURL = url
+                    log("► picked \(url?.lastPathComponent ?? "nil")")
+                }
             }
             .frame(maxWidth: .infinity)
             Divider()
@@ -51,109 +61,42 @@ struct ContentView: View {
         }
         .padding(16)
         .frame(minWidth: 320, minHeight: 280)
-        .anchoredFileImporter(
-            isPresented: $isImporting,
-            fileImporterID: $fileImporterID,
-            allowedContentTypes: [.item],
-            allowsMultipleSelection: false
-        ) { result in
-            pickedURL = try? result.get()
-            log("► picked \(pickedURL?.lastPathComponent ?? "nil")")
-        }
-        .id(fileImporterID)
     }
 }
 
-extension View {
-    func anchoredFileImporter(
-        isPresented: Binding<Bool>,
-        fileImporterID: Binding<Int>,
-        allowedContentTypes: [UTType],
-        allowsMultipleSelection: Bool,
-        onCompletion: @escaping (Result<URL, Error>) -> Void
-    ) -> some View {
-        modifier(AnchoredFileImporterModifier(
-            isPresented: isPresented,
-            fileImporterID: fileImporterID,
-            allowedContentTypes: allowedContentTypes,
-            allowsMultipleSelection: allowsMultipleSelection,
-            onCompletion: onCompletion
-        ))
-    }
-}
-
-private struct AnchoredFileImporterModifier: ViewModifier {
-    @Binding var isPresented: Bool
-    @Binding var fileImporterID: Int
-    let allowedContentTypes: [UTType]
-    let allowsMultipleSelection: Bool
-    let onCompletion: (Result<URL, Error>) -> Void
-    @State private var knownPanels: Set<ObjectIdentifier> = []
-    @State private var closeObserver: (any NSObjectProtocol)?
-
-    func body(content: Content) -> some View {
-        content
-            .fileImporter(isPresented: $isPresented, allowedContentTypes: allowedContentTypes, allowsMultipleSelection: allowsMultipleSelection) { result in
-                log("[fileImporter] completion")
-                removeObserver()
-                switch result {
-                case .success(let urls): if let url = urls.first { onCompletion(.success(url)) }
-                case .failure(let err): onCompletion(.failure(err))
-                }
-            }
-            .onChange(of: isPresented) { _, newValue in
-                log("[modifier] onChange isPresented=\(newValue)")
-                guard newValue else { removeObserver(); return }
-                Task { @MainActor in anchorAndObserve(isPresented: $isPresented, fileImporterID: $fileImporterID, knownPanels: $knownPanels, closeObserver: $closeObserver) }
-            }
-    }
-
-    private func removeObserver() {
-        if let obs = closeObserver { NotificationCenter.default.removeObserver(obs); closeObserver = nil }
-    }
-}
+// MARK: - File picker
+//
+// Finds the MenuBarExtraWindow and shows NSOpenPanel as a sheet.
+// beginSheetModal is non-blocking and AppKit handles all focus/dismissal.
+// Guard against double-tap: if a sheet is already attached, do nothing.
 
 @MainActor
-private func anchorAndObserve(
-    isPresented: Binding<Bool>,
-    fileImporterID: Binding<Int>,
-    knownPanels: Binding<Set<ObjectIdentifier>>,
-    closeObserver: Binding<(any NSObjectProtocol)?>
-) {
-    guard let menuBarWindow = NSApp.windows.first(where: { $0.styleMask.contains(.nonactivatingPanel) && $0.isVisible })
-    else { log("[anchor] ERROR: no menuBarWindow"); return }
+private var activePanel: NSOpenPanel?
 
-    DispatchQueue.main.async {
-        // KEY FIX: don’t require isKeyWindow — panels under a NonactivatingPanel
-        // are NEVER key. Find the new NSOpenPanel that isn’t in our known set.
-        let allPanels = NSApp.windows.filter { $0 is NSOpenPanel }
-        log("[anchor] panels total=\(allPanels.count) known=\(knownPanels.wrappedValue.count)")
-        for (i,w) in allPanels.enumerated() {
-            log("  [\(i)] isKey=\(w.isKeyWindow) isVisible=\(w.isVisible) parent=\(w.parent==nil ? "nil":"set")")
-        }
+@MainActor
+func showFilePicker(completion: @escaping @MainActor (URL?) -> Void) {
+    guard activePanel == nil else {
+        log("[picker] already open, ignoring")
+        return
+    }
+    guard let window = NSApp.windows.first(where: {
+        $0.styleMask.contains(.nonactivatingPanel) && $0.isVisible
+    }) else {
+        log("[picker] ERROR: MenuBarExtraWindow not found")
+        return
+    }
+    log("[picker] opening sheet on \(type(of: window))")
 
-        guard let panel = allPanels.first(where: { !knownPanels.wrappedValue.contains(ObjectIdentifier($0)) })
-        else { log("[anchor] ERROR: no new NSOpenPanel found"); return }
+    let panel = NSOpenPanel()
+    panel.canChooseFiles = true
+    panel.canChooseDirectories = false
+    panel.allowsMultipleSelection = false
+    panel.canCreateDirectories = false
+    activePanel = panel
 
-        knownPanels.wrappedValue.insert(ObjectIdentifier(panel))
-        log("[anchor] anchoring new panel")
-        panel.center()
-        menuBarWindow.addChildWindow(panel, ordered: .above)
-        panel.makeKeyAndOrderFront(nil)
-        log("[anchor] after makeKeyAndOrderFront isKey=\(panel.isKeyWindow) isVisible=\(panel.isVisible)")
-
-        let obs = NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: panel, queue: .main) { [weak panel] _ in
-            guard let panel else { return }
-            knownPanels.wrappedValue.remove(ObjectIdentifier(panel))
-            if let parent = panel.parent { parent.removeChildWindow(panel) }
-            NotificationCenter.default.removeObserver(closeObserver.wrappedValue as Any)
-            closeObserver.wrappedValue = nil
-            guard isPresented.wrappedValue else { log("[anchor] willClose: OK/Cancel"); return }
-            log("[anchor] willClose: outside-dismiss, bumping id")
-            fileImporterID.wrappedValue += 1
-            isPresented.wrappedValue = false
-        }
-        closeObserver.wrappedValue = obs
-        log("[anchor] observer registered")
+    panel.beginSheetModal(for: window) { response in
+        log("[picker] sheet done response=\(response == .OK ? "OK" : "Cancel")")
+        activePanel = nil
+        completion(response == .OK ? panel.url : nil)
     }
 }
