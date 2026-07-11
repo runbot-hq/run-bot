@@ -1,22 +1,10 @@
 // StatusBarFilePickerSpike.swift
 // StatusBarFilePickerSpike — spike/statusbar-filepicker branch
 //
-// WHY WE DROPPED MenuBarExtra:
-//   MenuBarExtraWindow is NSNonactivatingPanel. Child windows of a
-//   non-activating panel can’t receive key events without hacks (activation
-//   policy dance, ObjC selector trampolines, etc). Every workaround either
-//   crashes under Swift 6 strict concurrency or causes a visible Dock bounce.
-//
-// SOLUTION: manual NSStatusBar + borderless NSWindow.
-//   A plain NSWindow has no activation constraints. NSOpenPanel works
-//   as a normal child window with no tricks required.
-//
-//   • NSStatusItem holds the menu bar icon.
-//   • Clicking the icon toggles a borderless NSWindow (the “panel”).
-//   • The window uses NSPanel subclass with .nonactivatingPanel so clicking
-//     it doesn’t steal focus from other apps — same UX as MenuBarExtra.
-//   • NSOpenPanel is shown with beginSheetModal(for:) which attaches it as
-//     a sheet to our window — no child window wrangling needed at all.
+// Manual NSStatusBar + NSPanel + NSOpenPanel as sheet.
+// Outside-click dismissal via NSEvent.addGlobalMonitorForEvents.
+// While the file picker sheet is open, outside clicks are ignored so
+// the popover stays alive for the sheet.
 //
 // REQUIREMENTS: macOS 14+, Swift 6
 // DEPENDENCIES: none
@@ -39,17 +27,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
     private var popoverWindow: NSPanel!
     private var hostingView: NSHostingView<ContentView>!
+    private var eventMonitor: Any?
+    private var sheetIsOpen = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
 
-        // Status bar icon
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         statusItem.button?.image = NSImage(systemSymbolName: "folder.badge.plus", accessibilityDescription: nil)
         statusItem.button?.action = #selector(togglePopover)
         statusItem.button?.target = self
 
-        // Borderless non-activating panel — same feel as MenuBarExtra(.window)
         let size = CGSize(width: 320, height: 280)
         popoverWindow = NSPanel(
             contentRect: NSRect(origin: .zero, size: size),
@@ -73,10 +61,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func togglePopover() {
         if popoverWindow.isVisible {
-            popoverWindow.orderOut(nil)
+            closePopover()
         } else {
-            positionPopover()
-            popoverWindow.makeKeyAndOrderFront(nil)
+            openPopover()
+        }
+    }
+
+    private func openPopover() {
+        positionPopover()
+        popoverWindow.makeKeyAndOrderFront(nil)
+        // Global monitor: fires for clicks in OTHER apps / outside our window.
+        eventMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
+            guard let self, !self.sheetIsOpen else { return }
+            self.closePopover()
+        }
+    }
+
+    private func closePopover() {
+        popoverWindow.orderOut(nil)
+        if let monitor = eventMonitor {
+            NSEvent.removeMonitor(monitor)
+            eventMonitor = nil
         }
     }
 
@@ -96,8 +101,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.canChooseDirectories = false
         panel.allowsMultipleSelection = false
         panel.canCreateDirectories = false
-        // Sheet attaches to our window — no child window tricks, no activation
-        panel.beginSheetModal(for: popoverWindow) { response in
+        sheetIsOpen = true
+        panel.beginSheetModal(for: popoverWindow) { [weak self] response in
+            self?.sheetIsOpen = false
             completion(response == .OK ? panel.url : nil)
         }
     }
