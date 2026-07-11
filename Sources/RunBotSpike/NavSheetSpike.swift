@@ -5,9 +5,9 @@
 //
 // DISMISS STRATEGY:
 // .behavior = .transient — AppKit auto-dismisses on outside click.
-// popoverShouldClose blocks dismissal when a sheet or child window
-// (AnchoredSheet) is active, so pickers and sheets keep the popover alive.
-// No NotificationCenter, no Task, no concurrency surface area.
+// popoverShouldClose blocks dismissal while appState.overlayCount > 0.
+// overlayCount is incremented/decremented explicitly by AnchoredSheet
+// and by the file picker callbacks — no childWindows inspection (stale).
 //
 // REQUIREMENTS: macOS 26+, Swift 6.2
 
@@ -46,6 +46,9 @@ final class NavSheetAppState {
     var pickedFolderPath: String = ""
     var sheetPickedFolderPath: String = ""
     var showSheetAlert: Bool = false
+    // Incremented when a sheet or picker opens, decremented when it closes.
+    // popoverShouldClose returns false while this is > 0.
+    var overlayCount: Int = 0
 }
 
 // MARK: - AppDelegate
@@ -85,8 +88,6 @@ final class NavSheetAppDelegate: NSObject, NSApplicationDelegate {
         popover.contentViewController = hostingController
         popover.contentSize = NSSize(width: 320, height: 300)
         popover.animates = true
-        // .transient: AppKit closes on any outside click.
-        // popoverShouldClose below blocks that when a sheet/picker is active.
         popover.behavior = .transient
         popover.delegate = self
     }
@@ -105,13 +106,6 @@ final class NavSheetAppDelegate: NSObject, NSApplicationDelegate {
         return pop.childWindows?.first(where: { $0.isVisible && $0 !== pop })
     }
 
-    private var hasActiveOverlay: Bool {
-        guard let pop = popoverWindow else { return false }
-        if !pop.sheets.isEmpty { return true }
-        if let children = pop.childWindows, !children.isEmpty { return true }
-        return false
-    }
-
     // MARK: - File picker
     enum PickerTarget { case popover, sheet }
 
@@ -128,7 +122,9 @@ final class NavSheetAppDelegate: NSObject, NSApplicationDelegate {
         panel.allowsMultipleSelection = false
         panel.message = target == .sheet ? "Pick folder from inside sheet" : "Select a folder"
         panel.prompt = "Select"
+        appState.overlayCount += 1
         panel.beginSheetModal(for: window) { [weak self] response in
+            self?.appState.overlayCount -= 1
             guard response == .OK, let url = panel.url else { return }
             switch target {
             case .popover: self?.appState.pickedFolderPath = url.path
@@ -139,10 +135,8 @@ final class NavSheetAppDelegate: NSObject, NSApplicationDelegate {
 }
 
 extension NavSheetAppDelegate: NSPopoverDelegate {
-    // Called synchronously on the main thread — no concurrency needed.
-    // Return false to keep the popover alive while a sheet or picker is open.
     func popoverShouldClose(_ popover: NSPopover) -> Bool {
-        !hasActiveOverlay
+        appState.overlayCount == 0
     }
 }
 
@@ -253,7 +247,7 @@ struct NavSheetSettingsView: View {
                 .foregroundStyle(appState.showSettingsSheet ? .green : .secondary)
                 .font(.caption)
             }
-            .anchoredSheet(isPresented: $appState.showSettingsSheet) {
+            .anchoredSheet(isPresented: $appState.showSettingsSheet, overlayCount: $appState.overlayCount) {
                 NavSheetSheetView(onPickFolder: onPickFolderFromSheet)
                     .environment(appState)
             }
@@ -327,5 +321,59 @@ struct NavSheetSheetView: View {
         }
         .padding(24)
         .frame(minWidth: 320)
+    }
+}
+
+// MARK: - AnchoredSheet
+// Overload used in NavSheetSpike: takes an overlayCount binding so the
+// popover delegate knows whether a sheet is active without inspecting
+// childWindows (which are never cleaned up by SwiftUI).
+
+extension View {
+    func anchoredSheet<SheetContent: View>(
+        isPresented: Binding<Bool>,
+        overlayCount: Binding<Int>,
+        @ViewBuilder content: @escaping () -> SheetContent
+    ) -> some View {
+        modifier(NavAnchoredSheetModifier(
+            isPresented: isPresented,
+            overlayCount: overlayCount,
+            sheetContent: content
+        ))
+    }
+}
+
+private struct NavAnchoredSheetModifier<SheetContent: View>: ViewModifier {
+    @Binding var isPresented: Bool
+    @Binding var overlayCount: Int
+    let sheetContent: () -> SheetContent
+
+    func body(content: Content) -> some View {
+        content
+            .sheet(isPresented: $isPresented, onDismiss: {
+                overlayCount = max(0, overlayCount - 1)
+            }, content: sheetContent)
+            .onChange(of: isPresented) { _, newValue in
+                if newValue {
+                    overlayCount += 1
+                    Task { @MainActor in anchorSheetWindow() }
+                }
+            }
+    }
+
+    @MainActor
+    private func anchorSheetWindow() {
+        guard let popoverWindow = NSApp.windows.first(where: {
+            $0.styleMask.contains(.nonactivatingPanel)
+        }) else { return }
+        DispatchQueue.main.async {
+            if let sheetWindow = NSApp.windows.first(where: {
+                $0 !== popoverWindow
+                    && $0.styleMask.contains(.borderless)
+                    && $0.isKeyWindow
+            }) {
+                popoverWindow.addChildWindow(sheetWindow, ordered: .above)
+            }
+        }
     }
 }
