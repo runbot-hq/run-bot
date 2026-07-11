@@ -1,21 +1,21 @@
 // StatusBarFilePickerSpike.swift
 //
-// MenuBarExtra(.window) for the SwiftUI popover.
-// Own NSOpenPanel shown as a sheet via beginSheetModal(for:).
-// No .fileImporter. No window hunting. No state tricks.
+// MenuBarExtra(.window) + own NSOpenPanel via beginSheetModal.
+// When the MenuBarExtraWindow hides (outside-click), the sheet is
+// orphaned and beginSheetModal’s completion never fires.
+// Fix: observe NSWindow.didChangeOcclusionStateNotification on the
+// parent window; when it becomes hidden, cancel the panel explicitly
+// so the completion fires and activePanel resets.
 //
 // REQUIREMENTS: macOS 14+, Swift 6
 
 import AppKit
 import SwiftUI
-import UniformTypeIdentifiers
 
 private func log(_ msg: String, function: String = #function, line: Int = #line) {
     let ts = ISO8601DateFormatter().string(from: Date())
     FileHandle.standardError.write("[\(ts)] \(function):\(line) \(msg)\n".data(using: .utf8)!)
 }
-
-// MARK: - Entry point
 
 @main
 struct StatusBarFilePickerApp: App {
@@ -29,8 +29,6 @@ struct StatusBarFilePickerApp: App {
         .menuBarExtraStyle(.window)
     }
 }
-
-// MARK: - Content
 
 struct ContentView: View {
     @State private var pickedURL: URL?
@@ -65,27 +63,17 @@ struct ContentView: View {
 }
 
 // MARK: - File picker
-//
-// Finds the MenuBarExtraWindow and shows NSOpenPanel as a sheet.
-// beginSheetModal is non-blocking and AppKit handles all focus/dismissal.
-// Guard against double-tap: if a sheet is already attached, do nothing.
 
-@MainActor
-private var activePanel: NSOpenPanel?
+@MainActor private var activePanel: NSOpenPanel?
+@MainActor private var occlusionObserver: (any NSObjectProtocol)?
 
 @MainActor
 func showFilePicker(completion: @escaping @MainActor (URL?) -> Void) {
-    guard activePanel == nil else {
-        log("[picker] already open, ignoring")
-        return
-    }
+    guard activePanel == nil else { log("[picker] already open"); return }
+
     guard let window = NSApp.windows.first(where: {
         $0.styleMask.contains(.nonactivatingPanel) && $0.isVisible
-    }) else {
-        log("[picker] ERROR: MenuBarExtraWindow not found")
-        return
-    }
-    log("[picker] opening sheet on \(type(of: window))")
+    }) else { log("[picker] ERROR: no MenuBarExtraWindow"); return }
 
     let panel = NSOpenPanel()
     panel.canChooseFiles = true
@@ -93,9 +81,28 @@ func showFilePicker(completion: @escaping @MainActor (URL?) -> Void) {
     panel.allowsMultipleSelection = false
     panel.canCreateDirectories = false
     activePanel = panel
+    log("[picker] opening sheet")
+
+    // When the MenuBarExtraWindow disappears (outside-click), the sheet
+    // is orphaned and completion never fires. Cancel panel explicitly.
+    occlusionObserver = NotificationCenter.default.addObserver(
+        forName: NSWindow.didChangeOcclusionStateNotification,
+        object: window,
+        queue: .main
+    ) { [weak window, weak panel] _ in
+        guard let window, let panel else { return }
+        if !window.isVisible && activePanel != nil {
+            log("[picker] parent hidden — cancelling panel")
+            panel.cancel(nil)
+        }
+    }
 
     panel.beginSheetModal(for: window) { response in
-        log("[picker] sheet done response=\(response == .OK ? "OK" : "Cancel")")
+        log("[picker] completion response=\(response == .OK ? "OK" : "Cancel")")
+        if let obs = occlusionObserver {
+            NotificationCenter.default.removeObserver(obs)
+            occlusionObserver = nil
+        }
         activePanel = nil
         completion(response == .OK ? panel.url : nil)
     }
