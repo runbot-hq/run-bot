@@ -4,7 +4,7 @@
 // Thin consumer of MenuBarKit. Owns only:
 //   - AppState (app-specific data)
 //   - MBKOverlayGate (passed into MenuBarKit)
-//   - MBKPopoverController (configured with the root view + gate)
+//   - MBKPopoverController (configured with root view + gate)
 //
 // Nothing about popover lifecycle, monitors, or window management lives here.
 
@@ -23,10 +23,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             rootView: RootView()
                 .environment(appState)
                 .environment(overlayGate),
-            symbolName: "flask.fill",
-            hasActiveOverlay: { [weak self] in
-                self?.overlayGate.hasActiveOverlay ?? false
-            }
+            overlayGate: overlayGate,
+            symbolName: "flask.fill"
         )
         popoverController.setup()
     }
