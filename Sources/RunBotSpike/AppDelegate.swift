@@ -2,19 +2,17 @@
 // RunBotSpike - spike/swiftui-nav-sheet
 //
 // Owns: NSStatusItem, NSPopover, NSHostingController, event monitor,
-// workspace observer, and file picker presentation.
+// workspace observer.
 //
 // DISMISS STRATEGY:
 //   - .behavior = .applicationDefined (AppKit never auto-closes)
 //   - Global NSEvent monitor fires on outside click → performClose()
 //   - NSWorkspace.didActivateApplicationNotification closes on app-switch;
 //     self-activation (e.g. after NSOpenPanel closes) is ignored
-//   - popoverShouldClose returns false when overlayCount > 0, blocking
-//     dismissal while a sheet or file picker is open
+//   - popoverShouldClose returns false when overlayCount > 0
 //
 // ACTIVE APPEARANCE:
-//   NSApp.activate(ignoringOtherApps: true) on every openPopover() so
-//   AppKit renders all controls in their active (non-greyed) state.
+//   NSApp.activate(ignoringOtherApps: true) on every openPopover().
 
 import AppKit
 import SwiftUI
@@ -25,7 +23,6 @@ final class NavSheetAppDelegate: NSObject, NSApplicationDelegate {
     private var popover: NSPopover!
     private var hostingController: NSHostingController<AnyView>!
     nonisolated(unsafe) private var eventMonitor: Any?
-    private var workspaceObserver: (any NSObjectProtocol)?
     private let appState = NavSheetAppState()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -47,7 +44,7 @@ final class NavSheetAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func togglePopover() {
-        popover.isShown ? closePopover() : openPopover()
+        popover.isShown ? popover.performClose(nil) : openPopover()
     }
 
     private func openPopover() {
@@ -59,10 +56,6 @@ final class NavSheetAppDelegate: NSObject, NSApplicationDelegate {
         startEventMonitor()
     }
 
-    private func closePopover() {
-        popover.performClose(nil)
-    }
-
     private func setButtonHighlight(_ on: Bool) {
         statusItem.button?.isHighlighted = on
     }
@@ -70,8 +63,7 @@ final class NavSheetAppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Popover setup
 
     private func setupPopover() {
-        let root = NavSheetRootView()
-            .environment(appState)
+        let root = NavSheetRootView().environment(appState)
         hostingController = NSHostingController(rootView: AnyView(root))
         hostingController.sizingOptions = .preferredContentSize
         popover = NSPopover()
@@ -86,20 +78,22 @@ final class NavSheetAppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Workspace observer (close on app-switch)
 
     private func setupWorkspaceObserver() {
-        workspaceObserver = NSWorkspace.shared.notificationCenter.addObserver(
+        NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didActivateApplicationNotification,
             object: nil,
             queue: .main
         ) { [weak self] notification in
-            guard let self, self.popover.isShown else { return }
-            let activated = notification.userInfo?[NSWorkspace.applicationUserInfoKey]
-                as? NSRunningApplication
-            guard activated != NSRunningApplication.current else {
-                log("WorkspaceObserver", "self-activation, ignoring")
-                return
+            MainActor.assumeIsolated {
+                guard let self, self.popover.isShown else { return }
+                let activated = notification.userInfo?[NSWorkspace.applicationUserInfoKey]
+                    as? NSRunningApplication
+                guard activated != NSRunningApplication.current else {
+                    log("WorkspaceObserver", "self-activation, ignoring")
+                    return
+                }
+                log("WorkspaceObserver", "other app (\(activated?.localizedName ?? "?")) -> close")
+                self.popover.performClose(nil)
             }
-            log("WorkspaceObserver", "other app activated (\(activated?.localizedName ?? "?")) -> close")
-            self.popover.performClose(nil)
         }
         log("WorkspaceObserver", "installed")
     }
@@ -111,7 +105,9 @@ final class NavSheetAppDelegate: NSObject, NSApplicationDelegate {
         eventMonitor = NSEvent.addGlobalMonitorForEvents(
             matching: [.leftMouseDown, .rightMouseDown]
         ) { [weak self] _ in
-            self?.popover.performClose(nil)
+            DispatchQueue.main.async {
+                self?.popover.performClose(nil)
+            }
         }
         log("EventMonitor", "started")
     }
@@ -121,16 +117,6 @@ final class NavSheetAppDelegate: NSObject, NSApplicationDelegate {
         NSEvent.removeMonitor(m)
         eventMonitor = nil
         log("EventMonitor", "stopped")
-    }
-
-    // MARK: - Window helpers
-
-    var popoverWindow: NSWindow? {
-        popover.contentViewController?.view.window
-    }
-
-    var sheetWindow: NSWindow? {
-        popoverWindow?.childWindows?.first(where: { $0.isVisible })
     }
 }
 
