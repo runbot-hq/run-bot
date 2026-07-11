@@ -1,21 +1,10 @@
 // StatusBarFilePickerSpike.swift
 // StatusBarFilePickerSpike — spike/statusbar-filepicker branch
 //
-// APPROACH: NSOpenPanel.runModal() on a detached Thread.
-//
-// WHY NOT DispatchQueue.global:
-//   runModal() spins its own NSRunLoop. GCD threads don’t have a run loop
-//   by default and the call returns immediately. NSThread does.
-//
-// WHY THIS WORKS WITHOUT ACTIVATION:
-//   runModal() calls orderFrontRegardless() internally, which bypasses the
-//   normal activation requirement. The panel appears on screen and receives
-//   events without the app needing to be active or have a Dock icon.
-//
-// WHY THE MENUBAR STAYS OPEN:
-//   The main run loop keeps pumping normally — we’re not blocking it.
-//   MenuBarExtra continues to handle events. The panel has its own modal
-//   event loop on the secondary thread.
+// NSOpenPanel must be created and configured on the main thread.
+// runModal() is then called on a detached NSThread so the main run loop
+// is never blocked and the MenuBarExtra stays open.
+// No activation policy change. No Dock bounce.
 //
 // REQUIREMENTS: macOS 26, Swift 6
 // DEPENDENCIES: none
@@ -80,16 +69,20 @@ struct ContentView: View {
 
 // MARK: - File picker
 //
-// Runs NSOpenPanel.runModal() on a detached NSThread so the main run loop
-// is never blocked. Delivers the result back on the main actor.
+// 1. Create and configure NSOpenPanel on the main thread (AppKit requirement).
+// 2. Hand the configured panel to a detached NSThread.
+// 3. Call runModal() there — it blocks that thread, not the main run loop.
+// 4. Deliver result back on the main actor.
 
+@MainActor
 func pickFile(completion: @escaping @MainActor (URL?) -> Void) {
+    let panel = NSOpenPanel()
+    panel.canChooseFiles = true
+    panel.canChooseDirectories = false
+    panel.allowsMultipleSelection = false
+    panel.canCreateDirectories = false
+
     Thread.detachNewThread {
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = true
-        panel.canChooseDirectories = false
-        panel.allowsMultipleSelection = false
-        panel.canCreateDirectories = false
         let response = panel.runModal()
         let url = response == .OK ? panel.url : nil
         DispatchQueue.main.async {
