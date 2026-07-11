@@ -1,5 +1,5 @@
 // NavSheetSpike.swift
-// RunBotSpike — spike/swiftui-nav-sheet branch
+// RunBotSpike - spike/swiftui-nav-sheet branch
 //
 // Builds on Option 3 (NSPopover + @NSApplicationDelegateAdaptor).
 //
@@ -8,6 +8,8 @@
 // 2. Settings sheet: open .sheet from settings view. Does it work?
 // 3. State persistence: counter + text field values survive hide/show.
 // 4. File picker from settings view: beginSheetModal keeps popover alive.
+// 5. Error alert inside sheet: .alert on sheet view stays open, popover survives.
+// 6. File picker from inside sheet: beginSheetModal on popover window while sheet is open.
 //
 // HOW TO RUN:
 //   swift run RunBotSpike
@@ -47,6 +49,8 @@ final class NavSheetAppState {
     var sheetText: String = ""
     var taskFireCount: Int = 0
     var pickedFolderPath: String = ""
+    var sheetPickedFolderPath: String = ""
+    var showSheetAlert: Bool = false
 }
 
 // MARK: - AppDelegate
@@ -77,9 +81,10 @@ final class NavSheetAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func setupPopover() {
-        let root = NavSheetRootView(onPickFolder: { [weak self] in
-            self?.openFilePicker()
-        }).environment(appState)
+        let root = NavSheetRootView(
+            onPickFolder: { [weak self] in self?.openFilePicker(attachedTo: .popover) },
+            onPickFolderFromSheet: { [weak self] in self?.openFilePicker(attachedTo: .sheet) }
+        ).environment(appState)
         hostingController = NSHostingController(rootView: AnyView(root))
         hostingController.sizingOptions = .preferredContentSize
         popover = NSPopover()
@@ -106,20 +111,25 @@ final class NavSheetAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     // MARK: - File picker
-    // beginSheetModal attaches NSOpenPanel as a real sheet on the popover window.
-    // popoverWindow.sheets becomes non-empty -> hasActiveSheet guard fires
-    // -> outside clicks are suppressed while picker is open.
-    func openFilePicker() {
+    enum PickerTarget { case popover, sheet }
+
+    func openFilePicker(attachedTo target: PickerTarget) {
+        // Always attach to the popover window.
+        // When called from inside the sheet, the sheet is already a child window,
+        // so attaching to popoverWindow still works correctly.
         guard let window = popoverWindow else { return }
         let panel = NSOpenPanel()
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false
-        panel.message = "Select a folder"
+        panel.message = target == .sheet ? "Pick folder from inside sheet" : "Select a folder"
         panel.prompt = "Select"
         panel.beginSheetModal(for: window) { [weak self] response in
             guard response == .OK, let url = panel.url else { return }
-            self?.appState.pickedFolderPath = url.path
+            switch target {
+            case .popover: self?.appState.pickedFolderPath = url.path
+            case .sheet:   self?.appState.sheetPickedFolderPath = url.path
+            }
         }
     }
 
@@ -159,6 +169,7 @@ extension NavSheetAppDelegate: NSPopoverDelegate {
 struct NavSheetRootView: View {
     @Environment(NavSheetAppState.self) private var appState
     let onPickFolder: () -> Void
+    let onPickFolderFromSheet: () -> Void
 
     var body: some View {
         switch appState.route {
@@ -170,7 +181,7 @@ struct NavSheetRootView: View {
                     print("[NavSheetSpike] .task fired (count=\(appState.taskFireCount)) - should be 1")
                 }
         case .settings:
-            NavSheetSettingsView(onPickFolder: onPickFolder)
+            NavSheetSettingsView(onPickFolder: onPickFolder, onPickFolderFromSheet: onPickFolderFromSheet)
                 .environment(appState)
         }
     }
@@ -228,6 +239,7 @@ struct NavSheetMainView: View {
 struct NavSheetSettingsView: View {
     @Environment(NavSheetAppState.self) private var appState
     let onPickFolder: () -> Void
+    let onPickFolderFromSheet: () -> Void
 
     var body: some View {
         @Bindable var appState = appState
@@ -250,7 +262,7 @@ struct NavSheetSettingsView: View {
                 Toggle("Enable something", isOn: $appState.settingsToggle)
             }
 
-            GroupBox(".sheet from settings") {
+            GroupBox(".sheet (with alert + picker inside)") {
                 Button("Open sheet...") { appState.showSettingsSheet = true }
                 Label(
                     appState.showSettingsSheet ? "Sheet is open" : "Sheet is closed",
@@ -260,10 +272,11 @@ struct NavSheetSettingsView: View {
                 .font(.caption)
             }
             .anchoredSheet(isPresented: $appState.showSettingsSheet) {
-                NavSheetSheetView().environment(appState)
+                NavSheetSheetView(onPickFolder: onPickFolderFromSheet)
+                    .environment(appState)
             }
 
-            GroupBox("File picker (stays open while clicking)") {
+            GroupBox("File picker (from settings)") {
                 Button("Choose folder...") { onPickFolder() }
                 if !appState.pickedFolderPath.isEmpty {
                     Text(appState.pickedFolderPath)
@@ -271,9 +284,7 @@ struct NavSheetSettingsView: View {
                         .lineLimit(1)
                         .truncationMode(.head)
                 } else {
-                    Text("No folder picked yet")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    Text("No folder picked yet").font(.caption).foregroundStyle(.secondary)
                 }
             }
 
@@ -289,13 +300,14 @@ struct NavSheetSettingsView: View {
 
 struct NavSheetSheetView: View {
     @Environment(NavSheetAppState.self) private var appState
+    let onPickFolder: () -> Void
 
     var body: some View {
         @Bindable var appState = appState
         VStack(spacing: 16) {
             Text("Settings Sheet").font(.headline)
 
-            GroupBox("Sheet counter (persists across hide/dismiss)") {
+            GroupBox("Sheet counter") {
                 HStack {
                     Text("\(appState.sheetCounter)").monospacedDigit().frame(minWidth: 24)
                     Spacer()
@@ -303,21 +315,37 @@ struct NavSheetSheetView: View {
                 }
             }
 
-            GroupBox("Sheet text (persists across hide/dismiss)") {
-                TextField("Type in sheet...", text: $appState.sheetText)
-                    .textFieldStyle(.roundedBorder)
+            GroupBox("Alert from sheet") {
+                Button("Show error alert") { appState.showSheetAlert = true }
+                Text("Alert should appear, sheet + popover stay alive.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            .alert("Simulated Error", isPresented: $appState.showSheetAlert) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text("This is a test error alert shown from inside a sheet.")
             }
 
-            Text("Hide the app while this sheet is open. Reopen - sheet should still be here.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
+            GroupBox("File picker from sheet") {
+                Button("Choose folder...") { onPickFolder() }
+                if !appState.sheetPickedFolderPath.isEmpty {
+                    Text(appState.sheetPickedFolderPath)
+                        .font(.system(size: 11, design: .monospaced))
+                        .lineLimit(1)
+                        .truncationMode(.head)
+                } else {
+                    Text("No folder picked from sheet yet")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                Text("Picker should open and stay open while clicking.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
 
             Button("Dismiss") { appState.showSettingsSheet = false }
                 .buttonStyle(.borderedProminent)
                 .keyboardShortcut(.cancelAction)
         }
         .padding(24)
-        .frame(minWidth: 300)
+        .frame(minWidth: 320)
     }
 }
