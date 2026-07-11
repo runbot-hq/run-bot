@@ -81,7 +81,10 @@ struct MainSpikeView: View {
     @State private var localCounter: Int = 0
     @State private var localText: String = ""
     @State private var showLocalSheet: Bool = false
-    @State private var showFilePicker: Bool = false
+
+    // Scenario 7: captured via WindowGrabber on appear; used by beginSheetModal
+    @State private var hostWindow: NSWindow?
+    @State private var pickedFolderPath: String = ""
 
     var body: some View {
         @Bindable var appState = appState
@@ -143,25 +146,25 @@ struct MainSpikeView: View {
                 SheetSpikeView(parentText: $appState.sheetDraftText, isPresented: $appState.showSettingsSheet)
             }
 
-            // Scenario 7: .fileImporter
-            // NSOpenPanel is anchored the same way as SwiftUI sheets — via
-            // addChildWindow(_:ordered:). Without this, clicking inside the
-            // picker is treated as an outside click and hides the MenuBarExtra window.
-            GroupBox("Scenario 7 — .fileImporter") {
-                Button("Open file picker") { showFilePicker = true }
+            // Scenario 7: NSOpenPanel via beginSheetModal(for: hostWindow)
+            //
+            // Adopts the same pattern as main's AddRunnerSheet:
+            //   - WindowGrabber captures the hosting NSWindow on appear
+            //   - beginSheetModal attaches the panel as a child sheet at the
+            //     AppKit level, preventing outside-click dismissal of the
+            //     MenuBarExtra window — no manual addChildWindow needed.
+            GroupBox("Scenario 7 — File picker (beginSheetModal)") {
+                Button("Choose folder…") { pickFolder() }
+                if !pickedFolderPath.isEmpty {
+                    Text(pickedFolderPath)
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                        .truncationMode(.head)
+                }
                 Text("Click inside the picker. App should NOT dismiss.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-            }
-            .fileImporter(
-                isPresented: $showFilePicker,
-                allowedContentTypes: [.folder]
-            ) { result in
-                print("\u{1F535} [Spike] fileImporter result: \(result)")
-            }
-            .onChange(of: showFilePicker) { _, newValue in
-                guard newValue else { return }
-                Task { @MainActor in anchorOpenPanel() }
             }
 
             Divider()
@@ -187,23 +190,36 @@ struct MainSpikeView: View {
         }
         .padding(16)
         .frame(width: 320)
+        .background(WindowGrabber { w in
+            if hostWindow == nil, let w { hostWindow = w }
+        })
     }
 
-    @MainActor
-    private func anchorOpenPanel() {
-        guard let menuBarWindow = NSApp.windows.first(where: {
-            $0.styleMask.contains(.nonactivatingPanel)
-        }) else {
-            print("[AnchoredSheet] MenuBarExtra window not found for open panel")
+    // MARK: - Scenario 7 action
+
+    /// Opens an NSOpenPanel as a sheet attached to the MenuBarExtra window.
+    ///
+    /// Uses beginSheetModal(for:) — the same pattern as main's AddRunnerSheet —
+    /// so AppKit attaches the panel as a child sheet. This prevents clicks
+    /// inside the panel from being treated as outside clicks that would
+    /// hide the MenuBarExtra window.
+    private func pickFolder() {
+        guard let window = hostWindow else {
+            print("[Spike] Scenario 7 — hostWindow nil, picker will not open")
             return
         }
-        DispatchQueue.main.async {
-            if let panel = NSApp.windows.first(where: { $0 is NSOpenPanel }) {
-                print("[AnchoredSheet] anchoring NSOpenPanel: \(panel)")
-                menuBarWindow.addChildWindow(panel, ordered: .above)
-            } else {
-                print("[AnchoredSheet] NSOpenPanel not found")
-            }
+        print("[Spike] Scenario 7 — opening NSOpenPanel via beginSheetModal")
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.message = "Select a folder"
+        panel.prompt = "Select"
+        panel.beginSheetModal(for: window) { response in
+            print("[Spike] Scenario 7 — panel closed response=\(response.rawValue)")
+            guard response == .OK, let url = panel.url else { return }
+            pickedFolderPath = url.path
+            print("[Spike] Scenario 7 — picked: \(url.path)")
         }
     }
 }
@@ -369,5 +385,41 @@ private struct AnchoredSheetModifier<SheetContent: View>: ViewModifier {
                 }
             }
         }
+    }
+}
+
+// MARK: - WindowGrabber
+//
+// Captures the NSWindow that hosts a SwiftUI view the moment the view is
+// inserted into the window hierarchy. Used by Scenario 7 to obtain a reliable
+// NSWindow reference for beginSheetModal(for:).
+//
+// Copied from Sources/RunBot/App/WindowGrabber.swift (main branch).
+
+final class NSWindowGrabber: NSView {
+    var onWindow: (NSWindow?) -> Void
+
+    init(onWindow: @escaping (NSWindow?) -> Void) {
+        self.onWindow = onWindow
+        super.init(frame: .zero)
+    }
+
+    required init?(coder _: NSCoder) { fatalError("init(coder:) not supported") }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        onWindow(window)
+    }
+}
+
+struct WindowGrabber: NSViewRepresentable {
+    var onWindow: (NSWindow?) -> Void
+
+    func makeNSView(context _: Context) -> NSWindowGrabber {
+        NSWindowGrabber(onWindow: onWindow)
+    }
+
+    func updateNSView(_ nsView: NSWindowGrabber, context _: Context) {
+        nsView.onWindow = onWindow
     }
 }
