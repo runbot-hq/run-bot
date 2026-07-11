@@ -2,14 +2,27 @@
 // StatusBarFilePickerSpike — spike/statusbar-filepicker branch
 //
 // DEBUG BUILD — heavy logging enabled throughout.
-// Paste the full console output when reporting issues.
 //
-// TWO APPROACHES UNDER TEST:
-// A) .fileImporter + anchoredFileImporter modifier
-// B) NSOpenPanel anchored + centered manually
+// FINDINGS FROM PREVIOUS ATTEMPTS:
 //
-// HOW TO RUN:
-//   swift run StatusBarFilePickerSpike 2>&1 | tee /tmp/filepicker-spike.log
+// A) .fileImporter reuses the same NSOpenPanel instance — after outside-dismiss
+//    the old panel stays alive (isVisible=false, isKey=false). The anchor search
+//    relies on isKeyWindow=true to find it, which never fires on the stale instance.
+//    Each button tap leaks another invisible NSOpenPanel into NSApp.windows.
+//
+// B) addChildWindow on a NSNonactivatingPanel (MenuBarExtraWindow styleMask=32896)
+//    makes the child inherit non-activating behaviour. makeKeyAndOrderFront silently
+//    fails (isKeyWindow stays false). runModal() returns .cancel almost immediately
+//    because the panel can't receive clicks.
+//
+// ROOT FIX:
+//
+// Use NSOpenPanel.beginSheetModal(for: menuBarWindow) instead of addChildWindow.
+// Sheet-modal attaches the panel to the window as an AppKit sheet, which:
+//   • does NOT rely on the child-window focus group
+//   • does NOT require the parent to be activating
+//   • keeps the MenuBarExtra window alive (macOS treats its own sheet as in-scope)
+//   • works reliably on repeated invocations
 //
 // REQUIREMENTS: macOS 26, Swift 6
 // DEPENDENCIES: none
@@ -42,7 +55,6 @@ struct StatusBarFilePickerApp: App {
 // MARK: - Content
 
 struct ContentView: View {
-    @State private var isImporting = false
     @State private var pickedURL: URL?
 
     var body: some View {
@@ -53,30 +65,16 @@ struct ContentView: View {
 
             Divider()
 
-            GroupBox("Approach A — .fileImporter (anchored)") {
-                Button("Pick File (fileImporter)") {
-                    log("A ► button tapped — isImporting before reset: \(isImporting)")
-                    isImporting = false
-                    log("A ► isImporting set false, scheduling async true")
-                    DispatchQueue.main.async {
-                        log("A ► async block fired — setting isImporting = true")
-                        isImporting = true
+            GroupBox("NSOpenPanel via beginSheetModal") {
+                Button("Pick File") {
+                    log("► button tapped")
+                    FilePickerHelper.pickFile { url in
+                        log("► completion url=\(url?.path ?? "nil")")
+                        pickedURL = url
                     }
                 }
                 .frame(maxWidth: .infinity)
-                Text("Watch console for anchor/window events.")
-                    .font(.caption).foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            GroupBox("Approach B — NSOpenPanel (anchored + centered)") {
-                Button("Pick File (NSOpenPanel)") {
-                    log("B ► button tapped")
-                    pickedURL = FilePickerHelper.pickFile()
-                    log("B ► pickFile returned: \(pickedURL?.path ?? "nil")")
-                }
-                .frame(maxWidth: .infinity)
-                Text("Watch console for anchor/window events.")
+                Text("Sheet attaches to MenuBarExtra window. Panel stays open on click. Repeated invocations work.")
                     .font(.caption).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -104,138 +102,52 @@ struct ContentView: View {
         }
         .padding(16)
         .frame(minWidth: 320, minHeight: 280)
-        .anchoredFileImporter(
-            isPresented: $isImporting,
-            allowedContentTypes: [.item],
-            allowsMultipleSelection: false
-        ) { result in
-            switch result {
-            case .success(let url):
-                log("A ► fileImporter onCompletion SUCCESS url=\(url.path)")
-                pickedURL = url
-            case .failure(let error):
-                log("A ► fileImporter onCompletion FAILURE error=\(error)")
-            }
-        }
-        .onChange(of: isImporting) { old, new in
-            log("A ► isImporting changed \(old) → \(new) — windows:")
-            dumpWindows()
-        }
     }
 }
 
 // MARK: - Window dump helper
 
 @MainActor
-private func dumpWindows() {
+private func dumpWindows(label: String) {
     let wins = NSApp.windows
-    log("  total windows: \(wins.count)")
+    log("[windows:\(label)] total=\(wins.count)")
     for (i, w) in wins.enumerated() {
-        log("  [\(i)] \(type(of: w)) isKey=\(w.isKeyWindow) isMain=\(w.isMainWindow) isVisible=\(w.isVisible) styleMask=\(w.styleMask.rawValue) frame=\(NSStringFromRect(w.frame)) parent=\(w.parent == nil ? "nil" : String(describing: type(of: w.parent!))) children=\(w.childWindows?.count ?? 0)")
+        log("  [\(i)] \(type(of: w)) isKey=\(w.isKeyWindow) isVisible=\(w.isVisible) styleMask=\(w.styleMask.rawValue) frame=\(NSStringFromRect(w.frame)) parent=\(w.parent == nil ? "nil" : String(describing: type(of: w.parent!))) children=\(w.childWindows?.count ?? 0) sheets=\(w.sheets.count)")
     }
 }
 
-// MARK: - anchoredFileImporter modifier
+// MARK: - NSOpenPanel helper
 //
-// Approach A: drop-in .fileImporter that anchors the picker NSWindow
-// as a child of the MenuBarExtra window after SwiftUI creates it.
-
-extension View {
-    func anchoredFileImporter(
-        isPresented: Binding<Bool>,
-        allowedContentTypes: [UTType],
-        allowsMultipleSelection: Bool,
-        onCompletion: @escaping (Result<URL, Error>) -> Void
-    ) -> some View {
-        self
-            .fileImporter(
-                isPresented: isPresented,
-                allowedContentTypes: allowedContentTypes,
-                allowsMultipleSelection: allowsMultipleSelection
-            ) { (result: Result<[URL], Error>) in
-                switch result {
-                case .success(let urls):
-                    if let url = urls.first { onCompletion(.success(url)) }
-                case .failure(let err):
-                    onCompletion(.failure(err))
-                }
-            }
-            .onChange(of: isPresented.wrappedValue) { _, newValue in
-                log("[anchoredFileImporter] onChange isPresented=\(newValue)")
-                guard newValue else {
-                    log("[anchoredFileImporter] isPresented false — skipping")
-                    return
-                }
-                log("[anchoredFileImporter] scheduling anchorAndCenterPickerWindow")
-                Task { @MainActor in anchorAndCenterPickerWindow() }
-            }
-    }
-}
-
-@MainActor
-private func anchorAndCenterPickerWindow() {
-    log("[anchorAndCenter] called — windows now:")
-    dumpWindows()
-
-    guard let menuBarWindow = NSApp.windows.first(where: {
-        $0.styleMask.contains(.nonactivatingPanel)
-    }) else {
-        log("[anchorAndCenter] ERROR: MenuBarExtra window not found")
-        return
-    }
-    log("[anchorAndCenter] menuBarWindow frame=\(NSStringFromRect(menuBarWindow.frame)) styleMask=\(menuBarWindow.styleMask.rawValue) children=\(menuBarWindow.childWindows?.count ?? 0)")
-
-    DispatchQueue.main.async {
-        log("[anchorAndCenter] async hop — windows now:")
-        dumpWindows()
-
-        guard let pickerWindow = NSApp.windows.first(where: {
-            $0 !== menuBarWindow && $0.isKeyWindow && $0.parent == nil
-        }) else {
-            log("[anchorAndCenter] ERROR: picker window not found after async hop")
-            // Second hop in case SwiftUI needs more time
-            DispatchQueue.main.async {
-                log("[anchorAndCenter] second async hop — windows now:")
-                dumpWindows()
-                guard let pickerWindow2 = NSApp.windows.first(where: {
-                    $0 !== menuBarWindow && $0.isKeyWindow && $0.parent == nil
-                }) else {
-                    log("[anchorAndCenter] ERROR: picker window STILL not found after second hop — giving up")
-                    return
-                }
-                log("[anchorAndCenter] found picker on second hop: \(type(of: pickerWindow2)) frame=\(NSStringFromRect(pickerWindow2.frame))")
-                pickerWindow2.center()
-                menuBarWindow.addChildWindow(pickerWindow2, ordered: .above)
-                log("[anchorAndCenter] second-hop anchor done — menuBar.children=\(menuBarWindow.childWindows?.count ?? 0)")
-            }
-            return
-        }
-        log("[anchorAndCenter] found picker: \(type(of: pickerWindow)) frame=\(NSStringFromRect(pickerWindow.frame)) styleMask=\(pickerWindow.styleMask.rawValue)")
-        pickerWindow.center()
-        log("[anchorAndCenter] picker centered to frame=\(NSStringFromRect(pickerWindow.frame))")
-        menuBarWindow.addChildWindow(pickerWindow, ordered: .above)
-        log("[anchorAndCenter] addChildWindow done — menuBar.children=\(menuBarWindow.childWindows?.count ?? 0)")
-    }
-}
-
-// MARK: - NSOpenPanel helper (Approach B)
-//
-// @MainActor is required: all AppKit window/panel APIs are main-actor-isolated.
+// Uses beginSheetModal(for:) to attach the picker as an AppKit sheet on
+// the MenuBarExtra window. This is the correct primitive: sheets don't
+// depend on the parent's activating policy and survive repeated invocations.
 
 @MainActor
 enum FilePickerHelper {
 
-    static func pickFile(canChooseDirectories: Bool = false) -> URL? {
-        log("[B] pickFile start — windows:")
-        dumpWindows()
+    static func pickFile(
+        canChooseDirectories: Bool = false,
+        completion: @escaping @MainActor (URL?) -> Void
+    ) {
+        log("[picker] pickFile start")
+        dumpWindows(label: "before-show")
 
         guard let menuBarWindow = NSApp.windows.first(where: {
-            $0.styleMask.contains(.nonactivatingPanel)
+            // MenuBarExtraWindow styleMask=32896 (NSPanel | nonactivatingPanel)
+            $0.styleMask.rawValue == 32896 && $0.isVisible
         }) else {
-            log("[B] ERROR: MenuBarExtra window not found — falling back")
-            return plainPickFile(canChooseDirectories: canChooseDirectories)
+            log("[picker] ERROR: MenuBarExtra window not found — falling back to runModal")
+            completion(runModalFallback(canChooseDirectories: canChooseDirectories))
+            return
         }
-        log("[B] menuBarWindow frame=\(NSStringFromRect(menuBarWindow.frame)) styleMask=\(menuBarWindow.styleMask.rawValue) children=\(menuBarWindow.childWindows?.count ?? 0)")
+        log("[picker] menuBarWindow=\(type(of: menuBarWindow)) frame=\(NSStringFromRect(menuBarWindow.frame)) sheets=\(menuBarWindow.sheets.count)")
+
+        // If a sheet is already attached (e.g. previous panel not yet dismissed),
+        // close it before opening a new one.
+        if !menuBarWindow.sheets.isEmpty {
+            log("[picker] WARNING: existing sheet found — ending it before opening new one")
+            menuBarWindow.sheets.forEach { menuBarWindow.endSheet($0) }
+        }
 
         let panel = NSOpenPanel()
         panel.title = "Choose a File"
@@ -244,41 +156,24 @@ enum FilePickerHelper {
         panel.allowsMultipleSelection = false
         panel.canCreateDirectories = false
 
-        log("[B] panel frame before center: \(NSStringFromRect(panel.frame))")
-        panel.center()
-        log("[B] panel frame after center: \(NSStringFromRect(panel.frame))")
-
         let delegate = PanelDelegate()
         panel.delegate = delegate
-        log("[B] delegate installed")
+        // Retain delegate for the lifetime of the panel.
+        objc_setAssociatedObject(panel, &AssociatedKeys.delegate, delegate, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
 
-        log("[B] calling addChildWindow")
-        menuBarWindow.addChildWindow(panel, ordered: .above)
-        log("[B] addChildWindow done — menuBar.children=\(menuBarWindow.childWindows?.count ?? 0) panel.parent=\(panel.parent == nil ? "nil" : "set")")
+        log("[picker] calling beginSheetModal")
+        panel.beginSheetModal(for: menuBarWindow) { response in
+            log("[picker] sheet completion response=\(response == .OK ? "OK" : "Cancel") url=\(panel.url?.path ?? "nil")")
+            dumpWindows(label: "after-sheet-close")
+            completion(response == .OK ? panel.url : nil)
+        }
 
-        log("[B] calling makeKeyAndOrderFront")
-        panel.makeKeyAndOrderFront(nil)
-        log("[B] panel isKeyWindow=\(panel.isKeyWindow) isVisible=\(panel.isVisible) frame=\(NSStringFromRect(panel.frame))")
-
-        log("[B] windows before runModal:")
-        dumpWindows()
-
-        log("[B] calling runModal — blocking")
-        let result = panel.runModal()
-        log("[B] runModal returned: \(result == .OK ? "OK" : "Cancel") url=\(panel.url?.path ?? "nil")")
-
-        log("[B] windows after runModal:")
-        dumpWindows()
-
-        log("[B] calling removeChildWindow")
-        menuBarWindow.removeChildWindow(panel)
-        log("[B] removeChildWindow done — menuBar.children=\(menuBarWindow.childWindows?.count ?? 0)")
-
-        return result == .OK ? panel.url : nil
+        dumpWindows(label: "after-beginSheetModal")
+        log("[picker] panel isVisible=\(panel.isVisible) isKey=\(panel.isKeyWindow) frame=\(NSStringFromRect(panel.frame))")
     }
 
-    private static func plainPickFile(canChooseDirectories: Bool) -> URL? {
-        log("[B-fallback] activation-dance start")
+    private static func runModalFallback(canChooseDirectories: Bool) -> URL? {
+        log("[picker-fallback] activation-dance start")
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
         let panel = NSOpenPanel()
@@ -286,25 +181,29 @@ enum FilePickerHelper {
         panel.canChooseDirectories = canChooseDirectories
         panel.allowsMultipleSelection = false
         let result = panel.runModal()
-        log("[B-fallback] runModal returned: \(result == .OK ? "OK" : "Cancel")")
+        log("[picker-fallback] result=\(result == .OK ? "OK" : "Cancel")")
         NSApp.setActivationPolicy(.accessory)
         return result == .OK ? panel.url : nil
     }
+
+    private enum AssociatedKeys {
+        static var delegate: UInt8 = 0
+    }
 }
 
-// MARK: - Panel delegate (Approach B logging)
+// MARK: - Panel delegate (logging)
 
 private final class PanelDelegate: NSObject, NSOpenSavePanelDelegate {
     func panelSelectionDidChange(_ sender: Any?) {
-        log("[B-delegate] panelSelectionDidChange")
+        log("[delegate] panelSelectionDidChange")
     }
     func panel(_ sender: Any, didChangeToDirectoryURL url: URL?) {
-        log("[B-delegate] didChangeToDirectoryURL: \(url?.path ?? "nil")")
+        log("[delegate] didChangeToDirectoryURL: \(url?.path ?? "nil")")
     }
     func panel(_ sender: Any, validate url: URL) throws {
-        log("[B-delegate] validate url=\(url.path)")
+        log("[delegate] validate url=\(url.path)")
     }
     func panel(_ sender: Any, willExpand expanding: Bool) {
-        log("[B-delegate] willExpand expanding=\(expanding)")
+        log("[delegate] willExpand expanding=\(expanding)")
     }
 }
