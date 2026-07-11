@@ -115,11 +115,23 @@ final class FilePicker {
         isOpen = true
         log("[picker] opening")
 
+        // Activate the app so the panel comes to front.
+        // .accessory apps are not normally active, so the panel would
+        // appear behind other windows without this.
+        NSApp.activate(ignoringOtherApps: true)
+
         p.begin { [weak self] response in
             log("[picker] done response=\(response == .OK ? "OK" : "Cancel")")
             self?.panel = nil
             self?.isOpen = false
+            // Return to accessory policy so we don't steal focus permanently.
+            NSApp.setActivationPolicy(.accessory)
             completion(response == .OK ? p.url : nil)
+        }
+
+        // Ensure the panel is frontmost after begin() schedules it.
+        DispatchQueue.main.async {
+            p.orderFrontRegardless()
         }
     }
 }
