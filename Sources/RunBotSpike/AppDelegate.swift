@@ -16,7 +16,7 @@ import SwiftUI
 final class NavSheetAppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
     private var popover: NSPopover!
-    private var hostingController: NSHostingController<NavSheetRootView>!
+    private var hostingController: NSHostingController<AnyView>!
     nonisolated(unsafe) private var eventMonitor: Any?
     private let appState = NavSheetAppState()
 
@@ -61,7 +61,7 @@ final class NavSheetAppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Popover setup
 
     private func setupPopover() {
-        hostingController = NSHostingController(rootView: NavSheetRootView().environment(appState))
+        hostingController = NSHostingController(rootView: AnyView(NavSheetRootView().environment(appState)))
         hostingController.sizingOptions = .preferredContentSize
         popover = NSPopover()
         popover.contentViewController = hostingController
