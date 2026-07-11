@@ -17,6 +17,15 @@
 //   A Bool (isShowingSettings) only works for two screens. An enum scales
 //   to N screens without adding more state properties, and makes exhaustive
 //   switch handling compiler-enforced.
+//
+// WHY .environment(appState) ON EACH BRANCH:
+//   appState is already injected at the NSHostingController root in
+//   AppDelegate.setupPopover(), so SwiftUI would propagate it automatically.
+//   The explicit re-injection here is redundant and should NOT be copied into
+//   the main app — it creates ambiguity about where the authoritative injection
+//   point is. It is kept in the spike only because the spike was written
+//   before that root injection was confirmed to propagate correctly through
+//   enum-switched branches. Verified: it does. Remove in the migration PR.
 
 import SwiftUI
 
@@ -25,8 +34,8 @@ struct NavSheetRootView: View {
 
     var body: some View {
         switch appState.route {
-        case .main:     NavSheetMainView().environment(appState)
-        case .settings: NavSheetSettingsView().environment(appState)
+        case .main:     NavSheetMainView().environment(appState)     // redundant — see header
+        case .settings: NavSheetSettingsView().environment(appState) // redundant — see header
         }
     }
 }

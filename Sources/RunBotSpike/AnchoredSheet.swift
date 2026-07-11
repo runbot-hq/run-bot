@@ -79,11 +79,25 @@
 //     causing addChildWindow to be called on an incompatible window, which triggered
 //     an infinite recursion crash in _applyWindowLevelWithTagUpdateNeeded.
 //
-//   MIGRATION NOTE: isKeyWindow can transiently match other borderless windows
-//   (e.g. NSOpenPanel during dismiss, OS animations). This is acceptable here
-//   because anchorSheetWindow() only runs when isPresented flips to true —
-//   a moment when no other borderless window should be key. Revalidate on
-//   major OS updates.
+//   MIGRATION NOTE: isKeyWindow can transiently match other borderless windows.
+//   Two known race windows to validate explicitly before production migration:
+//
+//   1. macOS 26 compositor / Liquid Glass animation layer: introduces additional
+//      transient borderless windows that may be key at the moment Hop 2 runs.
+//      Test with the status-bar icon visible on macOS 26 before signing off.
+//
+//   2. NSOpenPanel fast re-open race: if the user opens the sheet immediately
+//      after dismissing a file picker, the NSOpenPanel NSWindow may still be
+//      borderless+key when Hop 2 fires. addChildWindow on an NSOpenPanel can
+//      trigger the same infinite recursion crash seen with the rejected
+//      frame.intersects approach. The recommended safe fix is to replace the
+//      isKeyWindow discriminator with NSWindow.didBecomeKeyNotification scoped
+//      to windows that appear after isPresented flips, or use
+//      try? await Task.sleep(nanoseconds: 1) (see MIGRATION NOTE above) which
+//      avoids the DispatchQueue hop entirely and runs after NSOpenPanel teardown
+//      has fully completed.
+//
+//   Both cases are acceptable in this spike; treat both as migration blockers.
 
 import AppKit
 import SwiftUI
@@ -139,6 +153,8 @@ struct NavAnchoredSheetModifier<SheetContent: View>: ViewModifier {
         }
         // Hop 2: drain one more run-loop turn so SwiftUI's sheet NSWindow exists
         // in NSApp.windows by the time we search for it (see WHY TWO ASYNC HOPS).
+        // See SHEET WINDOW DISCRIMINATOR above for known race conditions with
+        // isKeyWindow matching on macOS 26 and fast NSOpenPanel re-open.
         DispatchQueue.main.async {
             // The sheet window SwiftUI just created: borderless and key,
             // but not the popover window itself.
