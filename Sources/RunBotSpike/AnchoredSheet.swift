@@ -49,13 +49,53 @@
 //   They solve different problems. Collapsing to one hop would either lose actor
 //   isolation (if only DispatchQueue) or find no window (if only Task { @MainActor }).
 //
-//   MIGRATION NOTE: The inner DispatchQueue.main.async mixes GCD with Swift
-//   concurrency and bypasses actor checking (P4). Replace with a deterministic
-//   mechanism before carrying this into the main app — options:
-//     - Observe NSWindow.didBecomeKeyNotification
-//     - KVO on isKeyWindow of the expected window
-//     - try? await Task.sleep(nanoseconds: 1) inside the @MainActor task
-//       (keeps actor isolation; one cooperative-thread yield ≈ one run-loop turn)
+// TARGET IMPLEMENTATION (deferred — do not use current Hop 2 in production):
+//   The correct Swift 6.2-native replacement for the DispatchQueue.main.async
+//   hop is to observe the event we actually care about: the sheet NSWindow
+//   becoming key. This is fully deterministic, eliminates the isKeyWindow race
+//   conditions, and keeps full actor isolation (P4):
+//
+//   @MainActor
+//   private func anchorSheetWindow() async {
+//       guard let popoverWindow = ... else { return }
+//       let sheetWindow = await waitForSheetWindow(excluding: popoverWindow)
+//       guard let sheetWindow else { return }
+//       popoverWindow.addChildWindow(sheetWindow, ordered: .above)
+//   }
+//
+//   @MainActor
+//   private func waitForSheetWindow(excluding popoverWindow: NSWindow) async -> NSWindow? {
+//       await withCheckedContinuation { continuation in
+//           var observer: NSObjectProtocol?
+//           observer = NotificationCenter.default.addObserver(
+//               forName: NSWindow.didBecomeKeyNotification,
+//               object: nil,
+//               queue: .main
+//           ) { notification in
+//               guard
+//                   let window = notification.object as? NSWindow,
+//                   window !== popoverWindow,
+//                   window.styleMask.contains(.borderless)
+//               else { return }
+//               NotificationCenter.default.removeObserver(observer!)
+//               continuation.resume(returning: window)
+//           }
+//       }
+//   }
+//
+//   WHY DEFERRED:
+//     withCheckedContinuation leaks if the sheet is dismissed before the
+//     NSWindow ever becomes key (e.g. very fast programmatic dismiss). The
+//     production implementation needs a cancellation path — either
+//     withCheckedThrowingContinuation with Task cancellation support, or a
+//     timeout that resumes with nil. The right cancellation design depends on
+//     how the surrounding migration PR structures its Task lifetime, which
+//     is not yet locked down. Implement this as part of that PR, not here.
+//
+// MIGRATION NOTE: The inner DispatchQueue.main.async mixes GCD with Swift
+//   concurrency and bypasses actor checking (P4). It must be replaced with
+//   the NSWindow.didBecomeKeyNotification approach above before this code
+//   enters the main app. Do not copy the DispatchQueue pattern.
 //
 // WHY nonactivatingPanel AS THE ANCHOR:
 //   NSPopover uses an NSPanel with .nonactivatingPanel in its styleMask as its
@@ -80,7 +120,9 @@
 //     an infinite recursion crash in _applyWindowLevelWithTagUpdateNeeded.
 //
 //   MIGRATION NOTE: isKeyWindow can transiently match other borderless windows.
-//   Two known race windows to validate explicitly before production migration:
+//   This is mitigated in the TARGET IMPLEMENTATION above (notification fires on
+//   the exact window, no walk needed). For the current spike implementation,
+//   two known race windows must be validated before production migration:
 //
 //   1. macOS 26 compositor / Liquid Glass animation layer: introduces additional
 //      transient borderless windows that may be key at the moment Hop 2 runs.
@@ -90,14 +132,10 @@
 //      after dismissing a file picker, the NSOpenPanel NSWindow may still be
 //      borderless+key when Hop 2 fires. addChildWindow on an NSOpenPanel can
 //      trigger the same infinite recursion crash seen with the rejected
-//      frame.intersects approach. The recommended safe fix is to replace the
-//      isKeyWindow discriminator with NSWindow.didBecomeKeyNotification scoped
-//      to windows that appear after isPresented flips, or use
-//      try? await Task.sleep(nanoseconds: 1) (see MIGRATION NOTE above) which
-//      avoids the DispatchQueue hop entirely and runs after NSOpenPanel teardown
-//      has fully completed.
+//      frame.intersects approach.
 //
-//   Both cases are acceptable in this spike; treat both as migration blockers.
+//   Both races are eliminated by the TARGET IMPLEMENTATION. Treat both as
+//   migration blockers for the current implementation.
 
 import AppKit
 import SwiftUI
@@ -153,8 +191,8 @@ struct NavAnchoredSheetModifier<SheetContent: View>: ViewModifier {
         }
         // Hop 2: drain one more run-loop turn so SwiftUI's sheet NSWindow exists
         // in NSApp.windows by the time we search for it (see WHY TWO ASYNC HOPS).
-        // See SHEET WINDOW DISCRIMINATOR above for known race conditions with
-        // isKeyWindow matching on macOS 26 and fast NSOpenPanel re-open.
+        // ⚠️ SPIKE ONLY — do not copy to production. See TARGET IMPLEMENTATION
+        // in the file header for the correct Swift 6.2-native replacement.
         DispatchQueue.main.async {
             // The sheet window SwiftUI just created: borderless and key,
             // but not the popover window itself.
