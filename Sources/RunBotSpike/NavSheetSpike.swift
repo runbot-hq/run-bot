@@ -119,11 +119,12 @@ final class NavSheetAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     // MARK: - Resign-key observer
-    // Wrap body in Task { @MainActor in } so the closure can legally
-    // access @MainActor-isolated properties (popoverWindow, hasActiveOverlay,
-    // closePopover). Without the Task wrapper Swift 6.2 treats the
-    // NotificationCenter closure as Sendable/nonisolated and rejects those
-    // accesses at compile time.
+    // Pull `notification.object` out of the closure as a plain NSWindow?
+    // *before* crossing the actor boundary into the Task. NSWindow is
+    // @MainActor-bound but is not Sendable; extracting it as a local
+    // variable in the nonisolated closure and sending that single value
+    // into the Task avoids the data-race the compiler complains about
+    // when the whole Notification (non-Sendable) is captured.
     private func installResignKeyObserver() {
         guard resignKeyObserver == nil else { return }
         resignKeyObserver = NotificationCenter.default.addObserver(
@@ -131,10 +132,12 @@ final class NavSheetAppDelegate: NSObject, NSApplicationDelegate {
             object: nil,
             queue: .main
         ) { [weak self] notification in
+            // Extract before the Task boundary — NSWindow? is a class ref,
+            // safe to pass as a @Sendable value across the hop.
+            let resignedWindow = notification.object as? NSWindow
             Task { @MainActor [weak self] in
                 guard let self else { return }
-                guard let window = notification.object as? NSWindow,
-                      window === self.popoverWindow else { return }
+                guard resignedWindow === self.popoverWindow else { return }
                 guard !self.hasActiveOverlay else { return }
                 self.closePopover()
             }
