@@ -4,14 +4,14 @@
 // PURPOSE:
 // Verifies the CORRECT pattern for "sheet-like" dismissal inside a
 // .window-style MenuBarExtra, after confirming that SwiftUI's native
-// .sheet modifier is broken in this context on macOS 13–26:
+// .sheet modifier is broken in this context on macOS 13-26:
 //
 //   BUG: clicking anywhere inside a .sheet presented from a MenuBarExtra
 //   window dismisses the ENTIRE MenuBarExtra window, not just the sheet.
-//   Confirmed on macOS 14.6 and 15. The @Binding workaround does NOT fix it.
+//   The @Binding workaround does NOT fix it.
 //   Root cause: the sheet opens a second NSWindow; any click that shifts
 //   focus back to the MenuBarExtra NSWindow is treated as an outside-click
-//   → MenuBarExtra closes.
+//   -> MenuBarExtra closes.
 //
 // SOLUTION: Never open a second NSWindow from the MenuBarExtra panel.
 // Swap content INLINE within the same single window using a simple
@@ -22,12 +22,12 @@
 //   swift run StatusBarSheetSpike
 //
 // WHAT TO VERIFY:
-//   1. Status-bar icon appears (🧪 Spike).
-//   2. Click icon → main content shows.
-//   3. Click "Open Sheet" → "sheet" content slides in (inline swap).
-//   4. Click "Dismiss" → ONLY the sheet content disappears.
+//   1. Status-bar icon appears.
+//   2. Click icon -> main content shows.
+//   3. Click "Open Sheet" -> sheet content swaps in.
+//   4. Click "Dismiss" -> ONLY the sheet content disappears.
 //      The window stays open. Icon stays. App does NOT quit.
-//   5. Repeat 5× — icon and window always survive.
+//   5. Repeat 5x -- icon and window always survive.
 //
 // REQUIREMENTS: macOS 13+, Swift 6
 // DEPENDENCIES: none
@@ -39,7 +39,7 @@ import SwiftUI
 @main
 struct StatusBarSheetApp: App {
     var body: some Scene {
-        MenuBarExtra("\u{1F9EA} Spike", systemImage: "flask.fill") {
+        MenuBarExtra("Spike", systemImage: "flask.fill") {
             RootView()
         }
         .menuBarExtraStyle(.window)
@@ -88,8 +88,6 @@ struct RootView: View {
 
 struct MainPanelView: View {
     let onOpenSheet: () -> Void
-    // Survives because this view is not destroyed on sheet-dismiss;
-    // only currentView enum changes.
     @State private var counter = 0
 
     var body: some View {
@@ -100,15 +98,15 @@ struct MainPanelView: View {
 
             Divider()
 
-            GroupBox("Scenario A — Inline sheet-like swap") {
+            GroupBox("Scenario A - Inline sheet-like swap") {
                 Button("Open Sheet") { onOpenSheet() }
-                Text("After dismissing:\n\u2022 This window stays open\n\u2022 Status-bar icon stays\n\u2022 App does NOT quit")
+                Text("After dismissing: window stays open, icon stays, app does NOT quit.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            GroupBox("Scenario B — State preserved across swap") {
+            GroupBox("Scenario B - State preserved across swap") {
                 HStack {
                     Text("Counter: \(counter)")
                         .monospacedDigit()
@@ -151,7 +149,7 @@ struct SheetPanelView: View {
                     .foregroundStyle(.secondary)
             }
 
-            Text("The window and status-bar icon are still alive right now.\nDismissing will NOT close the app.")
+            Text("The window and status-bar icon are still alive right now. Dismissing will NOT close the app.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -160,7 +158,7 @@ struct SheetPanelView: View {
             Button("Dismiss") {
                 dismissCount += 1
                 onDismiss()
-                // ↑ Flips currentView back to .main in RootView.
+                // Flips currentView back to .main in RootView.
                 // No window is closed. No NSWindow focus changes.
                 // The MenuBarExtra panel stays fully alive.
             }
