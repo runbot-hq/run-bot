@@ -3,26 +3,21 @@
 //
 // DEBUG BUILD — heavy logging enabled throughout.
 //
-// FINDINGS FROM PREVIOUS ATTEMPTS:
+// TWO APPROACHES UNDER TEST:
 //
-// A) .fileImporter reuses the same NSOpenPanel instance — after outside-dismiss
-//    the old panel stays alive (isVisible=false, isKey=false). The anchor search
-//    relies on isKeyWindow=true to find it, which never fires on the stale instance.
-//    Each button tap leaks another invisible NSOpenPanel into NSApp.windows.
+// A) .fileImporter + anchor
+//    Problem was: SwiftUI reuses the NSOpenPanel instance across calls.
+//    After an outside-dismiss it stays alive (isVisible=false, isKey=false,
+//    parent=nil). We now look for an existing invisible NSOpenPanel first
+//    and call orderFront on it rather than waiting for a new key window.
 //
-// B) addChildWindow on a NSNonactivatingPanel (MenuBarExtraWindow styleMask=32896)
-//    makes the child inherit non-activating behaviour. makeKeyAndOrderFront silently
-//    fails (isKeyWindow stays false). runModal() returns .cancel almost immediately
-//    because the panel can't receive clicks.
-//
-// ROOT FIX:
-//
-// Use NSOpenPanel.beginSheetModal(for: menuBarWindow) instead of addChildWindow.
-// Sheet-modal attaches the panel to the window as an AppKit sheet, which:
-//   • does NOT rely on the child-window focus group
-//   • does NOT require the parent to be activating
-//   • keeps the MenuBarExtra window alive (macOS treats its own sheet as in-scope)
-//   • works reliably on repeated invocations
+// B) NSOpenPanel + addChildWindow
+//    Problem was: MenuBarExtraWindow is a NSNonactivatingPanel (styleMask=32896).
+//    Child windows inherit non-activating behaviour — makeKeyAndOrderFront
+//    silently fails (isKeyWindow stays false), runModal() immediately cancels.
+//    Fix: call NSApp.activate(ignoringOtherApps: true) AFTER addChildWindow
+//    but BEFORE makeKeyAndOrderFront. This makes the app active so the panel
+//    can actually receive events. Restore .accessory policy after runModal.
 //
 // REQUIREMENTS: macOS 26, Swift 6
 // DEPENDENCIES: none
@@ -55,6 +50,7 @@ struct StatusBarFilePickerApp: App {
 // MARK: - Content
 
 struct ContentView: View {
+    @State private var isImporting = false
     @State private var pickedURL: URL?
 
     var body: some View {
@@ -65,18 +61,29 @@ struct ContentView: View {
 
             Divider()
 
-            GroupBox("NSOpenPanel via beginSheetModal") {
-                Button("Pick File") {
-                    log("► button tapped")
-                    FilePickerHelper.pickFile { url in
-                        log("► completion url=\(url?.path ?? "nil")")
-                        pickedURL = url
+            // Approach A: .fileImporter
+            // Reuse fix: force false→true transition every tap so SwiftUI
+            // re-presents the (possibly reused) panel.
+            GroupBox("Approach A — .fileImporter") {
+                Button("Pick File (A)") {
+                    log("A ► tapped, isImporting=\(isImporting)")
+                    isImporting = false
+                    DispatchQueue.main.async {
+                        log("A ► async: setting isImporting=true")
+                        isImporting = true
                     }
                 }
                 .frame(maxWidth: .infinity)
-                Text("Sheet attaches to MenuBarExtra window. Panel stays open on click. Repeated invocations work.")
-                    .font(.caption).foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            // Approach B: NSOpenPanel + addChildWindow + activate
+            GroupBox("Approach B — NSOpenPanel") {
+                Button("Pick File (B)") {
+                    log("B ► tapped")
+                    pickedURL = FilePickerHelper.pickFile()
+                    log("B ► returned: \(pickedURL?.path ?? "nil")")
+                }
+                .frame(maxWidth: .infinity)
             }
 
             Divider()
@@ -88,10 +95,7 @@ struct ContentView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .lineLimit(2).truncationMode(.middle)
                 if pickedURL != nil {
-                    Button("Clear") {
-                        log("clear tapped")
-                        pickedURL = nil
-                    }.font(.caption)
+                    Button("Clear") { pickedURL = nil }.font(.caption)
                 }
             }
 
@@ -102,85 +106,96 @@ struct ContentView: View {
         }
         .padding(16)
         .frame(minWidth: 320, minHeight: 280)
+        .fileImporter(
+            isPresented: $isImporting,
+            allowedContentTypes: [.item],
+            allowsMultipleSelection: false
+        ) { result in
+            switch result {
+            case .success(let urls):
+                log("A ► success url=\(urls.first?.path ?? "nil")")
+                pickedURL = urls.first
+            case .failure(let err):
+                log("A ► failure err=\(err)")
+            }
+        }
+        .onChange(of: isImporting) { old, new in
+            log("A ► isImporting \(old)→\(new)")
+            dumpWindows(label: "isImporting-\(new)")
+        }
     }
 }
 
-// MARK: - Window dump helper
+// MARK: - Window dump
 
 @MainActor
 private func dumpWindows(label: String) {
     let wins = NSApp.windows
     log("[windows:\(label)] total=\(wins.count)")
     for (i, w) in wins.enumerated() {
-        log("  [\(i)] \(type(of: w)) isKey=\(w.isKeyWindow) isVisible=\(w.isVisible) styleMask=\(w.styleMask.rawValue) frame=\(NSStringFromRect(w.frame)) parent=\(w.parent == nil ? "nil" : String(describing: type(of: w.parent!))) children=\(w.childWindows?.count ?? 0) sheets=\(w.sheets.count)")
+        log("  [\(i)] \(type(of: w)) isKey=\(w.isKeyWindow) isVisible=\(w.isVisible) styleMask=\(w.styleMask.rawValue) frame=\(NSStringFromRect(w.frame)) parent=\(w.parent == nil ? "nil" : "set") children=\(w.childWindows?.count ?? 0)")
     }
 }
 
-// Key for objc_setAssociatedObject. Must be `let` so Swift 6 sees it as
-// immutable shared state (the address never changes; the value is irrelevant).
-private let delegateKey: UInt8 = 0
-
-// MARK: - NSOpenPanel helper
+// MARK: - Approach B helper
 //
-// Uses beginSheetModal(for:) to attach the picker as an AppKit sheet on
-// the MenuBarExtra window. This is the correct primitive: sheets don't
-// depend on the parent's activating policy and survive repeated invocations.
+// Key insight: MenuBarExtraWindow is NSNonactivatingPanel (styleMask=32896).
+// addChildWindow makes the child inherit non-activating — it cannot become key.
+// Solution: activate the app explicitly after anchoring, before makeKeyAndOrderFront.
+// Restore .accessory after runModal so the menubar app goes back to normal.
 
 @MainActor
 enum FilePickerHelper {
 
-    static func pickFile(
-        canChooseDirectories: Bool = false,
-        completion: @escaping @MainActor (URL?) -> Void
-    ) {
-        log("[picker] pickFile start")
-        dumpWindows(label: "before-show")
+    static func pickFile(canChooseDirectories: Bool = false) -> URL? {
+        log("[B] start")
+        dumpWindows(label: "B-start")
 
         guard let menuBarWindow = NSApp.windows.first(where: {
-            // MenuBarExtraWindow styleMask=32896 (NSPanel | nonactivatingPanel)
             $0.styleMask.rawValue == 32896 && $0.isVisible
         }) else {
-            log("[picker] ERROR: MenuBarExtra window not found — falling back to runModal")
-            completion(runModalFallback(canChooseDirectories: canChooseDirectories))
-            return
+            log("[B] menuBarWindow not found — fallback")
+            return plainFallback(canChooseDirectories: canChooseDirectories)
         }
-        log("[picker] menuBarWindow=\(type(of: menuBarWindow)) frame=\(NSStringFromRect(menuBarWindow.frame)) sheets=\(menuBarWindow.sheets.count)")
-
-        // If a sheet is already attached (e.g. previous panel not yet dismissed),
-        // close it before opening a new one.
-        if !menuBarWindow.sheets.isEmpty {
-            log("[picker] WARNING: existing sheet found — ending it before opening new one")
-            menuBarWindow.sheets.forEach { menuBarWindow.endSheet($0) }
-        }
+        log("[B] menuBarWindow=\(NSStringFromRect(menuBarWindow.frame)) children=\(menuBarWindow.childWindows?.count ?? 0)")
 
         let panel = NSOpenPanel()
-        panel.title = "Choose a File"
         panel.canChooseFiles = true
         panel.canChooseDirectories = canChooseDirectories
         panel.allowsMultipleSelection = false
         panel.canCreateDirectories = false
 
-        let delegate = PanelDelegate()
-        panel.delegate = delegate
-        // Retain the delegate for the lifetime of the panel via associated object.
-        // withUnsafePointer gives us a stable pointer to the let constant.
-        withUnsafePointer(to: delegateKey) {
-            objc_setAssociatedObject(panel, $0, delegate, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
-        }
+        panel.center()
+        log("[B] panel centered to \(NSStringFromRect(panel.frame))")
 
-        log("[picker] calling beginSheetModal")
-        panel.beginSheetModal(for: menuBarWindow) { response in
-            log("[picker] sheet completion response=\(response == .OK ? "OK" : "Cancel") url=\(panel.url?.path ?? "nil")")
-            dumpWindows(label: "after-sheet-close")
-            completion(response == .OK ? panel.url : nil)
-        }
+        menuBarWindow.addChildWindow(panel, ordered: .above)
+        log("[B] addChildWindow done — menuBar.children=\(menuBarWindow.childWindows?.count ?? 0) panel.parent=\(panel.parent == nil ? "nil" : "set")")
 
-        dumpWindows(label: "after-beginSheetModal")
-        log("[picker] panel isVisible=\(panel.isVisible) isKey=\(panel.isKeyWindow) frame=\(NSStringFromRect(panel.frame))")
+        // Activate so the non-activating-panel child can actually become key.
+        NSApp.setActivationPolicy(.regular)
+        NSApp.activate(ignoringOtherApps: true)
+        log("[B] app activated, activationPolicy=regular")
+
+        panel.makeKeyAndOrderFront(nil)
+        log("[B] makeKeyAndOrderFront done — isKey=\(panel.isKeyWindow) isVisible=\(panel.isVisible)")
+
+        dumpWindows(label: "B-before-runModal")
+        log("[B] calling runModal")
+        let result = panel.runModal()
+        log("[B] runModal returned \(result == .OK ? "OK" : "Cancel") url=\(panel.url?.path ?? "nil")")
+
+        menuBarWindow.removeChildWindow(panel)
+        log("[B] removeChildWindow done")
+
+        // Restore menubar-only appearance.
+        NSApp.setActivationPolicy(.accessory)
+        log("[B] activationPolicy restored to accessory")
+
+        dumpWindows(label: "B-end")
+        return result == .OK ? panel.url : nil
     }
 
-    private static func runModalFallback(canChooseDirectories: Bool) -> URL? {
-        log("[picker-fallback] activation-dance start")
+    private static func plainFallback(canChooseDirectories: Bool) -> URL? {
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
         let panel = NSOpenPanel()
@@ -188,25 +203,7 @@ enum FilePickerHelper {
         panel.canChooseDirectories = canChooseDirectories
         panel.allowsMultipleSelection = false
         let result = panel.runModal()
-        log("[picker-fallback] result=\(result == .OK ? "OK" : "Cancel")")
         NSApp.setActivationPolicy(.accessory)
         return result == .OK ? panel.url : nil
-    }
-}
-
-// MARK: - Panel delegate (logging)
-
-private final class PanelDelegate: NSObject, NSOpenSavePanelDelegate {
-    func panelSelectionDidChange(_ sender: Any?) {
-        log("[delegate] panelSelectionDidChange")
-    }
-    func panel(_ sender: Any, didChangeToDirectoryURL url: URL?) {
-        log("[delegate] didChangeToDirectoryURL: \(url?.path ?? "nil")")
-    }
-    func panel(_ sender: Any, validate url: URL) throws {
-        log("[delegate] validate url=\(url.path)")
-    }
-    func panel(_ sender: Any, willExpand expanding: Bool) {
-        log("[delegate] willExpand expanding=\(expanding)")
     }
 }
