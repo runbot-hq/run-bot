@@ -4,11 +4,6 @@
 // We control close: keep popover open while NSOpenPanel is on screen,
 // close it on outside-click only when no panel is active.
 //
-// WHY NOT MenuBarExtra:
-//   MenuBarExtra uses NSNonactivatingPanel which orderOut on ANY outside
-//   click — including clicks inside a child NSOpenPanel. There is no
-//   supported way to suppress that behavior.
-//
 // REQUIREMENTS: macOS 14+, Swift 6
 
 import AppKit
@@ -21,7 +16,7 @@ private func log(_ msg: String, function: String = #function, line: Int = #line)
 
 // MARK: - App delegate
 
-@main
+@MainActor
 class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
     private var popover: NSPopover!
@@ -38,16 +33,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem.button?.action = #selector(togglePopover)
         statusItem.button?.target = self
 
-        let contentView = ContentView(closePicker: { [weak self] in
-            self?.closePopoverIfNoPanel()
-        })
+        let contentView = ContentView()
         popover = NSPopover()
         popover.contentViewController = NSHostingController(rootView: contentView)
         popover.contentSize = NSSize(width: 320, height: 280)
-        popover.behavior = .applicationDefined  // we decide when to close
+        popover.behavior = .applicationDefined
         popover.animates = true
 
-        // Outside-click monitor: close popover only when no panel is open.
         eventMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
             guard let self else { return }
             if FilePicker.shared.isOpen {
@@ -67,16 +59,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         }
     }
-
-    private func closePopoverIfNoPanel() {
-        if !FilePicker.shared.isOpen { popover.performClose(nil) }
-    }
 }
 
 // MARK: - Content view
 
 struct ContentView: View {
-    let closePicker: () -> Void
     @State private var pickedURL: URL?
 
     var body: some View {
@@ -84,10 +71,10 @@ struct ContentView: View {
             Text("File Picker Spike").font(.headline).frame(maxWidth: .infinity, alignment: .center)
             Divider()
             Button("Pick File") {
-                log("► tapped")
+                log("\u25ba tapped")
                 FilePicker.shared.show { url in
                     pickedURL = url
-                    log("► picked \(url?.lastPathComponent ?? "nil")")
+                    log("\u25ba picked \(url?.lastPathComponent ?? "nil")")
                 }
             }
             .frame(maxWidth: .infinity)
