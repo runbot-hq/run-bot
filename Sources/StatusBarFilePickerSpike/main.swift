@@ -1,6 +1,1 @@
-import AppKit
-
-let app = NSApplication.shared
-let delegate = AppDelegate()
-app.delegate = delegate
-app.run()
+// intentionally empty — @main in StatusBarFilePickerSpike.swift is the entry point

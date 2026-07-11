@@ -1,71 +1,44 @@
 // StatusBarFilePickerSpike.swift
 //
-// NSStatusItem + NSPopover with behavior = .applicationDefined.
-// We control close: keep popover open while NSOpenPanel is on screen,
-// close it on outside-click only when no panel is active.
+// MenuBarExtra(.window) + NSOpenPanel via beginSheetModal.
+//
+// OUTSIDE-DISMISS STATE FIX:
+// When the user clicks outside the MenuBarExtraWindow, the window hides
+// but beginSheetModal's completion never fires — so activePanel stays
+// non-nil and the next tap hits the "already open" guard.
+//
+// Fix: at the top of show(), synchronously check parentWindow.isVisible.
+// If it's gone, the panel is stale — call panel.cancel(nil) right there.
+// cancel() fires the beginSheetModal completion synchronously, which clears
+// activePanel. Then we fall through and open fresh.
+// No notifications. No KVO. No async delay.
 //
 // REQUIREMENTS: macOS 14+, Swift 6
 
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 private func log(_ msg: String, function: String = #function, line: Int = #line) {
     let ts = ISO8601DateFormatter().string(from: Date())
     FileHandle.standardError.write("[\(ts)] \(function):\(line) \(msg)\n".data(using: .utf8)!)
 }
 
-// MARK: - App delegate
-
-@MainActor
-class AppDelegate: NSObject, NSApplicationDelegate {
-    private var statusItem: NSStatusItem!
-    private var popover: NSPopover!
-    private var eventMonitor: Any?
-
-    func applicationDidFinishLaunching(_ notification: Notification) {
-        setvbuf(Foundation.stderr, nil, _IONBF, 0)
-        log("launch")
-
-        NSApp.setActivationPolicy(.accessory)
-
-        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        statusItem.button?.image = NSImage(systemSymbolName: "folder.badge.plus", accessibilityDescription: nil)
-        statusItem.button?.action = #selector(togglePopover)
-        statusItem.button?.target = self
-
-        let contentView = ContentView()
-        popover = NSPopover()
-        popover.contentViewController = NSHostingController(rootView: contentView)
-        popover.contentSize = NSSize(width: 320, height: 280)
-        popover.behavior = .applicationDefined
-        popover.animates = true
-
-        eventMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
-            guard let self else { return }
-            if FilePicker.shared.isOpen {
-                log("[monitor] outside click ignored - panel open")
-            } else {
-                log("[monitor] outside click - closing popover")
-                self.popover.performClose(nil)
-            }
+@main
+struct StatusBarFilePickerApp: App {
+    init() { setvbuf(Foundation.stderr, nil, _IONBF, 0) }
+    var body: some Scene {
+        MenuBarExtra {
+            ContentView()
+        } label: {
+            Image(systemName: "folder.badge.plus")
         }
-    }
-
-    @objc private func togglePopover() {
-        guard let button = statusItem.button else { return }
-        if popover.isShown {
-            if !FilePicker.shared.isOpen { popover.performClose(nil) }
-        } else {
-            popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-        }
+        .menuBarExtraStyle(.window)
     }
 }
 
-// MARK: - Content view
-
 struct ContentView: View {
     @State private var pickedURL: URL?
-
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text("File Picker Spike").font(.headline).frame(maxWidth: .infinity, alignment: .center)
@@ -95,16 +68,27 @@ struct ContentView: View {
     }
 }
 
-// MARK: - FilePicker
-
 @MainActor
 final class FilePicker {
     static let shared = FilePicker()
-    private(set) var isOpen = false
     private var panel: NSOpenPanel?
+    private weak var parentWindow: NSWindow?
 
     func show(completion: @escaping @MainActor (URL?) -> Void) {
-        guard !isOpen else { log("[picker] already open"); return }
+        // Synchronous stale-panel cleanup.
+        // If the parent window is gone (outside-click dismissed it),
+        // the beginSheetModal completion never fired. Cancel now so
+        // the completion runs and clears self.panel before we continue.
+        if let stale = panel, parentWindow?.isVisible != true {
+            log("stale panel — cancelling")
+            stale.cancel(nil)  // fires completion synchronously -> clears self.panel
+        }
+
+        guard panel == nil else { log("already open"); return }
+
+        guard let window = NSApp.windows.first(where: {
+            $0.styleMask.contains(.nonactivatingPanel) && $0.isVisible
+        }) else { log("ERROR: no MenuBarExtraWindow"); return }
 
         let p = NSOpenPanel()
         p.canChooseFiles = true
@@ -112,26 +96,14 @@ final class FilePicker {
         p.allowsMultipleSelection = false
         p.canCreateDirectories = false
         panel = p
-        isOpen = true
-        log("[picker] opening")
+        parentWindow = window
+        log("opening sheet")
 
-        // Activate the app so the panel comes to front.
-        // .accessory apps are not normally active, so the panel would
-        // appear behind other windows without this.
-        NSApp.activate(ignoringOtherApps: true)
-
-        p.begin { [weak self] response in
-            log("[picker] done response=\(response == .OK ? "OK" : "Cancel")")
+        p.beginSheetModal(for: window) { [weak self] response in
+            log("done response=\(response == .OK ? "OK" : "Cancel")")
             self?.panel = nil
-            self?.isOpen = false
-            // Return to accessory policy so we don't steal focus permanently.
-            NSApp.setActivationPolicy(.accessory)
+            self?.parentWindow = nil
             completion(response == .OK ? p.url : nil)
-        }
-
-        // Ensure the panel is frontmost after begin() schedules it.
-        DispatchQueue.main.async {
-            p.orderFrontRegardless()
         }
     }
 }
