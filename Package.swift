@@ -50,6 +50,25 @@ let package = Package(
                 .enableUpcomingFeature("NonisolatedNonsendingByDefault")
             ]
         ),
+        // ── StatusBarSheet spike ─────────────────────────────────────────────────
+        // Verifies that a pure-SwiftUI status bar app can present a sheet from a
+        // separate Window scene WITHOUT the status bar item or MenuBarExtra window
+        // closing when the sheet is dismissed.
+        //
+        // Pattern: MenuBarExtra (triggers only) → openWindow → Window scene hosts
+        //          the button + .sheet(). Dismiss sets isPresented = false, touching
+        //          nothing in the MenuBarExtra scene.
+        //
+        // Run with: swift run StatusBarSheetSpike
+        // Remove once the spike results are recorded in docs/spike-sheet-results.md.
+        .executableTarget(
+            name: "StatusBarSheetSpike",
+            dependencies: [],
+            path: "Sources/StatusBarSheetSpike",
+            swiftSettings: [
+                .swiftLanguageMode(.v6)
+            ]
+        ),
         .testTarget(
             name: "RunBotCoreTests",
             dependencies: [
