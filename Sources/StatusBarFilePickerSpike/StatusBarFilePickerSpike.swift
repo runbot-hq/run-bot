@@ -1,23 +1,30 @@
 // StatusBarFilePickerSpike.swift
 // StatusBarFilePickerSpike — spike/statusbar-filepicker branch
 //
-// DEBUG BUILD — heavy logging enabled throughout.
+// HISTORY OF FAILED APPROACHES:
 //
-// TWO APPROACHES UNDER TEST:
+// ✗ .fileImporter: SwiftUI holds stale NSOpenPanel after outside-dismiss.
+//   Binding flips true but panel never re-presents. Zombie panels accumulate.
 //
-// A) .fileImporter + anchor
-//    Problem was: SwiftUI reuses the NSOpenPanel instance across calls.
-//    After an outside-dismiss it stays alive (isVisible=false, isKey=false,
-//    parent=nil). We now look for an existing invisible NSOpenPanel first
-//    and call orderFront on it rather than waiting for a new key window.
+// ✗ addChildWindow + runModal: MenuBarExtraWindow is NSNonactivatingPanel.
+//   Child inherits non-activating — makeKeyAndOrderFront silently fails,
+//   runModal() cancels on first click.
 //
-// B) NSOpenPanel + addChildWindow
-//    Problem was: MenuBarExtraWindow is a NSNonactivatingPanel (styleMask=32896).
-//    Child windows inherit non-activating behaviour — makeKeyAndOrderFront
-//    silently fails (isKeyWindow stays false), runModal() immediately cancels.
-//    Fix: call NSApp.activate(ignoringOtherApps: true) AFTER addChildWindow
-//    but BEFORE makeKeyAndOrderFront. This makes the app active so the panel
-//    can actually receive events. Restore .accessory policy after runModal.
+// ✗ addChildWindow + activate(ignoringOtherApps): Works but switches the
+//   app to a regular foreground app (Dock icon appears, focus stolen). Wrong.
+//
+// ✓ SOLUTION: NSOpenPanel + orderFrontRegardless + begin(completionHandler:)
+//
+//   orderFrontRegardless() is the one NSWindow method that bypasses the
+//   activating-panel gate entirely — it forces the window front without
+//   requiring the app to be active or the parent to be activating.
+//
+//   begin(completionHandler:) is the async (non-blocking) sibling of
+//   runModal(). It returns immediately and calls the handler on OK/Cancel,
+//   so we never block the main thread and the menubar panel stays alive.
+//
+//   No addChildWindow. No activation policy change. No .fileImporter.
+//   A fresh NSOpenPanel is created per invocation — no reuse/state issues.
 //
 // REQUIREMENTS: macOS 26, Swift 6
 // DEPENDENCIES: none
@@ -50,7 +57,6 @@ struct StatusBarFilePickerApp: App {
 // MARK: - Content
 
 struct ContentView: View {
-    @State private var isImporting = false
     @State private var pickedURL: URL?
 
     var body: some View {
@@ -61,29 +67,18 @@ struct ContentView: View {
 
             Divider()
 
-            // Approach A: .fileImporter
-            // Reuse fix: force false→true transition every tap so SwiftUI
-            // re-presents the (possibly reused) panel.
-            GroupBox("Approach A — .fileImporter") {
-                Button("Pick File (A)") {
-                    log("A ► tapped, isImporting=\(isImporting)")
-                    isImporting = false
-                    DispatchQueue.main.async {
-                        log("A ► async: setting isImporting=true")
-                        isImporting = true
+            GroupBox("NSOpenPanel (orderFrontRegardless + async completion)") {
+                Button("Pick File") {
+                    log("► tapped")
+                    FilePickerHelper.pickFile { url in
+                        log("► completion url=\(url?.path ?? "nil")")
+                        pickedURL = url
                     }
                 }
                 .frame(maxWidth: .infinity)
-            }
-
-            // Approach B: NSOpenPanel + addChildWindow + activate
-            GroupBox("Approach B — NSOpenPanel") {
-                Button("Pick File (B)") {
-                    log("B ► tapped")
-                    pickedURL = FilePickerHelper.pickFile()
-                    log("B ► returned: \(pickedURL?.path ?? "nil")")
-                }
-                .frame(maxWidth: .infinity)
+                Text("orderFrontRegardless bypasses non-activating gate.\nbegin(completionHandler:) is non-blocking — menubar stays open.\nFresh panel per tap — no reuse/state issues.")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             Divider()
@@ -95,7 +90,10 @@ struct ContentView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .lineLimit(2).truncationMode(.middle)
                 if pickedURL != nil {
-                    Button("Clear") { pickedURL = nil }.font(.caption)
+                    Button("Clear") {
+                        log("clear tapped")
+                        pickedURL = nil
+                    }.font(.caption)
                 }
             }
 
@@ -106,23 +104,6 @@ struct ContentView: View {
         }
         .padding(16)
         .frame(minWidth: 320, minHeight: 280)
-        .fileImporter(
-            isPresented: $isImporting,
-            allowedContentTypes: [.item],
-            allowsMultipleSelection: false
-        ) { result in
-            switch result {
-            case .success(let urls):
-                log("A ► success url=\(urls.first?.path ?? "nil")")
-                pickedURL = urls.first
-            case .failure(let err):
-                log("A ► failure err=\(err)")
-            }
-        }
-        .onChange(of: isImporting) { old, new in
-            log("A ► isImporting \(old)→\(new)")
-            dumpWindows(label: "isImporting-\(new)")
-        }
     }
 }
 
@@ -137,73 +118,56 @@ private func dumpWindows(label: String) {
     }
 }
 
-// MARK: - Approach B helper
+// MARK: - File picker
 //
-// Key insight: MenuBarExtraWindow is NSNonactivatingPanel (styleMask=32896).
-// addChildWindow makes the child inherit non-activating — it cannot become key.
-// Solution: activate the app explicitly after anchoring, before makeKeyAndOrderFront.
-// Restore .accessory after runModal so the menubar app goes back to normal.
+// Creates a fresh NSOpenPanel per call. Uses orderFrontRegardless() to show
+// it without needing the app to be active, then begin(completionHandler:)
+// for a non-blocking async result. The menubar panel stays alive throughout.
 
 @MainActor
 enum FilePickerHelper {
 
-    static func pickFile(canChooseDirectories: Bool = false) -> URL? {
-        log("[B] start")
-        dumpWindows(label: "B-start")
+    static func pickFile(
+        canChooseDirectories: Bool = false,
+        completion: @escaping @MainActor (URL?) -> Void
+    ) {
+        log("[picker] start")
+        dumpWindows(label: "before-show")
 
-        guard let menuBarWindow = NSApp.windows.first(where: {
-            $0.styleMask.rawValue == 32896 && $0.isVisible
-        }) else {
-            log("[B] menuBarWindow not found — fallback")
-            return plainFallback(canChooseDirectories: canChooseDirectories)
+        // Guard: don't open a second picker if one is already on screen.
+        let alreadyOpen = NSApp.windows.contains {
+            $0 is NSOpenPanel && $0.isVisible
         }
-        log("[B] menuBarWindow=\(NSStringFromRect(menuBarWindow.frame)) children=\(menuBarWindow.childWindows?.count ?? 0)")
+        if alreadyOpen {
+            log("[picker] already open — skipping")
+            return
+        }
 
         let panel = NSOpenPanel()
         panel.canChooseFiles = true
         panel.canChooseDirectories = canChooseDirectories
         panel.allowsMultipleSelection = false
         panel.canCreateDirectories = false
-
+        // Place the panel at screen center.
         panel.center()
-        log("[B] panel centered to \(NSStringFromRect(panel.frame))")
+        log("[picker] panel centered to \(NSStringFromRect(panel.frame))")
 
-        menuBarWindow.addChildWindow(panel, ordered: .above)
-        log("[B] addChildWindow done — menuBar.children=\(menuBarWindow.childWindows?.count ?? 0) panel.parent=\(panel.parent == nil ? "nil" : "set")")
+        // orderFrontRegardless bypasses the NSNonactivatingPanel restriction
+        // that makes makeKeyAndOrderFront silently fail. The panel appears
+        // in front without stealing app-level activation.
+        panel.orderFrontRegardless()
+        log("[picker] orderFrontRegardless done — isVisible=\(panel.isVisible) isKey=\(panel.isKeyWindow)")
 
-        // Activate so the non-activating-panel child can actually become key.
-        NSApp.setActivationPolicy(.regular)
-        NSApp.activate(ignoringOtherApps: true)
-        log("[B] app activated, activationPolicy=regular")
+        dumpWindows(label: "after-orderFront")
 
-        panel.makeKeyAndOrderFront(nil)
-        log("[B] makeKeyAndOrderFront done — isKey=\(panel.isKeyWindow) isVisible=\(panel.isVisible)")
+        // begin(completionHandler:) is non-blocking: returns immediately,
+        // fires the handler when the user picks or cancels.
+        panel.begin { response in
+            log("[picker] completion response=\(response == .OK ? "OK" : "Cancel") url=\(panel.url?.path ?? "nil")")
+            dumpWindows(label: "after-completion")
+            completion(response == .OK ? panel.url : nil)
+        }
 
-        dumpWindows(label: "B-before-runModal")
-        log("[B] calling runModal")
-        let result = panel.runModal()
-        log("[B] runModal returned \(result == .OK ? "OK" : "Cancel") url=\(panel.url?.path ?? "nil")")
-
-        menuBarWindow.removeChildWindow(panel)
-        log("[B] removeChildWindow done")
-
-        // Restore menubar-only appearance.
-        NSApp.setActivationPolicy(.accessory)
-        log("[B] activationPolicy restored to accessory")
-
-        dumpWindows(label: "B-end")
-        return result == .OK ? panel.url : nil
-    }
-
-    private static func plainFallback(canChooseDirectories: Bool) -> URL? {
-        NSApp.setActivationPolicy(.regular)
-        NSApp.activate(ignoringOtherApps: true)
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = true
-        panel.canChooseDirectories = canChooseDirectories
-        panel.allowsMultipleSelection = false
-        let result = panel.runModal()
-        NSApp.setActivationPolicy(.accessory)
-        return result == .OK ? panel.url : nil
+        log("[picker] begin(completionHandler:) registered — returning to caller")
     }
 }
