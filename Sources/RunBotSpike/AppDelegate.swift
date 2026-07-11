@@ -1,18 +1,14 @@
 // AppDelegate.swift
 // RunBotSpike - spike/swiftui-nav-sheet
 //
-// Owns: NSStatusItem, NSPopover, NSHostingController, event monitor,
-// workspace observer.
-//
 // DISMISS STRATEGY:
 //   - .behavior = .applicationDefined (AppKit never auto-closes)
 //   - Global NSEvent monitor fires on outside click → performClose()
-//   - NSWorkspace.didActivateApplicationNotification closes on app-switch;
-//     self-activation (e.g. after NSOpenPanel closes) is ignored
-//   - popoverShouldClose returns false when overlayCount > 0
-//
-// ACTIVE APPEARANCE:
-//   NSApp.activate(ignoringOtherApps: true) on every openPopover().
+//   - NSWorkspace.didActivateApplicationNotification closes on app-switch
+//   - popoverShouldClose checks the window hierarchy directly:
+//       win.sheets non-empty  → NSOpenPanel is attached, block dismiss
+//       win.childWindows non-empty → SwiftUI sheet is attached, block dismiss
+//     No manual overlayCount counter needed.
 
 import AppKit
 import SwiftUI
@@ -83,7 +79,6 @@ final class NavSheetAppDelegate: NSObject, NSApplicationDelegate {
             object: nil,
             queue: .main
         ) { [weak self] notification in
-            // Extract from notification before crossing into MainActor context.
             let activated = notification.userInfo?[NSWorkspace.applicationUserInfoKey]
                 as? NSRunningApplication
             MainActor.assumeIsolated {
@@ -126,9 +121,13 @@ extension NavSheetAppDelegate: NSPopoverDelegate {
         setButtonHighlight(true)
     }
     func popoverShouldClose(_ popover: NSPopover) -> Bool {
-        let allow = appState.overlayCount == 0
-        log("Popover", "popoverShouldClose -> \(allow) (overlayCount=\(appState.overlayCount))")
-        return allow
+        guard let win = popover.contentViewController?.view.window else { return true }
+        // Block dismiss if NSOpenPanel is attached (win.sheets) or a SwiftUI
+        // sheet child window is visible (win.childWindows).
+        let hasOverlay = !win.sheets.isEmpty
+            || !(win.childWindows?.filter { $0.isVisible } ?? []).isEmpty
+        log("Popover", "popoverShouldClose hasOverlay=\(hasOverlay)")
+        return !hasOverlay
     }
     func popoverDidClose(_ notification: Notification) {
         log("Popover", "popoverDidClose")

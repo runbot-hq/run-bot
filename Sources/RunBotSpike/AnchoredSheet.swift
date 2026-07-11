@@ -5,12 +5,11 @@
 // a child of the popover window. Without addChildWindow it floats
 // independently and hides when the app loses focus.
 //
-// This modifier:
-//  1. Increments overlayCount so popoverShouldClose blocks outside-click
-//     dismiss while the sheet is open.
-//  2. After the sheet appears, walks NSApp.windows to find the new borderless
-//     window and calls addChildWindow(_:ordered:) on the popover window.
-//  3. Decrements overlayCount on dismiss.
+// This modifier walks NSApp.windows after the sheet appears to find the new
+// borderless window and calls addChildWindow(_:ordered:) on the popover window.
+//
+// overlayCount is gone — dismiss blocking is now handled in popoverShouldClose
+// by inspecting the window hierarchy directly (see AppDelegate.swift).
 
 import AppKit
 import SwiftUI
@@ -18,12 +17,10 @@ import SwiftUI
 extension View {
     func anchoredSheet<SheetContent: View>(
         isPresented: Binding<Bool>,
-        overlayCount: Binding<Int>,
         @ViewBuilder content: @escaping () -> SheetContent
     ) -> some View {
         modifier(NavAnchoredSheetModifier(
             isPresented: isPresented,
-            overlayCount: overlayCount,
             sheetContent: content
         ))
     }
@@ -31,18 +28,13 @@ extension View {
 
 struct NavAnchoredSheetModifier<SheetContent: View>: ViewModifier {
     @Binding var isPresented: Bool
-    @Binding var overlayCount: Int
     let sheetContent: () -> SheetContent
 
     func body(content: Content) -> some View {
         content
-            .sheet(isPresented: $isPresented, onDismiss: {
-                overlayCount = max(0, overlayCount - 1)
-                log("AnchoredSheet", "onDismiss overlayCount=\(overlayCount)")
-            }, content: sheetContent)
+            .sheet(isPresented: $isPresented, content: sheetContent)
             .onChange(of: isPresented) { _, newValue in
                 if newValue {
-                    overlayCount += 1
                     Task { @MainActor in anchorSheetWindow() }
                 }
             }

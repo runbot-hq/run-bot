@@ -45,7 +45,7 @@ struct NavSheetSettingsView: View {
                 .foregroundStyle(appState.showSettingsSheet ? .green : .secondary)
                 .font(.caption)
             }
-            .anchoredSheet(isPresented: $appState.showSettingsSheet, overlayCount: $appState.overlayCount) {
+            .anchoredSheet(isPresented: $appState.showSettingsSheet) {
                 NavSheetSheetView()
                     .environment(appState)
             }

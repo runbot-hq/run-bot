@@ -23,7 +23,5 @@ final class NavSheetAppState {
     var pickedFolderPath: String = ""
     var sheetPickedFolderPath: String = ""
     var showSheetAlert: Bool = false
-    var overlayCount: Int = 0 {
-        didSet { log("State", "overlayCount \(oldValue) -> \(overlayCount)") }
-    }
+    // overlayCount removed — popoverShouldClose now checks window hierarchy directly
 }
