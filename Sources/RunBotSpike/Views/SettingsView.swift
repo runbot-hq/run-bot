@@ -5,16 +5,23 @@
 //
 // Scenario 1 — Sheet anchors + blocks outside-click dismiss:
 //   "Open sheet" presents via .anchoredSheet(), which wires the SwiftUI sheet
-//   window as a child of the popover window (see AnchoredSheet.swift). While
-//   the sheet is open, clicking outside the popover must be blocked.
+//   window as a child of the popover window (see AnchoredSheet.swift) and sets
+//   appState.hasActiveOverlay while the sheet is open.
 //   Verify: click outside while sheet is open — popover must not close.
 //
 // Scenario 2 — File picker from popover level:
 //   "Pick folder (popover)" calls openFilePicker(target: .popover), which
-//   attaches NSOpenPanel as a sheet to the popover window via beginSheetModal.
-//   While the panel is open, clicking outside must also be blocked.
+//   attaches NSOpenPanel as a sheet to the popover window via beginSheetModal
+//   and sets appState.hasActiveOverlay while the panel is open.
 //   Verify: click outside while panel is open — popover must not close.
 //   Verify: selected path appears below the button after dismissal.
+//
+// WHY showSheet IS @State HERE AND NOT ON AppState:
+//   Sheet presentation state belongs to the view that owns the sheet. Storing
+//   it on AppState would mean every new sheet in any view requires an AppState
+//   change — wrong coupling. The anchoredSheet modifier bridges local @State
+//   to appState.hasActiveOverlay automatically; this view never touches AppState
+//   for sheet lifecycle.
 //
 // WHY @Bindable var appState = appState:
 //   @Environment gives a read-only reference. @Bindable unwraps it into a
@@ -25,16 +32,17 @@ import SwiftUI
 
 struct NavSheetSettingsView: View {
     @Environment(NavSheetAppState.self) private var appState
+    // Sheet state is local — this view owns this sheet, not AppState.
+    @State private var showSheet = false
 
     var body: some View {
-        @Bindable var appState = appState
         VStack(spacing: 12) {
             Text("Settings").font(.headline)
             Divider()
 
             // Scenario 1 — sheet anchoring + dismiss blocking
-            Button("Open sheet") { appState.showSheet = true }
-            .anchoredSheet(isPresented: $appState.showSheet) {
+            Button("Open sheet") { showSheet = true }
+            .anchoredSheet(isPresented: $showSheet) {
                 NavSheetSheetView().environment(appState)
             }
 

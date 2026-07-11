@@ -17,8 +17,19 @@
 //   Once it is a child:
 //     - It follows the popover on screen.
 //     - It stays visible when the popover window loses focus.
-//     - popoverShouldClose can detect it in win.childWindows and block dismiss
-//       (see AppDelegate.swift).
+//
+//   In addition, the modifier sets appState.hasActiveOverlay = true when the
+//   sheet opens and false when it closes. AppDelegate reads this flag in
+//   popoverShouldClose to block dismiss. This keeps dismiss-gate logic out of
+//   individual views — they own only their local @State isPresented binding.
+//
+// WHY hasActiveOverlay INSTEAD OF win.childWindows:
+//   Relying on win.childWindows in popoverShouldClose requires the window
+//   hierarchy to always be consistent with SwiftUI state, which has proven
+//   fragile (timing of addChildWindow, OS version differences). A single
+//   @Observable flag on AppState is the authoritative source of truth —
+//   it is set exactly when isPresented flips true and cleared when it flips
+//   false, with no window-walk needed.
 //
 // WHY THE ASYNC DISPATCH:
 //   At the point onChange fires, SwiftUI has set the binding but hasn't yet
@@ -32,9 +43,8 @@
 //
 // WHY overlayCount IS GONE:
 //   Earlier versions incremented a counter to track open overlays. That was
-//   fragile (counter could desync on error paths). popoverShouldClose now reads
-//   win.sheets (NSOpenPanel attached as sheet) and win.childWindows (SwiftUI sheet
-//   attached via addChildWindow) directly — no counters needed.
+//   fragile (counter could desync on error paths). hasActiveOverlay on AppState
+//   is set/cleared by the modifier directly — no counters needed.
 //
 // SHEET WINDOW DISCRIMINATOR:
 //   We match the sheet window by: borderless + isKeyWindow + not the popover window.
@@ -72,11 +82,17 @@ extension View {
 struct NavAnchoredSheetModifier<SheetContent: View>: ViewModifier {
     @Binding var isPresented: Bool
     let sheetContent: () -> SheetContent
+    // The modifier owns the dismiss-gate update so individual views never
+    // need to touch appState for sheet lifecycle.
+    @Environment(NavSheetAppState.self) private var appState
 
     func body(content: Content) -> some View {
         content
             .sheet(isPresented: $isPresented, content: sheetContent)
             .onChange(of: isPresented) { _, newValue in
+                // Update the dismiss gate synchronously — before the window
+                // lookup so popoverShouldClose sees the flag immediately.
+                appState.hasActiveOverlay = newValue
                 if newValue {
                     // SwiftUI has flipped the binding; defer to next run-loop
                     // turn so the sheet NSWindow actually exists by the time

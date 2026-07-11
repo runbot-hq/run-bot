@@ -26,24 +26,25 @@
 // popoverShouldClose — the dismiss gate:
 //
 //   Even when performClose() is called by the two mechanisms above, we may want
-//   to block it if an overlay is open on top of the popover:
+//   to block it if an overlay is open on top of the popover. The gate reads
+//   appState.hasActiveOverlay, which is set/cleared by:
+//     - anchoredSheet modifier (SwiftUI sheets)
+//     - openFilePicker (NSOpenPanel)
 //
-//   - win.sheets non-empty → NSOpenPanel is attached as a sheet to the popover
-//     window (this is what NSOpenPanel.beginSheetModal does). Closing the popover
-//     now would tear it down underneath the user.
-//
-//   - win.childWindows non-empty → The SwiftUI sheet has been anchored as a child
-//     window (see AnchoredSheet.swift). Same reason — block dismiss.
-//
-//   Both checks read live window state, so they cannot desync the way a counter would.
+//   WHY NOT win.sheets / win.childWindows:
+//     Earlier versions walked the window hierarchy in popoverShouldClose.
+//     This was fragile — timing of addChildWindow and OS version differences
+//     meant the hierarchy didn't always reflect SwiftUI state accurately.
+//     appState.hasActiveOverlay is set synchronously when isPresented flips,
+//     so it can never lag behind the actual UI state.
 //
 // DIVERGENCE FROM PopoverLifecycleCoordinator:
 //   The production PopoverLifecycleCoordinator uses isSheetDismissing +
 //   suppressHidePanel() to suppress the workspace observer during sheet teardown.
-//   This spike does NOT use that flag — it relies solely on window hierarchy
-//   inspection (win.sheets / win.childWindows). Do not conflate the two
-//   approaches when migrating; the production flag exists to handle a teardown
-//   race that this spike does not cover.
+//   This spike does NOT use that flag — hasActiveOverlay is cleared by the
+//   anchoredSheet modifier on dismiss, which is synchronous with SwiftUI state.
+//   Do not conflate the two approaches when migrating; the production flag exists
+//   to handle a teardown race that this cleaner architecture avoids entirely.
 
 import AppKit
 import SwiftUI
@@ -151,8 +152,8 @@ final class NavSheetAppDelegate: NSObject, NSApplicationDelegate {
             matching: [.leftMouseDown, .rightMouseDown]
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
-                // Goes through popoverShouldClose — will be blocked if a sheet
-                // or file picker is open.
+                // Goes through popoverShouldClose — will be blocked if
+                // hasActiveOverlay is true.
                 self?.popover.performClose(nil)
             }
         }
@@ -173,13 +174,11 @@ extension NavSheetAppDelegate: NSPopoverDelegate {
     }
 
     func popoverShouldClose(_ popover: NSPopover) -> Bool {
-        guard let win = popover.contentViewController?.view.window else { return true }
-        // win.sheets: NSOpenPanel (or any sheet) attached via beginSheetModal
-        // win.childWindows filtered to visible: SwiftUI sheet anchored via addChildWindow
-        let hasOverlay = !win.sheets.isEmpty
-            || !(win.childWindows?.filter { $0.isVisible } ?? []).isEmpty
-        log("Popover", "popoverShouldClose hasOverlay=\(hasOverlay)")
-        return !hasOverlay  // true = allow close, false = block
+        // Single authoritative gate: set by anchoredSheet modifier and
+        // openFilePicker. No window hierarchy walk needed.
+        let block = appState.hasActiveOverlay
+        log("Popover", "popoverShouldClose blocked=\(block)")
+        return !block
     }
 
     func popoverDidClose(_ notification: Notification) {

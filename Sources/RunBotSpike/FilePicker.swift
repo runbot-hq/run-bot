@@ -8,14 +8,23 @@
 // WHY MANUAL WINDOW LOOKUP:
 //   NSOpenPanel.runModal() blocks the main thread and ignores the popover.
 //   beginSheetModal(for:) attaches the panel as a sheet to a specific window,
-//   which keeps it anchored and — crucially — makes win.sheets non-empty while
-//   it is open so popoverShouldClose blocks dismiss (see AppDelegate.swift).
+//   which keeps it visually anchored.
+//
+// WHY appState.hasActiveOverlay IS SET HERE:
+//   The dismiss gate (popoverShouldClose in AppDelegate) reads hasActiveOverlay.
+//   We set it to true before opening the panel and clear it in the completion
+//   handler. This is parallel to what anchoredSheet does for SwiftUI sheets —
+//   same contract, same flag, no special-casing needed in AppDelegate.
+//
+//   We do NOT rely on win.sheets being non-empty for this (even though
+//   beginSheetModal does add to win.sheets), because keeping the dismiss gate
+//   in one place (hasActiveOverlay) is cleaner than having AppDelegate inspect
+//   both win.sheets and win.childWindows.
 //
 // WINDOW RESOLUTION:
 //   - Popover context: the nonactivatingPanel window (the popover's own window).
 //   - Sheet context: the borderless child window that AnchoredSheet.swift
-//     attached via addChildWindow. If for some reason that child isn't found,
-//     fall back to the popover window itself.
+//     attached via addChildWindow. Falls back to the popover window if not found.
 
 import AppKit
 
@@ -48,10 +57,18 @@ func openFilePicker(target: PickerTarget, appState: NavSheetAppState) {
     panel.canChooseDirectories = true
     panel.allowsMultipleSelection = false
     panel.prompt = "Select"
-    // beginSheetModal attaches the panel as a sheet to `window`, which:
-    //   1. Keeps it visually anchored to the right window.
-    //   2. Adds it to win.sheets so popoverShouldClose sees it and blocks dismiss.
+
+    // Set the dismiss gate before opening — popoverShouldClose may fire
+    // during the panel's lifetime and must see the flag already set.
+    appState.hasActiveOverlay = true
+    log("FilePicker", "[\(label)] hasActiveOverlay=true")
+
+    // beginSheetModal attaches the panel as a sheet to `window`, keeping it
+    // visually anchored to the right window.
     panel.beginSheetModal(for: window) { response in
+        // Clear the gate whether the user picked or cancelled.
+        appState.hasActiveOverlay = false
+        log("FilePicker", "[\(label)] hasActiveOverlay=false")
         guard response == .OK, let url = panel.url else { return }
         log("FilePicker", "[\(label)] picked=\(url.path)")
         switch target {

@@ -1,22 +1,28 @@
 // AppState.swift
 // RunBotSpike - spike/swiftui-nav-sheet
 //
-// Single source of truth for the spike. Kept deliberately minimal — only what
-// is needed to drive the two scenarios being tested:
+// Single source of truth for the spike. Deliberately minimal — only what
+// crosses view boundaries:
 //
-//   Scenario 1 — Sheet anchors + blocks dismiss:
-//     showSheet drives .anchoredSheet() in SettingsView.
+//   route         — which top-level view is visible in the popover.
+//   pickedPath    — result from file picker opened in SettingsView (displayed
+//                   in SettingsView after dismissal).
+//   sheetPickedPath — result from file picker opened inside SheetView.
+//   hasActiveOverlay — true while any sheet or file picker is open on top of
+//                   the popover. Read by popoverShouldClose in AppDelegate to
+//                   block dismiss. Set/cleared by anchoredSheet modifier and
+//                   openFilePicker; never set by individual views directly.
 //
-//   Scenario 2 — File picker from popover and from inside sheet:
-//     pickedPath / sheetPickedPath store the result so the UI can confirm
-//     the picker actually ran and returned a value.
+// WHAT DOES NOT LIVE HERE:
+//   Sheet presentation booleans (e.g. showSheet) — these are local @State in
+//   the view that owns the sheet. Storing them here would mean every new sheet
+//   in any view requires an AppState change, which is the wrong coupling.
+//   The anchoredSheet modifier bridges local @State to hasActiveOverlay
+//   automatically so views never need to touch AppState for sheet lifecycle.
 //
-// @Observable (Observation framework, iOS 17 / macOS 14+) means SwiftUI views
-// only re-render when a property they actually read changes — no @Published
-// boilerplate, no ObservableObject conformance needed.
-//
-// @MainActor ensures all mutations happen on the main thread, which is required
-// for driving UI updates safely.
+// @Observable (Observation framework, macOS 14+) — views re-render only when
+// a property they actually read changes. No @Published boilerplate needed.
+// @MainActor — all mutations on main thread, required for UI state.
 
 import Foundation
 
@@ -29,7 +35,7 @@ enum NavSheetRoute: Equatable {
 @MainActor
 final class NavSheetAppState {
     var route: NavSheetRoute = .main
-    var showSheet: Bool = false
-    var pickedPath: String = ""       // set by file picker opened from SettingsView
-    var sheetPickedPath: String = ""  // set by file picker opened from SheetView
+    var hasActiveOverlay: Bool = false  // dismiss gate — managed by anchoredSheet + openFilePicker
+    var pickedPath: String = ""         // result from file picker in SettingsView
+    var sheetPickedPath: String = ""    // result from file picker in SheetView
 }
