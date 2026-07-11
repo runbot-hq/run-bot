@@ -13,6 +13,12 @@
 //     dismissal while a sheet or file picker is open.
 //   - overlayCount is managed explicitly (no childWindows inspection).
 //
+// STATUS BUTTON HIGHLIGHT:
+// AppKit ties button.isHighlighted to the popover window's key status,
+// which flickers whenever a sheet or picker steals key focus.
+// Fix: manually set button.isHighlighted in popoverWillShow / popoverDidClose
+// so it tracks popover.isShown only, ignoring key-window changes.
+//
 // REQUIREMENTS: macOS 26+, Swift 6.2
 
 import AppKit
@@ -62,8 +68,6 @@ final class NavSheetAppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
     private var popover: NSPopover!
     private var hostingController: NSHostingController<AnyView>!
-    // Stored as nonisolated(unsafe) because NSEvent monitor callbacks are
-    // nonisolated — we only ever write this on the main thread.
     nonisolated(unsafe) private var eventMonitor: Any?
     private var appState = NavSheetAppState()
 
@@ -106,12 +110,16 @@ final class NavSheetAppDelegate: NSObject, NSApplicationDelegate {
     private func openPopover() {
         guard let button = statusItem.button else { return }
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        // popoverWillShow fires before the window is key, so also set here.
+        button.isHighlighted = true
         startEventMonitor()
     }
 
+    private func setButtonHighlight(_ on: Bool) {
+        statusItem.button?.isHighlighted = on
+    }
+
     // MARK: - Global event monitor
-    // Calls performClose on every outside click. All overlay logic lives in
-    // popoverShouldClose — the monitor itself is fire-and-forget.
     private func startEventMonitor() {
         guard eventMonitor == nil else { return }
         eventMonitor = NSEvent.addGlobalMonitorForEvents(
@@ -163,11 +171,14 @@ final class NavSheetAppDelegate: NSObject, NSApplicationDelegate {
 }
 
 extension NavSheetAppDelegate: NSPopoverDelegate {
-    // Block auto-close while a sheet or picker is active.
+    func popoverWillShow(_ notification: Notification) {
+        setButtonHighlight(true)
+    }
     func popoverShouldClose(_ popover: NSPopover) -> Bool {
         appState.overlayCount == 0
     }
     func popoverDidClose(_ notification: Notification) {
+        setButtonHighlight(false)
         stopEventMonitor()
     }
 }
@@ -357,8 +368,6 @@ struct NavSheetSheetView: View {
 }
 
 // MARK: - AnchoredSheet (NavSheetSpike variant)
-// Takes an overlayCount binding so popoverShouldClose knows a sheet is
-// active without inspecting childWindows (which SwiftUI never cleans up).
 
 extension View {
     func anchoredSheet<SheetContent: View>(
