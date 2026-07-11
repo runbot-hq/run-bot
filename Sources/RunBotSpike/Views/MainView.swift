@@ -1,5 +1,8 @@
 // Views/MainView.swift
 // RunBotSpike - spike/swiftui-nav-sheet
+//
+// Entry point shown when the popover first opens.
+// Only job: navigate to SettingsView where the actual scenarios are tested.
 
 import SwiftUI
 

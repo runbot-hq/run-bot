@@ -1,7 +1,11 @@
 // Views/SheetView.swift
 // RunBotSpike - spike/swiftui-nav-sheet
 //
-// Scenario 3: file picker from inside sheet
+// Scenario 2 — File picker from inside the sheet:
+//   "Pick folder (sheet)" calls openFilePicker(target: .sheet), which looks for
+//   the child window AnchoredSheet.swift attached and opens NSOpenPanel against
+//   that window. Tests that the picker can be driven from a window that is itself
+//   a child of the popover window, not the popover window directly.
 
 import SwiftUI
 
@@ -13,7 +17,7 @@ struct NavSheetSheetView: View {
         VStack(spacing: 16) {
             Text("Sheet").font(.headline)
 
-            // Scenario 3
+            // Scenario 2
             Button("Pick folder (sheet)") {
                 openFilePicker(target: .sheet, appState: appState)
             }
