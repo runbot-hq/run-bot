@@ -59,26 +59,13 @@ final class FilePicker {
     private weak var parentWindow: NSWindow?
 
     func show(completion: @escaping @MainActor (URL?) -> Void) {
-        // ── DIAGNOSTICS ──────────────────────────────────────────────────────
-        let panelState: String
-        if let p = panel {
-            panelState = "panel=\(type(of: p)) isVisible=\(p.isVisible) sheetParent=\(p.sheetParent.map { String(describing: type(of: $0)) } ?? "nil")"
-        } else {
-            panelState = "panel=nil"
-        }
-        let winState: String
-        if let w = parentWindow {
-            winState = "parentWindow=\(type(of: w)) isVisible=\(w.isVisible)"
-        } else {
-            winState = "parentWindow=nil(weak)"
-        }
-        log("show() called — \(panelState) | \(winState)")
-        log("all windows: \(NSApp.windows.map { "\(type(of: $0))(visible=\($0.isVisible))" }.joined(separator: ", "))")
-        // ─────────────────────────────────────────────────────────────────────
-
-        if panel != nil, parentWindow?.isVisible != true {
-            log("stale panel — clearing directly")
-            panel?.orderOut(nil)
+        // Stale panel = panel exists but AppKit already tore down the sheet
+        // (outside-click dismissed the popover). The reliable signal is:
+        //   panel.isVisible == false AND panel.sheetParent == nil
+        // parentWindow.isVisible is NOT reliable — MenuBarExtraWindow is
+        // reused across opens and stays visible when the popover re-opens.
+        if let p = panel, !p.isVisible, p.sheetParent == nil {
+            log("stale panel (isVisible=false, sheetParent=nil) — clearing")
             panel = nil
             parentWindow = nil
         }
