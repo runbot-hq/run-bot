@@ -7,11 +7,14 @@ import SwiftUI
 
 // MARK: - suppressHidePanel
 
+/// Environment key for the `suppressHidePanel` callback.
+/// Default is a no-op so views that don't need the callback compile without injection.
 private struct SuppressHidePanelKey: EnvironmentKey {
-    // Default is a no-op so views that don't need the callback compile without injection.
+    /// No-op default — replaced at runtime by `AppDelegate.wrapEnv(_:)`.
     static let defaultValue: () -> Void = {}
 }
 
+/// RunBot-specific SwiftUI environment value extensions.
 extension EnvironmentValues {
     /// Suppresses the popover's outside-click / app-switch hide behaviour for one
     /// cooperative-scheduler turn. Call this immediately **before** setting a
