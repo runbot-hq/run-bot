@@ -34,7 +34,7 @@ import SwiftUI
 //
 // STARTUP:
 // AppDelegate.applicationDidFinishLaunching calls
-// `await appState.start(runnerState:)` after hydrating display names.
+// `await appState.start(onUpdateStatusIcon:)` after hydrating display names.
 // AppState.start() runs the ordered async startup sequence:
 //   LocalRunnerStore.configure → refreshAsync → store.start
 //   → checkAndHandle → scheduleBackgroundCheck → startObservations()
@@ -86,6 +86,9 @@ final class AppState {
     /// trigger the `fatalError` guard inside `LocalRunnerStore.shared`.
     var localRunnerStore: LocalRunnerStore {
         if let store = _localRunnerStore { return store }
+        #if DEBUG
+        assertionFailure("AppState.localRunnerStore read before start() — LocalRunnerStore.shared has not been configured yet")
+        #endif
         let store = LocalRunnerStore.shared
         _localRunnerStore = store
         return store
@@ -246,7 +249,11 @@ final class AppState {
         }
 
         // Sign-out observation.
-        signOutTask = Task { [weak self] in
+        // @MainActor matches statusIconTask above — both tasks access @MainActor-isolated
+        // AppState properties (oauthService, runnerStore). Explicit annotation avoids
+        // implicit actor hops on each property access inside the loop and eliminates
+        // any TOCTOU window between `guard let store` and `await store.start()`.
+        signOutTask = Task { @MainActor [weak self] in
             guard let self else { return }
             for await _ in self.oauthService.makeSignOutStream() {
                 log("AppState › didSignOut — restarting poll loop for env-token fallback")

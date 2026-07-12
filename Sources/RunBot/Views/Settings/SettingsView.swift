@@ -38,7 +38,11 @@ struct SettingsView: View {
     /// Callback invoked when the user taps the back button.
     let onBack: () -> Void
     /// The local runner actor forwarded into `LocalRunnersView`.
-    /// Defaults to `LocalRunnerStore.shared` so call sites that don't own the actor still compile.
+    /// Defaults to `LocalRunnerStore.shared` — safe only after `AppState.start()` has called
+    /// `LocalRunnerStore.configure(viewModel:)`. In production this is guaranteed because
+    /// `SettingsView` is only constructed after `applicationDidFinishLaunching` completes.
+    /// ⚠️ Do NOT use this default in SwiftUI Previews or unit tests — supply a configured
+    /// store explicitly to avoid the `fatalError` in `LocalRunnerStore.shared`.
     var localRunnerStore: LocalRunnerStore = .shared
     // MARK: - Injected services
     /// Single coordinator for all domain-level state (oauth, lifecycle, runners, updater).
