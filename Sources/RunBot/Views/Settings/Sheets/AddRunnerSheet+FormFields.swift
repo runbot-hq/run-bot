@@ -22,7 +22,7 @@ extension AddRunnerSheet {
         if isLoadingScopes {
             HStack {
                 ProgressView().scaleEffect(0.7)
-                Text("Loading\u{2026}").font(.caption).foregroundColor(.secondary)
+                Text("Loading…").font(.caption).foregroundColor(.secondary)
             }
         } else if scopeType == .repo {
             selectorButton(
@@ -119,7 +119,7 @@ extension AddRunnerSheet {
                 if isRegistering {
                     HStack(spacing: 6) {
                         ProgressView().scaleEffect(0.7).frame(width: 14, height: 14)
-                        Text("Registering\u{2026}")
+                        Text("Registering…")
                     }
                 } else {
                     Text("Add new runner")
@@ -151,7 +151,7 @@ extension AddRunnerSheet {
                     Button {
                         pickExistingFolder()
                     } label: {
-                        Text("Choose\u{2026}")
+                        Text("Choose…")
                     }
                     .controlSize(.small)
                 }
@@ -217,7 +217,7 @@ extension AddRunnerSheet {
 
     /// Selector button that opens the searchable `RepoSelectorSheet`.
     ///
-    /// Shows the current selection as the button label, or a "\u2014 select \u2014" placeholder
+    /// Shows the current selection as the button label, or a "— select —" placeholder
     /// when nothing has been chosen. A hint is shown below when the list is empty.
     @ViewBuilder
     func selectorButton(label: String, selection: String,
@@ -226,7 +226,7 @@ extension AddRunnerSheet {
             Text(label).font(.caption).foregroundColor(.secondary)
             Button(action: action) {
                 HStack {
-                    Text(selection.isEmpty ? "\u2014 select \u2014" : selection)
+                    Text(selection.isEmpty ? "— select —" : selection)
                         .font(.system(size: 12))
                         .foregroundColor(selection.isEmpty ? .secondary : .primary)
                         .lineLimit(1)
@@ -293,9 +293,9 @@ extension AddRunnerSheet {
     /// blocked for the full lifetime of the panel. This replaces the previous
     /// `WindowGrabber` + `NSOpenPanel.beginSheetModal` approach (#2041, step 4).
     func pickExistingFolder() {
-        log("AddRunnerSheet \u203a pickExistingFolder \u2014 opening via mbkOpenFilePicker(target: .sheet)")
+        log("AddRunnerSheet › pickExistingFolder — opening via mbkOpenFilePicker(target: .sheet)")
         mbkOpenFilePicker(target: .sheet, overlayGate: overlayGate) { url in
-            log("AddRunnerSheet \u203a pickExistingFolder \u2014 picker closed url=\(String(describing: url))")
+            log("AddRunnerSheet › pickExistingFolder — picker closed url=\(String(describing: url))")
             guard let url else { return }
             handlePickedFolder(url)
         }
@@ -328,7 +328,7 @@ extension AddRunnerSheet {
         detectedGitHubURL = model.gitHubUrl?.absoluteString ?? ""
         isDuplicate = checkDuplicate(runnerName: detectedName)
 
-        log("AddRunnerSheet \u203a pre-existing: name=\(detectedName) url=\(detectedGitHubURL) duplicate=\(isDuplicate)")
+        log("AddRunnerSheet › pre-existing: name=\(detectedName) url=\(detectedGitHubURL) duplicate=\(isDuplicate)")
     }
 
     /// Writes the LaunchAgent plist, registers with `LocalRunnerStore`, and dismisses the sheet.
@@ -360,7 +360,7 @@ extension AddRunnerSheet {
             runnerName: detectedName,
             workingDirectory: existingDir
         )
-        // Await directly \u2014 importExistingRunner() is async, no Task wrapper needed.
+        // Await directly — importExistingRunner() is async, no Task wrapper needed.
         // This guarantees add() completes before isPresented = false fires and
         // onComplete() enqueues its refresh(), so the new runner row is always
         // present in the actor's index before the scan runs.

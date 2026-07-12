@@ -241,9 +241,9 @@ struct AddRunnerSheet: View {
                 options: 0
             )
             try plistData.write(to: plistURL, options: .atomic)
-            log("AddRunnerSheet \u203a wrote LaunchAgent plist: \(plistURL.path)")
+            log("AddRunnerSheet › wrote LaunchAgent plist: \(plistURL.path)")
         } catch {
-            log("AddRunnerSheet \u203a failed to write LaunchAgent plist: \(error)")
+            log("AddRunnerSheet › failed to write LaunchAgent plist: \(error)")
         }
     }
 
@@ -269,7 +269,7 @@ struct AddRunnerSheet: View {
             mergeStderr: true,
             timeout: 120
         )
-        log("runRegistrationCommand \u203a exit=\(result.exitCode): \(result.output.prefix(500))")
+        log("runRegistrationCommand › exit=\(result.exitCode): \(result.output.prefix(500))")
         return result.exitCode
     }
 
@@ -286,7 +286,7 @@ struct AddRunnerSheet: View {
             arguments: args,
             timeout: 120
         )
-        log("runSimpleProcess \u203a \(executable) exit \(result.exitCode)")
+        log("runSimpleProcess › \(executable) exit \(result.exitCode)")
         return result.exitCode
     }
 
@@ -322,7 +322,7 @@ struct AddRunnerSheet: View {
         let resolvedDir = URL(fileURLWithPath: dir).resolvingSymlinksInPath().path
         guard resolvedDir == homeDir || resolvedDir.hasPrefix(homeDir + "/") else {
             isRegistering = false
-            errorMessage = "Install directory must be inside your home folder (~/\u{2026})."
+            errorMessage = "Install directory must be inside your home folder (~/…)."
             return
         }
 
@@ -344,7 +344,7 @@ struct AddRunnerSheet: View {
         let configPath = URL(fileURLWithPath: dir).appendingPathComponent("config.sh").path
 
         if !FileManager.default.fileExists(atPath: configPath) {
-            setStep("Downloading runner package\u{2026}")
+            setStep("Downloading runner package…")
             guard let downloadURL = await fetchRunnerDownloadURL() else {
                 isRegistering = false
                 errorMessage = "Could not determine runner download URL. Check your internet connection."
@@ -361,7 +361,7 @@ struct AddRunnerSheet: View {
                 errorMessage = "Download failed."
                 return
             }
-            setStep("Unpacking runner package\u{2026}")
+            setStep("Unpacking runner package…")
             let tarResult = await runSimpleProcess(GitHubURIs.tarPath, args: ["xzf", tarPath, "-C", dir])
             try? FileManager.default.removeItem(atPath: tarPath)
             guard tarResult == 0 else {
@@ -371,18 +371,18 @@ struct AddRunnerSheet: View {
             }
         }
 
-        setStep("Fetching registration token\u{2026}")
+        setStep("Fetching registration token…")
         guard let token = await fetchRegistrationToken(scope: scope) else {
             isRegistering = false
             if currentScopeType == .org {
-                errorMessage = "Not authorised to register org-level runners. Ensure your token has the \u2018manage_runners:org\u2019 scope, or sign in via the GitHub button in Settings."
+                errorMessage = "Not authorised to register org-level runners. Ensure your token has the ‘manage_runners:org’ scope, or sign in via the GitHub button in Settings."
             } else {
                 errorMessage = "Could not get a registration token. Ensure a valid token is available via OAuth sign-in, or the GH_TOKEN / GITHUB_TOKEN environment variable."
             }
             return
         }
 
-        setStep("Configuring runner\u{2026}")
+        setStep("Configuring runner…")
         let ghURL = "\(GitHubURIs.base)\(scope)"
         let configExit = await runRegistrationCommand(
             dir: dir, ghURL: ghURL, token: token, name: name, labels: labels
@@ -393,7 +393,7 @@ struct AddRunnerSheet: View {
             return
         }
 
-        setStep("Registering service\u{2026}")
+        setStep("Registering service…")
         writeLaunchAgentPlist(scope: scope, runnerName: name, workingDirectory: dir)
         // Await directly — register() is already async, no Task wrapper needed.
         // This guarantees add() completes before isPresented = false fires and
