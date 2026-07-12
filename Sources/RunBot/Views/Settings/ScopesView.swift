@@ -70,11 +70,9 @@ struct ScopesView: View {
     ///
     /// NO suppressHidePanel() ON THE SET PATH — INTENTIONAL:
     /// `mbkSheet(isPresented:overlayGate:)` manages `overlayGate.hasActiveOverlay`
-    /// automatically for the full sheet lifetime. The `suppressHidePanel()` call
-    /// seen in `LocalRunnersView` is only required there because `RunnerDetailSheet`
-    /// uses bare `.sheet(item:)` (no `mbkSheet(item:)` yet), so the gate is managed
-    /// manually. Here the gate is managed by `MBKAnchoredSheetModifier` — adding
-    /// `suppressHidePanel()` in the set path would paper over the wrong layer.
+    /// automatically for the full sheet lifetime. `suppressHidePanel()` is not needed
+    /// here because the gate is managed by `MBKAnchoredSheetModifier`, not manually.
+    /// Adding `suppressHidePanel()` in the set path would paper over the wrong layer.
     /// The residual dismiss-safety gap (gate clears before NSWindow teardown) is a
     /// known `MBKAnchoredSheet` spike limitation tracked in `AnchoredSheet.swift`
     /// (`DISMISS-SAFETY GAP`) and the MenuBarKit README. Fix belongs there, not here.
