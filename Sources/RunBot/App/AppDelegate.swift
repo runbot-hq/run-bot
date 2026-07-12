@@ -265,10 +265,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// `PanelContainerView` and its dim overlay observe this object;
     /// removing it causes a runtime crash on sheet dismissal.
     func wrapEnv<V: View>(_ view: V) -> AnyView {
-        AnyView(view
+        // Capture lifecycleCoordinator weakly so the environment closure cannot
+        // extend AppDelegate's lifetime if AppDelegate is ever shortened. In
+        // normal app lifetime AppDelegate is never released, but [weak self]
+        // is the defensive correct pattern for closure captures on classes.
+        let suppressHidePanel: @MainActor @Sendable () -> Void = { [weak self] in
+            self?.lifecycleCoordinator.suppressHidePanel()
+        }
+        return AnyView(view
             .environment(panelVisibilityState)
             .environment(runnerState)
             .environment(overlayGate)
+            .environment(\.suppressHidePanel, suppressHidePanel)
         )
     }
 
