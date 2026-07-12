@@ -19,6 +19,6 @@ extension AppDelegate {
         guard let url = urls.first(where: {
             $0.scheme == GitHubConstants.oauthScheme && $0.host == GitHubConstants.oauthHost
         }) else { return }
-        oauthService.handleCallback(url)
+        appState.oauthService.handleCallback(url)
     }
 }

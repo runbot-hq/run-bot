@@ -2,8 +2,6 @@
 // RunBot
 
 import AppKit
-import AppUpdater
-import GitHubClient
 import MenuBarKit
 import RunBotCore
 import SwiftUI
@@ -128,105 +126,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// truth about overlay presence via `overlayGate.hasActiveOverlay`.
     let overlayGate = MBKOverlayGate()
 
-    /// The `GitHubClient` facade — owns and wires `KeychainTokenStore`, `TokenCache`,
-    /// `OAuthService`, and `GitHubTransport` under a single init.
-    ///
-    /// `oauthService` and `transport` are accessed via this instance rather than
-    /// constructed independently. `TokenCache.invalidate()` is called automatically
-    /// after every sign-in and sign-out via the hooks wired inside the facade.
-    let github = GitHubClient(
-        clientID: OAuthSecrets.clientID,
-        clientSecret: OAuthSecrets.clientSecret,
-        // ⚠️ Backward-compat: "run-bot" matches the keychain service name used by the
-        // pre-GitHubClient `Keychain` type. Do NOT change this value post-ship —
-        // doing so orphans any token already stored under the old coordinates and
-        // forces every signed-in user to re-authenticate. If the bundle identifier
-        // is ever adopted as the canonical service name, a migration read from
-        // "run-bot" → delete → re-save under the new name is required first.
-        service: "run-bot",
-        account: "github-oauth-token",
-        logger: GitHubLoggerAdapter()
-    )
 
-    /// Forwarded from `github.oauthService` for backward-compatible access across
-    /// AppDelegate extensions and injected views.
-    var oauthService: any OAuthServiceProtocol { github.oauthService }
-
-    /// Owned lifecycle service instance. Typed to protocol so tests can supply a stub
-    /// without spawning real `svc.sh` processes (P7).
-    ///
-    /// Constructed once here — injected into `SettingsView` → `LocalRunnersView`
-    /// rather than accessed via a global `.shared`.
-    let lifecycleService: any RunnerLifecycleServiceProtocol = RunnerLifecycleService()
-    /// Owned `LocalRunnerStore` actor.
-    ///
-    /// `lazy var` is required: `LocalRunnerStore.shared` is only valid after
-    /// `LocalRunnerStore.configure(viewModel:)` is called in
-    /// `applicationDidFinishLaunching`. A `let` default would be evaluated
-    /// eagerly during `AppDelegate.init()` — before `configure()` runs —
-    /// triggering the `fatalError` guard inside `LocalRunnerStore.shared`.
-    lazy var localRunnerStore: LocalRunnerStore = .shared
-    /// Owned `RunnerPoller` actor. `nil` until `setupSubscriptions()` runs.
-    ///
-    /// Optional (not `!`) so the uninitialised state is representable at the
-    /// type level and the compiler flags any force-unwrap at call sites (P4).
-    ///
-    /// The sole init site is `AppDelegate+PanelSetup.swift` → `setupSubscriptions()`,
-    /// which runs on the `@MainActor` and can therefore pass `AppPreferencesStore.shared`
-    /// and `ScopeStore.shared` as explicit arguments.
-    ///
-    /// ❌ NEVER add a `lazy var` default body here — doing so creates a dual-init
-    /// path: if anything reads `runnerStore` before `setupSubscriptions()` runs,
-    /// a second `RunnerPoller` instance with live observation tasks would be created
-    /// and immediately replaced, producing competing poll loops.
-    var runnerStore: (any RunnerPollerProtocol)?
-    /// The observable read model for Core-side runner/job/action/rate-limit state.
-    ///
-    /// Created here (not inside `setupSubscriptions`) so it survives for the full
-    /// app lifetime and can be injected into the SwiftUI environment in `wrapEnv(_:)`
-    /// `RunnerPoller.applyFetchResult` writes into this instance on the `@MainActor`
-    /// after every poll cycle; views read from it via `@Environment(RunnerState.self)`.
-    /// `LocalRunnerStore` pushes `localRunners` and `isLocalScanning` into this instance
-    /// via `LocalRunnerStore.configure(viewModel: runnerState)` in `setupSubscriptions()`.
-    let runnerState = RunnerState()
-    /// The auto-update driver. Carries all RunBot-specific configuration (repo
-    /// slug, asset name, scheduler identifier, beta-channel source); the
-    /// `AppUpdater` library itself holds no RunBot strings. Injected into
-    /// `SettingsView` for the Install & Relaunch action and driven from
-    /// `AppDelegate+PanelSetup` on startup.
-    let autoUpdater = AppUpdater(
-        repo: "runbot-hq/run-bot",
-        currentVersion: Bundle.main.rbVersionString,
-        assetName: { _ in "RunBot.zip" },
-        // 32-byte Ed25519 public key — safe to commit (public key, not secret).
-        // Parameter is `publicKey: Data` (raw bytes); the issue spec draft said
-        // `ed25519PublicKey: String` but AppUpdater#46 shipped the API as Data — this is correct.
-        // preconditionFailure gives a readable crash on key-rotation typos; silent fallback
-        // would be worse (update verification silently disabled). AppUpdater.init also has
-        // its own precondition(publicKey.count == 32) as a second guard.
-        // Private key lives in Actions secret ED25519_PRIVATE_KEY — never commit it.
-        publicKey: Data(base64Encoded: "lECb0Xv0zTET/Biw00rTtCl/sVdbzGG4WICYlG7g/oc=")
-            ?? { preconditionFailure("Ed25519 public key is not valid base64 — check key after rotation") }(),
-        schedulerIdentifier: "io.github.runbot-hq.update-check",
-        betaChannelProvider: { AppPreferencesStore.shared.betaChannel }
-    )
+    /// Forwarded from `appState.runnerState` for backward-compatible access.
+    var runnerState: RunnerState { appState.runnerState }
     /// The last nav destination the user was on before the popover was closed or hidden.
     /// Restored by `openPanel()` so the user lands back where they left off.
-    var savedNavState: NavState?
+    /// Forwarded from `appState.savedNavState`.
+    var savedNavState: NavState? {
+        get { appState.savedNavState }
+        set { appState.savedNavState = newValue }
+    }
     /// Sheet state that must survive transient popover hides.
+    /// Stays on AppDelegate (wiring concern — not domain state). See issue #2040.
     let panelSheetState = PanelSheetState()
-
-    // periphery:ignore - write-only by design; assignment keeps the Task alive
-    /// Retained handle for the status-icon observation task started in
-    /// `applicationDidFinishLaunching` (AppDelegate+StoreSetup.swift).
-    /// Keeping a strong reference ensures the task is never silently abandoned.
-    var statusIconTask: Task<Void, Never>?
-
-    // periphery:ignore - write-only by design; assignment keeps the Task alive
-    /// Retained handle for the sign-out observation task started in
-    /// `setupSignOutSubscription()` (AppDelegate+Polling.swift).
-    /// Keeping a strong reference ensures the task is never silently abandoned.
-    var signOutTask: Task<Void, Never>?
     /// Owns `panelIsOpen`, `preservedSheetWindowHide`, the global NSEvent
     /// outside-click monitor, and the NSWorkspace app-switch observer.
     /// AppDelegate is reduced to a wiring layer for these concerns (#1374).
@@ -282,7 +194,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         return AnyView(view
             .environment(panelVisibilityState)
-            .environment(runnerState)
+            .environment(appState.runnerState)
             .environment(overlayGate)
             .environment(\.suppressHidePanel, suppressHidePanel)
         )

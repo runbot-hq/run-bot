@@ -67,10 +67,10 @@ extension AppDelegate {
                 self?.panelSheetState.clearRunnerSheet()
                 self?.navigate(to: self?.mainView() ?? AnyView(EmptyView()))
             },
-            oauthService: oauthService,
-            lifecycleService: lifecycleService,
+            oauthService: appState.oauthService,
+            lifecycleService: appState.lifecycleService,
             runnerState: runnerState,
-            autoUpdater: autoUpdater
+            autoUpdater: appState.autoUpdater
         )
         // PanelContainerView needed here too: sheets are presented from SettingsView.
         return wrapEnv(PanelContainerView(content: inner))
