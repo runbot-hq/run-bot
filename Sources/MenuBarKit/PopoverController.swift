@@ -9,7 +9,7 @@
 //   - Create and show/hide the NSPopover
 //   - Manage the NSStatusItem button highlight
 //   - Install/remove the outside-click NSEvent monitor
-//   - Install the NSWorkspace app-switch observer
+//   - Install/remove the NSWorkspace app-switch observer
 //   - Implement popoverShouldClose via the MBKOverlayGate
 //   - Reset the overlay gate in popoverDidClose (safety net)
 //
@@ -88,6 +88,14 @@ public final class MBKPopoverController: NSObject {
     // for a stored property that is manually guaranteed to be safe.
     /// Opaque token for the global NSEvent monitor; nil when no monitor is active.
     nonisolated(unsafe) private var eventMonitor: Any?
+
+    // nonisolated(unsafe): same rationale as eventMonitor above.
+    // NSObjectProtocol is not Sendable; all live reads/writes are @MainActor-gated
+    // (setupWorkspaceObserver / deinit). deinit is nonisolated per SE-0327 and
+    // runs only after the last strong reference drops (app teardown), so no
+    // concurrent access is possible in practice.
+    /// Opaque token for the NSWorkspace app-activation observer; nil until setup() runs.
+    nonisolated(unsafe) private var workspaceObserver: NSObjectProtocol?
 
     // MARK: - Init
 
@@ -181,11 +189,12 @@ public final class MBKPopoverController: NSObject {
     // MARK: - Workspace observer
 
     /// Installs the NSWorkspace app-activation observer that closes the popover
-    /// when the user switches to another app.
+    /// when the user switches to another app. Stores the returned token in
+    /// `workspaceObserver` so it can be removed in `deinit`.
     private func setupWorkspaceObserver() {
         // queue: nil delivers on the poster's thread (not necessarily main).
         // Task { @MainActor } is the Swift 6-correct hop — see file header.
-        NSWorkspace.shared.notificationCenter.addObserver(
+        workspaceObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didActivateApplicationNotification,
             object: nil,
             queue: nil
@@ -235,6 +244,21 @@ public final class MBKPopoverController: NSObject {
         NSEvent.removeMonitor(monitor)
         eventMonitor = nil
         mbkLog("PopoverController", "event monitor stopped")
+    }
+
+    // MARK: - Deallocation
+
+    /// Removes the workspace observer on dealloc. In normal app lifetime
+    /// `MBKPopoverController` is created once and never torn down, so this path
+    /// is never taken — but storing and removing the token is correct regardless
+    /// of lifetime, and makes the controller safe to use with a shorter-lived owner.
+    deinit {
+        if let observer = workspaceObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(observer)
+        }
+        if let monitor = eventMonitor {
+            NSEvent.removeMonitor(monitor)
+        }
     }
 }
 
