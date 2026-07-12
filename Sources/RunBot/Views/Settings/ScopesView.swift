@@ -57,6 +57,35 @@ struct ScopesView: View {
     /// Bool binding that maps `selectedScopeEntry` nil/non-nil → true/false for
     /// `mbkSheet(isPresented:)`. The set path nils out both pieces of state together
     /// so they stay in sync regardless of how the sheet is dismissed. (#1538)
+    ///
+    /// TWO CALL SITES — INTENTIONAL:
+    /// This computed var is referenced twice in `body` (once by `.mbkSheet(isPresented:)`
+    /// and once by `ScopeEditSheet(isPresented:)`). Each reference creates a distinct
+    /// `Binding<Bool>` instance — this is safe and intentional. `Binding<T>` is a
+    /// Swift value type; both instances carry identical `get`/`set` closures that close
+    /// over the same `@State`-backed storage. `MBKAnchoredSheetModifier` stores the
+    /// binding by value and never performs reference-identity comparison, so the two
+    /// instances are interchangeable. Extracting to a `let` in `body` would add noise
+    /// with no correctness benefit.
+    ///
+    /// NO suppressHidePanel() ON THE SET PATH — INTENTIONAL:
+    /// `mbkSheet(isPresented:overlayGate:)` manages `overlayGate.hasActiveOverlay`
+    /// automatically for the full sheet lifetime. The `suppressHidePanel()` call
+    /// seen in `LocalRunnersView` is only required there because `RunnerDetailSheet`
+    /// uses bare `.sheet(item:)` (no `mbkSheet(item:)` yet), so the gate is managed
+    /// manually. Here the gate is managed by `MBKAnchoredSheetModifier` — adding
+    /// `suppressHidePanel()` in the set path would paper over the wrong layer.
+    /// The residual dismiss-safety gap (gate clears before NSWindow teardown) is a
+    /// known `MBKAnchoredSheet` spike limitation tracked in `AnchoredSheet.swift`
+    /// (`DISMISS-SAFETY GAP`) and the MenuBarKit README. Fix belongs there, not here.
+    ///
+    /// STATE DRIFT — NOT POSSIBLE:
+    /// Reviewers may note that the `set` path clears `selectedScopePreferences` only
+    /// when `$0 == false`, raising the concern that `selectedScopePreferences` could
+    /// be non-nil while `selectedScopeEntry` is nil. This cannot occur: the `onChange`
+    /// modifier below enforces the invariant on every dismiss path (binding set,
+    /// external nil-out, future refactors). The `set` closure is a belt; `onChange`
+    /// is the suspenders.
     private var isScopeEditSheetPresented: Binding<Bool> {
         Binding(
             get: { selectedScopeEntry != nil },
@@ -85,6 +114,8 @@ struct ScopesView: View {
         // Sheet is presented only once both entry and preferences snapshot are ready.
         // isScopeEditSheetPresented maps selectedScopeEntry nil/non-nil → Bool so
         // mbkSheet(isPresented:) can manage the overlay gate. (#1538)
+        // Two distinct Binding instances (here and in ScopeEditSheet(isPresented:))
+        // are intentional and safe — see isScopeEditSheetPresented doc comment.
         .mbkSheet(isPresented: isScopeEditSheetPresented, overlayGate: overlayGate) {
             if let entry = selectedScopeEntry, let prefs = selectedScopePreferences {
                 // #992: ScopeEditSheet replaces the old nav drill-down.
@@ -104,6 +135,9 @@ struct ScopesView: View {
         // code path (sheet dismiss via binding, external nil-out, future refactors),
         // selectedScopePreferences is cleared with it. Prevents a stale snapshot from
         // a previously selected scope persisting in memory. (#1538)
+        // This is the authoritative clear for selectedScopePreferences — the set path
+        // in isScopeEditSheetPresented also clears it, but onChange is the safety net
+        // that covers all paths including ones that bypass the binding's set closure.
         .onChange(of: selectedScopeEntry) { _, newEntry in
             if newEntry == nil { selectedScopePreferences = nil }
         }

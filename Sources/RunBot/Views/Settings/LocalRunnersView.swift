@@ -92,16 +92,22 @@ struct LocalRunnersView: View {
         .modifier(removalAlertModifier)
         // #1262: .sheet(item:) attaches RunnerDetailSheet as a child sheet of
         // NSPopoverWindowFrame so it escapes the parent view bounds.
-        // .onChange mirrors editingRunner nil/non-nil → overlayGate.hasActiveOverlay
-        // because mbkSheet(item:) does not exist yet. overlayGate.mbkSetOverlay()
-        // is the spike-only escape hatch documented in OverlayGate.swift.
+        // mbkSheet(item:) does not exist yet in MenuBarKit, so overlayGate is managed
+        // manually via the two modifiers below. mbkSetOverlay() is the spike-only
+        // escape hatch documented in OverlayGate.swift. Tracked in #2044 — replace
+        // with .mbkSheet(item:overlayGate:) when that API lands.
         //
-        // onDismiss provides a safety-net clear for AppKit-initiated dismissals
-        // (e.g. window close, crash-path skips) that bypass the onCancel/onCommit
-        // paths and may not reliably trigger .onChange. Without this, a dismissed
-        // sheet that skips .onChange could leave hasActiveOverlay = true permanently,
-        // locking the outside-click monitor until the next app restart.
-        // See: PR-A review finding 🔴 #1.
+        // DOUBLE-CLEAR — INTENTIONAL AND IDEMPOTENT:
+        // On a normal dismiss (onCancel / onCommit), the sequence is:
+        //   1. suppressHidePanel() called
+        //   2. editingRunner = nil
+        //   3. .onChange fires → mbkSetOverlay(false)    ← primary clear arm
+        //   4. onDismiss fires → mbkSetOverlay(false)    ← safety-net arm (no-op)
+        // On an AppKit-initiated dismiss (window close, crash path bypassing onCancel):
+        //   1. onDismiss fires → mbkSetOverlay(false)    ← safety-net arm (catches it)
+        //   2. .onChange fires → mbkSetOverlay(false)    ← no-op
+        // mbkSetOverlay() is idempotent for repeated false calls — no notifications,
+        // no side effects. The double-clear is safe by design, not an oversight.
         .sheet(item: $editingRunner, onDismiss: { overlayGate.mbkSetOverlay(false) }) { runner in
             runnerEditingSheet(runner: runner)
         }
