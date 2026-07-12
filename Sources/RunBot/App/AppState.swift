@@ -85,6 +85,13 @@ final class AppState {
 
     /// Owned lifecycle service. Typed to protocol so tests can supply a stub
     /// without spawning real `svc.sh` processes (principle P7).
+    ///
+    /// Testability note: constructing `AppState` is zero-cost (no side effects
+    /// until `start()` is called), so a test can create `AppState()`, assign
+    /// a stub to `lifecycleService` via a test-only `init`, and never call
+    /// `start()`. The protocol typing here enables that pattern. A full
+    /// `AppStateProtocol` extraction is deferred — see WHY NOT AppStateProtocol
+    /// in the file-level comment.
     let lifecycleService: any RunnerLifecycleServiceProtocol = RunnerLifecycleService()
 
     /// Owned `LocalRunnerStore` actor.
@@ -99,14 +106,15 @@ final class AppState {
     /// path. The `assertionFailure` below is a guard against other early-read
     /// paths (e.g. previews) — it is NOT expected to fire during normal startup.
     ///
-    /// WHY THE FALLBACK PATH EXISTS:
-    /// The slow path (calling `LocalRunnerStore.shared` when `_localRunnerStore`
-    /// is nil) is retained as a last-resort so that Release builds get a clear
-    /// `fatalError` from inside `.shared` rather than a force-unwrap crash with
-    /// no context. The `assertionFailure` in DEBUG makes the same failure visible
-    /// earlier, at `AppState.localRunnerStore`, with a readable message. Neither
-    /// path is a "safe recovery" — both terminate the process; the only difference
-    /// is crash-report attribution.
+    /// WHY THE FALLBACK PATH EXISTS (it is NOT a safe-recovery path):
+    /// Both the DEBUG and Release branches terminate the process — the only
+    /// difference is crash-report attribution. DEBUG fires `assertionFailure`
+    /// here so the crash site is `AppState.localRunnerStore` with a readable
+    /// message. Release falls through to `LocalRunnerStore.shared`, which calls
+    /// `fatalError` internally if `configure()` has not run. There is no silent
+    /// recovery, no default value, and no retry. If you are reading this because
+    /// the assertionFailure fired, fix the early-read path — do not remove the
+    /// fallback or replace it with a nil-coalescing default.
     var localRunnerStore: LocalRunnerStore {
         if let store = _localRunnerStore { return store }
         // ──────────────────────────────────────────────────────────────────
@@ -208,6 +216,13 @@ final class AppState {
     /// assignment itself is what keeps the `Task` alive — without a strong
     /// reference the task is immediately cancelled by ARC. `periphery:ignore`
     /// suppresses the "assigned but never read" dead-code warning.
+    ///
+    /// `@Observable` tracking: these are `private var` on an `@Observable` class,
+    /// so the macro synthesises observation registrar calls on both properties.
+    /// Because nothing outside `AppState` reads them, those registrar calls are
+    /// always no-ops at runtime — there is no observable overhead. Marking them
+    /// `@ObservationIgnored` would be cleaner but is deliberately omitted to
+    /// keep the declaration surface minimal; add it if profiling ever shows cost.
     private var statusIconTask: Task<Void, Never>?
 
     // periphery:ignore - write-only by design; assignment keeps the Task alive
@@ -256,6 +271,13 @@ final class AppState {
     /// Idempotency: guarded by `_didStart`, set unconditionally on first entry
     /// before any branch. A second call is always a no-op regardless of which
     /// early-return branch fired on the first call (e.g. `UI_TESTING`).
+    ///
+    /// - Parameter onUpdateStatusIcon: Called on `@MainActor` whenever
+    ///   `runnerState.aggregateStatus` changes. ⚠️ Capture `AppDelegate` weakly
+    ///   at the call site — this closure is stored inside a long-lived `Task`
+    ///   for the process lifetime. A strong capture would retain `AppDelegate`
+    ///   indefinitely. The call site in `AppDelegate+StoreSetup.swift` does
+    ///   this correctly via `{ [weak self] in self?.updateStatusIcon() }`.
     func start(onUpdateStatusIcon: @escaping @MainActor () -> Void) async {
         guard !_didStart else {
             log("AppState › start — already called, skipping (idempotency guard)")
