@@ -81,6 +81,11 @@ final class AppState {
 
     /// Forwarded from `github.oauthService` for backward-compatible access
     /// across extensions and injected views.
+    ///
+    /// WHY `var`, not `let`: Swift requires `var` for any property with a getter
+    /// body — `let` is a syntax error for computed properties. This is a
+    /// read-only forwarding accessor; the `var` keyword carries no mutability
+    /// implication here. There is no stored backing field.
     var oauthService: any OAuthServiceProtocol { github.oauthService }
 
     /// Owned lifecycle service. Typed to protocol so tests can supply a stub
@@ -137,13 +142,19 @@ final class AppState {
     }
     /// Backing store for the `localRunnerStore` computed property.
     /// Seeded by `start()` immediately after `LocalRunnerStore.configure()` runs.
-    private var _localRunnerStore: LocalRunnerStore?
+    /// `@ObservationIgnored` because this is a write-only backing field — nothing
+    /// outside `AppState` reads it, so the `@Observable` macro’s synthesised
+    /// registrar calls would be unconditional no-ops. Marking it ignored removes
+    /// that dead overhead and makes the intent explicit.
+    @ObservationIgnored private var _localRunnerStore: LocalRunnerStore?
 
     /// Idempotency sentinel for `start()`. Set to `true` unconditionally on the
     /// first call entry, before any early-return branches, so that a second call
     /// is always a no-op regardless of which branch the first call took
     /// (e.g. `UI_TESTING` return, future test stubs, etc.).
-    private var _didStart = false
+    /// `@ObservationIgnored` for the same reason as `_localRunnerStore` above —
+    /// write-only sentinel, never observed externally, registrar calls are no-ops.
+    @ObservationIgnored private var _didStart = false
 
     /// Owned `RunnerPoller` actor. `nil` until `start()` runs.
     ///
@@ -219,14 +230,15 @@ final class AppState {
     /// `@Observable` tracking: `statusIconTask` and `signOutTask` are stored
     /// `private var` on an `@Observable` class, so the macro synthesises
     /// observation registrar calls on each write. Because nothing outside
-    /// `AppState` reads them, those registrar calls are always no-ops at runtime.
-    /// `@ObservationIgnored` would suppress them but is omitted to keep the
-    /// declaration surface minimal; add it if profiling ever shows cost.
+    /// `AppState` reads them, those calls are always no-ops at runtime.
+    /// `@ObservationIgnored` is applied (consistent with `_localRunnerStore` and
+    /// `_didStart` above) to make the write-only intent explicit at the compiler
+    /// level and suppress the dead registrar overhead.
     ///
     /// Note: `localRunnerStore` is a *computed* property (not a stored var), so
     /// the `@Observable` macro does NOT synthesise registrar calls for it —
     /// no `@ObservationIgnored` is needed or applicable there.
-    private var statusIconTask: Task<Void, Never>?
+    @ObservationIgnored private var statusIconTask: Task<Void, Never>?
 
     // periphery:ignore - write-only by design; assignment keeps the Task alive
     /// Retained handle for the sign-out observation task started in `start()`.
@@ -239,7 +251,7 @@ final class AppState {
     /// the main actor inside the loop body, which (a) adds noise to the threading
     /// contract and (b) opens a TOCTOU window between `guard let store` and
     /// `await store.start()` across actor hops.
-    private var signOutTask: Task<Void, Never>?
+    @ObservationIgnored private var signOutTask: Task<Void, Never>?
 
     // MARK: - Init
 
@@ -447,6 +459,12 @@ final class AppState {
         // any status writes that race between here and store.start() are covered
         // by that initial emission. Do NOT move this after checkAndHandle() —
         // see the Step 3 comment in start() for the sign-out window reasoning.
+        //
+        // CAPTURE NOTE: `onUpdateStatusIcon` is captured strongly inside this Task
+        // and lives for the process lifetime. AppDelegate must pass a weakly
+        // capturing closure — e.g. `{ [weak self] in self?.updateStatusIcon() }`
+        // — so that AppState does NOT retain AppDelegate. Do NOT change the call
+        // site in AppDelegate+StoreSetup.swift to a strong capture.
         statusIconTask = Task { @MainActor [weak self] in
             guard let self else { return }
             for await _ in Observations({ self.runnerState.aggregateStatus }) {

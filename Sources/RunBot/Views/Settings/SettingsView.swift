@@ -54,6 +54,12 @@ struct SettingsView: View {
     /// seeded `_localRunnerStore`. The `.shared` default is never actually used in
     /// production — it exists to satisfy the Swift requirement that `var` properties
     /// with no `let` binding must have a default or be set in every `init` path.
+    /// WHY NOT COMPILER-ENFORCED:
+    /// Removing the default would force every `SettingsView` Preview and test to
+    /// supply a store explicitly — boilerplate with no production safety benefit,
+    /// since `AppDelegate` always supplies it correctly. The doc-comment warning is
+    /// the chosen enforcement mechanism. If the Preview/test surface grows, consider
+    /// a dedicated `init(preview:)` that supplies a safe test double instead.
     /// ⚠️ Do NOT rely on this default in SwiftUI Previews or unit tests — supply a
     /// configured store explicitly to avoid the `fatalError` in `LocalRunnerStore.shared`.
     var localRunnerStore: LocalRunnerStore = .shared
