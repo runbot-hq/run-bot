@@ -185,7 +185,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return AnyView(view
             .environment(panelVisibilityState)
             .environment(appState)          // top-level domain coordinator (issue #2040)
-            .environment(appState.runnerState) // still injected directly for @Environment(RunnerState.self) reads
+            .environment(appState.runnerState) // backward-compat shim: views using @Environment(RunnerState.self)
+                                               // still compile. Same instance as appState.runnerState — not a copy.
+                                               // TODO: drop once all views migrate to @Environment(AppState.self)
             .environment(overlayGate)
             .environment(\.suppressHidePanel, suppressHidePanel)
         )

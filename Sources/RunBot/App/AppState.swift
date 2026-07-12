@@ -6,7 +6,6 @@ import AppUpdater
 import GitHubClient
 import Observation
 import RunBotCore
-import SwiftUI
 
 // MARK: - AppState
 //
@@ -180,7 +179,21 @@ final class AppState {
             log("AppState › start — already configured, skipping (idempotency guard)")
             return
         }
+        // UI test isolation: skip all network/polling setup when running under XCTest.
+        // The old setupSubscriptions() had the same guard — preserved here so UI tests
+        // remain fast and network-free. AppDelegate still calls configure() before this
+        // (needed for the SwiftUI env even in test runs), but the poll loop must not start.
+        guard ProcessInfo.processInfo.environment["UI_TESTING"] == nil else {
+            log("AppState › start — UI_TESTING detected, skipping network setup")
+            return
+        }
         log("AppState › start — begin (LocalRunnerStore.configure already called by AppDelegate)")
+
+        // Seed the backing store so subsequent accesses inside start() take the fast
+        // path in the localRunnerStore getter and never trigger the assertionFailure.
+        // configure() has already been called by AppDelegate before start() runs.
+        _localRunnerStore = LocalRunnerStore.shared
+        log("AppState › start — _localRunnerStore seeded")
 
         // Step 1: create RunnerPoller.
         // AppPreferencesStore.shared and ScopeStore.shared are passed explicitly
@@ -237,9 +250,10 @@ final class AppState {
     /// to avoid AppState holding a strong reference to AppDelegate.
     private func startObservations(onUpdateStatusIcon: @escaping @MainActor () -> Void) {
         // Status icon observation.
-        // Observations has did-set semantics: emits once immediately with the
-        // current value, then on each subsequent change. The initial emission
-        // seeds the menu-bar icon to the correct state at startup.
+        // Called after `await store.start()` — safe because `Observations` has
+        // did-set semantics: it emits once immediately with the current value on
+        // first subscription, so any aggregateStatus writes that raced between
+        // store.start() and this point are covered by the initial emission.
         statusIconTask = Task { @MainActor [weak self] in
             guard let self else { return }
             for await _ in Observations({ self.runnerState.aggregateStatus }) {
