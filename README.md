@@ -100,7 +100,7 @@ curl -fsSL https://runbot-hq.github.io/run-bot/install.sh | bash
 **Test a branch:**
 ```bash
 git fetch && git checkout feature/your-branch && git pull
-bash build.sh && pkill RunBot; sleep 1 && open dist/RunBot.app
+bash build.sh && open dist/RunBot.app
 ```
   
 **Deploy release or beta:**  
