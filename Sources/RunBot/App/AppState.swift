@@ -36,7 +36,7 @@ import SwiftUI
 // AppDelegate.applicationDidFinishLaunching calls
 // `await appState.start(onUpdateStatusIcon:)` after hydrating display names.
 // AppState.start() runs the ordered async startup sequence:
-//   LocalRunnerStore.configure → refreshAsync → store.start
+//   refreshAsync → store.start
 //   → checkAndHandle → scheduleBackgroundCheck → startObservations()
 //
 // Ref: issue #2040, branch feat/app-state-consolidation
@@ -160,15 +160,19 @@ final class AppState {
     // MARK: - Startup
 
     /// Ordered async startup sequence. Called once from
-    /// `AppDelegate.applicationDidFinishLaunching` after display names are hydrated.
+    /// `AppDelegate.applicationDidFinishLaunching` after `LocalRunnerStore.configure()`
+    /// and display-name hydration have already completed.
+    ///
+    /// ⚠️ Precondition: `LocalRunnerStore.configure(viewModel:)` MUST have been called
+    /// by the caller (AppDelegate) synchronously before its first `await`, per the
+    /// fix for issue #1741. This method assumes configure has already run.
     ///
     /// Sequence:
-    /// 1. `LocalRunnerStore.configure` — must precede the first await.
-    /// 2. `refreshAsync()` — hydrates local runners before poll loop fires.
-    /// 3. `runnerStore.start()` — begins the poll loop.
-    /// 4. `autoUpdater.checkAndHandle` — launch-time update check.
-    /// 5. `autoUpdater.scheduleBackgroundCheck` — periodic update scheduler.
-    /// 6. `startObservations()` — wires status-icon and sign-out tasks.
+    /// 1. `refreshAsync()` — hydrates local runners before poll loop fires.
+    /// 2. `runnerStore.start()` — begins the poll loop.
+    /// 3. `autoUpdater.checkAndHandle` — launch-time update check.
+    /// 4. `autoUpdater.scheduleBackgroundCheck` — periodic update scheduler.
+    /// 5. `startObservations()` — wires status-icon and sign-out tasks.
     ///
     /// Idempotency: guarded by `runnerStore == nil` — a second call is a no-op.
     func start(onUpdateStatusIcon: @escaping @MainActor () -> Void) async {
@@ -176,14 +180,9 @@ final class AppState {
             log("AppState › start — already configured, skipping (idempotency guard)")
             return
         }
-        log("AppState › start — begin")
+        log("AppState › start — begin (LocalRunnerStore.configure already called by AppDelegate)")
 
-        // Step 1: configure LocalRunnerStore BEFORE the first await.
-        // ⚠️ Must precede refreshDisplayNames and any indirect .shared access.
-        LocalRunnerStore.configure(viewModel: runnerState)
-        log("AppState › start — LocalRunnerStore configured")
-
-        // Step 2: create RunnerPoller.
+        // Step 1: create RunnerPoller.
         // AppPreferencesStore.shared and ScopeStore.shared are passed explicitly
         // because default-value expressions cannot be @MainActor-isolated in
         // a nonisolated context (Swift 6).
