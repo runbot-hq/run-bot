@@ -1,10 +1,10 @@
 // AppState.swift
 // RunBot
 
+import AppUpdater
 import Foundation   // ProcessInfo (UI_TESTING guard in start()). AppState intentionally
                     // does NOT use any AppKit UI types — NSPopover/NSStatusItem/etc stay
                     // on AppDelegate. ProcessInfo is Foundation, not AppKit.
-import AppUpdater
 import GitHubClient
 import Observation
 import RunBotCore
@@ -123,18 +123,16 @@ final class AppState {
         // If you are reading this because the assertionFailure fired, an
         // early-read path exists that bypasses start() — fix that, not this.
         // ──────────────────────────────────────────────────────────────────
+        // Both DEBUG and Release terminate the process — there is no recovery.
+        // DEBUG: assertionFailure here gives a readable crash site and message.
+        // Release: fatalError below gives an explicit crash site in AppState
+        //          rather than a confusing force-unwrap elsewhere.
+        // ⚠️ Do NOT replace this with a nil-coalescing default or .shared fallback
+        //    — doing so would mask the missed start() call in Release builds.
         #if DEBUG
-        // Fires in DEBUG only so the crash site is AppState.localRunnerStore
-        // with a readable message, not a silent fatalError inside .shared.
-        assertionFailure("AppState.localRunnerStore read before start() — _localRunnerStore not seeded yet")
+        assertionFailure("AppState.localRunnerStore read before start() — fix the early-read path, not this getter")
         #endif
-        // In Release the assertionFailure above is compiled out.
-        // .shared will fatalError internally if configure() hasn't run,
-        // which is the correct process-terminating outcome — just from a
-        // different call site. This is NOT a safe-recovery path.
-        let store = LocalRunnerStore.shared
-        _localRunnerStore = store
-        return store
+        fatalError("AppState.localRunnerStore accessed before start() — _localRunnerStore not seeded")
     }
     /// Backing store for the `localRunnerStore` computed property.
     /// Seeded by `start()` immediately after `LocalRunnerStore.configure()` runs.
@@ -284,6 +282,13 @@ final class AppState {
             return
         }
         _didStart = true
+        // ⚠️ _didStart is set BEFORE the UI_TESTING early-return below. This is
+        // intentional: a second call must be a no-op regardless of which branch
+        // the first call took. Setting it after the guard would allow a second
+        // call to slip through if the first returned via UI_TESTING. This does
+        // mean a UI-test process cannot "re-start" AppState after teardown —
+        // that pattern is not supported and should not be added.
+        //
         // UI test isolation: skip all network/polling setup when running under XCTest.
         // The old setupSubscriptions() had the same guard — preserved here so UI tests
         // remain fast and network-free. AppDelegate still calls configure() before this
@@ -298,61 +303,7 @@ final class AppState {
             return
         }
         log("AppState › start — begin (LocalRunnerStore.configure already called by AppDelegate)")
-
-        // Step 1: seed the backing store so all accesses inside start() take the fast
-        // path in the localRunnerStore getter and never trigger the assertionFailure.
-        // configure() was called by AppDelegate synchronously before its first await
-        // (issue #1741), so .shared is already fully initialised at this point.
-        //
-        // Historical note — why configure() must precede this line:
-        // Before issue #1741, LocalRunnerStore self-initialised using RunnerViewModel.shared
-        // as its view model. That singleton was a DIFFERENT object from AppState.runnerState,
-        // so all local-runner pushes (localRunners, isLocalScanning) landed in a view model
-        // that no SwiftUI view ever observed — producing a permanent empty local-runner list.
-        // configure(viewModel: runnerState) wires the correct instance. ❌ NEVER remove it.
-        _localRunnerStore = LocalRunnerStore.shared
-        log("AppState › start — _localRunnerStore seeded")
-
-        // Step 2: create RunnerPoller.
-        // AppPreferencesStore.shared and ScopeStore.shared are passed explicitly
-        // because default-value expressions cannot be @MainActor-isolated in
-        // a nonisolated context (Swift 6).
-        //
-        // Note: there is no Combine sink here. The old RunnerStore.didUpdate sink
-        // was removed when RunnerPoller replaced the timer-based poll loop.
-        // RunnerPoller (a Swift actor in RunBotCore) pushes state directly into
-        // runnerState via applyFetchResult on the @MainActor after every fetch cycle.
-        // LocalRunnerStore pushes localRunners and isLocalScanning via configure().
-        // All views read exclusively from runnerState — the migration from
-        // RunnerViewModel/observable is complete. If you are wondering where the
-        // Combine sink went: it no longer exists by design.
-        //
-        // Scope-change restarts: no explicit handling is needed here. RunnerPoller
-        // internally observes ScopeStore.activeScopes via withObservationTracking /
-        // AsyncStream and restarts its own poll loop when scopes change (add, remove,
-        // enable toggle). AppState does not need to call start() on scope changes.
-        //
-        // The [localRunnerStore] capture list evaluates the computed property
-        // here at construction time. Because _localRunnerStore was seeded above,
-        // the fast path fires and the assertionFailure is NOT triggered.
-        // If you move RunnerPoller construction before the seed line, DEBUG builds
-        // will assertionFailure on every startup — don't reorder these.
-        runnerStore = RunnerPoller(
-            state: runnerState,
-            preferencesStore: AppPreferencesStore.shared,
-            scopeStore: ScopeStore.shared,
-            // Capture runnerState directly — not via [weak self] — so a nil
-            // AppState can never silently return [] and drop all local runners
-            // from the poll cycle. runnerState is a @MainActor-isolated class
-            // reference; capturing it directly is safe.
-            localRunners: { [runnerState] in runnerState.localRunners },
-            // Capture the stored property rather than LocalRunnerStore.shared
-            // so a test double wired via _localRunnerStore is honoured here too.
-            applyMetrics: { [localRunnerStore] metrics, id, name in
-                await localRunnerStore.applyMetrics(metrics, forRunnerId: id, name: name)
-            }
-        )
-        log("AppState › start — RunnerPoller created")
+        seedStoreAndPoller()  // Steps 1–2: kept in a helper to stay within function_body_length.
 
         // Step 3: await local runner hydration before starting the poll loop.
         // refreshAsync() suspends until disk hydration completes; refresh() (the
@@ -387,6 +338,57 @@ final class AppState {
         // Step 7: wire domain observation tasks.
         startObservations(onUpdateStatusIcon: onUpdateStatusIcon)
         log("AppState › start — observations started")
+    }
+
+    // MARK: - Startup helpers
+
+    /// Seeds `_localRunnerStore` and creates `RunnerPoller` (Steps 1–2 of the
+    /// startup sequence). Extracted from `start()` to keep that function within
+    /// the SwiftLint `function_body_length` warning threshold (90 lines).
+    ///
+    /// Ordering constraints (do not reorder these two operations):
+    /// 1. `_localRunnerStore` must be seeded first — the `[localRunnerStore]`
+    ///    capture list in the `RunnerPoller` init evaluates the computed property
+    ///    at construction time. Seeding first ensures the fast path fires and
+    ///    the `assertionFailure` is never triggered on startup.
+    /// 2. `LocalRunnerStore.configure()` must have been called by `AppDelegate`
+    ///    synchronously before the startup `Task {}` (issue #1741), so `.shared`
+    ///    is fully initialised when we read it here.
+    ///
+    /// Historical note — why configure() must precede this method:
+    /// Before #1741, `LocalRunnerStore` self-initialised with `RunnerViewModel.shared`,
+    /// a different object from `AppState.runnerState`. Local-runner pushes landed in
+    /// a view model no view observed, producing a permanent empty local-runner list.
+    /// `configure(viewModel: runnerState)` wires the correct instance. ❌ NEVER remove it.
+    ///
+    /// Note on the missing Combine sink: the old `RunnerStore.didUpdate` sink was
+    /// removed when `RunnerPoller` replaced the timer-based poll loop. `RunnerPoller`
+    /// pushes state directly into `runnerState` via `applyFetchResult` on `@MainActor`
+    /// after every fetch cycle — no sink needed. Scope-change restarts are handled
+    /// internally by `RunnerPoller` via `withObservationTracking` / `AsyncStream`.
+    private func seedStoreAndPoller() {
+        // Step 1
+        _localRunnerStore = LocalRunnerStore.shared
+        log("AppState › start — _localRunnerStore seeded")
+
+        // Step 2
+        // `AppPreferencesStore.shared` and `ScopeStore.shared` are passed explicitly
+        // because Swift 6 does not allow `@MainActor`-isolated expressions as
+        // default-value arguments in a nonisolated context.
+        runnerStore = RunnerPoller(
+            state: runnerState,
+            preferencesStore: AppPreferencesStore.shared,
+            scopeStore: ScopeStore.shared,
+            // Capture runnerState directly (not [weak self]) — a nil AppState
+            // must never silently drop local runners from the poll cycle.
+            localRunners: { [runnerState] in runnerState.localRunners },
+            // Capture the stored property so a test double wired via
+            // _localRunnerStore is honoured rather than going to .shared.
+            applyMetrics: { [localRunnerStore] metrics, id, name in
+                await localRunnerStore.applyMetrics(metrics, forRunnerId: id, name: name)
+            }
+        )
+        log("AppState › start — RunnerPoller created")
     }
 
     // MARK: - Domain observation tasks
