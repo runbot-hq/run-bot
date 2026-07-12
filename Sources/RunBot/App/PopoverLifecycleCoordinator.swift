@@ -34,6 +34,26 @@ final class PopoverLifecycleCoordinator {
     /// ❌ NEVER read outside the three methods that manage it.
     private(set) var preservedSheetWindowHide: Bool = false
 
+    /// Set to `true` by `suppressHidePanel()` when a SwiftUI sheet is being
+    /// intentionally dismissed by the user (e.g. Cancel / Save inside
+    /// RunnerDetailSheet). Held until the self-clearing `Task { @MainActor }`
+    /// enqueued by `suppressHidePanel()` executes — which is after the
+    /// synchronous call stack that triggered the dismiss has fully unwound.
+    /// Prevents the outside-click monitor and workspace observer from firing
+    /// `hidePanel` during the brief window between the user's tap and the
+    /// sheet NSWindow being fully detached.
+    ///
+    /// The monitors do **not** read this flag directly. They read it indirectly
+    /// via the `hasActiveSheet` closure injected by the caller in
+    /// `installMonitors(hasActiveSheet:popoverWindow:onHide:)`. It is the
+    /// **caller's responsibility** to incorporate `isSheetDismissing` into that
+    /// closure (e.g. `{ self.isSheetDismissing || self.popover.isSheetPresented }`).
+    /// If `hasActiveSheet` does not account for `isSheetDismissing`, the
+    /// suppression is silently ineffective.
+    ///
+    /// ❌ NEVER set this from anything other than `suppressHidePanel()`.
+    private(set) var isSheetDismissing: Bool = false
+
     // MARK: - Private monitor storage
 
     /// Global NSEvent monitor installed by `installMonitors(…)`.
@@ -64,14 +84,70 @@ final class PopoverLifecycleCoordinator {
         preservedSheetWindowHide = value
     }
 
+    // periphery:ignore - intentionally uncalled; call site lands in the migration PR (see doc comment below)
+    /// Suppresses `hidePanel` until the current synchronous call stack unwinds.
+    ///
+    /// Call this immediately **before** setting a `.sheet(item:)` binding to `nil`
+    /// from an intentional user dismiss (Cancel / Save in a sheet). Both the
+    /// outside-click monitor and the workspace observer check `isSheetDismissing`
+    /// indirectly via the `hasActiveSheet` closure — see `isSheetDismissing` for
+    /// the indirection contract.
+    ///
+    /// The flag self-clears via a `Task { @MainActor }` enqueued immediately after
+    /// the flag is set. Because Swift cooperative scheduling runs enqueued tasks
+    /// after the current synchronous work on the actor drains, the flag remains
+    /// `true` for the duration of the synchronous dismiss path (SwiftUI binding
+    /// mutation + AppKit sheet-detach callbacks that run synchronously) and then
+    /// clears automatically. This is not a formal runloop-drain guarantee — it is
+    /// a cooperative-scheduling guarantee: the clear task will not run until the
+    /// call stack that enqueued it has fully returned.
+    ///
+    /// TASK ORDERING NOTE: Task ordering relative to AppKit’s own sheet-detach
+    /// callbacks is informal — not guaranteed by the Swift runtime spec. In
+    /// practice AppKit’s sheet-detach work is synchronous and runs before the
+    /// actor yields, so the clear task fires after it. If that assumption ever
+    /// changes, the correct fix is to restructure the dismiss path using
+    /// `withCheckedContinuation` to explicitly await AppKit’s callback before
+    /// clearing the flag, rather than introducing a GCD bridge (which would
+    /// regress against P4 and P18).
+    ///
+    /// **Synchronous call sites only.** If a call site introduces an `await`
+    /// between `suppressHidePanel()` and the binding mutation, the actor may
+    /// yield before the mutation and the clear task may execute first, silently
+    /// making the suppression a no-op. Re-verify the timing contract at every
+    /// call site when porting this to the main app.
+    ///
+    /// ❌ NEVER set `isSheetDismissing` directly — use this method only.
+    ///
+    /// NO CALL SITE ON THIS BRANCH — INTENTIONAL:
+    /// `suppressHidePanel()` is forward-looking infrastructure introduced alongside
+    /// the `isSheetDismissing` flag so the `hasActiveSheet` closure in `AppDelegate
+    /// .openPanel()` is already correct when the call site lands. The call site
+    /// belongs in `LocalRunnersView` (onCancel / onCommit success paths, immediately
+    /// before `editingRunner = nil`) and will be wired in the migration PR that ports
+    /// the main app to `MBKAnchoredSheet`. Periphery will report this as dead code
+    /// on this branch — that is expected and not a bug.
+    func suppressHidePanel() {
+        guard !isSheetDismissing else { return }
+        isSheetDismissing = true
+        log("PopoverLifecycleCoordinator › suppressHidePanel — isSheetDismissing=true")
+        Task { @MainActor [weak self] in
+            self?.isSheetDismissing = false
+            log("PopoverLifecycleCoordinator › suppressHidePanel — isSheetDismissing cleared")
+        }
+    }
+
     // MARK: - Monitor lifecycle
 
     /// Installs the outside-click monitor and app-switch observer.
     ///
     /// - Parameters:
-    ///   - hasActiveSheet: Closure returning whether a sheet is currently presented.
-    ///     The monitor skips `hidePanel` while a sheet is active so sheet-picker
-    ///     re-activation doesn't dismiss the popover.
+    ///   - hasActiveSheet: Closure returning whether a sheet (or any overlay) is
+    ///     currently active. The monitors skip `hidePanel` while this returns `true`.
+    ///     **The caller must incorporate `isSheetDismissing` into this closure**
+    ///     for `suppressHidePanel()` to have any effect — the coordinator does not
+    ///     read `isSheetDismissing` inside the monitors directly. A typical
+    ///     implementation: `{ self.lifecycleCoordinator.isSheetDismissing || self.popover.isSheetPresented }`
     ///   - popoverWindow: Closure returning the live NSPopover backing window,
     ///     used to hit-test outside clicks.
     ///   - onHide: Called on the main actor when the monitor decides the popover
@@ -114,6 +190,8 @@ final class PopoverLifecycleCoordinator {
                     return
                 }
                 guard !hasActiveSheet() else {
+                    // hasActiveSheet() is the caller-injected closure that must
+                    // incorporate isSheetDismissing — see installMonitors parameter docs.
                     log("PopoverLifecycleCoordinator › outsideClickMonitor — guard exit: hasActiveSheet=true, skipping hidePanel")
                     return
                 }
@@ -151,6 +229,13 @@ final class PopoverLifecycleCoordinator {
         // already on the main actor — no Task hop needed. The body accesses
         // @MainActor-isolated state (`panelIsOpen`) and calls @MainActor
         // closures (`hasActiveSheet`, `onHide`) directly.
+        //
+        // ASYMMETRY WITH MBKPopoverController:
+        // MBKPopoverController uses queue: nil + Task { @MainActor }, which is
+        // strictly Swift 6-correct (compiler-enforced isolation). This file uses
+        // queue: .main + MainActor.assumeIsolated, which is a runtime assertion.
+        // Both are safe in practice; the spike uses the stricter pattern.
+        // This coordinator should be updated to match when time permits.
         workspaceObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didActivateApplicationNotification,
             object: nil,
@@ -186,6 +271,8 @@ final class PopoverLifecycleCoordinator {
                     return
                 }
                 guard !hasActiveSheet() else {
+                    // hasActiveSheet() is the caller-injected closure that must
+                    // incorporate isSheetDismissing — see installMonitors parameter docs.
                     log("PopoverLifecycleCoordinator › workspaceObserver — guard exit: hasActiveSheet=true, skipping hidePanel")
                     return
                 }
@@ -198,7 +285,15 @@ final class PopoverLifecycleCoordinator {
 
     // MARK: - Teardown
 
-    /// Removes all installed monitors and clears `panelIsOpen`.
+    /// Removes all installed monitors and clears `panelIsOpen` and `isSheetDismissing`.
+    ///
+    /// `isSheetDismissing` is reset here to guard against a specific race: if
+    /// `suppressHidePanel()` is called and the user then closes the popover via a
+    /// system gesture before the self-clearing `Task` fires, `isSheetDismissing`
+    /// would stay `true` into the next open. On the next open, any outside-click
+    /// whose `hasActiveSheet` closure incorporates `isSheetDismissing` would be
+    /// silently swallowed. Resetting here ensures teardown is always a clean slate.
+    ///
     /// Does **not** touch `preservedSheetWindowHide` — that flag is exclusively
     /// managed by `hidePopoverWindowsPreservingSheets()` and
     /// `restorePopoverWindowsPreservingSheetsIfNeeded()`. Resetting it here
@@ -207,6 +302,7 @@ final class PopoverLifecycleCoordinator {
     /// Must be called on every close path (explicit close, outside-click, app-switch).
     func tearDown() {
         panelIsOpen = false
+        isSheetDismissing = false
         removeMonitors()
     }
 

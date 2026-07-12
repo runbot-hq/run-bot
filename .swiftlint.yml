@@ -9,7 +9,7 @@ excluded:
   - Package.swift
   - Tests
 
-# ── Opt-in rules ─────────────────────────────────────────────────────────────────────────────────────────────────────
+# ── Opt-in rules ────────────────────────────────────────────────────────────────────────────────────────────────────
 opt_in_rules:
   - closure_spacing        # consistent spacing inside closure braces
   - explicit_init          # disallow explicit .init() calls where redundant
@@ -24,7 +24,7 @@ opt_in_rules:
   - missing_docs           # require /// doc comments on all declarations
   - file_header            # enforce standard file header format
 
-# ── Rule configuration ────────────────────────────────────────────────────────────────────────────────────────────────────────
+# ── Rule configuration ────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 nesting:
   type_level:
     warning: 2
@@ -55,7 +55,7 @@ file_header:
   # name) is a legitimate exception, so its module name is allowed here too.
   required_pattern: "^// [\\w+]+\\.swift\\n// (RunBot|AppUpdater|GitHubClient)"
 
-# ── Disabled rules ────────────────────────────────────────────────────────────────────────────────────────────────────────
+# ── Disabled rules ────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 disabled_rules:
   - todo                                    # TODOs are acceptable during active development
   - trailing_comma                          # SwiftPM/Xcode auto-formatter conflicts with this

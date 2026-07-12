@@ -162,7 +162,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// The observable read model for Core-side runner/job/action/rate-limit state.
     ///
     /// Created here (not inside `setupSubscriptions`) so it survives for the full
-    /// app lifetime and can be injected into the SwiftUI environment in `wrapEnv(_:)`.
+    /// app lifetime and can be injected into the SwiftUI environment in `wrapEnv(_:)`
     /// `RunnerPoller.applyFetchResult` writes into this instance on the `@MainActor`
     /// after every poll cycle; views read from it via `@Environment(RunnerState.self)`.
     /// `LocalRunnerStore` pushes `localRunners` and `isLocalScanning` into this instance
@@ -458,7 +458,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self.panelSheetState.restoreTransientHideStateIfNeeded()
         }
         lifecycleCoordinator.installMonitors(
-            hasActiveSheet: { [weak self] in self?.hasActiveSheet ?? false },
+            // hasActiveSheet must also cover the sheet-dismissing window:
+            // suppressHidePanel() sets isSheetDismissing = true for one run-loop
+            // turn while the sheet animates out. Without this OR, an outside-click
+            // Task queued just before Dismiss is tapped would read hasActiveSheet=false
+            // (sheet already detached) and close the popover while it is still
+            // visually animating — making suppressHidePanel() a silent no-op.
+            hasActiveSheet: { [weak self] in
+                guard let self else { return false }
+                return self.hasActiveSheet || self.lifecycleCoordinator.isSheetDismissing
+            },
             popoverWindow: { [weak self] in self?.popover?.contentViewController?.view.window },
             onHide: { [weak self] in self?.hidePanel() }
         )
