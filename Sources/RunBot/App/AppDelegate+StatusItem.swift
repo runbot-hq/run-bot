@@ -47,35 +47,29 @@ extension AppDelegate {
     /// Returns the menu-bar icon for the given aggregate status.
     ///
     /// Prefers the bundled `StatusBarIcon` asset (the robot-face template PNG).
-    /// Falls back to `MenuBarLogo` (rasterised from `logo.svg`), then to the
-    /// SF Symbol chain when both assets are missing, preserving the original
-    /// triple-fallback behaviour for safety.
+    /// Falls back to the SF Symbol chain when the asset is missing, preserving
+    /// the original triple-fallback behaviour for safety.
     ///
-    /// - Note: `status` is used only by the SF Symbol fallback chain (steps 3–4).
-    ///   `StatusBarIcon` and `MenuBarLogo` are static brand images and are
-    ///   status-agnostic; `status` is intentionally ignored in the happy path.
+    /// - Note: `status` is used only by the SF Symbol fallback chain (steps 2–3).
+    ///   `StatusBarIcon` is a static brand image and is status-agnostic; `status`
+    ///   is intentionally ignored in the happy path.
     ///
     /// Fallback chain:
     /// 1. `NSImage(named: "StatusBarIcon")` — bundled robot-face asset (template image).
-    /// 2. `NSImage(named: "MenuBarLogo")` — bundled logo asset (template image).
-    /// 3. `status.symbolName`             — correct SF Symbol for the current status.
-    /// 4. `"circle"`                      — safe generic SF Symbol.
-    /// 5. `NSImage(named: "MenuBarFallback")` — last-resort bundled asset.
-    /// 6. `NSImage()`                     — empty/invisible (should never be reached).
+    /// 2. `status.symbolName`             — correct SF Symbol for the current status.
+    /// 3. `"circle"`                      — safe generic SF Symbol.
+    /// 4. `NSImage(named: "MenuBarFallback")` — last-resort bundled asset.
+    /// 5. `NSImage()`                     — empty/invisible (should never be reached).
     func menuBarImage(for status: AggregateStatus) -> NSImage {
         if let icon = NSImage(named: "StatusBarIcon") {
             icon.isTemplate = true  // belt-and-suspenders on top of Contents.json
             return icon
         }
-        if let logo = NSImage(named: "MenuBarLogo") {
-            logo.isTemplate = true  // belt-and-suspenders on top of Contents.json
-            return logo
-        }
         return NSImage(systemSymbolName: status.symbolName, accessibilityDescription: nil)
             ?? NSImage(systemSymbolName: "circle", accessibilityDescription: nil)
             ?? {
                 #if DEBUG
-                assertionFailure("StatusBarIcon, MenuBarLogo, and MenuBarFallback assets missing from Assets.xcassets — add them to keep the status-bar icon visible")
+                assertionFailure("StatusBarIcon and MenuBarFallback assets missing from Assets.xcassets — add them to keep the status-bar icon visible")
                 #endif
                 return NSImage(named: "MenuBarFallback")
             }()
