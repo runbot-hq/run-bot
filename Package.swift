@@ -12,7 +12,7 @@ let package = Package(
             name: "RunBotCore",
             targets: ["RunBotCore"]
         ),
-        // ── MenuBarKit ─────────────────────────────────────────────────────────
+        // ── MenuBarKit ──────────────────────────────────────────────────────────────────────────
         // Reusable NSPopover + SwiftUI sheet layer. Zero RunBot dependencies.
         // Will eventually move to its own package; lives here while the API
         // is being validated by RunBotSpike.
@@ -59,8 +59,13 @@ let package = Package(
                 .enableUpcomingFeature("NonisolatedNonsendingByDefault")
             ]
         ),
-        // ── MenuBarKit ─────────────────────────────────────────────────────────
+        // ── MenuBarKit ──────────────────────────────────────────────────────────────────────────
         // Reusable popover/sheet layer. No RunBot or RunBotCore dependencies.
+        // TODO: Add .platforms([.macOS(.v26)]) before extracting MenuBarKit into
+        // a standalone package. Without it the target is technically unconstrained
+        // — NSHostingController.sizingOptions and @Observable both require macOS 14+
+        // and would produce a late linker/runtime failure rather than a clean
+        // deployment-target error if linked against an older SDK.
         .target(
             name: "MenuBarKit",
             dependencies: [],
@@ -69,7 +74,7 @@ let package = Package(
                 .swiftLanguageMode(.v6)
             ]
         ),
-        // ── Spike target ───────────────────────────────────────────────────────
+        // ── Spike target ───────────────────────────────────────────────────────────────────────
         // Thin example app consuming MenuBarKit. Zero direct lifecycle code.
         // Run with: swift run RunBotSpike
         .executableTarget(

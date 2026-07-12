@@ -122,6 +122,9 @@ public final class MBKPopoverController: NSObject {
     /// Hosting controller that wraps the root SwiftUI view inside the popover.
     private var hostingController: NSHostingController<AnyView>!
 
+    /// Guards against double-call of setup(). See setup() for rationale.
+    private var isSetUp = false
+
     // nonisolated(unsafe): see nonisolated(unsafe) section in the file header.
     // Short version: every live access is @MainActor-gated; deinit is safe
     // because this controller is expected to outlive all concurrent work
@@ -164,10 +167,12 @@ public final class MBKPopoverController: NSObject {
     /// a crash surfaces the ordering error immediately rather than silently
     /// producing a nil-op. See IMPLICIT-UNWRAPPED OPTIONALS in the file header.
     ///
-    /// ❌ NEVER call `setup()` more than once. It overwrites the status item and
-    /// popover without tearing down the previous instances, leaking the old
-    /// NSStatusItem and any installed observers.
+    /// ❌ NEVER call `setup()` more than once. A `precondition` guards this at
+    /// runtime. A second call would otherwise silently leak the old `NSStatusItem`
+    /// and any installed observers without removing them.
     public func setup() {
+        precondition(!isSetUp, "MBKPopoverController.setup() called more than once. See setup() doc comment.")
+        isSetUp = true
         NSApp.setActivationPolicy(.accessory)
         setupStatusItem()
         setupPopover()
