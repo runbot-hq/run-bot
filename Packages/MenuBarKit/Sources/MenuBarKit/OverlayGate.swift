@@ -35,13 +35,18 @@
 //   If a future use-case genuinely requires concurrent overlays, replace the
 //   Bool with an Int and use increment/decrement rather than set/clear.
 //
-// WHY hasActiveOverlay IS public private(set) var:
+// WHY hasActiveOverlay IS public internal(set) var:
 //   All write sites (MBKAnchoredSheet, mbkOpenFilePicker, and the planned
-//   mbkAlert) live inside the MenuBarKit module, so the setter only needs
-//   internal visibility. public private(set) var exposes the read to hosts
-//   while making direct external mutation a compile error rather than a
-//   doc-comment convention. Host apps must not write hasActiveOverlay directly
-//   — doing so is now enforced by the compiler, not just documented.
+//   mbkAlert) live inside the MenuBarKit module. internal(set) scopes the
+//   setter to the module, which is exactly the right boundary: host apps
+//   get a read-only public view, and all managed write sites within MenuBarKit
+//   can mutate it freely across files and types.
+//
+//   NOTE: private(set) was used briefly but is wrong here — private(set)
+//   scopes the setter to the declaring type's body (and same-file extensions
+//   only), not to the module. That would make the write sites in
+//   AnchoredSheet.swift and FilePicker.swift compile errors. internal(set)
+//   is the correct Swift access modifier for module-scoped write access.
 
 import Foundation
 import Observation
@@ -52,16 +57,16 @@ import Observation
 ///
 /// ❌ Host apps must not write `hasActiveOverlay` directly. Use `mbkSheet`,
 /// `mbkOpenFilePicker`, and (once available) `mbkAlert` — they manage the
-/// gate lifetime internally. Direct mutation is a compile error; the setter
-/// is intentionally internal to the `MenuBarKit` module.
+/// gate lifetime internally. The setter is `internal(set)` — writes from
+/// outside the `MenuBarKit` module are a compile error.
 @Observable
 @MainActor
 public final class MBKOverlayGate {
     /// `true` while any sheet or file picker is live over the popover.
-    /// Managed automatically by MBKAnchoredSheet and MBKFilePicker.
-    /// Read by MBKPopoverController.popoverShouldClose.
-    /// Setter is internal — only MenuBarKit write sites may mutate this.
-    public private(set) var hasActiveOverlay: Bool = false
+    /// Managed automatically by `MBKAnchoredSheet` and `mbkOpenFilePicker`.
+    /// Read by `MBKPopoverController.popoverShouldClose`.
+    /// Setter is `internal(set)` — only `MenuBarKit` write sites may mutate this.
+    public internal(set) var hasActiveOverlay: Bool = false
 
     /// Creates a new gate with no active overlay.
     public init() {}
