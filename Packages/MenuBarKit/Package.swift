@@ -18,6 +18,9 @@ let package = Package(
             name: "MenuBarKit",
             dependencies: [],
             path: "Sources/MenuBarKit",
+            // README.md is a developer reference doc — not a bundleable resource.
+            // Exclude it to silence the SPM unhandled-resource warning.
+            exclude: ["README.md"],
             swiftSettings: [
                 .swiftLanguageMode(.v6)
             ]
