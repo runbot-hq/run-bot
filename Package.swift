@@ -55,11 +55,6 @@ let package = Package(
                 .product(name: "MenuBarKit", package: "MenuBarKit"),
             ],
             path: "Sources/RunBot",
-            // WIRING_MAP.md is a developer reference doc committed alongside the
-            // PR-A migration (Steps 1–5). SPM has no category for plain Markdown
-            // docs inside a source tree — exclude it to silence the unhandled-resource
-            // warning rather than bundling it as a binary resource.
-            exclude: ["App/WIRING_MAP.md"],
             swiftSettings: [
                 .enableUpcomingFeature("NonisolatedNonsendingByDefault")
             ]
