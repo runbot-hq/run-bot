@@ -25,7 +25,7 @@ opt_in_rules:
   - file_header            # enforce standard file header format
 
 # ── Rule configuration ────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-esting:
+nesting:
   type_level:
     warning: 2
   function_level:
@@ -51,10 +51,9 @@ missing_docs:
 
 file_header:
   # Line 2 is the module name. Historically every module was named RunBot*, but
-  # AppUpdater and GitHubClient are legitimate host-agnostic library targets,
-  # and MenuBarKit + RunBotSpike were added in #2037 as a reusable popover layer
-  # and its spike consumer. All five module names are allowed here.
-  required_pattern: "^// [\\w+]+\\.swift\\n// (RunBot|AppUpdater|GitHubClient|MenuBarKit|RunBotSpike)"
+  # the AppUpdater library target (a host-agnostic module with no RunBot in its
+  # name) is a legitimate exception, so its module name is allowed here too.
+  required_pattern: "^// [\\w+]+\\.swift\\n// (RunBot|AppUpdater|GitHubClient)"
 
 # ── Disabled rules ────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 disabled_rules:
