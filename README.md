@@ -1,4 +1,4 @@
-<img width="120" alt="img" src="logo.png">
+<img width="240" alt="img" src="logo.png">
 
 # RunBot 
 
