@@ -7,7 +7,8 @@
 //   route           — which top-level view is visible.
 //   pickedPath      — result from file picker opened in SettingsView.
 //   sheetPickedPath — result from file picker opened inside SheetView.
-//   showSheetAlert  — drives the .alert modifier in SheetView.
+//   showAlert       — drives the .alert modifier in SettingsView (popover level).
+//   showSheetAlert  — drives the .alert modifier in SheetView (sheet level).
 
 import Foundation
 import Observation
@@ -30,6 +31,8 @@ final class AppState {
     var pickedPath: String = ""
     /// Path selected by the file picker opened from SheetView (sheet context).
     var sheetPickedPath: String = ""
+    /// Controls the error alert presented from SettingsView (popover level).
+    var showAlert: Bool = false
     /// Controls the error alert presented from inside SheetView.
     var showSheetAlert: Bool = false
 }
