@@ -190,7 +190,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // here — not a copy. Views that already use `@Environment(RunnerState.self)`
             // continue to compile without change. This is a migration shim only:
             // once all views switch to `@Environment(AppState.self).runnerState`,
-            // this second injection can be removed (tracked as debt, issue #2040).
+            // this second injection can be removed (tracked in issue #2055).
             .environment(appState.runnerState)
             .environment(overlayGate)
             .environment(\.suppressHidePanel, suppressHidePanel)
