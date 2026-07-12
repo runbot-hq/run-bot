@@ -126,7 +126,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// truth about overlay presence via `overlayGate.hasActiveOverlay`.
     let overlayGate = MBKOverlayGate()
 
-
     /// Sheet state that must survive transient popover hides.
     /// Stays on AppDelegate (wiring concern — not domain state). See issue #2040.
     let panelSheetState = PanelSheetState()

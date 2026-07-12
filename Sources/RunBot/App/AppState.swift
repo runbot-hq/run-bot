@@ -90,6 +90,7 @@ final class AppState {
         _localRunnerStore = store
         return store
     }
+    /// Backing store for the `localRunnerStore` computed property.
     private var _localRunnerStore: LocalRunnerStore?
 
     /// Owned `RunnerPoller` actor. `nil` until `start()` runs.
@@ -150,6 +151,7 @@ final class AppState {
 
     // MARK: - Init
 
+    /// Creates a new `AppState`. Call `start(onUpdateStatusIcon:)` after init to begin the startup sequence.
     init() {}
 
     // MARK: - Startup

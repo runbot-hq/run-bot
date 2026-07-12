@@ -7,7 +7,6 @@ import RunBotCore
 import ServiceManagement
 import SwiftUI
 
-
 // MARK: - SettingsView
 // Settings view — complete implementation for all phases 1-6.
 //
@@ -55,9 +54,13 @@ struct SettingsView: View {
     // MARK: - Convenience accessors (avoid noisy appState.x at every call site)
     // NOTE: `internal` (not `private`) — Swift `private` does not cross file boundaries;
     // `SettingsView+Sections.swift` reads these from a separate file.
+    /// Forwarded OAuth service from `appState`.
     var oauthService: any OAuthServiceProtocol { appState.oauthService }
+    /// Forwarded lifecycle service from `appState`.
     var lifecycleService: any RunnerLifecycleServiceProtocol { appState.lifecycleService }
+    /// Forwarded runner state from `appState`.
     var runnerState: RunnerState { appState.runnerState }
+    /// Forwarded auto-updater from `appState`.
     var autoUpdater: AppUpdater { appState.autoUpdater }
 
     // MARK: - Local UI state
