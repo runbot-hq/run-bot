@@ -6,6 +6,42 @@ Extracted from `RunBot` as part of PR #2037 to validate the patterns needed for 
 
 ---
 
+## Why this is a standalone package — and must stay one
+
+This section exists because the question "why not just put this in `RunBot` directly?" will come up every time someone looks at the repo structure. The answer is not organisational preference — it is an engineering constraint.
+
+### The problem domain is genuinely hard
+
+Getting `NSPopover` + SwiftUI sheet + `NSOpenPanel` to behave correctly together requires solving several AppKit timing problems that are invisible until they aren't:
+
+- Sheet windows must be attached as `addChildWindow` children of the popover window, or they float detached and trigger the outside-click monitor.
+- The overlay gate must be armed *before* `beginSheetModal` to close the race window with `popoverShouldClose`.
+- `DispatchQueue.main.async` in `anchorSheetWindow()` is currently a known placeholder — the correct fix (`NSWindow.didBecomeKeyNotification` or `AsyncStream`) requires careful iteration that cannot be done safely while the surrounding app is also running.
+- The dismiss-safety gap (gate clearing before AppKit finishes tearing down the child-window relationship) is a timing issue that only manifests under specific tap sequences. Reproducing and fixing it inside a 13k-line app with polling, OAuth, SwiftUI nav, and runner state in flight is extremely difficult.
+
+### Iterating inside the main app is the wrong environment
+
+Every AppKit timing fix in this package requires:
+1. Reproducing a race condition reliably
+2. Verifying the fix doesn't introduce a new one
+3. Building and running the app to observe the result
+
+Inside `RunBot`, step 3 means compiling 126 files, launching the full app, and triggering the specific interaction path. Inside a standalone package with a minimal example app, step 3 means running ~50 lines of spike code in a dedicated executable.
+
+The iteration speed difference is not marginal. The patterns in this package took significant effort to get to their current (still incomplete) state. The remaining work — dismiss-safety gap, `anchorSheetWindow` replacement, predicate strengthening, tests — will require the same kind of focused iteration.
+
+### The zero-app-knowledge rule is structural, not a convention
+
+MenuBarKit has no knowledge of `RunBot`, `RunBotCore`, runner state, `AppState`, or any app-specific type. This is enforced by the package boundary — `MenuBarKit` cannot import `RunBot` or `RunBotCore` even by accident. If this code lived in `Sources/RunBot/MenuBarKit/`, that boundary becomes a convention enforced only by code review. Conventions erode; package boundaries do not.
+
+### The right lifecycle
+
+1. Finish the outstanding migration checklist items (below) **in the standalone package**, with a minimal example app as the test harness.
+2. Once the package is production-ready, the RunBot migration PR pulls it in as a resolved dependency.
+3. RunBot never has to host the iteration work.
+
+---
+
 ## What lives here
 
 | File | Responsibility |
