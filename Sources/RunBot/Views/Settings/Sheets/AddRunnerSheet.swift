@@ -1,7 +1,7 @@
 // AddRunnerSheet.swift
 // RunBot
-import AppKit
 import GitHubClient
+import MenuBarKit
 import RunBotCore
 import SwiftUI
 
@@ -63,6 +63,10 @@ struct AddRunnerSheet: View {
     /// Core runner state — read for synchronous duplicate checks against localRunners.
     /// No default is provided: the value is injected via `AppDelegate.wrapEnv`.
     @Environment(RunnerState.self) var runnerState: RunnerState
+    /// Gate that tracks whether any overlay (sheet or file picker) is active.
+    /// Used by `pickExistingFolder()` to arm the dismiss gate before opening the picker.
+    /// Injected via `AppDelegate.wrapEnv`.
+    @Environment(MBKOverlayGate.self) var overlayGate: MBKOverlayGate
 
     // MARK: - Add Mode
 
@@ -129,7 +133,7 @@ struct AddRunnerSheet: View {
 
     // MARK: Pre-existing state (Add pre-existing only)
 
-    /// The folder path the user selected via NSOpenPanel.
+    /// The folder path the user selected via the file picker.
     @State var existingDir = ""
     /// Runner name parsed from the `.runner` JSON inside `existingDir`.
     @State var detectedName = ""
@@ -141,9 +145,6 @@ struct AddRunnerSheet: View {
     @State var githubURLOverride = ""
     /// Whether a runner with this name is already in LocalRunnerStore's index.
     @State var isDuplicate = false
-    /// The NSWindow hosting this sheet, captured early via WindowGrabber so
-    /// `beginSheetModal` has a reliable reference when pickExistingFolder() is called.
-    @State var hostWindow: NSWindow?
 
     // MARK: - Body
 
@@ -175,9 +176,6 @@ struct AddRunnerSheet: View {
         }
         .padding(20)
         .frame(width: 420)
-        .background(WindowGrabber { w in
-            if hostWindow == nil, let w { hostWindow = w }
-        })
         .onAppear {
             if addMode == .addNew { loadScopes() }
         }
@@ -243,9 +241,9 @@ struct AddRunnerSheet: View {
                 options: 0
             )
             try plistData.write(to: plistURL, options: .atomic)
-            log("AddRunnerSheet › wrote LaunchAgent plist: \(plistURL.path)")
+            log("AddRunnerSheet \u203a wrote LaunchAgent plist: \(plistURL.path)")
         } catch {
-            log("AddRunnerSheet › failed to write LaunchAgent plist: \(error)")
+            log("AddRunnerSheet \u203a failed to write LaunchAgent plist: \(error)")
         }
     }
 
@@ -271,7 +269,7 @@ struct AddRunnerSheet: View {
             mergeStderr: true,
             timeout: 120
         )
-        log("runRegistrationCommand › exit=\(result.exitCode): \(result.output.prefix(500))")
+        log("runRegistrationCommand \u203a exit=\(result.exitCode): \(result.output.prefix(500))")
         return result.exitCode
     }
 
@@ -288,7 +286,7 @@ struct AddRunnerSheet: View {
             arguments: args,
             timeout: 120
         )
-        log("runSimpleProcess › \(executable) exit \(result.exitCode)")
+        log("runSimpleProcess \u203a \(executable) exit \(result.exitCode)")
         return result.exitCode
     }
 
@@ -377,7 +375,7 @@ struct AddRunnerSheet: View {
         guard let token = await fetchRegistrationToken(scope: scope) else {
             isRegistering = false
             if currentScopeType == .org {
-                errorMessage = "Not authorised to register org-level runners. Ensure your token has the 'manage_runners:org' scope, or sign in via the GitHub button in Settings."
+                errorMessage = "Not authorised to register org-level runners. Ensure your token has the \u2018manage_runners:org\u2019 scope, or sign in via the GitHub button in Settings."
             } else {
                 errorMessage = "Could not get a registration token. Ensure a valid token is available via OAuth sign-in, or the GH_TOKEN / GITHUB_TOKEN environment variable."
             }

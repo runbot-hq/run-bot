@@ -1,7 +1,6 @@
 // AddRunnerSheet+FormFields.swift
 // RunBot
 
-import AppKit
 import GitHubClient
 import RunBotCore
 import SwiftUI
@@ -23,7 +22,7 @@ extension AddRunnerSheet {
         if isLoadingScopes {
             HStack {
                 ProgressView().scaleEffect(0.7)
-                Text("Loading…").font(.caption).foregroundColor(.secondary)
+                Text("Loading\u{2026}").font(.caption).foregroundColor(.secondary)
             }
         } else if scopeType == .repo {
             selectorButton(
@@ -120,7 +119,7 @@ extension AddRunnerSheet {
                 if isRegistering {
                     HStack(spacing: 6) {
                         ProgressView().scaleEffect(0.7).frame(width: 14, height: 14)
-                        Text("Registering…")
+                        Text("Registering\u{2026}")
                     }
                 } else {
                     Text("Add new runner")
@@ -152,7 +151,7 @@ extension AddRunnerSheet {
                     Button {
                         pickExistingFolder()
                     } label: {
-                        Text("Choose…")
+                        Text("Choose\u{2026}")
                     }
                     .controlSize(.small)
                 }
@@ -218,7 +217,7 @@ extension AddRunnerSheet {
 
     /// Selector button that opens the searchable `RepoSelectorSheet`.
     ///
-    /// Shows the current selection as the button label, or a "— select —" placeholder
+    /// Shows the current selection as the button label, or a "\u2014 select \u2014" placeholder
     /// when nothing has been chosen. A hint is shown below when the list is empty.
     @ViewBuilder
     func selectorButton(label: String, selection: String,
@@ -227,7 +226,7 @@ extension AddRunnerSheet {
             Text(label).font(.caption).foregroundColor(.secondary)
             Button(action: action) {
                 HStack {
-                    Text(selection.isEmpty ? "— select —" : selection)
+                    Text(selection.isEmpty ? "\u2014 select \u2014" : selection)
                         .font(.system(size: 12))
                         .foregroundColor(selection.isEmpty ? .secondary : .primary)
                         .lineLimit(1)
@@ -286,26 +285,18 @@ extension AddRunnerSheet {
 
     // MARK: - Actions (Add pre-existing)
 
-    /// Opens an `NSOpenPanel` as a sheet attached to the popover's own window.
+    /// Opens a directory picker anchored to the sheet child window via `mbkOpenFilePicker`.
     ///
-    /// Uses `beginSheetModal(for:)` so the panel attaches as a child sheet and
-    /// AppKit never treats clicks inside the panel as "outside clicks" that would
-    /// dismiss the popover.
+    /// `mbkOpenFilePicker(target: .sheet, ...)` resolves the correct NSWindow internally
+    /// (sheet child window when available, popover window as fallback) and arms
+    /// `overlayGate.hasActiveOverlay` before opening so the outside-click monitor is
+    /// blocked for the full lifetime of the panel. This replaces the previous
+    /// `WindowGrabber` + `NSOpenPanel.beginSheetModal` approach (#2041, step 4).
     func pickExistingFolder() {
-        guard let window = hostWindow else {
-            log("AddRunnerSheet › pickExistingFolder — ERROR: hostWindow nil, picker will not open")
-            return
-        }
-        let openPanel = NSOpenPanel()
-        openPanel.canChooseFiles = false
-        openPanel.canChooseDirectories = true
-        openPanel.allowsMultipleSelection = false
-        openPanel.message = "Select the runner install folder (must contain a .runner file)"
-        openPanel.prompt = "Select"
-        log("AddRunnerSheet › pickExistingFolder — calling beginSheetModal")
-        openPanel.beginSheetModal(for: window) { response in
-            log("AddRunnerSheet › pickExistingFolder — panel closed response=\(response.rawValue)")
-            guard response == .OK, let url = openPanel.url else { return }
+        log("AddRunnerSheet \u203a pickExistingFolder \u2014 opening via mbkOpenFilePicker(target: .sheet)")
+        mbkOpenFilePicker(target: .sheet, overlayGate: overlayGate) { url in
+            log("AddRunnerSheet \u203a pickExistingFolder \u2014 picker closed url=\(String(describing: url))")
+            guard let url else { return }
             handlePickedFolder(url)
         }
     }
@@ -337,7 +328,7 @@ extension AddRunnerSheet {
         detectedGitHubURL = model.gitHubUrl?.absoluteString ?? ""
         isDuplicate = checkDuplicate(runnerName: detectedName)
 
-        log("AddRunnerSheet › pre-existing: name=\(detectedName) url=\(detectedGitHubURL) duplicate=\(isDuplicate)")
+        log("AddRunnerSheet \u203a pre-existing: name=\(detectedName) url=\(detectedGitHubURL) duplicate=\(isDuplicate)")
     }
 
     /// Writes the LaunchAgent plist, registers with `LocalRunnerStore`, and dismisses the sheet.
@@ -369,7 +360,7 @@ extension AddRunnerSheet {
             runnerName: detectedName,
             workingDirectory: existingDir
         )
-        // Await directly — importExistingRunner() is async, no Task wrapper needed.
+        // Await directly \u2014 importExistingRunner() is async, no Task wrapper needed.
         // This guarantees add() completes before isPresented = false fires and
         // onComplete() enqueues its refresh(), so the new runner row is always
         // present in the actor's index before the scan runs.
