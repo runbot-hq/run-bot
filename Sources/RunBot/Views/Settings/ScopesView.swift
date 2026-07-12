@@ -1,6 +1,7 @@
 // ScopesView.swift
 // RunBot
 import GitHubClient
+import MenuBarKit
 import RunBotCore
 import SwiftUI
 
@@ -32,6 +33,11 @@ struct ScopesView: View {
     /// Registered remote runner scopes (org / repo URLs).
     @State private var scopeStore = ScopeStore.shared
 
+    // MARK: - Environment
+
+    /// Gate that tracks whether any overlay is live; managed by `mbkSheet` automatically.
+    @Environment(MBKOverlayGate.self) private var overlayGate: MBKOverlayGate
+
     // MARK: - Local UI state
 
     /// Controls presentation of `AddScopeSheet`.
@@ -45,6 +51,18 @@ struct ScopesView: View {
     /// the `onChange` modifier below, keeping the two pieces of state in sync
     /// regardless of how the sheet is dismissed. (#1538)
     @State private var selectedScopePreferences: ScopePreferences?
+
+    // MARK: - Computed
+
+    /// Bool binding that maps `selectedScopeEntry` nil/non-nil → true/false for
+    /// `mbkSheet(isPresented:)`. The set path nils out both pieces of state together
+    /// so they stay in sync regardless of how the sheet is dismissed. (#1538)
+    private var isScopeEditSheetPresented: Binding<Bool> {
+        Binding(
+            get: { selectedScopeEntry != nil },
+            set: { if !$0 { selectedScopeEntry = nil; selectedScopePreferences = nil } }
+        )
+    }
 
     // MARK: - Body
 
@@ -60,24 +78,21 @@ struct ScopesView: View {
             .frame(maxHeight: .infinity)
         }
         .frame(idealWidth: 480, maxWidth: .infinity)
-        .sheet(isPresented: $showAddScopeSheet) {
+        // Use mbkSheet so MBKOverlayGate.hasActiveOverlay is set/cleared automatically.
+        .mbkSheet(isPresented: $showAddScopeSheet, overlayGate: overlayGate) {
             AddScopeSheet(isPresented: $showAddScopeSheet, oauthService: oauthService)
         }
         // Sheet is presented only once both entry and preferences snapshot are ready.
-        // The Binding maps nil/non-nil of selectedScopeEntry to Bool.
-        // The else branch is defensive — both state writes happen in the same
-        // @MainActor turn after the await, so it should never be visible. (#1538)
-        .sheet(item: $selectedScopeEntry) { entry in
-            if let prefs = selectedScopePreferences {
+        // isScopeEditSheetPresented maps selectedScopeEntry nil/non-nil → Bool so
+        // mbkSheet(isPresented:) can manage the overlay gate. (#1538)
+        .mbkSheet(isPresented: isScopeEditSheetPresented, overlayGate: overlayGate) {
+            if let entry = selectedScopeEntry, let prefs = selectedScopePreferences {
                 // #992: ScopeEditSheet replaces the old nav drill-down.
                 // #1538: preferences snapshot passed in so init stays synchronous.
                 ScopeEditSheet(
                     scopeEntry: entry,
                     preferences: prefs,
-                    isPresented: Binding(
-                        get: { selectedScopeEntry != nil },
-                        set: { if !$0 { selectedScopeEntry = nil; selectedScopePreferences = nil } }
-                    )
+                    isPresented: isScopeEditSheetPresented
                 )
             } else {
                 // Preferences not yet fetched — renders an empty sheet rather than

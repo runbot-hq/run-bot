@@ -1,5 +1,6 @@
 // LocalRunnersView.swift
 // RunBot
+import MenuBarKit
 import RunBotCore
 import SwiftUI
 
@@ -37,6 +38,10 @@ struct LocalRunnersView: View {
 
     /// Core runner state — localRunners and isLocalScanning are read from here.
     @Environment(RunnerState.self) private var runnerState: RunnerState
+    /// Gate that tracks whether any overlay is live; managed by `mbkSheet` automatically.
+    @Environment(MBKOverlayGate.self) private var overlayGate: MBKOverlayGate
+    /// Suppresses outside-click / app-switch hide for one scheduler turn on intentional dismiss.
+    @Environment(\.suppressHidePanel) private var suppressHidePanel
 
     // MARK: - Local UI state
 
@@ -79,13 +84,19 @@ struct LocalRunnersView: View {
         .frame(idealWidth: 480, maxWidth: .infinity)
         .onAppear { Task { await localRunnerStore.refresh() } }
         .onChange(of: runnerState.isLocalScanning) { _, newVal in if !newVal { hasLoadedOnce = true } }
-        .sheet(isPresented: $showAddRunnerSheet, content: addRunnerSheet)
+        // Use mbkSheet so MBKOverlayGate.hasActiveOverlay is managed automatically.
+        // The outside-click monitor reads overlayGate.hasActiveOverlay (ORed into the
+        // hasActiveSheet closure in AppDelegate.openPanel) and ignores clicks while
+        // the sheet is live.
+        .mbkSheet(isPresented: $showAddRunnerSheet, overlayGate: overlayGate) { addRunnerSheet() }
         .modifier(removalAlertModifier)
-        // #1262: Use .sheet(item:) instead of .popover(item:) so AppKit attaches
-        // RunnerDetailSheet as a child sheet of NSPopoverWindowFrame directly.
-        // SwiftUI's .popover is constrained by the parent view bounds; .sheet escapes
-        // that constraint and is automatically guarded by hasActiveSheet in AppDelegate.
+        // #1262: .sheet(item:) attaches RunnerDetailSheet as a child sheet of
+        // NSPopoverWindowFrame so it escapes the parent view bounds.
+        // .onChange mirrors editingRunner nil/non-nil → overlayGate.hasActiveOverlay
+        // because mbkSheet(item:) does not exist yet. overlayGate.mbkSetOverlay()
+        // is the spike-only escape hatch documented in OverlayGate.swift.
         .sheet(item: $editingRunner) { runner in runnerEditingSheet(runner: runner) }
+        .onChange(of: editingRunner) { _, runner in overlayGate.mbkSetOverlay(runner != nil) }
     }
 
     // MARK: - Header
@@ -297,7 +308,7 @@ struct LocalRunnersView: View {
 
     // MARK: - Helpers
 
-    /// Returns the configured `AddRunnerSheet` for use as a `.sheet` content closure.
+    /// Returns the configured `AddRunnerSheet` for use as a `.mbkSheet` content closure.
     private func addRunnerSheet() -> some View {
         AddRunnerSheet(
             isPresented: $showAddRunnerSheet,
@@ -321,6 +332,11 @@ struct LocalRunnersView: View {
     }
 
     /// Builds the `RunnerDetailSheet` with commit/cancel wiring.
+    ///
+    /// `suppressHidePanel()` is called immediately before `editingRunner = nil`
+    /// on both the success and cancel paths so the outside-click monitor does not
+    /// race the sheet-detach animation and close the popover.
+    /// See `PopoverLifecycleCoordinator.suppressHidePanel()` for the full contract.
     @ViewBuilder
     private func runnerEditingSheet(runner: RunnerModel) -> some View {
         RunnerDetailSheet(
@@ -350,6 +366,10 @@ struct LocalRunnersView: View {
                         switch result {
                         case .success:
                             Task { await localRunnerStore.refresh() }
+                            // suppressHidePanel() BEFORE editingRunner = nil so the
+                            // outside-click monitor sees isSheetDismissing=true while
+                            // the sheet NSWindow is animating out.
+                            suppressHidePanel()
                             editingRunner = nil
                         case .failure(let msgs):
                             commitError = msgs.joined(separator: "\n")
@@ -359,6 +379,9 @@ struct LocalRunnersView: View {
             },
             onCancel: {
                 commitError = nil
+                // suppressHidePanel() BEFORE editingRunner = nil — same timing contract
+                // as the onCommit success path above.
+                suppressHidePanel()
                 editingRunner = nil
             }
         )
