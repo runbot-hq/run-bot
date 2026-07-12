@@ -24,7 +24,24 @@
 // WINDOW RESOLUTION:
 //   - .popover context: the nonactivatingPanel window (the popover's own window).
 //   - .sheet context: the visible child window that MBKAnchoredSheet attached
-//     via addChildWindow. Falls back to the popover window if not found.
+//     via addChildWindow. Falls back to the popover window if not found, with
+//     a runtime WARNING log. See SILENT FALLBACK NOTE below.
+//
+// SILENT FALLBACK NOTE (.sheet case):
+//   If the sheet child window is not yet attached when mbkOpenFilePicker is
+//   called (e.g. fast-tap sequence before MBKAnchoredSheet has completed its
+//   two-hop anchor), the .sheet case falls back to the popover window. In the
+//   spike this is acceptable — the picker still opens, just not sheet-anchored.
+//   In the main app this is a silent UX degradation the user may notice.
+//
+//   TODO (migration PR): decide explicitly between two strategies and document
+//   the choice in the PR description:
+//     A. Silent fallback (current): log WARNING, open on popover, continue.
+//        Acceptable if fast-tap is rare and the degraded UX is tolerable.
+//     B. Abort: log WARNING, skip opening, return nil to completion.
+//        Safer — no picker opens in a degraded state, caller can retry.
+//   Leaning toward B (abort) to avoid silent UX degradation, but the call
+//   site in LocalRunnersView must handle the nil completion gracefully.
 //
 // beginSheetModal COMPLETION — WHY Task { @MainActor }:
 //   NSOpenPanel.beginSheetModal delivers its completion on the main thread, but
@@ -91,8 +108,19 @@ public func mbkOpenFilePicker(
 
     let window: NSWindow?
     switch target {
-    case .popover: window = popoverWindow
-    case .sheet:   window = sheetChildWindow ?? popoverWindow
+    case .popover:
+        window = popoverWindow
+    case .sheet:
+        if let child = sheetChildWindow {
+            window = child
+        } else {
+            // Sheet child window not yet attached — see SILENT FALLBACK NOTE in
+            // the file header. Logs a WARNING so this path is visible at runtime.
+            // TODO (migration PR): consider aborting (return nil) instead of
+            // falling back, to avoid silent UX degradation.
+            mbkLog("FilePicker", "[sheet] WARNING: no child window found, falling back to popover window")
+            window = popoverWindow
+        }
     }
 
     guard let window else {
