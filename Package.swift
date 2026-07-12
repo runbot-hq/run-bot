@@ -23,7 +23,7 @@ let package = Package(
         .package(url: "https://github.com/runbot-hq/GitHubClient", branch: "main"),
         // Extracted standalone package — consumed via versioned SPM URL.
         // Source lives at https://github.com/runbot-hq/MenuBarKit
-        .package(url: "https://github.com/runbot-hq/MenuBarKit", from: "0.1.0"),
+        .package(url: "https://github.com/runbot-hq/MenuBarKit", branch: "main"),
     ],
     targets: [
         .target(
