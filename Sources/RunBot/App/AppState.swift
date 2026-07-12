@@ -216,12 +216,16 @@ final class AppState {
     /// reference the task is immediately cancelled by ARC. `periphery:ignore`
     /// suppresses the "assigned but never read" dead-code warning.
     ///
-    /// `@Observable` tracking: these are `private var` on an `@Observable` class,
-    /// so the macro synthesises observation registrar calls on both properties.
-    /// Because nothing outside `AppState` reads them, those registrar calls are
-    /// always no-ops at runtime — there is no observable overhead. Marking them
-    /// `@ObservationIgnored` would be cleaner but is deliberately omitted to
-    /// keep the declaration surface minimal; add it if profiling ever shows cost.
+    /// `@Observable` tracking: `statusIconTask` and `signOutTask` are stored
+    /// `private var` on an `@Observable` class, so the macro synthesises
+    /// observation registrar calls on each write. Because nothing outside
+    /// `AppState` reads them, those registrar calls are always no-ops at runtime.
+    /// `@ObservationIgnored` would suppress them but is omitted to keep the
+    /// declaration surface minimal; add it if profiling ever shows cost.
+    ///
+    /// Note: `localRunnerStore` is a *computed* property (not a stored var), so
+    /// the `@Observable` macro does NOT synthesise registrar calls for it —
+    /// no `@ObservationIgnored` is needed or applicable there.
     private var statusIconTask: Task<Void, Never>?
 
     // periphery:ignore - write-only by design; assignment keeps the Task alive
@@ -252,6 +256,14 @@ final class AppState {
     ///   `RunnerLifecycleServiceProtocol`. Pass a test double or a no-op mock.
     init(lifecycleService: any RunnerLifecycleServiceProtocol) {
         self.lifecycleService = lifecycleService
+    }
+
+    deinit {
+        // Cancel long-lived observation tasks so test processes that construct
+        // AppState don't leak tasks beyond the test's lifetime. In production
+        // AppState lives for the process lifetime and deinit never fires.
+        statusIconTask?.cancel()
+        signOutTask?.cancel()
     }
 
     // MARK: - Startup
@@ -291,7 +303,7 @@ final class AppState {
     ///   this correctly via `{ [weak self] in self?.updateStatusIcon() }`.
     func start(onUpdateStatusIcon: @escaping @MainActor () -> Void) async {
         guard !_didStart else {
-            log("AppState › start — already called, skipping (idempotency guard)")
+            log("AppState › start — already called, no-op (idempotency guard; if this fires during UI_TESTING it means the first call already set _didStart and returned early)")
             return
         }
         _didStart = true
@@ -395,8 +407,11 @@ final class AppState {
             // Capture runnerState directly (not [weak self]) — a nil AppState
             // must never silently drop local runners from the poll cycle.
             localRunners: { [runnerState] in runnerState.localRunners },
-            // Capture the stored property so a test double wired via
-            // _localRunnerStore is honoured rather than going to .shared.
+            // Capture the computed property at RunnerPoller init time — the
+            // value resolves to _localRunnerStore (seeded in Step 1 above) and
+            // is frozen into the closure. A test double must be in place before
+            // seedStoreAndPoller() runs; post-init replacement of _localRunnerStore
+            // will NOT be reflected in this capture.
             applyMetrics: { [localRunnerStore] metrics, id, name in
                 await localRunnerStore.applyMetrics(metrics, forRunnerId: id, name: name)
             }
