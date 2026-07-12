@@ -16,7 +16,8 @@
 // USAGE:
 //   1. Create a MBKPopoverController with your root SwiftUI view and an
 //      MBKOverlayGate instance.
-//   2. Call `setup()` from applicationDidFinishLaunching.
+//   2. Call `setup()` from applicationDidFinishLaunching — see setup() doc
+//      comment for the strict ordering requirement.
 //
 // DISMISS GATE CONTRACT:
 //   popoverShouldClose reads overlayGate.hasActiveOverlay. MBKAnchoredSheet
@@ -43,6 +44,47 @@
 //   NSPopover.performClose on a closed popover is documented as a no-op, so
 //   this is safe. The guard self.popover.isShown at the top of the Task body
 //   makes the intent explicit — it is not defensive cargo-culting.
+//
+// IMPLICIT-UNWRAPPED OPTIONALS (statusItem, popover, hostingController):
+//   These three properties use ! (IUO) because they are assigned in setup(),
+//   not in init(). This is the standard setup()-pattern for AppKit types that
+//   require a post-init configuration step. They are safe because setup() must
+//   be called from applicationDidFinishLaunching before any user interaction
+//   is possible — the app's own main thread cannot reach togglePopover() before
+//   that point.
+//
+//   If you are writing a unit test that calls togglePopover() without first
+//   calling setup(), it WILL crash on the ! unwrap. Call setup() first, or
+//   restructure to init-time wiring before extracting this into a fully
+//   testable library.
+//
+//   ❌ Do NOT replace these with optionals without also replacing setup() with
+//   an init parameter — partial initialisation with optionals silently turns
+//   programming errors into runtime nil returns that are harder to diagnose
+//   than a clean crash.
+//
+// nonisolated(unsafe) — WHY eventMonitor AND workspaceObserver USE IT:
+//   Both properties hold opaque tokens returned by AppKit APIs:
+//     - eventMonitor: Any? from NSEvent.addGlobalMonitorForEvents
+//     - workspaceObserver: NSObjectProtocol? from NSNotificationCenter.addObserver
+//   Neither token type is Sendable, so the Swift 6 compiler rejects them as
+//   @MainActor stored properties used in deinit (which is nonisolated per SE-0327).
+//
+//   nonisolated(unsafe) is the correct annotation because:
+//     1. Every live read/write of both properties is @MainActor-isolated
+//        (setupWorkspaceObserver, startEventMonitor, stopEventMonitor, deinit).
+//     2. deinit runs only after the last strong reference drops. In normal app
+//        lifetime, MBKPopoverController is created once in applicationDidFinishLaunching
+//        and outlives all concurrent work — no concurrent access is possible.
+//
+//   LIMITATION: if MBKPopoverController is ever used with a SHORTER lifetime
+//   (torn down and recreated, or held by a scoped owner), the singleton-lifetime
+//   assumption no longer holds. In that case, replace the two tokens with a
+//   proper teardown method that is guaranteed to be called on the main actor
+//   before release, and remove nonisolated(unsafe).
+//
+//   ❌ Do NOT add @unchecked Sendable to these token types as a workaround —
+//   that would suppress the warning without providing any actual safety.
 
 import AppKit
 import SwiftUI
@@ -80,20 +122,14 @@ public final class MBKPopoverController: NSObject {
     /// Hosting controller that wraps the root SwiftUI view inside the popover.
     private var hostingController: NSHostingController<AnyView>!
 
-    // nonisolated(unsafe): The NSEvent monitor API returns an opaque Any? token
-    // that must be stored for later removal. The token itself has no actor
-    // requirement — only our read/write of this property is actor-sensitive,
-    // and every access is gated behind @MainActor methods (startEventMonitor /
-    // stopEventMonitor). nonisolated(unsafe) is the correct Swift 6 annotation
-    // for a stored property that is manually guaranteed to be safe.
+    // nonisolated(unsafe): see nonisolated(unsafe) section in the file header.
+    // Short version: every live access is @MainActor-gated; deinit is safe
+    // because this controller is expected to outlive all concurrent work
+    // (singleton-lifetime assumption — see header for the limitation).
     /// Opaque token for the global NSEvent monitor; nil when no monitor is active.
     nonisolated(unsafe) private var eventMonitor: Any?
 
-    // nonisolated(unsafe): same rationale as eventMonitor above.
-    // NSObjectProtocol is not Sendable; all live reads/writes are @MainActor-gated
-    // (setupWorkspaceObserver / deinit). deinit is nonisolated per SE-0327 and
-    // runs only after the last strong reference drops (app teardown), so no
-    // concurrent access is possible in practice.
+    // nonisolated(unsafe): same rationale as eventMonitor above — see file header.
     /// Opaque token for the NSWorkspace app-activation observer; nil until setup() runs.
     nonisolated(unsafe) private var workspaceObserver: NSObjectProtocol?
 
@@ -119,7 +155,18 @@ public final class MBKPopoverController: NSObject {
 
     // MARK: - Setup
 
-    /// Call from `applicationDidFinishLaunching`. Creates the status item, popover, and observers.
+    /// Wires the status item, popover, and observers.
+    ///
+    /// **Must be called from `applicationDidFinishLaunching` before any user
+    /// interaction is possible.** Assigns the three IUO properties (`statusItem`,
+    /// `popover`, `hostingController`). Any call to `togglePopover()` before
+    /// `setup()` completes will crash on the `!` unwrap — this is intentional;
+    /// a crash surfaces the ordering error immediately rather than silently
+    /// producing a nil-op. See IMPLICIT-UNWRAPPED OPTIONALS in the file header.
+    ///
+    /// ❌ NEVER call `setup()` more than once. It overwrites the status item and
+    /// popover without tearing down the previous instances, leaking the old
+    /// NSStatusItem and any installed observers.
     public func setup() {
         NSApp.setActivationPolicy(.accessory)
         setupStatusItem()

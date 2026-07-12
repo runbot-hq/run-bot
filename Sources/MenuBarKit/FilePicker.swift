@@ -34,6 +34,32 @@
 //   Wrapping in Task { @MainActor } makes the actor hop explicit and
 //   compiler-enforced, rather than relying on AppKit's undocumented delivery
 //   guarantee. This is the correct Swift 6 pattern.
+//
+// sheetChildWindow PREDICATE — WHY it is intentionally weak:
+//   The predicate `childWindows?.first(where: { $0.isVisible })` selects the
+//   first visible child window. This is correct for the spike because
+//   MBKPopoverController has at most one child window at any time.
+//
+//   It is intentionally NOT strengthened to match by styleMask or window class
+//   for two reasons:
+//
+//   1. NSOpenPanel borderless-window race: NSOpenPanel presented via
+//      beginSheetModal also creates a borderless window. During a
+//      close-then-immediately-reopen sequence, an NSOpenPanel window could be
+//      borderless+key at the moment the predicate fires — a stronger borderless
+//      match would hit it instead of the sheet window. Using isVisible on the
+//      childWindows list (not NSApp.windows) scopes the search to windows
+//      already parented to the popover, which the NSOpenPanel window is not
+//      at that point in its lifecycle.
+//
+//   2. NSHostingController<AnyView> was tried as a stronger discriminator and
+//      does not match SwiftUI's internal sheet window — see AnchoredSheet.swift
+//      SHEET WINDOW DISCRIMINATOR for the full history.
+//
+//   TODO (migration PR): When porting to the main app, strengthen this predicate
+//   further — the main app may have multiple visible child windows simultaneously
+//   (e.g. during sheet + NSOpenPanel overlap). Use the same discriminator
+//   settled on for AnchoredSheet.anchorSheetWindow() so both lookups stay in sync.
 
 import AppKit
 
@@ -59,10 +85,8 @@ public func mbkOpenFilePicker(
     let popoverWindow = NSApp.windows.first(where: {
         $0.styleMask.contains(.nonactivatingPanel)
     })
-    // TODO: When porting to the main app, strengthen this predicate — the main
-    // app may have other visible child windows. Use the same discriminator
-    // settled on for AnchoredSheet.anchorSheetWindow() (see that file's
-    // SHEET WINDOW DISCRIMINATOR note) so both lookups stay in sync.
+    // Intentionally weak predicate — see sheetChildWindow PREDICATE in the
+    // file header before attempting to strengthen this.
     let sheetChildWindow = popoverWindow?.childWindows?.first(where: { $0.isVisible })
 
     let window: NSWindow?
