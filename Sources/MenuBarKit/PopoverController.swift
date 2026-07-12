@@ -1,5 +1,5 @@
 // PopoverController.swift
-// MenuBarKit
+// RunBot
 //
 // Owns the full NSPopover + NSStatusItem lifecycle for a macOS menu-bar app.
 // Zero knowledge of the host app's views or state — all app-specific behaviour

@@ -1,5 +1,5 @@
 // FilePicker.swift
-// MenuBarKit
+// RunBot
 //
 // Presents NSOpenPanel anchored to the correct window (popover or sheet child)
 // via beginSheetModal, and manages overlayGate.hasActiveOverlay for the

@@ -1,5 +1,5 @@
 // Logging.swift
-// MenuBarKit
+// RunBot
 //
 // Lightweight tagged logger for spike-stage debugging.
 //

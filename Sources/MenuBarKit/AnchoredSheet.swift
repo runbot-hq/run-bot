@@ -1,5 +1,5 @@
 // AnchoredSheet.swift
-// MenuBarKit
+// RunBot
 //
 // PROBLEM:
 //   SwiftUI's .sheet() creates a plain borderless NSWindow with no parent.
@@ -102,6 +102,7 @@
 import AppKit
 import SwiftUI
 
+/// View extension providing the `mbkSheet` modifier for popover-anchored sheet presentation.
 public extension View {
     /// Presents a sheet anchored as a child of the popover window so it
     /// survives outside-clicks and stays visible when the popover loses focus.
