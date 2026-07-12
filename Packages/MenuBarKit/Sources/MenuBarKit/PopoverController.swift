@@ -13,6 +13,31 @@
 //   - Implement popoverShouldClose via the MBKOverlayGate
 //   - Reset the overlay gate in popoverDidClose (safety net)
 //
+// STAY-OPEN-WHILE-SHEET-ACTIVE — deliberate trade-off:
+//   When a sheet (or file picker) is live, MBKPopoverController keeps the
+//   popover open on app-switch and outside-click instead of hiding it.
+//   popoverShouldClose returns false (via overlayGate.hasActiveOverlay), and
+//   the workspace observer skips performClose while any overlay is active.
+//
+//   This is the simpler behaviour: the user's mental model is "sheet is
+//   blocking, nothing else happens until I dismiss it." No hide-and-restore
+//   cycle to reason about.
+//
+//   The alternative — hide the popover window without closing it so the sheet
+//   NSWindow survives, then restore on reopen — is more AppKit-native but
+//   significantly more complex. Some users may prefer it (popover disappears
+//   on app-switch as they expect, even with a sheet open). If you want to
+//   implement this, see `preservedSheetWindowHide`,
+//   `hidePopoverWindowsPreservingSheets()`, and
+//   `restorePopoverWindowsPreservingSheetsIfNeeded()` in RunBot's
+//   `PopoverLifecycleCoordinator.swift` (git history) for a reference
+//   implementation. That approach requires:
+//     1. Hiding the NSPopover backing window (not performClose) when the
+//        workspace observer fires and a sheet is active.
+//     2. Tracking a `preservedSheetWindowHide` flag.
+//     3. Restoring (un-hiding) the popover window on the next openPopover() call
+//        when the flag is set, rather than calling popover.show().
+//
 // USAGE:
 //   1. Create a MBKPopoverController with your root SwiftUI view and an
 //      MBKOverlayGate instance.
@@ -231,6 +256,11 @@ public final class MBKPopoverController: NSObject {
 
     private func setupWorkspaceObserver() {
         // queue: nil + Task { @MainActor } is the Swift 6-correct pattern — see file header.
+        //
+        // STAY-OPEN BEHAVIOUR: when a sheet or file picker is active, the guard
+        // below skips performClose — the popover stays open on app-switch.
+        // This is a deliberate trade-off. See STAY-OPEN-WHILE-SHEET-ACTIVE in
+        // the file header if you want to implement the hide-and-restore alternative.
         workspaceObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didActivateApplicationNotification,
             object: nil,
@@ -242,6 +272,13 @@ public final class MBKPopoverController: NSObject {
                 guard let self, self.popover.isShown else { return }
                 guard activated != NSRunningApplication.current else {
                     mbkLog("PopoverController", "workspace observer — self-activation, ignoring")
+                    return
+                }
+                // Keep popover open while any overlay (sheet / file picker) is active.
+                // See STAY-OPEN-WHILE-SHEET-ACTIVE in the file header for the
+                // trade-off rationale and the hide-and-restore alternative.
+                guard !overlayGate.hasActiveOverlay else {
+                    mbkLog("PopoverController", "workspace observer — overlay active, keeping popover open")
                     return
                 }
                 mbkLog("PopoverController", "workspace observer — other app active, closing")
