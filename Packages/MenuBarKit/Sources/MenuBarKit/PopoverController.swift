@@ -184,7 +184,10 @@ public final class MBKPopoverController: NSObject {
     private func openPopover() {
         guard let button = statusItem.button else { return }
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-        NSApp.activate(ignoringOtherApps: true)
+        // NSApp.activate(ignoringOtherApps:) is deprecated on macOS 14+.
+        // NSApp.activate() is the correct replacement; the package declares
+        // .platforms([.macOS(.v26)]) so this is always available.
+        NSApp.activate()
         mbkLog("PopoverController", "popover shown")
         startEventMonitor()
     }
