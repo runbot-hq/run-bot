@@ -127,15 +127,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let overlayGate = MBKOverlayGate()
 
 
-    /// Forwarded from `appState.runnerState` for backward-compatible access.
-    var runnerState: RunnerState { appState.runnerState }
-    /// The last nav destination the user was on before the popover was closed or hidden.
-    /// Restored by `openPanel()` so the user lands back where they left off.
-    /// Forwarded from `appState.savedNavState`.
-    var savedNavState: NavState? {
-        get { appState.savedNavState }
-        set { appState.savedNavState = newValue }
-    }
     /// Sheet state that must survive transient popover hides.
     /// Stays on AppDelegate (wiring concern — not domain state). See issue #2040.
     let panelSheetState = PanelSheetState()
@@ -275,7 +266,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         popover?.performClose(nil)
         lifecycleCoordinator.setPreservedSheetWindowHide(false)
         tearDownOpenState()
-        savedNavState = nil
+        appState.savedNavState = nil
         panelSheetState.clearRunnerSheet()
         hostingController?.rootView = mainView()
     }
@@ -392,7 +383,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         makePopoverWindowKeyIfPossible()
         resizeAndRepositionPanel()
-        if let saved = savedNavState, !hasActiveSheet, let restored = validatedView(for: saved) {
+        if let saved = appState.savedNavState, !hasActiveSheet, let restored = validatedView(for: saved) {
             navigate(to: restored)
         }
         Task { @MainActor [weak self] in
