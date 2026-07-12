@@ -12,9 +12,11 @@
 //
 //   Scenario 3 — Alert from popover level:
 //     "Show alert" sets AppState.showAlert = true.
-//     .alert is attached to the GroupBox (not the button) — same pattern
-//     confirmed working in commit 902eacb. AppState owns the flag.
-//     No changes to PopoverController or MBKOverlayGate needed.
+//     .alert is attached to the GroupBox (not the button).
+//     .onChange(of: appState.showAlert) mirrors mbkOpenFilePicker's gate
+//     pattern: gate=true when alert appears, gate=false when dismissed.
+//     This prevents the outside-click monitor and workspace observer from
+//     closing the popover while the alert is on screen.
 
 import MenuBarKit
 import SwiftUI
@@ -64,6 +66,12 @@ struct SettingsView: View {
                 Button("OK", role: .cancel) {}
             } message: {
                 Text("This is a test error alert shown from the popover view.")
+            }
+            .onChange(of: appState.showAlert) { _, isShowing in
+                // Gate the overlay while the alert is on screen so the
+                // outside-click monitor and workspace observer don't close
+                // the popover behind it. Mirrors mbkOpenFilePicker's pattern.
+                overlayGate.hasActiveOverlay = isShowing
             }
 
             Divider()
