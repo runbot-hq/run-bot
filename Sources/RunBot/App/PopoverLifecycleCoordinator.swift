@@ -269,7 +269,15 @@ final class PopoverLifecycleCoordinator {
 
     // MARK: - Teardown
 
-    /// Removes all installed monitors and clears `panelIsOpen`.
+    /// Removes all installed monitors and clears `panelIsOpen` and `isSheetDismissing`.
+    ///
+    /// `isSheetDismissing` is reset here to guard against a specific race: if
+    /// `suppressHidePanel()` is called and the user then closes the popover via a
+    /// system gesture before the self-clearing `Task` fires, `isSheetDismissing`
+    /// would stay `true` into the next open. On the next open, any outside-click
+    /// whose `hasActiveSheet` closure incorporates `isSheetDismissing` would be
+    /// silently swallowed. Resetting here ensures teardown is always a clean slate.
+    ///
     /// Does **not** touch `preservedSheetWindowHide` — that flag is exclusively
     /// managed by `hidePopoverWindowsPreservingSheets()` and
     /// `restorePopoverWindowsPreservingSheetsIfNeeded()`. Resetting it here
@@ -278,6 +286,7 @@ final class PopoverLifecycleCoordinator {
     /// Must be called on every close path (explicit close, outside-click, app-switch).
     func tearDown() {
         panelIsOpen = false
+        isSheetDismissing = false
         removeMonitors()
     }
 

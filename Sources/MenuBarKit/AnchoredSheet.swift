@@ -162,10 +162,11 @@ public struct MBKAnchoredSheetModifier<SheetContent: View>: ViewModifier {
             return
         }
         // Hop 2: drain one run-loop turn so the sheet NSWindow exists.
-        // ⚠️ SPIKE ONLY — replace with NSWindow.didBecomeKeyNotification.
+        // ⚠️ SPIKE ONLY — replace with NSWindow.didBecomeKeyNotification before migrating.
         // See SHEET WINDOW DISCRIMINATOR in the file header before attempting
         // to strengthen the predicate — NSHostingController<AnyView> was tried
         // and does not match SwiftUI's internal sheet window type.
+        #warning("SPIKE ONLY — dismiss-safety gap: DispatchQueue.main.async must be replaced with NSWindow.didBecomeKeyNotification before migrating to main app (see DISMISS-SAFETY GAP and TARGET IMPLEMENTATION in file header)")
         DispatchQueue.main.async {
             if let sheetWindow = NSApp.windows.first(where: {
                 $0 !== popoverWindow

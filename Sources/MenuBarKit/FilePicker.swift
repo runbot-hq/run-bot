@@ -25,6 +25,15 @@
 //   - .popover context: the nonactivatingPanel window (the popover's own window).
 //   - .sheet context: the visible child window that MBKAnchoredSheet attached
 //     via addChildWindow. Falls back to the popover window if not found.
+//
+// beginSheetModal COMPLETION — WHY Task { @MainActor }:
+//   NSOpenPanel.beginSheetModal delivers its completion on the main thread, but
+//   this guarantee is informal (not expressed in the Swift type system). The
+//   completion mutates overlayGate.hasActiveOverlay (@MainActor-isolated) and
+//   calls back into caller-supplied code that may also touch actor-isolated state.
+//   Wrapping in Task { @MainActor } makes the actor hop explicit and
+//   compiler-enforced, rather than relying on AppKit's undocumented delivery
+//   guarantee. This is the correct Swift 6 pattern.
 
 import AppKit
 
@@ -43,7 +52,7 @@ public enum MBKPickerTarget {
 public func mbkOpenFilePicker(
     target: MBKPickerTarget,
     overlayGate: MBKOverlayGate,
-    completion: @escaping (URL?) -> Void
+    completion: @escaping @MainActor (URL?) -> Void
 ) {
     let label = target == .popover ? "popover" : "sheet"
 
@@ -80,8 +89,11 @@ public func mbkOpenFilePicker(
     mbkLog("FilePicker", "[\(label)] hasActiveOverlay=true")
 
     panel.beginSheetModal(for: window) { response in
-        overlayGate.hasActiveOverlay = false
-        mbkLog("FilePicker", "[\(label)] hasActiveOverlay=false")
-        completion(response == .OK ? panel.url : nil)
+        // Explicit @MainActor hop — see beginSheetModal COMPLETION in the file header.
+        Task { @MainActor in
+            overlayGate.hasActiveOverlay = false
+            mbkLog("FilePicker", "[\(label)] hasActiveOverlay=false")
+            completion(response == .OK ? panel.url : nil)
+        }
     }
 }
