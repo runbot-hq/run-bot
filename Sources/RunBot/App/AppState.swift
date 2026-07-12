@@ -1,10 +1,9 @@
 // AppState.swift
 // RunBot
 
-import AppKit       // ProcessInfo (UI_TESTING guard in start()). AppState intentionally
+import Foundation   // ProcessInfo (UI_TESTING guard in start()). AppState intentionally
                     // does NOT use any AppKit UI types — NSPopover/NSStatusItem/etc stay
-                    // on AppDelegate. If ProcessInfo moves to Foundation-only in a future
-                    // SDK this import can be dropped.
+                    // on AppDelegate. ProcessInfo is Foundation, not AppKit.
 import AppUpdater
 import GitHubClient
 import Observation
@@ -133,6 +132,12 @@ final class AppState {
     /// Seeded by `start()` immediately after `LocalRunnerStore.configure()` runs.
     private var _localRunnerStore: LocalRunnerStore?
 
+    /// Idempotency sentinel for `start()`. Set to `true` unconditionally on the
+    /// first call entry, before any early-return branches, so that a second call
+    /// is always a no-op regardless of which branch the first call took
+    /// (e.g. `UI_TESTING` return, future test stubs, etc.).
+    private var _didStart = false
+
     /// Owned `RunnerPoller` actor. `nil` until `start()` runs.
     ///
     /// Optional (not `!`) so the uninitialised state is representable at the
@@ -145,7 +150,7 @@ final class AppState {
     /// at the `RunnerPoller` init site in `start()` rather than used as parameter
     /// defaults because Swift 6 does not allow `@MainActor`-isolated expressions
     /// as default values in a nonisolated context.
-    var runnerStore: (any RunnerPollerProtocol)?
+    private var runnerStore: (any RunnerPollerProtocol)?
 
     /// Observable read model for all Core-side runner/job/action/rate-limit state.
     ///
@@ -203,7 +208,7 @@ final class AppState {
     /// assignment itself is what keeps the `Task` alive — without a strong
     /// reference the task is immediately cancelled by ARC. `periphery:ignore`
     /// suppresses the "assigned but never read" dead-code warning.
-    var statusIconTask: Task<Void, Never>?
+    private var statusIconTask: Task<Void, Never>?
 
     // periphery:ignore - write-only by design; assignment keeps the Task alive
     /// Retained handle for the sign-out observation task started in `start()`.
@@ -216,7 +221,7 @@ final class AppState {
     /// the main actor inside the loop body, which (a) adds noise to the threading
     /// contract and (b) opens a TOCTOU window between `guard let store` and
     /// `await store.start()` across actor hops.
-    var signOutTask: Task<Void, Never>?
+    private var signOutTask: Task<Void, Never>?
 
     // MARK: - Init
 
@@ -248,12 +253,15 @@ final class AppState {
     /// 6. `autoUpdater.scheduleBackgroundCheck` — periodic update scheduler.
     /// 7. `startObservations()` — wires status-icon and sign-out tasks.
     ///
-    /// Idempotency: guarded by `runnerStore == nil` — a second call is a no-op.
+    /// Idempotency: guarded by `_didStart`, set unconditionally on first entry
+    /// before any branch. A second call is always a no-op regardless of which
+    /// early-return branch fired on the first call (e.g. `UI_TESTING`).
     func start(onUpdateStatusIcon: @escaping @MainActor () -> Void) async {
-        guard runnerStore == nil else {
-            log("AppState › start — already configured, skipping (idempotency guard)")
+        guard !_didStart else {
+            log("AppState › start — already called, skipping (idempotency guard)")
             return
         }
+        _didStart = true
         // UI test isolation: skip all network/polling setup when running under XCTest.
         // The old setupSubscriptions() had the same guard — preserved here so UI tests
         // remain fast and network-free. AppDelegate still calls configure() before this
