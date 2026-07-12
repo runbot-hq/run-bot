@@ -21,9 +21,9 @@ let package = Package(
         .package(url: "https://github.com/runbot-hq/AppUpdater", branch: "main"),
         // Tracks main — resolves to HEAD on every CI run. Do not pin to a revision.
         .package(url: "https://github.com/runbot-hq/GitHubClient", branch: "main"),
-        // Local standalone package — real SPM boundary, own platforms constraint.
-        // Source lives at Packages/MenuBarKit/. No network fetch required.
-        .package(path: "Packages/MenuBarKit"),
+        // Extracted standalone package — consumed via versioned SPM URL.
+        // Source lives at https://github.com/runbot-hq/MenuBarKit
+        .package(url: "https://github.com/runbot-hq/MenuBarKit", from: "0.1.0"),
     ],
     targets: [
         .target(
