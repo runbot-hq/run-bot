@@ -9,7 +9,7 @@ excluded:
   - Package.swift
   - Tests
 
-# ── Opt-in rules ─────────────────────────────────────────────────────────────────────────────────────────────────────
+# ── Opt-in rules ────────────────────────────────────────────────────────────────────────────────────────────────────
 opt_in_rules:
   - closure_spacing        # consistent spacing inside closure braces
   - explicit_init          # disallow explicit .init() calls where redundant
@@ -24,8 +24,8 @@ opt_in_rules:
   - missing_docs           # require /// doc comments on all declarations
   - file_header            # enforce standard file header format
 
-# ── Rule configuration ────────────────────────────────────────────────────────────────────────────────────────────────────────
-nesting:
+# ── Rule configuration ────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+esting:
   type_level:
     warning: 2
   function_level:
@@ -51,11 +51,12 @@ missing_docs:
 
 file_header:
   # Line 2 is the module name. Historically every module was named RunBot*, but
-  # the AppUpdater library target (a host-agnostic module with no RunBot in its
-  # name) is a legitimate exception, so its module name is allowed here too.
-  required_pattern: "^// [\\w+]+\\.swift\\n// (RunBot|AppUpdater|GitHubClient)"
+  # AppUpdater and GitHubClient are legitimate host-agnostic library targets,
+  # and MenuBarKit + RunBotSpike were added in #2037 as a reusable popover layer
+  # and its spike consumer. All five module names are allowed here.
+  required_pattern: "^// [\\w+]+\\.swift\\n// (RunBot|AppUpdater|GitHubClient|MenuBarKit|RunBotSpike)"
 
-# ── Disabled rules ────────────────────────────────────────────────────────────────────────────────────────────────────────
+# ── Disabled rules ────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 disabled_rules:
   - todo                                    # TODOs are acceptable during active development
   - trailing_comma                          # SwiftPM/Xcode auto-formatter conflicts with this
