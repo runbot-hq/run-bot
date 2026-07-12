@@ -1,6 +1,8 @@
 # PR-A Wiring Map — Popover / Sheet / Picker Layer
 
-Step 1 output. No code changed. Reference for Steps 2–7.
+Step 1 output. No code changed. Reference for Steps 2–6.
+
+> **Architectural boundary (corrected Jul 12):** RunBot retains full ownership of its `NSStatusItem`, dynamic icon observation task, and button action. `AppDelegate+StatusItem.swift` is NOT deleted in PR-A. `MBKPopoverController` is NOT adopted in PR-A — it assumes status-item ownership that conflicts with RunBot's app-specific dynamic icon logic. PR-A integrates only `MBKOverlayGate`, `.mbkSheet(overlayGate:)`, and `mbkOpenFilePicker()`. `PopoverLifecycleCoordinator` is reassessed after the sheet/picker integration is validated, not preemptively removed.
 
 ---
 
@@ -10,7 +12,7 @@ Step 1 output. No code changed. Reference for Steps 2–7.
 |---|---|---|
 | `AppDelegate.swift` | ~25 KB | Property bag + open/hide/close/toggle/resize logic |
 | `AppDelegate+PanelSetup.swift` | ~17 KB | `setupPanel()`, `setupKVO()`, `setupSubscriptions()`, `openPanel()` monitors |
-| `AppDelegate+StatusItem.swift` | ~3.5 KB | `NSStatusItem` creation and status icon observation task |
+| `AppDelegate+StatusItem.swift` | ~3.5 KB | `NSStatusItem` creation and status icon observation task — **STAYS; app-owned** |
 | `PopoverLifecycleCoordinator.swift` | ~19 KB | Outside-click monitor, workspace observer, `isSheetDismissing`, `panelIsOpen`, `preservedSheetWindowHide` |
 | `WindowGrabber.swift` | ~2.2 KB | Resolves the popover-backing `NSWindow` for `NSOpenPanel` attachment |
 
@@ -20,18 +22,17 @@ Step 1 output. No code changed. Reference for Steps 2–7.
 
 | Property | Type | Owner after PR-A |
 |---|---|---|
-| `statusItem` | `NSStatusItem?` | **Deleted** — `MBKPopoverController` owns it |
-| `popover` | `NSPopover?` | **Deleted** — `MBKPopoverController` owns it |
-| `hostingController` | `NSHostingController<AnyView>?` | **Deleted** — `MBKPopoverController` owns it |
-| `lifecycleCoordinator` | `PopoverLifecycleCoordinator` | **Deleted** — replaced by `MBKOverlayGate` + `MBKPopoverController` internals |
-| `sizeObservation` | `NSKeyValueObservation?` | **Deleted** — MBK uses `sizingOptions = .preferredContentSize` |
-| `panelIsOpen` | `Bool` (computed, forwarded from coordinator) | **Deleted** — `MBKPopoverController` owns open state internally |
-| `preservedSheetWindowHide` | `Bool` (computed, forwarded from coordinator) | **Deleted** — hide-and-restore path not needed with MBK (see `STAY-OPEN-WHILE-SHEET-ACTIVE` in `PopoverController.swift`) |
-| `hasActiveSheet` | `Bool` (computed) | **Deleted** — `MBKOverlayGate.hasActiveOverlay` replaces this |
-| `panelVisibilityState` | `PanelVisibilityState` | **Stays** — needed by `PanelContainerView` dim overlay; keep in `wrapEnv` |
-| `panelSheetState` | `PanelSheetState` | **Stays** — transient hide state; assess during Step 4 |
-| `popoverController` | `MBKPopoverController` | **New** — created in `applicationDidFinishLaunching` |
-| `overlayGate` | `MBKOverlayGate` | **New** — created in `applicationDidFinishLaunching`, injected via `@Environment` |
+| `statusItem` | `NSStatusItem?` | **STAYS — app-owned.** RunBot owns `NSStatusItem`, the dynamic icon observation task, and the button action. `MBKPopoverController` is NOT adopted in PR-A. |
+| `popover` | `NSPopover?` | **Stays** — RunBot continues to own `NSPopover` in PR-A. |
+| `hostingController` | `NSHostingController<AnyView>?` | **Stays** — RunBot continues to own the hosting controller in PR-A. |
+| `lifecycleCoordinator` | `PopoverLifecycleCoordinator` | **Reassess in Step 5** — delete only if `MBKOverlayGate` fully replaces `isSheetDismissing` and no other live read sites remain. |
+| `sizeObservation` | `NSKeyValueObservation?` | **Stays** — KVO on `preferredContentSize` remains (MBK's `sizingOptions` path requires `MBKPopoverController` ownership, which is deferred). |
+| `panelIsOpen` | `Bool` (computed, forwarded from coordinator) | **Stays** in PR-A. |
+| `preservedSheetWindowHide` | `Bool` (computed, forwarded from coordinator) | **Stays** in PR-A — hide-and-restore path not needed but coordinator not deleted yet. |
+| `hasActiveSheet` | `Bool` (computed) | **Reassess in Step 5** — `MBKOverlayGate.hasActiveOverlay` may replace this. |
+| `panelVisibilityState` | `PanelVisibilityState` | **Stays** — needed by `PanelContainerView` dim overlay; keep in `wrapEnv`. |
+| `panelSheetState` | `PanelSheetState` | **Stays** — transient hide state; assess during Step 3. |
+| `overlayGate` | `MBKOverlayGate` | **New (Step 2)** — created in `applicationDidFinishLaunching`, injected via `.environment(overlayGate)`. |
 
 ---
 
@@ -40,7 +41,7 @@ Step 1 output. No code changed. Reference for Steps 2–7.
 | Location | Call | Notes |
 |---|---|---|
 | `AppDelegate+PanelSetup.swift` | defines `setupPanel()` | Contains `setupStatusItem()`, `setupPopover()`, `setupKVO()`, `setupSubscriptions()` |
-| `applicationDidFinishLaunching` (in `AppDelegate+PanelSetup.swift`) | `setupPanel()` | **Replaced** by `popoverController.setup()` + explicit `setupSubscriptions()` call |
+| `applicationDidFinishLaunching` (in `AppDelegate+PanelSetup.swift`) | `setupPanel()` | **Stays in PR-A** — `MBKPopoverController.setup()` is not used. |
 
 ---
 
@@ -51,15 +52,15 @@ Step 1 output. No code changed. Reference for Steps 2–7.
 | `togglePanel()` in `AppDelegate.swift` | Called when panel is closed |
 | `AppDelegate+Navigation.swift` | Called after auth callback to re-open the panel |
 
-`openPanel()` itself calls:
-- `lifecycleCoordinator.setPanelIsOpen(true)` → replaced by MBKPopoverController internal state
-- `restorePopoverWindowsPreservingSheetsIfNeeded()` → **deleted** (hide-and-restore not needed)
-- `popover.show(...)` → replaced by `MBKPopoverController.togglePopover()` / internal `openPopover()`
-- `makePopoverWindowKeyIfPossible()` → **deleted** (MBKPopoverController calls `NSApp.activate`)
-- `resizeAndRepositionPanel()` → **deleted** (MBK uses `sizingOptions = .preferredContentSize`)
-- `navigate(to: restored)` for saved nav state → **stays**, wired via new `popoverController` open callback if needed
-- `panelSheetState.restoreTransientHideStateIfNeeded()` → assess in Step 4
-- `lifecycleCoordinator.installMonitors(...)` → **deleted** (MBKPopoverController installs its own monitors)
+`openPanel()` itself calls (all stay in PR-A):
+- `lifecycleCoordinator.setPanelIsOpen(true)`
+- `restorePopoverWindowsPreservingSheetsIfNeeded()`
+- `popover.show(...)`
+- `makePopoverWindowKeyIfPossible()`
+- `resizeAndRepositionPanel()`
+- `navigate(to: restored)` for saved nav state
+- `panelSheetState.restoreTransientHideStateIfNeeded()`
+- `lifecycleCoordinator.installMonitors(...)`
 
 ---
 
@@ -71,11 +72,11 @@ Step 1 output. No code changed. Reference for Steps 2–7.
 | `lifecycleCoordinator` workspace observer closure | Fires on app-switch |
 | `togglePanel()` in `AppDelegate.swift` | Called when panel is open (closes it) |
 
-`hidePanel()` itself calls:
-- `panelSheetState.captureTransientHideState()` → assess in Step 4
-- `hidePopoverWindowsPreservingSheets()` → **deleted**
-- `popover?.performClose(nil)` → replaced by MBKPopoverController internal `performClose`
-- `tearDownOpenState()` → **deleted** (MBK teardown is internal)
+`hidePanel()` itself calls (all stay in PR-A):
+- `panelSheetState.captureTransientHideState()`
+- `hidePopoverWindowsPreservingSheets()`
+- `popover?.performClose(nil)`
+- `tearDownOpenState()`
 
 ---
 
@@ -87,11 +88,11 @@ Step 1 output. No code changed. Reference for Steps 2–7.
 | `AppDelegate+Navigation.swift` | On explicit back/nav close |
 | Various view callbacks | Via `onClose` closure injected into views |
 
-`closePanel()` calls:
-- `popover?.performClose(nil)` → replaced by MBKPopoverController
-- `lifecycleCoordinator.setPreservedSheetWindowHide(false)` → **deleted**
-- `tearDownOpenState()` → **deleted**
-- `hostingController?.rootView = mainView()` → needs reassessment in Step 2 (MBK owns the hosting controller)
+`closePanel()` calls (all stay in PR-A):
+- `popover?.performClose(nil)`
+- `lifecycleCoordinator.setPreservedSheetWindowHide(false)`
+- `tearDownOpenState()`
+- `hostingController?.rootView = mainView()`
 
 ---
 
@@ -99,7 +100,7 @@ Step 1 output. No code changed. Reference for Steps 2–7.
 
 | Location | Notes |
 |---|---|
-| `NSStatusItem` button action (set in `AppDelegate+StatusItem.swift`) | **Deleted** — MBKPopoverController wires its own `@objc togglePopover` as the button action |
+| `NSStatusItem` button action (set in `AppDelegate+StatusItem.swift`) | **Stays** — RunBot wires its own `togglePanel` as the button action. |
 
 ---
 
@@ -109,13 +110,13 @@ Step 1 output. No code changed. Reference for Steps 2–7.
 |---|---|
 | `openPanel()` in `AppDelegate.swift` | Installs after `popover.show()` |
 
-**Deleted** — `MBKPopoverController.setupWorkspaceObserver()` and `startEventMonitor()` replace this entirely.
+**Stays in PR-A** — coordinator monitors remain until Step 5 reassessment.
 
 ---
 
 ## `setupSubscriptions()` — current location and call site
 
-`setupSubscriptions()` is defined inside `AppDelegate+PanelSetup.swift` as part of the `PanelSetup` extension. It is called from `setupPanel()`. After `setupPanel()` is replaced by `popoverController.setup()` in Step 2, `setupSubscriptions()` needs an **explicit call site** in `applicationDidFinishLaunching`.
+`setupSubscriptions()` is defined inside `AppDelegate+PanelSetup.swift` as part of the `PanelSetup` extension. It is called from `setupPanel()`. Stays as-is in PR-A.
 
 `setupSubscriptions()` wires:
 - `RunnerPoller` init (assigns `self.runnerStore`)
@@ -128,7 +129,7 @@ Step 1 output. No code changed. Reference for Steps 2–7.
 
 ## `.sheet()` call sites that need outside-click survival → `.mbkSheet()`
 
-To be enumerated in Step 4 by searching for `.sheet(item:` and `.sheet(isPresented:` in `Sources/RunBot/Views/`.
+To be enumerated in Step 3 by searching for `.sheet(item:` and `.sheet(isPresented:` in `Sources/RunBot/Views/`.
 
 ---
 
@@ -137,7 +138,7 @@ To be enumerated in Step 4 by searching for `.sheet(item:` and `.sheet(isPresent
 `WindowGrabber.swift` (~2.2 KB) resolves the popover-backing `NSWindow` via
 `NSApp.windows` predicate so `NSOpenPanel` can be attached as a sheet child.
 No hit-testing, no z-order manipulation. Safe to delete once `mbkOpenFilePicker()` is wired.
-Call sites to enumerate in Step 5.
+Call sites to enumerate in Step 4.
 
 ---
 
@@ -146,19 +147,24 @@ Call sites to enumerate in Step 5.
 Currently **no call site** (`periphery:ignore` annotated). Belongs in `LocalRunnersView`
 on both onCancel and onCommit paths, immediately before `editingRunner = nil`.
 Must be synchronous — no `await` between the call and the binding mutation.
-To be wired in Step 4.
+To be wired in Step 3.
 
 ---
 
-## What MBKPopoverController replaces (summary)
+## What PR-A actually changes (corrected scope)
 
-| Old | New |
-|---|---|
-| `NSStatusItem` setup in `AppDelegate+StatusItem.swift` | `MBKPopoverController` internal `setupStatusItem()` |
-| `NSPopover` setup in `AppDelegate+PanelSetup.swift` | `MBKPopoverController` internal `setupPopover()` |
-| KVO on `preferredContentSize` (`sizeObservation`) | `hostingController.sizingOptions = .preferredContentSize` |
-| `NSEvent` outside-click monitor in `PopoverLifecycleCoordinator` | `MBKPopoverController.startEventMonitor()` |
-| `NSWorkspace` app-switch observer in `PopoverLifecycleCoordinator` | `MBKPopoverController.setupWorkspaceObserver()` |
-| `isSheetDismissing` flag | `MBKOverlayGate.hasActiveOverlay` |
-| `hidePopoverWindowsPreservingSheets()` / `restoreTransientHideStateIfNeeded()` | **Deleted** — MBK stays open while overlay active (see `STAY-OPEN-WHILE-SHEET-ACTIVE`) |
-| `popoverShouldClose` always-true + monitor-side guard | `popoverShouldClose` returns `!overlayGate.hasActiveOverlay` |
+| Old | New | Step |
+|---|---|---|
+| No `MBKOverlayGate` | `overlayGate: MBKOverlayGate` on `AppDelegate`, injected via `.environment()` | Step 2 |
+| Outside-click-sensitive `.sheet()` calls | `.mbkSheet(overlayGate:)` | Step 3 |
+| `suppressHidePanel()` has no call site | Wired in `LocalRunnersView` onCancel + onCommit, synchronous | Step 3 |
+| `WindowGrabber` / `NSOpenPanel` | `mbkOpenFilePicker()` | Step 4 |
+| `PopoverLifecycleCoordinator` / `isSheetDismissing` | Reassess — delete if `MBKOverlayGate` fully supersedes; else carry to PR-B | Step 5 |
+| `AppDelegate+StatusItem.swift` | **Unchanged — app-owned** | — |
+| `MBKPopoverController` | **Not adopted in PR-A — deferred** | — |
+
+---
+
+## What MBKPopoverController does (deferred to future PR)
+
+`MBKPopoverController` assumes full ownership of `NSStatusItem`, `NSPopover`, and `NSHostingController`. It installs its own button action (`@objc togglePopover`) and its own workspace/event monitors. Adopting it in RunBot requires removing RunBot's dynamic icon observation task from `AppDelegate+StatusItem.swift` and porting that logic into MBK or a separate coordinator. This is a non-trivial architectural change and is deferred to a future spike or PR-C.
