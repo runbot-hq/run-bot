@@ -10,8 +10,11 @@ import SwiftUI
 /// Environment key for the `suppressHidePanel` callback.
 /// Default is a no-op so views that don't need the callback compile without injection.
 private struct SuppressHidePanelKey: EnvironmentKey {
-    /// No-op default — replaced at runtime by `AppDelegate.wrapEnv(_:)`.
-    static let defaultValue: () -> Void = {}
+    // Default is a no-op so views that don't need the callback compile without injection.
+    // Must be @MainActor @Sendable to match the type injected by AppDelegate.wrapEnv(_:).
+    // Swift 6 strict concurrency treats @MainActor @Sendable () -> Void and () -> Void
+    // as distinct types — mismatching here causes a type error at the .environment(…) call site.
+    static let defaultValue: @MainActor @Sendable () -> Void = {}
 }
 
 /// RunBot-specific SwiftUI environment value extensions.
@@ -24,7 +27,7 @@ extension EnvironmentValues {
     /// `.environment(\.suppressHidePanel, { lifecycleCoordinator.suppressHidePanel() })`.
     ///
     /// In views: `@Environment(\.suppressHidePanel) private var suppressHidePanel`
-    var suppressHidePanel: () -> Void {
+    var suppressHidePanel: @MainActor @Sendable () -> Void {
         get { self[SuppressHidePanelKey.self] }
         set { self[SuppressHidePanelKey.self] = newValue }
     }
