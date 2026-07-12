@@ -85,6 +85,22 @@
 //
 //   ❌ Do NOT add @unchecked Sendable to these token types as a workaround —
 //   that would suppress the warning without providing any actual safety.
+//
+// deinit TEARDOWN — thread-safety of NSWorkspace vs NSEvent removal:
+//   deinit calls both NSWorkspace.shared.notificationCenter.removeObserver
+//   and NSEvent.removeMonitor. NSEvent.removeMonitor is documented as
+//   thread-safe. NSWorkspace.shared.notificationCenter.removeObserver is NOT
+//   documented with the same guarantee.
+//
+//   This is safe here because of the singleton-lifetime assumption above:
+//   MBKPopoverController is never released while concurrent work is in flight,
+//   so deinit always runs after all @MainActor work has completed. If the
+//   singleton assumption is ever violated, move both removals into an explicit
+//   @MainActor teardown() method called before release.
+//
+//   This is an info-only note — not a current bug. Do not add a spurious
+//   Task { @MainActor } wrapper around the deinit removals; that would be
+//   a use-after-free (self is already deallocated when the Task runs).
 
 import AppKit
 import SwiftUI
@@ -257,6 +273,9 @@ public final class MBKPopoverController: NSObject {
 
     // MARK: - Deallocation
 
+    // See deinit TEARDOWN in the file header for thread-safety rationale.
+    // Do NOT wrap these removals in Task { @MainActor } — self is already
+    // deallocated when a Task enqueued from deinit runs (use-after-free).
     deinit {
         if let observer = workspaceObserver {
             NSWorkspace.shared.notificationCenter.removeObserver(observer)
