@@ -337,6 +337,14 @@ extension AddRunnerSheet {
     }
 
     /// Writes the LaunchAgent plist, registers with `LocalRunnerStore`, and dismisses the sheet.
+    ///
+    /// WHY @MainActor + async WITHOUT a Task WRAPPER AT THE CALL SITE:
+    ///   The Button action closure that calls this is already @MainActor-isolated
+    ///   (SwiftUI View body context). `importExistingRunner` is `async` so its
+    ///   `await localRunnerStore.add(...)` suspension can hop off the main actor
+    ///   for the store work and return. The caller wraps it in `Task { await ... }`
+    ///   so the button action remains synchronous. Inside this function there is no
+    ///   need for an additional Task wrapper — `await` is used directly.
     @MainActor
     func importExistingRunner() async {
         guard canImport else { return }
@@ -355,7 +363,7 @@ extension AddRunnerSheet {
             runnerName: detectedName,
             workingDirectory: existingDir
         )
-        // Await directly — importExistingRunner() is async, no Task wrapper needed.
+        // Await directly — importExistingRunner() is async; no inner Task wrapper needed.
         await localRunnerStore.add(runnerName: detectedName, installPath: existingDir)
         isPresented = false
         onComplete()

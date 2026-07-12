@@ -108,6 +108,15 @@ struct LocalRunnersView: View {
         //   2. .onChange fires → mbkSetOverlay(false)    ← no-op
         // mbkSetOverlay() is idempotent for repeated false calls — no notifications,
         // no side effects. The double-clear is safe by design, not an oversight.
+        //
+        // NO SPURIOUS GATE TOGGLE ON REFRESH — WHY:
+        // RunnerModel is a value-type struct with compiler-synthesised Equatable
+        // (all stored properties participate). SwiftUI's .onChange(of:) only fires
+        // when the new value differs from the previous one by value equality.
+        // A localRunnerStore.refresh() that returns a structurally identical RunnerModel
+        // does not re-fire .onChange, so the overlayGate cannot toggle false→true
+        // mid-session while the sheet is open. This would only be a risk if
+        // RunnerModel used reference-identity Equatable — it does not.
         .sheet(item: $editingRunner, onDismiss: { overlayGate.mbkSetOverlay(false) }) { runner in
             runnerEditingSheet(runner: runner)
         }
@@ -377,6 +386,9 @@ struct LocalRunnersView: View {
                     )
                     let result = await useCase.execute(runner: runner, draft: draft, original: original)
                     await MainActor.run {
+                        // isCommitting = false is UNCONDITIONAL — it precedes the switch
+                        // and therefore resets on both .success and .failure paths.
+                        // Do not move it inside a case branch.
                         isCommitting = false
                         switch result {
                         case .success:
