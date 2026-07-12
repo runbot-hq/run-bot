@@ -25,6 +25,7 @@ struct SheetView: View {
     /// SwiftUI dismiss action.
     @Environment(\.dismiss) private var dismiss
 
+    /// The root view hierarchy for the sheet.
     var body: some View {
         @Bindable var appState = appState
         VStack(spacing: 16) {

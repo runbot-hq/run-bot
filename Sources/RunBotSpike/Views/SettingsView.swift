@@ -30,6 +30,7 @@ struct SettingsView: View {
     /// Controls whether the anchored sheet is presented.
     @State private var showSheet = false
 
+    /// The root view hierarchy for the settings screen.
     var body: some View {
         @Bindable var appState = appState
         VStack(spacing: 12) {
