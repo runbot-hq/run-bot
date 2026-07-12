@@ -81,6 +81,7 @@ curl -fsSL https://runbot-hq.github.io/run-bot/install.sh | bash
 
 - **[AppUpdater](https://github.com/runbot-hq/AppUpdater)** (first-party) — headless auto-update library; polls GitHub Releases for new versions, verifies each release via **Ed25519 signature** (`CryptoKit.Curve25519.Signing`) before install, and hands update state to the host app via `UpdateStateProviding`
 - **[GitHubClient](https://github.com/runbot-hq/GitHubClient)** (first-party) — lightweight GitHub REST client; OAuth Authorization Code flow, layered token resolution (Keychain → env var), paginated API calls, and rate-limit handling; currently embedded as a local SPM target and extracted to its own repo as part of the ongoing modularisation effort
+- **[MenuBarKit](https://github.com/runbot-hq/MenuBarKit)** (first-party) — SwiftUI + AppKit helpers for `NSPopover`-hosted menu bar apps; anchored sheets, overlay gate, file picker, and popover lifecycle management
 
 ---
 
