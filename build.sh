@@ -9,14 +9,16 @@ set -e
 APP_NAME="RunBot"
 OUT_DIR="dist"
 
-# VERSION must be supplied explicitly — no default is intentional.
-# A silent fallback (e.g. ${1:-0.7.0}) would let CI publish a stale
-# version if the workflow forgets to pass the input. Fail loudly instead.
-if [[ -z "${1:-}" ]]; then
-  echo "✗ Usage: bash build.sh <version>  e.g. bash build.sh 0.8.0" >&2
-  exit 1
-fi
-VERSION="$1"
+# VERSION defaults to "0.0.0-dev" for local development convenience so that
+# engineers can run `bash build.sh` without arguments during iteration.
+# CI always passes the real version explicitly (see .github/workflows/),
+# so the default never reaches a published build.
+# The dev sentinel is intentionally not a real semver release tag — it will
+# never satisfy the auto-updater's "newer version available" check, which
+# prevents accidental self-update prompts during local testing.
+# Do NOT replace this default with a real version number — that would mask
+# CI misconfiguration by silently publishing a stale version string.
+VERSION="${1:-0.0.0-dev}"
 if ! printf '%s\n' "$VERSION" | grep -E -q '^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$'; then
   echo "✗ Invalid version '${VERSION}'. Expected semver (e.g. 1.2.3 or 1.2.3-beta.1)" >&2
   exit 1
