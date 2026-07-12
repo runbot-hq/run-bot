@@ -92,35 +92,11 @@ struct LocalRunnersView: View {
         .modifier(removalAlertModifier)
         // #1262: .sheet(item:) attaches RunnerDetailSheet as a child sheet of
         // NSPopoverWindowFrame so it escapes the parent view bounds.
-        // mbkSheet(item:) does not exist yet in MenuBarKit, so overlayGate is managed
-        // manually via the two modifiers below. mbkSetOverlay() is the spike-only
-        // escape hatch documented in OverlayGate.swift. Tracked in #2044 — replace
-        // with .mbkSheet(item:overlayGate:) when that API lands.
-        //
-        // DOUBLE-CLEAR — INTENTIONAL AND IDEMPOTENT:
-        // On a normal dismiss (onCancel / onCommit), the sequence is:
-        //   1. suppressHidePanel() called
-        //   2. editingRunner = nil
-        //   3. .onChange fires → mbkSetOverlay(false)    ← primary clear arm
-        //   4. onDismiss fires → mbkSetOverlay(false)    ← safety-net arm (no-op)
-        // On an AppKit-initiated dismiss (window close, crash path bypassing onCancel):
-        //   1. onDismiss fires → mbkSetOverlay(false)    ← safety-net arm (catches it)
-        //   2. .onChange fires → mbkSetOverlay(false)    ← no-op
-        // mbkSetOverlay() is idempotent for repeated false calls — no notifications,
-        // no side effects. The double-clear is safe by design, not an oversight.
-        //
-        // NO SPURIOUS GATE TOGGLE ON REFRESH — WHY:
-        // RunnerModel is a value-type struct with compiler-synthesised Equatable
-        // (all stored properties participate). SwiftUI's .onChange(of:) only fires
-        // when the new value differs from the previous one by value equality.
-        // A localRunnerStore.refresh() that returns a structurally identical RunnerModel
-        // does not re-fire .onChange, so the overlayGate cannot toggle false→true
-        // mid-session while the sheet is open. This would only be a risk if
-        // RunnerModel used reference-identity Equatable — it does not.
-        .sheet(item: $editingRunner, onDismiss: { overlayGate.mbkSetOverlay(false) }) { runner in
+        // mbkSheet(item:overlayGate:) manages hasActiveOverlay and window anchoring
+        // automatically — no manual mbkSetOverlay() calls needed here (#2044).
+        .mbkSheet(item: $editingRunner, overlayGate: overlayGate) { runner in
             runnerEditingSheet(runner: runner)
         }
-        .onChange(of: editingRunner) { _, runner in overlayGate.mbkSetOverlay(runner != nil) }
     }
 
     // MARK: - Header
