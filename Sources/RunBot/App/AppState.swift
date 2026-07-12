@@ -1,7 +1,10 @@
 // AppState.swift
 // RunBot
 
-import AppKit
+import AppKit       // ProcessInfo (UI_TESTING guard in start()). AppState intentionally
+                    // does NOT use any AppKit UI types — NSPopover/NSStatusItem/etc stay
+                    // on AppDelegate. If ProcessInfo moves to Foundation-only in a future
+                    // SDK this import can be dropped.
 import AppUpdater
 import GitHubClient
 import Observation
@@ -11,7 +14,7 @@ import RunBotCore
 //
 // Single coordinator for all domain-level state that was previously scattered
 // across AppDelegate's property bag. AppDelegate is reduced to lifecycle
-// wiring (~50 lines) after this consolidation.
+// wiring after this consolidation (issue #2040).
 //
 // OWNERSHIP RULES:
 // ✅ AppState owns: domain services, poll actors, observable read models,
@@ -26,6 +29,15 @@ import RunBotCore
 // would create a circular dependency (MBKOverlayGate is AppDelegate-owned
 // specifically to honour this constraint).
 //
+// WHY NOT AppStateProtocol?
+// SettingsView previously accepted protocol-typed service parameters so tests
+// could inject stubs. With AppState as the single injection point, tests must
+// construct a full AppState. This is an accepted trade-off: AppState's concrete
+// types (GitHubClient, AppUpdater, RunnerLifecycleService) have no side effects
+// at init time — side effects begin only when start() is called. Unit tests that
+// don't call start() get a zero-cost AppState. A protocol extraction can be
+// revisited if the test surface grows (tracked as migration debt in wrapEnv).
+//
 // THREADING:
 // @MainActor-isolated. All domain sub-objects that write observable state
 // must hop to MainActor before writing (RunnerPoller does this via
@@ -37,6 +49,8 @@ import RunBotCore
 // AppState.start() runs the ordered async startup sequence:
 //   refreshAsync → store.start
 //   → checkAndHandle → scheduleBackgroundCheck → startObservations()
+// LocalRunnerStore.configure() is called by AppDelegate BEFORE the startup
+// Task, not inside start() — see issue #1741 for why ordering matters.
 //
 // Ref: issue #2040, branch feat/app-state-consolidation
 
@@ -76,13 +90,24 @@ final class AppState {
 
     /// Owned `LocalRunnerStore` actor.
     ///
-    /// Backed by a private optional so `LocalRunnerStore.shared` is never
-    /// accessed before `LocalRunnerStore.configure(viewModel:)` is called in
-    /// `start()`. `@Observable` does not support `lazy var`, so we use a
-    /// manual backing pattern instead.
+    /// Backed by a private optional (`_localRunnerStore`) because `@Observable`
+    /// does not support `lazy var` — the macro generates conflicting accessors.
+    /// The manual backing pattern replicates lazy semantics without the conflict.
     ///
-    /// ❌ NEVER read `localRunnerStore` before `start()` runs — it will
-    /// trigger the `fatalError` guard inside `LocalRunnerStore.shared`.
+    /// ❌ NEVER read `localRunnerStore` before `start()` runs. `start()` seeds
+    /// `_localRunnerStore` immediately after `configure()` is called (by AppDelegate
+    /// before the startup Task), so all accesses inside `start()` take the fast
+    /// path. The `assertionFailure` below is a guard against other early-read
+    /// paths (e.g. previews) — it is NOT expected to fire during normal startup.
+    ///
+    /// WHY THE FALLBACK PATH EXISTS:
+    /// The slow path (calling `LocalRunnerStore.shared` when `_localRunnerStore`
+    /// is nil) is retained as a last-resort so that Release builds get a clear
+    /// `fatalError` from inside `.shared` rather than a force-unwrap crash with
+    /// no context. The `assertionFailure` in DEBUG makes the same failure visible
+    /// earlier, at `AppState.localRunnerStore`, with a readable message. Neither
+    /// path is a "safe recovery" — both terminate the process; the only difference
+    /// is crash-report attribution.
     var localRunnerStore: LocalRunnerStore {
         if let store = _localRunnerStore { return store }
         #if DEBUG
@@ -93,6 +118,7 @@ final class AppState {
         return store
     }
     /// Backing store for the `localRunnerStore` computed property.
+    /// Seeded by `start()` immediately after `LocalRunnerStore.configure()` runs.
     private var _localRunnerStore: LocalRunnerStore?
 
     /// Owned `RunnerPoller` actor. `nil` until `start()` runs.
@@ -145,10 +171,24 @@ final class AppState {
 
     // periphery:ignore - write-only by design; assignment keeps the Task alive
     /// Retained handle for the status-icon observation task started in `start()`.
+    ///
+    /// Write-only by design: the value is never read after assignment. The
+    /// assignment itself is what keeps the `Task` alive — without a strong
+    /// reference the task is immediately cancelled by ARC. `periphery:ignore`
+    /// suppresses the "assigned but never read" dead-code warning.
     var statusIconTask: Task<Void, Never>?
 
     // periphery:ignore - write-only by design; assignment keeps the Task alive
     /// Retained handle for the sign-out observation task started in `start()`.
+    ///
+    /// Same write-only retention pattern as `statusIconTask` above.
+    /// Both tasks use `Task { @MainActor [weak self] in }` — the explicit
+    /// `@MainActor` annotation is intentional: both closures access
+    /// `@MainActor`-isolated `AppState` properties (`oauthService`, `runnerStore`,
+    /// `runnerState`). Without it, each property access would implicitly hop to
+    /// the main actor inside the loop body, which (a) adds noise to the threading
+    /// contract and (b) opens a TOCTOU window between `guard let store` and
+    /// `await store.start()` across actor hops.
     var signOutTask: Task<Void, Never>?
 
     // MARK: - Init
@@ -189,9 +229,10 @@ final class AppState {
         }
         log("AppState › start — begin (LocalRunnerStore.configure already called by AppDelegate)")
 
-        // Seed the backing store so subsequent accesses inside start() take the fast
-        // path in the localRunnerStore getter and never trigger the assertionFailure.
-        // configure() has already been called by AppDelegate before start() runs.
+        // Seed the backing store so all accesses inside start() take the fast path
+        // in the localRunnerStore getter and never trigger the assertionFailure.
+        // configure() was called by AppDelegate synchronously before its first await
+        // (issue #1741), so .shared is already fully initialised at this point.
         _localRunnerStore = LocalRunnerStore.shared
         log("AppState › start — _localRunnerStore seeded")
 
@@ -199,6 +240,12 @@ final class AppState {
         // AppPreferencesStore.shared and ScopeStore.shared are passed explicitly
         // because default-value expressions cannot be @MainActor-isolated in
         // a nonisolated context (Swift 6).
+        //
+        // The [localRunnerStore] capture list evaluates the computed property
+        // here at construction time. Because _localRunnerStore was seeded above,
+        // the fast path fires and the assertionFailure is NOT triggered.
+        // If you move RunnerPoller construction before the seed line, DEBUG builds
+        // will assertionFailure on every startup — don't reorder these.
         runnerStore = RunnerPoller(
             state: runnerState,
             preferencesStore: AppPreferencesStore.shared,

@@ -185,9 +185,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return AnyView(view
             .environment(panelVisibilityState)
             .environment(appState)          // top-level domain coordinator (issue #2040)
-            .environment(appState.runnerState) // backward-compat shim: views using @Environment(RunnerState.self)
-                                               // still compile. Same instance as appState.runnerState — not a copy.
-                                               // TODO: drop once all views migrate to @Environment(AppState.self)
+            // WHY TWO INJECTIONS FOR runnerState:
+            // `appState.runnerState` is the same object instance as the one injected
+            // here — not a copy. Views that already use `@Environment(RunnerState.self)`
+            // continue to compile without change. This is a migration shim only:
+            // once all views switch to `@Environment(AppState.self).runnerState`,
+            // this second injection can be removed (tracked as debt, issue #2040).
+            .environment(appState.runnerState)
             .environment(overlayGate)
             .environment(\.suppressHidePanel, suppressHidePanel)
         )
