@@ -111,6 +111,16 @@ final class PopoverLifecycleCoordinator {
     /// the timing contract at every call site when porting this to the main app.
     ///
     /// ❌ NEVER set `isSheetDismissing` directly — use this method only.
+    ///
+    /// NO CALL SITE ON THIS BRANCH — INTENTIONAL:
+    /// `suppressHidePanel()` is forward-looking infrastructure introduced alongside
+    /// the `isSheetDismissing` flag so the `hasActiveSheet` closure in `AppDelegate
+    /// .openPanel()` is already correct when the call site lands. The call site
+    /// belongs in `LocalRunnersView` (onCancel / onCommit success paths, immediately
+    /// before `editingRunner = nil`) and will be wired in the migration PR that ports
+    /// the main app to `MBKAnchoredSheet`. Periphery will report this as dead code
+    /// on this branch — that is expected and not a bug.
+    // periphery:ignore - intentionally uncalled; call site lands in the migration PR (see doc comment above)
     func suppressHidePanel() {
         guard !isSheetDismissing else { return }
         isSheetDismissing = true
