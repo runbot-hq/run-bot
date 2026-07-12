@@ -110,9 +110,21 @@ final class AppState {
     /// is crash-report attribution.
     var localRunnerStore: LocalRunnerStore {
         if let store = _localRunnerStore { return store }
+        // ──────────────────────────────────────────────────────────────────
+        // UNREACHABLE during normal startup.
+        // start() seeds _localRunnerStore (Step 1) before any access here.
+        // If you are reading this because the assertionFailure fired, an
+        // early-read path exists that bypasses start() — fix that, not this.
+        // ──────────────────────────────────────────────────────────────────
         #if DEBUG
-        assertionFailure("AppState.localRunnerStore read before start() — LocalRunnerStore.shared has not been configured yet")
+        // Fires in DEBUG only so the crash site is AppState.localRunnerStore
+        // with a readable message, not a silent fatalError inside .shared.
+        assertionFailure("AppState.localRunnerStore read before start() — _localRunnerStore not seeded yet")
         #endif
+        // In Release the assertionFailure above is compiled out.
+        // .shared will fatalError internally if configure() hasn't run,
+        // which is the correct process-terminating outcome — just from a
+        // different call site. This is NOT a safe-recovery path.
         let store = LocalRunnerStore.shared
         _localRunnerStore = store
         return store
