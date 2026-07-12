@@ -68,9 +68,12 @@ struct SettingsView: View {
                 Text("This is a test error alert shown from the popover view.")
             }
             .onChange(of: appState.showAlert) { _, isShowing in
-                // Gate the overlay while the alert is on screen so the
-                // outside-click monitor and workspace observer don't close
-                // the popover behind it. Mirrors mbkOpenFilePicker's pattern.
+                // SPIKE ONLY: direct gate mutation from a view is a shortcut.
+                // In production use an mbkAlert modifier (see issue #2038) so
+                // the gate lifetime is owned by MenuBarKit, not the call site.
+                // Direct mutation also clobbers a concurrently open sheet or
+                // picker gate — the spike UI prevents that combination, the
+                // main app may not.
                 overlayGate.hasActiveOverlay = isShowing
             }
 
