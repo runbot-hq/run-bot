@@ -184,6 +184,10 @@ public final class MBKPopoverController: NSObject {
     private func openPopover() {
         guard let button = statusItem.button else { return }
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        // ❌ DO NOT replace with NSApp.activate() (no-arg, the macOS 14+ form).
+        // That call causes the popover window to flicker between active and
+        // inactive chrome on every open — visually broken. Confirmed and
+        // reverted in commit 7fe4caa. ignoringOtherApps: true must stay.
         NSApp.activate(ignoringOtherApps: true)
         mbkLog("PopoverController", "popover shown")
         startEventMonitor()
@@ -280,7 +284,7 @@ extension MBKPopoverController: NSPopoverDelegate {
         mbkLog("PopoverController", "popoverDidClose")
         setButtonHighlight(false)
         stopEventMonitor()
-        // Safety net — see ORDER NOTE in Sources/MenuBarKit/PopoverController.swift
+        // Safety net — reset gate on close regardless of how we got here.
         overlayGate.hasActiveOverlay = false
         mbkLog("PopoverController", "overlay gate reset on close")
     }
