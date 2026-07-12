@@ -100,6 +100,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // does not cross file boundaries. AppDelegate+Navigation.swift requires
     // read/write access to all of them.
 
+    // MARK: - AppState
+
+    /// Single coordinator for all domain-level state.
+    /// Replaces the scattered property bag — see issue #2040.
+    /// ❌ NEVER access domain sub-objects directly on AppDelegate once they
+    ///    have been migrated to AppState. Use `appState.x` instead.
+    let appState = AppState()
+
     /// The NSStatusItem anchoring the menu-bar icon and popover.
     /// App-owned — RunBot manages the dynamic icon observation task and button
     /// action directly. MBKPopoverController is NOT used in PR-A.
