@@ -28,9 +28,8 @@
 //   The one exception is an alert presented while a sheet is open: alerts are
 //   system modals that AppKit manages independently of the gate. The alert
 //   path (mbkAlert, #2038) must be implemented carefully to avoid clobbering
-//   the sheet gate. Until #2038 is resolved, do not set hasActiveOverlay
-//   directly from host-app views while a sheet may be concurrently open
-//   (see SPIKE ONLY comment in SettingsView.swift).
+//   the sheet gate. Until #2038 is resolved, use mbkSetOverlay() from host
+//   views — this is a spike-only escape hatch, not the production pattern.
 //
 //   If a future use-case genuinely requires concurrent overlays, replace the
 //   Bool with an Int and use increment/decrement rather than set/clear.
@@ -55,10 +54,9 @@ import Observation
 /// Managed automatically by `MBKAnchoredSheet` and `mbkOpenFilePicker`;
 /// read by `MBKPopoverController.popoverShouldClose` to block dismiss.
 ///
-/// ❌ Host apps must not write `hasActiveOverlay` directly. Use `mbkSheet`,
-/// `mbkOpenFilePicker`, and (once available) `mbkAlert` — they manage the
-/// gate lifetime internally. The setter is `internal(set)` — writes from
-/// outside the `MenuBarKit` module are a compile error.
+/// ❌ Host apps must not write `hasActiveOverlay` directly in production.
+/// Use `mbkSheet`, `mbkOpenFilePicker`, and (once available) `mbkAlert`.
+/// For spike/alert use cases pending #2038, use `mbkSetOverlay(_:)` instead.
 @Observable
 @MainActor
 public final class MBKOverlayGate {
@@ -70,4 +68,14 @@ public final class MBKOverlayGate {
 
     /// Creates a new gate with no active overlay.
     public init() {}
+
+    /// Spike-only escape hatch for overlay types not yet managed by MenuBarKit
+    /// (e.g. alerts, pending #2038). Use this instead of writing `hasActiveOverlay`
+    /// directly from host-app views.
+    ///
+    /// ⚠️ SPIKE ONLY — replace with `mbkAlert` modifier when #2038 is implemented.
+    /// Direct mutation does not compose safely with concurrent overlays.
+    public func mbkSetOverlay(_ active: Bool) {
+        hasActiveOverlay = active
+    }
 }
