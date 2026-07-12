@@ -84,6 +84,7 @@ final class PopoverLifecycleCoordinator {
         preservedSheetWindowHide = value
     }
 
+    // periphery:ignore - intentionally uncalled; call site lands in the migration PR (see doc comment below)
     /// Suppresses `hidePanel` until the current synchronous call stack unwinds.
     ///
     /// Call this immediately **before** setting a `.sheet(item:)` binding to `nil`
@@ -126,7 +127,6 @@ final class PopoverLifecycleCoordinator {
     /// before `editingRunner = nil`) and will be wired in the migration PR that ports
     /// the main app to `MBKAnchoredSheet`. Periphery will report this as dead code
     /// on this branch — that is expected and not a bug.
-    // periphery:ignore - intentionally uncalled; call site lands in the migration PR (see doc comment above)
     func suppressHidePanel() {
         guard !isSheetDismissing else { return }
         isSheetDismissing = true
