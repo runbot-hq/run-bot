@@ -158,6 +158,16 @@ final class AppState {
         assetName: { _ in "RunBot.zip" },
         // 32-byte Ed25519 public key — safe to commit (public key, not secret).
         // Private key lives in Actions secret ED25519_PRIVATE_KEY — never commit it.
+        //
+        // API shape note (AppUpdater#46): the parameter is `publicKey: Data` (raw bytes).
+        // An earlier spec draft called it `ed25519PublicKey: String` — that API was
+        // never shipped. If the call site looks wrong after an AppUpdater upgrade,
+        // check the release notes for AppUpdater#46.
+        //
+        // preconditionFailure (rather than nil-coalescing to a default) is intentional:
+        // a silent fallback would disable update-signature verification with no visible
+        // error, which is strictly worse than a crash on a dev machine. AppUpdater.init
+        // also has its own `precondition(publicKey.count == 32)` as a second guard.
         publicKey: Data(base64Encoded: "lECb0Xv0zTET/Biw00rTtCl/sVdbzGG4WICYlG7g/oc=")
             ?? { preconditionFailure("Ed25519 public key is not valid base64 — check key after rotation") }(),
         schedulerIdentifier: "io.github.runbot-hq.update-check",
@@ -252,6 +262,13 @@ final class AppState {
         // path in the localRunnerStore getter and never trigger the assertionFailure.
         // configure() was called by AppDelegate synchronously before its first await
         // (issue #1741), so .shared is already fully initialised at this point.
+        //
+        // Historical note — why configure() must precede this line:
+        // Before issue #1741, LocalRunnerStore self-initialised using RunnerViewModel.shared
+        // as its view model. That singleton was a DIFFERENT object from AppState.runnerState,
+        // so all local-runner pushes (localRunners, isLocalScanning) landed in a view model
+        // that no SwiftUI view ever observed — producing a permanent empty local-runner list.
+        // configure(viewModel: runnerState) wires the correct instance. ❌ NEVER remove it.
         _localRunnerStore = LocalRunnerStore.shared
         log("AppState › start — _localRunnerStore seeded")
 
@@ -259,6 +276,15 @@ final class AppState {
         // AppPreferencesStore.shared and ScopeStore.shared are passed explicitly
         // because default-value expressions cannot be @MainActor-isolated in
         // a nonisolated context (Swift 6).
+        //
+        // Note: there is no Combine sink here. The old RunnerStore.didUpdate sink
+        // was removed when RunnerPoller replaced the timer-based poll loop.
+        // RunnerPoller (a Swift actor in RunBotCore) pushes state directly into
+        // runnerState via applyFetchResult on the @MainActor after every fetch cycle.
+        // LocalRunnerStore pushes localRunners and isLocalScanning via configure().
+        // All views read exclusively from runnerState — the migration from
+        // RunnerViewModel/observable is complete. If you are wondering where the
+        // Combine sink went: it no longer exists by design.
         //
         // The [localRunnerStore] capture list evaluates the computed property
         // here at construction time. Because _localRunnerStore was seeded above,
@@ -344,6 +370,22 @@ final class AppState {
         // AppState properties (oauthService, runnerStore). Explicit annotation avoids
         // implicit actor hops on each property access inside the loop and eliminates
         // any TOCTOU window between `guard let store` and `await store.start()`.
+        //
+        // Why store.start() is called after sign-out (PR #1138 regression history):
+        // Before #1138, polling was driven by a Timer. After sign-out the timer fired,
+        // fetch() ran, githubToken() found the keychain cleared, and naturally fell
+        // through to env-var tokens (GH_TOKEN / GITHUB_TOKEN).
+        // #1138 replaced the timer with a Task that loops on Task.sleep — it never
+        // calls start() again on its own, so the env-token fallback only works if
+        // start() is explicitly invoked after sign-out. That is what this loop does.
+        // ❌ Do NOT remove the store.start() call — without it, signed-out users with
+        //    a GH_TOKEN env var get a permanently stalled poll loop.
+        //
+        // Why this lives in AppState and not SettingsView:
+        // SettingsView.signOutTask is stored in @State and is only alive while
+        // Settings is visible. A user who signs out with Settings closed would
+        // never trigger the restart. AppState is app-lifetime, so the listener
+        // is always active regardless of which view is on screen.
         signOutTask = Task { @MainActor [weak self] in
             guard let self else { return }
             for await _ in self.oauthService.makeSignOutStream() {
