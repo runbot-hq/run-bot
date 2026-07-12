@@ -228,6 +228,12 @@ final class AppState {
     /// by the caller (AppDelegate) synchronously before its first `await`, per the
     /// fix for issue #1741. This method assumes configure has already run.
     ///
+    /// ❌ NEVER move `LocalRunnerStore.configure()` inside this method or inside the
+    /// startup `Task {}` in `applicationDidFinishLaunching`. configure() must be
+    /// synchronous and before any await so that any @MainActor work enqueued during
+    /// the first suspension point (refreshDisplayNames) cannot reach
+    /// `LocalRunnerStore.shared` before configure has run.
+    ///
     /// Sequence:
     /// 1. Seed `_localRunnerStore` from `LocalRunnerStore.shared` (already configured).
     /// 2. Create `RunnerPoller`.

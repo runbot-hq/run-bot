@@ -57,6 +57,13 @@ extension AppDelegate {
             // configure() has already been called above; appState.start() assumes this.
             // `updateStatusIcon` is an AppDelegate method (AppKit concern) passed
             // as a callback so AppState never imports AppKit or holds AppDelegate.
+            //
+            // Startup ordering safety: appState.start() suspends on refreshAsync()
+            // (Step 3) before it calls store.start() (Step 4). That suspension yields
+            // back to this Task's outer continuation, but by that point setupStatusItem()
+            // and setupPanel() have already completed above. The status-icon and
+            // sign-out observation tasks (Step 7) are started after store.start(),
+            // so they can never fire before the poll loop is running.
             await appState.start(onUpdateStatusIcon: { [weak self] in
                 self?.updateStatusIcon()
             })
