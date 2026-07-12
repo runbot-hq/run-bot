@@ -89,12 +89,19 @@ public enum MBKPickerTarget {
 }
 
 /// Opens a directory picker anchored to the appropriate window.
-/// The completion closure is called on the main actor with the selected URL,
-/// or nil if the user cancelled.
+///
+/// - Parameters:
+///   - target: Whether to anchor the picker to the popover window or the sheet child window.
+///   - overlayGate: The shared gate that blocks popover dismiss while the picker is live.
+///   - message: Optional descriptive string shown inside the picker panel below the title.
+///     Defaults to `""` (no message shown), which preserves existing behaviour for callers
+///     that omit it. Pass a non-empty string to give users in-panel guidance.
+///   - completion: Called on the main actor with the selected `URL`, or `nil` on cancel.
 @MainActor
 public func mbkOpenFilePicker(
     target: MBKPickerTarget,
     overlayGate: MBKOverlayGate,
+    message: String = "",
     completion: @escaping @MainActor (URL?) -> Void
 ) {
     let label = target == .popover ? "popover" : "sheet"
@@ -134,6 +141,7 @@ public func mbkOpenFilePicker(
     panel.canChooseDirectories = true
     panel.allowsMultipleSelection = false
     panel.prompt = "Select"
+    if !message.isEmpty { panel.message = message }
 
     // Arm the dismiss gate before opening — see WHY hasActiveOverlay IS SET
     // BEFORE beginSheetModal in the file header.

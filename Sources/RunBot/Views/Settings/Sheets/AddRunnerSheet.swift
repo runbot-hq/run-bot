@@ -1,7 +1,7 @@
 // AddRunnerSheet.swift
 // RunBot
-import AppKit
 import GitHubClient
+import MenuBarKit
 import RunBotCore
 import SwiftUI
 
@@ -63,6 +63,10 @@ struct AddRunnerSheet: View {
     /// Core runner state — read for synchronous duplicate checks against localRunners.
     /// No default is provided: the value is injected via `AppDelegate.wrapEnv`.
     @Environment(RunnerState.self) var runnerState: RunnerState
+    /// Gate that tracks whether any overlay (sheet or file picker) is active.
+    /// Used by `pickExistingFolder()` to arm the dismiss gate before opening the picker.
+    /// Injected via `AppDelegate.wrapEnv`.
+    @Environment(MBKOverlayGate.self) var overlayGate: MBKOverlayGate
 
     // MARK: - Add Mode
 
@@ -129,7 +133,7 @@ struct AddRunnerSheet: View {
 
     // MARK: Pre-existing state (Add pre-existing only)
 
-    /// The folder path the user selected via NSOpenPanel.
+    /// The folder path the user selected via the file picker.
     @State var existingDir = ""
     /// Runner name parsed from the `.runner` JSON inside `existingDir`.
     @State var detectedName = ""
@@ -141,9 +145,6 @@ struct AddRunnerSheet: View {
     @State var githubURLOverride = ""
     /// Whether a runner with this name is already in LocalRunnerStore's index.
     @State var isDuplicate = false
-    /// The NSWindow hosting this sheet, captured early via WindowGrabber so
-    /// `beginSheetModal` has a reliable reference when pickExistingFolder() is called.
-    @State var hostWindow: NSWindow?
 
     // MARK: - Body
 
@@ -175,9 +176,6 @@ struct AddRunnerSheet: View {
         }
         .padding(20)
         .frame(width: 420)
-        .background(WindowGrabber { w in
-            if hostWindow == nil, let w { hostWindow = w }
-        })
         .onAppear {
             if addMode == .addNew { loadScopes() }
         }
@@ -324,7 +322,7 @@ struct AddRunnerSheet: View {
         let resolvedDir = URL(fileURLWithPath: dir).resolvingSymlinksInPath().path
         guard resolvedDir == homeDir || resolvedDir.hasPrefix(homeDir + "/") else {
             isRegistering = false
-            errorMessage = "Install directory must be inside your home folder (~/\u{2026})."
+            errorMessage = "Install directory must be inside your home folder (~/…)."
             return
         }
 
@@ -346,7 +344,7 @@ struct AddRunnerSheet: View {
         let configPath = URL(fileURLWithPath: dir).appendingPathComponent("config.sh").path
 
         if !FileManager.default.fileExists(atPath: configPath) {
-            setStep("Downloading runner package\u{2026}")
+            setStep("Downloading runner package…")
             guard let downloadURL = await fetchRunnerDownloadURL() else {
                 isRegistering = false
                 errorMessage = "Could not determine runner download URL. Check your internet connection."
@@ -363,7 +361,7 @@ struct AddRunnerSheet: View {
                 errorMessage = "Download failed."
                 return
             }
-            setStep("Unpacking runner package\u{2026}")
+            setStep("Unpacking runner package…")
             let tarResult = await runSimpleProcess(GitHubURIs.tarPath, args: ["xzf", tarPath, "-C", dir])
             try? FileManager.default.removeItem(atPath: tarPath)
             guard tarResult == 0 else {
@@ -373,18 +371,18 @@ struct AddRunnerSheet: View {
             }
         }
 
-        setStep("Fetching registration token\u{2026}")
+        setStep("Fetching registration token…")
         guard let token = await fetchRegistrationToken(scope: scope) else {
             isRegistering = false
             if currentScopeType == .org {
-                errorMessage = "Not authorised to register org-level runners. Ensure your token has the 'manage_runners:org' scope, or sign in via the GitHub button in Settings."
+                errorMessage = "Not authorised to register org-level runners. Ensure your token has the ‘manage_runners:org’ scope, or sign in via the GitHub button in Settings."
             } else {
                 errorMessage = "Could not get a registration token. Ensure a valid token is available via OAuth sign-in, or the GH_TOKEN / GITHUB_TOKEN environment variable."
             }
             return
         }
 
-        setStep("Configuring runner\u{2026}")
+        setStep("Configuring runner…")
         let ghURL = "\(GitHubURIs.base)\(scope)"
         let configExit = await runRegistrationCommand(
             dir: dir, ghURL: ghURL, token: token, name: name, labels: labels
@@ -395,7 +393,7 @@ struct AddRunnerSheet: View {
             return
         }
 
-        setStep("Registering service\u{2026}")
+        setStep("Registering service…")
         writeLaunchAgentPlist(scope: scope, runnerName: name, workingDirectory: dir)
         // Await directly — register() is already async, no Task wrapper needed.
         // This guarantees add() completes before isPresented = false fires and

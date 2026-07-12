@@ -48,7 +48,7 @@ MenuBarKit has no knowledge of `RunBot`, `RunBotCore`, runner state, `AppState`,
 |---|---|
 | `OverlayGate.swift` | `MBKOverlayGate` — single `@Observable @MainActor` class; one `Bool` that blocks popover dismiss while any overlay is live |
 | `PopoverController.swift` | `MBKPopoverController` — full NSPopover + NSStatusItem lifecycle; outside-click monitor; workspace app-switch observer |
-| `AnchoredSheet.swift` | `MBKAnchoredSheetModifier` / `.mbkSheet()` — presents a SwiftUI sheet anchored as a child window of the popover so it survives outside-clicks |
+| `AnchoredSheet.swift` | `MBKAnchoredSheetModifier` / `.mbkSheet(isPresented:overlayGate:)` — presents a SwiftUI sheet anchored as a child window of the popover so it survives outside-clicks; `MBKAnchoredSheetItemModifier` / `.mbkSheet(item:overlayGate:)` — same, driven by an optional `Identifiable` item binding (mirrors SwiftUI's `.sheet(item:)` API shape) |
 | `FilePicker.swift` | `mbkOpenFilePicker()` — opens NSOpenPanel via `beginSheetModal` anchored to the correct window (popover or sheet child); manages the overlay gate |
 | `Logging.swift` | `mbkLog()` — `#if DEBUG`-gated, `@inlinable` zero-cost no-op in release |
 
@@ -63,7 +63,7 @@ This package is **spike code** — it validates two specific unknowns for the mi
 
 Every known limitation is documented inline with `// SPIKE ONLY`, `#warning`, or a `TARGET IMPLEMENTATION` comment. The most important ones:
 
-- **`AnchoredSheet` dismiss-safety gap** — `overlayGate.hasActiveOverlay` clears before the sheet NSWindow is fully detached. See `DISMISS-SAFETY GAP` in `AnchoredSheet.swift`. Do not paper over with a delay; the fix is `NSWindow.didBecomeKeyNotification` — deferred to the migration PR.
+- **`AnchoredSheet` dismiss-safety gap** — `overlayGate.hasActiveOverlay` clears before the sheet NSWindow is fully detached. Affects both the `isPresented` and `item` variants — both are fixed together. See `DISMISS-SAFETY GAP` in `AnchoredSheet.swift`. Do not paper over with a delay; the fix is `NSWindow.didBecomeKeyNotification` — deferred to the migration PR.
 - **`DispatchQueue.main.async` in `anchorSheetWindow()`** — mixes GCD with Swift concurrency. Gated by `#warning`. Replace with the notification-based approach in the migration PR.
 - **`sheetChildWindow` predicate** — intentionally weak for spike lifetime; see `sheetChildWindow PREDICATE` in `FilePicker.swift` before strengthening.
 
@@ -79,8 +79,11 @@ let gate = MBKOverlayGate()
 let controller = MBKPopoverController(rootView: RootView(), overlayGate: gate)
 controller.setup()   // ← must be called from applicationDidFinishLaunching
 
-// 3. Present a sheet from any view — gate managed automatically
+// 3a. Present a sheet from any view — gate managed automatically (Bool binding)
 .mbkSheet(isPresented: $showSettings, overlayGate: gate) { SettingsView() }
+
+// 3b. Present a sheet driven by an optional Identifiable item — gate managed automatically
+.mbkSheet(item: $editingItem, overlayGate: gate) { item in ItemDetailSheet(item: item) }
 
 // 4. Open a file picker from popover context
 mbkOpenFilePicker(target: .popover, overlayGate: gate) { url in … }
@@ -94,7 +97,7 @@ mbkOpenFilePicker(target: .sheet, overlayGate: gate) { url in … }
 ## Migration checklist (before porting to main app)
 
 - [ ] Replace `DispatchQueue.main.async` in `anchorSheetWindow()` with `NSWindow.didBecomeKeyNotification` (see `TARGET IMPLEMENTATION` in `AnchoredSheet.swift`)
-- [ ] Fix the dismiss-safety gap — tie gate lifetime to window lifecycle, not SwiftUI binding state
+- [ ] Fix the dismiss-safety gap — tie gate lifetime to window lifecycle, not SwiftUI binding state (affects both `isPresented` and `item` variants)
 - [ ] Strengthen `sheetChildWindow` predicate for multi-child-window environments
 - [ ] Add `MenuBarKitTests` target covering gate logic and teardown paths
 - [ ] Update `PopoverLifecycleCoordinator` to use `queue: nil + Task { @MainActor }` to match MenuBarKit's strictly Swift 6-correct pattern (see `ASYMMETRY WITH MBKPopoverController` in `PopoverLifecycleCoordinator.swift`)

@@ -4,6 +4,7 @@
 import AppKit
 import AppUpdater
 import GitHubClient
+import MenuBarKit
 import RunBotCore
 import SwiftUI
 
@@ -100,12 +101,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // read/write access to all of them.
 
     /// The NSStatusItem anchoring the menu-bar icon and popover.
+    /// App-owned — RunBot manages the dynamic icon observation task and button
+    /// action directly. MBKPopoverController is NOT used in PR-A.
     var statusItem: NSStatusItem?
     /// The NSPopover that hosts the SwiftUI panel (replaces the old KeyablePanel/NSPanel approach).
     var popover: NSPopover?
     /// The SwiftUI hosting controller embedded inside `popover`. Its `rootView` is
     /// swapped on navigation; the controller itself is never recreated.
     var hostingController: NSHostingController<AnyView>?
+
+    /// Gate that tracks whether a sheet or file-picker overlay is active.
+    ///
+    /// Lives on AppDelegate (not AppState) for PR-A so MenuBarKit stays decoupled
+    /// from RunBot's domain model. Injected into the SwiftUI view tree via
+    /// `.environment(overlayGate)` in `wrapEnv(_:)`. Views use this to call
+    /// `.mbkSheet(overlayGate:)` and `mbkOpenFilePicker()` instead of bare
+    /// `.sheet()` / `NSOpenPanel`, giving the outside-click monitor structural
+    /// truth about overlay presence via `overlayGate.hasActiveOverlay`.
+    let overlayGate = MBKOverlayGate()
 
     /// The `GitHubClient` facade — owns and wires `KeychainTokenStore`, `TokenCache`,
     /// `OAuthService`, and `GitHubTransport` under a single init.
@@ -252,9 +265,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// `PanelContainerView` and its dim overlay observe this object;
     /// removing it causes a runtime crash on sheet dismissal.
     func wrapEnv<V: View>(_ view: V) -> AnyView {
-        AnyView(view
+        // Capture lifecycleCoordinator weakly so the environment closure cannot
+        // extend AppDelegate's lifetime if AppDelegate is ever shortened. In
+        // normal app lifetime AppDelegate is never released, but [weak self]
+        // is the defensive correct pattern for closure captures on classes.
+        let suppressHidePanel: @MainActor @Sendable () -> Void = { [weak self] in
+            self?.lifecycleCoordinator.suppressHidePanel()
+        }
+        return AnyView(view
             .environment(panelVisibilityState)
             .environment(runnerState)
+            .environment(overlayGate)
+            .environment(\.suppressHidePanel, suppressHidePanel)
         )
     }
 
@@ -467,6 +489,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             hasActiveSheet: { [weak self] in
                 guard let self else { return false }
                 return self.hasActiveSheet || self.lifecycleCoordinator.isSheetDismissing
+                    || self.overlayGate.hasActiveOverlay
             },
             popoverWindow: { [weak self] in self?.popover?.contentViewController?.view.window },
             onHide: { [weak self] in self?.hidePanel() }

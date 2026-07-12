@@ -1,8 +1,8 @@
 // AddRunnerSheet+FormFields.swift
 // RunBot
 
-import AppKit
 import GitHubClient
+import MenuBarKit
 import RunBotCore
 import SwiftUI
 
@@ -286,26 +286,22 @@ extension AddRunnerSheet {
 
     // MARK: - Actions (Add pre-existing)
 
-    /// Opens an `NSOpenPanel` as a sheet attached to the popover's own window.
+    /// Opens a directory picker anchored to the sheet child window via `mbkOpenFilePicker`.
     ///
-    /// Uses `beginSheetModal(for:)` so the panel attaches as a child sheet and
-    /// AppKit never treats clicks inside the panel as "outside clicks" that would
-    /// dismiss the popover.
+    /// `mbkOpenFilePicker(target: .sheet, ...)` resolves the correct NSWindow internally
+    /// (sheet child window when available, popover window as fallback) and arms
+    /// `overlayGate.hasActiveOverlay` before opening so the outside-click monitor is
+    /// blocked for the full lifetime of the panel. This replaces the previous
+    /// `WindowGrabber` + `NSOpenPanel.beginSheetModal` approach (#2041, step 4).
     func pickExistingFolder() {
-        guard let window = hostWindow else {
-            log("AddRunnerSheet › pickExistingFolder — ERROR: hostWindow nil, picker will not open")
-            return
-        }
-        let openPanel = NSOpenPanel()
-        openPanel.canChooseFiles = false
-        openPanel.canChooseDirectories = true
-        openPanel.allowsMultipleSelection = false
-        openPanel.message = "Select the runner install folder (must contain a .runner file)"
-        openPanel.prompt = "Select"
-        log("AddRunnerSheet › pickExistingFolder — calling beginSheetModal")
-        openPanel.beginSheetModal(for: window) { response in
-            log("AddRunnerSheet › pickExistingFolder — panel closed response=\(response.rawValue)")
-            guard response == .OK, let url = openPanel.url else { return }
+        log("AddRunnerSheet › pickExistingFolder — opening via mbkOpenFilePicker(target: .sheet)")
+        mbkOpenFilePicker(
+            target: .sheet,
+            overlayGate: overlayGate,
+            message: "Select the runner install folder (must contain a .runner file)"
+        ) { url in
+            log("AddRunnerSheet › pickExistingFolder — picker closed url=\(String(describing: url))")
+            guard let url else { return }
             handlePickedFolder(url)
         }
     }
@@ -342,15 +338,13 @@ extension AddRunnerSheet {
 
     /// Writes the LaunchAgent plist, registers with `LocalRunnerStore`, and dismisses the sheet.
     ///
-    /// `@MainActor` because all state mutations (`isPresented`, `onComplete`, `existingError`)
-    /// target `@State` or `@Binding` properties that are `@MainActor`-isolated.
-    /// All blocking work is delegated to `localRunnerStore.add()` which is awaited
-    /// directly, guaranteeing the actor has appended the runner before `isPresented = false`
-    /// fires and `onComplete()` enqueues its refresh().
-    ///
-    /// The `canImport` check at entry is a defensive safety net. The primary gate is the
-    /// `.disabled(!canImport)` modifier on the Import button; this guard catches any
-    /// programmatic calls that bypass the UI.
+    /// WHY @MainActor + async WITHOUT a Task WRAPPER AT THE CALL SITE:
+    ///   The Button action closure that calls this is already @MainActor-isolated
+    ///   (SwiftUI View body context). `importExistingRunner` is `async` so its
+    ///   `await localRunnerStore.add(...)` suspension can hop off the main actor
+    ///   for the store work and return. The caller wraps it in `Task { await ... }`
+    ///   so the button action remains synchronous. Inside this function there is no
+    ///   need for an additional Task wrapper — `await` is used directly.
     @MainActor
     func importExistingRunner() async {
         guard canImport else { return }
@@ -369,10 +363,7 @@ extension AddRunnerSheet {
             runnerName: detectedName,
             workingDirectory: existingDir
         )
-        // Await directly — importExistingRunner() is async, no Task wrapper needed.
-        // This guarantees add() completes before isPresented = false fires and
-        // onComplete() enqueues its refresh(), so the new runner row is always
-        // present in the actor's index before the scan runs.
+        // Await directly — importExistingRunner() is async; no inner Task wrapper needed.
         await localRunnerStore.add(runnerName: detectedName, installPath: existingDir)
         isPresented = false
         onComplete()
