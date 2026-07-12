@@ -295,7 +295,11 @@ extension AddRunnerSheet {
     /// `WindowGrabber` + `NSOpenPanel.beginSheetModal` approach (#2041, step 4).
     func pickExistingFolder() {
         log("AddRunnerSheet › pickExistingFolder — opening via mbkOpenFilePicker(target: .sheet)")
-        mbkOpenFilePicker(target: .sheet, overlayGate: overlayGate) { url in
+        mbkOpenFilePicker(
+            target: .sheet,
+            overlayGate: overlayGate,
+            message: "Select the runner install folder (must contain a .runner file)"
+        ) { url in
             log("AddRunnerSheet › pickExistingFolder — picker closed url=\(String(describing: url))")
             guard let url else { return }
             handlePickedFolder(url)
