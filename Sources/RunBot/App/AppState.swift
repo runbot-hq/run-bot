@@ -269,7 +269,13 @@ final class AppState {
             state: runnerState,
             preferencesStore: AppPreferencesStore.shared,
             scopeStore: ScopeStore.shared,
+            // Capture runnerState directly — not via [weak self] — so a nil
+            // AppState can never silently return [] and drop all local runners
+            // from the poll cycle. runnerState is a @MainActor-isolated class
+            // reference; capturing it directly is safe.
             localRunners: { [runnerState] in runnerState.localRunners },
+            // Capture the stored property rather than LocalRunnerStore.shared
+            // so a test double wired via _localRunnerStore is honoured here too.
             applyMetrics: { [localRunnerStore] metrics, id, name in
                 await localRunnerStore.applyMetrics(metrics, forRunnerId: id, name: name)
             }
@@ -277,6 +283,12 @@ final class AppState {
         log("AppState › start — RunnerPoller created")
 
         // Step 3: await local runner hydration before starting the poll loop.
+        // refreshAsync() suspends until disk hydration completes; refresh() (the
+        // fire-and-forget variant) would return immediately and let store.start()
+        // fire fetch() on the very next runloop turn — before the refresh Task
+        // has a chance to run. Result on cycle 1: localRunners=[], installPathMap
+        // empty, metrics missing on first runner appearance. refreshAsync() closes
+        // that race entirely.
         log("AppState › start — awaiting localRunnerStore.refreshAsync()")
         await localRunnerStore.refreshAsync()
         log("AppState › start — refreshAsync complete")
