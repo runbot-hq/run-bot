@@ -207,11 +207,13 @@ final class AppState {
     /// fix for issue #1741. This method assumes configure has already run.
     ///
     /// Sequence:
-    /// 1. `refreshAsync()` — hydrates local runners before poll loop fires.
-    /// 2. `runnerStore.start()` — begins the poll loop.
-    /// 3. `autoUpdater.checkAndHandle` — launch-time update check.
-    /// 4. `autoUpdater.scheduleBackgroundCheck` — periodic update scheduler.
-    /// 5. `startObservations()` — wires status-icon and sign-out tasks.
+    /// 1. Seed `_localRunnerStore` from `LocalRunnerStore.shared` (already configured).
+    /// 2. Create `RunnerPoller`.
+    /// 3. `refreshAsync()` — hydrates local runners before poll loop fires.
+    /// 4. `runnerStore.start()` — begins the poll loop.
+    /// 5. `autoUpdater.checkAndHandle` — launch-time update check.
+    /// 6. `autoUpdater.scheduleBackgroundCheck` — periodic update scheduler.
+    /// 7. `startObservations()` — wires status-icon and sign-out tasks.
     ///
     /// Idempotency: guarded by `runnerStore == nil` — a second call is a no-op.
     func start(onUpdateStatusIcon: @escaping @MainActor () -> Void) async {
@@ -223,20 +225,25 @@ final class AppState {
         // The old setupSubscriptions() had the same guard — preserved here so UI tests
         // remain fast and network-free. AppDelegate still calls configure() before this
         // (needed for the SwiftUI env even in test runs), but the poll loop must not start.
+        //
+        // Skipping startObservations() here is intentional: the sign-out observation
+        // loop and status-icon task are not started either. There is no poll loop
+        // running in UI tests, so there is nothing to restart on sign-out. UI tests
+        // test the UI — they do not simulate OAuth sign-out stream events.
         guard ProcessInfo.processInfo.environment["UI_TESTING"] == nil else {
             log("AppState › start — UI_TESTING detected, skipping network setup")
             return
         }
         log("AppState › start — begin (LocalRunnerStore.configure already called by AppDelegate)")
 
-        // Seed the backing store so all accesses inside start() take the fast path
-        // in the localRunnerStore getter and never trigger the assertionFailure.
+        // Step 1: seed the backing store so all accesses inside start() take the fast
+        // path in the localRunnerStore getter and never trigger the assertionFailure.
         // configure() was called by AppDelegate synchronously before its first await
         // (issue #1741), so .shared is already fully initialised at this point.
         _localRunnerStore = LocalRunnerStore.shared
         log("AppState › start — _localRunnerStore seeded")
 
-        // Step 1: create RunnerPoller.
+        // Step 2: create RunnerPoller.
         // AppPreferencesStore.shared and ScopeStore.shared are passed explicitly
         // because default-value expressions cannot be @MainActor-isolated in
         // a nonisolated context (Swift 6).
