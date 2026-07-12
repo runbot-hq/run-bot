@@ -87,12 +87,12 @@ final class AppState {
     /// without spawning real `svc.sh` processes (principle P7).
     ///
     /// Testability note: constructing `AppState` is zero-cost (no side effects
-    /// until `start()` is called), so a test can create `AppState()`, assign
-    /// a stub to `lifecycleService` via a test-only `init`, and never call
-    /// `start()`. The protocol typing here enables that pattern. A full
+    /// until `start()` is called), so a test can create `AppState()` or use
+    /// `AppState(lifecycleService:)` to inject a stub, and never call `start()`.
+    /// The protocol typing and `var` storage enable that pattern. A full
     /// `AppStateProtocol` extraction is deferred — see WHY NOT AppStateProtocol
     /// in the file-level comment.
-    let lifecycleService: any RunnerLifecycleServiceProtocol = RunnerLifecycleService()
+    var lifecycleService: any RunnerLifecycleServiceProtocol = RunnerLifecycleService()
 
     /// Owned `LocalRunnerStore` actor.
     ///
@@ -103,18 +103,19 @@ final class AppState {
     /// ❌ NEVER read `localRunnerStore` before `start()` runs. `start()` seeds
     /// `_localRunnerStore` immediately after `configure()` is called (by AppDelegate
     /// before the startup Task), so all accesses inside `start()` take the fast
-    /// path. The `assertionFailure` below is a guard against other early-read
-    /// paths (e.g. previews) — it is NOT expected to fire during normal startup.
+    /// path. The guard below is a safeguard against other early-read paths
+    /// (e.g. previews) — it is NOT expected to fire during normal startup.
     ///
     /// WHY THE FALLBACK PATH EXISTS (it is NOT a safe-recovery path):
-    /// Both the DEBUG and Release branches terminate the process — the only
-    /// difference is crash-report attribution. DEBUG fires `assertionFailure`
-    /// here so the crash site is `AppState.localRunnerStore` with a readable
-    /// message. Release falls through to `LocalRunnerStore.shared`, which calls
-    /// `fatalError` internally if `configure()` has not run. There is no silent
-    /// recovery, no default value, and no retry. If you are reading this because
-    /// the assertionFailure fired, fix the early-read path — do not remove the
-    /// fallback or replace it with a nil-coalescing default.
+    /// Both the DEBUG and Release branches terminate the process via fatalError —
+    /// assertionFailure does NOT halt execution on its own; it only pauses
+    /// execution in a debug session (a debugger breakpoint). The fatalError
+    /// below always fires in both configurations. The #if DEBUG block adds a
+    /// readable message at the assertionFailure call site for crash symbolication,
+    /// but control always falls through to fatalError regardless of build config.
+    /// There is no silent recovery, no default value, and no retry. If you are
+    /// reading this because the assertionFailure fired, fix the early-read path
+    /// — do not remove the fallback or replace it with a nil-coalescing default.
     var localRunnerStore: LocalRunnerStore {
         if let store = _localRunnerStore { return store }
         // ──────────────────────────────────────────────────────────────────
@@ -123,10 +124,10 @@ final class AppState {
         // If you are reading this because the assertionFailure fired, an
         // early-read path exists that bypasses start() — fix that, not this.
         // ──────────────────────────────────────────────────────────────────
-        // Both DEBUG and Release terminate the process — there is no recovery.
-        // DEBUG: assertionFailure here gives a readable crash site and message.
-        // Release: fatalError below gives an explicit crash site in AppState
-        //          rather than a confusing force-unwrap elsewhere.
+        // Both DEBUG and Release terminate via fatalError below.
+        // assertionFailure in DEBUG adds a debugger pause and readable message
+        // at this call site, but does NOT prevent fatalError from firing —
+        // execution continues past assertionFailure unconditionally.
         // ⚠️ Do NOT replace this with a nil-coalescing default or .shared fallback
         //    — doing so would mask the missed start() call in Release builds.
         #if DEBUG
@@ -238,8 +239,20 @@ final class AppState {
 
     // MARK: - Init
 
-    /// Creates a new `AppState`. Call `start(onUpdateStatusIcon:)` after init to begin the startup sequence.
+    /// Creates a new `AppState` with the default production `RunnerLifecycleService`.
+    /// Call `start(onUpdateStatusIcon:)` after init to begin the startup sequence.
     init() {}
+
+    /// Test-only initialiser. Injects a stub `RunnerLifecycleServiceProtocol`
+    /// so unit tests can exercise `AppState` without spawning real `svc.sh`
+    /// processes (principle P7). Never call `start()` from test code unless
+    /// the test explicitly needs the poll loop.
+    ///
+    /// - Parameter lifecycleService: A stub conforming to
+    ///   `RunnerLifecycleServiceProtocol`. Pass a test double or a no-op mock.
+    init(lifecycleService: any RunnerLifecycleServiceProtocol) {
+        self.lifecycleService = lifecycleService
+    }
 
     // MARK: - Startup
 
