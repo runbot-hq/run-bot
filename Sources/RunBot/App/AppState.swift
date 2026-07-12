@@ -330,7 +330,22 @@ final class AppState {
         log("AppState › start — begin (LocalRunnerStore.configure already called by AppDelegate)")
         seedStoreAndPoller()  // Steps 1–2: kept in a helper to stay within function_body_length.
 
-        // Step 3: await local runner hydration before starting the poll loop.
+        // Step 3: wire domain observation tasks BEFORE any await.
+        // signOutTask subscribes to oauthService.makeSignOutStream() here. If this
+        // call were deferred until after the update-check await (Step 6 / checkAndHandle, which can
+        // take tens of seconds on a slow connection), any sign-out event during
+        // startup would be dropped — the stream is not buffered, so missed events
+        // are gone. The poll loop would continue issuing requests with a cleared
+        // Keychain token, returning 401 on every cycle, with no env-token fallback
+        // until a full app restart.
+        // statusIconTask uses Observations{} which has did-set semantics (emits the
+        // current aggregateStatus on first subscription), so wiring it here rather
+        // than after store.start() is safe — any status writes that race are covered
+        // by the initial emission when the loop first iterates.
+        startObservations(onUpdateStatusIcon: onUpdateStatusIcon)
+        log("AppState › start — observations wired (sign-out listener active)")
+
+        // Step 4: await local runner hydration before starting the poll loop.
         // refreshAsync() suspends until disk hydration completes; refresh() (the
         // fire-and-forget variant) would return immediately and let store.start()
         // fire fetch() on the very next runloop turn — before the refresh Task
@@ -349,20 +364,16 @@ final class AppState {
             return
         }
 
-        // Step 4: start the poll loop.
+        // Step 5: start the poll loop.
         await store.start()
         log("AppState › start — poll loop started")
 
-        // Step 5: update check.
+        // Step 6: update check.
         await autoUpdater.checkAndHandle(state: runnerState)
 
-        // Step 6: background update scheduler.
+        // Step 7: background update scheduler.
         autoUpdater.scheduleBackgroundCheck(state: runnerState)
         log("AppState › start — update background scheduler registered")
-
-        // Step 7: wire domain observation tasks.
-        startObservations(onUpdateStatusIcon: onUpdateStatusIcon)
-        log("AppState › start — observations started")
     }
 
     // MARK: - Startup helpers
