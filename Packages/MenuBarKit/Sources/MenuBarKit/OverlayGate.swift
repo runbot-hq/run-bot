@@ -35,12 +35,13 @@
 //   If a future use-case genuinely requires concurrent overlays, replace the
 //   Bool with an Int and use increment/decrement rather than set/clear.
 //
-// WHY hasActiveOverlay IS public var (not private(set)):
-//   MBKAnchoredSheet and mbkOpenFilePicker write it directly to manage the
-//   gate lifetime. The planned mbkAlert modifier (#2038) will also write it.
-//   It is public var by necessity of the gate-ownership contract, not by
-//   accident. Host apps must not write it directly (see SPIKE ONLY comment
-//   in SettingsView.swift and issue #2038).
+// WHY hasActiveOverlay IS public private(set) var:
+//   All write sites (MBKAnchoredSheet, mbkOpenFilePicker, and the planned
+//   mbkAlert) live inside the MenuBarKit module, so the setter only needs
+//   internal visibility. public private(set) var exposes the read to hosts
+//   while making direct external mutation a compile error rather than a
+//   doc-comment convention. Host apps must not write hasActiveOverlay directly
+//   — doing so is now enforced by the compiler, not just documented.
 
 import Foundation
 import Observation
@@ -51,15 +52,16 @@ import Observation
 ///
 /// ❌ Host apps must not write `hasActiveOverlay` directly. Use `mbkSheet`,
 /// `mbkOpenFilePicker`, and (once available) `mbkAlert` — they manage the
-/// gate lifetime internally. Direct mutation is a spike-only shortcut
-/// that does not compose safely with concurrent overlays (see issue #2038).
+/// gate lifetime internally. Direct mutation is a compile error; the setter
+/// is intentionally internal to the `MenuBarKit` module.
 @Observable
 @MainActor
 public final class MBKOverlayGate {
     /// `true` while any sheet or file picker is live over the popover.
     /// Managed automatically by MBKAnchoredSheet and MBKFilePicker.
     /// Read by MBKPopoverController.popoverShouldClose.
-    public var hasActiveOverlay: Bool = false
+    /// Setter is internal — only MenuBarKit write sites may mutate this.
+    public private(set) var hasActiveOverlay: Bool = false
 
     /// Creates a new gate with no active overlay.
     public init() {}
