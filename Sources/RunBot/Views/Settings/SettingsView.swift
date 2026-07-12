@@ -47,6 +47,8 @@ struct SettingsView: View {
     // MARK: - Injected services
     /// Single coordinator for all domain-level state (oauth, lifecycle, runners, updater).
     /// Replaces four separate injected objects — see issue #2040.
+    /// `AppState` has no singleton — the single instance is owned by `AppDelegate`
+    /// and must be supplied explicitly by the caller. There is no safe default.
     let appState: AppState
     /// App-wide preference store (polling interval, popover arrow, beta channel, etc.).
     /// Injected as a concrete reference; `@Observable` types don't need `@State` wrapping.

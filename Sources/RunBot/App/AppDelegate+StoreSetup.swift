@@ -64,6 +64,10 @@ extension AppDelegate {
             // and setupPanel() have already completed above. The status-icon and
             // sign-out observation tasks (Step 7) are started after store.start(),
             // so they can never fire before the poll loop is running.
+            // Specifically: statusIconTask is guaranteed to be registered before the
+            // first applyFetchResult write because startObservations() (Step 7) is
+            // called after store.start() returns, and store.start() does not write
+            // until its first fetch cycle completes.
             await appState.start(onUpdateStatusIcon: { [weak self] in
                 self?.updateStatusIcon()
             })

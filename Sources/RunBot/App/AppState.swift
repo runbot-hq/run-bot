@@ -140,6 +140,11 @@ final class AppState {
     ///
     /// ❌ NEVER add a `lazy var` default body here — doing so creates a
     /// dual-init path that produces competing poll loops.
+    ///
+    /// `AppPreferencesStore.shared` and `ScopeStore.shared` are passed explicitly
+    /// at the `RunnerPoller` init site in `start()` rather than used as parameter
+    /// defaults because Swift 6 does not allow `@MainActor`-isolated expressions
+    /// as default values in a nonisolated context.
     var runnerStore: (any RunnerPollerProtocol)?
 
     /// Observable read model for all Core-side runner/job/action/rate-limit state.
