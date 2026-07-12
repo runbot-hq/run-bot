@@ -9,15 +9,14 @@
 // Nothing about popover lifecycle, monitors, or window management lives here.
 
 import AppKit
-import SwiftUI
 import MenuBarKit
+import SwiftUI
 
+/// Application delegate. Creates the shared `AppState` and `MBKOverlayGate`,
+/// then hands them to `MBKPopoverController` for the full menu-bar lifecycle.
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    private let appState = AppState()
-    private let overlayGate = MBKOverlayGate()
-    private var popoverController: MBKPopoverController!
-
+    /// Application-level state shared across all views via the environment.
     func applicationDidFinishLaunching(_ notification: Notification) {
         popoverController = MBKPopoverController(
             rootView: RootView()
@@ -28,4 +27,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         popoverController.setup()
     }
+
+    // MARK: - Private
+
+    /// App-specific observable state passed into views via SwiftUI environment.
+    private let appState = AppState()
+    /// Shared overlay gate — MenuBarKit reads and writes this; the spike never touches it directly.
+    private let overlayGate = MBKOverlayGate()
+    /// The MenuBarKit controller that owns NSPopover, NSStatusItem, and all observers.
+    private var popoverController: MBKPopoverController!
 }

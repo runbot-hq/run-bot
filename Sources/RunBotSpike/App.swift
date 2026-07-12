@@ -8,9 +8,12 @@
 
 import SwiftUI
 
+/// The SwiftUI App entry point. Wires `AppDelegate` via `@NSApplicationDelegateAdaptor`.
 @main
 struct RunBotSpikeApp: App {
+    /// The application delegate that owns the MenuBarKit popover controller.
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+    /// A minimal scene required by SwiftUI's App protocol; all real UI lives in the popover.
     var body: some Scene {
         Settings { EmptyView() }
     }

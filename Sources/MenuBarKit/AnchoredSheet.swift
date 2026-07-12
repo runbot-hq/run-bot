@@ -121,11 +121,17 @@ public extension View {
     }
 }
 
+/// ViewModifier that anchors a SwiftUI sheet as a child window of the popover
+/// and manages the `MBKOverlayGate` for the sheet's lifetime.
 public struct MBKAnchoredSheetModifier<SheetContent: View>: ViewModifier {
+    /// Whether the sheet is currently presented.
     @Binding public var isPresented: Bool
+    /// The shared overlay gate that blocks popover dismiss while the sheet is live.
     public let overlayGate: MBKOverlayGate
+    /// Closure that produces the sheet's content view.
     public let sheetContent: () -> SheetContent
 
+    /// Applies the sheet presentation and anchoring logic to the wrapped view.
     public func body(content: Content) -> some View {
         content
             .sheet(isPresented: $isPresented, content: sheetContent)
@@ -145,6 +151,7 @@ public struct MBKAnchoredSheetModifier<SheetContent: View>: ViewModifier {
             }
     }
 
+    /// Finds the sheet NSWindow and wires it as a child of the popover window.
     @MainActor
     private func anchorSheetWindow() {
         guard let popoverWindow = NSApp.windows.first(where: {

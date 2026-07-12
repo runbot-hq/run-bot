@@ -28,8 +28,11 @@
 
 import AppKit
 
+/// Specifies which window context the file picker should attach to.
 public enum MBKPickerTarget {
+    /// Attach the picker to the popover window directly.
     case popover
+    /// Attach the picker to the sheet child window (falls back to popover if absent).
     case sheet
 }
 

@@ -21,13 +21,17 @@
 import Foundation
 import Observation
 
+/// Tracks whether any overlay (sheet or file picker) is currently live over the popover.
+/// Managed automatically by `MBKAnchoredSheet` and `mbkOpenFilePicker`;
+/// read by `MBKPopoverController.popoverShouldClose` to block dismiss.
 @Observable
 @MainActor
 public final class MBKOverlayGate {
-    /// True while any sheet or file picker is live over the popover.
+    /// `true` while any sheet or file picker is live over the popover.
     /// Managed automatically by MBKAnchoredSheet and MBKFilePicker.
     /// Read by MBKPopoverController.popoverShouldClose.
     public var hasActiveOverlay: Bool = false
 
+    /// Creates a new gate with no active overlay.
     public init() {}
 }

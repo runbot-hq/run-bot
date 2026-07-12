@@ -1,4 +1,4 @@
-// Views/SettingsView.swift
+// SettingsView.swift
 // RunBotSpike
 //
 // Exercises both scenarios:
@@ -10,14 +10,19 @@
 //   Scenario 2 — File picker from popover level:
 //     "Pick folder (popover)" calls mbkOpenFilePicker(target: .popover).
 
-import SwiftUI
 import MenuBarKit
+import SwiftUI
 
+/// Settings view that exercises the sheet-anchoring and file-picker scenarios.
 struct SettingsView: View {
+    /// App state injected from the environment.
     @Environment(AppState.self) private var appState
+    /// Overlay gate injected from the environment.
     @Environment(MBKOverlayGate.self) private var overlayGate
+    /// Controls whether the anchored sheet is presented.
     @State private var showSheet = false
 
+    /// The settings view body — two scenario buttons and a path display.
     var body: some View {
         VStack(spacing: 12) {
             Text("Settings").font(.headline)
