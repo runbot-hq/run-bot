@@ -185,7 +185,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         return AnyView(view
             .environment(panelVisibilityState)
-            .environment(appState.runnerState)
+            .environment(appState)          // top-level domain coordinator (issue #2040)
+            .environment(appState.runnerState) // still injected directly for @Environment(RunnerState.self) reads
             .environment(overlayGate)
             .environment(\.suppressHidePanel, suppressHidePanel)
         )

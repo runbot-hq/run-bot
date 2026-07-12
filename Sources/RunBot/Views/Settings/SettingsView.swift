@@ -7,6 +7,11 @@ import RunBotCore
 import ServiceManagement
 import SwiftUI
 
+// MARK: - AppState import note
+// SettingsView now receives a single `AppState` instead of four separate
+// injected objects (oauthService, lifecycleService, runnerState, autoUpdater).
+// The AppState import comes from RunBot's own module — no extra import needed.
+
 // MARK: - SettingsView
 // Settings view — complete implementation for all phases 1-6.
 //
@@ -40,29 +45,24 @@ struct SettingsView: View {
     /// The local runner actor forwarded into `LocalRunnersView`.
     /// Defaults to `LocalRunnerStore.shared` so call sites that don't own the actor still compile.
     var localRunnerStore: LocalRunnerStore = .shared
-    /// OAuth service injected from `AppDelegate`.
-    /// Typed to protocol so tests can supply a stub without the live singleton.
-    var oauthService: any OAuthServiceProtocol
-    /// Runner lifecycle service injected from `AppDelegate` and forwarded into `LocalRunnersView`.
-    /// Typed to protocol so tests can supply a stub without spawning real `svc.sh` processes.
-    /// No default -- callers must supply the `AppDelegate`-owned instance explicitly.
-    var lifecycleService: any RunnerLifecycleServiceProtocol
-
     // MARK: - Injected services
+    /// Single coordinator for all domain-level state (oauth, lifecycle, runners, updater).
+    /// Replaces four separate injected objects — see issue #2040.
+    let appState: AppState
     /// App-wide preference store (polling interval, popover arrow, beta channel, etc.).
     /// Injected as a concrete reference; `@Observable` types don't need `@State` wrapping.
     let settings: AppPreferencesStore
     /// Notification preference store (notify-on-success, notify-on-failure).
     /// Injected as a concrete reference; `@Observable` types don't need `@State` wrapping.
     let notifications: NotificationPreferences
-    /// Observable runner state — read to display the update available banner.
-    /// Injected explicitly from `AppDelegate`; no default because `RunnerState` has no
-    /// singleton — the single instance lives on `AppDelegate.runnerState`.
-    let runnerState: RunnerState
-    /// Auto-update driver injected from `AppDelegate`, used by the Install &
-    /// Relaunch action in `aboutSection`. No default — the single instance lives
-    /// on `AppDelegate.autoUpdater`.
-    let autoUpdater: AppUpdater
+
+    // MARK: - Convenience accessors (avoid noisy appState.x at every call site)
+    // NOTE: `internal` (not `private`) — Swift `private` does not cross file boundaries;
+    // `SettingsView+Sections.swift` reads these from a separate file.
+    var oauthService: any OAuthServiceProtocol { appState.oauthService }
+    var lifecycleService: any RunnerLifecycleServiceProtocol { appState.lifecycleService }
+    var runnerState: RunnerState { appState.runnerState }
+    var autoUpdater: AppUpdater { appState.autoUpdater }
 
     // MARK: - Local UI state
     /// Mirrors `LoginItem.isEnabled`; toggled by the Launch at Login switch.
@@ -94,28 +94,21 @@ struct SettingsView: View {
     /// the cost is identical and the one-render false-flash is eliminated.
     ///
     /// - Parameters:
-    ///   - runnerState: The single `RunnerState` instance owned by `AppDelegate`.
-    ///     Must be supplied explicitly — `RunnerState` has no singleton.
+    ///   - appState: The single domain coordinator owned by `AppDelegate`.
     init(
         onBack: @escaping () -> Void,
-        oauthService: any OAuthServiceProtocol,
-        lifecycleService: any RunnerLifecycleServiceProtocol,
-        runnerState: RunnerState,
-        autoUpdater: AppUpdater,
+        appState: AppState,
         localRunnerStore: LocalRunnerStore = .shared,
         settings: AppPreferencesStore = .shared,
         notifications: NotificationPreferences = .shared
     ) {
         self.onBack = onBack
+        self.appState = appState
         self.localRunnerStore = localRunnerStore
-        self.oauthService = oauthService
         self.settings = settings
         self.notifications = notifications
-        self.lifecycleService = lifecycleService
-        self.runnerState = runnerState
-        self.autoUpdater = autoUpdater
-        _isOAuthAuthenticated = State(initialValue: oauthService.isAuthenticated)
-        _isCLIAuthenticated = State(initialValue: !oauthService.isAuthenticated && oauthService.hasAnyToken)
+        _isOAuthAuthenticated = State(initialValue: appState.oauthService.isAuthenticated)
+        _isCLIAuthenticated = State(initialValue: !appState.oauthService.isAuthenticated && appState.oauthService.hasAnyToken)
     }
 
     // MARK: - Computed properties
