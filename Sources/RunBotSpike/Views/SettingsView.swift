@@ -69,13 +69,11 @@ struct SettingsView: View {
                 Text("This is a test error alert shown from the popover view.")
             }
             .onChange(of: appState.showAlert) { _, isShowing in
-                // SPIKE ONLY: direct gate mutation from a view is a shortcut.
-                // In production use an mbkAlert modifier (see issue #2038) so
-                // the gate lifetime is owned by MenuBarKit, not the call site.
-                // Direct mutation also clobbers a concurrently open sheet or
-                // picker gate — the spike UI prevents that combination, the
-                // main app may not.
-                overlayGate.hasActiveOverlay = isShowing
+                // SPIKE ONLY: use mbkSetOverlay() rather than writing hasActiveOverlay
+                // directly — the setter is internal(set) and inaccessible outside
+                // MenuBarKit. mbkSetOverlay() is the spike escape hatch until
+                // mbkAlert is implemented in #2038.
+                overlayGate.mbkSetOverlay(isShowing)
             }
 
             Divider()
