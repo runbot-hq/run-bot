@@ -95,7 +95,16 @@ struct LocalRunnersView: View {
         // .onChange mirrors editingRunner nil/non-nil → overlayGate.hasActiveOverlay
         // because mbkSheet(item:) does not exist yet. overlayGate.mbkSetOverlay()
         // is the spike-only escape hatch documented in OverlayGate.swift.
-        .sheet(item: $editingRunner) { runner in runnerEditingSheet(runner: runner) }
+        //
+        // onDismiss provides a safety-net clear for AppKit-initiated dismissals
+        // (e.g. window close, crash-path skips) that bypass the onCancel/onCommit
+        // paths and may not reliably trigger .onChange. Without this, a dismissed
+        // sheet that skips .onChange could leave hasActiveOverlay = true permanently,
+        // locking the outside-click monitor until the next app restart.
+        // See: PR-A review finding 🔴 #1.
+        .sheet(item: $editingRunner, onDismiss: { overlayGate.mbkSetOverlay(false) }) { runner in
+            runnerEditingSheet(runner: runner)
+        }
         .onChange(of: editingRunner) { _, runner in overlayGate.mbkSetOverlay(runner != nil) }
     }
 

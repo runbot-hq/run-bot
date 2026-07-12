@@ -340,7 +340,7 @@ final class PopoverLifecycleCoordinator {
     ///
     /// Does **not** touch `preservedSheetWindowHide` — that flag is exclusively
     /// managed by `hidePopoverWindowsPreservingSheets()` and
-    /// `restorePopoverWindowsPreservingsheetsIfNeeded()`. Resetting it here
+    /// `restorePopoverWindowsPreservingSheetsIfNeeded()`. Resetting it here
     /// would orphan a temporarily hidden popover window on the outside-click /
     /// app-switch close paths.
     /// Must be called on every close path (explicit close, outside-click, app-switch).
