@@ -441,10 +441,12 @@ final class AppState {
     /// to avoid AppState holding a strong reference to AppDelegate.
     private func startObservations(onUpdateStatusIcon: @escaping @MainActor () -> Void) {
         // Status icon observation.
-        // Called after `await store.start()` — safe because `Observations` has
-        // did-set semantics: it emits once immediately with the current value on
-        // first subscription, so any aggregateStatus writes that raced between
-        // store.start() and this point are covered by the initial emission.
+        // Wired at Step 3 — BEFORE store.start() and any network awaits. This is
+        // safe because Observations{} has did-set semantics: it emits once
+        // immediately with the current aggregateStatus on first subscription, so
+        // any status writes that race between here and store.start() are covered
+        // by that initial emission. Do NOT move this after checkAndHandle() —
+        // see the Step 3 comment in start() for the sign-out window reasoning.
         statusIconTask = Task { @MainActor [weak self] in
             guard let self else { return }
             for await _ in Observations({ self.runnerState.aggregateStatus }) {

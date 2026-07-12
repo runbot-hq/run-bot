@@ -38,11 +38,24 @@ struct SettingsView: View {
     /// Callback invoked when the user taps the back button.
     let onBack: () -> Void
     /// The local runner actor forwarded into `LocalRunnersView`.
-    /// Defaults to `LocalRunnerStore.shared` — safe only after `AppState.start()` has called
-    /// `LocalRunnerStore.configure(viewModel:)`. In production this is guaranteed because
-    /// `SettingsView` is only constructed after `applicationDidFinishLaunching` completes.
-    /// ⚠️ Do NOT use this default in SwiftUI Previews or unit tests — supply a configured
-    /// store explicitly to avoid the `fatalError` in `LocalRunnerStore.shared`.
+    ///
+    /// WHY THIS EXISTS AS A STORED PROPERTY:
+    /// `LocalRunnersView` is a subview that does not have `@Environment(AppState.self)`
+    /// in scope — it receives `localRunnerStore` as a direct parameter. `SettingsView`
+    /// acts as the handoff point, extracting the store from `appState.localRunnerStore`
+    /// and passing it down. This stored property is that handoff slot.
+    ///
+    /// WHY THE DEFAULT IS `.shared`:
+    /// The default exists solely so call sites that construct `SettingsView` via the
+    /// primary `init(appState:settings:)` path don't need to pass it explicitly —
+    /// the init body overwrites it with `appState.localRunnerStore` immediately.
+    /// In production this is always safe: `SettingsView` is only constructed after
+    /// `applicationDidFinishLaunching` completes, so `AppState.start()` has already
+    /// seeded `_localRunnerStore`. The `.shared` default is never actually used in
+    /// production — it exists to satisfy the Swift requirement that `var` properties
+    /// with no `let` binding must have a default or be set in every `init` path.
+    /// ⚠️ Do NOT rely on this default in SwiftUI Previews or unit tests — supply a
+    /// configured store explicitly to avoid the `fatalError` in `LocalRunnerStore.shared`.
     var localRunnerStore: LocalRunnerStore = .shared
     // MARK: - Injected services
     /// Single coordinator for all domain-level state (oauth, lifecycle, runners, updater).
