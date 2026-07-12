@@ -13,6 +13,50 @@
 // dependency surface explicit and avoiding a back-reference to AppDelegate.
 //
 // ⚠️ All methods must be called on the main actor.
+//
+// ─────────────────────────────────────────────────────────────────────────────
+// STEP 5 ASSESSMENT — PR-A (#2041) Jul 12 2026
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// DECISION: RETAINED — not deleted in PR-A.
+//
+// `MBKOverlayGate.hasActiveOverlay` is now wired into the `hasActiveSheet`
+// closure in `openPanel()` (PR-A Step 2). The outside-click monitor and
+// workspace observer already block dismiss when any MBK-managed overlay
+// (sheet or file picker) is active. However, `MBKOverlayGate` is a gate
+// only — it does not replace the monitors, the panel-open flag, the
+// hide-and-restore machinery, or the sheet-dismiss suppression window.
+//
+// WHAT MBKOVERLAYGATE NOW OWNS (after PR-A):
+//   • hasActiveOverlay — set by MBKAnchoredSheet (sheet lifetime)
+//   • hasActiveOverlay — set/cleared by mbkOpenFilePicker (picker lifetime)
+//   Both arm the dismiss gate for the full overlay lifetime.
+//
+// WHAT THIS COORDINATOR STILL OWNS (not superseded):
+//   • outsideClickMonitor — MBK has no equivalent without MBKPopoverController.
+//     The gate is *read* by this monitor; it does not replace the monitor.
+//   • workspaceObserver — same; MBK does not install a workspace observer
+//     unless MBKPopoverController is adopted.
+//   • panelIsOpen — guards both monitors. Replaced by MBKPopoverController.isShown
+//     in a future PR-C.
+//   • preservedSheetWindowHide + hidePopoverWindowsPreservingSheets() — RunBot-specific
+//     hide-without-closing path. Only removable when MBKPopoverController owns NSPopover.
+//   • isSheetDismissing + suppressHidePanel() — one-runloop-turn suppression
+//     during intentional sheet dismiss. Still ORed alongside overlayGate.hasActiveOverlay
+//     in the hasActiveSheet closure. MBKOverlayGate does not replicate this timing window.
+//   • tearDown() — removes both monitors + resets all flags on every close path.
+//
+// HASACTIVESHEET CLOSURE AFTER PR-A (in openPanel()):
+//   return self.hasActiveSheet                           // structural: popoverWindow.sheets
+//       || self.lifecycleCoordinator.isSheetDismissing   // one-runloop suppression window
+//       || self.overlayGate.hasActiveOverlay             // MBK gate (NEW PR-A)
+//   All three arms necessary.
+//
+// REMAINDER FOR PR-B / PR-C:
+//   PR-B (#2040): move MBKOverlayGate from AppDelegate → AppState.
+//   PR-C (future): adopt MBKPopoverController → replaces monitors + panelIsOpen
+//                  + preservedSheetWindowHide → delete this file.
+// ─────────────────────────────────────────────────────────────────────────────
 
 import AppKit
 import RunBotCore
@@ -102,12 +146,12 @@ final class PopoverLifecycleCoordinator {
     /// a cooperative-scheduling guarantee: the clear task will not run until the
     /// call stack that enqueued it has fully returned.
     ///
-    /// TASK ORDERING NOTE: Task ordering relative to AppKit’s own sheet-detach
+    /// TASK ORDERING NOTE: Task ordering relative to AppKit's own sheet-detach
     /// callbacks is informal — not guaranteed by the Swift runtime spec. In
-    /// practice AppKit’s sheet-detach work is synchronous and runs before the
+    /// practice AppKit's sheet-detach work is synchronous and runs before the
     /// actor yields, so the clear task fires after it. If that assumption ever
     /// changes, the correct fix is to restructure the dismiss path using
-    /// `withCheckedContinuation` to explicitly await AppKit’s callback before
+    /// `withCheckedContinuation` to explicitly await AppKit's callback before
     /// clearing the flag, rather than introducing a GCD bridge (which would
     /// regress against P4 and P18).
     ///
@@ -296,7 +340,7 @@ final class PopoverLifecycleCoordinator {
     ///
     /// Does **not** touch `preservedSheetWindowHide` — that flag is exclusively
     /// managed by `hidePopoverWindowsPreservingSheets()` and
-    /// `restorePopoverWindowsPreservingSheetsIfNeeded()`. Resetting it here
+    /// `restorePopoverWindowsPreservingsheetsIfNeeded()`. Resetting it here
     /// would orphan a temporarily hidden popover window on the outside-click /
     /// app-switch close paths.
     /// Must be called on every close path (explicit close, outside-click, app-switch).

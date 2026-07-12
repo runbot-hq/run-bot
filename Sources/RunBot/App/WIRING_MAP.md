@@ -25,13 +25,13 @@ Step 1 output. No code changed. Reference for Steps 2–6.
 | `statusItem` | `NSStatusItem?` | **STAYS — app-owned.** RunBot owns `NSStatusItem`, the dynamic icon observation task, and the button action. `MBKPopoverController` is NOT adopted in PR-A. |
 | `popover` | `NSPopover?` | **Stays** — RunBot continues to own `NSPopover` in PR-A. |
 | `hostingController` | `NSHostingController<AnyView>?` | **Stays** — RunBot continues to own the hosting controller in PR-A. |
-| `lifecycleCoordinator` | `PopoverLifecycleCoordinator` | **Reassess in Step 5** — delete only if `MBKOverlayGate` fully replaces `isSheetDismissing` and no other live read sites remain. |
+| `lifecycleCoordinator` | `PopoverLifecycleCoordinator` | **RETAINED in PR-A** — see Step 5 assessment below. Not deleted. Remainder documented for PR-B/PR-C. |
 | `sizeObservation` | `NSKeyValueObservation?` | **Stays** — KVO on `preferredContentSize` remains (MBK's `sizingOptions` path requires `MBKPopoverController` ownership, which is deferred). |
 | `panelIsOpen` | `Bool` (computed, forwarded from coordinator) | **Stays** in PR-A. |
-| `preservedSheetWindowHide` | `Bool` (computed, forwarded from coordinator) | **Stays** in PR-A — hide-and-restore path not needed but coordinator not deleted yet. |
-| `hasActiveSheet` | `Bool` (computed) | **Reassess in Step 5** — `MBKOverlayGate.hasActiveOverlay` may replace this. |
+| `preservedSheetWindowHide` | `Bool` (computed, forwarded from coordinator) | **Stays** in PR-A — hide-and-restore path remains; coordinator not deleted. |
+| `hasActiveSheet` | `Bool` (computed) | **Stays** — reads `popoverWindow.sheets`. Now supplemented by `overlayGate.hasActiveOverlay` in the `installMonitors` closure, but the structural window-sheets check remains authoritative for the native SwiftUI sheet path. |
 | `panelVisibilityState` | `PanelVisibilityState` | **Stays** — needed by `PanelContainerView` dim overlay; keep in `wrapEnv`. |
-| `panelSheetState` | `PanelSheetState` | **Stays** — transient hide state; assess during Step 3. |
+| `panelSheetState` | `PanelSheetState` | **Stays** — transient hide state; assessed in Step 3. |
 | `overlayGate` | `MBKOverlayGate` | **New (Step 2)** — created in `applicationDidFinishLaunching`, injected via `.environment(overlayGate)`. |
 
 ---
@@ -110,7 +110,7 @@ Step 1 output. No code changed. Reference for Steps 2–6.
 |---|---|
 | `openPanel()` in `AppDelegate.swift` | Installs after `popover.show()` |
 
-**Stays in PR-A** — coordinator monitors remain until Step 5 reassessment.
+**Stays in PR-A** — coordinator monitors remain. `hasActiveSheet` closure now ORs in `overlayGate.hasActiveOverlay`.
 
 ---
 
@@ -159,7 +159,7 @@ To be wired in Step 3.
 | Outside-click-sensitive `.sheet()` calls | `.mbkSheet(overlayGate:)` | Step 3 |
 | `suppressHidePanel()` has no call site | Wired in `LocalRunnersView` onCancel + onCommit, synchronous | Step 3 |
 | `WindowGrabber` / `NSOpenPanel` | `mbkOpenFilePicker()` | Step 4 |
-| `PopoverLifecycleCoordinator` / `isSheetDismissing` | Reassess — delete if `MBKOverlayGate` fully supersedes; else carry to PR-B | Step 5 |
+| `PopoverLifecycleCoordinator` / `isSheetDismissing` | **RETAINED** — not deleted. `MBKOverlayGate` supplements but does not replace it. Remainder documented for PR-B/PR-C. | Step 5 |
 | `AppDelegate+StatusItem.swift` | **Unchanged — app-owned** | — |
 | `MBKPopoverController` | **Not adopted in PR-A — deferred** | — |
 
@@ -168,3 +168,60 @@ To be wired in Step 3.
 ## What MBKPopoverController does (deferred to future PR)
 
 `MBKPopoverController` assumes full ownership of `NSStatusItem`, `NSPopover`, and `NSHostingController`. It installs its own button action (`@objc togglePopover`) and its own workspace/event monitors. Adopting it in RunBot requires removing RunBot's dynamic icon observation task from `AppDelegate+StatusItem.swift` and porting that logic into MBK or a separate coordinator. This is a non-trivial architectural change and is deferred to a future spike or PR-C.
+
+---
+
+## Step 5 — PopoverLifecycleCoordinator assessment (Jul 12 2026)
+
+### Decision: RETAIN — not deleted in PR-A
+
+`MBKOverlayGate.hasActiveOverlay` is now wired into the `hasActiveSheet` closure inside
+`openPanel()` (as of Step 2). That means the outside-click monitor and workspace observer
+already block dismiss when a file picker or MBK-managed sheet is active.
+
+However, `MBKOverlayGate` is a **gate only** — a single boolean observable. It does not
+replace the coordinator's monitors, panel-open flag, hide-and-restore machinery, or
+sheet-dismiss suppression window. Deleting `PopoverLifecycleCoordinator` would require
+adopting `MBKPopoverController`, which is explicitly deferred to PR-C.
+
+### What `MBKOverlayGate` now owns (after PR-A)
+
+| Concern | Owner |
+|---|---|
+| Tracks whether a MBK-managed sheet is currently presented | `MBKOverlayGate.hasActiveOverlay` (set by `MBKAnchoredSheet`) |
+| Tracks whether the file picker is currently open | `MBKOverlayGate.hasActiveOverlay` (set/cleared by `mbkOpenFilePicker`) |
+| Arms dismiss gate during picker lifetime | `MBKOverlayGate.hasActiveOverlay` |
+
+### What `PopoverLifecycleCoordinator` still owns (not superseded)
+
+| Concern | Why it cannot be deleted |
+|---|---|
+| `outsideClickMonitor` — global `NSEvent` monitor | MBK has no equivalent without `MBKPopoverController`. The gate is *read* by this monitor; it does not replace it. |
+| `workspaceObserver` — `NSWorkspace.didActivateApplicationNotification` | Same — MBK does not install a workspace observer unless `MBKPopoverController` is adopted. |
+| `panelIsOpen` flag | Guards both monitors. `MBKPopoverController.isShown` would replace this in PR-C. |
+| `preservedSheetWindowHide` + `hidePopoverWindowsPreservingSheets()` | RunBot-specific hide-without-closing path. Replaces itself only when `MBKPopoverController` owns `NSPopover`. |
+| `isSheetDismissing` + `suppressHidePanel()` | One-runloop-turn suppression during intentional sheet dismiss. Still wired alongside `overlayGate.hasActiveOverlay` in the `hasActiveSheet` closure. `MBKOverlayGate` does not replicate this timing window. |
+| `tearDown()` | Removes both monitors + resets all flags on every close path. |
+
+### `hasActiveSheet` closure after PR-A (in `openPanel()`)
+
+```swift
+hasActiveSheet: { [weak self] in
+    guard let self else { return false }
+    return self.hasActiveSheet                          // structural: popoverWindow.sheets non-empty
+        || self.lifecycleCoordinator.isSheetDismissing  // one-runloop suppression window
+        || self.overlayGate.hasActiveOverlay            // MBK gate: sheet or picker active (NEW PR-A)
+},
+```
+
+All three arms are necessary. `overlayGate.hasActiveOverlay` is the only PR-A addition;
+the other two arms are unchanged from before this PR.
+
+### Remainder for PR-B / PR-C
+
+| Concern | Target PR |
+|---|---|
+| Move `MBKOverlayGate` from `AppDelegate` → `AppState` | PR-B (#2040) |
+| Adopt `MBKPopoverController` (replaces coordinator's monitors + `panelIsOpen` + `preservedSheetWindowHide`) | PR-C (future spike) |
+| Delete `PopoverLifecycleCoordinator` once `MBKPopoverController` is adopted | PR-C |
+| Confirm `suppressHidePanel()` / `isSheetDismissing` is replicated or superseded by MBK's sheet-dismiss path | PR-C assessment |
