@@ -286,6 +286,11 @@ final class AppState {
         // RunnerViewModel/observable is complete. If you are wondering where the
         // Combine sink went: it no longer exists by design.
         //
+        // Scope-change restarts: no explicit handling is needed here. RunnerPoller
+        // internally observes ScopeStore.activeScopes via withObservationTracking /
+        // AsyncStream and restarts its own poll loop when scopes change (add, remove,
+        // enable toggle). AppState does not need to call start() on scope changes.
+        //
         // The [localRunnerStore] capture list evaluates the computed property
         // here at construction time. Because _localRunnerStore was seeded above,
         // the fast path fires and the assertionFailure is NOT triggered.
@@ -387,9 +392,16 @@ final class AppState {
         // never trigger the restart. AppState is app-lifetime, so the listener
         // is always active regardless of which view is on screen.
         signOutTask = Task { @MainActor [weak self] in
+            // `return` (not `continue`) for nil-self: the Task's outer loop has no
+            // meaning if AppState is gone — exit the Task entirely rather than
+            // spinning on a stream that can never do useful work.
             guard let self else { return }
             for await _ in self.oauthService.makeSignOutStream() {
                 log("AppState › didSignOut — restarting poll loop for env-token fallback")
+                // `continue` (not `return`) for nil-store: a missing runnerStore is a
+                // transient / unexpected state, but AppState itself is still alive.
+                // Continuing lets the loop handle future sign-out events rather than
+                // killing the listener permanently.
                 guard let store = self.runnerStore else {
                     log("AppState › didSignOut — ⚠️ runnerStore nil at sign-out time; skipping start()")
                     continue
