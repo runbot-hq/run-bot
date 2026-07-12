@@ -34,11 +34,14 @@ final class PopoverLifecycleCoordinator {
     /// ❌ NEVER read outside the three methods that manage it.
     private(set) var preservedSheetWindowHide: Bool = false
 
-    /// Set to `true` for one runloop turn by `suppressHidePanel()` when a
-    /// SwiftUI sheet is being intentionally dismissed by the user (e.g. Cancel /
-    /// Save inside RunnerDetailSheet). Prevents the outside-click monitor and
-    /// workspace observer from firing `hidePanel` during the brief window between
-    /// the user's tap and the sheet NSWindow being fully detached.
+    /// Set to `true` by `suppressHidePanel()` when a SwiftUI sheet is being
+    /// intentionally dismissed by the user (e.g. Cancel / Save inside
+    /// RunnerDetailSheet). Held until the self-clearing `Task { @MainActor }`
+    /// enqueued by `suppressHidePanel()` executes — which is after the
+    /// synchronous call stack that triggered the dismiss has fully unwound.
+    /// Prevents the outside-click monitor and workspace observer from firing
+    /// `hidePanel` during the brief window between the user's tap and the
+    /// sheet NSWindow being fully detached.
     ///
     /// The monitors do **not** read this flag directly. They read it indirectly
     /// via the `hasActiveSheet` closure injected by the caller in
@@ -81,7 +84,7 @@ final class PopoverLifecycleCoordinator {
         preservedSheetWindowHide = value
     }
 
-    /// Suppresses `hidePanel` for one runloop turn.
+    /// Suppresses `hidePanel` until the current synchronous call stack unwinds.
     ///
     /// Call this immediately **before** setting a `.sheet(item:)` binding to `nil`
     /// from an intentional user dismiss (Cancel / Save in a sheet). Both the
@@ -89,26 +92,29 @@ final class PopoverLifecycleCoordinator {
     /// indirectly via the `hasActiveSheet` closure — see `isSheetDismissing` for
     /// the indirection contract.
     ///
-    /// The flag self-clears via a `Task { @MainActor }` enqueued on the same
-    /// runloop turn, which runs after all synchronous SwiftUI state propagation
-    /// and AppKit sheet-detach work has completed.
+    /// The flag self-clears via a `Task { @MainActor }` enqueued immediately after
+    /// the flag is set. Because Swift cooperative scheduling runs enqueued tasks
+    /// after the current synchronous work on the actor drains, the flag remains
+    /// `true` for the duration of the synchronous dismiss path (SwiftUI binding
+    /// mutation + AppKit sheet-detach callbacks that run synchronously) and then
+    /// clears automatically. This is not a formal runloop-drain guarantee — it is
+    /// a cooperative-scheduling guarantee: the clear task will not run until the
+    /// call stack that enqueued it has fully returned.
     ///
-    /// TASK ORDERING NOTE: `Task { @MainActor }` schedules a Swift concurrency
-    /// task, not a runloop observer. The one-turn clear is reliable from
-    /// synchronous call sites because the enqueued Task runs after the current
-    /// synchronous call stack unwinds. However, Task ordering relative to AppKit's
-    /// own sheet-detach callbacks is informal — not guaranteed by the Swift
-    /// runtime spec. A `DispatchQueue.main.asyncAfter(deadline: .now())` or
-    /// `RunLoop.main` observer would give a formally guaranteed one-turn delay.
-    /// This is acceptable for the current synchronous call sites; re-evaluate
-    /// before adding async call sites or if AppKit callback ordering changes.
+    /// TASK ORDERING NOTE: Task ordering relative to AppKit’s own sheet-detach
+    /// callbacks is informal — not guaranteed by the Swift runtime spec. In
+    /// practice AppKit’s sheet-detach work is synchronous and runs before the
+    /// actor yields, so the clear task fires after it. If that assumption ever
+    /// changes, the correct fix is to restructure the dismiss path using
+    /// `withCheckedContinuation` to explicitly await AppKit’s callback before
+    /// clearing the flag, rather than introducing a GCD bridge (which would
+    /// regress against P4 and P18).
     ///
-    /// **Synchronous call sites only.** The one-turn clear contract holds because
-    /// the enqueued `Task` runs after the current synchronous work drains. If a
-    /// call site introduces an `await` between `suppressHidePanel()` and the
-    /// binding mutation, the flag will have already cleared before the sheet
-    /// teardown begins and the suppression will silently do nothing. Re-verify
-    /// the timing contract at every call site when porting this to the main app.
+    /// **Synchronous call sites only.** If a call site introduces an `await`
+    /// between `suppressHidePanel()` and the binding mutation, the actor may
+    /// yield before the mutation and the clear task may execute first, silently
+    /// making the suppression a no-op. Re-verify the timing contract at every
+    /// call site when porting this to the main app.
     ///
     /// ❌ NEVER set `isSheetDismissing` directly — use this method only.
     ///
