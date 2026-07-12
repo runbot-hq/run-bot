@@ -2,6 +2,7 @@
 // RunBot
 
 import GitHubClient
+import MenuBarKit
 import RunBotCore
 import SwiftUI
 
@@ -332,16 +333,6 @@ extension AddRunnerSheet {
     }
 
     /// Writes the LaunchAgent plist, registers with `LocalRunnerStore`, and dismisses the sheet.
-    ///
-    /// `@MainActor` because all state mutations (`isPresented`, `onComplete`, `existingError`)
-    /// target `@State` or `@Binding` properties that are `@MainActor`-isolated.
-    /// All blocking work is delegated to `localRunnerStore.add()` which is awaited
-    /// directly, guaranteeing the actor has appended the runner before `isPresented = false`
-    /// fires and `onComplete()` enqueues its refresh().
-    ///
-    /// The `canImport` check at entry is a defensive safety net. The primary gate is the
-    /// `.disabled(!canImport)` modifier on the Import button; this guard catches any
-    /// programmatic calls that bypass the UI.
     @MainActor
     func importExistingRunner() async {
         guard canImport else { return }
@@ -361,9 +352,6 @@ extension AddRunnerSheet {
             workingDirectory: existingDir
         )
         // Await directly — importExistingRunner() is async, no Task wrapper needed.
-        // This guarantees add() completes before isPresented = false fires and
-        // onComplete() enqueues its refresh(), so the new runner row is always
-        // present in the actor's index before the scan runs.
         await localRunnerStore.add(runnerName: detectedName, installPath: existingDir)
         isPresented = false
         onComplete()
