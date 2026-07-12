@@ -7,10 +7,6 @@ import RunBotCore
 import ServiceManagement
 import SwiftUI
 
-// MARK: - AppState import note
-// SettingsView now receives a single `AppState` instead of four separate
-// injected objects (oauthService, lifecycleService, runnerState, autoUpdater).
-// The AppState import comes from RunBot's own module — no extra import needed.
 
 // MARK: - SettingsView
 // Settings view — complete implementation for all phases 1-6.
