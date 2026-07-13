@@ -166,28 +166,24 @@ internal extension SettingsView {
     }
 
     // MARK: - General
-    /// General section: polling interval, API call counter, notification toggles, launch-at-login, popover arrow, and beta channel.
+    /// General section: API call counter, notification toggles, launch-at-login, popover arrow, and beta channel.
+    ///
+    /// The polling interval row was removed in #2069 — RunnerPoller now drives its own
+    /// cadence via `PollIntervalStrategy` and no longer reads `pollingInterval` from
+    /// `AppPreferencesStore`. The underlying preference key is retained for potential
+    /// future use (e.g. per-scope overrides) but is no longer surfaced in the UI.
     ///
     /// `settings` and `notifications` are injected `let` properties on an `@Observable` type.
     /// SwiftUI cannot synthesise `$`-bindings from plain `let` stored properties, so we
     /// capture each store in a local `Bindable` wrapper before using `$` syntax.
     var generalSection: some View {
-        let bindableSettings      = Bindable(settings)
         let bindableNotifications = Bindable(notifications)
         return VStack(alignment: .leading, spacing: 0) {
             Text("General").font(RBFont.sectionHeader).foregroundColor(Color.rbTextSecondary)
                 .padding(.horizontal, RBSpacing.md).padding(.top, 8).padding(.bottom, 4)
-            HStack {
-                Text("Polling interval").font(.system(size: 12)); Spacer()
-                Text("\(settings.pollingInterval)s").font(.system(size: 12)).foregroundColor(Color.rbTextSecondary)
-                    .frame(minWidth: 36, alignment: .trailing)
-                Stepper("", value: bindableSettings.pollingInterval, in: 10...300).labelsHidden()
-            }
-            .padding(.horizontal, RBSpacing.md).padding(.top, 6).padding(.bottom, 2)
-            Text("How often RunBot checks GitHub for runner and workflow status. Lower values use more API quota.")
-                .font(.caption).foregroundColor(Color.rbTextSecondary)
-                .padding(.horizontal, RBSpacing.md).padding(.bottom, 6)
-            APICallCounterRow(resetDate: runnerState.rateLimitResetDate)
+            // resetDate: omitted — `APICallCounterRow.init(resetDate:)` defaults to nil.
+            // The parameter is optional (Date? = nil); this compiles and behaves correctly.
+            APICallCounterRow()
                 .font(.system(size: 12))
                 .padding(.horizontal, RBSpacing.md)
                 .padding(.vertical, 8)

@@ -1,6 +1,5 @@
 // RunnerPoller.swift
 // RunBotCore
-
 import Foundation
 import GitHubClient
 import os
@@ -11,8 +10,8 @@ import os
 ///
 /// **Concurrency model**
 /// - The actor runs on its own executor (background thread).
-/// - `preferencesStore` and `scopeStore` are `@MainActor`-isolated `Sendable` protocol
-///   values; any read of their properties must happen inside `await MainActor.run { }`.
+/// - `scopeStore` is a `@MainActor`-isolated `Sendable` protocol value; any read of
+///   its properties must happen inside `await MainActor.run { }`.
 /// - After every fetch cycle, results are pushed to the injected `RunnerState` on the
 ///   main actor via `await MainActor.run { }`. SwiftUI's `@Observable` machinery
 ///   picks up the mutation automatically — no Combine `PassthroughSubject` needed.
@@ -67,9 +66,36 @@ public actor RunnerPoller {
   /// rate-limit is active or the reset time is unknown.
   /// Assigned in `applyFetchResult`/`applyError` and written to `state`. periphery:ignore
   private(set) var rateLimitResetDate: Date?
-  /// Owns the three structured `Task` handles for the poll loop.
-  /// `private` — all call sites (startObservingPreferences, startObservingScopes,
-  /// start(), isolated deinit) are in this file; no extension file needs access.
+
+  // MARK: - Adaptive poll-interval state
+  //
+  // Written exclusively by `applyFetchResult` (success cycles only).
+  // Neither counter is updated on error cycles — both hold their last-successful-cycle
+  // value through any number of consecutive failures (intentional: last known good state
+  // is preferable to an unknown error state for interval selection).
+  // Both are reset to 0 at the top of `start()` so every restart begins from a clean state.
+
+  // MARK: — Adaptive-interval counters
+  // Both properties are `private`; the only sanctioned write path is
+  // `updateAdaptiveCounters(hasActiveWork:busyRunnerCount:)` — see its doc for the
+  // ordering constraint. `updateAdaptiveCounters` is `internal` (not `private`) due
+  // to SPM file-scope rules for cross-file actor extensions; the ⚠️ warning lives
+  // on that method, not here, to avoid duplication.
+
+  /// Consecutive successful idle poll cycles. Drives exponential idle backoff in
+  /// `PollIntervalStrategy`. Reset to 0 on every `start()` and on any active fetch.
+  private var consecutiveIdleTicks: Int = 0
+  /// Busy-runner count from the last successful fetch. Selects the active-interval
+  /// tier (Fast/Mid/Slow) in `PollIntervalStrategy`.
+  private var lastBusyRunnerCount: Int = 0
+  // TODO: Step 9 — add rateLimitRemaining as actor-local property here
+  // Pattern: `private(set) var rateLimitRemaining: Int = PollIntervalStrategy.rateLimitUnavailable`
+  // Written by applyFetchResult (same controlled path as isRateLimited / rateLimitResetDate).
+  // nextPollInterval() then passes the real value instead of the rateLimitUnavailable sentinel.
+
+  /// Owns the two structured `Task` handles for the poll loop.
+  /// `private` — all call sites (startObservingScopes, start(), isolated deinit)
+  /// are in this file; no extension file needs access.
   private let pollLoop = PollLoopCoordinator()
   /// Observable read model — the source of truth for all views and AppDelegate observers.
   public let state: RunnerState
@@ -80,7 +106,10 @@ public actor RunnerPoller {
   /// Injected at init to decouple Core from the app-layer `LocalRunnerStore` actor.
   let applyMetrics:
     @Sendable (_ metrics: RunnerMetrics?, _ runnerId: Int, _ name: String) async -> Void
-  /// Injected preferences store. Provides `pollingInterval`.
+  /// Injected preferences store. periphery:ignore
+  /// No longer drives poll cadence (removed in Step 4 of #2069 — `preferencesStore.pollingInterval`
+  /// replaced by `PollIntervalStrategy`). Retained because other call sites outside
+  /// `RunnerPoller` depend on the same injected instance. Planned cleanup at Step 10.
   let preferencesStore: any AppPreferencesStoreProtocol
   /// Injected scope store. Provides `activeScopes`.
   /// `internal` (not `private`) so that extension files can read this property.
@@ -100,7 +129,7 @@ public actor RunnerPoller {
   ///
   /// - Parameters:
   ///   - state: The observable read model that views and AppDelegate observe.
-  ///   - preferencesStore: Provides `pollingInterval`.
+  ///   - preferencesStore: Retained for other consumers; no longer drives poll cadence.
   ///   - scopeStore: Provides `activeScopes`.
   ///   - localRunners: Closure returning the current local-runner snapshot on `@MainActor`.
   ///   - applyMetrics: Closure that writes enriched metrics back to the local runner store.
@@ -120,9 +149,6 @@ public actor RunnerPoller {
     self.localRunners = localRunners
     self.applyMetrics = applyMetrics
     self.actionGroupFetcher = actionGroupFetcher
-    Task(name: "RunnerPoller.init: startObservingPreferences") {
-      await self.startObservingPreferences()
-    }
     Task(name: "RunnerPoller.init: startObservingScopes") { await self.startObservingScopes() }
   }
 
@@ -135,57 +161,11 @@ public actor RunnerPoller {
 
   // MARK: - Observation loops
 
-  /// Starts (or restarts) the `pollingInterval` observation loop.
-  ///
-  /// Uses `AsyncStream<TimeInterval>` to match the relay's `continuation` which is
-  /// typed `AsyncStream<TimeInterval>.Continuation` and yields
-  /// `TimeInterval(store.pollingInterval)`. The stream element type must match the
-  /// continuation type exactly — `pollingInterval` is an `Int` (seconds) but the observer
-  /// converts it to `TimeInterval` before yielding so the value can be used directly in
-  /// `nextPollInterval()` without a second conversion.
-  ///
-  /// **Self-cancellation avoidance**
-  /// `setIntervalObservationTask(newTask)` cancels the *previous* interval-observation
-  /// task and installs `newTask` as the new one. When called recursively from inside the
-  /// for-await body, the calling task must therefore create the new `Task` *before* passing
-  /// it to `setIntervalObservationTask` — otherwise the setter would cancel the caller
-  /// itself and the subsequent `start()` call would never execute.
-  private func startObservingPreferences() {
-    let injectedStore = preferencesStore
-    let newTask = Task { [weak self] in
-      let (stream, continuation) = AsyncStream<TimeInterval>.makeStream()
-      let observer: ObservationRelay<TimeInterval> = await MainActor.run {
-        let relay = ObservationRelay<TimeInterval>(continuation: continuation) {
-          TimeInterval(injectedStore.pollingInterval)
-        }
-        relay.start()
-        return relay
-      }
-      for await newInterval in stream {
-        guard !Task.isCancelled else { break }
-        log(
-          "RunnerPoller › pollingInterval changed to \(Int(newInterval))s — restarting poll loop",
-          category: .runner)
-        await self?.startObservingPreferences()
-        guard !Task.isCancelled else { break }
-        await self?.start()
-        break
-      }
-      // LOAD-BEARING: keeps the ObservationRelay alive until the for-await loop above
-      // exits. Without this, ARC may drop `observer` immediately after the `let`
-      // binding above goes out of scope (the Task captures `self` weakly and the relay
-      // is not otherwise retained), silently stopping preference-change detection.
-      withExtendedLifetime(observer) {}
-    }
-    pollLoop.setIntervalObservationTask(newTask)
-  }
-
   /// Starts (or restarts) the `activeScopes` observation loop.
   ///
   /// **Self-cancellation avoidance**
-  /// Same pattern as `startObservingPreferences`: the new `Task` is created first,
-  /// then handed to `setScopeObservationTask` so the setter cancels the *previous*
-  /// task rather than the one currently executing.
+  /// The new `Task` is created first, then handed to `setScopeObservationTask` so
+  /// the setter cancels the *previous* task rather than the one currently executing.
   private func startObservingScopes() {
     let injectedStore = scopeStore
     let newTask = Task { [weak self] in
@@ -218,6 +198,10 @@ public actor RunnerPoller {
 
   /// Starts (or restarts) the structured async poll loop.
   public func start() async {
+    // Reset adaptive-interval counters so every restart begins from a clean state,
+    // regardless of how deeply idle the poller was before the restart.
+    consecutiveIdleTicks = 0
+    lastBusyRunnerCount = 0
     let scopes = await MainActor.run { scopeStore.activeScopes }
     log("RunnerPoller › start — activeScopes=\(scopes)", category: .runner)
     if scopes.isEmpty {
@@ -236,11 +220,23 @@ public actor RunnerPoller {
     log(
       "RunnerPoller › start — previous pollTask cancelled, launching new poll task",
       category: .runner)
+    // [weak self] is required: the Task is stored in `pollLoop` which is owned by
+    // this actor, creating a strong cycle (actor → pollLoop → Task → actor).
+    // `isolated deinit` only controls isolation of deinit, not when it fires —
+    // ARC still requires the reference count to reach zero first, which cannot
+    // happen while the Task holds a strong reference. [weak self] breaks the cycle.
     pollLoop.setPollTask(
       Task { [weak self] in
-        guard let self else { return }
-        await self.fetch()
-        while !Task.isCancelled {
+        await self?.fetch()
+        while let self, !Task.isCancelled {
+          // Reads counters written by the previous applyFetchResult call — intentional.
+          // Counter state after fetch() completes:
+          //   idle fetch  → consecutiveIdleTicks = 1 → first sleep = 60 s (idleMin * 2)
+          //   active fetch → consecutiveIdleTicks = 0, lastBusyRunnerCount updated → active ladder
+          //   error fetch  → counters unchanged (stay at 0 on first start) → idleMin (30 s)
+          // nextPollInterval() is synchronous on the actor; `await` is needed here
+          // because [weak self] means this closure runs off-actor and must hop in.
+          // This is an actor hop, not an async function call; removing `await` will not compile.
           let interval = await self.nextPollInterval()
           log("RunnerPoller › poll loop — next fetch in \(Int(interval))s", category: .runner)
           do {
@@ -261,12 +257,47 @@ public actor RunnerPoller {
       })
   }
 
+  /// Updates the two adaptive-interval counters after a successful fetch cycle.
+  ///
+  /// This is the **only** sanctioned write path for `consecutiveIdleTicks` and
+  /// `lastBusyRunnerCount`. Keeping the storage `private` and funnelling all writes
+  /// through this method ensures no module-internal code can bypass the actor's
+  /// controlled update path.
+  ///
+  /// ⚠️ **Ordering constraint — call site is `RunnerPoller+ApplyResult.swift` only**:
+  /// Must be called *after* `setDisplayState` so that `hasActiveWork()` evaluates
+  /// the freshly-written `self.jobs` / `self.actions`. Calling before `setDisplayState`
+  /// would evaluate `hasActiveWork()` on stale data from the previous cycle.
+  /// Do not call from other extension files or the counter order breaks.
+  ///
+  /// - Returns: The updated `consecutiveIdleTicks` value, so callers can use it
+  ///   in log interpolation without needing direct access to the private storage.
+  @discardableResult
+  func updateAdaptiveCounters(hasActiveWork: Bool, busyRunnerCount: Int) -> Int {
+    if hasActiveWork {
+      consecutiveIdleTicks = 0
+    } else {
+      // Increments even when busyRunnerCount > 0 but hasActiveWork == false — intentional.
+      // `hasActiveWork` is the authoritative gate (job/action API state); `busyRunnerCount`
+      // only selects the Fast/Mid/Slow tier *within* the active branch. If runners are busy
+      // but the job API hasn't surfaced it yet, the two signals transiently disagree and the
+      // idle backoff applies. This is a known latent tension; revisit at Step 9 once
+      // `rateLimitRemaining` is wired and the full rate-limit picture is available.
+      consecutiveIdleTicks += 1
+    }
+    // Always track the latest busy count from the just-finished successful fetch.
+    // In the idle branch this value may be stale relative to the *next* cycle, but
+    // PollIntervalStrategy ignores busyRunnerCount whenever hasActiveWork == false.
+    lastBusyRunnerCount = busyRunnerCount
+    return consecutiveIdleTicks
+  }
+
   /// Returns `true` when at least one job or action group is currently active
   /// (in-progress or queued).
-  ///
-  /// Extracted from `nextPollInterval` to reduce its cyclomatic complexity.
-  private func hasActiveWork() -> Bool {
-    // ActiveJob exposes jobStatus (JobStatus), not status (String).
+  /// `internal` — read-only helper; also called from `RunnerPoller+ApplyResult.swift`
+  /// to feed `updateAdaptiveCounters`. SPM file-scope rules prevent `private`/`fileprivate`
+  /// for cross-file extension access within the same module.
+  func hasActiveWork() -> Bool {
     let hasActiveJobs = jobs.contains { $0.jobStatus == .inProgress || $0.jobStatus == .queued }
     let hasActiveActions = actions.contains {
       $0.groupStatus == .inProgress || $0.groupStatus == .queued
@@ -274,26 +305,24 @@ public actor RunnerPoller {
     return hasActiveJobs || hasActiveActions
   }
 
-  /// Selects the polling interval given the current active-work and rate-limit state.
+  /// Computes the delay before the next poll by delegating to `PollIntervalStrategy`.
   ///
-  /// - Parameters:
-  ///   - hasActive: Whether any job or action group is currently active.
-  ///   - baseIdle: The user-configured idle interval (already clamped to ≥ 10 s).
-  /// - Returns: 10 s when work is active and not rate-limited; `baseIdle` otherwise.
-  ///
-  /// Extracted from `nextPollInterval` to reduce its cyclomatic complexity.
-  private func resolvedInterval(hasActive: Bool, baseIdle: TimeInterval) -> TimeInterval {
-    if !isRateLimited && hasActive { return 10 }
-    return baseIdle
-  }
-
-  /// Computes the delay before the next poll.
-  private func nextPollInterval() async -> TimeInterval {
+  /// Synchronous — all inputs are actor-local properties; no `await` needed.
+  /// `resolvedInterval(hasActive:baseIdle:)` and the `preferencesStore.pollingInterval`
+  /// read were removed in Step 4 of #2069.
+  private func nextPollInterval() -> TimeInterval {
     let hasActive = hasActiveWork()
-    let baseIdle = max(10, await MainActor.run { preferencesStore.pollingInterval })
-    let interval = resolvedInterval(hasActive: hasActive, baseIdle: TimeInterval(baseIdle))
+    let interval = PollIntervalStrategy.next(
+      hasActiveWork: hasActive,
+      consecutiveIdleTicks: consecutiveIdleTicks,
+      busyRunnerCount: lastBusyRunnerCount,
+      isRateLimited: isRateLimited,
+      rateLimitResetDate: rateLimitResetDate,
+      // TODO: Step 9 — replace with real value from ghRateLimitSnapshot()
+      rateLimitRemaining: PollIntervalStrategy.rateLimitUnavailable
+    )
     log(
-      "RunnerPoller › nextPollInterval — \(Int(interval))s hasActive=\(hasActive) rateLimited=\(isRateLimited) baseIdle=\(baseIdle)",
+      "RunnerPoller › nextPollInterval — \(Int(interval))s hasActive=\(hasActive) idleTick=\(consecutiveIdleTicks) busyRunners=\(lastBusyRunnerCount) rateLimited=\(isRateLimited)",
       category: .runner)
     return interval
   }
