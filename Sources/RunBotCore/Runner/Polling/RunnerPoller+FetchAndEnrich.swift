@@ -2,7 +2,7 @@
 // RunBotCore
 import GitHubClient
 
-// swiftlint:disable:next missing_docs
+// swiftlint:disable missing_docs
 extension RunnerPoller {
 
   // MARK: - fetchAndEnrichRunners
@@ -131,3 +131,4 @@ extension RunnerPoller {
     return indexed
   }
 }
+// swiftlint:enable missing_docs

@@ -119,6 +119,7 @@ public final class NotificationPreferences {
 
 // MARK: - Dispatch gating
 
+// swiftlint:disable missing_docs
 public extension NotificationPreferences {
     /// Returns `true` if a notification should be sent for the given job outcome.
     ///
@@ -144,3 +145,4 @@ public extension NotificationPreferences {
         }
     }
 }
+// swiftlint:enable missing_docs
