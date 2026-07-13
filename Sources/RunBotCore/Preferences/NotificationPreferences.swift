@@ -65,13 +65,13 @@ public final class NotificationPreferences {
     /// in #2070 and will be added in a follow-up PR. The picker is functional
     /// (writes correctly to UserDefaults) but the setting has no runtime effect
     /// until dispatch is wired. This is not a bug introduced here.
-    // TODO: wire dispatch — #2070
     ///
     /// ## Orphaned UserDefaults keys
     /// The previous `notifications.notifyOnSuccess` and `notifications.notifyOnFailure`
     /// keys are intentionally left in UserDefaults without cleanup. The app has
     /// zero users in the wild, so no migration path is needed. The dead keys are
     /// harmless and will simply be ignored.
+    // TODO: wire notification dispatch to read this value — #2070
     public var notificationMode: NotificationMode {
         didSet {
             defaults.set(notificationMode.rawValue, forKey: Key.notificationMode)
