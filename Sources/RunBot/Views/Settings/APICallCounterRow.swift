@@ -48,20 +48,33 @@ public struct APICallCounterRow: View {
     /// View model that drives the counter label, colour, and snapshot.
     @State private var vm = APICallCounterViewModel()
 
-    /// Creates a new `APICallCounterRow` with a fresh view model.
-    public init() {}
+    /// Reset date forwarded from `RunnerState.rateLimitResetDate`.
+    private let resetDate: Date?
 
-    /// The row's body: label, formatted count, and colour-coded progress bar.
+    /// Creates a new `APICallCounterRow` with a fresh view model.
+    /// - Parameter resetDate: Optional rate-limit reset date from `RunnerState`.
+    public init(resetDate: Date? = nil) {
+        self.resetDate = resetDate
+    }
+
+    /// The row's body: label, formatted count, colour-coded progress bar, and optional reset time.
     public var body: some View {
-        HStack {
-            Text("API Calls (last hour)")
-            Spacer()
-            Text(vm.label)
-                .foregroundStyle(vm.statusColor)
-                .monospacedDigit()
-            ProgressView(value: vm.snap.fraction)
-                .frame(width: 60)
-                .tint(vm.statusColor)
+        VStack(alignment: .leading, spacing: 2) {
+            HStack {
+                Text("API Calls (last hour)")
+                Spacer()
+                Text(vm.label)
+                    .foregroundStyle(vm.statusColor)
+                    .monospacedDigit()
+                ProgressView(value: vm.snap.fraction)
+                    .frame(width: 60)
+                    .tint(vm.statusColor)
+            }
+            if !vm.resetLabel.isEmpty {
+                Text(vm.resetLabel)
+                    .font(.caption)
+                    .foregroundColor(Color.rbTextSecondary)
+            }
         }
         .help(
             """
@@ -71,6 +84,8 @@ public struct APICallCounterRow: View {
             Only successful (non-nil) calls are counted.
             """
         )
+        .onChange(of: resetDate) { _, newVal in vm.resetDate = newVal }
+        .onAppear { vm.resetDate = resetDate }
         .counterPolling(vm)
     }
 }

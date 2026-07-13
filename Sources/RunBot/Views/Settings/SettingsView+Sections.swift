@@ -151,7 +151,7 @@ internal extension SettingsView {
             Text("How often RunBot checks GitHub for runner and workflow status. Lower values use more API quota.")
                 .font(.caption).foregroundColor(Color.rbTextSecondary)
                 .padding(.horizontal, RBSpacing.md).padding(.bottom, 6)
-            APICallCounterRow()
+            APICallCounterRow(resetDate: runnerState.rateLimitResetDate)
                 .font(.system(size: 12))
                 .padding(.horizontal, RBSpacing.md)
                 .padding(.vertical, 8)

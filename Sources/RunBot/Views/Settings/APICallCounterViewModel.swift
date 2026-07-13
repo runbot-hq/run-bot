@@ -77,6 +77,12 @@ public final class APICallCounterViewModel {
         _task = nil
     }
 
+    // MARK: - Reset date (sourced from RunnerState, no GitHubClient changes needed)
+
+    /// The reset date forwarded from `RunnerState.rateLimitResetDate`, populated
+    /// on every poll cycle. Set by the owning view via `APICallCounterRow`.
+    public var resetDate: Date?
+
     // MARK: - Derived display state
 
     /// Human-readable counter label, e.g. `"410 / 5,000"`.
@@ -91,5 +97,14 @@ public final class APICallCounterViewModel {
         case ..<0.85: .yellow
         default: .red
         }
+    }
+
+    /// "Resets in N min" label derived from `resetDate`, or empty string when unavailable.
+    public var resetLabel: String {
+        guard let resetDate else { return "" }
+        let interval = resetDate.timeIntervalSinceNow
+        guard interval > 0 else { return "Resetting…" }
+        let minutes = Int(ceil(interval / 60))
+        return "Resets in \(minutes) min"
     }
 }
