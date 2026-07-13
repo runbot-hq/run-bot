@@ -4,7 +4,7 @@
 
 # RunBot
 
-> GitHub Actions and local runners — in your macOS menu bar.
+GitHub Actions and local runners — in your macOS menu bar.
 
 [![Version](https://img.shields.io/github/v/release/runbot-hq/run-bot?label=release)](https://github.com/runbot-hq/run-bot/releases/latest)
 [![Beta](https://img.shields.io/github/v/tag/runbot-hq/run-bot?include_prereleases&label=beta&filter=*beta*)](https://github.com/runbot-hq/run-bot/releases)
