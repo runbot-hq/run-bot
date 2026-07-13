@@ -37,7 +37,7 @@ struct LocalRunnersView: View {
     // MARK: - Environment
 
     /// Core runner state — localRunners and isLocalScanning are read from here.
-    @Environment(RunnerState.self) private var runnerState: RunnerState
+    @Environment(AppState.self) private var appState
     /// Gate that tracks whether any overlay is live; managed by `mbkSheet` automatically.
     @Environment(MBKOverlayGate.self) private var overlayGate: MBKOverlayGate
     /// Suppresses outside-click / app-switch hide for one scheduler turn on intentional dismiss.
@@ -83,7 +83,7 @@ struct LocalRunnersView: View {
         }
         .frame(idealWidth: 480, maxWidth: .infinity)
         .onAppear { Task { await localRunnerStore.refresh() } }
-        .onChange(of: runnerState.isLocalScanning) { _, newVal in if !newVal { hasLoadedOnce = true } }
+        .onChange(of: appState.runnerState.isLocalScanning) { _, newVal in if !newVal { hasLoadedOnce = true } }
         // Use mbkSheet so MBKOverlayGate.hasActiveOverlay is managed automatically.
         // The outside-click monitor reads overlayGate.hasActiveOverlay (ORed into the
         // hasActiveSheet closure in AppDelegate.openPanel) and ignores clicks while
@@ -143,7 +143,7 @@ struct LocalRunnersView: View {
             .help("Add a new runner")
             .accessibilityIdentifier("addRunnerButton")
             .padding(.trailing, 4)
-            if runnerState.isLocalScanning {
+            if appState.runnerState.isLocalScanning {
                 ProgressView().scaleEffect(0.6).frame(width: 14, height: 14)
             } else {
                 Button(action: { removeErrorMessage = nil; Task { await localRunnerStore.refresh() } }, label: {
@@ -175,11 +175,11 @@ struct LocalRunnersView: View {
     /// Empty-state placeholder or populated list of runner rows.
     @ViewBuilder
     private var runnerList: some View {
-        if runnerState.localRunners.isEmpty && !runnerState.isLocalScanning && hasLoadedOnce {
+        if appState.runnerState.localRunners.isEmpty && !appState.runnerState.isLocalScanning && hasLoadedOnce {
             Text("No local runners found").font(.caption).foregroundColor(Color.rbTextSecondary)
                 .padding(.horizontal, RBSpacing.md).padding(.vertical, 4)
         } else {
-            ForEach(runnerState.localRunners) { runner in localRunnerRow(runner) }
+            ForEach(appState.runnerState.localRunners) { runner in localRunnerRow(runner) }
         }
     }
 

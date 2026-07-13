@@ -62,7 +62,7 @@ struct AddRunnerSheet: View {
     var localRunnerStore: LocalRunnerStore = .shared
     /// Core runner state — read for synchronous duplicate checks against localRunners.
     /// No default is provided: the value is injected via `AppDelegate.wrapEnv`.
-    @Environment(RunnerState.self) var runnerState: RunnerState
+    @Environment(AppState.self) private var appState
     /// Gate that tracks whether any overlay (sheet or file picker) is active.
     /// Used by `pickExistingFolder()` to arm the dismiss gate before opening the picker.
     /// Injected via `AppDelegate.wrapEnv`.
