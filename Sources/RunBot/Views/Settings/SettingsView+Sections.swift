@@ -95,6 +95,9 @@ internal extension SettingsView {
                         .font(.caption2).foregroundColor(Color.rbTextSecondary)
                 }
                 Spacer()
+                Text(runnerCountLabel)
+                    .font(.caption2)
+                    .foregroundColor(Color.rbTextSecondary)
                 Image(systemName: "chevron.right")
                     .font(.caption2)
                     .foregroundColor(Color.rbTextTertiary)
@@ -118,6 +121,9 @@ internal extension SettingsView {
                         .font(.caption2).foregroundColor(Color.rbTextSecondary)
                 }
                 Spacer()
+                Text(scopeCountLabel)
+                    .font(.caption2)
+                    .foregroundColor(Color.rbTextSecondary)
                 Image(systemName: "chevron.right")
                     .font(.caption2)
                     .foregroundColor(Color.rbTextTertiary)
@@ -127,6 +133,24 @@ internal extension SettingsView {
         .buttonStyle(.plain)
         .padding(.horizontal, RBSpacing.md)
         .padding(.vertical, 8)
+    }
+
+    // MARK: - Management count labels
+
+    /// "N active, M inactive" label for the local runners row.
+    var runnerCountLabel: String {
+        let runners = runnerState.localRunners
+        let active = runners.filter { $0.isRunning }.count
+        let inactive = runners.count - active
+        return "\(active) active, \(inactive) inactive"
+    }
+
+    /// "N active, M inactive" label for the scopes row.
+    var scopeCountLabel: String {
+        let entries = ScopeStore.shared.entries
+        let active = entries.filter { $0.isEnabled }.count
+        let inactive = entries.count - active
+        return "\(active) active, \(inactive) inactive"
     }
 
     // MARK: - General
