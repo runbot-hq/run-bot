@@ -137,17 +137,19 @@ internal extension SettingsView {
 
     // MARK: - Management count labels
 
-    /// "N active, M inactive" label for the local runners row.
+    /// "N active, M inactive" label for the local runners row, or "" when none configured.
     var runnerCountLabel: String {
         let runners = runnerState.localRunners
+        guard !runners.isEmpty else { return "" }
         let active = runners.filter { $0.isRunning }.count
         let inactive = runners.count - active
         return "\(active) active, \(inactive) inactive"
     }
 
-    /// "N active, M inactive" label for the scopes row.
+    /// "N active, M inactive" label for the scopes row, or "" when none configured.
     var scopeCountLabel: String {
         let entries = scopeStore.entries
+        guard !entries.isEmpty else { return "" }
         let active = entries.filter { $0.isEnabled }.count
         let inactive = entries.count - active
         return "\(active) active, \(inactive) inactive"
