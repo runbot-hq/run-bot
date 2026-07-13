@@ -12,10 +12,8 @@
 //
 //   Scenario 3 — Alert from popover level:
 //     "Show alert" sets AppState.showAlert = true.
-//     .alert is attached to the GroupBox (not the button).
-//     .onChange(of: appState.showAlert) mirrors mbkOpenFilePicker's gate
-//     pattern: gate=true when alert appears, gate=false when dismissed.
-//     This prevents the outside-click monitor and workspace observer from
+//     .mbkAlert wraps .alert() and manages the overlay gate automatically,
+//     preventing the outside-click monitor and workspace observer from
 //     closing the popover while the alert is on screen.
 
 import MenuBarKit
@@ -63,17 +61,14 @@ struct SettingsView: View {
                 Text("Alert should appear. Popover stays alive.")
                     .font(.caption).foregroundStyle(.secondary)
             }
-            .alert("Simulated Error", isPresented: $appState.showAlert) {
+            .mbkAlert(
+                "Simulated Error",
+                isPresented: $appState.showAlert,
+                overlayGate: overlayGate
+            ) {
                 Button("OK", role: .cancel) {}
             } message: {
                 Text("This is a test error alert shown from the popover view.")
-            }
-            .onChange(of: appState.showAlert) { _, isShowing in
-                // SPIKE ONLY: use mbkSetOverlay() rather than writing hasActiveOverlay
-                // directly — the setter is internal(set) and inaccessible outside
-                // MenuBarKit. mbkSetOverlay() is the spike escape hatch until
-                // mbkAlert is implemented in #2038.
-                overlayGate.mbkSetOverlay(isShowing)
             }
 
             Divider()
