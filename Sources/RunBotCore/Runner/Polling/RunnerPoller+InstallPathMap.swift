@@ -45,7 +45,6 @@ public struct InstallPathMap {
         self.byApiId = byApiId
     }
 }
-
 /// Builds four lookup maps from the local runner list.
 ///
 /// `internal` — called only by `RunnerPoller.fetch()` inside `RunBotCore`.
