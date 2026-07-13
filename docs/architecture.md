@@ -254,9 +254,18 @@ RunBot opts into the beta channel by passing `betaChannelProvider: { AppPreferen
 
 The public key is stored as a compile-time constant in `Secrets.swift` (not in `UserDefaults` or any plist). The matching private key lives as a GitHub Actions secret and is used by the release workflow to sign each `RunBot.zip` artifact before upload.
 
+**`fixedZipURL` invariant:**
+
+`fixedZipURL` is a computed property — not `lazy let`. This is intentional: a transient `FileManager.cachesDirectory` failure on one scheduler cycle will self-heal on the next rather than permanently baking in a `/tmp` fallback from a failed lazy initialisation. Any call site that needs the URL for more than one step (e.g. write then verify) must snapshot it into a local `let` at the top of that scope — never call `fixedZipURL` twice expecting the same value under concurrent access.
+
+**`@MainActor` isolation note:**
+
+`AppUpdater` is `@MainActor` at the instance level (its stored properties and the methods RunBot calls are all main-actor). A full type-level `@MainActor` annotation on the class itself is deferred until all remaining call sites are migrated (#1914). Do not add `nonisolated` to any of the three call sites listed above in the interim — that would silently remove the main-actor guarantee at those call sites.
+
 - ❌ NEVER call `checkAndHandle` or `installAndRelaunch` from anywhere other than `AppDelegate` and the update UI respectively.
 - ❌ NEVER store the Ed25519 public key in `UserDefaults`, a plist, or any on-disk file — binary only.
 - ❌ NEVER change `schedulerIdentifier` without also migrating the on-disk cache path (`~/Library/Caches/<id>/update.zip`).
+- ❌ NEVER call `fixedZipURL` more than once per operation — snapshot into a local `let` instead.
 
 ---
 
@@ -812,30 +821,4 @@ view can be re-attached to a different window, add `guard let window else { retu
 
 #### Sheet state across hide/show
 
-`hidePanel()` does **not** call `dismissSheets()` and does **not** reset `rootView`.
-`popover.performClose()` closes `NSPopoverWindowFrame` and all child windows together —
-removed from screen but the `NSHostingController` and its SwiftUI tree stay alive with
-`@State` preserved. On re-open, `popover.show()` re-attaches the same controller and SwiftUI
-re-presents the sheet automatically because the binding is still `true`.
-
-`closePanel()` resets `rootView = mainView()` so the next open starts fresh.
-
-#### Rules
-
-```
-❌ NEVER use picker.begin { }            — free-floating, invisible to hasActiveSheet
-❌ NEVER use picker.runModal()           — same reason
-✅ ALWAYS use picker.beginSheetModal(for: hostWindow)
-
-❌ NEVER call popover.show() on resize   — re-anchors the arrow; use contentSize only
-❌ NEVER omit behavior re-assert before show() — AppKit latches at show-time
-❌ NEVER omit delegate re-assert before show() — same reason
-
-❌ NEVER add dismissSheets() to hidePanel()
-❌ NEVER reset hostingController.rootView in hidePanel()
-
-❌ NEVER remove tearDownOpenState() from any close path — monitor leak
-❌ NEVER inline teardown back into AppDelegate.swift
-❌ NEVER call popover.performClose() while a sheet is open without first calling
-        hidePopoverWindowsPreservingSheets()
-```
+`hidePanel()` does **not** call
