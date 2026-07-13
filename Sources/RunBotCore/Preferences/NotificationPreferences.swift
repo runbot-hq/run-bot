@@ -60,19 +60,15 @@ public final class NotificationPreferences {
     /// Persisted as a `String` rawValue in UserDefaults.
     ///
     /// ## Dispatch wiring
-    /// This property is intentionally UI/persistence-only in this PR. No
-    /// notification-dispatch callsite reads it yet — that wiring is tracked
-    /// in #2070 and will be added in a follow-up PR. The picker is functional
-    /// (writes correctly to UserDefaults) but the setting has no runtime effect
-    /// until dispatch is wired. This is not a bug introduced here.
+    /// Wired in #2070. Call `shouldNotify(success:)` at every
+    /// `UNUserNotificationCenter` dispatch site to gate notifications by this
+    /// preference.
     ///
     /// ## Orphaned UserDefaults keys
     /// The previous `notifications.notifyOnSuccess` and `notifications.notifyOnFailure`
     /// keys are intentionally left in UserDefaults without cleanup. The app has
     /// zero users in the wild, so no migration path is needed. The dead keys are
     /// harmless and will simply be ignored.
-    ///
-    /// - TODO: Wire notification dispatch to read this value — tracked in #2070.
     public var notificationMode: NotificationMode {
         didSet {
             defaults.set(notificationMode.rawValue, forKey: Key.notificationMode)
@@ -118,5 +114,33 @@ public final class NotificationPreferences {
         store.register(defaults: [
             Key.notificationMode: NotificationMode.all.rawValue,
         ])
+    }
+}
+
+// MARK: - Dispatch gating
+
+public extension NotificationPreferences {
+    /// Returns `true` if a notification should be sent for the given job outcome.
+    ///
+    /// Call this at every `UNUserNotificationCenter` dispatch site before
+    /// scheduling a notification request:
+    ///
+    /// ```swift
+    /// if NotificationPreferences.shared.shouldNotify(success: job.conclusion == .success) {
+    ///     scheduleNotification(for: job)
+    /// }
+    /// ```
+    ///
+    /// - Parameter success: `true` when the job concluded with `.success`,
+    ///   `false` for any other conclusion (`.failure`, `.cancelled`, `.neutral`, etc.).
+    /// - Returns: Whether the current `notificationMode` permits sending a
+    ///   notification for this outcome.
+    func shouldNotify(success: Bool) -> Bool {
+        switch notificationMode {
+        case .all:           return true
+        case .failuresOnly:  return !success
+        case .successesOnly: return success
+        case .never:         return false
+        }
     }
 }
