@@ -277,6 +277,12 @@ public actor RunnerPoller {
     if hasActiveWork {
       consecutiveIdleTicks = 0
     } else {
+      // Increments even when busyRunnerCount > 0 but hasActiveWork == false — intentional.
+      // `hasActiveWork` is the authoritative gate (job/action API state); `busyRunnerCount`
+      // only selects the Fast/Mid/Slow tier *within* the active branch. If runners are busy
+      // but the job API hasn't surfaced it yet, the two signals transiently disagree and the
+      // idle backoff applies. This is a known latent tension; revisit at Step 9 once
+      // `rateLimitRemaining` is wired and the full rate-limit picture is available.
       consecutiveIdleTicks += 1
     }
     // Always track the latest busy count from the just-finished successful fetch.
@@ -469,6 +475,7 @@ public actor RunnerPoller {
     await withTaskGroup(of: [ActiveJob].self) { group in
       for scope in scopes {
         group.addTask {
+          // fetchActiveJobs is a free function in GitHubRunnerFetchers.swift
           await fetchActiveJobs(for: scope)
             .map { $0.copying(scope: scope) }
         }

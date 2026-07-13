@@ -181,6 +181,8 @@ internal extension SettingsView {
         return VStack(alignment: .leading, spacing: 0) {
             Text("General").font(RBFont.sectionHeader).foregroundColor(Color.rbTextSecondary)
                 .padding(.horizontal, RBSpacing.md).padding(.top, 8).padding(.bottom, 4)
+            // resetDate: omitted — `APICallCounterRow.init(resetDate:)` defaults to nil.
+            // The parameter is optional (Date? = nil); this compiles and behaves correctly.
             APICallCounterRow()
                 .font(.system(size: 12))
                 .padding(.horizontal, RBSpacing.md)

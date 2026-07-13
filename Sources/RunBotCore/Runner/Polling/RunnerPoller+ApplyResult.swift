@@ -44,6 +44,10 @@ extension RunnerPoller {
         // It is valid for these to disagree transiently (e.g. a runner is busy but
         // the job API hasn’t surfaced it yet). In that case the active ladder is
         // entered only when hasActiveWork is true — intentional per #2069 design.
+        // `enrichedRunners` is used here (not `self.runners`) because `setDisplayState`
+        // hasn't written to `self.runners` yet at this point in the call sequence.
+        // The values are identical — `enrichedRunners` is exactly what setDisplayState
+        // will write — so this is spec-equivalent to `runners.filter { $0.busy }.count`.
         let busyCount = enrichedRunners.filter { $0.busy }.count
         let activeWork = hasActiveWork()
         let newIdleTicks = updateAdaptiveCounters(hasActiveWork: activeWork, busyRunnerCount: busyCount)

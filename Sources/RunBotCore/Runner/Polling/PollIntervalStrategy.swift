@@ -17,7 +17,11 @@ public struct PollIntervalStrategy: Sendable {
 
     // MARK: — Idle backoff
 
-    /// Minimum idle poll interval (tick 0). Doubles each tick up to `idleMax`.
+    /// Formula base for idle backoff: `idleMin * 2^consecutiveIdleTicks`, capped at `idleMax`.
+    /// This is NOT the minimum observable production idle sleep — that is 60 s (tick 1),
+    /// because the first successful idle fetch increments `consecutiveIdleTicks` to 1 before
+    /// `nextPollInterval()` is called. Tick 0 (30 s) is only reachable on a first-fetch error.
+    /// Consider renaming to `idleBase` at Step 10 to reflect this distinction.
     public static let idleMin: TimeInterval = 30
     /// Maximum idle poll interval cap (5 minutes).
     public static let idleMax: TimeInterval = 300
