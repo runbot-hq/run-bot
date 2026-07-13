@@ -333,8 +333,11 @@ final class AppState {
         // intentional: a second call must be a no-op regardless of which branch
         // the first call took. Setting it after the guard would allow a second
         // call to slip through if the first returned via UI_TESTING. This does
-        // mean a UI-test process cannot "re-start" AppState after teardown —
-        // that pattern is not supported and should not be added.
+        // mean a single AppState *instance* cannot be re-started after teardown —
+        // _didStart is per-instance state, not process-global. Tests that construct
+        // a fresh AppState() per test case are unaffected (each instance has its own
+        // _didStart = false). The constraint only bites if the same instance is reused
+        // across setUp/tearDown cycles, which is not a supported pattern.
         //
         // UI test isolation: skip all network/polling setup when running under XCTest.
         // The old setupSubscriptions() had the same guard — preserved here so UI tests
@@ -426,6 +429,10 @@ final class AppState {
     /// internally by `RunnerPoller` via `withObservationTracking` / `AsyncStream`.
     private func seedStoreAndPoller() {
         // Step 1
+        // Tripwire: if configure() was not called before start(), LocalRunnerStore.shared
+        // will fatalError below. This assert fires in DEBUG/test runs first, giving a
+        // readable message closer to the actual cause than the fatalError in .shared.
+        assert(LocalRunnerStore.sharedInstance != nil, "AppState.seedStoreAndPoller: LocalRunnerStore.configure() must be called by AppDelegate before AppState.start()")
         _localRunnerStore = LocalRunnerStore.shared
         log("AppState › start — _localRunnerStore seeded")
 
