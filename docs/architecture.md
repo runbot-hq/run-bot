@@ -185,39 +185,78 @@ In a pure SPM / no-`.xcodeproj` codebase with GitHub Actions CI, the payoff is *
 
 ## GitHubClient Package (`runbot-hq/GitHubClient`)
 
-`GitHubClient` is a first-party Swift package that owns all GitHub API communication, OAuth, and token management. It lives outside `RunBotCore` because it is a reusable, independently versioned module — not because it has app-layer dependencies.
+> See also: [runbot-hq/GitHubClient](https://github.com/runbot-hq/GitHubClient) for full API docs and package internals.
 
-**What it provides:**
+`GitHubClient` is the package RunBot uses for all GitHub API communication. `RunBotCore` declares it as a dependency and consumes it exclusively through protocol abstractions — `GitHubTransportProtocol` and `OAuthServiceProtocol` — so the core remains testable without Keychain or network access.
 
-- `GitHubClient` — the top-level facade that wires `OAuthService`, `GitHubTransport`, and `TokenCache` under a single initialiser. The production init takes Keychain credentials; the test init accepts protocol mocks, avoiding any Keychain or network access in tests.
-- `GitHubTransport` / `GitHubTransportProtocol` — authenticated `URLSession`-backed transport for all GitHub REST calls. Token reads go through `TokenCache` so the Keychain is never hit on every request.
-- `OAuthService` / `OAuthServiceProtocol` — manages the OAuth sign-in/sign-out flow and persists tokens to `KeychainTokenStore`. Calls `TokenCache.invalidate()` on every token change so the cache stays consistent.
-- `GitHubRunnerAPI`, `GitHubWorkflowAPI` — typed API wrappers for the runner and workflow endpoints, built on top of `GitHubTransport`.
-- `AnyJSON` — the type-erased JSON codec (see principle 19 in `project-tech-principles.md`).
-- `RateLimitActor` / `GitHubRateLimitHandler` — serialises all rate-limit state behind an actor so concurrent API calls never race on limit tracking.
+**How RunBot wires it up:**
 
-**Why a separate package, not part of `RunBotCore`?**
+`AppDelegate` constructs a single `GitHubClient` instance at launch, passing Keychain credentials, and holds the resulting `oauthService` and `transport` references. These are injected into `RunBotCore` types (e.g. `RunnerPoller`, `OAuthUseCase`) at init time — nothing in Core imports the package directly.
 
-`GitHubClient` has no dependency on the `RunBot` app target — it is pure Swift with no AppKit imports. It is extracted as a package so it can be versioned, tested, and potentially reused independently of RunBot. `RunBotCore` declares it as a dependency and consumes it via protocol abstractions (`GitHubTransportProtocol`, `OAuthServiceProtocol`), keeping the core testable without the full Keychain/network stack.
+**What RunBot calls:**
 
-**Isolation note:** `GitHubClient` is not annotated `@MainActor` at the type level. The production init is `@MainActor` (because `OAuthService.init` requires it), but the type itself is not isolated — a full type-level annotation is deferred until all remaining Keychain/`RunBotCore` call sites are migrated (#1914).
+- `fetchRunners(scope:)` — called by `RunnerPoller` on every poll tick to get the live runner list for each active org/repo scope
+- `fetchActiveRuns(scope:)` — called by `RunnerPoller` to build workflow action groups; returns a typed result distinguishing `.success`, `.rateLimited(partial)`, and `.noToken`
+- `fetchJobs(runID:scope:)` — called when a run is expanded in the UI to load its jobs and steps
+- `fetchStepLog(jobID:stepNumber:scope:)` — called by `LogFetcher` to retrieve and display per-step CI logs
+- `fetchUserOrgs()` / `fetchUserRepos()` — called by `AddScopeSheet` to populate the scope picker
+- `oauthService.makeSignInURL()` / `oauthService.handleCallback(_:)` — called from `AppDelegate.application(_:open:)` to drive the OAuth sign-in flow
+
+**Token resolution in RunBot's context:**
+
+RunBot uses the interactive OAuth flow for human users. The Keychain-backed `TokenStore` is the primary token source. `GH_TOKEN` / `GITHUB_TOKEN` env-var fallback activates automatically in CI runs, requiring no code changes.
+
+**Testing boundary:**
+
+All tests that touch network or Keychain inject `MockTransport` and `MockOAuthService` via the `GitHubClient(oauthService:transport:)` test initialiser. No production `GitHubClient` instance is created in the test suite.
+
+- ❌ NEVER import `GitHubClient` directly in `RunBotCore` source files — consume via the injected protocol only.
+- ❌ NEVER construct a second `GitHubClient` instance — the one created in `AppDelegate` is the single source of truth for tokens and rate-limit state.
 
 ---
 
 ## AppUpdater Package (`runbot-hq/AppUpdater`)
 
-`AppUpdater` is a first-party Swift package that drives the in-app auto-update flow end to end. It is consumed by `RunBotCore` and consumed transitively by the `RunBot` executable.
+> See also: [runbot-hq/AppUpdater](https://github.com/runbot-hq/AppUpdater) for full API docs and package internals.
 
-**What it provides:**
+`AppUpdater` is the package RunBot uses for in-app auto-update. RunBot is distributed outside the Mac App Store as an unsigned, Gatekeeper-bypass app, so `AppUpdater`'s first-class support for that distribution model is the reason it was chosen over Sparkle.
 
-- `AppUpdater` — a `@MainActor` class that orchestrates the full update pipeline: GitHub Releases poll → semver compare → zip download → SHA-256 verification → install and relaunch on user confirmation. The caller injects an `any UpdateStateProviding` for all UI-facing state; `AppUpdater` itself owns no host-specific state beyond a fixed zip cache path under `~/Library/Caches/<schedulerIdentifier>/update.zip`.
-- Background scheduler (`AppUpdater+BackgroundScheduler`) — periodic background polling via a `BGTaskScheduler`-style scheduler. The identifier is injected at init time so it can be overridden in tests.
-- Download + verification (`AppUpdater+Download`) — `URLSession`-based zip download with SHA-256 checksum verification running in a `@concurrent` free function so it never blocks the main actor.
-- Install + relaunch (`AppUpdater+Install`) — replaces the running `.app` bundle and relaunches via a subprocess, also in a `@concurrent` helper.
+**How RunBot wires it up:**
 
-**Isolation model:** The class is `@MainActor`, so `isInstalling` and the scheduler reference are race-free without extra locking. All blocking work (download, checksum, subprocess) runs off the main thread via `URLSession` suspension or `@concurrent` free functions.
+`AppDelegate` holds a single `AppUpdater` instance initialised with RunBot's GitHub repo slug, the current bundle version, the expected zip asset name, an Ed25519 public key (embedded in the binary), and the `NSBackgroundActivityScheduler` identifier. An `@Observable UpdateState` object — conforming to `UpdateStateProviding` — is injected into the SwiftUI environment so update UI reacts automatically.
 
-**Fixed zip path invariant:** All update cycles write to the same fixed path (`~/Library/Caches/<schedulerIdentifier>/update.zip`). `fixedZipURL` is a computed property (not `lazy let`) so that a transient `cachesDirectory` failure self-heals on the next scheduler cycle rather than permanently baking in a `/tmp` fallback. Any call site that needs this URL for more than one step must snapshot it once into a local `let`.
+```swift
+// AppDelegate.swift (illustrative)
+let updater = AppUpdater(
+    repo: "runbot-hq/run-bot",
+    currentVersion: Bundle.main.shortVersion,
+    assetName: { _ in "RunBot.zip" },
+    publicKey: Secrets.appUpdaterPublicKey,
+    schedulerIdentifier: "com.runbot.update-check"
+)
+```
+
+**What RunBot calls:**
+
+- `updater.checkAndHandle(state:)` — called once at launch inside a `Task` to perform an immediate update check
+- `updater.scheduleBackgroundCheck(state:)` — called at launch to register the 24-hour background polling schedule
+- `updater.installAndRelaunch(state:)` — called from the update UI when the user taps "Install & Relaunch"
+
+**Update state in the UI:**
+
+`UpdateState.currentPhase` drives a single `UpdateRow` view in the Settings panel. The view switches on `.idle`, `.available`, `.downloading`, `.ready`, and `.failed` — no other update logic exists in the app layer.
+
+**Beta channel:**
+
+RunBot opts into the beta channel by passing `betaChannelProvider: { AppPreferencesStore.shared.isBetaChannel }` at init time. The channel is toggled from Settings without restarting the updater.
+
+**Ed25519 key:**
+
+The public key is stored as a compile-time constant in `Secrets.swift` (not in `UserDefaults` or any plist). The matching private key lives as a GitHub Actions secret and is used by the release workflow to sign each `RunBot.zip` artifact before upload.
+
+- ❌ NEVER call `checkAndHandle` or `installAndRelaunch` from anywhere other than `AppDelegate` and the update UI respectively.
+- ❌ NEVER store the Ed25519 public key in `UserDefaults`, a plist, or any on-disk file — binary only.
+- ❌ NEVER change `schedulerIdentifier` without also migrating the on-disk cache path (`~/Library/Caches/<id>/update.zip`).
 
 ---
 
