@@ -76,11 +76,13 @@ public actor RunnerPoller {
   // Both are reset to 0 at the top of `start()` so every restart begins from a clean state.
 
   // MARK: — Adaptive-interval counters
-  // All properties are `private`; the only sanctioned write path is
+  // All tick/busy counters are `private`; `rateLimitRemaining` is `internal` due to
+  // SPM cross-file actor extension rules (see its doc-comment below).
+  // The only sanctioned write path is
   // `updateAdaptiveCounters(hasActiveWork:busyRunnerCount:)` for the tick/busy
   // counters, and `applyFetchResult` for `rateLimitRemaining`.
-  // `updateAdaptiveCounters` is `internal` (not `private`) due to SPM file-scope
-  // rules for cross-file actor extensions; the ⚠️ warning lives on that method.
+  // `updateAdaptiveCounters` is `internal` (not `private`) for the same SPM reason;
+  // the ⚠️ warning lives on that method.
 
   /// Consecutive successful idle poll cycles. Drives exponential idle backoff in
   /// `PollIntervalStrategy`. Reset to 0 on every `start()` and on any active fetch.
@@ -117,8 +119,9 @@ public actor RunnerPoller {
     @Sendable (_ metrics: RunnerMetrics?, _ runnerId: Int, _ name: String) async -> Void
   /// Injected preferences store. periphery:ignore
   /// No longer drives poll cadence (removed in Step 4 of #2069 — `preferencesStore.pollingInterval`
-  /// replaced by `PollIntervalStrategy`). Retained because other call sites outside
-  /// `RunnerPoller` depend on the same injected instance. Planned cleanup at Step 10.
+  /// replaced by `PollIntervalStrategy`). Step 10 (#2073) removed `pollingInterval` from the
+  /// protocol; this property is now dead inside `RunnerPoller`. Pending removal together
+  /// with its `AppState` injection site in a follow-up cleanup.
   let preferencesStore: any AppPreferencesStoreProtocol
   /// Injected scope store. Provides `activeScopes`.
   /// `internal` (not `private`) so that extension files can read this property.
@@ -312,7 +315,7 @@ public actor RunnerPoller {
   ///
   /// Synchronous — all inputs are actor-local properties; no `await` needed.
   /// `resolvedInterval(hasActive:baseIdle:)` and the `preferencesStore.pollingInterval`
-  /// read were removed in Step 4 of #2069.
+  /// read were removed in Step 4 of #2069. `rateLimitRemaining` was wired in Step 9.
   private func nextPollInterval() -> TimeInterval {
     let hasActive = hasActiveWork()
     let interval = PollIntervalStrategy.next(

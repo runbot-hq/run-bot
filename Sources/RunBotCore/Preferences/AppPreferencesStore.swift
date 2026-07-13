@@ -20,8 +20,9 @@ import Observation
 /// `pollingInterval` and `pollingRange` were removed from this type because
 /// `RunnerPoller` no longer reads them — poll cadence is fully driven by
 /// `PollIntervalStrategy`. The `settings.pollingInterval` UserDefaults key is
-/// intentionally left registered at its previous default (15 s) so that existing
-/// installs are not affected; the value simply goes unread by the app.
+/// no longer registered in `register(defaults:)` (removed in this step) and goes
+/// unread by the app. Existing installs that previously wrote a value retain it
+/// in UserDefaults but it has no effect.
 @MainActor
 @Observable
 public final class AppPreferencesStore {
