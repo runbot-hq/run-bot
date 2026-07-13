@@ -28,8 +28,8 @@ extension AppDelegate {
     /// 2. Hydrate `ScopeEntry.displayName` from persisted prefs.
     /// 3. `setupStatusItem()` / `setupPanel()` — UI wiring only, no domain calls.
     /// 4. `appState.start(onUpdateStatusIcon:)` — remaining domain startup:
-    ///    `refreshAsync` → poll loop → update check → background scheduler →
-    ///    status-icon + sign-out tasks.
+    ///    observations (sign-out + status-icon tasks, Step 3 — before any await) →
+    ///    `refreshAsync` → `store.start` → poll loop → update check → background scheduler.
     ///
     /// - Parameter _: The notification (unused).
     func applicationDidFinishLaunching(_ _: Notification) {
@@ -58,16 +58,15 @@ extension AppDelegate {
             // `updateStatusIcon` is an AppDelegate method (AppKit concern) passed
             // as a callback so AppState never imports AppKit or holds AppDelegate.
             //
-            // Startup ordering safety: appState.start() suspends on refreshAsync()
-            // (Step 3) before it calls store.start() (Step 4). That suspension yields
-            // back to this Task's outer continuation, but by that point setupStatusItem()
-            // and setupPanel() have already completed above. The status-icon and
-            // sign-out observation tasks (Step 7) are started after store.start(),
-            // so they can never fire before the poll loop is running.
-            // Specifically: statusIconTask is guaranteed to be registered before the
-            // first applyFetchResult write because startObservations() (Step 7) is
-            // called after store.start() returns, and store.start() does not write
-            // until its first fetch cycle completes.
+            // Startup ordering safety: appState.start() wires sign-out and status-icon
+            // observation tasks at Step 3 (startObservations), BEFORE any await.
+            // refreshAsync (Step 4) is the first suspension point; store.start() (Step 5)
+            // follows. By the time this Task's outer continuation resumes here,
+            // setupStatusItem() and setupPanel() have already completed above.
+            // statusIconTask and signOutTask are registered before the first
+            // applyFetchResult write because startObservations() runs before
+            // store.start(), and store.start() does not write until its first
+            // fetch cycle completes.
             await appState.start(onUpdateStatusIcon: { [weak self] in
                 self?.updateStatusIcon()
             })
