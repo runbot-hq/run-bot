@@ -33,7 +33,7 @@ struct PanelMainView: View {
     /// Panel open/close and transient-hide state from the environment.
     @Environment(PanelVisibilityState.self) private var panelVisibilityState: PanelVisibilityState
     /// Core runner/job/action/rate-limit state injected from AppDelegate.wrapEnv.
-    @Environment(RunnerState.self) private var runnerState: RunnerState
+    @Environment(AppState.self) private var appState
     /// View model for CPU/memory stats displayed in the header.
     @State private var systemStats = SystemStatsViewModel()
     /// Number of workflow rows currently shown in the actions section.
@@ -64,14 +64,14 @@ struct PanelMainView: View {
     /// (`localRunners`) from `runnerState` — the single observable source of truth
     /// injected via the SwiftUI environment from `AppDelegate.wrapEnv`.
     private var activeLocalRunners: [RunnerModel] {
-        guard runnerState.actions.contains(where: { $0.groupStatus == .inProgress }) else { return [] }
+        guard appState.runnerState.actions.contains(where: { $0.groupStatus == .inProgress }) else { return [] }
         let activeNamesFromJobs = Set(
-            runnerState.jobs.filter { $0.jobStatus == .inProgress }.compactMap { $0.runnerName }
+            appState.runnerState.jobs.filter { $0.jobStatus == .inProgress }.compactMap { $0.runnerName }
         )
-        let busyRunners = runnerState.runners.filter { $0.busy }
+        let busyRunners = appState.runnerState.runners.filter { $0.busy }
         let busyIds = Set(busyRunners.compactMap { $0.id })
         let busyNames = Set(busyRunners.map { $0.name })
-        return runnerState.localRunners.filter { local in
+        return appState.runnerState.localRunners.filter { local in
             if activeNamesFromJobs.contains(local.runnerName) { return true }
             if let aid = local.agentId, busyIds.contains(aid) { return true }
             if busyNames.contains(local.runnerName) { return true }
@@ -88,11 +88,11 @@ struct PanelMainView: View {
             )
             .onAppear { systemStats.start() }
             Divider()
-            if let error = runnerState.fetchError {
+            if let error = appState.runnerState.fetchError {
                 fetchErrorBanner(error)
                 Divider()
             }
-            if runnerState.isRateLimited { rateLimitBanner; Divider() }
+            if appState.runnerState.isRateLimited { rateLimitBanner; Divider() }
             if !activeLocalRunners.isEmpty {
                 SectionHeaderLabel(title: "Local Runners")
                 PanelLocalRunnerRow(runners: activeLocalRunners)
@@ -117,7 +117,7 @@ struct PanelMainView: View {
         }
         // Reset the visible row count only when the list shrinks (e.g. a runner is removed),
         // not on every poll update — avoids snapping the user back mid-scroll.
-        .onChange(of: runnerState.actions) { old, new in
+        .onChange(of: appState.runnerState.actions) { old, new in
             if new.count < old.count { visibleCount = 10 }
         }
     }
@@ -134,12 +134,12 @@ struct PanelMainView: View {
     private var actionsSectionContent: some View {
         VStack(alignment: .leading, spacing: 0) {
             SectionHeaderLabel(title: "Workflows")
-            if runnerState.actions.isEmpty {
+            if appState.runnerState.actions.isEmpty {
                 Text("No recent workflows")
                     .font(.caption).foregroundColor(.secondary)
                     .padding(.horizontal, 12).padding(.vertical, 8)
             } else {
-                let visible = Array(runnerState.actions.prefix(visibleCount))
+                let visible = Array(appState.runnerState.actions.prefix(visibleCount))
                 ForEach(visible) { group in
                     ActionRowView(group: group, tick: displayTick, onStepTap: onStepTap)
                 }
@@ -151,7 +151,7 @@ struct PanelMainView: View {
 
     /// "Load N more workflows" button; hidden when all workflows are already visible.
     @ViewBuilder private var loadMoreButton: some View {
-        let nextBatch = min(10, runnerState.actions.count - visibleCount)
+        let nextBatch = min(10, appState.runnerState.actions.count - visibleCount)
         if nextBatch > 0 {
             Button { visibleCount += nextBatch } label: {
                 Text("Load \(nextBatch) more workflows\u{2026}")
@@ -188,7 +188,7 @@ struct PanelMainView: View {
         displayTickTask = nil
     }
 
-    /// Inline error banner shown when `runnerState.fetchError` is non-nil.
+    /// Inline error banner shown when `appState.runnerState.fetchError` is non-nil.
     ///
     /// Displays a truncated error description. Dismisses automatically on the next
     /// successful fetch cycle when `applyFetchResult` clears `fetchError`.
@@ -211,7 +211,7 @@ struct PanelMainView: View {
     private var rateLimitBanner: some View {
         withExtendedLifetime(displayTick) {} // makes read intent explicit; actual refresh is driven by the tick: param chain in body
         let countdownLabel: String
-        if let resetDate = runnerState.rateLimitResetDate {
+        if let resetDate = appState.runnerState.rateLimitResetDate {
             let remaining = max(0, resetDate.timeIntervalSinceNow)
             if remaining < 1 {
                 countdownLabel = "resuming\u{2026}"

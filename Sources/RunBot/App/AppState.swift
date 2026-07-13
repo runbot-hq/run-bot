@@ -181,7 +181,8 @@ final class AppState {
     /// Created here (not inside `start()`) so it survives for the full app
     /// lifetime. `RunnerPoller.applyFetchResult` writes into this instance on
     /// the `@MainActor` after every poll cycle. Views read from it via
-    /// `@Environment(RunnerState.self)` or via `appState.runnerState`.
+    /// Views read from it by declaring `@Environment(AppState.self) var appState`
+    /// and accessing `appState.runnerState`.
     let runnerState = RunnerState()
 
     /// Auto-update driver. Injected into `SettingsView` for the

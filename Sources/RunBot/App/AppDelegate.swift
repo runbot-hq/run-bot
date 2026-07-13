@@ -185,19 +185,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return AnyView(view
             .environment(panelVisibilityState)
             .environment(appState)          // top-level domain coordinator (issue #2040)
-            // WHY TWO INJECTIONS FOR runnerState:
-            // ❌ NOT a bug — `appState.runnerState` is the same object instance as the
-            // one inside `appState`. This is not a duplicate; it is a migration shim so
-            // views still using `@Environment(RunnerState.self)` continue to compile
-            // without change during the transition to `@Environment(AppState.self)`.
-            //
-            // ⚠️ Env-shadowing: do NOT inject a different RunnerState instance anywhere
-            // below this point in the view tree while this shim is live. The two
-            // injections would diverge, producing split-brain observable state.
-            //
-            // Remove this line once all views use `@Environment(AppState.self).runnerState`
-            // (tracked in issue #2055).
-            .environment(appState.runnerState)
             .environment(overlayGate)
             .environment(\.suppressHidePanel, suppressHidePanel)
         )
