@@ -77,13 +77,17 @@ public actor RunnerPoller {
 
   /// Number of consecutive successful idle poll cycles (no active jobs or actions).
   /// Used by `PollIntervalStrategy` to compute exponential idle backoff.
-  /// `private` — mutated only through `updateAdaptiveCounters(hasActiveWork:busyRunnerCount:)`
-  /// so that no module-internal code can bypass the controlled write path.
+  /// `private` — written only via `updateAdaptiveCounters(hasActiveWork:busyRunnerCount:)`,
+  /// the sole sanctioned write path; `updateAdaptiveCounters` itself is `internal` (SPM
+  /// file-scope rules require it for cross-file extension access) but by convention no
+  /// other module code should call it directly.
   private var consecutiveIdleTicks: Int = 0
   /// Number of runners marked `busy` as of the last successful fetch cycle.
   /// Used by `PollIntervalStrategy` to select the active-interval tier.
-  /// `private` — mutated only through `updateAdaptiveCounters(hasActiveWork:busyRunnerCount:)`
-  /// so that no module-internal code can bypass the controlled write path.
+  /// `private` — written only via `updateAdaptiveCounters(hasActiveWork:busyRunnerCount:)`,
+  /// the sole sanctioned write path; `updateAdaptiveCounters` itself is `internal` (SPM
+  /// file-scope rules require it for cross-file extension access) but by convention no
+  /// other module code should call it directly.
   private var lastBusyRunnerCount: Int = 0
 
   /// Owns the two structured `Task` handles for the poll loop.
@@ -99,7 +103,10 @@ public actor RunnerPoller {
   /// Injected at init to decouple Core from the app-layer `LocalRunnerStore` actor.
   let applyMetrics:
     @Sendable (_ metrics: RunnerMetrics?, _ runnerId: Int, _ name: String) async -> Void
-  /// Injected preferences store. Retained for other consumers outside `RunnerPoller`.
+  /// Injected preferences store.
+  /// No longer drives poll cadence (removed in Step 4 of #2069 — `preferencesStore.pollingInterval`
+  /// replaced by `PollIntervalStrategy`). Retained because other call sites outside
+  /// `RunnerPoller` depend on the same injected instance. Planned cleanup at Step 10.
   let preferencesStore: any AppPreferencesStoreProtocol
   /// Injected scope store. Provides `activeScopes`.
   /// `internal` (not `private`) so that extension files can read this property.

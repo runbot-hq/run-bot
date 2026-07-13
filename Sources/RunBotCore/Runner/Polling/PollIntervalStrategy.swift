@@ -81,6 +81,9 @@ public struct PollIntervalStrategy: Sendable {
 
         // --- Idle: exponential backoff ---
         // tick 0 → 30 s, 1 → 60 s, 2 → 120 s, 3 → 240 s, 4+ → 300 s
+        // `consecutiveIdleTicks` is an Int and theoretically unbounded, but overflow
+        // is safe: pow(2, n) becomes Double.infinity for large n, and
+        // min(infinity, idleMax) returns idleMax (300). No trap, no incorrect result.
         let backed = idleMin * pow(2.0, Double(consecutiveIdleTicks))
         return min(backed, idleMax)
     }

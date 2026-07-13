@@ -38,6 +38,8 @@ struct PollIntervalStrategyTests {
 
   @Test("Rate-limited with reset date in the past → floor of 30 s")
   func rateLimitedWithExpiredResetDate() {
+    // reset is 60 s in the past → timeIntervalSinceNow ≈ -60
+    // max(30, -60 + 5) = max(30, -55) = 30  ← the floor, not the reset delta
     let reset = Date.fromNow(-60)  // already past
     let result = PollIntervalStrategy.next(
       hasActiveWork: false,
