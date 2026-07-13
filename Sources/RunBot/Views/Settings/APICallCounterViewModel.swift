@@ -114,8 +114,10 @@ public final class APICallCounterViewModel {
     /// intentionally avoided to keep complexity low.
     ///
     /// ## Rounding
-    /// Both branches use `ceil` so the label never understates remaining time
-    /// (e.g. avoids showing "0 sec" or "1 min" for nearly two minutes).
+    /// The seconds branch uses `ceil` so the label never shows "0 sec" in the
+    /// final sub-second. The minutes branch uses `floor` clamped to 1 so that
+    /// e.g. 61 s shows "1 min" rather than "2 min" — `ceil` on minutes would
+    /// overstate by up to ~59 s, which is more confusing than a slight understatement.
     public var resetLabel: String {
         guard let resetDate else { return "" }
         let interval = resetDate.timeIntervalSinceNow
@@ -123,7 +125,7 @@ public final class APICallCounterViewModel {
         if interval < 60 {
             return "Resets in \(Int(ceil(interval))) sec"
         }
-        let minutes = Int(ceil(interval / 60))
+        let minutes = max(1, Int(interval / 60))
         return "Resets in \(minutes) min"
     }
 }

@@ -82,6 +82,11 @@ struct SettingsView: View {
     /// Injected as a concrete reference; `@Observable` types don't need `@State` wrapping.
     let notifications: NotificationPreferences
     /// Scope store — injected so SwiftUI can track `@Observable` mutations reactively.
+    ///
+    /// Injected rather than read from `appState` because `AppState` does not expose
+    /// a `scopeStore` accessor — scopes are managed independently of runner state.
+    /// Runners flow through `AppState.runnerState` (owned by `LocalRunnerStore`);
+    /// scopes have no equivalent path, so direct injection is the only option.
     let scopeStore: ScopeStore
 
     // MARK: - Convenience accessors (avoid noisy appState.x at every call site)
