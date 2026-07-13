@@ -227,18 +227,23 @@ final class AppState {
     /// reference the task is immediately cancelled by ARC. `periphery:ignore`
     /// suppresses the "assigned but never read" dead-code warning.
     ///
-    /// `@Observable` tracking: `statusIconTask` and `signOutTask` are stored
-    /// `private var` on an `@Observable` class, so the macro synthesises
-    /// observation registrar calls on each write. Because nothing outside
-    /// `AppState` reads them, those calls are always no-ops at runtime.
-    /// `@ObservationIgnored` is applied (consistent with `_localRunnerStore` and
-    /// `_didStart` above) to make the write-only intent explicit at the compiler
-    /// level and suppress the dead registrar overhead.
+    /// `@Observable` + `nonisolated(unsafe)` + `@ObservationIgnored`:
+    /// - `@ObservationIgnored`: write-only fields; nothing outside `AppState`
+    ///   reads them, so the macro’s synthesised registrar calls are no-ops.
+    ///   Marking ignored suppresses that dead overhead.
+    /// - `nonisolated(unsafe)`: allows `deinit` (nonisolated in Swift 6) to
+    ///   call `.cancel()` directly. `Task.cancel()` is thread-safe; writes only
+    ///   happen on `@MainActor` inside `startObservations()`. Safe because deinit
+    ///   runs after the last strong reference drops — no concurrent write possible.
     ///
     /// Note: `localRunnerStore` is a *computed* property (not a stored var), so
-    /// the `@Observable` macro does NOT synthesise registrar calls for it —
-    /// no `@ObservationIgnored` is needed or applicable there.
-    @ObservationIgnored private var statusIconTask: Task<Void, Never>?
+    /// `@Observable` does NOT synthesise registrar calls for it — neither
+    /// `@ObservationIgnored` nor `nonisolated(unsafe)` applies there.
+    // nonisolated(unsafe): allows deinit (nonisolated in Swift 6) to call
+    // cancel() directly. Task.cancel() is thread-safe, so reading the handle
+    // from a non-main-actor context is safe — writes only happen on @MainActor
+    // inside startObservations(), which is called from start().
+    @ObservationIgnored nonisolated(unsafe) private var statusIconTask: Task<Void, Never>?
 
     // periphery:ignore - write-only by design; assignment keeps the Task alive
     /// Retained handle for the sign-out observation task started in `start()`.
@@ -251,7 +256,8 @@ final class AppState {
     /// the main actor inside the loop body, which (a) adds noise to the threading
     /// contract and (b) opens a TOCTOU window between `guard let store` and
     /// `await store.start()` across actor hops.
-    @ObservationIgnored private var signOutTask: Task<Void, Never>?
+    // nonisolated(unsafe): same reasoning as statusIconTask above.
+    @ObservationIgnored nonisolated(unsafe) private var signOutTask: Task<Void, Never>?
 
     // MARK: - Init
 
@@ -272,8 +278,17 @@ final class AppState {
 
     deinit {
         // Cancel long-lived observation tasks so test processes that construct
-        // AppState don't leak tasks beyond the test's lifetime. In production
-        // AppState lives for the process lifetime and deinit never fires.
+        // AppState and call start() don't leak tasks beyond the test lifetime.
+        // In production AppState lives for the process lifetime; deinit never fires.
+        //
+        // WHY nonisolated(unsafe) on the task vars (not @MainActor deinit):
+        // Swift 6 deinit is nonisolated and cannot access @MainActor-isolated
+        // properties. Task.cancel() is documented as thread-safe, and writes to
+        // these vars only happen on @MainActor inside startObservations(). The
+        // nonisolated(unsafe) annotation opts out of the actor-isolation check;
+        // the data-race safety is upheld by the write-on-MainActor / cancel-in-
+        // deinit ordering (deinit runs after the last strong reference drops,
+        // so no concurrent write can occur at this point).
         statusIconTask?.cancel()
         signOutTask?.cancel()
     }
@@ -297,11 +312,12 @@ final class AppState {
     /// Sequence:
     /// 1. Seed `_localRunnerStore` from `LocalRunnerStore.shared` (already configured).
     /// 2. Create `RunnerPoller`.
-    /// 3. `refreshAsync()` — hydrates local runners before poll loop fires.
-    /// 4. `runnerStore.start()` — begins the poll loop.
-    /// 5. `autoUpdater.checkAndHandle` — launch-time update check.
-    /// 6. `autoUpdater.scheduleBackgroundCheck` — periodic update scheduler.
-    /// 7. `startObservations()` — wires status-icon and sign-out tasks.
+    /// 3. `startObservations()` — wire sign-out + status-icon tasks BEFORE any await
+    ///    so sign-out events during startup are never dropped (stream is unbuffered).
+    /// 4. `refreshAsync()` — hydrates local runners before poll loop fires.
+    /// 5. `runnerStore.start()` — begins the poll loop.
+    /// 6. `autoUpdater.checkAndHandle` — launch-time update check.
+    /// 7. `autoUpdater.scheduleBackgroundCheck` — periodic update scheduler.
     ///
     /// Idempotency: guarded by `_didStart`, set unconditionally on first entry
     /// before any branch. A second call is always a no-op regardless of which
