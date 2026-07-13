@@ -78,10 +78,14 @@ public actor RunnerPoller {
 
   /// Number of consecutive successful idle poll cycles (no active jobs or actions).
   /// Used by `PollIntervalStrategy` to compute exponential idle backoff.
-  private var consecutiveIdleTicks: Int = 0
+  /// `fileprivate` — written by the cross-file extension `RunnerPoller+ApplyResult.swift`;
+  /// Swift `private` is file-scoped and would block that write.
+  fileprivate var consecutiveIdleTicks: Int = 0
   /// Number of runners marked `busy` as of the last successful fetch cycle.
   /// Used by `PollIntervalStrategy` to select the active-interval tier.
-  private var lastBusyRunnerCount: Int = 0
+  /// `fileprivate` — written by the cross-file extension `RunnerPoller+ApplyResult.swift`;
+  /// Swift `private` is file-scoped and would block that write.
+  fileprivate var lastBusyRunnerCount: Int = 0
 
   /// Owns the two structured `Task` handles for the poll loop.
   /// `private` — all call sites (startObservingScopes, start(), isolated deinit)

@@ -149,8 +149,11 @@ struct PollIntervalStrategyTests {
 
   // MARK: - Active mode (busy runner ladder)
 
+  /// Input parameters for a single active-mode ladder test case.
   struct ActiveCase {
+    /// Number of runners currently marked busy.
     let busyRunnerCount: Int
+    /// The polling interval expected from `PollIntervalStrategy.next`.
     let expectedInterval: TimeInterval
   }
 
@@ -180,8 +183,11 @@ struct PollIntervalStrategyTests {
 
   // MARK: - Idle mode (exponential backoff)
 
+  /// Input parameters for a single idle-mode backoff test case.
   struct IdleCase {
+    /// Number of consecutive idle poll cycles completed before this interval is computed.
     let consecutiveIdleTicks: Int
+    /// The polling interval expected from `PollIntervalStrategy.next`.
     let expectedInterval: TimeInterval
   }
 
