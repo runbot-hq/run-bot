@@ -46,8 +46,9 @@ import RunBotCore
 // AppDelegate.applicationDidFinishLaunching calls
 // `await appState.start(onUpdateStatusIcon:)` after hydrating display names.
 // AppState.start() runs the ordered async startup sequence:
-//   refreshAsync → store.start
-//   → checkAndHandle → scheduleBackgroundCheck → startObservations()
+//   startObservations (before any await — prevents sign-out event drop)
+//   → refreshAsync → store.start
+//   → checkAndHandle → scheduleBackgroundCheck
 // LocalRunnerStore.configure() is called by AppDelegate BEFORE the startup
 // Task, not inside start() — see issue #1741 for why ordering matters.
 //
