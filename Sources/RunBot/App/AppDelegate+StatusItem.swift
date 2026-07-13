@@ -54,6 +54,11 @@ extension AppDelegate {
     ///   `StatusBarIcon` is a static brand image and is status-agnostic; `status`
     ///   is intentionally ignored in the happy path.
     ///
+    /// - Note: `template-rendering-intent: template` is set in Contents.json, so
+    ///   AppKit loads the image with `isTemplate == true` already. No in-code
+    ///   mutation is needed or safe (NSImage(named:) returns the shared cached
+    ///   instance; mutating it would affect every caller).
+    ///
     /// Fallback chain:
     /// 1. `NSImage(named: "StatusBarIcon")` — bundled robot-face asset (template image).
     /// 2. `status.symbolName`             — correct SF Symbol for the current status.
@@ -62,7 +67,6 @@ extension AppDelegate {
     /// 5. `NSImage()`                     — empty/invisible (should never be reached).
     func menuBarImage(for status: AggregateStatus) -> NSImage {
         if let icon = NSImage(named: "StatusBarIcon") {
-            icon.isTemplate = true  // belt-and-suspenders on top of Contents.json
             return icon
         }
         return NSImage(systemSymbolName: status.symbolName, accessibilityDescription: nil)
