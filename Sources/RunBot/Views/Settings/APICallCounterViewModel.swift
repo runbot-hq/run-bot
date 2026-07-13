@@ -101,6 +101,12 @@ public final class APICallCounterViewModel {
 
     /// "Resets in N min" label derived from `resetDate`, or empty string when unavailable.
     ///
+    /// ## Reactivity
+    /// `resetDate` is a stored `var` on an `@Observable` class. SwiftUI tracks reads
+    /// of `resetDate` that occur inside `body` (via `vm.resetLabel`), so any change
+    /// to `resetDate` automatically triggers a re-render. No explicit `@Published` or
+    /// `Timer` is needed — `@Observable` tracking is what makes this reactive.
+    ///
     /// ## Render cadence
     /// This is a plain computed property that reads `Date.timeIntervalSinceNow` on
     /// each access. It only refreshes when SwiftUI triggers a redraw — in practice
