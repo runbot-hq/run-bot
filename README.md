@@ -15,7 +15,7 @@ GitHub Actions and local runners — in your macOS menu bar.
 ![Apple Silicon](https://img.shields.io/badge/Apple_Silicon-arm64-000000?logo=apple&logoColor=white)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 
-[Website](https://runbot-hq.github.io/run-bot) · [Docs](docs/development.md) · [Download](https://github.com/runbot-hq/run-bot/releases/latest) · [Privacy](docs/privacy.md)
+[Website](https://runbot-hq.github.io/run-bot) · [Docs](docs/development.md) · [Download](https://github.com/runbot-hq/run-bot/releases/latest) · [Privacy](docs/privacy.md) · [MIT License](LICENSE)
 
 </div>
 
@@ -34,6 +34,17 @@ GitHub Actions and local runners — in your macOS menu bar.
 - Add pre-existing runners already on your Mac
 - Start, stop, and deregister runners directly from the UI — no Terminal or github.com required
 - Active runners show live **CPU & memory** badges while a job is in progress
+
+**🤖 Actions for local runners**
+
+An open-source ecosystem of GitHub Actions built specifically for self-hosted
+macOS runners — drop them into any workflow and they run directly on your Mac:
+
+- **[AI Remediation](https://github.com/runbot-hq/ai-remediation-action)** *(coming soon)* — On a failed run, automatically invokes an AI CLI of your choice (Claude Code, Gemini, Aider, Codex…) with full context: branch, commit SHA, failure log, and repo links. Full paper trail in the CI log; no UI dependency.
+- **[AFM Release Notes](https://github.com/runbot-hq/afm-release-notes-action)** *(coming soon)* — Generates structured release notes from your commit history using Apple Intelligence (on-device AFM). No cloud API, no tokens — runs entirely on-device via Apple Foundation Models.
+- **[AFM Localisation](https://github.com/runbot-hq/afm-localization-action)** *(coming soon)* — Translates strings and localisation files using Apple Intelligence on-device. Inspired by Babel; no external service required.
+
+> All actions run on `self-hosted` runners — the same local runner RunBot manages — giving them direct access to your filesystem, installed tools, and on-device AI that cloud runners cannot reach.
 
 
 ---
