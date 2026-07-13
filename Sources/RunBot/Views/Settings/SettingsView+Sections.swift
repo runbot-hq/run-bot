@@ -138,6 +138,12 @@ internal extension SettingsView {
     // MARK: - Management count labels
 
     /// "N active, M inactive" label for the local runners row, or "" when none configured.
+    ///
+    /// Sources from `runnerState.localRunners` (via `AppState`) — runners flow through
+    /// `RunnerState` because their lifecycle is managed by `RunnerPoller`. This is
+    /// intentionally different from `scopeCountLabel`, which reads from the injected
+    /// `scopeStore` directly. Both stores are `@Observable` so SwiftUI reactivity works
+    /// correctly for both — the asymmetry reflects domain ownership, not an oversight.
     var runnerCountLabel: String {
         let runners = runnerState.localRunners
         guard !runners.isEmpty else { return "" }
@@ -147,6 +153,10 @@ internal extension SettingsView {
     }
 
     /// "N active, M inactive" label for the scopes row, or "" when none configured.
+    ///
+    /// Sources from the injected `scopeStore` — scopes are not part of `RunnerState`
+    /// so they cannot be reached via `runnerState`. See `runnerCountLabel` for the
+    /// full explanation of why these two labels use different sources.
     var scopeCountLabel: String {
         let entries = scopeStore.entries
         guard !entries.isEmpty else { return "" }
