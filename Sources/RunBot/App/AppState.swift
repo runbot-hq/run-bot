@@ -220,7 +220,6 @@ final class AppState {
     // closePanel() and the settings-back callback — both AppKit-level wiring
     // events, not domain events. Co-locating it with popover lifecycle is cleaner.
 
-    // periphery:ignore - write-only by design; assignment keeps the Task alive
     /// Retained handle for the status-icon observation task started in `start()`.
     ///
     /// Write-only by design: the value is never read after assignment. The
@@ -240,13 +239,8 @@ final class AppState {
     /// Note: `localRunnerStore` is a *computed* property (not a stored var), so
     /// `@Observable` does NOT synthesise registrar calls for it — neither
     /// `@ObservationIgnored` nor `nonisolated(unsafe)` applies there.
-    // nonisolated(unsafe): allows deinit (nonisolated in Swift 6) to call
-    // cancel() directly. Task.cancel() is thread-safe, so reading the handle
-    // from a non-main-actor context is safe — writes only happen on @MainActor
-    // inside startObservations(), which is called from start().
     @ObservationIgnored nonisolated(unsafe) private var statusIconTask: Task<Void, Never>?
 
-    // periphery:ignore - write-only by design; assignment keeps the Task alive
     /// Retained handle for the sign-out observation task started in `start()`.
     ///
     /// Same write-only retention pattern as `statusIconTask` above.
@@ -257,7 +251,6 @@ final class AppState {
     /// the main actor inside the loop body, which (a) adds noise to the threading
     /// contract and (b) opens a TOCTOU window between `guard let store` and
     /// `await store.start()` across actor hops.
-    // nonisolated(unsafe): same reasoning as statusIconTask above.
     @ObservationIgnored nonisolated(unsafe) private var signOutTask: Task<Void, Never>?
 
     // MARK: - Init
