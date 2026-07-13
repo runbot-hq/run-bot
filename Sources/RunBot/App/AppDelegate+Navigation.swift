@@ -36,12 +36,12 @@ extension AppDelegate {
         let inner = PanelMainView(
             onStepTap: { [weak self] (job: ActiveJob, step: GitHubStep) in
                 guard let self else { return }
-                self.savedNavState = .stepLog(job: job, step: step)
+                self.appState.savedNavState = .stepLog(job: job, step: step)
                 self.navigate(to: self.wrapEnv(StepLogView(
                     job: job,
                     step: step,
                     onBack: { [weak self] in
-                        self?.savedNavState = nil
+                        self?.appState.savedNavState = nil
                         self?.navigate(to: self?.mainView() ?? AnyView(EmptyView()))
                     }
                 )))
@@ -63,14 +63,11 @@ extension AppDelegate {
     func settingsView() -> AnyView {
         let inner = SettingsView(
             onBack: { [weak self] in
-                self?.savedNavState = nil
+                self?.appState.savedNavState = nil
                 self?.panelSheetState.clearRunnerSheet()
                 self?.navigate(to: self?.mainView() ?? AnyView(EmptyView()))
             },
-            oauthService: oauthService,
-            lifecycleService: lifecycleService,
-            runnerState: runnerState,
-            autoUpdater: autoUpdater
+            appState: appState
         )
         // PanelContainerView needed here too: sheets are presented from SettingsView.
         return wrapEnv(PanelContainerView(content: inner))
@@ -80,7 +77,7 @@ extension AppDelegate {
 
     /// Navigates to the settings view and promotes to key for text input.
     func navigateToSettings() {
-        savedNavState = .settings
+        appState.savedNavState = .settings
         navigate(to: settingsView())
         makeKeyForTextInput()
     }
@@ -105,13 +102,13 @@ extension AppDelegate {
             // `runnerState.jobs` holds the last snapshot pushed by `RunnerPoller`
             // via `applyFetchResult → MainActor.run`. It is `@MainActor`-isolated and
             // can be read synchronously here.
-            guard runnerState.jobs.contains(where: { $0.id == job.id }) else { return nil }
+            guard appState.runnerState.jobs.contains(where: { $0.id == job.id }) else { return nil }
             // No PanelContainerView here — StepLogView has no sheets.
             return wrapEnv(StepLogView(
                 job: job,
                 step: step,
                 onBack: { [weak self] in
-                    self?.savedNavState = nil
+                    self?.appState.savedNavState = nil
                     self?.navigate(to: self?.mainView() ?? AnyView(EmptyView()))
                 }
             ))

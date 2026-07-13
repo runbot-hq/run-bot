@@ -38,7 +38,7 @@ extension AppDelegate {
     func updateStatusIcon() {
         // `aggregateStatus` is derived from `runnerState.runners` which `RunnerPoller`
         // pushes to `RunnerState` via `MainActor.run` after every fetch cycle.
-        let status = AggregateStatus(runners: runnerState.runners)
+        let status = AggregateStatus(runners: appState.runnerState.runners)
         statusItem?.button?.image = menuBarImage(for: status)
     }
 

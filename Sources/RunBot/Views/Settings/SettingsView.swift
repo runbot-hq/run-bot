@@ -38,31 +38,67 @@ struct SettingsView: View {
     /// Callback invoked when the user taps the back button.
     let onBack: () -> Void
     /// The local runner actor forwarded into `LocalRunnersView`.
-    /// Defaults to `LocalRunnerStore.shared` so call sites that don't own the actor still compile.
-    var localRunnerStore: LocalRunnerStore = .shared
-    /// OAuth service injected from `AppDelegate`.
-    /// Typed to protocol so tests can supply a stub without the live singleton.
-    var oauthService: any OAuthServiceProtocol
-    /// Runner lifecycle service injected from `AppDelegate` and forwarded into `LocalRunnersView`.
-    /// Typed to protocol so tests can supply a stub without spawning real `svc.sh` processes.
-    /// No default -- callers must supply the `AppDelegate`-owned instance explicitly.
-    var lifecycleService: any RunnerLifecycleServiceProtocol
-
+    ///
+    /// WHY THIS EXISTS AS A STORED PROPERTY:
+    /// `LocalRunnersView` is a subview that does not have `@Environment(AppState.self)`
+    /// in scope — it receives `localRunnerStore` as a direct parameter. `SettingsView`
+    /// acts as the handoff point, extracting the store from `appState.localRunnerStore`
+    /// and passing it down. This computed property is that handoff slot.
+    ///
+    /// WHY THIS IS COMPUTED (not a stored `var`):
+    /// Resolving `appState.localRunnerStore` eagerly in `init` — even via `??` — calls
+    /// the computed getter on `AppState`, which `fatalError`s if `start()` hasn't seeded
+    /// `_localRunnerStore` yet. That makes any Preview or test that constructs
+    /// `SettingsView(appState: AppState())` without calling `start()` crash in init,
+    /// violating the zero-cost-init promise documented on `AppState`.
+    ///
+    /// The fix: store only the optional override in `_localRunnerStoreOverride` (set once
+    /// in init, never triggers the getter), and resolve lazily via this computed property
+    /// at render time — when `start()` is guaranteed to have run in production.
+    ///
+    /// For tests/Previews that need a specific store: pass it explicitly as
+    /// `localRunnerStore:` in the init — it is stored in `_localRunnerStoreOverride`
+    /// and returned here without ever touching `appState.localRunnerStore`.
+    ///
+    /// ⚠️ Do NOT convert this back to a stored `var` with an eager init-time resolution —
+    /// that re-introduces the fatalError trip-wire described above.
+    private var localRunnerStore: LocalRunnerStore {
+        _localRunnerStoreOverride ?? appState.localRunnerStore
+    }
+    /// Backing slot for the `localRunnerStore` computed property.
+    /// `nil` in production (resolved from `appState` at render time).
+    /// Set explicitly in tests/Previews via `init(localRunnerStore:)`.
+    private var _localRunnerStoreOverride: LocalRunnerStore?
     // MARK: - Injected services
+    /// Single coordinator for all domain-level state (oauth, lifecycle, runners, updater).
+    /// Replaces four separate injected objects — see issue #2040.
+    /// `AppState` has no singleton — the single instance is owned by `AppDelegate`
+    /// and must be supplied explicitly by the caller. There is no safe default.
+    let appState: AppState
     /// App-wide preference store (polling interval, popover arrow, beta channel, etc.).
     /// Injected as a concrete reference; `@Observable` types don't need `@State` wrapping.
     let settings: AppPreferencesStore
     /// Notification preference store (notify-on-success, notify-on-failure).
     /// Injected as a concrete reference; `@Observable` types don't need `@State` wrapping.
     let notifications: NotificationPreferences
-    /// Observable runner state — read to display the update available banner.
-    /// Injected explicitly from `AppDelegate`; no default because `RunnerState` has no
-    /// singleton — the single instance lives on `AppDelegate.runnerState`.
-    let runnerState: RunnerState
-    /// Auto-update driver injected from `AppDelegate`, used by the Install &
-    /// Relaunch action in `aboutSection`. No default — the single instance lives
-    /// on `AppDelegate.autoUpdater`.
-    let autoUpdater: AppUpdater
+
+    // MARK: - Convenience accessors (avoid noisy appState.x at every call site)
+    // ❌ NOT a leakage oversight — these are `internal` by Swift necessity, not by choice.
+    // Swift `private` does not cross file boundaries; `SettingsView+Sections.swift`
+    // (a separate file) needs these. `fileprivate` is also per-file in Swift, so it
+    // would not help either. `internal` is the tightest access level available for
+    // cross-file use within the same type. The intent is: readable by SettingsView
+    // extension files in this module; not part of the public API of SettingsView.
+    // If you are tempted to tighten these to `private`, note that Swift will not
+    // allow it — the compiler will reject it at SettingsView+Sections.swift.
+    /// Forwarded OAuth service from `appState`. Internal by necessity — see NOTE above.
+    var oauthService: any OAuthServiceProtocol { appState.oauthService }
+    /// Forwarded lifecycle service from `appState`. Internal by necessity — see NOTE above.
+    var lifecycleService: any RunnerLifecycleServiceProtocol { appState.lifecycleService }
+    /// Forwarded runner state from `appState`. Internal by necessity — see NOTE above.
+    var runnerState: RunnerState { appState.runnerState }
+    /// Forwarded auto-updater from `appState`. Internal by necessity — see NOTE above.
+    var autoUpdater: AppUpdater { appState.autoUpdater }
 
     // MARK: - Local UI state
     /// Mirrors `LoginItem.isEnabled`; toggled by the Launch at Login switch.
@@ -93,29 +129,29 @@ struct SettingsView: View {
     /// `.onAppear`. Both properties are backed by a synchronous Keychain read, so
     /// the cost is identical and the one-render false-flash is eliminated.
     ///
+    /// `localRunnerStore` is stored as an optional override and resolved lazily in the
+    /// `localRunnerStore` computed property at render time. This avoids calling
+    /// `appState.localRunnerStore` during init, which would fatalError if `start()`
+    /// hasn't been called yet (violating AppState's zero-cost-init promise).
+    ///
     /// - Parameters:
-    ///   - runnerState: The single `RunnerState` instance owned by `AppDelegate`.
-    ///     Must be supplied explicitly — `RunnerState` has no singleton.
+    ///   - appState: The single domain coordinator owned by `AppDelegate`.
+    ///   - localRunnerStore: Optional store override for tests/Previews. When `nil`
+    ///     (the default), resolved lazily from `appState.localRunnerStore` at render time.
     init(
         onBack: @escaping () -> Void,
-        oauthService: any OAuthServiceProtocol,
-        lifecycleService: any RunnerLifecycleServiceProtocol,
-        runnerState: RunnerState,
-        autoUpdater: AppUpdater,
-        localRunnerStore: LocalRunnerStore = .shared,
+        appState: AppState,
+        localRunnerStore: LocalRunnerStore? = nil,
         settings: AppPreferencesStore = .shared,
         notifications: NotificationPreferences = .shared
     ) {
         self.onBack = onBack
-        self.localRunnerStore = localRunnerStore
-        self.oauthService = oauthService
+        self.appState = appState
+        self._localRunnerStoreOverride = localRunnerStore   // stored as-is; never triggers AppState getter
         self.settings = settings
         self.notifications = notifications
-        self.lifecycleService = lifecycleService
-        self.runnerState = runnerState
-        self.autoUpdater = autoUpdater
-        _isOAuthAuthenticated = State(initialValue: oauthService.isAuthenticated)
-        _isCLIAuthenticated = State(initialValue: !oauthService.isAuthenticated && oauthService.hasAnyToken)
+        _isOAuthAuthenticated = State(initialValue: appState.oauthService.isAuthenticated)
+        _isCLIAuthenticated = State(initialValue: !appState.oauthService.isAuthenticated && appState.oauthService.hasAnyToken)
     }
 
     // MARK: - Computed properties
@@ -244,7 +280,7 @@ struct SettingsView: View {
     }
 
     // MARK: - Header
-    /// Top bar with back button and “Settings” title.
+    /// Top bar with back button and "Settings" title.
     private var headerBar: some View {
         HStack {
             Button(action: onBack, label: {
