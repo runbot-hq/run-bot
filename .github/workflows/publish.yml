@@ -333,9 +333,9 @@ jobs:
           # FRAGILE: this pattern is whitespace- and quote-sensitive — it expects
           # exactly one space before the opening " and double-quotes (not single).
           # If an auto-formatter rewraps or reformats this line, update the pattern here.
-          COMMITTED_PUB=$(grep -o 'publicKey: Data(base64Encoded: "[^"]*")' Sources/RunBot/App/AppDelegate.swift | grep -o '"[^"]*"' | tr -d '"')
+          COMMITTED_PUB=$(grep -o 'publicKey: Data(base64Encoded: "[^"]*")' Sources/RunBot/App/AppState.swift | grep -o '"[^"]*"' | tr -d '"')
           if [[ -z "${COMMITTED_PUB:-}" ]]; then
-            echo "::error::Could not extract public key from AppDelegate.swift — check grep pattern after refactor" >&2
+            echo "::error::Could not extract public key from AppState.swift — check grep pattern after refactor" >&2
             exit 1
           fi
           # Derive the public key from the private key in PEM form:
@@ -354,7 +354,7 @@ jobs:
           # behaviour unconditional across any future key rotation or platform change.
           DERIVED_PUB=$(openssl pkey -in <(echo "$ED25519_PRIVATE_KEY") -pubout -outform DER | tail -c 32 | base64 | tr -d '\n')
           if [[ "$DERIVED_PUB" != "$COMMITTED_PUB" ]]; then
-            echo "::error::ED25519_PRIVATE_KEY does not match the public key committed in AppDelegate.swift — rotate both together" >&2
+            echo "::error::ED25519_PRIVATE_KEY does not match the public key committed in AppState.swift — rotate both together" >&2
             exit 1
           fi
           # Final round-trip verification: re-derive the public key and verify the
