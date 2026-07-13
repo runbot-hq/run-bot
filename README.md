@@ -65,17 +65,6 @@ curl -fsSL https://runbot-hq.github.io/run-bot/install.sh | bash
 - **[GitHubClient](https://github.com/runbot-hq/GitHubClient)** — GitHub REST client with layered token resolution and rate-limit handling.
 - **[MenuBarKit](https://github.com/runbot-hq/MenuBarKit)** — Menu bar plumbing for `NSPopover` lifecycle and anchored SwiftUI sheets.
 
----
-
-## Docs
-
-- [Development](docs/development.md) — dev loop, build, [releasing](docs/development.md#releasing), and [testing](docs/development.md#testing)
-- [Architecture](docs/architecture.md) — data model, concurrency model, regression guards
-- [Contributing](docs/contributing.md) — contribution guidelines
-- [Principles](docs/principles.md) — engineering and design principles
-- [Privacy](docs/privacy.md) — OAuth scopes, token storage, data handling
-- [Agents](AGENTS.md) — context for AI coding agents
-
 --- 
 
 **Test a branch:**
