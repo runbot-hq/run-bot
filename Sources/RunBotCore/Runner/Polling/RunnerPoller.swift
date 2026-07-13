@@ -257,7 +257,7 @@ public actor RunnerPoller {
         guard let self else { return }
         await self.fetch()
         while !Task.isCancelled {
-          let interval = await self.nextPollInterval()
+          let interval = self.nextPollInterval()
           log("RunnerPoller › poll loop — next fetch in \(Int(interval))s", category: .runner)
           do {
             try await Task.sleep(for: .seconds(interval))
@@ -290,26 +290,23 @@ public actor RunnerPoller {
     return hasActiveJobs || hasActiveActions
   }
 
-  /// Selects the polling interval given the current active-work and rate-limit state.
+  /// Computes the delay before the next poll by delegating to `PollIntervalStrategy`.
   ///
-  /// - Parameters:
-  ///   - hasActive: Whether any job or action group is currently active.
-  ///   - baseIdle: The user-configured idle interval (already clamped to ≥ 10 s).
-  /// - Returns: 10 s when work is active and not rate-limited; `baseIdle` otherwise.
-  ///
-  /// Extracted from `nextPollInterval` to reduce its cyclomatic complexity.
-  private func resolvedInterval(hasActive: Bool, baseIdle: TimeInterval) -> TimeInterval {
-    if !isRateLimited && hasActive { return 10 }
-    return baseIdle
-  }
-
-  /// Computes the delay before the next poll.
-  private func nextPollInterval() async -> TimeInterval {
+  /// Synchronous — all inputs are actor-local properties; no `await` needed.
+  /// `resolvedInterval(hasActive:baseIdle:)` and the `preferencesStore.pollingInterval`
+  /// read were removed in Step 4 of #2069.
+  private func nextPollInterval() -> TimeInterval {
     let hasActive = hasActiveWork()
-    let baseIdle = max(10, await MainActor.run { preferencesStore.pollingInterval })
-    let interval = resolvedInterval(hasActive: hasActive, baseIdle: TimeInterval(baseIdle))
+    let interval = PollIntervalStrategy.next(
+      hasActiveWork: hasActive,
+      consecutiveIdleTicks: consecutiveIdleTicks,
+      busyRunnerCount: lastBusyRunnerCount,
+      isRateLimited: isRateLimited,
+      rateLimitResetDate: rateLimitResetDate,
+      rateLimitRemaining: Int.max  // replace with real value at Step 9
+    )
     log(
-      "RunnerPoller › nextPollInterval — \(Int(interval))s hasActive=\(hasActive) rateLimited=\(isRateLimited) baseIdle=\(baseIdle)",
+      "RunnerPoller › nextPollInterval — \(Int(interval))s hasActive=\(hasActive) idleTick=\(consecutiveIdleTicks) busyRunners=\(lastBusyRunnerCount) rateLimited=\(isRateLimited)",
       category: .runner)
     return interval
   }
