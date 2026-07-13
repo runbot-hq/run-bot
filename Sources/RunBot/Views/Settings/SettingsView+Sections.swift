@@ -166,13 +166,17 @@ internal extension SettingsView {
     }
 
     // MARK: - General
-    /// General section: polling interval, API call counter, notification toggles, launch-at-login, popover arrow, and beta channel.
+    /// General section: API call counter, notification toggles, launch-at-login, popover arrow, and beta channel.
+    ///
+    /// The polling interval row was removed in #2069 — RunnerPoller now drives its own
+    /// cadence via `PollIntervalStrategy` and no longer reads `pollingInterval` from
+    /// `AppPreferencesStore`. The underlying preference key is retained for potential
+    /// future use (e.g. per-scope overrides) but is no longer surfaced in the UI.
     ///
     /// `settings` and `notifications` are injected `let` properties on an `@Observable` type.
     /// SwiftUI cannot synthesise `$`-bindings from plain `let` stored properties, so we
     /// capture each store in a local `Bindable` wrapper before using `$` syntax.
     var generalSection: some View {
-        let bindableSettings      = Bindable(settings)
         let bindableNotifications = Bindable(notifications)
         return VStack(alignment: .leading, spacing: 0) {
             Text("General").font(RBFont.sectionHeader).foregroundColor(Color.rbTextSecondary)
