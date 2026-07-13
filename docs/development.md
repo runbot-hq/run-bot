@@ -9,6 +9,7 @@
 - [Auth during Development](#auth-during-development)
 - [Adding Dependencies](#adding-dependencies)
 - [Building for Release](#building-for-release)
+- [Releasing](#releasing)
 - [Testing](#testing)
 
 ## Philosophy
@@ -222,6 +223,10 @@ bash build.sh
 Builds an arm64-only release binary (`swift build -c release --arch arm64`), assembles the `.app`
 bundle, ad-hoc signs it, and zips to `dist/RunBot.zip`. The arch flag and build path in
 `build.sh` are pinned intentionally — do not change them.
+
+---
+
+## Releasing
 
 This section covers the full release pipeline — from triggering CI to how the binary lands on a
 user's machine. All automation lives in [`publish.sh`](../../publish.sh) (local) and
