@@ -75,19 +75,18 @@ public actor RunnerPoller {
   // is preferable to an unknown error state for interval selection).
   // Both are reset to 0 at the top of `start()` so every restart begins from a clean state.
 
-  /// Number of consecutive successful idle poll cycles (no active jobs or actions).
-  /// Used by `PollIntervalStrategy` to compute exponential idle backoff.
-  /// `private` — written only via `updateAdaptiveCounters(hasActiveWork:busyRunnerCount:)`,
-  /// the sole sanctioned write path; `updateAdaptiveCounters` itself is `internal` (SPM
-  /// file-scope rules require it for cross-file extension access) but by convention no
-  /// other module code should call it directly.
+  // MARK: — Adaptive-interval counters
+  // Both properties are `private`; the only sanctioned write path is
+  // `updateAdaptiveCounters(hasActiveWork:busyRunnerCount:)` — see its doc for the
+  // ordering constraint. `updateAdaptiveCounters` is `internal` (not `private`) due
+  // to SPM file-scope rules for cross-file actor extensions; the ⚠️ warning lives
+  // on that method, not here, to avoid duplication.
+
+  /// Consecutive successful idle poll cycles. Drives exponential idle backoff in
+  /// `PollIntervalStrategy`. Reset to 0 on every `start()` and on any active fetch.
   private var consecutiveIdleTicks: Int = 0
-  /// Number of runners marked `busy` as of the last successful fetch cycle.
-  /// Used by `PollIntervalStrategy` to select the active-interval tier.
-  /// `private` — written only via `updateAdaptiveCounters(hasActiveWork:busyRunnerCount:)`,
-  /// the sole sanctioned write path; `updateAdaptiveCounters` itself is `internal` (SPM
-  /// file-scope rules require it for cross-file extension access) but by convention no
-  /// other module code should call it directly.
+  /// Busy-runner count from the last successful fetch. Selects the active-interval
+  /// tier (Fast/Mid/Slow) in `PollIntervalStrategy`.
   private var lastBusyRunnerCount: Int = 0
   // TODO: Step 9 — add rateLimitRemaining as actor-local property here
   // Pattern: `private(set) var rateLimitRemaining: Int = PollIntervalStrategy.rateLimitUnavailable`

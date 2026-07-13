@@ -81,9 +81,13 @@ public struct PollIntervalStrategy: Sendable {
 
         // --- Idle: exponential backoff ---
         // tick 0 → 30 s, 1 → 60 s, 2 → 120 s, 3 → 240 s, 4+ → 300 s
-        // `consecutiveIdleTicks` is an Int and theoretically unbounded, but overflow
-        // is safe: pow(2, n) becomes Double.infinity for large n, and
-        // min(infinity, idleMax) returns idleMax (300). No trap, no incorrect result.
+        // Note: tick 0 (30 s) is only reachable immediately after a start() reset
+        // followed by a first-fetch error (applyError keeps counters at 0). In normal
+        // operation the first idle fetch increments the counter to 1 via
+        // updateAdaptiveCounters, so the minimum observable production idle sleep is
+        // 60 s (tick 1), not 30 s. Tick 0 is exercised by unit tests for completeness.
+        // Overflow safety: pow(2, n) → Double.infinity for large n;
+        // min(infinity, idleMax) → idleMax (300). No trap, no incorrect result.
         let backed = idleMin * pow(2.0, Double(consecutiveIdleTicks))
         return min(backed, idleMax)
     }
