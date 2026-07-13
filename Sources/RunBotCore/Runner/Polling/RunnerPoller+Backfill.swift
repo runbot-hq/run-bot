@@ -5,7 +5,6 @@ import GitHubClient
 
 // MARK: - RunnerPoller: step backfill
 
-// swiftlint:disable missing_docs
 /// Helpers for backfilling step data into completed-job cache entries.
 extension RunnerPoller {
     /// Backfills step data into the completed-job cache.
@@ -58,4 +57,3 @@ extension RunnerPoller {
         }
     }
 }
-// swiftlint:enable missing_docs
