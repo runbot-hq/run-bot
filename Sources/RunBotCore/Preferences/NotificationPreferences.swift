@@ -3,6 +3,30 @@
 import Foundation
 import Observation
 
+// MARK: - NotificationMode
+
+/// The set of workflow-result events for which RunBot sends notifications.
+public enum NotificationMode: String, CaseIterable, Sendable {
+    /// Notify for both successes and failures.
+    case all
+    /// Notify only when a job fails.
+    case failuresOnly
+    /// Notify only when a job succeeds.
+    case successesOnly
+    /// Never send notifications.
+    case never
+
+    /// Human-readable label shown in the Settings picker.
+    public var label: String {
+        switch self {
+        case .all:           return "All"
+        case .failuresOnly:  return "Failures only"
+        case .successesOnly: return "Successes only"
+        case .never:         return "Never"
+        }
+    }
+}
+
 // MARK: - NotificationPreferences
 
 /// Persists notification preferences to UserDefaults.
@@ -20,10 +44,8 @@ public final class NotificationPreferences {
 
     /// UserDefaults key constants.
     private enum Key {
-        /// Key for the notify-on-success flag.
-        static let notifyOnSuccess = "notifications.notifyOnSuccess"
-        /// Key for the notify-on-failure flag.
-        static let notifyOnFailure = "notifications.notifyOnFailure"
+        /// Key for the notification mode enum.
+        static let notificationMode = "notifications.notificationMode"
     }
 
     // MARK: - Backing store
@@ -34,14 +56,27 @@ public final class NotificationPreferences {
 
     // MARK: - Preferences
 
-    /// Whether the user wants a notification when a job succeeds.
-    public var notifyOnSuccess: Bool {
-        didSet { defaults.set(notifyOnSuccess, forKey: Key.notifyOnSuccess) }
-    }
-
-    /// Whether the user wants a notification when a job fails.
-    public var notifyOnFailure: Bool {
-        didSet { defaults.set(notifyOnFailure, forKey: Key.notifyOnFailure) }
+    /// Unified notification mode replacing the two separate Bool flags.
+    /// Persisted as a `String` rawValue in UserDefaults.
+    ///
+    /// ## Dispatch wiring
+    /// This property is intentionally UI/persistence-only in this PR. No
+    /// notification-dispatch callsite reads it yet — that wiring is tracked
+    /// in #2070 and will be added in a follow-up PR. The picker is functional
+    /// (writes correctly to UserDefaults) but the setting has no runtime effect
+    /// until dispatch is wired. This is not a bug introduced here.
+    ///
+    /// ## Orphaned UserDefaults keys
+    /// The previous `notifications.notifyOnSuccess` and `notifications.notifyOnFailure`
+    /// keys are intentionally left in UserDefaults without cleanup. The app has
+    /// zero users in the wild, so no migration path is needed. The dead keys are
+    /// harmless and will simply be ignored.
+    ///
+    /// - TODO: Wire notification dispatch to read this value — tracked in #2070.
+    public var notificationMode: NotificationMode {
+        didSet {
+            defaults.set(notificationMode.rawValue, forKey: Key.notificationMode)
+        }
     }
 
     // MARK: - Init
@@ -63,8 +98,8 @@ public final class NotificationPreferences {
     public init(store: UserDefaults) {
         self.defaults = store
         NotificationPreferences.register(into: store)
-        notifyOnSuccess = store.bool(forKey: Key.notifyOnSuccess)
-        notifyOnFailure = store.bool(forKey: Key.notifyOnFailure)
+        let rawMode = store.string(forKey: Key.notificationMode) ?? NotificationMode.all.rawValue
+        notificationMode = NotificationMode(rawValue: rawMode) ?? .all
     }
 
     // MARK: - Registration
@@ -81,8 +116,7 @@ public final class NotificationPreferences {
     ///   Pass `.standard` for production; pass a suite instance in tests.
     public static func register(into store: UserDefaults) {
         store.register(defaults: [
-            Key.notifyOnSuccess: true,
-            Key.notifyOnFailure: true,
+            Key.notificationMode: NotificationMode.all.rawValue,
         ])
     }
 }

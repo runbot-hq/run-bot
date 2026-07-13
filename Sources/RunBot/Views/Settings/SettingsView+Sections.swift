@@ -14,9 +14,8 @@ internal extension SettingsView {
         VStack(alignment: .leading, spacing: 0) {
             Text("Account").font(RBFont.sectionHeader).foregroundColor(Color.rbTextSecondary)
                 .padding(.horizontal, RBSpacing.md).padding(.top, 8).padding(.bottom, 4)
-            HStack(alignment: .center) {
+            VStack(alignment: .leading, spacing: 4) {
                 Text("GitHub").font(.system(size: 12))
-                Spacer()
                 if isSigningIn {
                     HStack(spacing: 6) {
                         ProgressView().scaleEffect(0.7)
@@ -80,7 +79,6 @@ internal extension SettingsView {
             Text("Management").font(RBFont.sectionHeader).foregroundColor(Color.rbTextSecondary)
                 .padding(.horizontal, RBSpacing.md).padding(.top, 8).padding(.bottom, 4)
             manageLocalRunnersRow
-            Divider().padding(.leading, RBSpacing.md)
             manageScopesRow
         }
     }
@@ -97,6 +95,9 @@ internal extension SettingsView {
                         .font(.caption2).foregroundColor(Color.rbTextSecondary)
                 }
                 Spacer()
+                Text(runnerCountLabel)
+                    .font(.caption2)
+                    .foregroundColor(Color.rbTextSecondary)
                 Image(systemName: "chevron.right")
                     .font(.caption2)
                     .foregroundColor(Color.rbTextTertiary)
@@ -120,6 +121,9 @@ internal extension SettingsView {
                         .font(.caption2).foregroundColor(Color.rbTextSecondary)
                 }
                 Spacer()
+                Text(scopeCountLabel)
+                    .font(.caption2)
+                    .foregroundColor(Color.rbTextSecondary)
                 Image(systemName: "chevron.right")
                     .font(.caption2)
                     .foregroundColor(Color.rbTextTertiary)
@@ -129,6 +133,36 @@ internal extension SettingsView {
         .buttonStyle(.plain)
         .padding(.horizontal, RBSpacing.md)
         .padding(.vertical, 8)
+    }
+
+    // MARK: - Management count labels
+
+    /// "N active, M inactive" label for the local runners row, or "" when none configured.
+    ///
+    /// Sources from `runnerState.localRunners` (via `AppState`) — runners flow through
+    /// `RunnerState` because their lifecycle is managed by `LocalRunnerStore`. This is
+    /// intentionally different from `scopeCountLabel`, which reads from the injected
+    /// `scopeStore` directly. Both stores are `@Observable` so SwiftUI reactivity works
+    /// correctly for both — the asymmetry reflects domain ownership, not an oversight.
+    var runnerCountLabel: String {
+        let runners = runnerState.localRunners
+        guard !runners.isEmpty else { return "" }
+        let active = runners.filter { $0.isRunning }.count
+        let inactive = runners.count - active
+        return "\(active) active, \(inactive) inactive"
+    }
+
+    /// "N active, M inactive" label for the scopes row, or "" when none configured.
+    ///
+    /// Sources from the injected `scopeStore` — scopes are not part of `RunnerState`
+    /// so they cannot be reached via `runnerState`. See `runnerCountLabel` for the
+    /// full explanation of why these two labels use different sources.
+    var scopeCountLabel: String {
+        let entries = scopeStore.entries
+        guard !entries.isEmpty else { return "" }
+        let active = entries.filter { $0.isEnabled }.count
+        let inactive = entries.count - active
+        return "\(active) active, \(inactive) inactive"
     }
 
     // MARK: - General
@@ -153,26 +187,21 @@ internal extension SettingsView {
             Text("How often RunBot checks GitHub for runner and workflow status. Lower values use more API quota.")
                 .font(.caption).foregroundColor(Color.rbTextSecondary)
                 .padding(.horizontal, RBSpacing.md).padding(.bottom, 6)
-            Divider().padding(.leading, RBSpacing.md)
-            APICallCounterRow()
+            APICallCounterRow(resetDate: runnerState.rateLimitResetDate)
                 .font(.system(size: 12))
                 .padding(.horizontal, RBSpacing.md)
                 .padding(.vertical, 8)
-            Divider().padding(.leading, RBSpacing.md)
             HStack {
-                Text("Notify on success").font(.system(size: 12)); Spacer()
-                Toggle("", isOn: bindableNotifications.notifyOnSuccess)
-                    .toggleStyle(.switch).tint(Color.rbSuccess).labelsHidden()
+                Text("Notifications").font(.system(size: 12)); Spacer()
+                Picker("Notifications", selection: bindableNotifications.notificationMode) {
+                    ForEach(NotificationMode.allCases, id: \.self) { mode in
+                        Text(mode.label).tag(mode)
+                    }
+                }
+                .labelsHidden()
+                .frame(width: 140)
             }
             .padding(.horizontal, RBSpacing.md).padding(.vertical, 6)
-            Divider().padding(.leading, RBSpacing.md)
-            HStack {
-                Text("Notify on failure").font(.system(size: 12)); Spacer()
-                Toggle("", isOn: bindableNotifications.notifyOnFailure)
-                    .toggleStyle(.switch).tint(Color.rbSuccess).labelsHidden()
-            }
-            .padding(.horizontal, RBSpacing.md).padding(.vertical, 6)
-            Divider().padding(.leading, RBSpacing.md)
             HStack {
                 Text("Launch at login").font(.system(size: 12)); Spacer()
                 Toggle("", isOn: $launchAtLogin)
@@ -180,9 +209,10 @@ internal extension SettingsView {
                     .onChange(of: launchAtLogin) { _, newVal in applyLaunchAtLogin(newVal) }
             }
             .padding(.horizontal, RBSpacing.md).padding(.vertical, 6)
-            Divider().padding(.leading, RBSpacing.md)
+            #if DEBUG
             popoverArrowRow
             Divider().padding(.leading, RBSpacing.md)
+            #endif
             betaChannelRow
         }
     }

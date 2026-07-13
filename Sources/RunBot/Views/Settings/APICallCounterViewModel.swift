@@ -77,6 +77,12 @@ public final class APICallCounterViewModel {
         _task = nil
     }
 
+    // MARK: - Reset date (sourced from RunnerState, no GitHubClient changes needed)
+
+    /// The reset date forwarded from `RunnerState.rateLimitResetDate`, populated
+    /// on every poll cycle. Set by the owning view via `APICallCounterRow`.
+    public var resetDate: Date?
+
     // MARK: - Derived display state
 
     /// Human-readable counter label, e.g. `"410 / 5,000"`.
@@ -91,5 +97,35 @@ public final class APICallCounterViewModel {
         case ..<0.85: .yellow
         default: .red
         }
+    }
+
+    /// "Resets in N min" / "Resets in N sec" label derived from `resetDate`, or "" when unavailable.
+    ///
+    /// ## Reactivity
+    /// `resetDate` is a stored `var` on an `@Observable` class. SwiftUI tracks reads of
+    /// `resetDate` inside `body` (via `vm.resetLabel`), so any change to `resetDate`
+    /// automatically triggers a re-render. The redraw is driven by the polling tick that
+    /// updates `snap` (and with it `resetDate`) — not by a dedicated `Timer`. No explicit
+    /// `@Published` or `Timer` is needed; `@Observable` tracking handles reactivity.
+    ///
+    /// ## Render cadence
+    /// Refreshes on each poll tick (~5 s). The seconds branch can therefore lag by up to
+    /// one polling interval — acceptable for a Settings row. A dedicated `Timer` is
+    /// intentionally avoided to keep complexity low.
+    ///
+    /// ## Rounding
+    /// The seconds branch uses `ceil` so the label never shows "0 sec" in the
+    /// final sub-second. The minutes branch uses `floor` clamped to 1 so that
+    /// e.g. 61 s shows "1 min" rather than "2 min" — `ceil` on minutes would
+    /// overstate by up to ~59 s, which is more confusing than a slight understatement.
+    public var resetLabel: String {
+        guard let resetDate else { return "" }
+        let interval = resetDate.timeIntervalSinceNow
+        guard interval > 0 else { return "Resetting…" }
+        if interval < 60 {
+            return "Resets in \(Int(ceil(interval))) sec"
+        }
+        let minutes = max(1, Int(interval / 60))
+        return "Resets in \(minutes) min"
     }
 }
