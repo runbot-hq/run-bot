@@ -227,9 +227,11 @@ public actor RunnerPoller {
         await self.fetch()
         while !Task.isCancelled {
           // Reads counters written by the previous applyFetchResult call — intentional.
-          // On the very first iteration both counters are 0 (reset by start()), so the
-          // first sleep is always idleMin (30 s) regardless of prior session state.
-          let interval = await self.nextPollInterval()
+          // On the very first iteration both counters are 0 (reset by start()); if the
+          // first fetch was idle, the first sleep is idleMin (30 s). If the first fetch
+          // found active work, consecutiveIdleTicks stays 0 and the active ladder applies.
+          // nextPollInterval() is synchronous — no suspension point despite the actor hop.
+          let interval = self.nextPollInterval()
           log("RunnerPoller › poll loop — next fetch in \(Int(interval))s", category: .runner)
           do {
             try await Task.sleep(for: .seconds(interval))
