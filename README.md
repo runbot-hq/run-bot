@@ -80,5 +80,5 @@ bash build.sh && open dist/RunBot.app
 - Tag will be bumped according to rollover rules v1.0.9 -> v1.1.0 etc
 - Version will be updated in app config files
 - Beta will match release version and append its own integer v1.0.2 beta-4 etc
-- Dry run and test ew functinality with beta before deploying an official release
+- Dry run and test new functinality with beta before deploying an official release
 - Users toggle beta in the app prefs  
