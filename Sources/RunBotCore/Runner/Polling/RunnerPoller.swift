@@ -96,7 +96,7 @@ public actor RunnerPoller {
   /// every successful `applyFetchResult` cycle. The sentinel value disables the
   /// headroom-cooldown branch in `PollIntervalStrategy` until a real value is known.
   /// Not updated on error cycles — holds its last-successful-cycle value.
-  private(set) var rateLimitRemaining: Int = PollIntervalStrategy.rateLimitUnavailable
+  private var rateLimitRemaining: Int = PollIntervalStrategy.rateLimitUnavailable
 
   /// Owns the two structured `Task` handles for the poll loop.
   /// `private` — all call sites (startObservingScopes, start(), isolated deinit)
@@ -205,6 +205,9 @@ public actor RunnerPoller {
   public func start() async {
     // Reset adaptive-interval counters so every restart begins from a clean state,
     // regardless of how deeply idle the poller was before the restart.
+    // `rateLimitRemaining` is intentionally NOT reset: a stale-but-real remaining
+    // value from before the restart is more useful than the Int.max sentinel, which
+    // would suppress the headroom-cooldown branch for an entire extra window.
     consecutiveIdleTicks = 0
     lastBusyRunnerCount = 0
     let scopes = await MainActor.run { scopeStore.activeScopes }
