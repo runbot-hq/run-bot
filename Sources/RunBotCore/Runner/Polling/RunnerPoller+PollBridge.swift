@@ -10,6 +10,7 @@ import os
 // These extensions delegate to PollResultBuilder so RunnerPoller.fetch() call
 // sites are unchanged while the logic lives in the independently testable builder.
 
+// swiftlint:disable missing_docs
 /// `RunnerPoller` extension that bridges `PollResultBuilder` for the `fetch()` call sites.
 ///
 /// All methods are `async` and run off the main actor during `await` — the
@@ -18,7 +19,6 @@ import os
 /// `await MainActor.run { }` replaces the old `DispatchQueue.main.sync` pattern;
 /// unlike `main.sync`, `MainActor.run` is re-entrant-safe and will not deadlock
 /// when called from the main actor itself.
-// swiftlint:disable missing_docs
 extension RunnerPoller {
 
     // MARK: - [weak self] in closures passed to buildJobState and buildGroupState
