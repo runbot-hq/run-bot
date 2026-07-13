@@ -36,8 +36,11 @@ extension RunnerPoller {
         )
         // Update rateLimitRemaining from the live snapshot so nextPollInterval()
         // can engage the headroom-cooldown branch when approaching the quota wall.
-        // Not updated on error cycles (see applyError) — holds its last-known value.
-        rateLimitRemaining = rateLimitSnapshot.remaining
+        // Only updated when the header was present in the response; holds its
+        // last-known value otherwise (same semantics as error cycles).
+        if let remaining = rateLimitSnapshot.remaining {
+            rateLimitRemaining = remaining
+        }
         // Update adaptive-interval counters after setDisplayState so that
         // hasActiveWork() reads the freshly-written self.jobs and self.actions.
         // Running this before setDisplayState would evaluate hasActiveWork() on
@@ -56,7 +59,7 @@ extension RunnerPoller {
         let activeWork = hasActiveWork()
         let newIdleTicks = updateAdaptiveCounters(hasActiveWork: activeWork, busyRunnerCount: busyCount)
         // swiftlint:disable:next line_length
-        log("RunnerPoller › fetch complete — actions=\(groupResult.display.count) jobs=\(jobResult.display.count) runners=\(enrichedRunners.count) isRateLimited=\(rateLimitSnapshot.isLimited) rateLimitResetDate=\(String(describing: rateLimitSnapshot.resetDate)) rateLimitRemaining=\(rateLimitSnapshot.remaining) idleTicks=\(newIdleTicks) busyRunners=\(busyCount)", category: .runner)
+        log("RunnerPoller › fetch complete — actions=\(groupResult.display.count) jobs=\(jobResult.display.count) runners=\(enrichedRunners.count) isRateLimited=\(rateLimitSnapshot.isLimited) rateLimitResetDate=\(String(describing: rateLimitSnapshot.resetDate)) rateLimitRemaining=\(rateLimitRemaining) idleTicks=\(newIdleTicks) busyRunners=\(busyCount)", category: .runner)
         // NOTE: actor-local properties (self.runners …) and the @Observable read model
         // (state.*) are two separate copies. setDisplayState (above) already wrote the
         // actor-local copies; the MainActor.run block below writes state.* — the view-layer

@@ -96,7 +96,11 @@ public actor RunnerPoller {
   /// every successful `applyFetchResult` cycle. The sentinel value disables the
   /// headroom-cooldown branch in `PollIntervalStrategy` until a real value is known.
   /// Not updated on error cycles — holds its last-successful-cycle value.
-  private var rateLimitRemaining: Int = PollIntervalStrategy.rateLimitUnavailable
+  ///
+  /// - Note: Declared `internal` (not `private`) due to SPM cross-file actor extension
+  ///   rules — the setter must be reachable from `RunnerPoller+ApplyResult.swift`.
+  ///   Same constraint as `updateAdaptiveCounters`. Do not promote to `public`.
+  var rateLimitRemaining: Int = PollIntervalStrategy.rateLimitUnavailable
 
   /// Owns the two structured `Task` handles for the poll loop.
   /// `private` — all call sites (startObservingScopes, start(), isolated deinit)
