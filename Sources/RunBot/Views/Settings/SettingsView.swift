@@ -43,18 +43,32 @@ struct SettingsView: View {
     /// `LocalRunnersView` is a subview that does not have `@Environment(AppState.self)`
     /// in scope — it receives `localRunnerStore` as a direct parameter. `SettingsView`
     /// acts as the handoff point, extracting the store from `appState.localRunnerStore`
-    /// and passing it down. This stored property is that handoff slot.
+    /// and passing it down. This computed property is that handoff slot.
     ///
-    /// WHY THERE IS NO DEFAULT:
-    /// The stored property has no default — it is always set in `init` from either
-    /// the explicitly supplied `localRunnerStore` parameter or `appState.localRunnerStore`.
-    /// This means any construction path that supplies `appState` gets the correct store
-    /// automatically, and any path that does not supply `appState` fails to compile.
-    /// SwiftUI Previews must supply `appState`; the init body resolves the store from it.
-    /// ⚠️ Do NOT add a `.shared` default back here — `LocalRunnerStore.shared` will
-    /// `fatalError` if `configure()` has not been called, and Previews / tests that
-    /// construct `SettingsView` without a fully started `AppState` will crash silently.
-    var localRunnerStore: LocalRunnerStore
+    /// WHY THIS IS COMPUTED (not a stored `var`):
+    /// Resolving `appState.localRunnerStore` eagerly in `init` — even via `??` — calls
+    /// the computed getter on `AppState`, which `fatalError`s if `start()` hasn't seeded
+    /// `_localRunnerStore` yet. That makes any Preview or test that constructs
+    /// `SettingsView(appState: AppState())` without calling `start()` crash in init,
+    /// violating the zero-cost-init promise documented on `AppState`.
+    ///
+    /// The fix: store only the optional override in `_localRunnerStoreOverride` (set once
+    /// in init, never triggers the getter), and resolve lazily via this computed property
+    /// at render time — when `start()` is guaranteed to have run in production.
+    ///
+    /// For tests/Previews that need a specific store: pass it explicitly as
+    /// `localRunnerStore:` in the init — it is stored in `_localRunnerStoreOverride`
+    /// and returned here without ever touching `appState.localRunnerStore`.
+    ///
+    /// ⚠️ Do NOT convert this back to a stored `var` with an eager init-time resolution —
+    /// that re-introduces the fatalError trip-wire described above.
+    private var localRunnerStore: LocalRunnerStore {
+        _localRunnerStoreOverride ?? appState.localRunnerStore
+    }
+    /// Backing slot for the `localRunnerStore` computed property.
+    /// `nil` in production (resolved from `appState` at render time).
+    /// Set explicitly in tests/Previews via `init(localRunnerStore:)`.
+    private var _localRunnerStoreOverride: LocalRunnerStore?
     // MARK: - Injected services
     /// Single coordinator for all domain-level state (oauth, lifecycle, runners, updater).
     /// Replaces four separate injected objects — see issue #2040.
@@ -109,16 +123,15 @@ struct SettingsView: View {
     /// `.onAppear`. Both properties are backed by a synchronous Keychain read, so
     /// the cost is identical and the one-render false-flash is eliminated.
     ///
-    /// `localRunnerStore` defaults to `nil` and is resolved from `appState.localRunnerStore`
-    /// in the init body when not supplied explicitly. This eliminates the previous
-    /// `.shared` default which would `fatalError` in any Preview or test that constructed
-    /// `SettingsView` without a fully started `AppState` (issue #2049 review finding).
+    /// `localRunnerStore` is stored as an optional override and resolved lazily in the
+    /// `localRunnerStore` computed property at render time. This avoids calling
+    /// `appState.localRunnerStore` during init, which would fatalError if `start()`
+    /// hasn't been called yet (violating AppState's zero-cost-init promise).
     ///
     /// - Parameters:
     ///   - appState: The single domain coordinator owned by `AppDelegate`.
-    ///   - localRunnerStore: Override for the local runner store. Defaults to
-    ///     `appState.localRunnerStore` when `nil`. Supply explicitly in tests or
-    ///     Previews that need a specific store instance.
+    ///   - localRunnerStore: Optional store override for tests/Previews. When `nil`
+    ///     (the default), resolved lazily from `appState.localRunnerStore` at render time.
     init(
         onBack: @escaping () -> Void,
         appState: AppState,
@@ -128,7 +141,7 @@ struct SettingsView: View {
     ) {
         self.onBack = onBack
         self.appState = appState
-        self.localRunnerStore = localRunnerStore ?? appState.localRunnerStore
+        self._localRunnerStoreOverride = localRunnerStore   // stored as-is; never triggers AppState getter
         self.settings = settings
         self.notifications = notifications
         _isOAuthAuthenticated = State(initialValue: appState.oauthService.isAuthenticated)
