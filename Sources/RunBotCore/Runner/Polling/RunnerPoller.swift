@@ -323,8 +323,8 @@ public actor RunnerPoller {
       rateLimitResetDate: rateLimitResetDate,
       rateLimitRemaining: rateLimitRemaining
     )
-    // swiftlint:disable:next line_length
     log(
+      // swiftlint:disable:next line_length
       "RunnerPoller › nextPollInterval — \(Int(interval))s hasActive=\(hasActive) idleTick=\(consecutiveIdleTicks) busyRunners=\(lastBusyRunnerCount) rateLimited=\(isRateLimited) rateLimitRemaining=\(rateLimitRemaining)",
       category: .runner)
     return interval
