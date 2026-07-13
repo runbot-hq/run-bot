@@ -35,14 +35,12 @@ extension View {
 
 // MARK: - APICallCounterRow
 
-/// Settings row that shows `"410 / 5,000"` with a colour-coded progress bar.
-///
-/// **Not yet wired into the Settings panel** — left for a follow-up app-layer
-/// PR to keep this PR focused on the core implementation and tests.
+/// Settings row that shows `"410 / 5,000"` with a colour-coded progress bar
+/// and an optional "Resets in N min/sec" sub-label driven by `resetDate`.
 ///
 /// Usage:
 /// ```swift
-/// APICallCounterRow()
+/// APICallCounterRow(resetDate: runnerState.rateLimitResetDate)
 /// ```
 public struct APICallCounterRow: View {
     /// View model that drives the counter label, colour, and snapshot.
