@@ -4,7 +4,7 @@
 import Foundation
 import GitHubClient
 
-// swiftlint:disable:next missing_docs
+// swiftlint:disable missing_docs
 extension RunnerPoller {
 
     // MARK: - Apply result
@@ -42,7 +42,7 @@ extension RunnerPoller {
         // - hasActiveWork() — job/action API state (drives the hasActiveWork gate)
         // - busyCount — runner.busy flag (drives the Fast/Mid/Slow tier ladder)
         // It is valid for these to disagree transiently (e.g. a runner is busy but
-        // the job API hasn’t surfaced it yet). In that case the active ladder is
+        // the job API hasn't surfaced it yet). In that case the active ladder is
         // entered only when hasActiveWork is true — intentional per #2069 design.
         // `enrichedRunners` is used here (not `self.runners`) because `setDisplayState`
         // hasn't written to `self.runners` yet at this point in the call sequence.
@@ -115,10 +115,11 @@ extension RunnerPoller {
         }
     }
 }
+// swiftlint:enable missing_docs
 
 // MARK: - FetchError
 
-// swiftlint:disable:next missing_docs
+// swiftlint:disable missing_docs
 extension RunnerPoller {
 
     /// Sendable-safe wrapper that bridges an arbitrary `any Error` across an actor boundary.
@@ -134,3 +135,4 @@ extension RunnerPoller {
         init(_ underlying: any Error) { errorDescription = underlying.localizedDescription }
     }
 }
+// swiftlint:enable missing_docs

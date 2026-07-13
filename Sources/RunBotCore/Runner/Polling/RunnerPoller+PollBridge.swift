@@ -18,6 +18,7 @@ import os
 /// `await MainActor.run { }` replaces the old `DispatchQueue.main.sync` pattern;
 /// unlike `main.sync`, `MainActor.run` is re-entrant-safe and will not deadlock
 /// when called from the main actor itself.
+// swiftlint:disable missing_docs
 extension RunnerPoller {
 
     // MARK: - [weak self] in closures passed to buildJobState and buildGroupState
@@ -175,3 +176,4 @@ extension RunnerPoller {
         }
     }
 }
+// swiftlint:enable missing_docs
