@@ -77,14 +77,14 @@ public actor RunnerPoller {
 
   /// Number of consecutive successful idle poll cycles (no active jobs or actions).
   /// Used by `PollIntervalStrategy` to compute exponential idle backoff.
-  /// `internal` — written by the cross-file extension `RunnerPoller+ApplyResult.swift`
-  /// within the same module; `private` or `fileprivate` would both be file-scoped in SPM.
-  var consecutiveIdleTicks: Int = 0
+  /// `private` — mutated only through `updateAdaptiveCounters(hasActiveWork:busyRunnerCount:)`
+  /// so that no module-internal code can bypass the controlled write path.
+  private var consecutiveIdleTicks: Int = 0
   /// Number of runners marked `busy` as of the last successful fetch cycle.
   /// Used by `PollIntervalStrategy` to select the active-interval tier.
-  /// `internal` — written by the cross-file extension `RunnerPoller+ApplyResult.swift`
-  /// within the same module; `private` or `fileprivate` would both be file-scoped in SPM.
-  var lastBusyRunnerCount: Int = 0
+  /// `private` — mutated only through `updateAdaptiveCounters(hasActiveWork:busyRunnerCount:)`
+  /// so that no module-internal code can bypass the controlled write path.
+  private var lastBusyRunnerCount: Int = 0
 
   /// Owns the two structured `Task` handles for the poll loop.
   /// `private` — all call sites (startObservingScopes, start(), isolated deinit)
@@ -234,8 +234,33 @@ public actor RunnerPoller {
       })
   }
 
+  /// Updates the two adaptive-interval counters after a successful fetch cycle.
+  ///
+  /// This is the **only** sanctioned write path for `consecutiveIdleTicks` and
+  /// `lastBusyRunnerCount`. Keeping the storage `private` and funnelling all writes
+  /// through this method ensures no module-internal code can bypass the actor's
+  /// controlled update path.
+  ///
+  /// Called from `RunnerPoller+ApplyResult.swift` after `setDisplayState` so that
+  /// `hasActiveWork()` evaluates the freshly-written `self.jobs` / `self.actions`.
+  /// - Returns: The updated `consecutiveIdleTicks` value, so callers can use it
+  ///   in log interpolation without needing direct access to the private storage.
+  @discardableResult
+  func updateAdaptiveCounters(hasActiveWork: Bool, busyRunnerCount: Int) -> Int {
+    if hasActiveWork {
+      consecutiveIdleTicks = 0
+    } else {
+      consecutiveIdleTicks += 1
+    }
+    lastBusyRunnerCount = busyRunnerCount
+    return consecutiveIdleTicks
+  }
+
   /// Returns `true` when at least one job or action group is currently active
   /// (in-progress or queued).
+  /// `internal` — read-only helper; also called from `RunnerPoller+ApplyResult.swift`
+  /// to feed `updateAdaptiveCounters`. SPM file-scope rules prevent `private`/`fileprivate`
+  /// for cross-file extension access within the same module.
   func hasActiveWork() -> Bool {
     let hasActiveJobs = jobs.contains { $0.jobStatus == .inProgress || $0.jobStatus == .queued }
     let hasActiveActions = actions.contains {
@@ -249,7 +274,7 @@ public actor RunnerPoller {
   /// Synchronous — all inputs are actor-local properties; no `await` needed.
   /// `resolvedInterval(hasActive:baseIdle:)` and the `preferencesStore.pollingInterval`
   /// read were removed in Step 4 of #2069.
-  func nextPollInterval() -> TimeInterval {
+  private func nextPollInterval() -> TimeInterval {
     let hasActive = hasActiveWork()
     let interval = PollIntervalStrategy.next(
       hasActiveWork: hasActive,
@@ -257,7 +282,8 @@ public actor RunnerPoller {
       busyRunnerCount: lastBusyRunnerCount,
       isRateLimited: isRateLimited,
       rateLimitResetDate: rateLimitResetDate,
-      rateLimitRemaining: Int.max  // replace with real value at Step 9
+      // TODO: Step 9 — replace with real value from ghRateLimitSnapshot()
+      rateLimitRemaining: PollIntervalStrategy.rateLimitUnavailable
     )
     log(
       "RunnerPoller › nextPollInterval — \(Int(interval))s hasActive=\(hasActive) idleTick=\(consecutiveIdleTicks) busyRunners=\(lastBusyRunnerCount) rateLimited=\(isRateLimited)",

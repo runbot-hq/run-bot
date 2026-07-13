@@ -31,7 +31,7 @@ struct PollIntervalStrategyTests {
       busyRunnerCount: 0,
       isRateLimited: true,
       rateLimitResetDate: reset,
-      rateLimitRemaining: Int.max
+      rateLimitRemaining: PollIntervalStrategy.rateLimitUnavailable
     )
     #expect(result >= 105 - 1 && result <= 105 + 1)
   }
@@ -45,7 +45,7 @@ struct PollIntervalStrategyTests {
       busyRunnerCount: 0,
       isRateLimited: true,
       rateLimitResetDate: reset,
-      rateLimitRemaining: Int.max
+      rateLimitRemaining: PollIntervalStrategy.rateLimitUnavailable
     )
     #expect(result == 30)
   }
@@ -58,7 +58,7 @@ struct PollIntervalStrategyTests {
       busyRunnerCount: 0,
       isRateLimited: true,
       rateLimitResetDate: nil,
-      rateLimitRemaining: Int.max
+      rateLimitRemaining: PollIntervalStrategy.rateLimitUnavailable
     )
     #expect(result == 60)
   }
@@ -176,7 +176,7 @@ struct PollIntervalStrategyTests {
       busyRunnerCount: testCase.busyRunnerCount,
       isRateLimited: false,
       rateLimitResetDate: nil,
-      rateLimitRemaining: Int.max
+      rateLimitRemaining: PollIntervalStrategy.rateLimitUnavailable
     )
     #expect(result == testCase.expectedInterval)
   }
@@ -210,7 +210,7 @@ struct PollIntervalStrategyTests {
       busyRunnerCount: 0,
       isRateLimited: false,
       rateLimitResetDate: nil,
-      rateLimitRemaining: Int.max
+      rateLimitRemaining: PollIntervalStrategy.rateLimitUnavailable
     )
     #expect(result == testCase.expectedInterval)
   }
@@ -225,7 +225,7 @@ struct PollIntervalStrategyTests {
       busyRunnerCount: 0,
       isRateLimited: true,
       rateLimitResetDate: nil,
-      rateLimitRemaining: Int.max
+      rateLimitRemaining: PollIntervalStrategy.rateLimitUnavailable
     )
     #expect(result == 60)  // rate-limited path, not active path
   }
@@ -267,7 +267,7 @@ struct PollIntervalStrategyTests {
       busyRunnerCount: 3,
       isRateLimited: false,
       rateLimitResetDate: nil,
-      rateLimitRemaining: Int.max
+      rateLimitRemaining: PollIntervalStrategy.rateLimitUnavailable
     )
     #expect(result == PollIntervalStrategy.activeIntervalFast)
   }

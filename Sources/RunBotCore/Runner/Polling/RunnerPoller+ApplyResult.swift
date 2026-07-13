@@ -38,14 +38,11 @@ extension RunnerPoller {
         // hasActiveWork() reads the freshly-written self.jobs and self.actions.
         // Running this before setDisplayState would evaluate hasActiveWork() on
         // stale data from the previous cycle.
-        if hasActiveWork() {
-            consecutiveIdleTicks = 0
-        } else {
-            consecutiveIdleTicks += 1
-        }
-        lastBusyRunnerCount = runners.filter { $0.busy }.count
+        let busyCount = runners.filter { $0.busy }.count
+        let activeWork = hasActiveWork()
+        let newIdleTicks = updateAdaptiveCounters(hasActiveWork: activeWork, busyRunnerCount: busyCount)
         // swiftlint:disable:next line_length
-        log("RunnerPoller › fetch complete — actions=\(groupResult.display.count) jobs=\(jobResult.display.count) runners=\(enrichedRunners.count) isRateLimited=\(rateLimitSnapshot.isLimited) rateLimitResetDate=\(String(describing: rateLimitSnapshot.resetDate)) idleTicks=\(consecutiveIdleTicks) busyRunners=\(lastBusyRunnerCount)", category: .runner)
+        log("RunnerPoller › fetch complete — actions=\(groupResult.display.count) jobs=\(jobResult.display.count) runners=\(enrichedRunners.count) isRateLimited=\(rateLimitSnapshot.isLimited) rateLimitResetDate=\(String(describing: rateLimitSnapshot.resetDate)) idleTicks=\(newIdleTicks) busyRunners=\(busyCount)", category: .runner)
         // NOTE: actor-local properties (self.runners …) and the @Observable read model
         // (state.*) are two separate copies. setDisplayState (above) already wrote the
         // actor-local copies; the MainActor.run block below writes state.* — the view-layer

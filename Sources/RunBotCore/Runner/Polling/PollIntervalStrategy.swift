@@ -24,8 +24,13 @@ public struct PollIntervalStrategy: Sendable {
 
     // MARK: — Rate-limit headroom
 
-    /// Proactive cooldown threshold. Pass `Int.max` when `X-RateLimit-Remaining`
-    /// is unavailable — the headroom branch becomes a no-op.
+    /// Sentinel value for `rateLimitRemaining` when `X-RateLimit-Remaining` has not
+    /// yet been wired (Step 9 of #2069). Using a named constant makes every call site
+    /// grep-able and lets Step 9 replace them all from a single definition.
+    public static let rateLimitUnavailable: Int = Int.max
+
+    /// Proactive cooldown threshold. Pass `rateLimitUnavailable` when
+    /// `X-RateLimit-Remaining` is unavailable — the headroom branch becomes a no-op.
     public static let rateLimitHeadroomThreshold: Int = 50
 
     // MARK: — Entry point
@@ -58,7 +63,7 @@ public struct PollIntervalStrategy: Sendable {
         }
 
         // --- Headroom cooldown: approaching the rate-limit wall proactively ---
-        // No-op while rateLimitRemaining == Int.max (sentinel for "unavailable").
+        // No-op while rateLimitRemaining == rateLimitUnavailable (sentinel for "unavailable").
         if rateLimitRemaining < rateLimitHeadroomThreshold {
             if let reset = rateLimitResetDate {
                 return max(60, reset.timeIntervalSinceNow)
