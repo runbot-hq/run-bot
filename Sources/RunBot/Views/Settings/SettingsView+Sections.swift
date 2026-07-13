@@ -147,7 +147,7 @@ internal extension SettingsView {
 
     /// "N active, M inactive" label for the scopes row.
     var scopeCountLabel: String {
-        let entries = ScopeStore.shared.entries
+        let entries = scopeStore.entries
         let active = entries.filter { $0.isEnabled }.count
         let inactive = entries.count - active
         return "\(active) active, \(inactive) inactive"

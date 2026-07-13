@@ -44,10 +44,6 @@ public final class NotificationPreferences {
 
     /// UserDefaults key constants.
     private enum Key {
-        /// Key for the notify-on-success flag.
-        static let notifyOnSuccess = "notifications.notifyOnSuccess"
-        /// Key for the notify-on-failure flag.
-        static let notifyOnFailure = "notifications.notifyOnFailure"
         /// Key for the notification mode enum.
         static let notificationMode = "notifications.notificationMode"
     }
@@ -59,16 +55,6 @@ public final class NotificationPreferences {
     private let defaults: UserDefaults
 
     // MARK: - Preferences
-
-    /// Whether the user wants a notification when a job succeeds.
-    public var notifyOnSuccess: Bool {
-        didSet { defaults.set(notifyOnSuccess, forKey: Key.notifyOnSuccess) }
-    }
-
-    /// Whether the user wants a notification when a job fails.
-    public var notifyOnFailure: Bool {
-        didSet { defaults.set(notifyOnFailure, forKey: Key.notifyOnFailure) }
-    }
 
     /// Unified notification mode replacing the two separate Bool flags.
     /// Persisted as a `String` rawValue in UserDefaults.
@@ -97,8 +83,6 @@ public final class NotificationPreferences {
     public init(store: UserDefaults) {
         self.defaults = store
         NotificationPreferences.register(into: store)
-        notifyOnSuccess = store.bool(forKey: Key.notifyOnSuccess)
-        notifyOnFailure = store.bool(forKey: Key.notifyOnFailure)
         let rawMode = store.string(forKey: Key.notificationMode) ?? NotificationMode.all.rawValue
         notificationMode = NotificationMode(rawValue: rawMode) ?? .all
     }
@@ -117,8 +101,6 @@ public final class NotificationPreferences {
     ///   Pass `.standard` for production; pass a suite instance in tests.
     public static func register(into store: UserDefaults) {
         store.register(defaults: [
-            Key.notifyOnSuccess: true,
-            Key.notifyOnFailure: true,
             Key.notificationMode: NotificationMode.all.rawValue,
         ])
     }
