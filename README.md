@@ -15,7 +15,7 @@ GitHub Actions and local runners — in your macOS menu bar.
 ![Apple Silicon](https://img.shields.io/badge/Apple_Silicon-arm64-000000?logo=apple&logoColor=white)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 
-[Website](https://runbot-hq.github.io/run-bot) · [Docs](docs/development.md) · [Download](https://github.com/runbot-hq/run-bot/releases/latest) · [Privacy](docs/privacy.md) · [MIT License](LICENSE)
+[Website](https://runbot-hq.github.io/run-bot) · [Docs](docs/development.md) · [Download](https://github.com/runbot-hq/run-bot/releases/latest) · [Privacy](docs/privacy.md)
 
 </div>
 
