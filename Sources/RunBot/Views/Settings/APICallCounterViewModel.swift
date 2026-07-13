@@ -99,12 +99,16 @@ public final class APICallCounterViewModel {
         }
     }
 
-    /// "Resets in N min" label derived from `resetDate`, or empty string when unavailable.
+    /// "Resets in N min" (or "Resets in N sec" under 60 s) label derived from `resetDate`,
+    /// or empty string when unavailable.
     public var resetLabel: String {
         guard let resetDate else { return "" }
         let interval = resetDate.timeIntervalSinceNow
         guard interval > 0 else { return "Resetting…" }
-        let minutes = Int(ceil(interval / 60))
+        if interval < 60 {
+            return "Resets in \(Int(interval)) sec"
+        }
+        let minutes = Int(interval / 60)
         return "Resets in \(minutes) min"
     }
 }
