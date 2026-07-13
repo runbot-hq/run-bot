@@ -230,6 +230,8 @@ public actor RunnerPoller {
           // On the very first iteration both counters are 0 (reset by start()); if the
           // first fetch was idle, the first sleep is idleMin (30 s). If the first fetch
           // found active work, consecutiveIdleTicks stays 0 and the active ladder applies.
+          // If the first fetch failed (applyError path), counters also stay at 0 —
+          // correct by design: no known-good state yet, so idleMin is the safe default.
           // nextPollInterval() is synchronous — no suspension point despite the actor hop.
           let interval = self.nextPollInterval()
           log("RunnerPoller › poll loop — next fetch in \(Int(interval))s", category: .runner)
@@ -257,6 +259,11 @@ public actor RunnerPoller {
   /// `lastBusyRunnerCount`. Keeping the storage `private` and funnelling all writes
   /// through this method ensures no module-internal code can bypass the actor's
   /// controlled update path.
+  ///
+  /// ⚠️ **Ordering constraint**: must be called *after* `setDisplayState` so that
+  /// `hasActiveWork()` evaluates the freshly-written `self.jobs` / `self.actions`.
+  /// See `RunnerPoller+ApplyResult.swift` — `applyFetchResult` is the only valid
+  /// call site. Do not call from other extension files or the counter order breaks.
   ///
   /// Called from `RunnerPoller+ApplyResult.swift` after `setDisplayState` so that
   /// `hasActiveWork()` evaluates the freshly-written `self.jobs` / `self.actions`.
