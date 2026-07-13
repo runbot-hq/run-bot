@@ -1,27 +1,29 @@
-<img width="240" alt="img" src="logo.png">
+<div align="center">
 
-# RunBot 
+<img width="140" alt="RunBot" src="logo.png">
+
+# RunBot
 
 > GitHub Actions and local runners — in your macOS menu bar.
 
-**Platform & Stack**
-
-![macOS 26+](https://img.shields.io/badge/macOS-26%2B-black?logo=apple&logoColor=white)
-![Apple Silicon Only](https://img.shields.io/badge/Apple_Silicon-arm64_only-000000?logo=apple&logoColor=white)
-![Swift 6.2](https://img.shields.io/badge/Swift-6.2-F05138?logo=swift&logoColor=white)
-![SPM 6.2](https://img.shields.io/badge/SPM-6.2-F05138?logo=swift&logoColor=white)
-![Liquid Glass](https://img.shields.io/badge/UI-Liquid%20Glass-0A84FF?style=flat-square&logo=apple&logoColor=white)
-
-**Activity**
-
-[![Version](https://img.shields.io/github/v/release/runbot-hq/run-bot?label=version)](https://github.com/runbot-hq/run-bot/releases/latest)
+[![Version](https://img.shields.io/github/v/release/runbot-hq/run-bot?label=release)](https://github.com/runbot-hq/run-bot/releases/latest)
 [![Beta](https://img.shields.io/github/v/tag/runbot-hq/run-bot?include_prereleases&label=beta&filter=*beta*)](https://github.com/runbot-hq/run-bot/releases)
 [![Downloads](https://img.shields.io/github/downloads/runbot-hq/run-bot/RunBot.zip?label=downloads&displayAssetName=false)](https://github.com/runbot-hq/run-bot/releases)
-[![Latest release](https://img.shields.io/github/release-date/runbot-hq/run-bot?label=latest%20release)](https://github.com/runbot-hq/run-bot/releases/latest)
+[![Stars](https://img.shields.io/github/stars/runbot-hq/run-bot)](https://github.com/runbot-hq/run-bot/stargazers)
 [![Open PRs](https://img.shields.io/github/issues-pr/runbot-hq/run-bot)](https://github.com/runbot-hq/run-bot/pulls)
-[![Closed PRs](https://img.shields.io/github/issues-pr-closed/runbot-hq/run-bot)](https://github.com/runbot-hq/run-bot/pulls?q=is%3Apr+is%3Aclosed)
-[![Open Issues](https://img.shields.io/github/issues/runbot-hq/run-bot)](https://github.com/runbot-hq/run-bot/issues)
-[![Closed Issues](https://img.shields.io/github/issues-closed/runbot-hq/run-bot)](https://github.com/runbot-hq/run-bot/issues?q=is%3Aissue+is%3Aclosed)
+
+![macOS 26+](https://img.shields.io/badge/macOS-26%2B-black?logo=apple&logoColor=white)
+![Apple Silicon](https://img.shields.io/badge/Apple_Silicon-arm64-000000?logo=apple&logoColor=white)
+![Swift 6.2](https://img.shields.io/badge/Swift-6.2-F05138?logo=swift&logoColor=white)
+![SPM 6.2](https://img.shields.io/badge/SPM-6.2-F05138?logo=swift&logoColor=white)
+![Liquid Glass](https://img.shields.io/badge/UI-Liquid%20Glass-0A84FF?logo=apple&logoColor=white)
+![GitHub Actions](https://img.shields.io/badge/GitHub_Actions-compatible-2088FF?logo=githubactions&logoColor=white)
+
+[Download for Mac](https://github.com/runbot-hq/run-bot/releases/latest) · [Docs](docs/development.md) · [Architecture](docs/architecture.md) · [Contributing](docs/contributing.md)
+
+</div>
+
+---
 
 **CI Checks**
 
@@ -36,6 +38,13 @@
 [![Greptile](https://img.shields.io/badge/🦎%20AI%20Review-Greptile-6C47FF?logoColor=white)](https://greptile.com)
 [![CodeRabbit](https://img.shields.io/badge/🐰%20AI%20Review-CodeRabbit-FF6B35?logoColor=white)](https://coderabbit.ai)
 [![Octopus Review](https://img.shields.io/badge/🐙%20AI%20Review-Octopus-00B4D8?logoColor=white)](https://octopusreview.com)
+
+**Activity**
+
+[![Latest release](https://img.shields.io/github/release-date/runbot-hq/run-bot?label=latest%20release)](https://github.com/runbot-hq/run-bot/releases/latest)
+[![Closed PRs](https://img.shields.io/github/issues-pr-closed/runbot-hq/run-bot)](https://github.com/runbot-hq/run-bot/pulls?q=is%3Apr+is%3Aclosed)
+[![Open Issues](https://img.shields.io/github/issues/runbot-hq/run-bot)](https://github.com/runbot-hq/run-bot/issues)
+[![Closed Issues](https://img.shields.io/github/issues-closed/runbot-hq/run-bot)](https://github.com/runbot-hq/run-bot/issues?q=is%3Aissue+is%3Aclosed)
 
 **Code Quality**
 
