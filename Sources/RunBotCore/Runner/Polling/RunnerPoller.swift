@@ -78,10 +78,10 @@ public actor RunnerPoller {
 
   /// Number of consecutive successful idle poll cycles (no active jobs or actions).
   /// Used by `PollIntervalStrategy` to compute exponential idle backoff.
-  var consecutiveIdleTicks: Int = 0
+  private var consecutiveIdleTicks: Int = 0
   /// Number of runners marked `busy` as of the last successful fetch cycle.
   /// Used by `PollIntervalStrategy` to select the active-interval tier.
-  var lastBusyRunnerCount: Int = 0
+  private var lastBusyRunnerCount: Int = 0
 
   /// Owns the three structured `Task` handles for the poll loop.
   /// `private` — all call sites (startObservingPreferences, startObservingScopes,
@@ -281,7 +281,7 @@ public actor RunnerPoller {
   /// (in-progress or queued).
   ///
   /// Extracted from `nextPollInterval` to reduce its cyclomatic complexity.
-  private func hasActiveWork() -> Bool {
+  func hasActiveWork() -> Bool {
     // ActiveJob exposes jobStatus (JobStatus), not status (String).
     let hasActiveJobs = jobs.contains { $0.jobStatus == .inProgress || $0.jobStatus == .queued }
     let hasActiveActions = actions.contains {

@@ -43,7 +43,7 @@ extension RunnerPoller {
         } else {
             consecutiveIdleTicks += 1
         }
-        lastBusyRunnerCount = enrichedRunners.filter { $0.busy }.count
+        lastBusyRunnerCount = runners.filter { $0.busy }.count
         // swiftlint:disable:next line_length
         log("RunnerPoller › fetch complete — actions=\(groupResult.display.count) jobs=\(jobResult.display.count) runners=\(enrichedRunners.count) isRateLimited=\(rateLimitSnapshot.isLimited) rateLimitResetDate=\(String(describing: rateLimitSnapshot.resetDate)) idleTicks=\(consecutiveIdleTicks) busyRunners=\(lastBusyRunnerCount)", category: .runner)
         // NOTE: actor-local properties (self.runners …) and the @Observable read model
