@@ -54,7 +54,11 @@ extension AppDelegate {
             setupPanel()
 
             // Domain startup — fully owned by AppState.
-            // configure() has already been called above; appState.start() assumes this.
+            // ⚠️ Precondition for appState.start(): configure() MUST have been called before
+            // this point — it was called synchronously above (see ordering rule 1 in the
+            // ## Startup ordering doc-comment). AppState.start() documents this precondition
+            // on its own doc-comment. Do not move or wrap the configure() call without
+            // reading AppState.start()'s ⚠️ Precondition note first.
             // `updateStatusIcon` is an AppDelegate method (AppKit concern) passed
             // as a callback so AppState never imports AppKit or holds AppDelegate.
             //

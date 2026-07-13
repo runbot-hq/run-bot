@@ -85,13 +85,16 @@ struct SettingsView: View {
     // MARK: - Convenience accessors (avoid noisy appState.x at every call site)
     // NOTE: `internal` (not `private`) — Swift `private` does not cross file boundaries;
     // `SettingsView+Sections.swift` reads these from a separate file.
-    /// Forwarded OAuth service from `appState`.
+    // Intent: accessible to SettingsView extension files in this module, not to
+    // arbitrary callers. `fileprivate` is not an option because Swift `fileprivate`
+    // is per-file and SettingsView+Sections.swift is a separate file.
+    /// Forwarded OAuth service from `appState`. Internal by necessity — see NOTE above.
     var oauthService: any OAuthServiceProtocol { appState.oauthService }
-    /// Forwarded lifecycle service from `appState`.
+    /// Forwarded lifecycle service from `appState`. Internal by necessity — see NOTE above.
     var lifecycleService: any RunnerLifecycleServiceProtocol { appState.lifecycleService }
-    /// Forwarded runner state from `appState`.
+    /// Forwarded runner state from `appState`. Internal by necessity — see NOTE above.
     var runnerState: RunnerState { appState.runnerState }
-    /// Forwarded auto-updater from `appState`.
+    /// Forwarded auto-updater from `appState`. Internal by necessity — see NOTE above.
     var autoUpdater: AppUpdater { appState.autoUpdater }
 
     // MARK: - Local UI state

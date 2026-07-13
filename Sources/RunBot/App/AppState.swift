@@ -155,7 +155,7 @@ final class AppState {
     /// (e.g. `UI_TESTING` return, future test stubs, etc.).
     /// `@ObservationIgnored` for the same reason as `_localRunnerStore` above —
     /// write-only sentinel, never observed externally, registrar calls are no-ops.
-    @ObservationIgnored private var _didStart = false
+    @ObservationIgnored private var _didStart = false  // permanent per instance — do not reuse AppState across test setUp/tearDown
 
     /// Owned `RunnerPoller` actor. `nil` until `start()` runs.
     ///
@@ -469,6 +469,10 @@ final class AppState {
         // any status writes that race between here and store.start() are covered
         // by that initial emission. Do NOT move this after checkAndHandle() —
         // see the Step 3 comment in start() for the sign-out window reasoning.
+        // ⚠️ MUST be called after seedStoreAndPoller() — signOutTask accesses
+        // self.runnerStore which is set by seedStoreAndPoller(). Calling this
+        // before seedStoreAndPoller() would make the guard in signOutTask always
+        // fail on the first sign-out event.
         //
         // CAPTURE NOTE: `onUpdateStatusIcon` is captured strongly inside this Task
         // and lives for the process lifetime. AppDelegate must pass a weakly
