@@ -38,6 +38,12 @@ extension RunnerPoller {
         // hasActiveWork() reads the freshly-written self.jobs and self.actions.
         // Running this before setDisplayState would evaluate hasActiveWork() on
         // stale data from the previous cycle.
+        // Two independent signals feed PollIntervalStrategy:
+        // - hasActiveWork() — job/action API state (drives the hasActiveWork gate)
+        // - busyCount — runner.busy flag (drives the Fast/Mid/Slow tier ladder)
+        // It is valid for these to disagree transiently (e.g. a runner is busy but
+        // the job API hasn’t surfaced it yet). In that case the active ladder is
+        // entered only when hasActiveWork is true — intentional per #2069 design.
         let busyCount = runners.filter { $0.busy }.count
         let activeWork = hasActiveWork()
         let newIdleTicks = updateAdaptiveCounters(hasActiveWork: activeWork, busyRunnerCount: busyCount)

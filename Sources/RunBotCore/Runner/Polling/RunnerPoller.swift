@@ -210,11 +210,19 @@ public actor RunnerPoller {
     log(
       "RunnerPoller › start — previous pollTask cancelled, launching new poll task",
       category: .runner)
+    // Strong capture of `self` is intentional: the Task is owned by `pollLoop`,
+    // which is owned by this actor. The retain cycle
+    // (actor → pollLoop → Task → actor) is broken by `isolated deinit`, which
+    // calls `pollLoop.cancelAll()` before the actor is freed. `[weak self]` is
+    // therefore unnecessary and was removed to simplify the loop body.
     pollLoop.setPollTask(
       Task {
         await self.fetch()
         while !Task.isCancelled {
-          let interval = self.nextPollInterval()
+          // Reads counters written by the previous applyFetchResult call — intentional.
+          // On the very first iteration both counters are 0 (reset by start()), so the
+          // first sleep is always idleMin (30 s) regardless of prior session state.
+          let interval = await self.nextPollInterval()
           log("RunnerPoller › poll loop — next fetch in \(Int(interval))s", category: .runner)
           do {
             try await Task.sleep(for: .seconds(interval))
