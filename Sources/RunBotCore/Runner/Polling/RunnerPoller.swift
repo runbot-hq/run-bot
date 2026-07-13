@@ -106,7 +106,7 @@ public actor RunnerPoller {
   /// Injected at init to decouple Core from the app-layer `LocalRunnerStore` actor.
   let applyMetrics:
     @Sendable (_ metrics: RunnerMetrics?, _ runnerId: Int, _ name: String) async -> Void
-  /// Injected preferences store.
+  /// Injected preferences store. periphery:ignore
   /// No longer drives poll cadence (removed in Step 4 of #2069 — `preferencesStore.pollingInterval`
   /// replaced by `PollIntervalStrategy`). Retained because other call sites outside
   /// `RunnerPoller` depend on the same injected instance. Planned cleanup at Step 10.
