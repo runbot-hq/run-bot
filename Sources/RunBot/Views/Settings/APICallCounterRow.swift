@@ -84,6 +84,9 @@ public struct APICallCounterRow: View {
             Only successful (non-nil) calls are counted.
             """
         )
+        // Both paths are required: onAppear seeds the VM with the current value on
+        // first render (and after off-screen round trips); onChange keeps it live
+        // while the view stays on screen. Removing either breaks one of the two cases.
         .onChange(of: resetDate) { _, newVal in vm.resetDate = newVal }
         .onAppear { vm.resetDate = resetDate }
         .counterPolling(vm)

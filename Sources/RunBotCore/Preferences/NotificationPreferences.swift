@@ -62,9 +62,10 @@ public final class NotificationPreferences {
     /// ## Dispatch wiring
     /// This property is intentionally UI/persistence-only in this PR. No
     /// notification-dispatch callsite reads it yet — that wiring is tracked
-    /// separately and will be added in a follow-up PR. The picker is functional
+    /// in #2070 and will be added in a follow-up PR. The picker is functional
     /// (writes correctly to UserDefaults) but the setting has no runtime effect
     /// until dispatch is wired. This is not a bug introduced here.
+    // TODO: wire dispatch — #2070
     ///
     /// ## Orphaned UserDefaults keys
     /// The previous `notifications.notifyOnSuccess` and `notifications.notifyOnFailure`
