@@ -87,11 +87,9 @@ curl -fsSL https://runbot-hq.github.io/run-bot/install.sh | bash
 
 ## Docs
 
-- [Development](docs/development.md) — build and run locally
-- [Releasing](docs/releasing.md) — release pipeline and update flow
-- [Testing](docs/testing.md) — test strategy and running tests
-- [Contributing](docs/contributing.md) — contribution guidelines
+- [Development](docs/development.md) — dev loop, build, [releasing](docs/development.md#releasing), and [testing](docs/development.md#testing)
 - [Architecture](docs/architecture.md) — data model, concurrency model, regression guards
+- [Contributing](docs/contributing.md) — contribution guidelines
 - [Principles](docs/principles.md) — engineering and design principles
 - [Privacy](docs/privacy.md) — OAuth scopes, token storage, data handling
 - [Agents](AGENTS.md) — context for AI coding agents
