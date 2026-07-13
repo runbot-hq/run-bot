@@ -38,9 +38,12 @@ struct PollIntervalStrategyTests {
 
   @Test("Rate-limited with reset date in the past → floor of 30 s")
   func rateLimitedWithExpiredResetDate() {
-    // reset is 60 s in the past → timeIntervalSinceNow ≈ -60
-    // max(30, -60 + 5) = max(30, -55) = 30  ← the floor, not the reset delta
-    let reset = Date.fromNow(-60)  // already past
+    // Frozen date well in the past — timeIntervalSinceNow is deeply negative.
+    // max(30, <deeply negative> + 5) = 30 (the floor).
+    // Using a frozen Date(timeIntervalSince1970:) rather than Date.fromNow(-60)
+    // makes the intent explicit and removes any theoretical time-sensitivity
+    // under an unusually slow CI run.
+    let reset = Date(timeIntervalSince1970: 0)  // 1970-01-01 — always in the past
     let result = PollIntervalStrategy.next(
       hasActiveWork: false,
       consecutiveIdleTicks: 0,
