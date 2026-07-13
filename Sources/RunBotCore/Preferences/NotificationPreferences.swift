@@ -58,6 +58,19 @@ public final class NotificationPreferences {
 
     /// Unified notification mode replacing the two separate Bool flags.
     /// Persisted as a `String` rawValue in UserDefaults.
+    ///
+    /// ## Dispatch wiring
+    /// This property is intentionally UI/persistence-only in this PR. No
+    /// notification-dispatch callsite reads it yet — that wiring is tracked
+    /// separately and will be added in a follow-up PR. The picker is functional
+    /// (writes correctly to UserDefaults) but the setting has no runtime effect
+    /// until dispatch is wired. This is not a bug introduced here.
+    ///
+    /// ## Orphaned UserDefaults keys
+    /// The previous `notifications.notifyOnSuccess` and `notifications.notifyOnFailure`
+    /// keys are intentionally left in UserDefaults without cleanup. The app has
+    /// zero users in the wild, so no migration path is needed. The dead keys are
+    /// harmless and will simply be ignored.
     public var notificationMode: NotificationMode {
         didSet {
             defaults.set(notificationMode.rawValue, forKey: Key.notificationMode)

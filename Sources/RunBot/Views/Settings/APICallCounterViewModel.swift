@@ -101,6 +101,13 @@ public final class APICallCounterViewModel {
 
     /// "Resets in N min" (or "Resets in N sec" under 60 s) label derived from `resetDate`,
     /// or empty string when unavailable.
+    ///
+    /// ## Render cadence
+    /// This is a plain computed property that reads `Date.timeIntervalSinceNow` on
+    /// each access. It only refreshes when SwiftUI triggers a redraw — in practice
+    /// every 5 s via the polling tick that updates `resetDate`. Minute-granularity
+    /// display makes any inter-poll drift imperceptible. A dedicated `Timer` would
+    /// add complexity with no visible benefit at this cadence.
     public var resetLabel: String {
         guard let resetDate else { return "" }
         let interval = resetDate.timeIntervalSinceNow
