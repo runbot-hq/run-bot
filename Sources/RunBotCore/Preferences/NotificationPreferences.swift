@@ -71,7 +71,8 @@ public final class NotificationPreferences {
     /// keys are intentionally left in UserDefaults without cleanup. The app has
     /// zero users in the wild, so no migration path is needed. The dead keys are
     /// harmless and will simply be ignored.
-    // TODO: wire notification dispatch to read this value — #2070
+    ///
+    /// - TODO: Wire notification dispatch to read this value — tracked in #2070.
     public var notificationMode: NotificationMode {
         didSet {
             defaults.set(notificationMode.rawValue, forKey: Key.notificationMode)
