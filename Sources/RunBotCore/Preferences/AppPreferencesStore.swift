@@ -101,13 +101,3 @@ public final class AppPreferencesStore {
         betaChannel = store.bool(forKey: Key.betaChannel)
     }
 }
-
-// MARK: - Comparable+clamped
-// Retained as a private extension in case future properties in this file require it.
-// If no new clamped property is added, this can be removed at the next cleanup pass.
-private extension Comparable {
-    /// Returns the value clamped to `range`, i.e. `max(lowerBound, min(self, upperBound))`.
-    func clamped(to range: ClosedRange<Self>) -> Self {
-        min(max(self, range.lowerBound), range.upperBound)
-    }
-}
