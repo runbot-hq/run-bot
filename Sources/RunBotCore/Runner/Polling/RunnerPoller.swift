@@ -217,23 +217,23 @@ public actor RunnerPoller {
     log(
       "RunnerPoller › start — previous pollTask cancelled, launching new poll task",
       category: .runner)
-    // Strong capture of `self` is intentional: the Task is owned by `pollLoop`,
-    // which is owned by this actor. The retain cycle
-    // (actor → pollLoop → Task → actor) is broken by `isolated deinit`, which
-    // calls `pollLoop.cancelAll()` before the actor is freed. `[weak self]` is
-    // therefore unnecessary and was removed to simplify the loop body.
+    // [weak self] is required: the Task is stored in `pollLoop` which is owned by
+    // this actor, creating a strong cycle (actor → pollLoop → Task → actor).
+    // `isolated deinit` only controls isolation of deinit, not when it fires —
+    // ARC still requires the reference count to reach zero first, which cannot
+    // happen while the Task holds a strong reference. [weak self] breaks the cycle.
     pollLoop.setPollTask(
-      Task {
-        await self.fetch()
-        while !Task.isCancelled {
+      Task { [weak self] in
+        await self?.fetch()
+        while let self, !Task.isCancelled {
           // Reads counters written by the previous applyFetchResult call — intentional.
-          // On the very first iteration both counters are 0 (reset by start()); if the
-          // first fetch was idle, the first sleep is idleMin (30 s). If the first fetch
-          // found active work, consecutiveIdleTicks stays 0 and the active ladder applies.
-          // If the first fetch failed (applyError path), counters also stay at 0 —
-          // correct by design: no known-good state yet, so idleMin is the safe default.
-          // nextPollInterval() is synchronous — no suspension point despite the actor hop.
-          let interval = self.nextPollInterval()
+          // Counter state after fetch() completes:
+          //   idle fetch  → consecutiveIdleTicks = 1 → first sleep = 60 s (idleMin * 2)
+          //   active fetch → consecutiveIdleTicks = 0, lastBusyRunnerCount updated → active ladder
+          //   error fetch  → counters unchanged (stay at 0 on first start) → idleMin (30 s)
+          // nextPollInterval() is synchronous on the actor; `await` is needed here
+          // because [weak self] means this closure runs off-actor and must hop in.
+          let interval = await self.nextPollInterval()
           log("RunnerPoller › poll loop — next fetch in \(Int(interval))s", category: .runner)
           do {
             try await Task.sleep(for: .seconds(interval))
