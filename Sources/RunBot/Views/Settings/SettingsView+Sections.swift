@@ -180,15 +180,14 @@ internal extension SettingsView {
                 .padding(.horizontal, RBSpacing.md)
                 .padding(.vertical, 8)
             HStack {
-                Text("Notify on success").font(.system(size: 12)); Spacer()
-                Toggle("", isOn: bindableNotifications.notifyOnSuccess)
-                    .toggleStyle(.switch).tint(Color.rbSuccess).labelsHidden()
-            }
-            .padding(.horizontal, RBSpacing.md).padding(.vertical, 6)
-            HStack {
-                Text("Notify on failure").font(.system(size: 12)); Spacer()
-                Toggle("", isOn: bindableNotifications.notifyOnFailure)
-                    .toggleStyle(.switch).tint(Color.rbSuccess).labelsHidden()
+                Text("Notifications").font(.system(size: 12)); Spacer()
+                Picker("", selection: bindableNotifications.notificationMode) {
+                    ForEach(NotificationMode.allCases, id: \.self) { mode in
+                        Text(mode.label).tag(mode)
+                    }
+                }
+                .labelsHidden()
+                .frame(width: 140)
             }
             .padding(.horizontal, RBSpacing.md).padding(.vertical, 6)
             HStack {

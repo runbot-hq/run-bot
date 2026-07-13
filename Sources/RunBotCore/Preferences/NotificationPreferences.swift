@@ -3,6 +3,30 @@
 import Foundation
 import Observation
 
+// MARK: - NotificationMode
+
+/// The set of workflow-result events for which RunBot sends notifications.
+public enum NotificationMode: String, CaseIterable, Sendable {
+    /// Notify for both successes and failures.
+    case all = "all"
+    /// Notify only when a job fails.
+    case failuresOnly = "failuresOnly"
+    /// Notify only when a job succeeds.
+    case successesOnly = "successesOnly"
+    /// Never send notifications.
+    case never = "never"
+
+    /// Human-readable label shown in the Settings picker.
+    public var label: String {
+        switch self {
+        case .all:           return "All"
+        case .failuresOnly:  return "Failures only"
+        case .successesOnly: return "Successes only"
+        case .never:         return "Never"
+        }
+    }
+}
+
 // MARK: - NotificationPreferences
 
 /// Persists notification preferences to UserDefaults.
@@ -24,6 +48,8 @@ public final class NotificationPreferences {
         static let notifyOnSuccess = "notifications.notifyOnSuccess"
         /// Key for the notify-on-failure flag.
         static let notifyOnFailure = "notifications.notifyOnFailure"
+        /// Key for the notification mode enum.
+        static let notificationMode = "notifications.notificationMode"
     }
 
     // MARK: - Backing store
@@ -42,6 +68,14 @@ public final class NotificationPreferences {
     /// Whether the user wants a notification when a job fails.
     public var notifyOnFailure: Bool {
         didSet { defaults.set(notifyOnFailure, forKey: Key.notifyOnFailure) }
+    }
+
+    /// Unified notification mode replacing the two separate Bool flags.
+    /// Persisted as a `String` rawValue in UserDefaults.
+    public var notificationMode: NotificationMode {
+        didSet {
+            defaults.set(notificationMode.rawValue, forKey: Key.notificationMode)
+        }
     }
 
     // MARK: - Init
@@ -65,6 +99,8 @@ public final class NotificationPreferences {
         NotificationPreferences.register(into: store)
         notifyOnSuccess = store.bool(forKey: Key.notifyOnSuccess)
         notifyOnFailure = store.bool(forKey: Key.notifyOnFailure)
+        let rawMode = store.string(forKey: Key.notificationMode) ?? NotificationMode.all.rawValue
+        notificationMode = NotificationMode(rawValue: rawMode) ?? .all
     }
 
     // MARK: - Registration
@@ -83,6 +119,7 @@ public final class NotificationPreferences {
         store.register(defaults: [
             Key.notifyOnSuccess: true,
             Key.notifyOnFailure: true,
+            Key.notificationMode: NotificationMode.all.rawValue,
         ])
     }
 }
