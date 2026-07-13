@@ -45,24 +45,16 @@ struct SettingsView: View {
     /// acts as the handoff point, extracting the store from `appState.localRunnerStore`
     /// and passing it down. This stored property is that handoff slot.
     ///
-    /// WHY THE DEFAULT IS `.shared`:
-    /// The default exists solely so call sites that construct `SettingsView` via the
-    /// primary `init(appState:settings:)` path don't need to pass it explicitly —
-    /// the init body overwrites it with `appState.localRunnerStore` immediately.
-    /// In production this is always safe: `SettingsView` is only constructed after
-    /// `applicationDidFinishLaunching` completes, so `AppState.start()` has already
-    /// seeded `_localRunnerStore`. The `.shared` default is never actually used in
-    /// production — it exists to satisfy the Swift requirement that `var` properties
-    /// with no `let` binding must have a default or be set in every `init` path.
-    /// WHY NOT COMPILER-ENFORCED:
-    /// Removing the default would force every `SettingsView` Preview and test to
-    /// supply a store explicitly — boilerplate with no production safety benefit,
-    /// since `AppDelegate` always supplies it correctly. The doc-comment warning is
-    /// the chosen enforcement mechanism. If the Preview/test surface grows, consider
-    /// a dedicated `init(preview:)` that supplies a safe test double instead.
-    /// ⚠️ Do NOT rely on this default in SwiftUI Previews or unit tests — supply a
-    /// configured store explicitly to avoid the `fatalError` in `LocalRunnerStore.shared`.
-    var localRunnerStore: LocalRunnerStore = .shared
+    /// WHY THERE IS NO DEFAULT:
+    /// The stored property has no default — it is always set in `init` from either
+    /// the explicitly supplied `localRunnerStore` parameter or `appState.localRunnerStore`.
+    /// This means any construction path that supplies `appState` gets the correct store
+    /// automatically, and any path that does not supply `appState` fails to compile.
+    /// SwiftUI Previews must supply `appState`; the init body resolves the store from it.
+    /// ⚠️ Do NOT add a `.shared` default back here — `LocalRunnerStore.shared` will
+    /// `fatalError` if `configure()` has not been called, and Previews / tests that
+    /// construct `SettingsView` without a fully started `AppState` will crash silently.
+    var localRunnerStore: LocalRunnerStore
     // MARK: - Injected services
     /// Single coordinator for all domain-level state (oauth, lifecycle, runners, updater).
     /// Replaces four separate injected objects — see issue #2040.
@@ -117,18 +109,26 @@ struct SettingsView: View {
     /// `.onAppear`. Both properties are backed by a synchronous Keychain read, so
     /// the cost is identical and the one-render false-flash is eliminated.
     ///
+    /// `localRunnerStore` defaults to `nil` and is resolved from `appState.localRunnerStore`
+    /// in the init body when not supplied explicitly. This eliminates the previous
+    /// `.shared` default which would `fatalError` in any Preview or test that constructed
+    /// `SettingsView` without a fully started `AppState` (issue #2049 review finding).
+    ///
     /// - Parameters:
     ///   - appState: The single domain coordinator owned by `AppDelegate`.
+    ///   - localRunnerStore: Override for the local runner store. Defaults to
+    ///     `appState.localRunnerStore` when `nil`. Supply explicitly in tests or
+    ///     Previews that need a specific store instance.
     init(
         onBack: @escaping () -> Void,
         appState: AppState,
-        localRunnerStore: LocalRunnerStore = .shared,
+        localRunnerStore: LocalRunnerStore? = nil,
         settings: AppPreferencesStore = .shared,
         notifications: NotificationPreferences = .shared
     ) {
         self.onBack = onBack
         self.appState = appState
-        self.localRunnerStore = localRunnerStore
+        self.localRunnerStore = localRunnerStore ?? appState.localRunnerStore
         self.settings = settings
         self.notifications = notifications
         _isOAuthAuthenticated = State(initialValue: appState.oauthService.isAuthenticated)
@@ -261,7 +261,7 @@ struct SettingsView: View {
     }
 
     // MARK: - Header
-    /// Top bar with back button and “Settings” title.
+    /// Top bar with back button and "Settings" title.
     private var headerBar: some View {
         HStack {
             Button(action: onBack, label: {
