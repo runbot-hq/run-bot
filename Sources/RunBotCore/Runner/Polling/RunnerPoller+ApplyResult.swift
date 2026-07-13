@@ -34,6 +34,10 @@ extension RunnerPoller {
             jobs: jobResult.display,
             actions: groupResult.display
         )
+        // Update rateLimitRemaining from the live snapshot so nextPollInterval()
+        // can engage the headroom-cooldown branch when approaching the quota wall.
+        // Not updated on error cycles (see applyError) — holds its last-known value.
+        rateLimitRemaining = rateLimitSnapshot.remaining
         // Update adaptive-interval counters after setDisplayState so that
         // hasActiveWork() reads the freshly-written self.jobs and self.actions.
         // Running this before setDisplayState would evaluate hasActiveWork() on
@@ -42,7 +46,7 @@ extension RunnerPoller {
         // - hasActiveWork() — job/action API state (drives the hasActiveWork gate)
         // - busyCount — runner.busy flag (drives the Fast/Mid/Slow tier ladder)
         // It is valid for these to disagree transiently (e.g. a runner is busy but
-        // the job API hasn’t surfaced it yet). In that case the active ladder is
+        // the job API hasn't surfaced it yet). In that case the active ladder is
         // entered only when hasActiveWork is true — intentional per #2069 design.
         // `enrichedRunners` is used here (not `self.runners`) because `setDisplayState`
         // hasn't written to `self.runners` yet at this point in the call sequence.
@@ -52,7 +56,7 @@ extension RunnerPoller {
         let activeWork = hasActiveWork()
         let newIdleTicks = updateAdaptiveCounters(hasActiveWork: activeWork, busyRunnerCount: busyCount)
         // swiftlint:disable:next line_length
-        log("RunnerPoller › fetch complete — actions=\(groupResult.display.count) jobs=\(jobResult.display.count) runners=\(enrichedRunners.count) isRateLimited=\(rateLimitSnapshot.isLimited) rateLimitResetDate=\(String(describing: rateLimitSnapshot.resetDate)) idleTicks=\(newIdleTicks) busyRunners=\(busyCount)", category: .runner)
+        log("RunnerPoller › fetch complete — actions=\(groupResult.display.count) jobs=\(jobResult.display.count) runners=\(enrichedRunners.count) isRateLimited=\(rateLimitSnapshot.isLimited) rateLimitResetDate=\(String(describing: rateLimitSnapshot.resetDate)) rateLimitRemaining=\(rateLimitSnapshot.remaining) idleTicks=\(newIdleTicks) busyRunners=\(busyCount)", category: .runner)
         // NOTE: actor-local properties (self.runners …) and the @Observable read model
         // (state.*) are two separate copies. setDisplayState (above) already wrote the
         // actor-local copies; the MainActor.run block below writes state.* — the view-layer
@@ -92,9 +96,10 @@ extension RunnerPoller {
     /// cycle values. Views therefore show stale data alongside the error banner rather than
     /// an empty list.
     ///
-    /// `consecutiveIdleTicks` and `lastBusyRunnerCount` are also intentionally not updated
-    /// here — both counters hold their last-successful-cycle values through any number of
-    /// consecutive failures. See `RunnerPoller` state documentation for rationale.
+    /// `consecutiveIdleTicks`, `lastBusyRunnerCount`, and `rateLimitRemaining` are also
+    /// intentionally not updated here — all three counters hold their last-successful-cycle
+    /// values through any number of consecutive failures. See `RunnerPoller` state
+    /// documentation for rationale.
     func applyError(_ error: any Error & Sendable) async {
         let rateLimitSnapshot = await ghRateLimitSnapshot()
         // Sync actor-local copies first — nextPollInterval() reads these directly.
