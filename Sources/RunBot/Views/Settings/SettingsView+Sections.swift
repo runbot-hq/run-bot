@@ -140,7 +140,7 @@ internal extension SettingsView {
     /// "N active, M inactive" label for the local runners row, or "" when none configured.
     ///
     /// Sources from `runnerState.localRunners` (via `AppState`) — runners flow through
-    /// `RunnerState` because their lifecycle is managed by `RunnerPoller`. This is
+    /// `RunnerState` because their lifecycle is managed by `LocalRunnerStore`. This is
     /// intentionally different from `scopeCountLabel`, which reads from the injected
     /// `scopeStore` directly. Both stores are `@Observable` so SwiftUI reactivity works
     /// correctly for both — the asymmetry reflects domain ownership, not an oversight.
@@ -193,7 +193,7 @@ internal extension SettingsView {
                 .padding(.vertical, 8)
             HStack {
                 Text("Notifications").font(.system(size: 12)); Spacer()
-                Picker("", selection: bindableNotifications.notificationMode) {
+                Picker("Notifications", selection: bindableNotifications.notificationMode) {
                     ForEach(NotificationMode.allCases, id: \.self) { mode in
                         Text(mode.label).tag(mode)
                     }

@@ -99,30 +99,31 @@ public final class APICallCounterViewModel {
         }
     }
 
-    /// "Resets in N min" label derived from `resetDate`, or empty string when unavailable.
+    /// "Resets in N min" / "Resets in N sec" label derived from `resetDate`, or "" when unavailable.
     ///
     /// ## Reactivity
-    /// `resetDate` is a stored `var` on an `@Observable` class. SwiftUI tracks reads
-    /// of `resetDate` that occur inside `body` (via `vm.resetLabel`), so any change
-    /// to `resetDate` automatically triggers a re-render. No explicit `@Published` or
-    /// `Timer` is needed — `@Observable` tracking is what makes this reactive.
+    /// `resetDate` is a stored `var` on an `@Observable` class. SwiftUI tracks reads of
+    /// `resetDate` inside `body` (via `vm.resetLabel`), so any change to `resetDate`
+    /// automatically triggers a re-render. The redraw is driven by the polling tick that
+    /// updates `snap` (and with it `resetDate`) — not by a dedicated `Timer`. No explicit
+    /// `@Published` or `Timer` is needed; `@Observable` tracking handles reactivity.
     ///
     /// ## Render cadence
-    /// This is a plain computed property that reads `Date.timeIntervalSinceNow` on
-    /// each access. It only refreshes when SwiftUI triggers a redraw — in practice
-    /// every 5 s via the polling tick that updates `resetDate`. Minute-granularity
-    /// display makes any inter-poll drift imperceptible. A dedicated `Timer` would
-    /// add complexity with no visible benefit at this cadence.
+    /// Refreshes on each poll tick (~5 s). The seconds branch can therefore lag by up to
+    /// one polling interval — acceptable for a Settings row. A dedicated `Timer` is
+    /// intentionally avoided to keep complexity low.
     ///
-    /// ## Sub-minute precision intentionally omitted
-    /// Showing seconds (e.g. "Resets in 12 sec") was considered but rejected:
-    /// the label only updates on 5 s poll ticks, so a seconds display would be
-    /// visibly stale. "< 1 min" is shown instead — accurate and non-misleading.
+    /// ## Rounding
+    /// Both branches use `ceil` so the label never understates remaining time
+    /// (e.g. avoids showing "0 sec" or "1 min" for nearly two minutes).
     public var resetLabel: String {
         guard let resetDate else { return "" }
         let interval = resetDate.timeIntervalSinceNow
         guard interval > 0 else { return "Resetting…" }
-        let minutes = Int(interval / 60)
-        return minutes > 0 ? "Resets in \(minutes) min" : "Resets in < 1 min"
+        if interval < 60 {
+            return "Resets in \(Int(ceil(interval))) sec"
+        }
+        let minutes = Int(ceil(interval / 60))
+        return "Resets in \(minutes) min"
     }
 }
