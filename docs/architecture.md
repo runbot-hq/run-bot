@@ -821,4 +821,30 @@ view can be re-attached to a different window, add `guard let window else { retu
 
 #### Sheet state across hide/show
 
-`hidePanel()` does **not** call
+`hidePanel()` does **not** call `dismissSheets()` and does **not** reset `rootView`.
+`popover.performClose()` closes `NSPopoverWindowFrame` and all child windows together —
+removed from screen but the `NSHostingController` and its SwiftUI tree stay alive with
+`@State` preserved. On re-open, `popover.show()` re-attaches the same controller and SwiftUI
+re-presents the sheet automatically because the binding is still `true`.
+
+`closePanel()` resets `rootView = mainView()` so the next open starts fresh.
+
+### Rules
+
+```
+❌ NEVER use picker.begin { }            — free-floating, invisible to hasActiveSheet
+❌ NEVER use picker.runModal()           — same reason
+✅ ALWAYS use picker.beginSheetModal(for: hostWindow)
+
+❌ NEVER call popover.show() on resize   — re-anchors the arrow; use contentSize only
+❌ NEVER omit behavior re-assert before show() — AppKit latches at show-time
+❌ NEVER omit delegate re-assert before show() — same reason
+
+❌ NEVER add dismissSheets() to hidePanel()
+❌ NEVER reset hostingController.rootView in hidePanel()
+
+❌ NEVER remove tearDownOpenState() from any close path — monitor leak
+❌ NEVER inline teardown back into AppDelegate.swift
+❌ NEVER call popover.performClose() while a sheet is open without first calling
+        hidePopoverWindowsPreservingSheets()
+```
