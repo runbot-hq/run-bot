@@ -155,6 +155,11 @@ final class AppState {
     /// (e.g. `UI_TESTING` return, future test stubs, etc.).
     /// `@ObservationIgnored` for the same reason as `_localRunnerStore` above —
     /// write-only sentinel, never observed externally, registrar calls are no-ops.
+    /// ❌ NOT `nonisolated(unsafe)` (unlike `statusIconTask`/`signOutTask`):
+    /// `_didStart` is only ever read/written inside `@MainActor`-isolated `start()`.
+    /// `deinit` never touches it. The `nonisolated(unsafe)` annotation on the task
+    /// vars exists solely because `deinit` calls `.cancel()` on them — that pattern
+    /// does not apply here. Adding `nonisolated(unsafe)` would be misleading noise.
     @ObservationIgnored private var _didStart = false  // permanent per instance — do not reuse AppState across test setUp/tearDown
 
     /// Owned `RunnerPoller` actor. `nil` until `start()` runs.
@@ -318,11 +323,16 @@ final class AppState {
     /// early-return branch fired on the first call (e.g. `UI_TESTING`).
     ///
     /// - Parameter onUpdateStatusIcon: Called on `@MainActor` whenever
-    ///   `runnerState.aggregateStatus` changes. ⚠️ Capture `AppDelegate` weakly
-    ///   at the call site — this closure is stored inside a long-lived `Task`
-    ///   for the process lifetime. A strong capture would retain `AppDelegate`
-    ///   indefinitely. The call site in `AppDelegate+StoreSetup.swift` does
-    ///   this correctly via `{ [weak self] in self?.updateStatusIcon() }`.
+    ///   `runnerState.aggregateStatus` changes.
+    ///
+    ///   ❌ No retain cycle today: the call site passes `{ [weak self] in self?.updateStatusIcon() }`,
+    ///   so `AppState` does not retain `AppDelegate` through this closure.
+    ///
+    ///   ⚠️ Future call sites MUST also use a weakly-capturing closure. There is no
+    ///   compiler-enforced guarantee. `AppState` cannot accept a weak `AppDelegate`
+    ///   directly (that would require importing AppKit, violating the layering rule
+    ///   that domain objects must not depend on AppKit). The callback pattern is the
+    ///   correct trade-off; the weak-capture discipline must be enforced at every call site.
     func start(onUpdateStatusIcon: @escaping @MainActor () -> Void) async {
         guard !_didStart else {
             log("AppState › start — already called, no-op (idempotency guard; if this fires during UI_TESTING it means the first call already set _didStart and returned early)")

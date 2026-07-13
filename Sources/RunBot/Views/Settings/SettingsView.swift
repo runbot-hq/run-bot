@@ -83,11 +83,14 @@ struct SettingsView: View {
     let notifications: NotificationPreferences
 
     // MARK: - Convenience accessors (avoid noisy appState.x at every call site)
-    // NOTE: `internal` (not `private`) — Swift `private` does not cross file boundaries;
-    // `SettingsView+Sections.swift` reads these from a separate file.
-    // Intent: accessible to SettingsView extension files in this module, not to
-    // arbitrary callers. `fileprivate` is not an option because Swift `fileprivate`
-    // is per-file and SettingsView+Sections.swift is a separate file.
+    // ❌ NOT a leakage oversight — these are `internal` by Swift necessity, not by choice.
+    // Swift `private` does not cross file boundaries; `SettingsView+Sections.swift`
+    // (a separate file) needs these. `fileprivate` is also per-file in Swift, so it
+    // would not help either. `internal` is the tightest access level available for
+    // cross-file use within the same type. The intent is: readable by SettingsView
+    // extension files in this module; not part of the public API of SettingsView.
+    // If you are tempted to tighten these to `private`, note that Swift will not
+    // allow it — the compiler will reject it at SettingsView+Sections.swift.
     /// Forwarded OAuth service from `appState`. Internal by necessity — see NOTE above.
     var oauthService: any OAuthServiceProtocol { appState.oauthService }
     /// Forwarded lifecycle service from `appState`. Internal by necessity — see NOTE above.
