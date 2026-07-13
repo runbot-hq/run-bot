@@ -4,7 +4,7 @@ import Foundation
 
 // MARK: - PollLoopCoordinator
 
-/// Owns the three `Task` handles that drive `RunnerPoller`'s poll loop.
+/// Owns the two `Task` handles that drive `RunnerPoller`'s poll loop.
 ///
 /// `RunnerPoller` holds this as a stored property, so all mutation is serialised
 /// by the actor's own executor — no additional isolation annotation is needed
@@ -20,9 +20,8 @@ import Foundation
 /// 1. **Owned by a single actor.** `PollLoopCoordinator` is stored as
 ///    `private let pollLoop` on `RunnerPoller`. Swift actors serialise all
 ///    access to their stored properties on their own executor, so every call
-///    to `setPollTask`, `setIntervalObservationTask`, and
-///    `setScopeObservationTask` is already serialised without any additional
-///    locking.
+///    to `setPollTask` and `setScopeObservationTask` is already serialised
+///    without any additional locking.
 ///
 /// 2. **`deinit` performs no reads or writes that race with concurrent callers.**
 ///    By the time `deinit` runs, all strong references are gone, so there are
@@ -46,10 +45,10 @@ import Foundation
 ///
 /// **Why a dedicated type?**
 /// Swift's `private` modifier is file-scoped, not type-scoped. The poll-loop
-/// state (`pollTask`, `intervalObservationTask`, `scopeObservationTask`) cannot
-/// be moved into `RunnerPoller+PollLoop.swift` as raw stored properties without
-/// widening their access to `internal`. Wrapping them here makes the coordinator
-/// itself `internal` while keeping the individual task slots private.
+/// state (`pollTask`, `scopeObservationTask`) cannot be moved into
+/// `RunnerPoller+PollLoop.swift` as raw stored properties without widening
+/// their access to `internal`. Wrapping them here makes the coordinator itself
+/// `internal` while keeping the individual task slots private.
 ///
 /// **PR-D review sign-off — all findings resolved (2026-06-21)**
 ///
@@ -72,8 +71,6 @@ final class PollLoopCoordinator: @unchecked Sendable {
 
     /// Active structured poll task. Cancelled and replaced on every `start()` call.
     private var pollTask: Task<Void, Never>?
-    /// Observation task that restarts the poll loop when `pollingInterval` changes.
-    private var intervalObservationTask: Task<Void, Never>?
     /// Observation task that restarts the poll loop when `activeScopes` changes.
     private var scopeObservationTask: Task<Void, Never>?
 
@@ -93,13 +90,6 @@ final class PollLoopCoordinator: @unchecked Sendable {
         pollTask = task
     }
 
-    /// Cancels the existing interval-observation task (if any) and replaces it with `task`.
-    /// Passing `nil` cancels without installing a replacement.
-    func setIntervalObservationTask(_ task: Task<Void, Never>?) {
-        intervalObservationTask?.cancel()
-        intervalObservationTask = task
-    }
-
     /// Cancels the existing scope-observation task (if any) and replaces it with `task`.
     /// Passing `nil` cancels without installing a replacement.
     func setScopeObservationTask(_ task: Task<Void, Never>?) {
@@ -107,7 +97,7 @@ final class PollLoopCoordinator: @unchecked Sendable {
         scopeObservationTask = task
     }
 
-    /// Cancels all three tasks and nils their handles.
+    /// Cancels both tasks and nils their handles.
     ///
     /// Niling after cancel keeps this method consistent with the setter contract
     /// (`setPollTask(nil)` also nils) and releases the `Task` references immediately,
@@ -116,8 +106,6 @@ final class PollLoopCoordinator: @unchecked Sendable {
     func cancelAll() {
         pollTask?.cancel()
         pollTask = nil
-        intervalObservationTask?.cancel()
-        intervalObservationTask = nil
         scopeObservationTask?.cancel()
         scopeObservationTask = nil
     }

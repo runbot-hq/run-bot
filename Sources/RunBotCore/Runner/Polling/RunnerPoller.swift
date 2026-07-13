@@ -11,8 +11,8 @@ import os
 ///
 /// **Concurrency model**
 /// - The actor runs on its own executor (background thread).
-/// - `preferencesStore` and `scopeStore` are `@MainActor`-isolated `Sendable` protocol
-///   values; any read of their properties must happen inside `await MainActor.run { }`.
+/// - `scopeStore` is a `@MainActor`-isolated `Sendable` protocol value; any read of
+///   its properties must happen inside `await MainActor.run { }`.
 /// - After every fetch cycle, results are pushed to the injected `RunnerState` on the
 ///   main actor via `await MainActor.run { }`. SwiftUI's `@Observable` machinery
 ///   picks up the mutation automatically — no Combine `PassthroughSubject` needed.
@@ -83,9 +83,9 @@ public actor RunnerPoller {
   /// Used by `PollIntervalStrategy` to select the active-interval tier.
   private var lastBusyRunnerCount: Int = 0
 
-  /// Owns the three structured `Task` handles for the poll loop.
-  /// `private` — all call sites (startObservingPreferences, startObservingScopes,
-  /// start(), isolated deinit) are in this file; no extension file needs access.
+  /// Owns the two structured `Task` handles for the poll loop.
+  /// `private` — all call sites (startObservingScopes, start(), isolated deinit)
+  /// are in this file; no extension file needs access.
   private let pollLoop = PollLoopCoordinator()
   /// Observable read model — the source of truth for all views and AppDelegate observers.
   public let state: RunnerState
@@ -96,7 +96,7 @@ public actor RunnerPoller {
   /// Injected at init to decouple Core from the app-layer `LocalRunnerStore` actor.
   let applyMetrics:
     @Sendable (_ metrics: RunnerMetrics?, _ runnerId: Int, _ name: String) async -> Void
-  /// Injected preferences store. Provides `pollingInterval`.
+  /// Injected preferences store. Retained for other consumers outside `RunnerPoller`.
   let preferencesStore: any AppPreferencesStoreProtocol
   /// Injected scope store. Provides `activeScopes`.
   /// `internal` (not `private`) so that extension files can read this property.
@@ -116,7 +116,7 @@ public actor RunnerPoller {
   ///
   /// - Parameters:
   ///   - state: The observable read model that views and AppDelegate observe.
-  ///   - preferencesStore: Provides `pollingInterval`.
+  ///   - preferencesStore: Retained for other consumers; no longer drives poll cadence.
   ///   - scopeStore: Provides `activeScopes`.
   ///   - localRunners: Closure returning the current local-runner snapshot on `@MainActor`.
   ///   - applyMetrics: Closure that writes enriched metrics back to the local runner store.
@@ -136,9 +136,6 @@ public actor RunnerPoller {
     self.localRunners = localRunners
     self.applyMetrics = applyMetrics
     self.actionGroupFetcher = actionGroupFetcher
-    Task(name: "RunnerPoller.init: startObservingPreferences") {
-      await self.startObservingPreferences()
-    }
     Task(name: "RunnerPoller.init: startObservingScopes") { await self.startObservingScopes() }
   }
 
@@ -151,34 +148,11 @@ public actor RunnerPoller {
 
   // MARK: - Observation loops
 
-  /// Starts (or restarts) the `pollingInterval` observation loop.
-  private func startObservingPreferences() {
-    let injectedStore = preferencesStore
-    let newTask = Task { [weak self] in
-      let (stream, continuation) = AsyncStream<TimeInterval>.makeStream()
-      let observer: ObservationRelay<TimeInterval> = await MainActor.run {
-        let relay = ObservationRelay<TimeInterval>(continuation: continuation) {
-          TimeInterval(injectedStore.pollingInterval)
-        }
-        relay.start()
-        return relay
-      }
-      for await newInterval in stream {
-        guard !Task.isCancelled else { break }
-        log(
-          "RunnerPoller › pollingInterval changed to \(Int(newInterval))s — restarting poll loop",
-          category: .runner)
-        await self?.startObservingPreferences()
-        guard !Task.isCancelled else { break }
-        await self?.start()
-        break
-      }
-      withExtendedLifetime(observer) {}
-    }
-    pollLoop.setIntervalObservationTask(newTask)
-  }
-
   /// Starts (or restarts) the `activeScopes` observation loop.
+  ///
+  /// **Self-cancellation avoidance**
+  /// The new `Task` is created first, then handed to `setScopeObservationTask` so
+  /// the setter cancels the *previous* task rather than the one currently executing.
   private func startObservingScopes() {
     let injectedStore = scopeStore
     let newTask = Task { [weak self] in
@@ -198,6 +172,10 @@ public actor RunnerPoller {
         await self?.start()
         break
       }
+      // LOAD-BEARING: keeps the ObservationRelay alive until the for-await loop above
+      // exits. Without this, ARC may drop `observer` immediately after the `let`
+      // binding above goes out of scope (the Task captures `self` weakly and the relay
+      // is not otherwise retained), silently stopping scope-change detection.
       withExtendedLifetime(observer) {}
     }
     pollLoop.setScopeObservationTask(newTask)
