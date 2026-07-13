@@ -1,6 +1,5 @@
 // RunnerPoller.swift
 // RunBotCore
-
 import Foundation
 import GitHubClient
 import os
@@ -78,14 +77,14 @@ public actor RunnerPoller {
 
   /// Number of consecutive successful idle poll cycles (no active jobs or actions).
   /// Used by `PollIntervalStrategy` to compute exponential idle backoff.
-  /// `fileprivate` — written by the cross-file extension `RunnerPoller+ApplyResult.swift`;
-  /// Swift `private` is file-scoped and would block that write.
-  fileprivate var consecutiveIdleTicks: Int = 0
+  /// `internal` — written by the cross-file extension `RunnerPoller+ApplyResult.swift`
+  /// within the same module; `private` or `fileprivate` would both be file-scoped in SPM.
+  var consecutiveIdleTicks: Int = 0
   /// Number of runners marked `busy` as of the last successful fetch cycle.
   /// Used by `PollIntervalStrategy` to select the active-interval tier.
-  /// `fileprivate` — written by the cross-file extension `RunnerPoller+ApplyResult.swift`;
-  /// Swift `private` is file-scoped and would block that write.
-  fileprivate var lastBusyRunnerCount: Int = 0
+  /// `internal` — written by the cross-file extension `RunnerPoller+ApplyResult.swift`
+  /// within the same module; `private` or `fileprivate` would both be file-scoped in SPM.
+  var lastBusyRunnerCount: Int = 0
 
   /// Owns the two structured `Task` handles for the poll loop.
   /// `private` — all call sites (startObservingScopes, start(), isolated deinit)
@@ -212,8 +211,7 @@ public actor RunnerPoller {
       "RunnerPoller › start — previous pollTask cancelled, launching new poll task",
       category: .runner)
     pollLoop.setPollTask(
-      Task { [weak self] in
-        guard let self else { return }
+      Task {
         await self.fetch()
         while !Task.isCancelled {
           let interval = self.nextPollInterval()
@@ -251,7 +249,7 @@ public actor RunnerPoller {
   /// Synchronous — all inputs are actor-local properties; no `await` needed.
   /// `resolvedInterval(hasActive:baseIdle:)` and the `preferencesStore.pollingInterval`
   /// read were removed in Step 4 of #2069.
-  private func nextPollInterval() -> TimeInterval {
+  func nextPollInterval() -> TimeInterval {
     let hasActive = hasActiveWork()
     let interval = PollIntervalStrategy.next(
       hasActiveWork: hasActive,

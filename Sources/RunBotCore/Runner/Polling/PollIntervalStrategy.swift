@@ -1,3 +1,5 @@
+// PollIntervalStrategy.swift
+// RunBotCore
 import Foundation
 
 /// Pure, actor-free strategy for computing the next poll interval.
@@ -6,17 +8,19 @@ public struct PollIntervalStrategy: Sendable {
 
     // MARK: — Active ladder (live-data, aggressive)
 
-    /// ≤ 5 busy runners
+    /// ≤ 5 busy runners → 1 s poll cadence.
     public static let activeIntervalFast: TimeInterval = 1
-    /// 6–9 busy runners
-    public static let activeIntervalMid:  TimeInterval = 3
-    /// ≥ 10 busy runners
+    /// 6–9 busy runners → 3 s poll cadence.
+    public static let activeIntervalMid: TimeInterval = 3
+    /// ≥ 10 busy runners → 5 s poll cadence.
     public static let activeIntervalSlow: TimeInterval = 5
 
     // MARK: — Idle backoff
 
+    /// Minimum idle poll interval (tick 0). Doubles each tick up to `idleMax`.
     public static let idleMin: TimeInterval = 30
-    public static let idleMax: TimeInterval = 300  // 5-min cap
+    /// Maximum idle poll interval cap (5 minutes).
+    public static let idleMax: TimeInterval = 300
 
     // MARK: — Rate-limit headroom
 
@@ -66,7 +70,7 @@ public struct PollIntervalStrategy: Sendable {
         // Branch order matters — > 9 must be checked before > 5.
         if hasActiveWork {
             if busyRunnerCount > 9 { return activeIntervalSlow }  // ≥ 10
-            if busyRunnerCount > 5 { return activeIntervalMid  }  // 6–9
+            if busyRunnerCount > 5 { return activeIntervalMid }   // 6–9
             return activeIntervalFast                              // ≤ 5
         }
 
