@@ -13,10 +13,7 @@
 
 ![macOS 26+](https://img.shields.io/badge/macOS-26%2B-black?logo=apple&logoColor=white)
 ![Apple Silicon](https://img.shields.io/badge/Apple_Silicon-arm64-000000?logo=apple&logoColor=white)
-![Swift 6.2](https://img.shields.io/badge/Swift-6.2-F05138?logo=swift&logoColor=white)
-![SPM 6.2](https://img.shields.io/badge/SPM-6.2-F05138?logo=swift&logoColor=white)
-![Liquid Glass](https://img.shields.io/badge/UI-Liquid%20Glass-0A84FF?logo=apple&logoColor=white)
-![GitHub Actions](https://img.shields.io/badge/GitHub_Actions-compatible-2088FF?logo=githubactions&logoColor=white)
+![License](https://img.shields.io/badge/license-MIT-blue)
 
 [Website](https://runbot-hq.github.io/run-bot) · [Docs](docs/development.md) · [Download](https://github.com/runbot-hq/run-bot/releases/latest) · [Privacy](docs/privacy.md) · [MIT License](LICENSE)
 
@@ -31,6 +28,13 @@
 ![SwiftLint](https://github.com/runbot-hq/run-bot/actions/workflows/swiftlint.yml/badge.svg)
 ![Periphery](https://github.com/runbot-hq/run-bot/actions/workflows/periphery.yml/badge.svg)
 [![CodeQL](https://github.com/runbot-hq/run-bot/actions/workflows/codeql.yml/badge.svg)](https://github.com/runbot-hq/run-bot/actions/workflows/codeql.yml)
+
+**Platform & Stack**
+
+![Swift 6.2](https://img.shields.io/badge/Swift-6.2-F05138?logo=swift&logoColor=white)
+![SPM 6.2](https://img.shields.io/badge/SPM-6.2-F05138?logo=swift&logoColor=white)
+![Liquid Glass](https://img.shields.io/badge/UI-Liquid%20Glass-0A84FF?logo=apple&logoColor=white)
+![GitHub Actions](https://img.shields.io/badge/GitHub_Actions-compatible-2088FF?logo=githubactions&logoColor=white)
 
 **AI Reviewers**
 
