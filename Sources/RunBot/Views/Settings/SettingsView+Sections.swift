@@ -197,8 +197,10 @@ internal extension SettingsView {
                     .onChange(of: launchAtLogin) { _, newVal in applyLaunchAtLogin(newVal) }
             }
             .padding(.horizontal, RBSpacing.md).padding(.vertical, 6)
+            #if DEBUG
             popoverArrowRow
             Divider().padding(.leading, RBSpacing.md)
+            #endif
             betaChannelRow
         }
     }
