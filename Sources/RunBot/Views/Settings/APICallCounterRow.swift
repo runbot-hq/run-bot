@@ -73,7 +73,7 @@ public struct APICallCounterRow: View {
             if !vm.resetLabel.isEmpty {
                 Text(vm.resetLabel)
                     .font(.caption)
-                    .foregroundColor(Color.rbTextSecondary)
+                    .foregroundStyle(Color.rbTextSecondary)
             }
         }
         .help(

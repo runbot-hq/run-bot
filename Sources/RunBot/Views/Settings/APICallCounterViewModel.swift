@@ -99,8 +99,7 @@ public final class APICallCounterViewModel {
         }
     }
 
-    /// "Resets in N min" (or "Resets in N sec" under 60 s) label derived from `resetDate`,
-    /// or empty string when unavailable.
+    /// "Resets in N min" label derived from `resetDate`, or empty string when unavailable.
     ///
     /// ## Render cadence
     /// This is a plain computed property that reads `Date.timeIntervalSinceNow` on
@@ -108,14 +107,16 @@ public final class APICallCounterViewModel {
     /// every 5 s via the polling tick that updates `resetDate`. Minute-granularity
     /// display makes any inter-poll drift imperceptible. A dedicated `Timer` would
     /// add complexity with no visible benefit at this cadence.
+    ///
+    /// ## Sub-minute precision intentionally omitted
+    /// Showing seconds (e.g. "Resets in 12 sec") was considered but rejected:
+    /// the label only updates on 5 s poll ticks, so a seconds display would be
+    /// visibly stale. "< 1 min" is shown instead — accurate and non-misleading.
     public var resetLabel: String {
         guard let resetDate else { return "" }
         let interval = resetDate.timeIntervalSinceNow
         guard interval > 0 else { return "Resetting…" }
-        if interval < 60 {
-            return "Resets in \(Int(interval)) sec"
-        }
         let minutes = Int(interval / 60)
-        return "Resets in \(minutes) min"
+        return minutes > 0 ? "Resets in \(minutes) min" : "Resets in < 1 min"
     }
 }
