@@ -67,6 +67,22 @@ public actor RunnerPoller {
   /// rate-limit is active or the reset time is unknown.
   /// Assigned in `applyFetchResult`/`applyError` and written to `state`. periphery:ignore
   private(set) var rateLimitResetDate: Date?
+
+  // MARK: - Adaptive poll-interval state
+  //
+  // Written exclusively by `applyFetchResult` (success cycles only).
+  // Neither counter is updated on error cycles — both hold their last-successful-cycle
+  // value through any number of consecutive failures (intentional: last known good state
+  // is preferable to an unknown error state for interval selection).
+  // Both are reset to 0 at the top of `start()` so every restart begins from a clean state.
+
+  /// Number of consecutive successful idle poll cycles (no active jobs or actions).
+  /// Used by `PollIntervalStrategy` to compute exponential idle backoff.
+  var consecutiveIdleTicks: Int = 0
+  /// Number of runners marked `busy` as of the last successful fetch cycle.
+  /// Used by `PollIntervalStrategy` to select the active-interval tier.
+  var lastBusyRunnerCount: Int = 0
+
   /// Owns the three structured `Task` handles for the poll loop.
   /// `private` — all call sites (startObservingPreferences, startObservingScopes,
   /// start(), isolated deinit) are in this file; no extension file needs access.
