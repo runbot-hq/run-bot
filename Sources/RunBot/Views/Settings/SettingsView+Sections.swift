@@ -14,9 +14,8 @@ internal extension SettingsView {
         VStack(alignment: .leading, spacing: 0) {
             Text("Account").font(RBFont.sectionHeader).foregroundColor(Color.rbTextSecondary)
                 .padding(.horizontal, RBSpacing.md).padding(.top, 8).padding(.bottom, 4)
-            HStack(alignment: .center) {
+            VStack(alignment: .leading, spacing: 4) {
                 Text("GitHub").font(.system(size: 12))
-                Spacer()
                 if isSigningIn {
                     HStack(spacing: 6) {
                         ProgressView().scaleEffect(0.7)
