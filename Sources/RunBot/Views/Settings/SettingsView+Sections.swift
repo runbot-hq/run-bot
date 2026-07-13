@@ -80,7 +80,6 @@ internal extension SettingsView {
             Text("Management").font(RBFont.sectionHeader).foregroundColor(Color.rbTextSecondary)
                 .padding(.horizontal, RBSpacing.md).padding(.top, 8).padding(.bottom, 4)
             manageLocalRunnersRow
-            Divider().padding(.leading, RBSpacing.md)
             manageScopesRow
         }
     }
@@ -153,26 +152,22 @@ internal extension SettingsView {
             Text("How often RunBot checks GitHub for runner and workflow status. Lower values use more API quota.")
                 .font(.caption).foregroundColor(Color.rbTextSecondary)
                 .padding(.horizontal, RBSpacing.md).padding(.bottom, 6)
-            Divider().padding(.leading, RBSpacing.md)
             APICallCounterRow()
                 .font(.system(size: 12))
                 .padding(.horizontal, RBSpacing.md)
                 .padding(.vertical, 8)
-            Divider().padding(.leading, RBSpacing.md)
             HStack {
                 Text("Notify on success").font(.system(size: 12)); Spacer()
                 Toggle("", isOn: bindableNotifications.notifyOnSuccess)
                     .toggleStyle(.switch).tint(Color.rbSuccess).labelsHidden()
             }
             .padding(.horizontal, RBSpacing.md).padding(.vertical, 6)
-            Divider().padding(.leading, RBSpacing.md)
             HStack {
                 Text("Notify on failure").font(.system(size: 12)); Spacer()
                 Toggle("", isOn: bindableNotifications.notifyOnFailure)
                     .toggleStyle(.switch).tint(Color.rbSuccess).labelsHidden()
             }
             .padding(.horizontal, RBSpacing.md).padding(.vertical, 6)
-            Divider().padding(.leading, RBSpacing.md)
             HStack {
                 Text("Launch at login").font(.system(size: 12)); Spacer()
                 Toggle("", isOn: $launchAtLogin)
@@ -180,7 +175,6 @@ internal extension SettingsView {
                     .onChange(of: launchAtLogin) { _, newVal in applyLaunchAtLogin(newVal) }
             }
             .padding(.horizontal, RBSpacing.md).padding(.vertical, 6)
-            Divider().padding(.leading, RBSpacing.md)
             popoverArrowRow
             Divider().padding(.leading, RBSpacing.md)
             betaChannelRow
