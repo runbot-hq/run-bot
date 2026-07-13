@@ -34,8 +34,18 @@ extension RunnerPoller {
             jobs: jobResult.display,
             actions: groupResult.display
         )
+        // Update adaptive-interval counters after setDisplayState so that
+        // hasActiveWork() reads the freshly-written self.jobs and self.actions.
+        // Running this before setDisplayState would evaluate hasActiveWork() on
+        // stale data from the previous cycle.
+        if hasActiveWork() {
+            consecutiveIdleTicks = 0
+        } else {
+            consecutiveIdleTicks += 1
+        }
+        lastBusyRunnerCount = enrichedRunners.filter { $0.busy }.count
         // swiftlint:disable:next line_length
-        log("RunnerPoller › fetch complete — actions=\(groupResult.display.count) jobs=\(jobResult.display.count) runners=\(enrichedRunners.count) isRateLimited=\(rateLimitSnapshot.isLimited) rateLimitResetDate=\(String(describing: rateLimitSnapshot.resetDate))", category: .runner)
+        log("RunnerPoller › fetch complete — actions=\(groupResult.display.count) jobs=\(jobResult.display.count) runners=\(enrichedRunners.count) isRateLimited=\(rateLimitSnapshot.isLimited) rateLimitResetDate=\(String(describing: rateLimitSnapshot.resetDate)) idleTicks=\(consecutiveIdleTicks) busyRunners=\(lastBusyRunnerCount)", category: .runner)
         // NOTE: actor-local properties (self.runners …) and the @Observable read model
         // (state.*) are two separate copies. setDisplayState (above) already wrote the
         // actor-local copies; the MainActor.run block below writes state.* — the view-layer
@@ -74,6 +84,10 @@ extension RunnerPoller {
     /// means `setDisplayState` leaves those actor-local properties at their last-successful-
     /// cycle values. Views therefore show stale data alongside the error banner rather than
     /// an empty list.
+    ///
+    /// `consecutiveIdleTicks` and `lastBusyRunnerCount` are also intentionally not updated
+    /// here — both counters hold their last-successful-cycle values through any number of
+    /// consecutive failures. See `RunnerPoller` state documentation for rationale.
     func applyError(_ error: any Error & Sendable) async {
         let rateLimitSnapshot = await ghRateLimitSnapshot()
         // Sync actor-local copies first — nextPollInterval() reads these directly.
