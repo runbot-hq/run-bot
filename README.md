@@ -88,8 +88,8 @@ curl -fsSL https://runbot-hq.github.io/run-bot/install.sh | bash
 ## Docs
 
 - [Development](docs/development.md) — build and run locally
-- [Releasing](docs/releasing.md) — release pipeline and update flow
-- [Testing](docs/testing.md) — test strategy and running tests
+- [Releasing](docs/development.md#releasing) — release pipeline and update flow
+- [Testing](docs/development.md#testing) — test strategy and running tests
 - [Contributing](docs/contributing.md) — contribution guidelines
 - [Architecture](docs/architecture.md) — data model, concurrency model, regression guards
 - [Principles](docs/principles.md) — engineering and design principles
