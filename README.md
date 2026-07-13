@@ -19,7 +19,7 @@
 ![Liquid Glass](https://img.shields.io/badge/UI-Liquid%20Glass-0A84FF?logo=apple&logoColor=white)
 ![GitHub Actions](https://img.shields.io/badge/GitHub_Actions-compatible-2088FF?logo=githubactions&logoColor=white)
 
-[Download for Mac](https://github.com/runbot-hq/run-bot/releases/latest) · [Docs](docs/development.md) · [Architecture](docs/architecture.md) · [Contributing](docs/contributing.md)
+[Website](https://runbot-hq.github.io/run-bot) · [Docs](docs/development.md) · [Download](https://github.com/runbot-hq/run-bot/releases/latest) · [Privacy](docs/privacy.md) · [MIT License](LICENSE)
 
 </div>
 
