@@ -181,17 +181,7 @@ internal extension SettingsView {
         return VStack(alignment: .leading, spacing: 0) {
             Text("General").font(RBFont.sectionHeader).foregroundColor(Color.rbTextSecondary)
                 .padding(.horizontal, RBSpacing.md).padding(.top, 8).padding(.bottom, 4)
-            HStack {
-                Text("Polling interval").font(.system(size: 12)); Spacer()
-                Text("\(settings.pollingInterval)s").font(.system(size: 12)).foregroundColor(Color.rbTextSecondary)
-                    .frame(minWidth: 36, alignment: .trailing)
-                Stepper("", value: bindableSettings.pollingInterval, in: 10...300).labelsHidden()
-            }
-            .padding(.horizontal, RBSpacing.md).padding(.top, 6).padding(.bottom, 2)
-            Text("How often RunBot checks GitHub for runner and workflow status. Lower values use more API quota.")
-                .font(.caption).foregroundColor(Color.rbTextSecondary)
-                .padding(.horizontal, RBSpacing.md).padding(.bottom, 6)
-            APICallCounterRow(resetDate: runnerState.rateLimitResetDate)
+            APICallCounterRow()
                 .font(.system(size: 12))
                 .padding(.horizontal, RBSpacing.md)
                 .padding(.vertical, 8)
