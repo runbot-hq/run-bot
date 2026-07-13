@@ -44,7 +44,7 @@ extension RunnerPoller {
         // It is valid for these to disagree transiently (e.g. a runner is busy but
         // the job API hasn’t surfaced it yet). In that case the active ladder is
         // entered only when hasActiveWork is true — intentional per #2069 design.
-        let busyCount = runners.filter { $0.busy }.count
+        let busyCount = enrichedRunners.filter { $0.busy }.count
         let activeWork = hasActiveWork()
         let newIdleTicks = updateAdaptiveCounters(hasActiveWork: activeWork, busyRunnerCount: busyCount)
         // swiftlint:disable:next line_length

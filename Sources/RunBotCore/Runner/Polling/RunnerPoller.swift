@@ -236,6 +236,7 @@ public actor RunnerPoller {
           //   error fetch  → counters unchanged (stay at 0 on first start) → idleMin (30 s)
           // nextPollInterval() is synchronous on the actor; `await` is needed here
           // because [weak self] means this closure runs off-actor and must hop in.
+          // This is an actor hop, not an async function call; removing `await` will not compile.
           let interval = await self.nextPollInterval()
           log("RunnerPoller › poll loop — next fetch in \(Int(interval))s", category: .runner)
           do {
@@ -278,6 +279,9 @@ public actor RunnerPoller {
     } else {
       consecutiveIdleTicks += 1
     }
+    // Always track the latest busy count from the just-finished successful fetch.
+    // In the idle branch this value may be stale relative to the *next* cycle, but
+    // PollIntervalStrategy ignores busyRunnerCount whenever hasActiveWork == false.
     lastBusyRunnerCount = busyRunnerCount
     return consecutiveIdleTicks
   }
