@@ -25,6 +25,7 @@ jobs:
         id: notes
         with:
           tag: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+          # TODO: remove debug before wiring into publish.yml — verbose on every release
           debug: 'true'
 
       - name: Log outputs
