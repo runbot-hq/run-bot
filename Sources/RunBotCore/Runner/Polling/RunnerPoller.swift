@@ -147,7 +147,11 @@ public actor RunnerPoller {
     localRunners: @escaping @MainActor @Sendable () -> [RunnerModel],
     applyMetrics: @escaping @Sendable (_ metrics: RunnerMetrics?, _ runnerId: Int, _ name: String)
       async -> Void,
+<<<<<<< Updated upstream
     notificationPreferences: NotificationPreferences? = nil,
+=======
+    notificationPreferences: NotificationPreferences,
+>>>>>>> Stashed changes
     actionGroupFetcher: any WorkflowActionGroupFetcherProtocol = WorkflowActionGroupFetcher()
   ) {
     self.state = state
