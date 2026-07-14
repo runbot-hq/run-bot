@@ -413,6 +413,17 @@ jobs:
       # earlier (before Tag and push) would cause a 404 from the compare API.
       - name: Generate AFM release notes
         if: ${{ inputs.dry_run != 'true' && inputs.release_notes == '' }}
+        # @main is intentional — runbot-hq/afm-release-notes-action is a first-party
+        # repo we own and control. Pinning to @main means every commit to that repo is
+        # live immediately with no tagging step required. This is safe because:
+        #   1. We are the only contributors — no third-party can push to main.
+        #   2. The action is composite (no docker pull, no npm install at runtime) so
+        #      a bad commit fails fast and visibly, not silently.
+        #   3. continue-on-error: true below means a broken action commit degrades
+        #      gracefully (falls through to --generate-notes) rather than blocking
+        #      the release entirely.
+        # The security guidance to pin third-party actions to a SHA does NOT apply here.
+        #
         # afm-release-notes-action uses `using: composite` (not docker) so it runs
         # correctly on this job's macos-26 runner without any special runner label.
         # The action's own generate.sh requires a self-hosted apple-intelligence runner
