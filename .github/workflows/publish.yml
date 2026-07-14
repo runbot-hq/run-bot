@@ -412,7 +412,7 @@ jobs:
       # so it is guaranteed to be present by the time this step runs. Moving this step
       # earlier (before Tag and push) would cause a 404 from the compare API.
       - name: Generate AFM release notes
-        if: ${{ inputs.dry_run != 'true' && inputs.release_notes == '' }}
+        if: inputs.dry_run != 'true' && inputs.release_notes == ''
         # @main is intentional — runbot-hq/afm-release-notes-action is a first-party
         # repo we own and control. Pinning to @main means every commit to that repo is
         # live immediately with no tagging step required. This is safe because:
@@ -429,6 +429,10 @@ jobs:
         # The action's own generate.sh requires a self-hosted apple-intelligence runner
         # to call AFM, but that constraint lives inside the standalone afm-release-notes.yml
         # caller — not here. This step inherits the caller job's runner, which is fine.
+        #
+        # if: uses bare expression syntax (no ${{ }}) — step-level if: is implicitly
+        # expression context. Wrapping in ${{ }} on a uses:-based step causes a GA
+        # parse error. Do not add ${{ }} here.
         uses: runbot-hq/afm-release-notes-action@main
         id: afm_notes
         with:
