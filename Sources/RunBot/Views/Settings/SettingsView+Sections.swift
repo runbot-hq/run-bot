@@ -409,7 +409,10 @@ internal extension SettingsView {
 /// used by `InlineJobRowsView` for progress track fills. No new design token is introduced.
 /// ❌ Do NOT change foreground back to `.white` — it breaks contrast in light mode.
 private struct StatusCountBadge: View {
+    /// The formatted string to display, e.g. "2 active, 1 inactive".
+    /// Pass an empty string to suppress the badge entirely — no layout space is consumed.
     let label: String
+    /// Renders a capsule pill with `label` text, or nothing when `label` is empty.
     var body: some View {
         if !label.isEmpty {
             Text(label)
