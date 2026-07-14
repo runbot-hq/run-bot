@@ -57,16 +57,27 @@ let package = Package(
             path: "Sources/RunBot",
             // ⚠️ AI AGENT: This resources entry is required for Bundle.module to
             // exist and to find anything in Resources/Assets.xcassets (e.g.
-            // StatusBarIcon) at runtime. Without it, SwiftPM never compiles the
-            // asset catalog into a resource bundle, and Bundle.module.image(
-            // forResource:) silently returns nil — see issue #2079.
+            // StatusBarIcon) at runtime. Without it, there is no
+            // RunBot_RunBot.bundle at all — see issue #2079.
             //
-            // NSImage(named:) is NOT a substitute: it only searches Bundle.main,
-            // never the nested RunBot_RunBot.bundle SwiftPM generates from this
-            // declaration, so it would still return nil even with this entry in
-            // place. AppDelegate+StatusItem.swift must use
-            // Bundle.module.image(forResource:) to load StatusBarIcon. Do NOT
-            // remove this resources entry.
+            // Note: `swift build` (the plain SwiftPM CLI, used by build.sh)
+            // does NOT run actool to compile Assets.xcassets into Assets.car
+            // the way Xcode does. It copies the .xcassets folder into the
+            // resource bundle verbatim, as an uncompiled subdirectory tree
+            // (confirmed via direct runtime inspection during the #2079
+            // follow-up: Bundle.module's contents were just ["Assets.xcassets"]).
+            //
+            // This means NEITHER NSImage(named:) (searches Bundle.main's
+            // compiled asset-catalog machinery) NOR
+            // Bundle.module.image(forResource:) / path(forResource:ofType:)
+            // (flat, bundle-root-only lookups) can find StatusBarIcon — both
+            // expect either a compiled .car or a flat file at the bundle
+            // root, and neither exists here. AppDelegate+StatusItem.swift
+            // must load the PNG directly via its literal nested path
+            // (Bundle.module.path(forResource:ofType:inDirectory:) pointed at
+            // "Assets.xcassets/StatusBarIcon.imageset") + NSImage(contentsOfFile:).
+            // Do NOT remove this resources entry, and do NOT "simplify" the
+            // loading code back to NSImage(named:) or image(forResource:).
             resources: [
                 .process("Resources")
             ],

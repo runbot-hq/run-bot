@@ -47,7 +47,8 @@ extension AppDelegate {
     /// Returns the menu-bar icon for the given aggregate status.
     ///
     /// Prefers the bundled `StatusBarIcon` asset (the robot-face template PNG),
-    /// loaded via `Bundle.module` (see below for why). Falls back to the SF
+    /// loaded via `Bundle.module` by its literal path inside the (uncompiled)
+    /// `Assets.xcassets` folder — see below for why. Falls back to the SF
     /// Symbol chain when the asset is missing, preserving the original
     /// triple-fallback behaviour for safety.
     ///
@@ -63,23 +64,23 @@ extension AppDelegate {
     ///
     /// Fallback chain:
     /// 1. `Self.statusBarIcon` — bundled robot-face asset (template image),
-    ///    loaded once via `Bundle.module.image(forResource:)` and cached (see
-    ///    below). This is the only icon we want visible in the status bar
-    ///    (issue #2079: a generic "circle" SF Symbol previously leaked through
-    ///    as a fallback whenever the asset failed to load, which is exactly the
-    ///    failure mode this app should surface loudly instead of hiding behind
-    ///    a plausible-looking placeholder).
+    ///    loaded once and cached (see below). This is the only icon we want
+    ///    visible in the status bar (issue #2079: a generic "circle" SF Symbol
+    ///    previously leaked through as a fallback whenever the asset failed
+    ///    to load, which is exactly the failure mode this app should surface
+    ///    loudly instead of hiding behind a plausible-looking placeholder).
     ///
-    ///    ⚠️ Deliberately NOT `NSImage(named:)`. `NSImage(named:)` only searches
-    ///    `Bundle.main` (the app's flat Contents/Resources/ directory). SwiftPM
-    ///    compiles Assets.xcassets into a *separate* nested resource bundle
-    ///    (`RunBot_RunBot.bundle`), and copying that bundle into
-    ///    Contents/Resources/ (see build.sh) does not make Bundle.main's own
-    ///    asset-catalog lookup recurse into it — `NSImage(named:)` would still
-    ///    return nil even with the copy step in place. `Bundle.module` is the
-    ///    SwiftPM-synthesized accessor that resolves directly to that nested
-    ///    bundle, so it is the only correct way to load this asset. Do NOT
-    ///    revert to `NSImage(named:)` here.
+    ///    ⚠️ Deliberately NOT `NSImage(named:)` and NOT
+    ///    `Bundle.module.image(forResource:)`. Both are asset-catalog/named-
+    ///    image lookups that expect either a compiled `Assets.car` or a flat
+    ///    file at the bundle root. `swift build` (used by build.sh) does
+    ///    neither — it copies `Assets.xcassets` into the resource bundle
+    ///    verbatim, uncompiled, as a real subdirectory tree. Confirmed by
+    ///    direct runtime inspection: `Bundle.module`'s contents were just
+    ///    `["Assets.xcassets"]`, no `.car`, no extracted PNGs at the root.
+    ///    The only lookup that actually finds the file is one that knows the
+    ///    literal nested path (`Assets.xcassets/StatusBarIcon.imageset/...`).
+    ///    Do NOT revert to either of those APIs here.
     /// 2. `status.symbolName`             — correct SF Symbol for the current status.
     ///    Reached only if the StatusBarIcon asset is genuinely missing/corrupt.
     /// 3. `NSImage()`                     — empty/invisible (should never be reached).
@@ -88,7 +89,7 @@ extension AppDelegate {
             return icon
         }
         #if DEBUG
-        assertionFailure("StatusBarIcon asset missing from Bundle.module — check Package.swift `resources:` and build.sh bundle copy step (see issue #2079)")
+        assertionFailure("StatusBarIcon asset missing from Bundle.module — check Sources/RunBot/Resources/Assets.xcassets/StatusBarIcon.imageset (see issue #2079)")
         #endif
         return NSImage(systemSymbolName: status.symbolName, accessibilityDescription: nil)
             ?? NSImage()
@@ -96,50 +97,58 @@ extension AppDelegate {
 
     /// Cached `StatusBarIcon` image, loaded from `Bundle.module` exactly once.
     ///
-    /// `Bundle.image(forResource:)` re-reads from disk on every call — unlike
-    /// `NSImage(named:)`, it does not use AppKit's internal named-image cache.
-    /// `updateStatusIcon()` calls `menuBarImage(for:)` on every runner-poll
-    /// tick, so without this `static let` we'd pay a disk read + decode on
-    /// every tick. Computed once, lazily, on first access.
+    /// - Important: `swift build` (the plain SwiftPM CLI toolchain used by
+    ///   `build.sh`, as opposed to `xcodebuild`) does **not** run `actool` to
+    ///   compile `Assets.xcassets` into `Assets.car`. It just copies the whole
+    ///   `.xcassets` folder into the resource bundle verbatim, as a plain
+    ///   subdirectory tree. Confirmed by direct runtime inspection during the
+    ///   #2079 follow-up investigation: `Bundle.module`'s top-level directory
+    ///   listing contained only `["Assets.xcassets"]` — no `Assets.car`, no
+    ///   flattened/extracted PNGs at the bundle root.
+    ///
+    ///   This is why both `NSImage(named:)` (searches Bundle.main's asset
+    ///   catalog machinery, which needs a compiled `.car`) and
+    ///   `Bundle.module.image(forResource:)` / `path(forResource:ofType:)`
+    ///   (flat, bundle-root-only lookups) returned `nil` — none of them know
+    ///   to look three directories deep, inside
+    ///   `Assets.xcassets/StatusBarIcon.imageset/`, for a scale-suffixed file.
+    ///
+    ///   The fix: build the path into the `.imageset` folder explicitly and
+    ///   load the PNG directly with `NSImage(contentsOfFile:)`. This bypasses
+    ///   asset-catalog/named-image lookup entirely, so it works the same
+    ///   whether or not the catalog was ever compiled.
+    ///
+    /// - Note: `Bundle.image(forResource:)` also re-reads from disk on every
+    ///   call, unlike `NSImage(named:)` which uses AppKit's internal
+    ///   named-image cache — so this is cached as a `static let` regardless,
+    ///   since `updateStatusIcon()` calls `menuBarImage(for:)` on every
+    ///   runner-poll tick.
     private static let statusBarIcon: NSImage? = {
-        // ── TEMPORARY DIAGNOSTICS (issue #2079 follow-up) ──────────────────
-        // The Bundle.module fix (PR #2080) did not resolve the bug in the
-        // field: users still see the SF Symbol circle fallback after a clean
-        // build. These unconditional (non-DEBUG-gated) stderr prints exist
-        // solely to capture ground-truth runtime state from a release build
-        // on a real machine, since this sandbox has no Swift/macOS toolchain
-        // to reproduce the bug directly. Remove once root cause is confirmed.
-        FileHandle.standardError.write("[StatusBarIcon] Bundle.module.bundlePath = \(Bundle.module.bundlePath)\n".data(using: .utf8)!)
-        FileHandle.standardError.write("[StatusBarIcon] Bundle.module.bundleURL exists on disk = \(FileManager.default.fileExists(atPath: Bundle.module.bundlePath))\n".data(using: .utf8)!)
-        if let contents = try? FileManager.default.contentsOfDirectory(atPath: Bundle.module.bundlePath) {
-            FileHandle.standardError.write("[StatusBarIcon] Bundle.module directory contents = \(contents)\n".data(using: .utf8)!)
-        } else {
-            FileHandle.standardError.write("[StatusBarIcon] Bundle.module directory contents = <could not list directory>\n".data(using: .utf8)!)
-        }
-        if let carPath = Bundle.module.path(forResource: "Assets", ofType: "car") {
-            FileHandle.standardError.write("[StatusBarIcon] Found compiled Assets.car at = \(carPath)\n".data(using: .utf8)!)
-        } else {
-            FileHandle.standardError.write("[StatusBarIcon] No compiled Assets.car found in Bundle.module\n".data(using: .utf8)!)
-        }
-        if let pngPath = Bundle.module.path(forResource: "StatusBarIcon", ofType: "png") {
-            FileHandle.standardError.write("[StatusBarIcon] Found loose StatusBarIcon.png at = \(pngPath)\n".data(using: .utf8)!)
-        } else {
-            FileHandle.standardError.write("[StatusBarIcon] No loose StatusBarIcon.png found via path(forResource:ofType:) in Bundle.module\n".data(using: .utf8)!)
-        }
-        let viaImageForResource = Bundle.module.image(forResource: "StatusBarIcon")
-        FileHandle.standardError.write("[StatusBarIcon] Bundle.module.image(forResource: \"StatusBarIcon\") = \(String(describing: viaImageForResource))\n".data(using: .utf8)!)
-        // ─────────────────────────────────────────────────────────────────
+        // Picks the highest-scale PNG that exists for the current screen,
+        // falling back to lower scales. @3x covers all current Apple Silicon
+        // Retina displays; @2x/@1x are kept as a safety net for edge cases
+        // (e.g. screen-recording/virtual displays reporting scale 1).
+        let scale = Int((NSScreen.main?.backingScaleFactor ?? 2).rounded(.up))
+        var candidateScales = [scale, 3, 2, 1]
+        var seenScales = Set<Int>()
+        candidateScales = candidateScales.filter { seenScales.insert($0).inserted }
+        let imagesetDir = "Assets.xcassets/StatusBarIcon.imageset"
 
-        var icon = viaImageForResource
-        if icon == nil, let pngPath = Bundle.module.path(forResource: "StatusBarIcon", ofType: "png") {
-            // Fallback path: if the asset catalog was compiled into Assets.car,
-            // image(forResource:) (a flat-file lookup) can return nil even though
-            // the file is present, because the catalog is compiled rather than
-            // stored as a loose PNG. Try loading directly from disk as a probe.
-            icon = NSImage(contentsOfFile: pngPath)
-            FileHandle.standardError.write("[StatusBarIcon] Fallback NSImage(contentsOfFile:) result = \(String(describing: icon))\n".data(using: .utf8)!)
+        for candidate in candidateScales {
+            let filename = candidate == 1 ? "StatusBarIcon" : "StatusBarIcon@\(candidate)x"
+            guard let path = Bundle.module.path(forResource: filename, ofType: "png", inDirectory: imagesetDir) else {
+                continue
+            }
+            guard let icon = NSImage(contentsOfFile: path) else {
+                continue
+            }
+            icon.isTemplate = true  // belt-and-suspenders on top of Contents.json
+            return icon
         }
-        icon?.isTemplate = true  // belt-and-suspenders on top of Contents.json
-        return icon
+
+        #if DEBUG
+        assertionFailure("StatusBarIcon asset missing from \(imagesetDir) in Bundle.module — check Sources/RunBot/Resources/Assets.xcassets/StatusBarIcon.imageset (see issue #2079)")
+        #endif
+        return nil
     }()
 }
