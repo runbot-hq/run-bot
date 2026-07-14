@@ -114,41 +114,63 @@ extension AppDelegate {
     ///   `Assets.xcassets/StatusBarIcon.imageset/`, for a scale-suffixed file.
     ///
     ///   The fix: build the path into the `.imageset` folder explicitly and
-    ///   load the PNG directly with `NSImage(contentsOfFile:)`. This bypasses
+    ///   load each `@Nx` PNG directly by literal path, as raw
+    ///   `NSBitmapImageRep`s combined into one `NSImage`. This bypasses
     ///   asset-catalog/named-image lookup entirely, so it works the same
     ///   whether or not the catalog was ever compiled.
+    ///
+    /// - Important: loading a raw PNG this way (instead of through a
+    ///   compiled catalog) means AppKit has no `Contents.json` telling it
+    ///   each representation's logical point size — an `NSBitmapImageRep`
+    ///   built from an `@3x` (54×54px) file defaults its `.size` to 54×54
+    ///   *points*, not 18×18, which is 3x too large on screen. Each rep's
+    ///   `.size` is explicitly forced to `statusBarIconPointSize` below to
+    ///   correct for this.
     ///
     /// - Note: `Bundle.image(forResource:)` also re-reads from disk on every
     ///   call, unlike `NSImage(named:)` which uses AppKit's internal
     ///   named-image cache — so this is cached as a `static let` regardless,
     ///   since `updateStatusIcon()` calls `menuBarImage(for:)` on every
     ///   runner-poll tick.
-    private static let statusBarIcon: NSImage? = {
-        // Picks the highest-scale PNG that exists for the current screen,
-        // falling back to lower scales. @3x covers all current Apple Silicon
-        // Retina displays; @2x/@1x are kept as a safety net for edge cases
-        // (e.g. screen-recording/virtual displays reporting scale 1).
-        let scale = Int((NSScreen.main?.backingScaleFactor ?? 2).rounded(.up))
-        var candidateScales = [scale, 3, 2, 1]
-        var seenScales = Set<Int>()
-        candidateScales = candidateScales.filter { seenScales.insert($0).inserted }
-        let imagesetDir = "Assets.xcassets/StatusBarIcon.imageset"
 
-        for candidate in candidateScales {
-            let filename = candidate == 1 ? "StatusBarIcon" : "StatusBarIcon@\(candidate)x"
-            guard let path = Bundle.module.path(forResource: filename, ofType: "png", inDirectory: imagesetDir) else {
+    /// Logical (point) size the icon renders at in the menu bar, regardless
+    /// of which @Nx pixel representation AppKit picks for the display. 18pt
+    /// is the standard macOS menu bar icon convention (22pt bar height minus
+    /// a small margin) — previously this rendered at ~16pt (issue: user
+    /// reported the icon looked too small relative to surrounding menu bar
+    /// icons).
+    private static let statusBarIconPointSize = NSSize(width: 18, height: 18)
+
+    private static let statusBarIcon: NSImage? = {
+        // Loads every @Nx PNG that exists (1x/2x/3x) as a representation of
+        // a single NSImage, so AppKit can pick the sharpest one for the
+        // current screen automatically — same behavior an asset catalog
+        // would give us via Contents.json, which literal-path loading
+        // doesn't provide on its own.
+        let imagesetDir = "Assets.xcassets/StatusBarIcon.imageset"
+        let combinedIcon = NSImage(size: statusBarIconPointSize)
+        var loadedAny = false
+
+        for scale in [1, 2, 3] {
+            let filename = scale == 1 ? "StatusBarIcon" : "StatusBarIcon@\(scale)x"
+            guard let path = Bundle.module.path(forResource: filename, ofType: "png", inDirectory: imagesetDir),
+                  let data = NSData(contentsOfFile: path),
+                  let rep = NSBitmapImageRep(data: data as Data) else {
                 continue
             }
-            guard let icon = NSImage(contentsOfFile: path) else {
-                continue
-            }
-            icon.isTemplate = true  // belt-and-suspenders on top of Contents.json
-            return icon
+            rep.size = statusBarIconPointSize  // logical size in points, independent of the rep's pixel dimensions
+            combinedIcon.addRepresentation(rep)
+            loadedAny = true
         }
 
-        #if DEBUG
-        assertionFailure("StatusBarIcon asset missing from \(imagesetDir) in Bundle.module — check Sources/RunBot/Resources/Assets.xcassets/StatusBarIcon.imageset (see issue #2079)")
-        #endif
-        return nil
+        guard loadedAny else {
+            #if DEBUG
+            assertionFailure("StatusBarIcon asset missing from \(imagesetDir) in Bundle.module — check Sources/RunBot/Resources/Assets.xcassets/StatusBarIcon.imageset (see issue #2079)")
+            #endif
+            return nil
+        }
+
+        combinedIcon.isTemplate = true  // belt-and-suspenders on top of Contents.json
+        return combinedIcon
     }()
 }
