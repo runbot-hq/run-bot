@@ -138,7 +138,6 @@ public actor RunnerPoller {
   ///   - localRunners: Closure returning the current local-runner snapshot on `@MainActor`.
   ///   - applyMetrics: Closure that writes enriched metrics back to the local runner store.
   ///   - notificationPreferences: Notification preference store used to gate dispatch.
-  ///     Pass `nil` (the default) to use `NotificationPreferences.shared`.
   ///   - actionGroupFetcher: Fetcher for workflow action groups.
   public init(
     state: RunnerState,
@@ -147,11 +146,7 @@ public actor RunnerPoller {
     localRunners: @escaping @MainActor @Sendable () -> [RunnerModel],
     applyMetrics: @escaping @Sendable (_ metrics: RunnerMetrics?, _ runnerId: Int, _ name: String)
       async -> Void,
-<<<<<<< Updated upstream
-    notificationPreferences: NotificationPreferences? = nil,
-=======
     notificationPreferences: NotificationPreferences,
->>>>>>> Stashed changes
     actionGroupFetcher: any WorkflowActionGroupFetcherProtocol = WorkflowActionGroupFetcher()
   ) {
     self.state = state
@@ -159,10 +154,7 @@ public actor RunnerPoller {
     self.scopeStore = scopeStore
     self.localRunners = localRunners
     self.applyMetrics = applyMetrics
-    // `.shared` is @MainActor-isolated and cannot be used as a default parameter value
-    // in a nonisolated init under Swift 6 strict concurrency. Accepting `nil` and
-    // coalescing here defers the access to the init body, which the compiler accepts.
-    self.notificationPreferences = notificationPreferences ?? .shared
+    self.notificationPreferences = notificationPreferences
     self.actionGroupFetcher = actionGroupFetcher
     Task(name: "RunnerPoller.init: startObservingScopes") { await self.startObservingScopes() }
   }
