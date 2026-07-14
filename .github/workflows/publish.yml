@@ -468,6 +468,10 @@ jobs:
           # Write to a temp file so multi-line content with quotes/backticks/$() is
           # passed to gh verbatim, with no shell word-splitting or interpretation.
           NOTES_FILE=$(mktemp)
+          # trap ensures NOTES_FILE is removed on any exit path — success, set -e abort,
+          # or signal — so the file never leaks if gh release create fails.
+          # shellcheck disable=SC2064  # intentional: $NOTES_FILE must expand NOW, not at trap time
+          trap "rm -f '$NOTES_FILE'" EXIT
           if [[ -n "${MANUAL_NOTES:-}" ]]; then
             printf '%s' "$MANUAL_NOTES" > "$NOTES_FILE"
             FLAGS+=(--notes-file "$NOTES_FILE")
@@ -484,5 +488,4 @@ jobs:
             --title "$TITLE" \
             "${FLAGS[@]}"
 
-          rm -f "$NOTES_FILE"
           echo "GitHub Release $TAG created (channel: $CHANNEL)."
