@@ -151,6 +151,10 @@ extension RunnerPoller {
                 content.sound = .default
                 let request = UNNotificationRequest(
                     identifier: "job-\(job.id)",
+                    // Stable job-ID key means UNUserNotificationCenter silently replaces any
+                    // prior pending/delivered notification for the same job rather than
+                    // stacking duplicates. This is intentional — a job should only produce
+                    // one notification.
                     content: content,
                     trigger: nil
                 )
