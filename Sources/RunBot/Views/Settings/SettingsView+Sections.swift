@@ -73,17 +73,17 @@ internal extension SettingsView {
             }
             .padding(.horizontal, RBSpacing.md).padding(.vertical, 8)
             Divider().padding(.leading, RBSpacing.md)
-            // API call counter lives in Account — it reflects GitHub API usage tied
-            // to the authenticated token, so Account is the semantically correct home.
+            // API call counter: title row first, description caption below.
+            APICallCounterRow()
+                .font(.system(size: 12))
+                .padding(.horizontal, RBSpacing.md)
+                .padding(.top, 8)
+                .padding(.bottom, 2)
             Text("Tracks GitHub API requests consumed in the current rate-limit window.")
                 .font(.caption2)
                 .foregroundColor(Color.rbTextSecondary)
                 .padding(.horizontal, RBSpacing.md)
-                .padding(.top, 6)
-            APICallCounterRow()
-                .font(.system(size: 12))
-                .padding(.horizontal, RBSpacing.md)
-                .padding(.vertical, 8)
+                .padding(.bottom, 8)
         }
     }
 
@@ -190,24 +190,44 @@ internal extension SettingsView {
     /// `settings` and `notifications` are injected `let` properties on an `@Observable` type.
     /// SwiftUI cannot synthesise `$`-bindings from plain `let` stored properties, so we
     /// capture each store in a local `Bindable` wrapper before using `$` syntax.
+    ///
+    /// Notifications and Launch at login rows use `VStack(title + subtitle)` on the left
+    /// and the control right-aligned, matching the pattern used by `betaChannelRow` and
+    /// `popoverArrowRow`. The Notifications `Picker` uses `.fixedSize()` rather than a
+    /// hardcoded `.frame(width:)` so its width is always derived from the selected item
+    /// label — avoids the narrow-on-first-render flakiness caused by width being measured
+    /// before the selected item string was known.
     var generalSection: some View {
         let bindableNotifications = Bindable(notifications)
         return VStack(alignment: .leading, spacing: 0) {
             Text("General").font(RBFont.sectionHeader).foregroundColor(Color.rbTextSecondary)
                 .padding(.horizontal, RBSpacing.md).padding(.top, 8).padding(.bottom, 4)
-            HStack {
-                Text("Notifications").font(.system(size: 12)); Spacer()
+            HStack(alignment: .center) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Notifications").font(.system(size: 12))
+                    Text("Controls when RunBot sends job notifications.")
+                        .font(.caption2).foregroundColor(Color.rbTextSecondary)
+                }
+                Spacer()
+                // .fixedSize() lets the picker measure its own intrinsic width from the
+                // selected item label. A hardcoded .frame(width:) fights SwiftUI's
+                // menu-picker measurement and produces a narrow control on first render.
                 Picker("Notifications", selection: bindableNotifications.notificationMode) {
                     ForEach(NotificationMode.allCases, id: \.self) { mode in
                         Text(mode.label).tag(mode)
                     }
                 }
                 .labelsHidden()
-                .frame(width: 140)
+                .fixedSize()
             }
             .padding(.horizontal, RBSpacing.md).padding(.vertical, 6)
-            HStack {
-                Text("Launch at login").font(.system(size: 12)); Spacer()
+            HStack(alignment: .center) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Launch at login").font(.system(size: 12))
+                    Text("Start RunBot automatically when you log in.")
+                        .font(.caption2).foregroundColor(Color.rbTextSecondary)
+                }
+                Spacer()
                 Toggle("", isOn: $launchAtLogin)
                     .toggleStyle(.switch).tint(Color.rbSuccess).labelsHidden()
                     .onChange(of: launchAtLogin) { _, newVal in applyLaunchAtLogin(newVal) }
