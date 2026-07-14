@@ -124,6 +124,15 @@ public final class NotificationPreferences {
 public extension NotificationPreferences {
     /// Returns `true` if a notification should be sent for the given job conclusion.
     ///
+    /// Gating rules per mode:
+    /// - `.failuresOnly` uses `conclusion.isFailure` (includes `.timedOut`,
+    ///   `.startupFailure`, `.actionRequired` alongside `.failure`).
+    /// - `.successesOnly` uses `conclusion == .success` (not `!isFailure`) — only
+    ///   an explicit `.success` passes; `.neutral`, `.skipped`, `.cancelled` etc.
+    ///   are excluded from this mode.
+    /// - `.all` passes everything (including `.neutral` from a nil fallback).
+    /// - `.never` passes nothing.
+    ///
     /// Call this at every `UNUserNotificationCenter` dispatch site before
     /// scheduling a notification request:
     ///

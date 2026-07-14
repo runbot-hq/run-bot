@@ -89,6 +89,8 @@ extension RunnerPoller {
         // this hop is cheap and ensures a consistent read of the @Observable property.
         // Both `shouldFire` and `modeDescription` are captured in the same MainActor.run
         // block so no extra actor hop is needed for the skip log.
+        // `UNUserNotificationCenter.current()` is thread-safe and documented as safe to
+        // call from any thread — no MainActor hop is needed for the notification center itself.
         let newlyCompleted = prevLive.values.filter { job in
             jobResult.newCache[job.id] != nil
         }
@@ -107,6 +109,13 @@ extension RunnerPoller {
             }
             for job in newlyCompleted {
                 let conclusion = job.jobConclusion ?? .neutral
+                // `.neutral` fallback for a nil conclusion (e.g. transient API gap):
+                // 1. Maps to "Job completed" in notificationTitle (unambiguous label).
+                // 2. Passes shouldNotify(.neutral) → `failuresOnly` returns false, `successesOnly`
+                //    returns false, `never` returns false — so it's suppressed by any restrictive
+                //    mode. Only `all` fires it, which is correct (user opted into everything).
+                // 3. `.unknown` would also work but `.unknown` is for API strings the parser
+                //    doesn't recognise; nil is not an unknown string, it's an absent value.
                 let (shouldFire, modeDescription) = await MainActor.run {
                     (prefs.shouldNotify(conclusion: conclusion), prefs.notificationMode.rawValue)
                 }
