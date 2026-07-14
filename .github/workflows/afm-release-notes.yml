@@ -6,8 +6,9 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Tag to generate release notes for
-        required: true
+        description: 'Tag to generate release notes for (e.g. v1.2.3) — leave blank to auto-use latest tag'
+        required: false
+        default: ''
 
 permissions:
   contents: read
