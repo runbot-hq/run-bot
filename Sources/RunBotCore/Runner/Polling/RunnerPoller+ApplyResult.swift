@@ -20,7 +20,7 @@ extension RunnerPoller {
     ///
     /// After updating actor state, diffs `prevLiveJobs` against `newCache` to find
     /// jobs that concluded this cycle and fires a `UNUserNotificationCenter` request
-    /// for each one, gated by `notificationPreferences.shouldNotify(success:)`.
+    /// for each one, gated by `notificationPreferences.shouldNotify(conclusion:)`.
     func applyFetchResult(
         enrichedRunners: [GitHubRunner],
         jobResult: JobPollResult,
@@ -85,7 +85,7 @@ extension RunnerPoller {
         // (never already-cached ones), no additional cross-check against the old
         // completedCache is required.
         //
-        // `shouldNotify(success:)` reads `notificationMode` on the @MainActor;
+        // `shouldNotify(conclusion:)` reads `notificationMode` on the @MainActor;
         // this hop is cheap and ensures a consistent read of the @Observable property.
         // Both `shouldFire` and `modeDescription` are captured in the same MainActor.run
         // block so no extra actor hop is needed for the skip log.
@@ -94,6 +94,11 @@ extension RunnerPoller {
         }
         if !newlyCompleted.isEmpty {
             let prefs = notificationPreferences
+            // Capture notification settings once before the loop — authorization
+            // status does not change mid-cycle, so checking it per-job is redundant.
+            let settings = await UNUserNotificationCenter.current().notificationSettings()
+            let isAuthorized = settings.authorizationStatus == .authorized
+                || settings.authorizationStatus == .provisional
             for job in newlyCompleted {
                 let conclusion = job.jobConclusion ?? .neutral
                 let (shouldFire, modeDescription) = await MainActor.run {
@@ -115,19 +120,13 @@ extension RunnerPoller {
                     trigger: nil
                 )
                 do {
-                    let center = UNUserNotificationCenter.current()
-                    // Avoid misleading error logs when the user has denied permission.
-                    // `add(_:)` throws on denied permission but the error is indistinguishable
-                    // from a real scheduling failure in the catch block.
-                    let settings = await center.notificationSettings()
-                    guard settings.authorizationStatus == .authorized
-                            || settings.authorizationStatus == .provisional else {
+                    guard isAuthorized else {
                         log(
                             "RunnerPoller › notification skipped — permission denied or not granted (status=\(settings.authorizationStatus.rawValue))",
                             category: .runner)
                         continue
                     }
-                    try await center.add(request)
+                    try await UNUserNotificationCenter.current().add(request)
                     log(
                         "RunnerPoller › notification scheduled — job=\(job.name) title=\(conclusion.notificationTitle)",
                         category: .runner)

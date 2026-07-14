@@ -60,7 +60,7 @@ public final class NotificationPreferences {
     /// Persisted as a `String` rawValue in UserDefaults.
     ///
     /// ## Dispatch wiring
-    /// Wired in #2070. Call `shouldNotify(success:)` at every
+    /// Wired in #2070. Call `shouldNotify(conclusion:)` at every
     /// `UNUserNotificationCenter` dispatch site to gate notifications by this
     /// preference.
     ///
@@ -119,7 +119,8 @@ public final class NotificationPreferences {
 
 // MARK: - Dispatch gating
 
-// swiftlint:disable missing_docs
+/// Gating methods for `NotificationMode` — call `shouldNotify(conclusion:)` before
+/// scheduling a `UNNotificationRequest`.
 public extension NotificationPreferences {
     /// Returns `true` if a notification should be sent for the given job conclusion.
     ///
@@ -127,9 +128,12 @@ public extension NotificationPreferences {
     /// scheduling a notification request:
     ///
     /// ```swift
-    /// if await NotificationPreferences.shared.shouldNotify(conclusion: .success) {
+    /// // When already on the @MainActor:
+    /// if NotificationPreferences.shared.shouldNotify(conclusion: .success) {
     ///     scheduleNotification(for: job)
     /// }
+    /// // When crossing from a non-main actor, use await MainActor.run:
+    /// let shouldFire = await MainActor.run { prefs.shouldNotify(conclusion: conclusion) }
     /// ```
     ///
     /// - Parameter conclusion: The `JobConclusion` of the completed job.
@@ -144,4 +148,3 @@ public extension NotificationPreferences {
         }
     }
 }
-// swiftlint:enable missing_docs
