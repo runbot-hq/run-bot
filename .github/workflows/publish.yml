@@ -418,7 +418,7 @@ jobs:
         # The action's own generate.sh requires a self-hosted apple-intelligence runner
         # to call AFM, but that constraint lives inside the standalone afm-release-notes.yml
         # caller — not here. This step inherits the caller job's runner, which is fine.
-        uses: runbot-hq/afm-release-notes-action@v1
+        uses: runbot-hq/afm-release-notes-action@main
         id: afm_notes
         with:
           tag: ${{ steps.tag.outputs.tag }}

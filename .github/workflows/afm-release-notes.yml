@@ -23,7 +23,7 @@ jobs:
           fetch-depth: 0
 
       - name: Generate release notes
-        uses: runbot-hq/afm-release-notes-action@v1
+        uses: runbot-hq/afm-release-notes-action@main
         id: notes
         with:
           # EXPRESSION: `github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name`
