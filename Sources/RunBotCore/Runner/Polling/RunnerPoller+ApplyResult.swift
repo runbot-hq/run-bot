@@ -3,6 +3,7 @@
 
 import Foundation
 import GitHubClient
+import UserNotifications
 
 // swiftlint:disable missing_docs
 extension RunnerPoller {
@@ -15,11 +16,19 @@ extension RunnerPoller {
     /// dismisses automatically as soon as connectivity is restored. The write is
     /// guarded — if `fetchError` is already `nil` the assignment is skipped to
     /// avoid a spurious `@Observable` notification on every healthy poll cycle.
+    ///
+    /// After updating actor state, diffs `prevLiveJobs` against `newCache` to find
+    /// jobs that concluded this cycle and fires a `UNUserNotificationCenter` request
+    /// for each one, gated by `notificationPreferences.shouldNotify(success:)`.
     func applyFetchResult(
         enrichedRunners: [GitHubRunner],
         jobResult: JobPollResult,
         groupResult: GroupPollResult
     ) async {
+        // Capture the pre-update prevLiveJobs snapshot before writing new state.
+        // Jobs that were live last cycle but are now in newCache concluded this cycle.
+        let prevLive = prevLiveJobs
+
         let rateLimitSnapshot = await ghRateLimitSnapshot()
         completedCache = jobResult.newCache
         prevLiveJobs = jobResult.newPrevLive
@@ -66,6 +75,51 @@ extension RunnerPoller {
             state.isRateLimited = rateLimitSnapshot.isLimited
             state.rateLimitResetDate = rateLimitSnapshot.resetDate
             if state.fetchError != nil { state.fetchError = nil }
+        }
+
+        // MARK: - Notification dispatch
+        //
+        // Find jobs that concluded this cycle: they were live last poll (prevLive)
+        // but are now in newCache. Skip jobs that were already in the cache before
+        // this cycle (completedCache before the update) to avoid re-notifying on
+        // app restart or poll-loop restart when the cache is replayed.
+        //
+        // `shouldNotify(success:)` reads `notificationMode` on the @MainActor;
+        // this hop is cheap and ensures a consistent read of the @Observable property.
+        let newlyCompleted = prevLive.values.filter { job in
+            jobResult.newCache[job.id] != nil
+        }
+        if !newlyCompleted.isEmpty {
+            let prefs = notificationPreferences
+            for job in newlyCompleted {
+                let isSuccess = job.jobConclusion == .success
+                let shouldFire = await MainActor.run { prefs.shouldNotify(success: isSuccess) }
+                guard shouldFire else {
+                    log(
+                        "RunnerPoller › notification skipped — job=\(job.name) conclusion=\(String(describing: job.jobConclusion)) mode=\(NotificationPreferences.shared.notificationMode)",
+                        category: .runner)
+                    continue
+                }
+                let content = UNMutableNotificationContent()
+                content.title = isSuccess ? "Job succeeded" : "Job failed"
+                content.body = job.name
+                content.sound = .default
+                let request = UNNotificationRequest(
+                    identifier: "job-\(job.id)",
+                    content: content,
+                    trigger: nil
+                )
+                do {
+                    try await UNUserNotificationCenter.current().add(request)
+                    log(
+                        "RunnerPoller › notification scheduled — job=\(job.name) success=\(isSuccess)",
+                        category: .runner)
+                } catch {
+                    log(
+                        "RunnerPoller › notification error — job=\(job.name) error=\(error)",
+                        category: .runner)
+                }
+            }
         }
     }
 
