@@ -114,6 +114,18 @@ public actor RunnerPoller {
   /// Injected scope store. Provides `activeScopes`.
   /// `internal` (not `private`) so that extension files can read this property.
   internal let scopeStore: any ScopeStoreProtocol
+  /// Notification preference store used to gate `UNUserNotificationCenter` dispatch.
+  /// Reads on the `@MainActor` inside `applyFetchResult` to check `shouldNotify(conclusion:)`
+  /// before scheduling each notification request.
+  ///
+  /// `NotificationPreferences` is `@MainActor @Observable`. This property is a plain `let` on
+  /// the `RunnerPoller` actor — it is never read directly from this actor context. Every access
+  /// goes through `await MainActor.run { prefs.shouldNotify(conclusion:) }` which provides the
+  /// required actor-hop at the call site. A future contributor must not read
+  /// `notificationPreferences.notificationMode` synchronously from a non-main actor.
+  ///
+  /// `internal` (not `private`) so that extension files can read this property.
+  internal let notificationPreferences: NotificationPreferences
   /// Shared `JSONDecoder` — reused for local decode work inside the actor.
   ///
   /// This decoder is still used by backfill helpers and other actor-local decoding.
@@ -133,6 +145,8 @@ public actor RunnerPoller {
   ///   - scopeStore: Provides `activeScopes`.
   ///   - localRunners: Closure returning the current local-runner snapshot on `@MainActor`.
   ///   - applyMetrics: Closure that writes enriched metrics back to the local runner store.
+  ///   - notificationPreferences: Notification preference store used to gate dispatch.
+  ///     Pass `.shared` in production; pass an ephemeral instance in tests.
   ///   - actionGroupFetcher: Fetcher for workflow action groups.
   public init(
     state: RunnerState,
@@ -141,6 +155,7 @@ public actor RunnerPoller {
     localRunners: @escaping @MainActor @Sendable () -> [RunnerModel],
     applyMetrics: @escaping @Sendable (_ metrics: RunnerMetrics?, _ runnerId: Int, _ name: String)
       async -> Void,
+    notificationPreferences: NotificationPreferences,
     actionGroupFetcher: any WorkflowActionGroupFetcherProtocol = WorkflowActionGroupFetcher()
   ) {
     self.state = state
@@ -148,6 +163,7 @@ public actor RunnerPoller {
     self.scopeStore = scopeStore
     self.localRunners = localRunners
     self.applyMetrics = applyMetrics
+    self.notificationPreferences = notificationPreferences
     self.actionGroupFetcher = actionGroupFetcher
     Task(name: "RunnerPoller.init: startObservingScopes") { await self.startObservingScopes() }
   }
@@ -202,6 +218,10 @@ public actor RunnerPoller {
     // regardless of how deeply idle the poller was before the restart.
     consecutiveIdleTicks = 0
     lastBusyRunnerCount = 0
+    // Clear prevLiveJobs and completedCache so stale entries from the previous
+    // scope do not trigger duplicate notifications after a scope-change restart.
+    prevLiveJobs = [:]
+    completedCache = [:]
     let scopes = await MainActor.run { scopeStore.activeScopes }
     log("RunnerPoller › start — activeScopes=\(scopes)", category: .runner)
     if scopes.isEmpty {

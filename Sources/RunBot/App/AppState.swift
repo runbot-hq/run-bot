@@ -465,7 +465,8 @@ final class AppState {
             // will NOT be reflected in this capture.
             applyMetrics: { [localRunnerStore] metrics, id, name in
                 await localRunnerStore.applyMetrics(metrics, forRunnerId: id, name: name)
-            }
+            },
+            notificationPreferences: NotificationPreferences.shared
         )
         log("AppState › start — RunnerPoller created")
     }
