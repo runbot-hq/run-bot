@@ -28,8 +28,12 @@ jobs:
           debug: 'true'
 
       - name: Log outputs
+        env:
+          RELEASE_TITLE: ${{ steps.notes.outputs.release_title }}
+          PREV_TAG: ${{ steps.notes.outputs.prev_tag }}
+          RELEASE_BODY: ${{ steps.notes.outputs.release_body }}
         run: |
-          echo "release_title=${{ steps.notes.outputs.release_title }}"
-          echo "prev_tag=${{ steps.notes.outputs.prev_tag }}"
+          echo "release_title=$RELEASE_TITLE"
+          echo "prev_tag=$PREV_TAG"
           echo "--- release_body ---"
-          echo "${{ steps.notes.outputs.release_body }}"
+          echo "$RELEASE_BODY"
