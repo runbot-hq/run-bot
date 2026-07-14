@@ -115,10 +115,13 @@ public final class NotificationPreferences {
         // a build where the default was .all keep their saved preference unchanged.
         // Only a genuine first-launch (or fresh test suite) sees the .never default.
         NotificationPreferences.register(into: store)
-        // register(into:) guarantees the key exists before this read — no ?? fallback needed.
-        // The inner ?? .never guards against an unrecognised rawValue (e.g. after a downgrade
-        // that removes a case that was previously persisted).
-        let rawMode = store.string(forKey: Key.notificationMode)!
+        // Use ?? rather than ! so that a test suite whose registration domain was
+        // cleared (e.g. via removePersistentDomain without re-registering) falls
+        // back gracefully instead of crashing. Behaviour is identical to the force-
+        // unwrap on every normal path where register(into:) has run.
+        // The inner ?? .never guards against an unrecognised rawValue (e.g. after a
+        // downgrade that removes a case that was previously persisted).
+        let rawMode = store.string(forKey: Key.notificationMode) ?? NotificationMode.never.rawValue
         notificationMode = NotificationMode(rawValue: rawMode) ?? .never
     }
 
