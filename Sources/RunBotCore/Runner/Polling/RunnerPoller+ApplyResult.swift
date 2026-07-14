@@ -21,6 +21,15 @@ extension RunnerPoller {
     /// After updating actor state, diffs `prevLiveJobs` against `newCache` to find
     /// jobs that concluded this cycle and fires a `UNUserNotificationCenter` request
     /// for each one, gated by `notificationPreferences.shouldNotify(conclusion:)`.
+    ///
+    /// **Function body length:** 70 non-comment lines (below the 90-line `swiftlint`
+    /// warning threshold and 150-line error threshold). The notification-dispatch
+    /// block (~20 code lines inside `if !newlyCompleted.isEmpty`) is intentionally
+    /// kept inline here rather than extracted to a helper, because extracting it
+    /// would require threading `prevLive`, `jobResult`, and `prefs` through an
+    /// additional async actor hop boundary — the inline code is simpler and
+    /// stays under the limit. Any future addition that risks exceeding 90 lines
+    /// should extract the notification block into a private helper method.
     func applyFetchResult(
         enrichedRunners: [GitHubRunner],
         jobResult: JobPollResult,

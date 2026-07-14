@@ -151,7 +151,7 @@ public extension NotificationPreferences {
     func shouldNotify(conclusion: JobConclusion) -> Bool {
         switch notificationMode {
         case .all:           return true
-        case .failuresOnly:  return conclusion.isFailure
+        case .failuresOnly:  return conclusion.isFailure // not == .failure; includes .timedOut, .startupFailure, .actionRequired
         case .successesOnly: return conclusion == .success
         case .never:         return false
         }
