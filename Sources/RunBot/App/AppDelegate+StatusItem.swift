@@ -95,6 +95,14 @@ extension AppDelegate {
             ?? NSImage()
     }
 
+    /// Logical (point) size the icon renders at in the menu bar, regardless
+    /// of which @Nx pixel representation AppKit picks for the display. 18pt
+    /// is the standard macOS menu bar icon convention (22pt bar height minus
+    /// a small margin) — previously this rendered at ~16pt (issue: user
+    /// reported the icon looked too small relative to surrounding menu bar
+    /// icons).
+    private static let statusBarIconPointSize = NSSize(width: 18, height: 18)
+
     /// Cached `StatusBarIcon` image, loaded from `Bundle.module` exactly once.
     ///
     /// - Important: `swift build` (the plain SwiftPM CLI toolchain used by
@@ -124,7 +132,7 @@ extension AppDelegate {
     ///   each representation's logical point size — an `NSBitmapImageRep`
     ///   built from an `@3x` (54×54px) file defaults its `.size` to 54×54
     ///   *points*, not 18×18, which is 3x too large on screen. Each rep's
-    ///   `.size` is explicitly forced to `statusBarIconPointSize` below to
+    ///   `.size` is explicitly forced to `statusBarIconPointSize` above to
     ///   correct for this.
     ///
     /// - Note: `Bundle.image(forResource:)` also re-reads from disk on every
@@ -132,15 +140,6 @@ extension AppDelegate {
     ///   named-image cache — so this is cached as a `static let` regardless,
     ///   since `updateStatusIcon()` calls `menuBarImage(for:)` on every
     ///   runner-poll tick.
-
-    /// Logical (point) size the icon renders at in the menu bar, regardless
-    /// of which @Nx pixel representation AppKit picks for the display. 18pt
-    /// is the standard macOS menu bar icon convention (22pt bar height minus
-    /// a small margin) — previously this rendered at ~16pt (issue: user
-    /// reported the icon looked too small relative to surrounding menu bar
-    /// icons).
-    private static let statusBarIconPointSize = NSSize(width: 18, height: 18)
-
     private static let statusBarIcon: NSImage? = {
         // Loads every @Nx PNG that exists (1x/2x/3x) as a representation of
         // a single NSImage, so AppKit can pick the sharpest one for the
