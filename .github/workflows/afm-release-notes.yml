@@ -26,8 +26,21 @@ jobs:
         uses: runbot-hq/afm-release-notes-action@v1
         id: notes
         with:
+          # EXPRESSION: `github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name`
+          # This is a GitHub Actions ternary idiom (A && B || C), not a bash short-circuit.
+          # - workflow_dispatch + blank input: inputs.tag is '' (falsy) → github.ref_name
+          # - workflow_dispatch + filled input: inputs.tag is the value → inputs.tag
+          # - release: [published] (future): github.ref_name carries the vX.Y.Z tag correctly
+          # Do NOT simplify — the fallback to github.ref_name is load-bearing for the
+          # publish trigger once release: [published] is enabled.
           tag: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
 
+      # Log outputs — intentional smoke-test stub, not dead code.
+      # This step exists to verify the action's outputs are populated correctly during
+      # manual workflow_dispatch runs. It will be replaced (or this workflow removed
+      # entirely) once the action is wired into publish.yml and this standalone caller
+      # is no longer needed for validation. Do NOT remove until publish.yml wiring
+      # is confirmed green in production.
       - name: Log outputs
         env:
           RELEASE_TITLE: ${{ steps.notes.outputs.release_title }}

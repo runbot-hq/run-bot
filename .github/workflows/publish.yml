@@ -405,6 +405,12 @@ jobs:
       # were provided. Produces release_title and release_body via on-device AFM.
       # Falls back gracefully — if the step or action fails, the Create GitHub Release
       # step falls through to --generate-notes as before.
+      #
+      # ORDERING: This step intentionally runs AFTER Tag and push, not before.
+      # The afm-release-notes-action calls gh api compare/$PREV_TAG...$TAG internally,
+      # which requires $TAG to exist on origin. The tag is pushed in the previous step
+      # so it is guaranteed to be present by the time this step runs. Moving this step
+      # earlier (before Tag and push) would cause a 404 from the compare API.
       - name: Generate AFM release notes
         if: ${{ inputs.dry_run != 'true' && inputs.release_notes == '' }}
         uses: runbot-hq/afm-release-notes-action@v1
