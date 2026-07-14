@@ -94,13 +94,16 @@ public final class NotificationPreferences {
     public init(store: UserDefaults) {
         self.defaults = store
         NotificationPreferences.register(into: store)
-        let rawMode = store.string(forKey: Key.notificationMode) ?? NotificationMode.never.rawValue
+        // register(into:) guarantees the key exists before this read — no ?? fallback needed.
+        // The inner ?? .never guards against an unrecognised rawValue (e.g. after a downgrade
+        // that removes a case that was previously persisted).
+        let rawMode = store.string(forKey: Key.notificationMode)!
         notificationMode = NotificationMode(rawValue: rawMode) ?? .never
     }
 
     // MARK: - Registration
 
-    /// Registers factory defaults so that `bool(forKey:)` returns the intended
+    /// Registers factory defaults so that `string(forKey:)` returns the intended
     /// value on first launch without requiring an `object(forKey:) == nil` guard.
     ///
     /// `init(store:)` calls this automatically in production. This method is
