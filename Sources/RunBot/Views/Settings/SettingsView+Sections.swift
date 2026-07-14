@@ -396,16 +396,24 @@ internal extension SettingsView {
 ///
 /// Renders nothing when `label` is empty — no space is consumed for unconfigured rows.
 /// Used in `manageLocalRunnersRow` and `manageScopesRow` (#2082).
+///
+/// ## Color rationale
+/// Foreground uses `.primary` (black in light mode, white in dark mode) rather than
+/// a hardcoded `.white`. `Color.rbTextTertiary` is `Color(white: 0.58)` in light mode
+/// — white-on-0.58-gray is ~2.3:1 contrast, well below the WCAG 4.5:1 minimum.
+/// Background uses `Color.rbTextTertiary.opacity(0.18)` — a faint tint that matches
+/// the `Color.rbTextTertiary.opacity(0.22)` pattern already used by `InlineJobRowsView`
+/// for progress track fills. No new design token is introduced.
 private struct StatusCountBadge: View {
     let label: String
     var body: some View {
         if !label.isEmpty {
             Text(label)
                 .font(.caption2)
-                .foregroundColor(.white)
+                .foregroundStyle(.primary)
                 .padding(.horizontal, 7)
                 .padding(.vertical, 3)
-                .background(Capsule().fill(Color.rbTextTertiary))
+                .background(Capsule().fill(Color.rbTextTertiary.opacity(0.18)))
         }
     }
 }
