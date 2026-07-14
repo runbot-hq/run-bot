@@ -2,7 +2,8 @@
 // RunBotCore
 import GitHubClient
 
-// swiftlint:disable missing_docs
+/// Fetches runners for the active scopes, resolves install paths, enriches with
+/// system metrics, and applies metrics back to the local runner store.
 extension RunnerPoller {
 
   // MARK: - fetchAndEnrichRunners
@@ -131,4 +132,3 @@ extension RunnerPoller {
     return indexed
   }
 }
-// swiftlint:enable missing_docs

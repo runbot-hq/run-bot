@@ -5,7 +5,8 @@ import Foundation
 import GitHubClient
 import UserNotifications
 
-// swiftlint:disable missing_docs
+/// Applies a completed fetch result to actor state, triggers UI updates, and dispatches
+/// local notifications for newly-concluded jobs.
 extension RunnerPoller {
 
     // MARK: - Apply result
@@ -94,9 +95,9 @@ extension RunnerPoller {
         if !newlyCompleted.isEmpty {
             let prefs = notificationPreferences
             for job in newlyCompleted {
-                let isSuccess = job.jobConclusion == .success
+                let conclusion = job.jobConclusion ?? .neutral
                 let (shouldFire, modeDescription) = await MainActor.run {
-                    (prefs.shouldNotify(success: isSuccess), prefs.notificationMode.rawValue)
+                    (prefs.shouldNotify(conclusion: conclusion), prefs.notificationMode.rawValue)
                 }
                 guard shouldFire else {
                     log(
@@ -105,7 +106,7 @@ extension RunnerPoller {
                     continue
                 }
                 let content = UNMutableNotificationContent()
-                content.title = isSuccess ? "Job succeeded" : "Job failed"
+                content.title = conclusion == .success ? "Job succeeded" : "Job failed"
                 content.body = job.name
                 content.sound = .default
                 let request = UNNotificationRequest(
@@ -116,7 +117,7 @@ extension RunnerPoller {
                 do {
                     try await UNUserNotificationCenter.current().add(request)
                     log(
-                        "RunnerPoller › notification scheduled — job=\(job.name) success=\(isSuccess)",
+                        "RunnerPoller › notification scheduled — job=\(job.name) success=\(conclusion == .success)",
                         category: .runner)
                 } catch {
                     log(
@@ -173,11 +174,9 @@ extension RunnerPoller {
         }
     }
 }
-// swiftlint:enable missing_docs
-
 // MARK: - FetchError
 
-// swiftlint:disable missing_docs
+/// Sendable-safe wrapper that bridges an arbitrary `any Error` across an actor boundary.
 extension RunnerPoller {
 
     /// Sendable-safe wrapper that bridges an arbitrary `any Error` across an actor boundary.
@@ -193,4 +192,3 @@ extension RunnerPoller {
         init(_ underlying: any Error) { errorDescription = underlying.localizedDescription }
     }
 }
-// swiftlint:enable missing_docs

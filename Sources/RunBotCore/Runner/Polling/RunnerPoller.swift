@@ -210,6 +210,10 @@ public actor RunnerPoller {
     // regardless of how deeply idle the poller was before the restart.
     consecutiveIdleTicks = 0
     lastBusyRunnerCount = 0
+    // Clear prevLiveJobs and completedCache so stale entries from the previous
+    // scope do not trigger duplicate notifications after a scope-change restart.
+    prevLiveJobs = [:]
+    completedCache = [:]
     let scopes = await MainActor.run { scopeStore.activeScopes }
     log("RunnerPoller › start — activeScopes=\(scopes)", category: .runner)
     if scopes.isEmpty {

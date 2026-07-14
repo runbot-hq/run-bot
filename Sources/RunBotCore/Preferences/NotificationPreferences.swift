@@ -121,26 +121,25 @@ public final class NotificationPreferences {
 
 // swiftlint:disable missing_docs
 public extension NotificationPreferences {
-    /// Returns `true` if a notification should be sent for the given job outcome.
+    /// Returns `true` if a notification should be sent for the given job conclusion.
     ///
     /// Call this at every `UNUserNotificationCenter` dispatch site before
     /// scheduling a notification request:
     ///
     /// ```swift
-    /// if NotificationPreferences.shared.shouldNotify(success: job.conclusion == .success) {
+    /// if await NotificationPreferences.shared.shouldNotify(conclusion: .success) {
     ///     scheduleNotification(for: job)
     /// }
     /// ```
     ///
-    /// - Parameter success: `true` when the job concluded with `.success`,
-    ///   `false` for any other conclusion (`.failure`, `.cancelled`, `.neutral`, etc.).
+    /// - Parameter conclusion: The `JobConclusion` of the completed job.
     /// - Returns: Whether the current `notificationMode` permits sending a
     ///   notification for this outcome.
-    func shouldNotify(success: Bool) -> Bool {
+    func shouldNotify(conclusion: JobConclusion) -> Bool {
         switch notificationMode {
         case .all:           return true
-        case .failuresOnly:  return !success
-        case .successesOnly: return success
+        case .failuresOnly:  return conclusion == .failure
+        case .successesOnly: return conclusion == .success
         case .never:         return false
         }
     }
