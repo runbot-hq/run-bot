@@ -421,10 +421,23 @@ jobs:
       #   1. Manual release_notes input (verbatim)
       #   2. AFM-generated notes (release_body from afm_notes step)
       #   3. --generate-notes fallback (GitHub auto-generated from commits)
+      #
+      # INJECTION SAFETY: AFM outputs (release_title, release_body) are LLM-generated
+      # and must NOT be interpolated directly into the shell script via ${{ }}.
+      # They are passed through env: vars instead, which the runner sets before the
+      # shell process starts — no expression expansion occurs inside the bash body.
+      # MANUAL_NOTES from inputs.release_notes is human-entered so lower risk, but
+      # follows the same pattern for consistency.
+      # Notes content is written to a temp file to avoid all shell-quoting issues at
+      # the `gh release create --notes-file` boundary (multi-line bodies with quotes,
+      # backticks, or $() would break inline --notes "...").
       - name: Create GitHub Release
         if: ${{ inputs.dry_run != 'true' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          AFM_TITLE:    ${{ steps.afm_notes.outputs.release_title }}
+          AFM_BODY:     ${{ steps.afm_notes.outputs.release_body }}
+          MANUAL_NOTES: ${{ inputs.release_notes }}
         run: |
           set -euo pipefail
           TAG="${{ steps.tag.outputs.tag }}"
@@ -440,18 +453,21 @@ jobs:
           fi
 
           # Determine title — prefer AFM title, fall back to tag
-          TITLE="${{ steps.afm_notes.outputs.release_title }}"
+          TITLE="${AFM_TITLE:-}"
           if [[ -z "$TITLE" ]]; then
             TITLE="$TAG"
           fi
 
           # Determine notes — priority: manual input > AFM body > --generate-notes
-          MANUAL_NOTES="${{ inputs.release_notes }}"
-          AFM_BODY="${{ steps.afm_notes.outputs.release_body }}"
-          if [[ -n "$MANUAL_NOTES" ]]; then
-            FLAGS+=(--notes "$MANUAL_NOTES")
-          elif [[ -n "$AFM_BODY" ]]; then
-            FLAGS+=(--notes "$AFM_BODY")
+          # Write to a temp file so multi-line content with quotes/backticks/$() is
+          # passed to gh verbatim, with no shell word-splitting or interpretation.
+          NOTES_FILE=$(mktemp)
+          if [[ -n "${MANUAL_NOTES:-}" ]]; then
+            printf '%s' "$MANUAL_NOTES" > "$NOTES_FILE"
+            FLAGS+=(--notes-file "$NOTES_FILE")
+          elif [[ -n "${AFM_BODY:-}" ]]; then
+            printf '%s' "$AFM_BODY" > "$NOTES_FILE"
+            FLAGS+=(--notes-file "$NOTES_FILE")
           else
             FLAGS+=(--generate-notes)
           fi
@@ -462,4 +478,5 @@ jobs:
             --title "$TITLE" \
             "${FLAGS[@]}"
 
+          rm -f "$NOTES_FILE"
           echo "GitHub Release $TAG created (channel: $CHANNEL)."
