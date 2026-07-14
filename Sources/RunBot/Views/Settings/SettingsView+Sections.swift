@@ -58,6 +58,9 @@ internal extension SettingsView {
                         .help("Authorize RunBot via GitHub OAuth and store token in Keychain")
                     }
                 } else {
+                    // Unauthenticated — no status dot (there is no auth state to indicate).
+                    // The Circle() indicator present in the OAuth and CLI branches is
+                    // intentionally absent here. This is not a missing element.
                     HStack {
                         Spacer()
                         Button(action: signInWithGitHub) {
@@ -400,10 +403,11 @@ internal extension SettingsView {
 /// ## Color rationale
 /// Foreground uses `.primary` (black in light mode, white in dark mode) rather than
 /// a hardcoded `.white`. `Color.rbTextTertiary` is `Color(white: 0.58)` in light mode
-/// — white-on-0.58-gray is ~2.3:1 contrast, well below the WCAG 4.5:1 minimum.
-/// Background uses `Color.rbTextTertiary.opacity(0.18)` — a faint tint that matches
-/// the `Color.rbTextTertiary.opacity(0.22)` pattern already used by `InlineJobRowsView`
-/// for progress track fills. No new design token is introduced.
+/// — white-on-0.58-gray is ~2.3:1 contrast, well below the WCAG 4.5:1 minimum and
+/// near-invisible in light mode. Background uses `Color.rbTextTertiary.opacity(0.18)`
+/// — a faint tint that matches the `Color.rbTextTertiary.opacity(0.22)` pattern already
+/// used by `InlineJobRowsView` for progress track fills. No new design token is introduced.
+/// ❌ Do NOT change foreground back to `.white` — it breaks contrast in light mode.
 private struct StatusCountBadge: View {
     let label: String
     var body: some View {

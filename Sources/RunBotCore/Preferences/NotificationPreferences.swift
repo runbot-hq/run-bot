@@ -39,7 +39,9 @@ public enum NotificationMode: String, CaseIterable, Sendable {
 @MainActor
 @Observable
 public final class NotificationPreferences {
-    /// Shared singleton — use this instead of calling init directly.
+    /// Shared singleton — use this instead of calling `init(store:)` directly in
+    /// production code. The convenience `init()` is `private` so the singleton is
+    /// the only zero-argument construction path outside this file.
     public static let shared = NotificationPreferences()
 
     /// UserDefaults key constants.
@@ -78,6 +80,9 @@ public final class NotificationPreferences {
     // MARK: - Init
 
     /// Convenience initialiser for production use. Calls `init(store: .standard)`.
+    ///
+    /// `private` by design — forces all production code through the `shared` singleton.
+    /// Tests and Previews that need a fresh instance use `init(store:)` directly.
     private convenience init() {
         self.init(store: .standard)
     }
@@ -89,10 +94,26 @@ public final class NotificationPreferences {
     ///   ephemeral suite (`UserDefaults(suiteName:)`) in unit tests to avoid
     ///   polluting the real preferences database. (P7)
     ///
+    /// ## Why `public`
+    /// `public` is required for test-target injection (P7) — test targets are
+    /// separate modules and cannot access `internal` members. This is intentional
+    /// and not an oversight. The `private convenience init()` ensures zero-argument
+    /// construction outside this file still routes through `shared`.
+    ///
+    /// ## `@MainActor` safety
+    /// `@MainActor` isolation is enforced by the class declaration, not by the
+    /// caller. Constructing this type off the main actor is a compiler error —
+    /// the caller must be `@MainActor` or use `await MainActor.run { ... }`.
+    /// There is no race hazard from making `init(store:)` public.
+    ///
     /// Calls `register(into: store)` automatically — no need to call it
     /// separately in production code.
     public init(store: UserDefaults) {
         self.defaults = store
+        // register(defaults:) only sets values that are not already present —
+        // it does NOT overwrite persisted values. Existing users upgrading from
+        // a build where the default was .all keep their saved preference unchanged.
+        // Only a genuine first-launch (or fresh test suite) sees the .never default.
         NotificationPreferences.register(into: store)
         // register(into:) guarantees the key exists before this read — no ?? fallback needed.
         // The inner ?? .never guards against an unrecognised rawValue (e.g. after a downgrade
