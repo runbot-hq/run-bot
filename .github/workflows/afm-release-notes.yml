@@ -32,6 +32,4 @@ jobs:
           echo "release_title=${{ steps.notes.outputs.release_title }}"
           echo "prev_tag=${{ steps.notes.outputs.prev_tag }}"
           echo "--- release_body ---"
-          cat <<'EOF'
-          ${{ steps.notes.outputs.release_body }}
-          EOF
+          echo "${{ steps.notes.outputs.release_body }}"
