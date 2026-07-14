@@ -1,8 +1,8 @@
 name: AFM Release Notes
 
 on:
-  release:
-    types: [published]
+  # release: [published] intentionally disabled until wired into publish.yml.
+  # Re-enable once the Log outputs step is replaced with a real release-body write.
   workflow_dispatch:
     inputs:
       tag:
