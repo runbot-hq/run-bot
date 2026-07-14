@@ -138,6 +138,7 @@ public actor RunnerPoller {
   ///   - localRunners: Closure returning the current local-runner snapshot on `@MainActor`.
   ///   - applyMetrics: Closure that writes enriched metrics back to the local runner store.
   ///   - notificationPreferences: Notification preference store used to gate dispatch.
+  ///     Pass `.shared` in production; pass an ephemeral instance in tests.
   ///   - actionGroupFetcher: Fetcher for workflow action groups.
   public init(
     state: RunnerState,

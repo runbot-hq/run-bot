@@ -86,6 +86,8 @@ extension RunnerPoller {
         //
         // `shouldNotify(success:)` reads `notificationMode` on the @MainActor;
         // this hop is cheap and ensures a consistent read of the @Observable property.
+        // Both `shouldFire` and `modeDescription` are captured in the same MainActor.run
+        // block so no extra actor hop is needed for the skip log.
         let newlyCompleted = prevLive.values.filter { job in
             jobResult.newCache[job.id] != nil
         }
@@ -93,12 +95,12 @@ extension RunnerPoller {
             let prefs = notificationPreferences
             for job in newlyCompleted {
                 let isSuccess = job.jobConclusion == .success
-                let (shouldFire, mode) = await MainActor.run {
-                    (prefs.shouldNotify(success: isSuccess), prefs.notificationMode)
+                let (shouldFire, modeDescription) = await MainActor.run {
+                    (prefs.shouldNotify(success: isSuccess), prefs.notificationMode.rawValue)
                 }
                 guard shouldFire else {
                     log(
-                        "RunnerPoller › notification skipped — job=\(job.name) conclusion=\(String(describing: job.jobConclusion)) mode=\(mode)",
+                        "RunnerPoller › notification skipped — job=\(job.name) conclusion=\(String(describing: job.jobConclusion)) mode=\(modeDescription)",
                         category: .runner)
                     continue
                 }
