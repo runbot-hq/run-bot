@@ -93,10 +93,12 @@ extension RunnerPoller {
             let prefs = notificationPreferences
             for job in newlyCompleted {
                 let isSuccess = job.jobConclusion == .success
-                let shouldFire = await MainActor.run { prefs.shouldNotify(success: isSuccess) }
+                let (shouldFire, mode) = await MainActor.run {
+                    (prefs.shouldNotify(success: isSuccess), prefs.notificationMode)
+                }
                 guard shouldFire else {
                     log(
-                        "RunnerPoller › notification skipped — job=\(job.name) conclusion=\(String(describing: job.jobConclusion)) mode=\(prefs.notificationMode)",
+                        "RunnerPoller › notification skipped — job=\(job.name) conclusion=\(String(describing: job.jobConclusion)) mode=\(mode)",
                         category: .runner)
                     continue
                 }
