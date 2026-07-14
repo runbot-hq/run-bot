@@ -44,9 +44,12 @@ extension View {
 /// ```
 public struct APICallCounterRow: View {
     /// View model that drives the counter label, colour, and snapshot.
+    /// `@State` so SwiftUI owns the lifetime and the instance survives view identity changes.
     @State private var vm = APICallCounterViewModel()
 
-    /// Reset date forwarded from `RunnerState.rateLimitResetDate`.
+    /// Optional rate-limit reset date forwarded from `RunnerState.rateLimitResetDate`.
+    /// `nil` when no rate-limit response has been received yet; the reset sub-label is
+    /// suppressed when this is `nil`.
     private let resetDate: Date?
 
     /// Creates a new `APICallCounterRow` with a fresh view model.
