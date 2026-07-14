@@ -106,7 +106,7 @@ extension RunnerPoller {
                     continue
                 }
                 let content = UNMutableNotificationContent()
-                content.title = conclusion == .success ? "Job succeeded" : "Job failed"
+                content.title = conclusion.notificationTitle
                 content.body = job.name
                 content.sound = .default
                 let request = UNNotificationRequest(
@@ -115,9 +115,21 @@ extension RunnerPoller {
                     trigger: nil
                 )
                 do {
-                    try await UNUserNotificationCenter.current().add(request)
+                    let center = UNUserNotificationCenter.current()
+                    // Avoid misleading error logs when the user has denied permission.
+                    // `add(_:)` throws on denied permission but the error is indistinguishable
+                    // from a real scheduling failure in the catch block.
+                    let settings = await center.notificationSettings()
+                    guard settings.authorizationStatus == .authorized
+                            || settings.authorizationStatus == .provisional else {
+                        log(
+                            "RunnerPoller › notification skipped — permission denied or not granted (status=\(settings.authorizationStatus.rawValue))",
+                            category: .runner)
+                        continue
+                    }
+                    try await center.add(request)
                     log(
-                        "RunnerPoller › notification scheduled — job=\(job.name) success=\(conclusion == .success)",
+                        "RunnerPoller › notification scheduled — job=\(job.name) title=\(conclusion.notificationTitle)",
                         category: .runner)
                 } catch {
                     log(

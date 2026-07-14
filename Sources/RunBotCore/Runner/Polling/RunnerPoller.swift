@@ -115,9 +115,10 @@ public actor RunnerPoller {
   /// `internal` (not `private`) so that extension files can read this property.
   internal let scopeStore: any ScopeStoreProtocol
   /// Notification preference store used to gate `UNUserNotificationCenter` dispatch.
-  /// Read on the `@MainActor` inside `applyFetchResult` to check `shouldNotify(success:)`
+  /// Read on the `@MainActor` inside `applyFetchResult` to check `shouldNotify(conclusion:)`
   /// before scheduling each notification request.
-  let notificationPreferences: NotificationPreferences
+  /// `internal` (not `private`) so that extension files can read this property.
+  internal let notificationPreferences: NotificationPreferences
   /// Shared `JSONDecoder` — reused for local decode work inside the actor.
   ///
   /// This decoder is still used by backfill helpers and other actor-local decoding.

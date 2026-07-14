@@ -211,3 +211,36 @@ extension JobConclusion: ExpressibleByStringLiteral {
         self = JobConclusion(rawString: value)
     }
 }
+
+// MARK: - Notification title
+
+/// `JobConclusion` notification title strings for `UNUserNotificationCenter` dispatch.
+extension JobConclusion {
+    /// The human-readable notification title for this conclusion.
+    ///
+    /// Maps each conclusion to an accurate, user-facing label:
+    /// - `.success` → "Job succeeded"
+    /// - `.failure` → "Job failed"
+    /// - `.cancelled` → "Job cancelled"
+    /// - `.timedOut` → "Job timed out"
+    /// - `.startupFailure` → "Runner failed to start"
+    /// - `.actionRequired` → "Job needs review"
+    /// - `.skipped` → "Job skipped"
+    /// - `.neutral` → "Job completed"
+    /// - `.stale` → "Job became stale"
+    /// - `.unknown` → "Job completed"
+    public var notificationTitle: String {
+        switch self {
+        case .success: return "Job succeeded"
+        case .failure: return "Job failed"
+        case .cancelled: return "Job cancelled"
+        case .timedOut: return "Job timed out"
+        case .startupFailure: return "Runner failed to start"
+        case .actionRequired: return "Job needs review"
+        case .skipped: return "Job skipped"
+        case .neutral: return "Job completed"
+        case .stale: return "Job became stale"
+        case .unknown: return "Job completed"
+        }
+    }
+}
