@@ -413,6 +413,11 @@ jobs:
       # earlier (before Tag and push) would cause a 404 from the compare API.
       - name: Generate AFM release notes
         if: ${{ inputs.dry_run != 'true' && inputs.release_notes == '' }}
+        # afm-release-notes-action uses `using: composite` (not docker) so it runs
+        # correctly on this job's macos-26 runner without any special runner label.
+        # The action's own generate.sh requires a self-hosted apple-intelligence runner
+        # to call AFM, but that constraint lives inside the standalone afm-release-notes.yml
+        # caller — not here. This step inherits the caller job's runner, which is fine.
         uses: runbot-hq/afm-release-notes-action@v1
         id: afm_notes
         with:
@@ -436,8 +441,9 @@ jobs:
       # and must NOT be interpolated directly into the shell script via ${{ }}.
       # They are passed through env: vars instead, which the runner sets before the
       # shell process starts — no expression expansion occurs inside the bash body.
-      # MANUAL_NOTES from inputs.release_notes is human-entered so lower risk, but
-      # follows the same pattern for consistency.
+      # MANUAL_NOTES from inputs.release_notes is workflow_dispatch user input and
+      # follows the same env: pattern — the protection applies equally regardless of
+      # whether content is LLM-generated or human-entered.
       # Notes content is written to a temp file to avoid all shell-quoting issues at
       # the `gh release create --notes-file` boundary (multi-line bodies with quotes,
       # backticks, or $() would break inline --notes "...").
