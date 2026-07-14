@@ -417,6 +417,10 @@ jobs:
         id: afm_notes
         with:
           tag: ${{ steps.tag.outputs.tag }}
+        # continue-on-error: true is intentional — the self-hosted runner may be offline
+        # or AFM may time out. The Create GitHub Release step always runs regardless and
+        # falls through to --generate-notes when AFM_TITLE/AFM_BODY are empty (skipped
+        # step outputs are empty strings, which the shell logic handles correctly).
         continue-on-error: true
 
       # ── Create GitHub Release ──────────────────────────────────────────────────────────
@@ -446,6 +450,11 @@ jobs:
           MANUAL_NOTES: ${{ inputs.release_notes }}
         run: |
           set -euo pipefail
+          # TAG/CHANNEL/ZIP/SIG use ${{ }} interpolation intentionally — these are
+          # trusted runner-controlled or workflow-internal values (computed tag string,
+          # build artifact paths), not external or user-supplied content. They do not
+          # carry injection risk. Only LLM-derived values (AFM_TITLE, AFM_BODY) and
+          # raw user text (MANUAL_NOTES) are routed through env: vars above.
           TAG="${{ steps.tag.outputs.tag }}"
           CHANNEL="${{ steps.tag.outputs.channel }}"
           ZIP="${{ steps.verify.outputs.zip_path }}"
