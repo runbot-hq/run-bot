@@ -9,7 +9,7 @@ import SwiftUI
 internal extension SettingsView {
 
     // MARK: - Account
-    /// GitHub sign-in / sign-out controls and authentication status.
+    /// GitHub sign-in / sign-out controls, authentication status, and API call counter.
     var accountSection: some View {
         VStack(alignment: .leading, spacing: 0) {
             Text("Account").font(RBFont.sectionHeader).foregroundColor(Color.rbTextSecondary)
@@ -45,15 +45,12 @@ internal extension SettingsView {
                     HStack(spacing: 10) {
                         HStack(spacing: 4) {
                             Circle().fill(Color.rbSuccess).frame(width: 7, height: 7)
-                            VStack(alignment: .leading, spacing: 1) {
-                                Text("Authenticated")
-                                    .font(.caption)
-                                    .foregroundColor(Color.rbTextSecondary)
-                                Text("via env token")
-                                    .font(.caption2)
-                                    .foregroundColor(Color.rbTextTertiary)
-                            }
+                            // Single-line: collapsed from two stacked Text views (#2082)
+                            Text("Authenticated via env token")
+                                .font(.caption)
+                                .foregroundColor(Color.rbTextSecondary)
                         }
+                        Spacer()
                         Button(action: signInWithGitHub) {
                             Text("Sign in with GitHub").font(.caption2)
                         }
@@ -61,14 +58,29 @@ internal extension SettingsView {
                         .help("Authorize RunBot via GitHub OAuth and store token in Keychain")
                     }
                 } else {
-                    Button(action: signInWithGitHub) {
-                        Text("Sign in with GitHub").font(.caption2)
+                    HStack {
+                        Spacer()
+                        Button(action: signInWithGitHub) {
+                            Text("Sign in with GitHub").font(.caption2)
+                        }
+                        .buttonStyle(.bordered)
+                        .help("Authorize RunBot via GitHub OAuth and store token in Keychain")
                     }
-                    .buttonStyle(.bordered)
-                    .help("Authorize RunBot via GitHub OAuth and store token in Keychain")
                 }
             }
             .padding(.horizontal, RBSpacing.md).padding(.vertical, 8)
+            Divider().padding(.leading, RBSpacing.md)
+            // API call counter lives in Account — it reflects GitHub API usage tied
+            // to the authenticated token, so Account is the semantically correct home.
+            Text("Tracks GitHub API requests consumed in the current rate-limit window.")
+                .font(.caption2)
+                .foregroundColor(Color.rbTextSecondary)
+                .padding(.horizontal, RBSpacing.md)
+                .padding(.top, 6)
+            APICallCounterRow()
+                .font(.system(size: 12))
+                .padding(.horizontal, RBSpacing.md)
+                .padding(.vertical, 8)
         }
     }
 
@@ -91,13 +103,11 @@ internal extension SettingsView {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Manage local runners").font(.system(size: 12))
-                    Text("Start, stop, edit, and remove self-hosted runners on this machine.")
+                    Text("Self-hosted runners configured on this Mac")
                         .font(.caption2).foregroundColor(Color.rbTextSecondary)
                 }
                 Spacer()
-                Text(runnerCountLabel)
-                    .font(.caption2)
-                    .foregroundColor(Color.rbTextSecondary)
+                StatusCountBadge(label: runnerCountLabel)
                 Image(systemName: "chevron.right")
                     .font(.caption2)
                     .foregroundColor(Color.rbTextTertiary)
@@ -117,13 +127,11 @@ internal extension SettingsView {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Manage scopes").font(.system(size: 12))
-                    Text("Add, remove, and configure GitHub repos or orgs to monitor.")
+                    Text("Repository and organization scopes")
                         .font(.caption2).foregroundColor(Color.rbTextSecondary)
                 }
                 Spacer()
-                Text(scopeCountLabel)
-                    .font(.caption2)
-                    .foregroundColor(Color.rbTextSecondary)
+                StatusCountBadge(label: scopeCountLabel)
                 Image(systemName: "chevron.right")
                     .font(.caption2)
                     .foregroundColor(Color.rbTextTertiary)
@@ -166,12 +174,15 @@ internal extension SettingsView {
     }
 
     // MARK: - General
-    /// General section: API call counter, notification toggles, launch-at-login, popover arrow, and beta channel.
+    /// General section: notification toggles, launch-at-login, popover arrow, and beta channel.
     ///
     /// The polling interval row was removed in #2069 — RunnerPoller now drives its own
     /// cadence via `PollIntervalStrategy` and no longer reads `pollingInterval` from
     /// `AppPreferencesStore`. The underlying preference key is retained for potential
     /// future use (e.g. per-scope overrides) but is no longer surfaced in the UI.
+    ///
+    /// The API call counter row was moved to `accountSection` in #2082 — it is semantically
+    /// tied to the authenticated GitHub token, not to general app preferences.
     ///
     /// `settings` and `notifications` are injected `let` properties on an `@Observable` type.
     /// SwiftUI cannot synthesise `$`-bindings from plain `let` stored properties, so we
@@ -181,12 +192,6 @@ internal extension SettingsView {
         return VStack(alignment: .leading, spacing: 0) {
             Text("General").font(RBFont.sectionHeader).foregroundColor(Color.rbTextSecondary)
                 .padding(.horizontal, RBSpacing.md).padding(.top, 8).padding(.bottom, 4)
-            // resetDate: omitted — `APICallCounterRow.init(resetDate:)` defaults to nil.
-            // The parameter is optional (Date? = nil); this compiles and behaves correctly.
-            APICallCounterRow()
-                .font(.system(size: 12))
-                .padding(.horizontal, RBSpacing.md)
-                .padding(.vertical, 8)
             HStack {
                 Text("Notifications").font(.system(size: 12)); Spacer()
                 Picker("Notifications", selection: bindableNotifications.notificationMode) {
@@ -382,5 +387,25 @@ internal extension SettingsView {
             }
         }
         .padding(.horizontal, RBSpacing.md).padding(.vertical, 8)
+    }
+}
+
+// MARK: - StatusCountBadge
+
+/// Rounded pill badge used to display active/inactive counts in management rows.
+///
+/// Renders nothing when `label` is empty — no space is consumed for unconfigured rows.
+/// Used in `manageLocalRunnersRow` and `manageScopesRow` (#2082).
+private struct StatusCountBadge: View {
+    let label: String
+    var body: some View {
+        if !label.isEmpty {
+            Text(label)
+                .font(.caption2)
+                .foregroundColor(.white)
+                .padding(.horizontal, 7)
+                .padding(.vertical, 3)
+                .background(Capsule().fill(Color.rbTextTertiary))
+        }
     }
 }

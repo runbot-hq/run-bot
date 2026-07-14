@@ -94,8 +94,8 @@ public final class NotificationPreferences {
     public init(store: UserDefaults) {
         self.defaults = store
         NotificationPreferences.register(into: store)
-        let rawMode = store.string(forKey: Key.notificationMode) ?? NotificationMode.all.rawValue
-        notificationMode = NotificationMode(rawValue: rawMode) ?? .all
+        let rawMode = store.string(forKey: Key.notificationMode) ?? NotificationMode.never.rawValue
+        notificationMode = NotificationMode(rawValue: rawMode) ?? .never
     }
 
     // MARK: - Registration
@@ -110,9 +110,12 @@ public final class NotificationPreferences {
     ///
     /// - Parameter store: The `UserDefaults` instance to register defaults into.
     ///   Pass `.standard` for production; pass a suite instance in tests.
+    ///
+    /// Default changed from `.all` to `.never` in #2082 — opt-in is the better
+    /// default for a notification preference; users who want alerts can enable them.
     public static func register(into store: UserDefaults) {
         store.register(defaults: [
-            Key.notificationMode: NotificationMode.all.rawValue,
+            Key.notificationMode: NotificationMode.never.rawValue,
         ])
     }
 }
