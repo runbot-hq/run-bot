@@ -25,13 +25,9 @@ extension RunnerPoller {
         jobResult: JobPollResult,
         groupResult: GroupPollResult
     ) async {
-        // Capture pre-update snapshots before writing new state.
-        // prevLive: jobs that were live last cycle — candidates for completion detection.
-        // prevCache: jobs already in the completed cache before this cycle — excluded from
-        //            notification dispatch to prevent re-firing on poll-loop restart or any
-        //            future scenario where prevLiveJobs is seeded from persistence.
+        // Capture the pre-update prevLiveJobs snapshot before writing new state.
+        // Jobs that were live last cycle but are now in newCache concluded this cycle.
         let prevLive = prevLiveJobs
-        let prevCache = completedCache
 
         let rateLimitSnapshot = await ghRateLimitSnapshot()
         completedCache = jobResult.newCache
@@ -84,28 +80,23 @@ extension RunnerPoller {
         // MARK: - Notification dispatch
         //
         // Find jobs that concluded this cycle: they were live last poll (prevLive)
-        // but are now in newCache AND were not already in prevCache. The prevCache
-        // guard is what actually prevents re-notification on poll-loop restart —
-        // prevLive is empty on a cold start so that case is also safe.
+        // but are now in newCache. Because prevLiveJobs only contains in-flight jobs
+        // (never already-cached ones), no additional cross-check against the old
+        // completedCache is required.
         //
         // `shouldNotify(success:)` reads `notificationMode` on the @MainActor;
         // this hop is cheap and ensures a consistent read of the @Observable property.
         let newlyCompleted = prevLive.values.filter { job in
-            jobResult.newCache[job.id] != nil && prevCache[job.id] == nil
+            jobResult.newCache[job.id] != nil
         }
         if !newlyCompleted.isEmpty {
             let prefs = notificationPreferences
             for job in newlyCompleted {
                 let isSuccess = job.jobConclusion == .success
-                // Capture both the gate result and the mode description in a single
-                // MainActor hop so the skip log always reflects the injected instance,
-                // not the singleton.
-                let (shouldFire, modeDescription) = await MainActor.run {
-                    (prefs.shouldNotify(success: isSuccess), String(describing: prefs.notificationMode))
-                }
+                let shouldFire = await MainActor.run { prefs.shouldNotify(success: isSuccess) }
                 guard shouldFire else {
                     log(
-                        "RunnerPoller › notification skipped — job=\(job.name) conclusion=\(String(describing: job.jobConclusion)) mode=\(modeDescription)",
+                        "RunnerPoller › notification skipped — job=\(job.name) conclusion=\(String(describing: job.jobConclusion)) mode=\(prefs.notificationMode)",
                         category: .runner)
                     continue
                 }
