@@ -99,6 +99,12 @@ extension RunnerPoller {
             let settings = await UNUserNotificationCenter.current().notificationSettings()
             let isAuthorized = settings.authorizationStatus == .authorized
                 || settings.authorizationStatus == .provisional
+            guard isAuthorized else {
+                log(
+                    "RunnerPoller › notifications skipped — permission denied (status=\(settings.authorizationStatus.rawValue))",
+                    category: .runner)
+                return
+            }
             for job in newlyCompleted {
                 let conclusion = job.jobConclusion ?? .neutral
                 let (shouldFire, modeDescription) = await MainActor.run {
@@ -120,12 +126,6 @@ extension RunnerPoller {
                     trigger: nil
                 )
                 do {
-                    guard isAuthorized else {
-                        log(
-                            "RunnerPoller › notification skipped — permission denied or not granted (status=\(settings.authorizationStatus.rawValue))",
-                            category: .runner)
-                        continue
-                    }
                     try await UNUserNotificationCenter.current().add(request)
                     log(
                         "RunnerPoller › notification scheduled — job=\(job.name) title=\(conclusion.notificationTitle)",

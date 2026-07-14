@@ -115,8 +115,15 @@ public actor RunnerPoller {
   /// `internal` (not `private`) so that extension files can read this property.
   internal let scopeStore: any ScopeStoreProtocol
   /// Notification preference store used to gate `UNUserNotificationCenter` dispatch.
-  /// Read on the `@MainActor` inside `applyFetchResult` to check `shouldNotify(conclusion:)`
+  /// Reads on the `@MainActor` inside `applyFetchResult` to check `shouldNotify(conclusion:)`
   /// before scheduling each notification request.
+  ///
+  /// `NotificationPreferences` is `@MainActor @Observable`. This property is a plain `let` on
+  /// the `RunnerPoller` actor — it is never read directly from this actor context. Every access
+  /// goes through `await MainActor.run { prefs.shouldNotify(conclusion:) }` which provides the
+  /// required actor-hop at the call site. A future contributor must not read
+  /// `notificationPreferences.notificationMode` synchronously from a non-main actor.
+  ///
   /// `internal` (not `private`) so that extension files can read this property.
   internal let notificationPreferences: NotificationPreferences
   /// Shared `JSONDecoder` — reused for local decode work inside the actor.
