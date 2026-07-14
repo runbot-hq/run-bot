@@ -98,6 +98,11 @@ extension RunnerPoller {
         // this hop is cheap and ensures a consistent read of the @Observable property.
         // Both `shouldFire` and `modeDescription` are captured in the same MainActor.run
         // block so no extra actor hop is needed for the skip log.
+        // NOTE: This hop is inside the per-job loop because `shouldNotify(conclusion:)`
+        // takes a per-job `conclusion` argument — it is not loop-invariant. Only
+        // `modeDescription` (from the skip-log path) is stable, but splitting the hop
+        // to hoist one String read is not worth the complexity. The `@MainActor` hop
+        // is required for every job because `shouldNotify` is `@MainActor`-isolated.
         // `UNUserNotificationCenter.current()` is thread-safe and documented as safe to
         // call from any thread — no MainActor hop is needed for the notification center itself.
         let newlyCompleted = prevLive.values.filter { job in
@@ -114,6 +119,12 @@ extension RunnerPoller {
                 log(
                     "RunnerPoller › notifications skipped — permission denied (status=\(settings.authorizationStatus.rawValue))",
                     category: .runner)
+                // NOTE: This return appears to exit the whole function, but it only exits the
+                // notification block — there is no code after `if !newlyCompleted.isEmpty` in
+                // `applyFetchResult` (the next statement is the closing `}` of the function).
+                // All state writes (completedCache, prevLiveJobs, MainActor.run state.*) happen
+                // before this point. If future code is added after the notification block, this
+                // return must be scoped (e.g. extract the block into a private helper method).
                 return
             }
             for job in newlyCompleted {
