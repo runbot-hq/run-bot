@@ -55,6 +55,14 @@ let package = Package(
                 .product(name: "MenuBarKit", package: "MenuBarKit"),
             ],
             path: "Sources/RunBot",
+            // ⚠️ AI AGENT: This resources entry is required for NSImage(named:) to
+            // find anything in Resources/Assets.xcassets (e.g. StatusBarIcon) at
+            // runtime. Without it, SwiftPM never compiles the asset catalog into
+            // the target's resource bundle, and NSImage(named:) silently returns
+            // nil — see issue #2079. Do NOT remove this line.
+            resources: [
+                .process("Resources")
+            ],
             swiftSettings: [
                 .enableUpcomingFeature("NonisolatedNonsendingByDefault")
             ]

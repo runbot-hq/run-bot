@@ -44,6 +44,22 @@ cp ".build/arm64-apple-macosx/release/$APP_NAME" \
 cp "Resources/Info.plist" \
    "$OUT_DIR/$APP_NAME.app/Contents/"
 
+# SwiftPM compiles Sources/RunBot/Resources/Assets.xcassets (declared via
+# `resources: [.process("Resources")]` in Package.swift) into a
+# RunBot_RunBot.bundle inside the build output directory. NSImage(named:)
+# looks this up via Bundle.main, so the bundle must be copied into
+# Contents/Resources/ or asset lookups (e.g. "StatusBarIcon") silently
+# return nil at runtime — see issue #2079. Do NOT remove this copy step.
+RESOURCE_BUNDLE=".build/arm64-apple-macosx/release/${APP_NAME}_${APP_NAME}.bundle"
+if [[ -d "$RESOURCE_BUNDLE" ]]; then
+  cp -R "$RESOURCE_BUNDLE" \
+     "$OUT_DIR/$APP_NAME.app/Contents/Resources/"
+else
+  echo "✗ Expected resource bundle not found at $RESOURCE_BUNDLE" >&2
+  echo "  Asset catalog lookups (StatusBarIcon, etc.) will fail at runtime." >&2
+  exit 1
+fi
+
 echo "→ Ad-hoc signing..."
 codesign --force --deep --sign - "$OUT_DIR/$APP_NAME.app"
 

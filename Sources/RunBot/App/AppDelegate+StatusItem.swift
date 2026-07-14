@@ -61,22 +61,22 @@ extension AppDelegate {
     ///
     /// Fallback chain:
     /// 1. `NSImage(named: "StatusBarIcon")` — bundled robot-face asset (template image).
+    ///    This is the only icon we want visible in the status bar (issue #2079:
+    ///    a generic "circle" SF Symbol previously leaked through as a fallback
+    ///    whenever the asset failed to load, which is exactly the failure mode
+    ///    this app should surface loudly instead of hiding behind a plausible-
+    ///    looking placeholder).
     /// 2. `status.symbolName`             — correct SF Symbol for the current status.
-    /// 3. `"circle"`                      — safe generic SF Symbol.
-    /// 4. `NSImage(named: "MenuBarFallback")` — last-resort bundled asset.
-    /// 5. `NSImage()`                     — empty/invisible (should never be reached).
+    ///    Reached only if the StatusBarIcon asset is genuinely missing/corrupt.
+    /// 3. `NSImage()`                     — empty/invisible (should never be reached).
     func menuBarImage(for status: AggregateStatus) -> NSImage {
         if let icon = NSImage(named: "StatusBarIcon") {
             return icon
         }
+        #if DEBUG
+        assertionFailure("StatusBarIcon asset missing from Assets.xcassets — check Package.swift `resources:` and build.sh bundle copy step (see issue #2079)")
+        #endif
         return NSImage(systemSymbolName: status.symbolName, accessibilityDescription: nil)
-            ?? NSImage(systemSymbolName: "circle", accessibilityDescription: nil)
-            ?? {
-                #if DEBUG
-                assertionFailure("StatusBarIcon and MenuBarFallback assets missing from Assets.xcassets — add them to keep the status-bar icon visible")
-                #endif
-                return NSImage(named: "MenuBarFallback")
-            }()
             ?? NSImage()
     }
 }
