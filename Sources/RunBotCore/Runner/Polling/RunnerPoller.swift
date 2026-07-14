@@ -76,11 +76,13 @@ public actor RunnerPoller {
   // Both are reset to 0 at the top of `start()` so every restart begins from a clean state.
 
   // MARK: — Adaptive-interval counters
-  // Both properties are `private`; the only sanctioned write path is
-  // `updateAdaptiveCounters(hasActiveWork:busyRunnerCount:)` — see its doc for the
-  // ordering constraint. `updateAdaptiveCounters` is `internal` (not `private`) due
-  // to SPM file-scope rules for cross-file actor extensions; the ⚠️ warning lives
-  // on that method, not here, to avoid duplication.
+  // All tick/busy counters are `private`; `rateLimitRemaining` is `internal` due to
+  // SPM cross-file actor extension rules (see its doc-comment below).
+  // The only sanctioned write path is
+  // `updateAdaptiveCounters(hasActiveWork:busyRunnerCount:)` for the tick/busy
+  // counters, and `applyFetchResult` for `rateLimitRemaining`.
+  // `updateAdaptiveCounters` is `internal` (not `private`) for the same SPM reason;
+  // the ⚠️ warning lives on that method.
 
   /// Consecutive successful idle poll cycles. Drives exponential idle backoff in
   /// `PollIntervalStrategy`. Reset to 0 on every `start()` and on any active fetch.
@@ -88,10 +90,19 @@ public actor RunnerPoller {
   /// Busy-runner count from the last successful fetch. Selects the active-interval
   /// tier (Fast/Mid/Slow) in `PollIntervalStrategy`.
   private var lastBusyRunnerCount: Int = 0
-  // TODO: Step 9 — add rateLimitRemaining as actor-local property here
-  // Pattern: `private(set) var rateLimitRemaining: Int = PollIntervalStrategy.rateLimitUnavailable`
-  // Written by applyFetchResult (same controlled path as isRateLimited / rateLimitResetDate).
-  // nextPollInterval() then passes the real value instead of the rateLimitUnavailable sentinel.
+  /// Calls remaining in the current GitHub API rate-limit window.
+  ///
+  /// Sourced from `RateLimitSnapshot.remaining` (which in turn reads the
+  /// `X-RateLimit-Remaining` response header via `RateLimitActor`). Starts at
+  /// `PollIntervalStrategy.rateLimitUnavailable` (`Int.max`) and is updated on
+  /// every successful `applyFetchResult` cycle. The sentinel value disables the
+  /// headroom-cooldown branch in `PollIntervalStrategy` until a real value is known.
+  /// Not updated on error cycles — holds its last-successful-cycle value.
+  ///
+  /// - Note: Declared `internal` (not `private`) due to SPM cross-file actor extension
+  ///   rules — the setter must be reachable from `RunnerPoller+ApplyResult.swift`.
+  ///   Same constraint as `updateAdaptiveCounters`. Do not promote to `public`.
+  var rateLimitRemaining: Int = PollIntervalStrategy.rateLimitUnavailable
 
   /// Owns the two structured `Task` handles for the poll loop.
   /// `private` — all call sites (startObservingScopes, start(), isolated deinit)
@@ -108,8 +119,9 @@ public actor RunnerPoller {
     @Sendable (_ metrics: RunnerMetrics?, _ runnerId: Int, _ name: String) async -> Void
   /// Injected preferences store. periphery:ignore
   /// No longer drives poll cadence (removed in Step 4 of #2069 — `preferencesStore.pollingInterval`
-  /// replaced by `PollIntervalStrategy`). Retained because other call sites outside
-  /// `RunnerPoller` depend on the same injected instance. Planned cleanup at Step 10.
+  /// replaced by `PollIntervalStrategy`). Step 10 (#2073) removed `pollingInterval` from the
+  /// protocol; this property is now dead inside `RunnerPoller`. Pending removal together
+  /// with its `AppState` injection site in a follow-up cleanup.
   let preferencesStore: any AppPreferencesStoreProtocol
   /// Injected scope store. Provides `activeScopes`.
   /// `internal` (not `private`) so that extension files can read this property.
@@ -216,6 +228,9 @@ public actor RunnerPoller {
   public func start() async {
     // Reset adaptive-interval counters so every restart begins from a clean state,
     // regardless of how deeply idle the poller was before the restart.
+    // `rateLimitRemaining` is intentionally NOT reset: a stale-but-real remaining
+    // value from before the restart is more useful than the Int.max sentinel, which
+    // would suppress the headroom-cooldown branch for an entire extra window.
     consecutiveIdleTicks = 0
     lastBusyRunnerCount = 0
     // Clear prevLiveJobs and completedCache so stale entries from the previous
@@ -297,17 +312,8 @@ public actor RunnerPoller {
     if hasActiveWork {
       consecutiveIdleTicks = 0
     } else {
-      // Increments even when busyRunnerCount > 0 but hasActiveWork == false — intentional.
-      // `hasActiveWork` is the authoritative gate (job/action API state); `busyRunnerCount`
-      // only selects the Fast/Mid/Slow tier *within* the active branch. If runners are busy
-      // but the job API hasn't surfaced it yet, the two signals transiently disagree and the
-      // idle backoff applies. This is a known latent tension; revisit at Step 9 once
-      // `rateLimitRemaining` is wired and the full rate-limit picture is available.
       consecutiveIdleTicks += 1
     }
-    // Always track the latest busy count from the just-finished successful fetch.
-    // In the idle branch this value may be stale relative to the *next* cycle, but
-    // PollIntervalStrategy ignores busyRunnerCount whenever hasActiveWork == false.
     lastBusyRunnerCount = busyRunnerCount
     return consecutiveIdleTicks
   }
@@ -329,7 +335,7 @@ public actor RunnerPoller {
   ///
   /// Synchronous — all inputs are actor-local properties; no `await` needed.
   /// `resolvedInterval(hasActive:baseIdle:)` and the `preferencesStore.pollingInterval`
-  /// read were removed in Step 4 of #2069.
+  /// read were removed in Step 4 of #2069. `rateLimitRemaining` was wired in Step 9.
   private func nextPollInterval() -> TimeInterval {
     let hasActive = hasActiveWork()
     let interval = PollIntervalStrategy.next(
@@ -338,11 +344,11 @@ public actor RunnerPoller {
       busyRunnerCount: lastBusyRunnerCount,
       isRateLimited: isRateLimited,
       rateLimitResetDate: rateLimitResetDate,
-      // TODO: Step 9 — replace with real value from ghRateLimitSnapshot()
-      rateLimitRemaining: PollIntervalStrategy.rateLimitUnavailable
+      rateLimitRemaining: rateLimitRemaining
     )
     log(
-      "RunnerPoller › nextPollInterval — \(Int(interval))s hasActive=\(hasActive) idleTick=\(consecutiveIdleTicks) busyRunners=\(lastBusyRunnerCount) rateLimited=\(isRateLimited)",
+      // swiftlint:disable:next line_length
+      "RunnerPoller › nextPollInterval — \(Int(interval))s hasActive=\(hasActive) idleTick=\(consecutiveIdleTicks) busyRunners=\(lastBusyRunnerCount) rateLimited=\(isRateLimited) rateLimitRemaining=\(rateLimitRemaining)",
       category: .runner)
     return interval
   }

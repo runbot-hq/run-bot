@@ -21,7 +21,9 @@ public struct PollIntervalStrategy: Sendable {
     /// This is NOT the minimum observable production idle sleep — that is 60 s (tick 1),
     /// because the first successful idle fetch increments `consecutiveIdleTicks` to 1 before
     /// `nextPollInterval()` is called. Tick 0 (30 s) is only reachable on a first-fetch error.
-    /// Consider renaming to `idleBase` at Step 10 to reflect this distinction.
+    /// The name `idleMin` is a slight misnomer — `idleBase` would better reflect that
+    /// this is the formula seed, not the minimum observable sleep. Kept as-is to avoid
+    /// a rename churn across tests; tracked in #2069.
     public static let idleMin: TimeInterval = 30
     /// Maximum idle poll interval cap (5 minutes).
     public static let idleMax: TimeInterval = 300
