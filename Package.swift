@@ -59,25 +59,6 @@ let package = Package(
                 .enableUpcomingFeature("NonisolatedNonsendingByDefault")
             ]
         ),
-        // ── Spike target ────────────────────────────────────────────────────────────────────────
-        // Thin example app consuming MenuBarKit. Zero direct lifecycle code.
-        // Run with: swift run RunBotSpike
-        .executableTarget(
-            name: "RunBotSpike",
-            dependencies: [
-                .product(name: "MenuBarKit", package: "MenuBarKit"),
-            ],
-            path: "Sources/RunBotSpike",
-            swiftSettings: [
-                .swiftLanguageMode(.v6),
-                // Must match RunBot and RunBotCore so spike patterns are validated
-                // under identical isolation semantics. Without this flag, nonisolated
-                // closures default to inheriting the caller's actor rather than being
-                // nonsending — a looser model that could silently hide isolation
-                // errors that surface when the same code is ported to RunBot.
-                .enableUpcomingFeature("NonisolatedNonsendingByDefault")
-            ]
-        ),
         .testTarget(
             name: "RunBotCoreTests",
             dependencies: [
