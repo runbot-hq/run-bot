@@ -46,64 +46,50 @@ extension AppDelegate {
 
     /// Returns the menu-bar icon for the given aggregate status.
     ///
-    /// Prefers the bundled `StatusBarIcon` asset (the robot-face template PNG),
-    /// loaded via `Bundle.module` (see below for why). Falls back to the SF
-    /// Symbol chain when the asset is missing, preserving the original
-    /// triple-fallback behaviour for safety.
+    /// Prefers `StatusBarIcon` — a flat PNG copied into `Contents/Resources/`
+    /// by `build.sh` — loaded once via `Bundle.main` and cached in
+    /// `statusBarIcon`. Falls back to the status-appropriate SF Symbol if the
+    /// file is missing (surfaces the problem rather than silently showing a
+    /// generic placeholder).
     ///
-    /// - Note: `status` is used only by the SF Symbol fallback chain (step 2).
-    ///   `StatusBarIcon` is a static brand image and is status-agnostic; `status`
-    ///   is intentionally ignored in the happy path.
-    ///
-    /// - Note: `template-rendering-intent: template` is set in Contents.json, and
-    ///   `isTemplate = true` is also set explicitly (once, in `statusBarIcon`'s
-    ///   initializer below) as belt-and-suspenders. Since `statusBarIcon` is a
-    ///   cached `static let`, this mutation happens exactly once per process,
-    ///   not per call.
+    /// - Note: `status` is intentionally ignored in the happy path;
+    ///   `StatusBarIcon` is a static brand image.
     ///
     /// Fallback chain:
-    /// 1. `Self.statusBarIcon` — bundled robot-face asset (template image),
-    ///    loaded once via `Bundle.module.image(forResource:)` and cached (see
-    ///    below). This is the only icon we want visible in the status bar
-    ///    (issue #2079: a generic "circle" SF Symbol previously leaked through
-    ///    as a fallback whenever the asset failed to load, which is exactly the
-    ///    failure mode this app should surface loudly instead of hiding behind
-    ///    a plausible-looking placeholder).
+    /// 1. `Self.statusBarIcon` — flat PNG from `Contents/Resources/`, loaded
+    ///    once via `Bundle.main.image(forResource:)` and cached.
     ///
-    ///    ⚠️ Deliberately NOT `NSImage(named:)`. `NSImage(named:)` only searches
-    ///    `Bundle.main` (the app's flat Contents/Resources/ directory). SwiftPM
-    ///    compiles Assets.xcassets into a *separate* nested resource bundle
-    ///    (`RunBot_RunBot.bundle`), and copying that bundle into
-    ///    Contents/Resources/ (see build.sh) does not make Bundle.main's own
-    ///    asset-catalog lookup recurse into it — `NSImage(named:)` would still
-    ///    return nil even with the copy step in place. `Bundle.module` is the
-    ///    SwiftPM-synthesized accessor that resolves directly to that nested
-    ///    bundle, so it is the only correct way to load this asset. Do NOT
-    ///    revert to `NSImage(named:)` here.
-    /// 2. `status.symbolName`             — correct SF Symbol for the current status.
-    ///    Reached only if the StatusBarIcon asset is genuinely missing/corrupt.
-    /// 3. `NSImage()`                     — empty/invisible (should never be reached).
+    ///    ⚠️ Deliberately NOT `Bundle.module`. When building with
+    ///    `swift build --arch arm64`, SwiftPM copies `Assets.xcassets` as a
+    ///    raw folder (not compiled to `Assets.car`), so
+    ///    `Bundle.module.image(forResource:)` returns nil at runtime.
+    ///    A flat PNG in `Contents/Resources/` sidesteps the asset-catalog
+    ///    pipeline entirely and is reliably found by `Bundle.main`. Do NOT
+    ///    revert to `Bundle.module` or `NSImage(named:)` here.
+    /// 2. `status.symbolName` — status-appropriate SF Symbol.
+    ///    Reached only if `StatusBarIcon.png` is missing from the bundle.
+    /// 3. `NSImage()` — empty/invisible (should never be reached).
     func menuBarImage(for status: AggregateStatus) -> NSImage {
         if let icon = Self.statusBarIcon {
             return icon
         }
         #if DEBUG
-        assertionFailure("StatusBarIcon asset missing from Bundle.module — check Package.swift `resources:` and build.sh bundle copy step (see issue #2079)")
+        assertionFailure("StatusBarIcon.png missing from Bundle.main — check build.sh PNG copy step (see issue #2079)")
         #endif
         return NSImage(systemSymbolName: status.symbolName, accessibilityDescription: nil)
             ?? NSImage()
     }
 
-    /// Cached `StatusBarIcon` image, loaded from `Bundle.module` exactly once.
+    /// Cached robot-head icon, loaded from `Bundle.main` exactly once.
     ///
-    /// `Bundle.image(forResource:)` re-reads from disk on every call — unlike
-    /// `NSImage(named:)`, it does not use AppKit's internal named-image cache.
-    /// `updateStatusIcon()` calls `menuBarImage(for:)` on every runner-poll
-    /// tick, so without this `static let` we'd pay a disk read + decode on
-    /// every tick. Computed once, lazily, on first access.
+    /// `build.sh` copies `StatusBarIcon@2x.png` from the asset imageset into
+    /// `Contents/Resources/StatusBarIcon.png`. `Bundle.main.image(forResource:)`
+    /// finds flat files in `Contents/Resources/` directly — no asset catalog,
+    /// no nested bundle required. `isTemplate = true` makes AppKit render it
+    /// correctly in both light and dark menu bars.
     private static let statusBarIcon: NSImage? = {
-        let icon = Bundle.module.image(forResource: "StatusBarIcon")
-        icon?.isTemplate = true  // belt-and-suspenders on top of Contents.json
+        let icon = Bundle.main.image(forResource: "StatusBarIcon")
+        icon?.isTemplate = true
         return icon
     }()
 }
