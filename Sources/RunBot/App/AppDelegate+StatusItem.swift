@@ -102,7 +102,43 @@ extension AppDelegate {
     /// tick, so without this `static let` we'd pay a disk read + decode on
     /// every tick. Computed once, lazily, on first access.
     private static let statusBarIcon: NSImage? = {
-        let icon = Bundle.module.image(forResource: "StatusBarIcon")
+        // ── TEMPORARY DIAGNOSTICS (issue #2079 follow-up) ──────────────────
+        // The Bundle.module fix (PR #2080) did not resolve the bug in the
+        // field: users still see the SF Symbol circle fallback after a clean
+        // build. These unconditional (non-DEBUG-gated) stderr prints exist
+        // solely to capture ground-truth runtime state from a release build
+        // on a real machine, since this sandbox has no Swift/macOS toolchain
+        // to reproduce the bug directly. Remove once root cause is confirmed.
+        FileHandle.standardError.write("[StatusBarIcon] Bundle.module.bundlePath = \(Bundle.module.bundlePath)\n".data(using: .utf8)!)
+        FileHandle.standardError.write("[StatusBarIcon] Bundle.module.bundleURL exists on disk = \(FileManager.default.fileExists(atPath: Bundle.module.bundlePath))\n".data(using: .utf8)!)
+        if let contents = try? FileManager.default.contentsOfDirectory(atPath: Bundle.module.bundlePath) {
+            FileHandle.standardError.write("[StatusBarIcon] Bundle.module directory contents = \(contents)\n".data(using: .utf8)!)
+        } else {
+            FileHandle.standardError.write("[StatusBarIcon] Bundle.module directory contents = <could not list directory>\n".data(using: .utf8)!)
+        }
+        if let carPath = Bundle.module.path(forResource: "Assets", ofType: "car") {
+            FileHandle.standardError.write("[StatusBarIcon] Found compiled Assets.car at = \(carPath)\n".data(using: .utf8)!)
+        } else {
+            FileHandle.standardError.write("[StatusBarIcon] No compiled Assets.car found in Bundle.module\n".data(using: .utf8)!)
+        }
+        if let pngPath = Bundle.module.path(forResource: "StatusBarIcon", ofType: "png") {
+            FileHandle.standardError.write("[StatusBarIcon] Found loose StatusBarIcon.png at = \(pngPath)\n".data(using: .utf8)!)
+        } else {
+            FileHandle.standardError.write("[StatusBarIcon] No loose StatusBarIcon.png found via path(forResource:ofType:) in Bundle.module\n".data(using: .utf8)!)
+        }
+        let viaImageForResource = Bundle.module.image(forResource: "StatusBarIcon")
+        FileHandle.standardError.write("[StatusBarIcon] Bundle.module.image(forResource: \"StatusBarIcon\") = \(String(describing: viaImageForResource))\n".data(using: .utf8)!)
+        // ─────────────────────────────────────────────────────────────────
+
+        var icon = viaImageForResource
+        if icon == nil, let pngPath = Bundle.module.path(forResource: "StatusBarIcon", ofType: "png") {
+            // Fallback path: if the asset catalog was compiled into Assets.car,
+            // image(forResource:) (a flat-file lookup) can return nil even though
+            // the file is present, because the catalog is compiled rather than
+            // stored as a loose PNG. Try loading directly from disk as a probe.
+            icon = NSImage(contentsOfFile: pngPath)
+            FileHandle.standardError.write("[StatusBarIcon] Fallback NSImage(contentsOfFile:) result = \(String(describing: icon))\n".data(using: .utf8)!)
+        }
         icon?.isTemplate = true  // belt-and-suspenders on top of Contents.json
         return icon
     }()
