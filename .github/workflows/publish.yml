@@ -481,6 +481,8 @@ jobs:
         uses: runbot-hq/afm-release-notes-action@main
         with:
           tag: ${{ needs.publish.outputs.tag }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         continue-on-error: true
 
       # ── Create GitHub Release ──────────────────────────────────────────────────────────
