@@ -54,7 +54,6 @@ concurrency:
 
 permissions:
   contents: write
-  workflows: write
 
 jobs:
   publish:
