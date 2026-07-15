@@ -411,6 +411,29 @@ jobs:
       # which requires $TAG to exist on origin. The tag is pushed in the previous step
       # so it is guaranteed to be present by the time this step runs. Moving this step
       # earlier (before Tag and push) would cause a 404 from the compare API.
+      #
+      # ⚠️⚠️⚠️  CRITICAL: KEY ORDER ON uses:-BASED STEPS  ⚠️⚠️⚠️
+      #
+      # On a step that has `uses:`, GitHub Actions requires that `id:` and `if:`
+      # appear BEFORE `uses:` in the YAML. Placing them after causes a workflow
+      # startup failure with the completely useless error:
+      #
+      #   "An expression was expected" at the line of `with:`, not at `id:` or `if:`.
+      #
+      # The error message points at the wrong line and gives no indication of the
+      # real cause. It took 8+ failed runs across multiple commits to diagnose.
+      #
+      # Required key order for uses:-based steps (do NOT deviate from this):
+      #
+      #   - name: ...        ← always first
+      #     id: ...          ← MUST come before uses:
+      #     if: ...          ← MUST come before uses:
+      #     uses: ...        ← the action reference
+      #     with: ...        ← inputs to the action
+      #     continue-on-error: ...
+      #
+      # `run:`-based steps do NOT have this restriction — id:/if: work in any
+      # order there. This constraint is specific to `uses:` steps.
       - name: Generate AFM release notes
         id: afm_notes
         if: inputs.dry_run != 'true' && inputs.release_notes == ''
