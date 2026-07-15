@@ -494,7 +494,7 @@ jobs:
           MANUAL_NOTES: ${{ inputs.release_notes }}
         run: |
           set -euo pipefail
-          # TAG/CHANNEL/ZIP/SIG use ${{ }} interpolation intentionally — these are
+          # TAG/CHANNEL/ZIP/SIG use template interpolation intentionally — these are
           # trusted runner-controlled or workflow-internal values (computed tag string,
           # build artifact paths), not external or user-supplied content. They do not
           # carry injection risk. Only LLM-derived values (AFM_TITLE, AFM_BODY) and
