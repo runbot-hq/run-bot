@@ -10,7 +10,9 @@
 #   6. Sign release zip with Ed25519 (RunBot.zip.sig).
 #   7. Commit patched Info.plist back to main via rebase + push (skipped on dry_run).
 #   8. Tag the plist commit SHA directly — race-free (skipped on dry_run).
-#   9. Create GitHub Release with release_notes if provided, --generate-notes otherwise (skipped on dry_run).
+#   9. Upload build artifacts so the release job can consume them.
+#  10. Generate AFM release notes on self-hosted runner (skipped on dry_run / manual notes).
+#  11. Create GitHub Release with release_notes if provided, --generate-notes otherwise (skipped on dry_run).
 
 name: Publish
 
@@ -57,14 +59,21 @@ permissions:
 
 jobs:
   publish:
-    # macos-26 is our self-hosted runner (macOS 26 / Tahoe beta machine).
-    # This is NOT a GitHub-hosted runner label — github-hosted macOS tops out
-    # at macos-15 as of mid-2026. Do not change this to a github-hosted label
-    # without provisioning the build environment separately.
+    # macos-26 is a GitHub-hosted runner (macOS 26 / Tahoe beta).
+    # Build, sign, plist commit, and tagging all happen here.
+    # AFM release notes and gh release create run in the separate `release` job
+    # on the self-hosted runner (Apple Intelligence required).
     runs-on: macos-26
     # Self-hosted runner outage would otherwise queue this job indefinitely.
     # 30 minutes is generous for a build that normally completes in ~3 minutes.
     timeout-minutes: 30
+
+    outputs:
+      tag:      ${{ steps.tag.outputs.tag }}
+      version:  ${{ steps.tag.outputs.version }}
+      channel:  ${{ steps.tag.outputs.channel }}
+      zip_path: ${{ steps.verify.outputs.zip_path }}
+      sig_path: ${{ steps.sign.outputs.sig_path }}
 
     steps:
       # ── Checkout ──────────────────────────────────────────────────────────────────
@@ -272,8 +281,6 @@ jobs:
       # declared (as it is here); bash's builtin echo is guaranteed, not /bin/echo.
       # openssl's PEM parser tolerates the trailing newline echo appends.
       # Do not switch to printf to "fix" this; it makes no difference and obscures intent.
-      # This runner is macos-26 (self-hosted) — the Linux /proc exposure path does not
-      # apply, but the builtin guarantee makes it safe on either platform regardless.
       #
       # Dry-run behaviour: this step is intentionally NOT gated on dry_run != 'true'.
       # The upload step IS gated, but it consumes sig_path from this step's output —
@@ -357,6 +364,20 @@ jobs:
           echo "Signature verified OK (public key match confirmed)."
           echo "sig_path=$SIG" >> "$GITHUB_OUTPUT"
 
+      # ── Upload build artifacts ─────────────────────────────────────────────────────────
+      # The release job runs on a different runner and cannot access the macos-26
+      # workspace directly. Upload zip + sig so the release job can download them.
+      # Skipped on dry_run — no release job runs in that case anyway.
+      - name: Upload build artifacts
+        if: ${{ inputs.dry_run != 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-assets
+          path: |
+            ${{ steps.verify.outputs.zip_path }}
+            ${{ steps.sign.outputs.sig_path }}
+          retention-days: 1
+
       # ── Commit patched Info.plist back to main ─────────────────────────────────────────
       # Pushes the version-bumped Info.plist back to main so that main always
       # has correct version strings after a release.
@@ -401,17 +422,36 @@ jobs:
           git push origin "$TAG"
           echo "Pushed tag $TAG (at plist commit $PLIST_SHA)."
 
+  # ── Release job ───────────────────────────────────────────────────────────────────────
+  # Runs on the self-hosted Apple Intelligence runner — required for AFM.
+  # Skipped entirely on dry_run (the publish job never uploads artifacts in that case,
+  # and this job's if: condition gates it explicitly).
+  release:
+    needs: publish
+    if: ${{ inputs.dry_run != 'true' }}
+    runs-on: [self-hosted, macOS, apple-intelligence]
+    timeout-minutes: 15
+
+    steps:
+      # ── Checkout (needed by afm-release-notes-action for git tag history) ─────────────
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+
+      # ── Download build artifacts from publish job ──────────────────────────────────────
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: release-assets
+          path: dist
+
       # ── Generate AFM release notes ─────────────────────────────────────────────────────
-      # Runs only on real releases (not dry runs) and only when no manual release_notes
-      # were provided. Produces release_title and release_body via on-device AFM.
-      # Falls back gracefully — if the step or action fails, the Create GitHub Release
-      # step falls through to --generate-notes as before.
+      # Runs only when no manual release_notes were provided.
+      # Falls back gracefully — if AFM fails, Create GitHub Release uses --generate-notes.
       #
-      # ORDERING: This step intentionally runs AFTER Tag and push, not before.
-      # The afm-release-notes-action calls gh api compare/$PREV_TAG...$TAG internally,
-      # which requires $TAG to exist on origin. The tag is pushed in the previous step
-      # so it is guaranteed to be present by the time this step runs. Moving this step
-      # earlier (before Tag and push) would cause a 404 from the compare API.
+      # ORDERING: Runs AFTER the publish job's Tag and push, so $TAG exists on origin
+      # when afm-release-notes-action calls gh api compare/$PREV_TAG...$TAG internally.
       #
       # ⚠️⚠️⚠️  CRITICAL: KEY ORDER ON uses:-BASED STEPS  ⚠️⚠️⚠️
       #
@@ -437,34 +477,10 @@ jobs:
       # order there. This constraint is specific to `uses:` steps.
       - name: Generate AFM release notes
         id: afm_notes
-        if: inputs.dry_run != 'true' && inputs.release_notes == ''
-        # @main is intentional — runbot-hq/afm-release-notes-action is a first-party
-        # repo we own and control. Pinning to @main means every commit to that repo is
-        # live immediately with no tagging step required. This is safe because:
-        #   1. We are the only contributors — no third-party can push to main.
-        #   2. The action is composite (no docker pull, no npm install at runtime) so
-        #      a bad commit fails fast and visibly, not silently.
-        #   3. continue-on-error: true below means a broken action commit degrades
-        #      gracefully (falls through to --generate-notes) rather than blocking
-        #      the release entirely.
-        # The security guidance to pin third-party actions to a SHA does NOT apply here.
-        #
-        # afm-release-notes-action uses `using: composite` (not docker) so it runs
-        # correctly on this job's macos-26 runner without any special runner label.
-        # The action's own generate.sh requires a self-hosted apple-intelligence runner
-        # to call AFM, but that constraint lives inside the standalone afm-release-notes.yml
-        # caller — not here. This step inherits the caller job's runner, which is fine.
-        #
-        # if: uses bare expression syntax (no ${{ }}) — step-level if: is implicitly
-        # expression context. Wrapping in ${{ }} on a uses:-based step causes a GA
-        # parse error. Do not add ${{ }} here.
+        if: inputs.release_notes == ''
         uses: runbot-hq/afm-release-notes-action@main
         with:
-          tag: ${{ steps.tag.outputs.tag }}
-        # continue-on-error: true is intentional — the self-hosted runner may be offline
-        # or AFM may time out. The Create GitHub Release step always runs regardless and
-        # falls through to --generate-notes when AFM_TITLE/AFM_BODY are empty (skipped
-        # step outputs are empty strings, which the shell logic handles correctly).
+          tag: ${{ needs.publish.outputs.tag }}
         continue-on-error: true
 
       # ── Create GitHub Release ──────────────────────────────────────────────────────────
@@ -487,7 +503,6 @@ jobs:
       # the `gh release create --notes-file` boundary (multi-line bodies with quotes,
       # backticks, or $() would break inline --notes "...").
       - name: Create GitHub Release
-        if: ${{ inputs.dry_run != 'true' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           AFM_TITLE: ${{ steps.afm_notes.outputs.release_title }}
@@ -500,10 +515,10 @@ jobs:
           # build artifact paths), not external or user-supplied content. They do not
           # carry injection risk. Only LLM-derived values (AFM_TITLE, AFM_BODY) and
           # raw user text (MANUAL_NOTES) are routed through env: vars above.
-          TAG="${{ steps.tag.outputs.tag }}"
-          CHANNEL="${{ steps.tag.outputs.channel }}"
-          ZIP="${{ steps.verify.outputs.zip_path }}"
-          SIG="${{ steps.sign.outputs.sig_path }}"
+          TAG="${{ needs.publish.outputs.tag }}"
+          CHANNEL="${{ needs.publish.outputs.channel }}"
+          ZIP=$(find dist -name '*.zip' | head -1)
+          SIG=$(find dist -name '*.sig' | head -1)
 
           FLAGS=()
           if [[ "$CHANNEL" == "beta" ]]; then
