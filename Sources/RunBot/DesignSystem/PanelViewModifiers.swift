@@ -205,6 +205,20 @@ struct BranchTagPillBackground: ViewModifier {
 /// the card content (text, icons, subviews) is unaffected. Applying `.id()` to
 /// `content` would destroy and recreate the entire card subtree, which is wrong.
 ///
+/// WORKAROUND NOTE: `.id(colorScheme)` is a workaround for current SwiftUI behaviour
+/// (as of macOS 26 / SwiftUI 6). SwiftUI's `.fill()` does not currently track dynamic
+/// NSColor closures as a render dependency. If a future SDK version adds that tracking,
+/// this `.id()` becomes redundant (causing a spurious node teardown on every mode switch
+/// with no visual benefit). It is safe to remove if SwiftUI ever resolves dynamic NSColor
+/// lazily with a proper colorScheme dependency — verify with a light↔dark toggle test.
+///
+/// STROKE COVERAGE NOTE: `.id(colorScheme)` is applied only to the fill shape here.
+/// Any call site that adds a separate stroke overlay using an adaptive token would need
+/// the same `.id()` treatment on that overlay shape. As of this writing, `cardRow()` is
+/// the only consumer of `CardRowModifier` and it has no stroke overlay — so no additional
+/// `.id()` coverage is required. If a stroke is added in future, apply `.id(colorScheme)`
+/// to the stroke shape as well.
+///
 /// Teardown cost for a low-frequency mode-switch event is negligible.
 struct CardRowModifier: ViewModifier {
     /// When `true`, uses the elevated surface colour token instead of the base surface.

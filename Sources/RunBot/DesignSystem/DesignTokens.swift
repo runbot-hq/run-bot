@@ -49,6 +49,10 @@ extension Color {
         Color(NSColor(name: nil) { appearance in
             let best = appearance.bestMatch(from: darkAppearanceNames + [.aqua])
             let resolved = darkAppearanceNames.contains(best ?? .aqua) ? dark : light
+            // NOTE: NSColor(resolved) is the lossy step for sub-1% alpha — usingColorSpace
+            // converts color space only and does NOT recover alpha dropped by the bridge above.
+            // This guard catches nil returns (e.g. catalog/pattern colors) — not alpha loss.
+            // All current call sites pass opaque sRGB colors, so both failure modes are unreachable.
             guard let ns = NSColor(resolved).usingColorSpace(.genericRGB) else {
                 // os_log fires in all build configurations (including Release).
                 // assertionFailure is a Debug-only safety net on top.
@@ -92,6 +96,11 @@ extension Color {
         light: (white: Double, alpha: Double),
         dark:  (white: Double, alpha: Double)
     ) -> Color {
+        // PLACEMENT NOTE: this precondition is intentionally OUTSIDE the NSColor closure.
+        // It fires when adaptiveGrayscale(_:_:) is called (i.e. when the static var token
+        // is accessed), not inside the provider which runs lazily per AppKit paint/resolve.
+        // This is correct: out-of-range inputs are a programmer error caught at call time,
+        // not an appearance-resolution error caught at render time.
         precondition(
             (0...1).contains(light.white)  && (0...1).contains(light.alpha) &&
             (0...1).contains(dark.white)   && (0...1).contains(dark.alpha),
