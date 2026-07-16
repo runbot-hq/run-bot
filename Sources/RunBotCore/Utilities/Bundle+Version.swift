@@ -57,6 +57,15 @@ extension Bundle {
     /// *the currently installed binary*. The two answer different questions and must
     /// not be conflated. See issue #2085.
     ///
+    /// ## Versioning scheme assumption
+    ///
+    /// The detection relies on `contains("-")`, which correctly matches this project's
+    /// named pre-release identifiers (`-beta.N`, `-alpha.N`, `-rc.N`). Note that a
+    /// numeric-only pre-release identifier (e.g. `"1.0.0-0"`, valid per the semver
+    /// spec) would also return `true` here. This is not a current concern — the project
+    /// does not use numeric-only tags — but if the versioning scheme ever evolves beyond
+    /// named identifiers, this implementation should be revisited.
+    ///
     /// ## Fallback edge case
     ///
     /// `rbVersionString` has a `CFBundleShortVersionString` middle fallback that macOS
