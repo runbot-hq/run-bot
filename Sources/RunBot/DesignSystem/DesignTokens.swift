@@ -31,16 +31,20 @@ extension Color {
     /// Returns a color that resolves to `light` in light-appearance contexts and `dark` in dark-appearance contexts.
     /// Covers all dark-family appearances including vibrant dark and high-contrast variants.
     ///
-    /// Implementation note: the dynamic `NSColor` provider converts the resolved SwiftUI `Color`
-    /// to `NSColor` via `usingColorSpace(.genericRGB)`. All callers pass plain sRGB `Color` values
-    /// (status colors, text colors) whose concrete color space is always expressible in genericRGB,
-    /// so `usingColorSpace` will never return nil in practice. If it somehow did — e.g. due to a
-    /// future refactor introducing a catalog or pattern color — the assertionFailure surfaces the
-    /// problem immediately in DEBUG rather than silently falling back to the lossy `NSColor(swiftUIColor)`
-    /// path that caused #2098.
+    /// Implementation note: inside the dynamic `NSColor` provider, `NSColor(resolved)` converts
+    /// the SwiftUI `Color` to `NSColor` via AppKit's init(_ color: Color) bridge. **This bridge is
+    /// itself the lossy step for sub-1% alpha** — it can silently drop near-zero alpha values before
+    /// `usingColorSpace` is ever called. `usingColorSpace(.genericRGB)` converts color space only;
+    /// it does not recover alpha that was already dropped by the bridge.
     ///
-    /// For tokens where sub-1% alpha is critical (surface fills), prefer `adaptiveGrayscale` instead,
-    /// which bypasses the SwiftUI `Color` intermediate entirely.
+    /// The real safeguard is that all `adaptive(light:dark:)` call sites pass **opaque** sRGB
+    /// `Color` values (status colors, text colors) where alpha loss is irrelevant. If a call site
+    /// ever needs sub-1% alpha, it must use `adaptiveGrayscale` instead — which constructs
+    /// `NSColor(white:alpha:)` directly, bypassing the SwiftUI bridge entirely.
+    ///
+    /// `usingColorSpace` guards against a nil return (e.g. catalog or pattern colors that can't
+    /// be expressed in genericRGB). If it returns nil — which is unreachable with current sRGB
+    /// call sites — `logger.fault` fires in all builds and `assertionFailure` fires in Debug.
     static func adaptive(light: Color, dark: Color) -> Color {
         Color(NSColor(name: nil) { appearance in
             let best = appearance.bestMatch(from: darkAppearanceNames + [.aqua])
