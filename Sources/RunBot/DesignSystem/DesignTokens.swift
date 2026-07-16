@@ -1,6 +1,7 @@
 // DesignTokens.swift
 // RunBot
 import AppKit
+import OSLog
 import RunBotCore
 import SwiftUI
 
@@ -23,6 +24,8 @@ private let darkAppearanceNames: [NSAppearance.Name] = [
     .accessibilityHighContrastVibrantDark
 ]
 
+private let logger = Logger(subsystem: "com.runbot-hq.RunBot", category: "DesignTokens")
+
 /// Helpers for creating appearance-adaptive `Color` values that respond to light/dark mode.
 extension Color {
     /// Returns a color that resolves to `light` in light-appearance contexts and `dark` in dark-appearance contexts.
@@ -43,6 +46,12 @@ extension Color {
             let best = appearance.bestMatch(from: darkAppearanceNames + [.aqua])
             let resolved = darkAppearanceNames.contains(best ?? .aqua) ? dark : light
             guard let ns = NSColor(resolved).usingColorSpace(.genericRGB) else {
+                // os_log fires in all build configurations (including Release).
+                // assertionFailure is a Debug-only safety net on top.
+                logger.fault(
+                    "Color.adaptive: usingColorSpace(.genericRGB) returned nil — surface will render clear. " +
+                    "Ensure all adaptive(light:dark:) call sites pass plain sRGB Color values."
+                )
                 assertionFailure(
                     "Color.adaptive: could not convert resolved color to genericRGB. " +
                     "Ensure all adaptive(light:dark:) call sites pass plain sRGB Color values."
@@ -145,8 +154,9 @@ extension Color {
     // values at runtime. Swift does not allow stored static properties with
     // `#available` branching — the compiler requires a computed property for
     // runtime OS checks. `static var` is therefore required, not a style choice.
-    // The `adaptiveGrayscale` closure is allocated once at token-definition time
-    // (i.e. first access), not once per render call — this is not a hot path.
+    // `adaptiveGrayscale` constructs a new NSColor closure on each access of these
+    // static var tokens. Cost is negligible (four range-checks + closure alloc),
+    // but these are not cached — static let is not possible with #available branching.
 
     /// Base panel background surface.
     /// macOS 26+: near-zero opacity so glass backdrop shows through.
