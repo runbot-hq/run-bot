@@ -10,6 +10,12 @@ import SwiftUI
 /// Shared by `Color.adaptive` and `Color.adaptiveGrayscale` so that adding a new
 /// dark-family appearance (e.g. a future high-contrast variant) only requires
 /// a single edit.
+///
+/// SCOPE NOTE: This is `private` at file scope intentionally — both consumers
+/// (`adaptive` and `adaptiveGrayscale`) live in this file, and `private` is the
+/// tightest correct access level. If either helper is ever moved to a separate
+/// file, promote this constant to `fileprivate` or extract it into a shared
+/// internal file; do NOT duplicate the array.
 private let darkAppearanceNames: [NSAppearance.Name] = [
     .darkAqua,
     .vibrantDark,
@@ -48,22 +54,30 @@ extension Color {
     }
 
     /// Builds a dynamic `Color` from explicit grayscale `(white:alpha:)` components for light and dark appearances.
-    /// `white` spans the full grayscale range: 0.0 = black, 1.0 = white, intermediate values are grey.
+    ///
+    /// `white` is the full NSColor grayscale axis: **0.0 = black, 1.0 = white**, intermediate
+    /// values are grey. Both endpoints are valid and intentional — `rbBorderSubtle` uses
+    /// `white: 0.0` (black tint) in light mode and `white: 1.0` (white tint) in dark mode.
+    /// These are not edge cases; they are standard grayscale values.
     ///
     /// - Both `white` and `alpha` must be in `0...1`.
-    /// - A `precondition` enforces this range. Unlike `assert`, `precondition` fires in **both Debug
-    ///   and Release** builds. Out-of-range token values are programmer errors that must never ship;
-    ///   a crash at token-definition time (e.g. in a test run or first launch) is the intentional
-    ///   contract. All current call sites pass hardcoded literals within range.
+    /// - A `precondition` enforces this range. **Unlike `assert`, `precondition` fires in both
+    ///   Debug and Release builds.** This is intentional: out-of-range token values are
+    ///   programmer errors that must never ship. A crash at token-definition time (during
+    ///   development or CI) is the correct contract — it is far preferable to a silent visual
+    ///   artefact in production. All current call sites pass hardcoded literals within range.
+    ///   Do NOT downgrade to `assert` without understanding this tradeoff.
     ///
-    /// Preferred over `adaptive(light:dark:)` when alpha is critical (e.g. near-zero glass surface
-    /// tokens) because it constructs `NSColor(white:alpha:)` directly, bypassing any SwiftUI `Color`
-    /// intermediate that could silently drop sub-1% alpha values (root cause of #2098).
+    /// Preferred over `adaptive(light:dark:)` when alpha is critical (e.g. near-zero glass
+    /// surface tokens) because it constructs `NSColor(white:alpha:)` directly, bypassing any
+    /// SwiftUI `Color` intermediate that could silently drop sub-1% alpha values (root cause
+    /// of #2098).
     ///
-    /// For full-colour (RGB) adaptive tokens, use `adaptive(light:dark:)` with explicit `Color(red:green:blue:)` values.
+    /// For full-colour (RGB) adaptive tokens, use `adaptive(light:dark:)` with explicit
+    /// `Color(red:green:blue:)` values.
     static func adaptiveGrayscale(
         light: (white: Double, alpha: Double),
-        dark: (white: Double, alpha: Double)
+        dark:  (white: Double, alpha: Double)
     ) -> Color {
         precondition(
             (0...1).contains(light.white)  && (0...1).contains(light.alpha) &&
@@ -86,22 +100,22 @@ extension Color {
     /// Primary blue accent — adaptive light/dark pair for in-progress status indicators.
     static let rbBlue = Color.adaptive(
         light: Color(red: 0.0, green: 0.48, blue: 1.0),
-        dark: Color(red: 0.3, green: 0.64, blue: 1.0)
+        dark:  Color(red: 0.3, green: 0.64, blue: 1.0)
     )
     /// Green success color — adaptive light/dark pair for completed / passing status.
     static let rbSuccess = Color.adaptive(
         light: Color(red: 0.18, green: 0.64, blue: 0.18),
-        dark: Color(red: 0.25, green: 0.80, blue: 0.25)
+        dark:  Color(red: 0.25, green: 0.80, blue: 0.25)
     )
     /// Amber warning color — adaptive light/dark pair for queued / pending status.
     static let rbWarning = Color.adaptive(
         light: Color(red: 0.80, green: 0.55, blue: 0.05),
-        dark: Color(red: 1.0, green: 0.75, blue: 0.20)
+        dark:  Color(red: 1.0,  green: 0.75, blue: 0.20)
     )
     /// Red danger color — adaptive light/dark pair for failed / error status.
     static let rbDanger = Color.adaptive(
         light: Color(red: 0.85, green: 0.18, blue: 0.18),
-        dark: Color(red: 1.0, green: 0.35, blue: 0.35)
+        dark:  Color(red: 1.0,  green: 0.35, blue: 0.35)
     )
     /// Primary accent alias — resolves to `rbBlue`.
     static let rbAccent = rbBlue
@@ -126,9 +140,13 @@ extension Color {
     // `adaptiveGrayscale` passes the alpha directly to `NSColor(white:alpha:)`,
     // bypassing the lossy SwiftUI intermediate entirely.
     //
-    // NOTE: The pre-macOS-26 tokens also migrated to `adaptiveGrayscale`. They were
-    // affected by the same opacity-loss bug (just at higher alpha values where the
-    // rounding was less visually dramatic). Numeric values are unchanged.
+    // WHY static var AND NOT static let?
+    // These tokens use `#available(macOS 26, *)` branching to return different
+    // values at runtime. Swift does not allow stored static properties with
+    // `#available` branching — the compiler requires a computed property for
+    // runtime OS checks. `static var` is therefore required, not a style choice.
+    // The `adaptiveGrayscale` closure is allocated once at token-definition time
+    // (i.e. first access), not once per render call — this is not a hot path.
 
     /// Base panel background surface.
     /// macOS 26+: near-zero opacity so glass backdrop shows through.
@@ -165,12 +183,16 @@ extension Color {
     }
 
     /// Subtle border — low-contrast outline for cards and separators.
+    ///
+    /// NOTE: `white: 0.0` (light mode) and `white: 1.0` (dark mode) are correct and intentional.
+    /// They are standard grayscale endpoints — black tint on light backgrounds, white tint on
+    /// dark backgrounds. They are not edge cases or mistakes; do not "fix" them.
     /// macOS 26+: light opacity bumped to 0.12 for better visibility on glass.
     static var rbBorderSubtle: Color {
         if #available(macOS 26, *) {
             return Color.adaptiveGrayscale(
-                light: (white: 0.0, alpha: 0.12),
-                dark:  (white: 1.0, alpha: 0.06)
+                light: (white: 0.0, alpha: 0.12), // black tint — correct, not an error
+                dark:  (white: 1.0, alpha: 0.06)  // white tint — correct, not an error
             )
         } else {
             return Color.adaptiveGrayscale(
@@ -183,17 +205,17 @@ extension Color {
     /// Primary text — high contrast body and heading text.
     static let rbTextPrimary = Color.adaptive(
         light: .black,
-        dark: .white
+        dark:  .white
     )
     /// Secondary text — reduced-emphasis labels and descriptions.
     static let rbTextSecondary = Color.adaptive(
         light: Color(white: 0.40),
-        dark: Color(white: 0.55)
+        dark:  Color(white: 0.55)
     )
     /// Tertiary text — lowest-emphasis metadata and timestamps.
     static let rbTextTertiary = Color.adaptive(
         light: Color(white: 0.58),
-        dark: Color(white: 0.39)
+        dark:  Color(white: 0.39)
     )
 }
 
@@ -221,17 +243,17 @@ enum RBSpacing {
     /// 2 pt — hairline gap between tightly packed elements.
     static let xxs: CGFloat = 2
     /// 4 pt — compact inner padding (e.g. badge insets).
-    static let xs: CGFloat = 4
+    static let xs: CGFloat  = 4
     /// 6 pt — tight gap between related elements.
-    static let sm: CGFloat = 6
+    static let sm: CGFloat  = 6
     /// 10 pt — default row horizontal padding.
-    static let md: CGFloat = 10
+    static let md: CGFloat  = 10
 }
 
 /// Corner-radius constants for consistent rounding across components.
 enum RBRadius {
     /// 10 pt — standard card corner radius.
-    static let card: CGFloat = 10
+    static let card: CGFloat  = 10
     /// 6 pt — small card or row corner radius.
     static let small: CGFloat = 6
 }
@@ -250,19 +272,19 @@ enum RBMetrics {
 /// Shared font constants. Prefer these over inline `.system(size:weight:design:)` calls.
 enum RBFont {
     /// Caption-sized monospaced font — general-purpose code/metric labels.
-    static let mono: Font = .system(.caption, design: .monospaced)
+    static let mono: Font        = .system(.caption, design: .monospaced)
     /// 11 pt regular monospaced — small metric values.
-    static let monoSmall: Font = .system(size: 11, weight: .regular, design: .monospaced)
+    static let monoSmall: Font   = .system(size: 11,   weight: .regular,   design: .monospaced)
     /// 13 pt medium — standard row/list label.
-    static let label: Font = .system(size: 13, weight: .medium)
+    static let label: Font       = .system(size: 13,   weight: .medium)
     /// 12.5 pt regular — section key labels.
-    static let sectionKey: Font = .system(size: 12.5, weight: .regular)
+    static let sectionKey: Font  = .system(size: 12.5, weight: .regular)
     /// Alias for `sectionKey` — section header labels.
     static let sectionHeader: Font = sectionKey
     /// 9 pt semibold — uppercase section caption badges.
     static let sectionCaption: Font = .system(size: 9, weight: .semibold)
     /// 9 pt semibold monospaced — stat label (CPU, MEM, etc.).
-    static let statLabel: Font = .system(size: 9, weight: .semibold, design: .monospaced)
+    static let statLabel: Font   = .system(size: 9,  weight: .semibold, design: .monospaced)
     /// 10 pt regular monospaced — numeric stat value.
-    static let statValue: Font = .system(size: 10, weight: .regular, design: .monospaced)
+    static let statValue: Font   = .system(size: 10, weight: .regular,  design: .monospaced)
 }

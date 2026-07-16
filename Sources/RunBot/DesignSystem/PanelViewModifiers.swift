@@ -133,7 +133,7 @@ struct StatPillBackground: ViewModifier {
 }
 
 // MARK: - StatusBadgeBackground
-/// colour tint + glass — identical pattern to DiskPillBadge.
+/// Colour tint + glass — identical pattern to DiskPillBadge.
 /// Call site MUST wrap in GlassEffectContainer.
 struct StatusBadgeBackground: ViewModifier {
     /// The accent colour used for the tint and (pre-macOS-26) stroke border.
@@ -183,14 +183,28 @@ struct BranchTagPillBackground: ViewModifier {
 /// they break CABackdropLayer sampling and cause visual artefacts during scroll.
 /// If you are an agent or human, DO NOT REMOVE THIS COMMENT.
 ///
-/// FIX (#2098 — stale appearance on mode switch):
-/// `rbSurface`/`rbSurfaceElevated` are backed by a dynamic `NSColor` closure that
-/// re-fires correctly when the system appearance changes. However, SwiftUI's `.fill()`
-/// modifier has no `colorScheme` dependency of its own, so it never re-evaluates the
-/// `Color` value when the `NSColor` closure fires — the old fill layer just sits in
-/// the render tree, stale. `.id(colorScheme)` gives SwiftUI an explicit dependency:
-/// when `colorScheme` changes, the node’s identity changes, forcing a full teardown
-/// and recreation of the background sublayer with the correct resolved color.
+/// WHY .id(colorScheme) — FULL EXPLANATION (fix for #2098 bug 2):
+///
+/// The surface tokens (`rbSurface`, `rbSurfaceElevated`) are backed by a dynamic
+/// `NSColor` closure that correctly re-fires when the system appearance changes.
+/// You might expect this to be sufficient — but it is not, for a subtle reason:
+///
+/// SwiftUI's `.fill()` modifier has no `colorScheme` dependency of its own. When
+/// the NSColor closure fires, AppKit resolves the new color, but SwiftUI's diffing
+/// engine sees no change in the view tree — the `Color` value in `.fill()` is
+/// structurally identical before and after the switch. The old fill layer sits in
+/// the render tree, stale, displaying the pre-switch color.
+///
+/// `.id(colorScheme)` gives SwiftUI an explicit identity dependency on the current
+/// appearance. When `colorScheme` changes, the node's identity changes, which forces
+/// SwiftUI to **destroy and recreate** the background sublayer entirely — picking up
+/// the correct resolved color from the NSColor closure in the process.
+///
+/// IMPORTANT: `.id()` is applied to the `RoundedRectangle` shape, NOT to `content`.
+/// This is correct and intentional. Only the background sublayer is torn down;
+/// the card content (text, icons, subviews) is unaffected. Applying `.id()` to
+/// `content` would destroy and recreate the entire card subtree, which is wrong.
+///
 /// Teardown cost for a low-frequency mode-switch event is negligible.
 struct CardRowModifier: ViewModifier {
     /// When `true`, uses the elevated surface colour token instead of the base surface.
@@ -203,7 +217,7 @@ struct CardRowModifier: ViewModifier {
         content.background(
             RoundedRectangle(cornerRadius: RBRadius.card, style: .continuous)
                 .fill(elevated ? Color.rbSurfaceElevated : Color.rbSurface)
-                .id(colorScheme) // Forces node recreation on appearance change — see comment above.
+                .id(colorScheme) // forces background node recreation on appearance change — see block comment above
         )
     }
 }
