@@ -6,50 +6,58 @@ import SwiftUI
 
 // MARK: - Adaptive Color Helper
 
+/// The set of NSAppearance names that map to "dark" mode.
+/// Shared by `Color.adaptive` and `Color.adaptiveRGBA` so that adding a new
+/// dark-family appearance (e.g. a future high-contrast variant) only requires
+/// a single edit.
+private let darkAppearanceNames: [NSAppearance.Name] = [
+    .darkAqua,
+    .vibrantDark,
+    .accessibilityHighContrastDarkAqua,
+    .accessibilityHighContrastVibrantDark
+]
+
 /// Helpers for creating appearance-adaptive `Color` values that respond to light/dark mode.
 extension Color {
     /// Returns a color that resolves to `light` in light-appearance contexts and `dark` in dark-appearance contexts.
     /// Covers all dark-family appearances including vibrant dark and high-contrast variants.
     ///
-    /// Implementation note: we build the dynamic color entirely inside the `NSColor` provider using
-    /// `NSColor(white:alpha:)` directly, rather than converting a SwiftUI `Color` to `NSColor`.
-    /// The SwiftUI `Color → NSColor` round-trip does **not** reliably preserve sub-1% opacity values
-    /// (e.g. `opacity(0.04)`), which caused surfaces to appear fully opaque in light mode (#2098).
+    /// Implementation note: the dynamic `NSColor` provider converts the resolved SwiftUI `Color`
+    /// to `NSColor` via `usingColorSpace(.genericRGB)`. All callers pass plain sRGB `Color` values
+    /// (status colors, text colors) whose concrete color space is always expressible in genericRGB,
+    /// so `usingColorSpace` will never return nil in practice. If it somehow did — e.g. due to a
+    /// future refactor introducing a catalog or pattern color — the assertionFailure surfaces the
+    /// problem immediately in DEBUG rather than silently falling back to the lossy `NSColor(swiftUIColor)`
+    /// path that caused #2098.
+    ///
+    /// For tokens where sub-1% alpha is critical (surface fills), prefer `adaptiveRGBA` instead,
+    /// which bypasses the SwiftUI `Color` intermediate entirely.
     static func adaptive(light: Color, dark: Color) -> Color {
         Color(NSColor(name: nil) { appearance in
-            let darkMatches: [NSAppearance.Name] = [
-                .darkAqua,
-                .vibrantDark,
-                .accessibilityHighContrastDarkAqua,
-                .accessibilityHighContrastVibrantDark
-            ]
-            let best = appearance.bestMatch(from: darkMatches + [.aqua])
-            let resolved = darkMatches.contains(best ?? .aqua) ? dark : light
-            // Convert via cgColor to avoid the SwiftUI Color → NSColor opacity-loss bug.
-            // Falls back to the direct NSColor initialiser if cgColor is unavailable.
-            if let cg = NSColor(resolved).usingColorSpace(.genericRGB) {
-                return cg
+            let best = appearance.bestMatch(from: darkAppearanceNames + [.aqua])
+            let resolved = darkAppearanceNames.contains(best ?? .aqua) ? dark : light
+            guard let ns = NSColor(resolved).usingColorSpace(.genericRGB) else {
+                assertionFailure(
+                    "Color.adaptive: could not convert resolved color to genericRGB. " +
+                    "Ensure all adaptive(light:dark:) call sites pass plain sRGB Color values."
+                )
+                return .clear
             }
-            return NSColor(resolved)
+            return ns
         })
     }
 
-    /// Builds a dynamic `Color` from explicit RGBA components for light and dark appearances.
-    /// Preferred over `adaptive(light:dark:)` when the opacity is critical (e.g. near-zero glass
-    /// surface tokens) because it avoids any SwiftUI `Color` intermediate that could lose alpha.
+    /// Builds a dynamic `Color` from explicit greyscale + alpha components for light and dark appearances.
+    /// Preferred over `adaptive(light:dark:)` when alpha is critical (e.g. near-zero glass surface tokens)
+    /// because it constructs `NSColor(white:alpha:)` directly, bypassing any SwiftUI `Color` intermediate
+    /// that could silently drop sub-1% alpha values (root cause of #2098).
     static func adaptiveRGBA(
         light: (white: Double, alpha: Double),
         dark: (white: Double, alpha: Double)
     ) -> Color {
         Color(NSColor(name: nil) { appearance in
-            let darkMatches: [NSAppearance.Name] = [
-                .darkAqua,
-                .vibrantDark,
-                .accessibilityHighContrastDarkAqua,
-                .accessibilityHighContrastVibrantDark
-            ]
-            let best = appearance.bestMatch(from: darkMatches + [.aqua])
-            let components = darkMatches.contains(best ?? .aqua) ? dark : light
+            let best = appearance.bestMatch(from: darkAppearanceNames + [.aqua])
+            let components = darkAppearanceNames.contains(best ?? .aqua) ? dark : light
             return NSColor(white: components.white, alpha: components.alpha)
         })
     }
@@ -101,6 +109,10 @@ extension Color {
     // dropped the alpha and rendered surfaces fully opaque in light mode.
     // `adaptiveRGBA` passes the alpha directly to `NSColor(white:alpha:)`,
     // bypassing the lossy SwiftUI intermediate entirely.
+    //
+    // NOTE: The pre-macOS-26 tokens also migrated to `adaptiveRGBA`. They were
+    // affected by the same opacity-loss bug (just at higher alpha values where the
+    // rounding was less visually dramatic). Numeric values are unchanged.
 
     /// Base panel background surface.
     /// macOS 26+: near-zero opacity so glass backdrop shows through.
