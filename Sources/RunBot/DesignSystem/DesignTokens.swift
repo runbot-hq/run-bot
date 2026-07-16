@@ -7,7 +7,7 @@ import SwiftUI
 // MARK: - Adaptive Color Helper
 
 /// The set of NSAppearance names that map to "dark" mode.
-/// Shared by `Color.adaptive` and `Color.adaptiveWhiteAlpha` so that adding a new
+/// Shared by `Color.adaptive` and `Color.adaptiveGrayscale` so that adding a new
 /// dark-family appearance (e.g. a future high-contrast variant) only requires
 /// a single edit.
 private let darkAppearanceNames: [NSAppearance.Name] = [
@@ -30,7 +30,7 @@ extension Color {
     /// problem immediately in DEBUG rather than silently falling back to the lossy `NSColor(swiftUIColor)`
     /// path that caused #2098.
     ///
-    /// For tokens where sub-1% alpha is critical (surface fills), prefer `adaptiveWhiteAlpha` instead,
+    /// For tokens where sub-1% alpha is critical (surface fills), prefer `adaptiveGrayscale` instead,
     /// which bypasses the SwiftUI `Color` intermediate entirely.
     static func adaptive(light: Color, dark: Color) -> Color {
         Color(NSColor(name: nil) { appearance in
@@ -47,25 +47,28 @@ extension Color {
         })
     }
 
-    /// Builds a dynamic `Color` from explicit `(white:alpha:)` components for light and dark appearances.
+    /// Builds a dynamic `Color` from explicit grayscale `(white:alpha:)` components for light and dark appearances.
+    /// `white` spans the full grayscale range: 0.0 = black, 1.0 = white, intermediate values are grey.
     ///
-    /// Both `white` and `alpha` must be in the range `0...1`. A `precondition` enforces this at
-    /// token-definition time (caught during debug/test runs) rather than silently clamping, which
-    /// would produce a confusing visual artefact with no feedback.
+    /// - Both `white` and `alpha` must be in `0...1`.
+    /// - A `precondition` enforces this range. Unlike `assert`, `precondition` fires in **both Debug
+    ///   and Release** builds. Out-of-range token values are programmer errors that must never ship;
+    ///   a crash at token-definition time (e.g. in a test run or first launch) is the intentional
+    ///   contract. All current call sites pass hardcoded literals within range.
     ///
     /// Preferred over `adaptive(light:dark:)` when alpha is critical (e.g. near-zero glass surface
     /// tokens) because it constructs `NSColor(white:alpha:)` directly, bypassing any SwiftUI `Color`
     /// intermediate that could silently drop sub-1% alpha values (root cause of #2098).
     ///
     /// For full-colour (RGB) adaptive tokens, use `adaptive(light:dark:)` with explicit `Color(red:green:blue:)` values.
-    static func adaptiveWhiteAlpha(
+    static func adaptiveGrayscale(
         light: (white: Double, alpha: Double),
         dark: (white: Double, alpha: Double)
     ) -> Color {
         precondition(
             (0...1).contains(light.white)  && (0...1).contains(light.alpha) &&
             (0...1).contains(dark.white)   && (0...1).contains(dark.alpha),
-            "adaptiveWhiteAlpha: white and alpha components must be in 0...1. " +
+            "adaptiveGrayscale: white and alpha components must be in 0...1. " +
             "light=\(light) dark=\(dark)"
         )
         return Color(NSColor(name: nil) { appearance in
@@ -116,14 +119,14 @@ extension Color {
     // ❌ NEVER switch PanelChrome material back to .popover — warm brown tint.
     // If you are an agent or human, DO NOT REMOVE THIS COMMENT.
     //
-    // FIX (#2098): Surface tokens now use `adaptiveWhiteAlpha` instead of
+    // FIX (#2098): Surface tokens now use `adaptiveGrayscale` instead of
     // `adaptive(light:dark:)` + `.opacity()`. The old path converted a SwiftUI
     // `Color` (already carrying sub-1% opacity) to `NSColor`, which silently
     // dropped the alpha and rendered surfaces fully opaque in light mode.
-    // `adaptiveWhiteAlpha` passes the alpha directly to `NSColor(white:alpha:)`,
+    // `adaptiveGrayscale` passes the alpha directly to `NSColor(white:alpha:)`,
     // bypassing the lossy SwiftUI intermediate entirely.
     //
-    // NOTE: The pre-macOS-26 tokens also migrated to `adaptiveWhiteAlpha`. They were
+    // NOTE: The pre-macOS-26 tokens also migrated to `adaptiveGrayscale`. They were
     // affected by the same opacity-loss bug (just at higher alpha values where the
     // rounding was less visually dramatic). Numeric values are unchanged.
 
@@ -132,12 +135,12 @@ extension Color {
     /// Pre-26: standard vibrancy opacities.
     static var rbSurface: Color {
         if #available(macOS 26, *) {
-            return Color.adaptiveWhiteAlpha(
+            return Color.adaptiveGrayscale(
                 light: (white: 0.95, alpha: 0.04),
                 dark:  (white: 0.11, alpha: 0.04)
             )
         } else {
-            return Color.adaptiveWhiteAlpha(
+            return Color.adaptiveGrayscale(
                 light: (white: 0.95, alpha: 0.88),
                 dark:  (white: 0.11, alpha: 0.45)
             )
@@ -149,12 +152,12 @@ extension Color {
     /// Pre-26: standard vibrancy opacities.
     static var rbSurfaceElevated: Color {
         if #available(macOS 26, *) {
-            return Color.adaptiveWhiteAlpha(
+            return Color.adaptiveGrayscale(
                 light: (white: 0.88, alpha: 0.05),
                 dark:  (white: 0.15, alpha: 0.05)
             )
         } else {
-            return Color.adaptiveWhiteAlpha(
+            return Color.adaptiveGrayscale(
                 light: (white: 0.88, alpha: 0.92),
                 dark:  (white: 0.15, alpha: 0.25)
             )
@@ -165,12 +168,12 @@ extension Color {
     /// macOS 26+: light opacity bumped to 0.12 for better visibility on glass.
     static var rbBorderSubtle: Color {
         if #available(macOS 26, *) {
-            return Color.adaptiveWhiteAlpha(
+            return Color.adaptiveGrayscale(
                 light: (white: 0.0, alpha: 0.12),
                 dark:  (white: 1.0, alpha: 0.06)
             )
         } else {
-            return Color.adaptiveWhiteAlpha(
+            return Color.adaptiveGrayscale(
                 light: (white: 0.0, alpha: 0.08),
                 dark:  (white: 1.0, alpha: 0.06)
             )
