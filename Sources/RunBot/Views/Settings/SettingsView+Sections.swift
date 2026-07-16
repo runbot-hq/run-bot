@@ -262,12 +262,19 @@ internal extension SettingsView {
 
     // MARK: - Beta channel row
     /// Toggle row that opts the user into pre-release (beta) builds for the in-app update check.
+    ///
+    /// ## Why the subtitle mentions the installed version
+    /// The toggle controls which *future* releases are offered by `UpdateChecker`. It has
+    /// no effect on the version already installed. When the user is running a beta build
+    /// and turns this toggle off, the About section still shows the beta version string
+    /// because that is literally what is installed — this is correct behaviour, not a bug.
+    /// The subtitle wording makes this explicit so users are not confused. See issue #2085.
     var betaChannelRow: some View {
         let bindableBeta = Bindable(settings)
         return HStack {
             VStack(alignment: .leading, spacing: 2) {
                 Text("Beta channel").font(.system(size: 12))
-                Text("Receive pre-release builds for early access to new features. Takes effect on the next update check.")
+                Text("Receive pre-release builds for early access to new features. Only affects which updates are offered — does not change your currently installed version.")
                     .font(.caption2).foregroundColor(Color.rbTextSecondary)
             }
             Spacer()
@@ -279,13 +286,26 @@ internal extension SettingsView {
 
     // MARK: - About
     /// App version, build number, and update available banner (when a newer release exists).
+    ///
+    /// The "Pre-release build" caption is shown whenever the installed binary carries a
+    /// pre-release semver suffix (e.g. `0.7.3-beta.14`). This is independent of the
+    /// `betaChannel` preference — the toggle controls future update offers, not the
+    /// currently running binary. See `Bundle.isPreReleaseBuild` and issue #2085.
     var aboutSection: some View {
         VStack(alignment: .leading, spacing: 0) {
             Text("About").font(RBFont.sectionHeader).foregroundColor(Color.rbTextSecondary)
                 .padding(.horizontal, RBSpacing.md).padding(.top, 8).padding(.bottom, 4)
             HStack {
-                Text("Version").font(.system(size: 12)); Spacer()
-                Text("\(appVersion) (\(appBuild))").font(.system(size: 12)).foregroundColor(Color.rbTextSecondary)
+                Text("Version").font(.system(size: 12))
+                Spacer()
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text("\(appVersion) (\(appBuild))").font(.system(size: 12)).foregroundColor(Color.rbTextSecondary)
+                    if Bundle.main.isPreReleaseBuild {
+                        Text("Pre-release build")
+                            .font(.caption2)
+                            .foregroundColor(Color.rbTextTertiary)
+                    }
+                }
             }
             .padding(.horizontal, RBSpacing.md).padding(.vertical, 5)
             if runnerState.currentPhase != .idle {

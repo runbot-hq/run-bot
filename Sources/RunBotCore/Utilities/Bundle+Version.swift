@@ -46,6 +46,27 @@ extension Bundle {
         return infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.0.0"
     }
 
+    /// Returns `true` when the running bundle is a pre-release build.
+    ///
+    /// A build is considered pre-release when its `rbVersionString` contains a
+    /// hyphenated pre-release identifier, e.g. `0.7.3-beta.14`, `1.0.0-alpha.1`,
+    /// or `2.0.0-rc.2`. Stable builds (`1.0.0`, `0.7.3`) return `false`.
+    ///
+    /// This property is intentionally independent of `AppPreferencesStore.betaChannel`:
+    /// the toggle controls *which future updates are offered*; this property describes
+    /// *the currently installed binary*. The two answer different questions and must
+    /// not be conflated. See issue #2085.
+    ///
+    /// ## Usage
+    /// ```swift
+    /// if Bundle.main.isPreReleaseBuild {
+    ///     Text("Pre-release build").font(.caption2)
+    /// }
+    /// ```
+    public var isPreReleaseBuild: Bool {
+        rbVersionString.contains("-")
+    }
+
     /// Returns `true` when `version` is strictly newer than the running bundle's
     /// `RBVersionString`.
     ///
