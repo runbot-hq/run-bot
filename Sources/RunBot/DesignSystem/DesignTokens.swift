@@ -57,8 +57,7 @@ extension Color {
                 // os_log fires in all build configurations (including Release).
                 // assertionFailure is a Debug-only safety net on top.
                 logger.fault(
-                    "Color.adaptive: usingColorSpace(.genericRGB) returned nil — surface will render clear. " +
-                    "Ensure all adaptive(light:dark:) call sites pass plain sRGB Color values."
+                    "Color.adaptive: usingColorSpace(.genericRGB) returned nil — surface will render clear. Ensure all adaptive(light:dark:) call sites pass plain sRGB Color values."
                 )
                 assertionFailure(
                     "Color.adaptive: could not convert resolved color to genericRGB. " +
