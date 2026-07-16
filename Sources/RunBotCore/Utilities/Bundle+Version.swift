@@ -52,30 +52,43 @@ extension Bundle {
     /// hyphenated pre-release identifier, e.g. `0.7.3-beta.14`, `1.0.0-alpha.1`,
     /// or `2.0.0-rc.2`. Stable builds (`1.0.0`, `0.7.3`) return `false`.
     ///
-    /// This property is intentionally independent of `AppPreferencesStore.betaChannel`:
-    /// the toggle controls *which future updates are offered*; this property describes
-    /// *the currently installed binary*. The two answer different questions and must
-    /// not be conflated. See issue #2085.
+    /// ## Why this is independent of `AppPreferencesStore.betaChannel`
+    ///
+    /// REVIEWER: Do NOT conflate this property with `betaChannel`. They answer
+    /// different questions and must remain separate:
+    /// - `isPreReleaseBuild` — describes the *currently installed binary*. It is
+    ///   immutable at runtime; the binary either is or isn't a pre-release build.
+    /// - `betaChannel` — controls *which future updates are offered* by `UpdateChecker`.
+    ///   Toggling it off does not change what is installed. See issue #2085.
+    ///
+    /// ## Why the call site uses `Bundle.main.isPreReleaseBuild`, not `appVersion.contains("-")`
+    ///
+    /// REVIEWER: `aboutSection` in `SettingsView+Sections.swift` uses this property
+    /// directly rather than re-implementing `contains("-")` inline against `appVersion`.
+    /// Both produce identical runtime output today (both read `rbVersionString`), but
+    /// this property is the purpose-built API: the detection logic, all edge case docs,
+    /// and the versioning scheme assumption live here in one place. Duplicating the check
+    /// inline against `appVersion` would create two sources of truth with no benefit —
+    /// `appVersion` is a plain computed var on the view, not an injected test seam, and
+    /// there is no architecture today where it would diverge from `rbVersionString`.
+    /// This was reviewed and settled across multiple rounds on PR #2108.
     ///
     /// ## Versioning scheme assumption
     ///
-    /// The detection relies on `contains("-")`, which correctly matches this project's
-    /// named pre-release identifiers (`-beta.N`, `-alpha.N`, `-rc.N`). Note that a
-    /// numeric-only pre-release identifier (e.g. `"1.0.0-0"`, valid per the semver
-    /// spec) would also return `true` here. This is not a current concern — the project
-    /// does not use numeric-only tags — but if the versioning scheme ever evolves beyond
-    /// named identifiers, this implementation should be revisited.
+    /// `contains("-")` correctly matches this project's named pre-release identifiers
+    /// (`-beta.N`, `-alpha.N`, `-rc.N`). A numeric-only pre-release identifier (e.g.
+    /// `"1.0.0-0"`, valid per the semver spec) would also return `true`. This is not
+    /// a current concern — the project does not use numeric-only tags — but if the
+    /// versioning scheme ever evolves beyond named identifiers, revisit this.
     ///
     /// ## Fallback edge case
     ///
     /// `rbVersionString` has a `CFBundleShortVersionString` middle fallback that macOS
-    /// intentionally strips of pre-release suffixes. This means if `RBVersionString` is
-    /// absent from `Info.plist` but `CFBundleShortVersionString` is present, a beta build
-    /// would return `false` here — a silent false negative. This is a **dev-only** edge
-    /// case: CI always patches `RBVersionString` via `publish.yml`, so in production
-    /// `rbVersionString` always carries the full semver suffix and `isPreReleaseBuild`
-    /// is always accurate. The `"0.0.0"` bottom-out (no hyphen) is also safe — a
-    /// completely unpatched dev build returns `false`, which is acceptable.
+    /// intentionally strips of pre-release suffixes. If `RBVersionString` is absent but
+    /// `CFBundleShortVersionString` is present, a beta build returns `false` — a silent
+    /// false negative. This is a **dev-only** edge case: CI always patches `RBVersionString`
+    /// via `publish.yml`, so in production `isPreReleaseBuild` is always accurate. The
+    /// `"0.0.0"` bottom-out (no hyphen) is also safe — returns `false`, which is acceptable.
     ///
     /// ## Usage
     /// ```swift
