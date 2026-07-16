@@ -287,11 +287,11 @@ internal extension SettingsView {
     // MARK: - About
     /// App version, build number, and update available banner (when a newer release exists).
     ///
-    /// The "Pre-release build" caption is shown whenever `appVersion` carries a pre-release
-    /// semver suffix (e.g. `0.7.3-beta.14`). The condition is derived from `appVersion`
-    /// directly — not from `Bundle.main.isPreReleaseBuild` — so the displayed string and
-    /// the caption are structurally coupled and can never disagree (e.g. if `appVersion`
-    /// were ever overridden in a test or future refactor). See issue #2085.
+    /// The "Pre-release build" caption is shown via `Bundle.main.isPreReleaseBuild` —
+    /// the purpose-built API in `Bundle+Version.swift` that encapsulates the detection
+    /// logic and its documented edge cases in one place. This is independent of the
+    /// `betaChannel` preference: the toggle controls future update offers, not the
+    /// currently running binary. See issue #2085.
     var aboutSection: some View {
         VStack(alignment: .leading, spacing: 0) {
             Text("About").font(RBFont.sectionHeader).foregroundColor(Color.rbTextSecondary)
@@ -301,9 +301,7 @@ internal extension SettingsView {
                 Spacer()
                 VStack(alignment: .trailing, spacing: 2) {
                     Text("\(appVersion) (\(appBuild))").font(.system(size: 12)).foregroundColor(Color.rbTextSecondary)
-                    // Derived from appVersion (not Bundle.main) so caption and displayed
-                    // string are always in sync — a hyphen in the semver means pre-release.
-                    if appVersion.contains("-") {
+                    if Bundle.main.isPreReleaseBuild {
                         Text("Pre-release build")
                             .font(.caption2)
                             .foregroundColor(Color.rbTextTertiary)
