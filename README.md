@@ -41,7 +41,7 @@ An open-source ecosystem of GitHub Actions built specifically for self-hosted
 macOS runners — drop them into any workflow and they run directly on your Mac:
 
 - **[AFM Release Notes](https://github.com/runbot-hq/afm-release-notes-action)** — Generates structured release notes from your commit history using Apple Intelligence (on-device AFM). No cloud API, no tokens — runs entirely on-device via Apple Foundation Models.
-- **[AFM Localisation](https://github.com/runbot-hq/afm-localization-action)** *(⚠️️ coming soon ⚠️️)* — Translates strings and localisation files using Apple Intelligence on-device. Inspired by Babel; no external service required.
+- **[AFM Localisation](https://github.com/runbot-hq/afm-translate-action)** — Translates strings and localisation files using Apple Intelligence on-device. Inspired by Babel; no external service required.
 - **[AI Remediation](https://github.com/runbot-hq/ai-remediation-action)** *(⚠️️ coming soon ⚠️️)* — On a failed run, automatically invokes an AI CLI of your choice (Claude Code, Gemini, Aider, Codex…) with full context: branch, commit SHA, failure log, and repo links. Full paper trail in the CI log; no UI dependency.
 
 > All actions run on `self-hosted` runners — the same local runner RunBot manages — giving them direct access to your filesystem, installed tools, and on-device AI that cloud runners cannot reach.
@@ -75,7 +75,7 @@ bash build.sh && open dist/RunBot.app
   
 **Deploy release or beta:**  
 - Deploy releases, betas and dry-runs here: [publish.yml](https://github.com/runbot-hq/run-bot/actions/workflows/publish.yml)
-- select dry_run false or true and
+- select dry_run false or true
 - select beta or release
 - Tag will be bumped according to rollover rules v1.0.9 -> v1.1.0 etc
 - Version will be updated in app config files
