@@ -57,6 +57,17 @@ extension Bundle {
     /// *the currently installed binary*. The two answer different questions and must
     /// not be conflated. See issue #2085.
     ///
+    /// ## Fallback edge case
+    ///
+    /// `rbVersionString` has a `CFBundleShortVersionString` middle fallback that macOS
+    /// intentionally strips of pre-release suffixes. This means if `RBVersionString` is
+    /// absent from `Info.plist` but `CFBundleShortVersionString` is present, a beta build
+    /// would return `false` here — a silent false negative. This is a **dev-only** edge
+    /// case: CI always patches `RBVersionString` via `publish.yml`, so in production
+    /// `rbVersionString` always carries the full semver suffix and `isPreReleaseBuild`
+    /// is always accurate. The `"0.0.0"` bottom-out (no hyphen) is also safe — a
+    /// completely unpatched dev build returns `false`, which is acceptable.
+    ///
     /// ## Usage
     /// ```swift
     /// if Bundle.main.isPreReleaseBuild {
