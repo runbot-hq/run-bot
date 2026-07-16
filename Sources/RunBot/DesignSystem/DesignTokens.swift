@@ -24,6 +24,7 @@ private let darkAppearanceNames: [NSAppearance.Name] = [
     .accessibilityHighContrastVibrantDark
 ]
 
+/// OSLog logger for DesignTokens — subsystem matches the main bundle identifier.
 private let logger = Logger(subsystem: "com.runbot-hq.RunBot", category: "DesignTokens")
 
 /// Helpers for creating appearance-adaptive `Color` values that respond to light/dark mode.
@@ -93,7 +94,7 @@ extension Color {
     /// `Color(red:green:blue:)` values.
     static func adaptiveGrayscale(
         light: (white: Double, alpha: Double),
-        dark:  (white: Double, alpha: Double)
+        dark: (white: Double, alpha: Double)
     ) -> Color {
         // PLACEMENT NOTE: this precondition is intentionally OUTSIDE the NSColor closure.
         // It fires when adaptiveGrayscale(_:_:) is called (i.e. when the static var token
@@ -101,8 +102,8 @@ extension Color {
         // This is correct: out-of-range inputs are a programmer error caught at call time,
         // not an appearance-resolution error caught at render time.
         precondition(
-            (0...1).contains(light.white)  && (0...1).contains(light.alpha) &&
-            (0...1).contains(dark.white)   && (0...1).contains(dark.alpha),
+            (0...1).contains(light.white) && (0...1).contains(light.alpha) &&
+            (0...1).contains(dark.white) && (0...1).contains(dark.alpha),
             "adaptiveGrayscale: white and alpha components must be in 0...1. " +
             "light=\(light) dark=\(dark)"
         )
@@ -121,22 +122,22 @@ extension Color {
     /// Primary blue accent — adaptive light/dark pair for in-progress status indicators.
     static let rbBlue = Color.adaptive(
         light: Color(red: 0.0, green: 0.48, blue: 1.0),
-        dark:  Color(red: 0.3, green: 0.64, blue: 1.0)
+        dark: Color(red: 0.3, green: 0.64, blue: 1.0)
     )
     /// Green success color — adaptive light/dark pair for completed / passing status.
     static let rbSuccess = Color.adaptive(
         light: Color(red: 0.18, green: 0.64, blue: 0.18),
-        dark:  Color(red: 0.25, green: 0.80, blue: 0.25)
+        dark: Color(red: 0.25, green: 0.80, blue: 0.25)
     )
     /// Amber warning color — adaptive light/dark pair for queued / pending status.
     static let rbWarning = Color.adaptive(
         light: Color(red: 0.80, green: 0.55, blue: 0.05),
-        dark:  Color(red: 1.0,  green: 0.75, blue: 0.20)
+        dark: Color(red: 1.0, green: 0.75, blue: 0.20)
     )
     /// Red danger color — adaptive light/dark pair for failed / error status.
     static let rbDanger = Color.adaptive(
         light: Color(red: 0.85, green: 0.18, blue: 0.18),
-        dark:  Color(red: 1.0,  green: 0.35, blue: 0.35)
+        dark: Color(red: 1.0, green: 0.35, blue: 0.35)
     )
     /// Primary accent alias — resolves to `rbBlue`.
     static let rbAccent = rbBlue
@@ -177,12 +178,12 @@ extension Color {
         if #available(macOS 26, *) {
             return Color.adaptiveGrayscale(
                 light: (white: 0.95, alpha: 0.04),
-                dark:  (white: 0.11, alpha: 0.04)
+                dark: (white: 0.11, alpha: 0.04)
             )
         } else {
             return Color.adaptiveGrayscale(
                 light: (white: 0.95, alpha: 0.88),
-                dark:  (white: 0.11, alpha: 0.45)
+                dark: (white: 0.11, alpha: 0.45)
             )
         }
     }
@@ -194,12 +195,12 @@ extension Color {
         if #available(macOS 26, *) {
             return Color.adaptiveGrayscale(
                 light: (white: 0.88, alpha: 0.05),
-                dark:  (white: 0.15, alpha: 0.05)
+                dark: (white: 0.15, alpha: 0.05)
             )
         } else {
             return Color.adaptiveGrayscale(
                 light: (white: 0.88, alpha: 0.92),
-                dark:  (white: 0.15, alpha: 0.25)
+                dark: (white: 0.15, alpha: 0.25)
             )
         }
     }
@@ -214,12 +215,12 @@ extension Color {
         if #available(macOS 26, *) {
             return Color.adaptiveGrayscale(
                 light: (white: 0.0, alpha: 0.12), // black tint — correct, not an error
-                dark:  (white: 1.0, alpha: 0.06)  // white tint — correct, not an error
+                dark: (white: 1.0, alpha: 0.06) // white tint — correct, not an error
             )
         } else {
             return Color.adaptiveGrayscale(
                 light: (white: 0.0, alpha: 0.08),
-                dark:  (white: 1.0, alpha: 0.06)
+                dark: (white: 1.0, alpha: 0.06)
             )
         }
     }
@@ -227,17 +228,17 @@ extension Color {
     /// Primary text — high contrast body and heading text.
     static let rbTextPrimary = Color.adaptive(
         light: .black,
-        dark:  .white
+        dark: .white
     )
     /// Secondary text — reduced-emphasis labels and descriptions.
     static let rbTextSecondary = Color.adaptive(
         light: Color(white: 0.40),
-        dark:  Color(white: 0.55)
+        dark: Color(white: 0.55)
     )
     /// Tertiary text — lowest-emphasis metadata and timestamps.
     static let rbTextTertiary = Color.adaptive(
         light: Color(white: 0.58),
-        dark:  Color(white: 0.39)
+        dark: Color(white: 0.39)
     )
 }
 
@@ -265,17 +266,17 @@ enum RBSpacing {
     /// 2 pt — hairline gap between tightly packed elements.
     static let xxs: CGFloat = 2
     /// 4 pt — compact inner padding (e.g. badge insets).
-    static let xs: CGFloat  = 4
+    static let xs: CGFloat = 4
     /// 6 pt — tight gap between related elements.
-    static let sm: CGFloat  = 6
+    static let sm: CGFloat = 6
     /// 10 pt — default row horizontal padding.
-    static let md: CGFloat  = 10
+    static let md: CGFloat = 10
 }
 
 /// Corner-radius constants for consistent rounding across components.
 enum RBRadius {
     /// 10 pt — standard card corner radius.
-    static let card: CGFloat  = 10
+    static let card: CGFloat = 10
     /// 6 pt — small card or row corner radius.
     static let small: CGFloat = 6
 }
@@ -294,19 +295,19 @@ enum RBMetrics {
 /// Shared font constants. Prefer these over inline `.system(size:weight:design:)` calls.
 enum RBFont {
     /// Caption-sized monospaced font — general-purpose code/metric labels.
-    static let mono: Font        = .system(.caption, design: .monospaced)
+    static let mono: Font = .system(.caption, design: .monospaced)
     /// 11 pt regular monospaced — small metric values.
-    static let monoSmall: Font   = .system(size: 11,   weight: .regular,   design: .monospaced)
+    static let monoSmall: Font = .system(size: 11, weight: .regular, design: .monospaced)
     /// 13 pt medium — standard row/list label.
-    static let label: Font       = .system(size: 13,   weight: .medium)
+    static let label: Font = .system(size: 13, weight: .medium)
     /// 12.5 pt regular — section key labels.
-    static let sectionKey: Font  = .system(size: 12.5, weight: .regular)
+    static let sectionKey: Font = .system(size: 12.5, weight: .regular)
     /// Alias for `sectionKey` — section header labels.
     static let sectionHeader: Font = sectionKey
     /// 9 pt semibold — uppercase section caption badges.
     static let sectionCaption: Font = .system(size: 9, weight: .semibold)
     /// 9 pt semibold monospaced — stat label (CPU, MEM, etc.).
-    static let statLabel: Font   = .system(size: 9,  weight: .semibold, design: .monospaced)
+    static let statLabel: Font = .system(size: 9, weight: .semibold, design: .monospaced)
     /// 10 pt regular monospaced — numeric stat value.
-    static let statValue: Font   = .system(size: 10, weight: .regular,  design: .monospaced)
+    static let statValue: Font = .system(size: 10, weight: .regular, design: .monospaced)
 }

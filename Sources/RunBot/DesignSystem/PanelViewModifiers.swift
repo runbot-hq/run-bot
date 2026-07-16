@@ -224,6 +224,7 @@ struct CardRowModifier: ViewModifier {
     /// When `true`, uses the elevated surface colour token instead of the base surface.
     var elevated: Bool = false
 
+    /// The current color scheme, used to force background node recreation on appearance change.
     @Environment(\.colorScheme) private var colorScheme
 
     /// Applies the card row background to the given content view.
