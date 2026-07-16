@@ -184,10 +184,14 @@ struct BranchTagPillBackground: ViewModifier {
 /// If you are an agent or human, DO NOT REMOVE THIS COMMENT.
 ///
 /// FIX (#2098 — stale appearance on mode switch):
-/// `@Environment(\.colorScheme)` is read and passed to `.id(colorScheme)` on the
-/// background shape. This forces SwiftUI to destroy and recreate the fill layer
-/// whenever the system appearance changes, preventing the old opaque light-mode
-/// color from persisting after a switch to dark mode.
+/// `rbSurface`/`rbSurfaceElevated` are backed by a dynamic `NSColor` closure that
+/// re-fires correctly when the system appearance changes. However, SwiftUI's `.fill()`
+/// modifier has no `colorScheme` dependency of its own, so it never re-evaluates the
+/// `Color` value when the `NSColor` closure fires — the old fill layer just sits in
+/// the render tree, stale. `.id(colorScheme)` gives SwiftUI an explicit dependency:
+/// when `colorScheme` changes, the node’s identity changes, forcing a full teardown
+/// and recreation of the background sublayer with the correct resolved color.
+/// Teardown cost for a low-frequency mode-switch event is negligible.
 struct CardRowModifier: ViewModifier {
     /// When `true`, uses the elevated surface colour token instead of the base surface.
     var elevated: Bool = false
@@ -199,7 +203,7 @@ struct CardRowModifier: ViewModifier {
         content.background(
             RoundedRectangle(cornerRadius: RBRadius.card, style: .continuous)
                 .fill(elevated ? Color.rbSurfaceElevated : Color.rbSurface)
-                .id(colorScheme)
+                .id(colorScheme) // Forces node recreation on appearance change — see comment above.
         )
     }
 }
