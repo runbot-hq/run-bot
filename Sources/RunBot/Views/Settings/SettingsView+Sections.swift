@@ -262,12 +262,21 @@ internal extension SettingsView {
 
     // MARK: - Beta channel row
     /// Toggle row that opts the user into pre-release (beta) builds for the in-app update check.
+    ///
+    /// ## Scope of this toggle — read before changing the subtitle
+    ///
+    /// REVIEWER: This toggle controls *future update offers* only. It does NOT affect
+    /// the currently installed version. When the user is running a beta build and turns
+    /// this off, the About section correctly continues to show the beta version string —
+    /// that is what is installed. The subtitle wording is deliberate; it was updated in
+    /// #2085 specifically to prevent users from misreading the toggle's scope. Do not
+    /// shorten or remove the second sentence.
     var betaChannelRow: some View {
         let bindableBeta = Bindable(settings)
         return HStack {
             VStack(alignment: .leading, spacing: 2) {
                 Text("Beta channel").font(.system(size: 12))
-                Text("Receive pre-release builds for early access to new features. Takes effect on the next update check.")
+                Text("Receive pre-release builds for early access to new features. Only affects which updates are offered — does not change your currently installed version.")
                     .font(.caption2).foregroundColor(Color.rbTextSecondary)
             }
             Spacer()
@@ -279,13 +288,34 @@ internal extension SettingsView {
 
     // MARK: - About
     /// App version, build number, and update available banner (when a newer release exists).
+    ///
+    /// ## Why `Bundle.main.isPreReleaseBuild`, not `appVersion.contains("-")`
+    ///
+    /// REVIEWER: The caption uses `Bundle.main.isPreReleaseBuild` — the purpose-built API
+    /// in `Bundle+Version.swift` — rather than re-checking `appVersion.contains("-")` inline.
+    /// `appVersion` is a plain computed var on this view that reads `Bundle.main.rbVersionString`;
+    /// it is not an injected seam and will not diverge from `rbVersionString` in any current
+    /// or planned architecture. Using `isPreReleaseBuild` keeps detection logic in one place
+    /// with all its edge-case documentation. This was reviewed and settled in PR #2085/#2108 —
+    /// do not change it back to an inline `contains("-")` without a concrete reason.
+    ///
+    /// The caption is independent of `betaChannel` — the toggle controls future update offers,
+    /// not what is currently installed. See `betaChannelRow` and issue #2085.
     var aboutSection: some View {
         VStack(alignment: .leading, spacing: 0) {
             Text("About").font(RBFont.sectionHeader).foregroundColor(Color.rbTextSecondary)
                 .padding(.horizontal, RBSpacing.md).padding(.top, 8).padding(.bottom, 4)
             HStack {
-                Text("Version").font(.system(size: 12)); Spacer()
-                Text("\(appVersion) (\(appBuild))").font(.system(size: 12)).foregroundColor(Color.rbTextSecondary)
+                Text("Version").font(.system(size: 12))
+                Spacer()
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text("\(appVersion) (\(appBuild))").font(.system(size: 12)).foregroundColor(Color.rbTextSecondary)
+                    if Bundle.main.isPreReleaseBuild {
+                        Text("Pre-release build")
+                            .font(.caption2)
+                            .foregroundColor(Color.rbTextTertiary)
+                    }
+                }
             }
             .padding(.horizontal, RBSpacing.md).padding(.vertical, 5)
             if runnerState.currentPhase != .idle {
