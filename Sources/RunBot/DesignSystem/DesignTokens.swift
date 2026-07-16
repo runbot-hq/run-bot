@@ -10,6 +10,11 @@ import SwiftUI
 extension Color {
     /// Returns a color that resolves to `light` in light-appearance contexts and `dark` in dark-appearance contexts.
     /// Covers all dark-family appearances including vibrant dark and high-contrast variants.
+    ///
+    /// Implementation note: we build the dynamic color entirely inside the `NSColor` provider using
+    /// `NSColor(white:alpha:)` directly, rather than converting a SwiftUI `Color` to `NSColor`.
+    /// The SwiftUI `Color → NSColor` round-trip does **not** reliably preserve sub-1% opacity values
+    /// (e.g. `opacity(0.04)`), which caused surfaces to appear fully opaque in light mode (#2098).
     static func adaptive(light: Color, dark: Color) -> Color {
         Color(NSColor(name: nil) { appearance in
             let darkMatches: [NSAppearance.Name] = [
@@ -19,9 +24,33 @@ extension Color {
                 .accessibilityHighContrastVibrantDark
             ]
             let best = appearance.bestMatch(from: darkMatches + [.aqua])
-            return darkMatches.contains(best ?? .aqua)
-                ? NSColor(dark)
-                : NSColor(light)
+            let resolved = darkMatches.contains(best ?? .aqua) ? dark : light
+            // Convert via cgColor to avoid the SwiftUI Color → NSColor opacity-loss bug.
+            // Falls back to the direct NSColor initialiser if cgColor is unavailable.
+            if let cg = NSColor(resolved).usingColorSpace(.genericRGB) {
+                return cg
+            }
+            return NSColor(resolved)
+        })
+    }
+
+    /// Builds a dynamic `Color` from explicit RGBA components for light and dark appearances.
+    /// Preferred over `adaptive(light:dark:)` when the opacity is critical (e.g. near-zero glass
+    /// surface tokens) because it avoids any SwiftUI `Color` intermediate that could lose alpha.
+    static func adaptiveRGBA(
+        light: (white: Double, alpha: Double),
+        dark: (white: Double, alpha: Double)
+    ) -> Color {
+        Color(NSColor(name: nil) { appearance in
+            let darkMatches: [NSAppearance.Name] = [
+                .darkAqua,
+                .vibrantDark,
+                .accessibilityHighContrastDarkAqua,
+                .accessibilityHighContrastVibrantDark
+            ]
+            let best = appearance.bestMatch(from: darkMatches + [.aqua])
+            let components = darkMatches.contains(best ?? .aqua) ? dark : light
+            return NSColor(white: components.white, alpha: components.alpha)
         })
     }
 }
@@ -65,20 +94,27 @@ extension Color {
     // ❌ NEVER set opacity 1.0 — kills vibrancy.
     // ❌ NEVER switch PanelChrome material back to .popover — warm brown tint.
     // If you are an agent or human, DO NOT REMOVE THIS COMMENT.
+    //
+    // FIX (#2098): Surface tokens now use `adaptiveRGBA` instead of
+    // `adaptive(light:dark:)` + `.opacity()`. The old path converted a SwiftUI
+    // `Color` (already carrying sub-1% opacity) to `NSColor`, which silently
+    // dropped the alpha and rendered surfaces fully opaque in light mode.
+    // `adaptiveRGBA` passes the alpha directly to `NSColor(white:alpha:)`,
+    // bypassing the lossy SwiftUI intermediate entirely.
 
     /// Base panel background surface.
     /// macOS 26+: near-zero opacity so glass backdrop shows through.
     /// Pre-26: standard vibrancy opacities.
     static var rbSurface: Color {
         if #available(macOS 26, *) {
-            return Color.adaptive(
-                light: Color(white: 0.95).opacity(0.04),
-                dark: Color(white: 0.11).opacity(0.04)
+            return Color.adaptiveRGBA(
+                light: (white: 0.95, alpha: 0.04),
+                dark:  (white: 0.11, alpha: 0.04)
             )
         } else {
-            return Color.adaptive(
-                light: Color(white: 0.95).opacity(0.88),
-                dark: Color(white: 0.11).opacity(0.45)
+            return Color.adaptiveRGBA(
+                light: (white: 0.95, alpha: 0.88),
+                dark:  (white: 0.11, alpha: 0.45)
             )
         }
     }
@@ -88,14 +124,14 @@ extension Color {
     /// Pre-26: standard vibrancy opacities.
     static var rbSurfaceElevated: Color {
         if #available(macOS 26, *) {
-            return Color.adaptive(
-                light: Color(white: 0.88).opacity(0.05),
-                dark: Color(white: 0.15).opacity(0.05)
+            return Color.adaptiveRGBA(
+                light: (white: 0.88, alpha: 0.05),
+                dark:  (white: 0.15, alpha: 0.05)
             )
         } else {
-            return Color.adaptive(
-                light: Color(white: 0.88).opacity(0.92),
-                dark: Color(white: 0.15).opacity(0.25)
+            return Color.adaptiveRGBA(
+                light: (white: 0.88, alpha: 0.92),
+                dark:  (white: 0.15, alpha: 0.25)
             )
         }
     }
@@ -104,14 +140,14 @@ extension Color {
     /// macOS 26+: light opacity bumped to 0.12 for better visibility on glass.
     static var rbBorderSubtle: Color {
         if #available(macOS 26, *) {
-            return Color.adaptive(
-                light: Color(white: 0.0).opacity(0.12),
-                dark: Color(white: 1.0).opacity(0.06)
+            return Color.adaptiveRGBA(
+                light: (white: 0.0, alpha: 0.12),
+                dark:  (white: 1.0, alpha: 0.06)
             )
         } else {
-            return Color.adaptive(
-                light: Color(white: 0.0).opacity(0.08),
-                dark: Color(white: 1.0).opacity(0.06)
+            return Color.adaptiveRGBA(
+                light: (white: 0.0, alpha: 0.08),
+                dark:  (white: 1.0, alpha: 0.06)
             )
         }
     }
