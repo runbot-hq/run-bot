@@ -182,15 +182,24 @@ struct BranchTagPillBackground: ViewModifier {
 /// Apple HIG: glass effects must not be applied to scrollable list content —
 /// they break CABackdropLayer sampling and cause visual artefacts during scroll.
 /// If you are an agent or human, DO NOT REMOVE THIS COMMENT.
+///
+/// FIX (#2098 — stale appearance on mode switch):
+/// `@Environment(\.colorScheme)` is read and passed to `.id(colorScheme)` on the
+/// background shape. This forces SwiftUI to destroy and recreate the fill layer
+/// whenever the system appearance changes, preventing the old opaque light-mode
+/// color from persisting after a switch to dark mode.
 struct CardRowModifier: ViewModifier {
     /// When `true`, uses the elevated surface colour token instead of the base surface.
     var elevated: Bool = false
+
+    @Environment(\.colorScheme) private var colorScheme
 
     /// Applies the card row background to the given content view.
     func body(content: Content) -> some View {
         content.background(
             RoundedRectangle(cornerRadius: RBRadius.card, style: .continuous)
                 .fill(elevated ? Color.rbSurfaceElevated : Color.rbSurface)
+                .id(colorScheme)
         )
     }
 }
