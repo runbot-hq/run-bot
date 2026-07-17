@@ -90,28 +90,26 @@ public final class AppPreferencesStore {
     ///   ephemeral suite (`UserDefaults(suiteName:)`) in unit tests to avoid
     ///   polluting the real preferences database. (P7)
     ///
-    /// When `store` is not `.standard`, each `@AppStorage` property is
-    /// re-initialised against `store` so test isolation is preserved.
+    /// ## wrappedValue semantics
+    /// `AppStorage(wrappedValue:_:store:)` — the first argument is the fallback
+    /// default used when the key is absent from `store`, not a forced seed value.
+    /// When the key is already present, `@AppStorage` reads it from `store`
+    /// directly and ignores `wrappedValue` entirely. Passing the plain default
+    /// literal here is therefore correct and sufficient for all three properties.
     public init(store: UserDefaults) {
         if store !== UserDefaults.standard {
             _showDimmedRunners = AppStorage(
-                wrappedValue: store.object(forKey: "settings.showDimmedRunners") == nil
-                    ? true : store.bool(forKey: "settings.showDimmedRunners"),
+                wrappedValue: true,
                 "settings.showDimmedRunners",
                 store: store
             )
             _showPopoverArrow = AppStorage(
-                wrappedValue: store.object(forKey: "settings.showPopoverArrow") == nil
-                    ? true : store.bool(forKey: "settings.showPopoverArrow"),
+                wrappedValue: true,
                 "settings.showPopoverArrow",
                 store: store
             )
-            // No nil-guard needed: bool(forKey:) returns false when the key is absent,
-            // and false is the correct default for betaChannel. The asymmetry with the
-            // sibling properties above is intentional — those default to true, so a
-            // missing key must be distinguished from an explicit false.
             _betaChannel = AppStorage(
-                wrappedValue: store.bool(forKey: "settings.betaChannel"),
+                wrappedValue: false,
                 "settings.betaChannel",
                 store: store
             )

@@ -54,8 +54,16 @@ public enum NotificationMode: String, CaseIterable, Sendable {
 /// auto-instruments stored properties — computed properties do not receive
 /// `_$observationRegistrar` calls. `notificationMode` therefore does NOT
 /// participate in the `@Observable` change-tracking graph. This is intentional
-/// and consistent with `AppPreferencesStore`. SwiftUI consumers bind via
-/// `@AppStorage` or the `shared` singleton directly.
+/// and consistent with `AppPreferencesStore`.
+///
+/// ## SwiftUI consumption
+/// The correct pattern for a SwiftUI view inside this module is `@Bindable` on
+/// the `shared` instance and bind against `notificationMode` directly — the
+/// setter writes through to `notificationModeRaw` and `@AppStorage` propagates
+/// the change. Do NOT bind via a raw `@AppStorage("notifications.notificationMode")`
+/// at the call site: that bypasses the `internal` access guard on `notificationModeRaw`
+/// and creates an implicit coupling to the raw key string that this type is
+/// explicitly designed to encapsulate.
 ///
 /// ## Orphaned UserDefaults keys
 /// The previous `notifications.notifyOnSuccess` and `notifications.notifyOnFailure`
@@ -98,11 +106,10 @@ public final class NotificationPreferences {
     /// This is a computed property. The `@Observable` macro only auto-instruments
     /// stored properties — computed properties are not injected with
     /// `_$observationRegistrar` calls. `notificationMode` therefore does NOT
-    /// participate in the `@Observable` change-tracking graph. This is intentional
-    /// and consistent with `AppPreferencesStore`, where all `@AppStorage` properties
-    /// are `@ObservationIgnored`. SwiftUI consumers should bind to the `shared`
-    /// singleton's `notificationMode` via an `@AppStorage` binding or observe
-    /// `notificationModeRaw` directly if observation tracking is needed.
+    /// participate in the `@Observable` change-tracking graph.
+    /// See the class-level `## SwiftUI consumption` doc for the correct binding
+    /// pattern — in particular, do NOT bind via a raw `@AppStorage` key at the
+    /// call site as it bypasses the access guard this type establishes.
     ///
     /// ## Dispatch wiring
     /// Wired in #2070. Call `shouldNotify(conclusion:)` at every
@@ -146,8 +153,8 @@ public final class NotificationPreferences {
     /// `AppStorage(wrappedValue:_:store:)` — the first argument is the fallback
     /// default used when the key is absent from `store`, not a forced seed value.
     /// When the key is already present, `@AppStorage` reads it from `store`
-    /// regardless of `wrappedValue`. Passing `NotificationMode.never.rawValue`
-    /// here is equivalent to the inline default on the property declaration.
+    /// directly and ignores `wrappedValue` entirely. Passing the plain default
+    /// constant here is therefore correct and sufficient.
     public init(store: UserDefaults) {
         if store !== UserDefaults.standard {
             _notificationModeRaw = AppStorage(
