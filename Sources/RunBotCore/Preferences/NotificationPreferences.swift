@@ -141,12 +141,17 @@ public final class NotificationPreferences {
     /// caller. Constructing this type off the main actor is a compiler error —
     /// the caller must be `@MainActor` or use `await MainActor.run { ... }`.
     /// There is no race hazard from making `init(store:)` public.
+    ///
+    /// ## wrappedValue semantics
+    /// `AppStorage(wrappedValue:_:store:)` — the first argument is the fallback
+    /// default used when the key is absent from `store`, not a forced seed value.
+    /// When the key is already present, `@AppStorage` reads it from `store`
+    /// regardless of `wrappedValue`. Passing `NotificationMode.never.rawValue`
+    /// here is equivalent to the inline default on the property declaration.
     public init(store: UserDefaults) {
         if store !== UserDefaults.standard {
-            let raw = store.string(forKey: "notifications.notificationMode")
-                ?? NotificationMode.never.rawValue
             _notificationModeRaw = AppStorage(
-                wrappedValue: raw,
+                wrappedValue: NotificationMode.never.rawValue,
                 "notifications.notificationMode",
                 store: store
             )
