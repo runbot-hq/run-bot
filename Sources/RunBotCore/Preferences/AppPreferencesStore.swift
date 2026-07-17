@@ -53,6 +53,15 @@ public final class AppPreferencesStore {
     /// Shared singleton — use this instead of calling `init` directly.
     public static let shared = AppPreferencesStore()
 
+    // MARK: - Keys
+
+    // Single source of truth for UserDefaults key strings.
+    // Used in both register(defaults:) and AppStorage(...) constructors so
+    // a typo or rename is a compile error, not a silent split-brain.
+    private static let keyShowDimmedRunners = "settings.showDimmedRunners"
+    private static let keyShowPopoverArrow  = "settings.showPopoverArrow"
+    private static let keyBetaChannel       = "settings.betaChannel"
+
     // MARK: - Preferences
 
     // Every @AppStorage property below also carries @ObservationIgnored.
@@ -67,7 +76,7 @@ public final class AppPreferencesStore {
     /// in the UI (#510). Do not remove: removing would orphan the stored key for
     /// users upgrading from older versions.
     @ObservationIgnored // required — see class-level ## @AppStorage + @ObservationIgnored
-    @AppStorage("settings.showDimmedRunners")
+    @AppStorage(AppPreferencesStore.keyShowDimmedRunners)
     public var showDimmedRunners: Bool = true
 
     /// Whether the NSPopover anchor arrow is shown.
@@ -79,7 +88,7 @@ public final class AppPreferencesStore {
     /// Takes effect on the next `openPanel()` call — the arrow state is baked in
     /// at `popover.show()` time and cannot be changed mid-session.
     @ObservationIgnored // required — see class-level ## @AppStorage + @ObservationIgnored
-    @AppStorage("settings.showPopoverArrow")
+    @AppStorage(AppPreferencesStore.keyShowPopoverArrow)
     public var showPopoverArrow: Bool = true
 
     /// Whether to offer pre-release (beta) builds in the update check.
@@ -88,7 +97,7 @@ public final class AppPreferencesStore {
     /// when looking for a newer version. Defaults to `false` so users stay on the
     /// stable channel unless they explicitly opt in.
     @ObservationIgnored // required — see class-level ## @AppStorage + @ObservationIgnored
-    @AppStorage("settings.betaChannel")
+    @AppStorage(AppPreferencesStore.keyBetaChannel)
     public var betaChannel: Bool = false
 
     // MARK: - Init
@@ -121,47 +130,28 @@ public final class AppPreferencesStore {
     ///
     /// ## wrappedValue semantics
     /// `AppStorage(wrappedValue:_:store:)` — the first argument is a fallback
-    /// default, used only when the key is absent from `store`. Because
-    /// `register(defaults:)` has already run, `store.bool(forKey:)` is always
-    /// safe to call directly and returns the registered default on first launch
-    /// or the persisted value thereafter. No `object(forKey:) != nil` nil-guard
-    /// is needed — registration guarantees a value is present.
-    ///
-    /// Note: `wrappedValue` is technically a no-op here — `@AppStorage` reads
-    /// the key directly from `store` on first property access and silently ignores
-    /// whatever was passed as `wrappedValue`. The `store.bool(forKey:)` call is
-    /// retained deliberately: it makes the intended value explicit and consistent
-    /// with the injected suite rather than repeating the declaration-site literal.
+    /// default used only when the key is absent from `store`. Because
+    /// `register(defaults:)` has already run, the key is always present and
+    /// `@AppStorage` reads it directly from `store` on first property access,
+    /// silently ignoring `wrappedValue` entirely. Plain declaration-site literals
+    /// are used here — they are never observed at runtime but make the intended
+    /// default legible without implying the store is being read.
     public init(store: UserDefaults) {
         // Register unconditionally — seeds .standard on production first-launch
         // and the injected suite in tests. Never overwrites existing values.
         store.register(defaults: [
-            "settings.showDimmedRunners": true,
-            "settings.showPopoverArrow": true,
-            "settings.betaChannel": false,
+            Self.keyShowDimmedRunners: true,
+            Self.keyShowPopoverArrow:  true,
+            Self.keyBetaChannel:       false,
         ])
         if store !== UserDefaults.standard {
             // Re-target each @AppStorage to the injected test suite.
             // wrappedValue is a fallback default only — @AppStorage reads the key
-            // directly from store on first access and ignores wrappedValue at runtime.
-            // store.bool(forKey:) is safe here (register ran above) and is used
-            // deliberately to reflect the injected suite's actual value, not a
-            // hardcoded literal. See ## wrappedValue semantics in the doc above.
-            _showDimmedRunners = AppStorage(
-                wrappedValue: store.bool(forKey: "settings.showDimmedRunners"), // fallback only — see above
-                "settings.showDimmedRunners",
-                store: store
-            )
-            _showPopoverArrow = AppStorage(
-                wrappedValue: store.bool(forKey: "settings.showPopoverArrow"), // fallback only — see above
-                "settings.showPopoverArrow",
-                store: store
-            )
-            _betaChannel = AppStorage(
-                wrappedValue: store.bool(forKey: "settings.betaChannel"), // fallback only — see above
-                "settings.betaChannel",
-                store: store
-            )
+            // directly from store on first access regardless of this value.
+            // Literals match the declaration-site defaults above.
+            _showDimmedRunners = AppStorage(wrappedValue: true,  Self.keyShowDimmedRunners, store: store)
+            _showPopoverArrow  = AppStorage(wrappedValue: true,  Self.keyShowPopoverArrow,  store: store)
+            _betaChannel       = AppStorage(wrappedValue: false, Self.keyBetaChannel,       store: store)
         }
         // else: production path — @AppStorage already targets .standard by
         // default at the declaration site; no rebinding needed.

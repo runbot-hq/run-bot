@@ -94,6 +94,13 @@ public final class NotificationPreferences {
     /// the only zero-argument construction path outside this file.
     public static let shared = NotificationPreferences()
 
+    // MARK: - Keys
+
+    // Single source of truth for the UserDefaults key string.
+    // Used in register(into:), AppStorage(...), and the @AppStorage declaration
+    // so a rename is a compile error, not a silent split-brain.
+    private static let keyNotificationMode = "notifications.notificationMode"
+
     // MARK: - Preferences
 
     /// Raw `String` backing store for `notificationMode`.
@@ -108,7 +115,7 @@ public final class NotificationPreferences {
     ///
     /// Default changed from `.all` to `.never` in #2082.
     @ObservationIgnored // required — see class-level ## @AppStorage + @ObservationIgnored
-    @AppStorage("notifications.notificationMode")
+    @AppStorage(NotificationPreferences.keyNotificationMode)
     var notificationModeRaw: String = NotificationMode.never.rawValue
 
     /// Typed read/write accessor for the notification mode preference.
@@ -163,14 +170,12 @@ public final class NotificationPreferences {
     ///
     /// ## wrappedValue semantics
     /// `AppStorage(wrappedValue:_:store:)` first argument is a fallback default
-    /// only — used when the key is absent. Because `register(into:)` has already
-    /// run, `store.string(forKey:)` is safe and non-nil.
-    ///
-    /// Note: `wrappedValue` is technically a no-op here — `@AppStorage` reads
-    /// the key directly from `store` on first property access and silently ignores
-    /// whatever was passed as `wrappedValue`. The `store.string(forKey:) ?? .never`
-    /// form is retained deliberately to reflect the injected suite's actual value
-    /// rather than repeating the declaration-site literal.
+    /// used only when the key is absent. Because `register(into:)` has already
+    /// run, the key is always present and `@AppStorage` reads it directly from
+    /// `store` on first property access, silently ignoring `wrappedValue` entirely.
+    /// The declaration-site literal (`NotificationMode.never.rawValue`) is used
+    /// here — it is never observed at runtime but makes the intended default
+    /// legible without implying the store is being read.
     public init(store: UserDefaults) {
         // Single registration body — delegates to the public static method so
         // there is no duplication between init and register(into:).
@@ -178,13 +183,10 @@ public final class NotificationPreferences {
         if store !== UserDefaults.standard {
             // Re-target @AppStorage to the injected test suite.
             // wrappedValue is a fallback default only — @AppStorage reads the key
-            // directly from store on first access and ignores wrappedValue at runtime.
-            // store.string(forKey:) is safe here (register ran above).
-            // See ## wrappedValue semantics in the doc above.
+            // directly from store on first access regardless of this value.
             _notificationModeRaw = AppStorage(
-                wrappedValue: store.string(forKey: "notifications.notificationMode") // fallback only — see above
-                    ?? NotificationMode.never.rawValue,
-                "notifications.notificationMode",
+                wrappedValue: NotificationMode.never.rawValue, // fallback only — never observed at runtime
+                Self.keyNotificationMode,
                 store: store
             )
         }
@@ -207,7 +209,7 @@ public final class NotificationPreferences {
     /// Default changed from `.all` to `.never` in #2082.
     public static func register(into store: UserDefaults) {
         store.register(defaults: [
-            "notifications.notificationMode": NotificationMode.never.rawValue,
+            keyNotificationMode: NotificationMode.never.rawValue,
         ])
     }
 }
