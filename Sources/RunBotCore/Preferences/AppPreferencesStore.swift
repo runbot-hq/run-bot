@@ -55,12 +55,18 @@ public final class AppPreferencesStore {
 
     // MARK: - Keys
 
-    // Single source of truth for UserDefaults key strings.
-    // Used in both register(defaults:) and AppStorage(...) constructors so
-    // a typo or rename is a compile error, not a silent split-brain.
+    /// UserDefaults key for `showDimmedRunners`.
+    /// Single source of truth — used in `register(defaults:)` and `AppStorage(...)` so a
+    /// rename is a compile error, not a silent split-brain.
     private static let keyShowDimmedRunners = "settings.showDimmedRunners"
-    private static let keyShowPopoverArrow  = "settings.showPopoverArrow"
-    private static let keyBetaChannel       = "settings.betaChannel"
+
+    /// UserDefaults key for `showPopoverArrow`.
+    /// Single source of truth — see `keyShowDimmedRunners` rationale.
+    private static let keyShowPopoverArrow = "settings.showPopoverArrow"
+
+    /// UserDefaults key for `betaChannel`.
+    /// Single source of truth — see `keyShowDimmedRunners` rationale.
+    private static let keyBetaChannel = "settings.betaChannel"
 
     // MARK: - Preferences
 
@@ -141,17 +147,17 @@ public final class AppPreferencesStore {
         // and the injected suite in tests. Never overwrites existing values.
         store.register(defaults: [
             Self.keyShowDimmedRunners: true,
-            Self.keyShowPopoverArrow:  true,
-            Self.keyBetaChannel:       false,
+            Self.keyShowPopoverArrow: true,
+            Self.keyBetaChannel: false,
         ])
         if store !== UserDefaults.standard {
             // Re-target each @AppStorage to the injected test suite.
             // wrappedValue is a fallback default only — @AppStorage reads the key
             // directly from store on first access regardless of this value.
             // Literals match the declaration-site defaults above.
-            _showDimmedRunners = AppStorage(wrappedValue: true,  Self.keyShowDimmedRunners, store: store)
-            _showPopoverArrow  = AppStorage(wrappedValue: true,  Self.keyShowPopoverArrow,  store: store)
-            _betaChannel       = AppStorage(wrappedValue: false, Self.keyBetaChannel,       store: store)
+            _showDimmedRunners = AppStorage(wrappedValue: true, Self.keyShowDimmedRunners, store: store)
+            _showPopoverArrow = AppStorage(wrappedValue: true, Self.keyShowPopoverArrow, store: store)
+            _betaChannel = AppStorage(wrappedValue: false, Self.keyBetaChannel, store: store)
         }
         // else: production path — @AppStorage already targets .standard by
         // default at the declaration site; no rebinding needed.

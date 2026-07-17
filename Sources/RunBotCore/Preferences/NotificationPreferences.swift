@@ -96,9 +96,10 @@ public final class NotificationPreferences {
 
     // MARK: - Keys
 
-    // Single source of truth for the UserDefaults key string.
-    // Used in register(into:), AppStorage(...), and the @AppStorage declaration
-    // so a rename is a compile error, not a silent split-brain.
+    /// UserDefaults key for `notificationModeRaw`.
+    /// Single source of truth — used in `register(into:)`, the `@AppStorage`
+    /// declaration, and the test-injection `AppStorage(...)` constructor so a
+    /// rename is a compile error, not a silent split-brain.
     private static let keyNotificationMode = "notifications.notificationMode"
 
     // MARK: - Preferences
