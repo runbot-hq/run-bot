@@ -23,7 +23,8 @@ import SwiftUI
 /// - `@ObservationIgnored` suppresses that instrumentation. This is safe because
 ///   `@AppStorage` publishes its own changes via the SwiftUI environment; it does
 ///   not need `@Observable`'s registrar. SwiftUI views bind directly to the
-///   `@AppStorage` property and receive updates through that channel.
+///   `@AppStorage` property and receive updates through that channel when they
+///   access the property via `@Bindable` on the owning instance.
 ///
 /// ## Thread safety
 /// `@MainActor`-isolated. All `@AppStorage` writes run on the main thread; no
@@ -90,26 +91,44 @@ public final class AppPreferencesStore {
     ///   ephemeral suite (`UserDefaults(suiteName:)`) in unit tests to avoid
     ///   polluting the real preferences database. (P7)
     ///
+    /// ## register(defaults:)
+    /// Called unconditionally so that any direct `UserDefaults` reader (migration
+    /// helpers, analytics, crash reporters) sees the correct values on first launch,
+    /// not the `UserDefaults` zero-value. `register(defaults:)` only sets keys that
+    /// are absent — it never overwrites persisted values.
+    ///
     /// ## wrappedValue semantics
     /// `AppStorage(wrappedValue:_:store:)` — the first argument is the fallback
     /// default used when the key is absent from `store`, not a forced seed value.
     /// When the key is already present, `@AppStorage` reads it from `store`
-    /// directly and ignores `wrappedValue` entirely. Passing the plain default
-    /// literal here is therefore correct and sufficient for all three properties.
+    /// directly and ignores `wrappedValue` entirely. The nil-object guard
+    /// (`store.object(forKey:) != nil`) distinguishes "key absent" from "key
+    /// explicitly set to false" so that a stored `false` is correctly honoured.
     public init(store: UserDefaults) {
+        store.register(defaults: [
+            "settings.showDimmedRunners": true,
+            "settings.showPopoverArrow": true,
+            "settings.betaChannel": false,
+        ])
         if store !== UserDefaults.standard {
             _showDimmedRunners = AppStorage(
-                wrappedValue: true,
+                wrappedValue: store.object(forKey: "settings.showDimmedRunners") != nil
+                    ? store.bool(forKey: "settings.showDimmedRunners")
+                    : true,
                 "settings.showDimmedRunners",
                 store: store
             )
             _showPopoverArrow = AppStorage(
-                wrappedValue: true,
+                wrappedValue: store.object(forKey: "settings.showPopoverArrow") != nil
+                    ? store.bool(forKey: "settings.showPopoverArrow")
+                    : true,
                 "settings.showPopoverArrow",
                 store: store
             )
             _betaChannel = AppStorage(
-                wrappedValue: false,
+                wrappedValue: store.object(forKey: "settings.betaChannel") != nil
+                    ? store.bool(forKey: "settings.betaChannel")
+                    : false,
                 "settings.betaChannel",
                 store: store
             )

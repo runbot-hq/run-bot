@@ -54,9 +54,11 @@ public enum NotificationMode: String, CaseIterable, Sendable {
 /// auto-instruments stored properties — computed properties do not receive
 /// `_$observationRegistrar` calls. `notificationMode` therefore does NOT
 /// participate in the `@Observable` change-tracking graph. `@ObservationIgnored`
-/// is applied to make this machine-readable: any future `withObservationTracking`
-/// consumer that reads `notificationMode` expecting re-invocation on change will
-/// produce a compiler error rather than silently stale UI.
+/// on a computed property is a no-op at the macro level (the macro never
+/// instruments computed properties regardless), but is retained as an explicit
+/// signal that this property is intentionally untracked. A future
+/// `withObservationTracking` consumer reading `notificationMode` will NOT be
+/// re-invoked on change — it will remain valid but silently stale.
 ///
 /// ## SwiftUI consumption
 /// The correct pattern for a SwiftUI view inside this module is `@Bindable` on
@@ -105,14 +107,14 @@ public final class NotificationPreferences {
     /// (e.g. after a downgrade that removes a previously persisted case).
     ///
     /// ## @Observable tracking
-    /// `@ObservationIgnored` is applied because this is a computed property —
-    /// the `@Observable` macro never emits `_$observationRegistrar` calls for
-    /// computed properties. Making this explicit prevents a future
-    /// `withObservationTracking { _ = prefs.notificationMode }` consumer from
-    /// expecting re-invocation on change and getting silently stale UI instead.
-    /// See the class-level `## SwiftUI consumption` doc for the correct binding
-    /// pattern — in particular, do NOT bind via a raw `@AppStorage` key at the
-    /// call site as it bypasses the access guard this type establishes.
+    /// This is a computed property — the `@Observable` macro never emits
+    /// `_$observationRegistrar` calls for computed properties regardless of
+    /// attributes. `@ObservationIgnored` here is a no-op at the macro level,
+    /// but is retained as an explicit, machine-readable signal that this property
+    /// is intentionally untracked. A `withObservationTracking` consumer that
+    /// reads this property will remain valid but will not be re-invoked when the
+    /// raw value changes. See the class-level `## SwiftUI consumption` doc for
+    /// the correct binding pattern.
     ///
     /// ## Dispatch wiring
     /// Wired in #2070. Call `shouldNotify(conclusion:)` at every
@@ -153,6 +155,12 @@ public final class NotificationPreferences {
     /// the caller must be `@MainActor` or use `await MainActor.run { ... }`.
     /// There is no race hazard from making `init(store:)` public.
     ///
+    /// ## register(defaults:)
+    /// Called unconditionally so that any direct `UserDefaults` reader (migration
+    /// helpers, analytics, crash reporters) sees `"never"` on first launch rather
+    /// than `nil`. `register(defaults:)` only sets keys that are absent — it
+    /// never overwrites persisted values.
+    ///
     /// ## wrappedValue semantics
     /// `AppStorage(wrappedValue:_:store:)` — the first argument is the fallback
     /// default used when the key is absent from `store`, not a forced seed value.
@@ -160,15 +168,39 @@ public final class NotificationPreferences {
     /// directly and ignores `wrappedValue` entirely. Passing the plain default
     /// constant here is therefore correct and sufficient.
     public init(store: UserDefaults) {
+        store.register(defaults: [
+            "notifications.notificationMode": NotificationMode.never.rawValue,
+        ])
         if store !== UserDefaults.standard {
             _notificationModeRaw = AppStorage(
-                wrappedValue: NotificationMode.never.rawValue,
+                wrappedValue: store.string(forKey: "notifications.notificationMode")
+                    ?? NotificationMode.never.rawValue,
                 "notifications.notificationMode",
                 store: store
             )
         }
         // else: production path — @AppStorage already targets .standard by
         // default at the declaration site; no rebinding needed.
+    }
+
+    // MARK: - Registration
+
+    /// Registers factory defaults so that `string(forKey:)` returns the intended
+    /// value on first launch without requiring an `object(forKey:) == nil` guard.
+    ///
+    /// `init(store:)` calls this automatically — this method is `public` for
+    /// external test setup only, for code that reads from `UserDefaults` directly
+    /// before constructing a `NotificationPreferences` instance.
+    ///
+    /// - Parameter store: The `UserDefaults` instance to register defaults into.
+    ///   Pass `.standard` for production; pass a suite instance in tests.
+    ///
+    /// Default changed from `.all` to `.never` in #2082 — opt-in is the better
+    /// default for a notification preference.
+    public static func register(into store: UserDefaults) {
+        store.register(defaults: [
+            "notifications.notificationMode": NotificationMode.never.rawValue,
+        ])
     }
 }
 
