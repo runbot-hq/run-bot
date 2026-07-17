@@ -23,31 +23,17 @@ GitHub Actions and local runners — in your macOS menu bar.
 
 ## Features
 
-#### 🚦 Workflow status
+#### 🚦 Live workflow status
 
-- Live run status across all your repos and orgs — expand any run into a full **Workflow → Jobs → Steps** tree with elapsed time and live progress
-- Drill into jobs and steps; copy logs at the workflow, job, or step level
-- Re-run all, re-run failed jobs, or cancel directly from the panel or right-click context menu
-- Right-click a run to open the workflow or commit on GitHub
+Hierarchical overview of all your workflows. Active jobs are intelligently risen to the surface as they come alive.
 
 #### 🏃 Local runner manager
 
-- Provision new runners in one click — the app handles the token, the install script, and the registration with GitHub
-- Add pre-existing runners already on your Mac
-- Start, stop, and deregister runners directly from the UI — no Terminal or github.com required
-- Active runners show live **CPU & memory** badges while a job is in progress
+One control plane for all your local runner needs. Provision new organization or repository runners with one easy click.
 
-#### 🤖 Actions for local runners
+#### 🤖 AI-powered actions
 
-An open-source ecosystem of GitHub Actions built specifically for self-hosted
-macOS runners — drop them into any workflow and they run directly on your Mac:
-
-- **[AFM Release Notes](https://github.com/runbot-hq/afm-release-notes-action)** — Generates structured release notes from your commit history using Apple Intelligence (on-device AFM). No cloud API, no tokens — runs entirely on-device via Apple Foundation Models.
-- **[Local AI Localisation](https://github.com/runbot-hq/translation-framework-action)** — Translates strings and localisation files using Apple AI Tranlsation Framework on-device. Inspired by Babel; no external service required.
-- **[AI Code Review](https://github.com/runbot-hq/local-ai-code-review-action)** — GitHub Action that reviews pull request diffs using a local Ollama model (Qwen, CodeGeeX, etc.) on a self-hosted runner. No cloud API required.
-
-> All actions run on `self-hosted` runners — the same local runner RunBot manages — giving them direct access to your filesystem, installed tools, and on-device AI that cloud runners cannot reach.
-
+Utilize your local AI capabilities in CI. Run AI PR reviews, AI localization, and AI release notes. Full overview here: [Composable Local AI Actions](https://github.com/runbot-hq?view_as=public#actions) 
 
 ---
 
@@ -74,14 +60,3 @@ curl -fsSL https://runbot-hq.github.io/install.sh | bash
 git fetch && git checkout main && git pull
 bash build.sh && open dist/RunBot.app
 ```
-  
-**Deploy release or beta:**  
-- Deploy releases, betas and dry-runs here: [publish.yml](https://github.com/runbot-hq/run-bot/actions/workflows/publish.yml)
-- select dry_run false or true
-- select beta or release
-- Tag will be bumped according to rollover rules v1.0.9 -> v1.1.0 etc
-- Version will be updated in app config files
-- Beta will match release version and append its own integer v1.0.2 beta-4 etc
-- Dry run and test new functinality with beta before deploying an official release
-- Users toggle beta in the app prefs
-- Deployment strategy: 1. Iterate beta versions until stable. 2. Do release dry run. 3. then release
