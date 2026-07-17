@@ -185,7 +185,10 @@ struct ActionRowView: View {
                 .foregroundColor(.secondary)
                 .lineLimit(1)
                 .fixedSize(horizontal: true, vertical: false)
-                .id(tickSnapshot)
+                // Gate tick binding to .inProgress only — mirrors the elapsed label below.
+                // For non-inProgress rows the start date is static; group.id is a stable
+                // sentinel so SwiftUI does not redraw this label on every poll tick.
+                .id(group.groupStatus == .inProgress ? "\(tickSnapshot)" : group.id)
         }
         if !group.jobs.isEmpty {
             Text(group.jobProgress)
@@ -213,14 +216,13 @@ struct ActionRowView: View {
                 .foregroundColor(.secondary)
                 .lineLimit(1)
                 .fixedSize(horizontal: true, vertical: false)
-                // .id() uses String on both arms so Swift resolves the ternary type via AnyHashable.
-                // For .inProgress rows: identity changes each tick → forces a live redraw.
-                // For all other rows: group.id (a stable String) is used as a no-change sentinel
-                // so SwiftUI does not redraw unnecessarily. group.id is String; tickSnapshot is Int;
-                // AnyHashable wrapping means they can never alias across different types —
-                // no cross-row or cross-state identity collision is possible.
-                // Note: .queued elapsed reflects the value at last poll, not per-second — this is
-                // intentional. Per-second ticking on a queued run would be misleading.
+                // Both .id() arms produce String. Collision between "\(tickSnapshot)" and
+                // group.id is not possible in practice: group.id is derived from the maximum
+                // GitHub run ID (a large integer, e.g. "12893741234"), while tickSnapshot is a
+                // small monotonic counter that resets with the app. The value spaces do not
+                // overlap. Note: .queued elapsed reflects the value at last poll, not
+                // per-second — this is intentional. Per-second ticking on a queued run
+                // would be misleading.
                 .id(group.groupStatus == .inProgress ? "\(tickSnapshot)" : group.id)
         }
         if #available(macOS 26, *) {
