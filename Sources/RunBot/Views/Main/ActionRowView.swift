@@ -207,9 +207,10 @@ struct ActionRowView: View {
                 .foregroundColor(.secondary)
                 .lineLimit(1)
                 .fixedSize(horizontal: true, vertical: false)
-                // Use group.id as the stable sentinel for non-inProgress rows so the identity
-                // can never alias with tickSnapshot (including tick == 0 on reconnect).
-                .id(group.groupStatus == .inProgress ? tickSnapshot : group.id)
+                // Both arms are String so Swift can resolve the ternary type.
+                // group.id is a stable sentinel for non-inProgress rows; it can never
+                // alias with a tick value (including tick == 0 on reconnect).
+                .id(group.groupStatus == .inProgress ? "\(tickSnapshot)" : group.id)
         }
         if #available(macOS 26, *) {
             GlassEffectContainer { statusBadge }
