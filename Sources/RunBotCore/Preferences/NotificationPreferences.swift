@@ -164,17 +164,25 @@ public final class NotificationPreferences {
     /// ## wrappedValue semantics
     /// `AppStorage(wrappedValue:_:store:)` first argument is a fallback default
     /// only — used when the key is absent. Because `register(into:)` has already
-    /// run, `store.string(forKey:)` is safe and non-nil; the `?? .never` is a
-    /// belt-and-suspenders guard against a cleared registration domain in tests.
+    /// run, `store.string(forKey:)` is safe and non-nil.
+    ///
+    /// Note: `wrappedValue` is technically a no-op here — `@AppStorage` reads
+    /// the key directly from `store` on first property access and silently ignores
+    /// whatever was passed as `wrappedValue`. The `store.string(forKey:) ?? .never`
+    /// form is retained deliberately to reflect the injected suite's actual value
+    /// rather than repeating the declaration-site literal.
     public init(store: UserDefaults) {
         // Single registration body — delegates to the public static method so
         // there is no duplication between init and register(into:).
         Self.register(into: store)
         if store !== UserDefaults.standard {
             // Re-target @AppStorage to the injected test suite.
-            // store.string(forKey:) is safe here because register(into:) ran above.
+            // wrappedValue is a fallback default only — @AppStorage reads the key
+            // directly from store on first access and ignores wrappedValue at runtime.
+            // store.string(forKey:) is safe here (register ran above).
+            // See ## wrappedValue semantics in the doc above.
             _notificationModeRaw = AppStorage(
-                wrappedValue: store.string(forKey: "notifications.notificationMode")
+                wrappedValue: store.string(forKey: "notifications.notificationMode") // fallback only — see above
                     ?? NotificationMode.never.rawValue,
                 "notifications.notificationMode",
                 store: store

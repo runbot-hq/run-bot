@@ -126,6 +126,12 @@ public final class AppPreferencesStore {
     /// safe to call directly and returns the registered default on first launch
     /// or the persisted value thereafter. No `object(forKey:) != nil` nil-guard
     /// is needed — registration guarantees a value is present.
+    ///
+    /// Note: `wrappedValue` is technically a no-op here — `@AppStorage` reads
+    /// the key directly from `store` on first property access and silently ignores
+    /// whatever was passed as `wrappedValue`. The `store.bool(forKey:)` call is
+    /// retained deliberately: it makes the intended value explicit and consistent
+    /// with the injected suite rather than repeating the declaration-site literal.
     public init(store: UserDefaults) {
         // Register unconditionally — seeds .standard on production first-launch
         // and the injected suite in tests. Never overwrites existing values.
@@ -136,20 +142,23 @@ public final class AppPreferencesStore {
         ])
         if store !== UserDefaults.standard {
             // Re-target each @AppStorage to the injected test suite.
-            // wrappedValue is a fallback default only (see doc above) —
-            // store.bool(forKey:) is safe because register(defaults:) ran above.
+            // wrappedValue is a fallback default only — @AppStorage reads the key
+            // directly from store on first access and ignores wrappedValue at runtime.
+            // store.bool(forKey:) is safe here (register ran above) and is used
+            // deliberately to reflect the injected suite's actual value, not a
+            // hardcoded literal. See ## wrappedValue semantics in the doc above.
             _showDimmedRunners = AppStorage(
-                wrappedValue: store.bool(forKey: "settings.showDimmedRunners"),
+                wrappedValue: store.bool(forKey: "settings.showDimmedRunners"), // fallback only — see above
                 "settings.showDimmedRunners",
                 store: store
             )
             _showPopoverArrow = AppStorage(
-                wrappedValue: store.bool(forKey: "settings.showPopoverArrow"),
+                wrappedValue: store.bool(forKey: "settings.showPopoverArrow"), // fallback only — see above
                 "settings.showPopoverArrow",
                 store: store
             )
             _betaChannel = AppStorage(
-                wrappedValue: store.bool(forKey: "settings.betaChannel"),
+                wrappedValue: store.bool(forKey: "settings.betaChannel"), // fallback only — see above
                 "settings.betaChannel",
                 store: store
             )
