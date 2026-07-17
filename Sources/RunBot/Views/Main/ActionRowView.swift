@@ -124,7 +124,7 @@ struct ActionRowView: View {
     ///
     /// Column order (#984):
     /// graph-dot · local-remote-icon · sha · repo-name · commit-title · branch-text · Spacer
-    /// · time-ago · steps/total · elapsed(mm:ss, active only) · statusBadge
+    /// · time-ago · steps/total · elapsed(mm:ss) · statusBadge
     ///
     /// - sha: `group.label` (7-char sha or PR#), muted mono
     /// - repo-name: `group.repoShortName` stripped from owner/repo
@@ -167,12 +167,19 @@ struct ActionRowView: View {
         .padding(.vertical, 4)
     }
 
-    /// Trailing meta: time-ago · steps/total · elapsed (active only) · statusBadge.
+    /// Trailing meta: time-ago · steps/total · elapsed · statusBadge.
+    ///
+    /// - time-ago: derived from `firstJobStartedAt ?? createdAt` so it is visible
+    ///   even in queued/loading states before jobs have populated.
+    /// - elapsed: shown for ALL statuses — completed rows show their final duration,
+    ///   active rows show a live ticking value (keyed to `tick`).
     ///
     /// statusBadge is wrapped in its own standalone GlassEffectContainer — scoped to badge only.
     /// ⚠️ Do NOT expand this container to the row or rowContainer (#957).
     @ViewBuilder private func metaTrailing(tick tickSnapshot: Int) -> some View {
-        if let start = group.firstJobStartedAt {
+        // Use createdAt as fallback so time-ago is visible before firstJobStartedAt populates.
+        // If both are nil (e.g. corrupted API response), the label is intentionally omitted — not a bug.
+        if let start = group.firstJobStartedAt ?? group.createdAt {
             Text(RelativeTimeFormatter.string(from: start))
                 .font(RBFont.mono)
                 .foregroundColor(.secondary)
@@ -187,12 +194,34 @@ struct ActionRowView: View {
                 .lineLimit(1)
                 .fixedSize(horizontal: true, vertical: false)
         }
-        if group.groupStatus == .inProgress || group.groupStatus == .queued || group.groupStatus == .loading {
+        // Show elapsed for all statuses. Completed rows display a static final duration;
+        // active rows tick live. Only bind tickSnapshot when in-progress to avoid
+        // unnecessary redraws on completed/queued rows.
+        //
+        // Condition reads: show elapsed UNLESS the row is still in .loading AND no job has
+        // started yet. That is the only state where group.elapsed would be a meaningless
+        // "time since workflow was created" with no job context.
+        // Equivalent form: suppress when (.loading AND firstJobStartedAt == nil).
+        //
+        // group.elapsed always returns a non-empty string for every state where
+        // showElapsed == true: inProgress/queued use firstJobStartedAt ?? createdAt → now,
+        // and completed uses firstJobStartedAt → lastJobCompletedAt. No empty-Text risk.
+        let showElapsed = group.groupStatus != .loading || group.firstJobStartedAt != nil
+        if showElapsed {
             Text(group.elapsed)
                 .font(RBFont.mono)
                 .foregroundColor(.secondary)
                 .lineLimit(1)
                 .fixedSize(horizontal: true, vertical: false)
+                // .id() uses String on both arms so Swift resolves the ternary type via AnyHashable.
+                // For .inProgress rows: identity changes each tick → forces a live redraw.
+                // For all other rows: group.id (a stable String) is used as a no-change sentinel
+                // so SwiftUI does not redraw unnecessarily. group.id is String; tickSnapshot is Int;
+                // AnyHashable wrapping means they can never alias across different types —
+                // no cross-row or cross-state identity collision is possible.
+                // Note: .queued elapsed reflects the value at last poll, not per-second — this is
+                // intentional. Per-second ticking on a queued run would be misleading.
+                .id(group.groupStatus == .inProgress ? "\(tickSnapshot)" : group.id)
         }
         if #available(macOS 26, *) {
             GlassEffectContainer { statusBadge }
