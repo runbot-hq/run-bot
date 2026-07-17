@@ -83,4 +83,5 @@ bash build.sh && open dist/RunBot.app
 - Version will be updated in app config files
 - Beta will match release version and append its own integer v1.0.2 beta-4 etc
 - Dry run and test new functinality with beta before deploying an official release
-- Users toggle beta in the app prefs  
+- Users toggle beta in the app prefs
+- Deployment strategy: 1. Iterate beta versions until stable. 2. Do release dry run. 3. then release
