@@ -178,6 +178,7 @@ struct ActionRowView: View {
     /// ⚠️ Do NOT expand this container to the row or rowContainer (#957).
     @ViewBuilder private func metaTrailing(tick tickSnapshot: Int) -> some View {
         // Use createdAt as fallback so time-ago is visible before firstJobStartedAt populates.
+        // If both are nil (e.g. corrupted API response), the label is intentionally omitted — not a bug.
         if let start = group.firstJobStartedAt ?? group.createdAt {
             Text(RelativeTimeFormatter.string(from: start))
                 .font(RBFont.mono)
@@ -196,13 +197,19 @@ struct ActionRowView: View {
         // Show elapsed for all statuses. Completed rows display a static final duration;
         // active rows tick live. Only bind tickSnapshot when in-progress to avoid
         // unnecessary redraws on completed/queued rows.
-        if group.groupStatus != .loading || group.firstJobStartedAt != nil {
+        //
+        // Condition: show when (not loading) OR (loading but a job has already started).
+        // Equivalent to: suppress only when status is .loading AND firstJobStartedAt is nil.
+        let showElapsed = group.groupStatus != .loading || group.firstJobStartedAt != nil
+        if showElapsed {
             Text(group.elapsed)
                 .font(RBFont.mono)
                 .foregroundColor(.secondary)
                 .lineLimit(1)
                 .fixedSize(horizontal: true, vertical: false)
-                .id(group.groupStatus == .inProgress ? tickSnapshot : 0)
+                // Use group.id as the stable sentinel for non-inProgress rows so the identity
+                // can never alias with tickSnapshot (including tick == 0 on reconnect).
+                .id(group.groupStatus == .inProgress ? tickSnapshot : group.id)
         }
         if #available(macOS 26, *) {
             GlassEffectContainer { statusBadge }
