@@ -6,7 +6,7 @@ on:
 
 jobs:
   review:
-    runs-on: [self-hosted, macos-m1]
+    runs-on: [self-hosted, macOS, apple-intelligence]
     permissions:
       pull-requests: write
       contents: read
