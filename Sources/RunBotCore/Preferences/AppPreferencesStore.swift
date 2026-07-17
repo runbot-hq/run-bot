@@ -101,9 +101,10 @@ public final class AppPreferencesStore {
     /// `AppStorage(wrappedValue:_:store:)` — the first argument is the fallback
     /// default used when the key is absent from `store`, not a forced seed value.
     /// When the key is already present, `@AppStorage` reads it from `store`
-    /// directly and ignores `wrappedValue` entirely. The nil-object guard
-    /// (`store.object(forKey:) != nil`) distinguishes "key absent" from "key
-    /// explicitly set to false" so that a stored `false` is correctly honoured.
+    /// directly and ignores `wrappedValue` entirely. Because `register(defaults:)`
+    /// has already run above, `store.bool(forKey:)` is always safe to call directly
+    /// — it returns the registered default on first launch and the persisted value
+    /// thereafter. No nil-object guard is needed.
     public init(store: UserDefaults) {
         store.register(defaults: [
             "settings.showDimmedRunners": true,
@@ -112,23 +113,17 @@ public final class AppPreferencesStore {
         ])
         if store !== UserDefaults.standard {
             _showDimmedRunners = AppStorage(
-                wrappedValue: store.object(forKey: "settings.showDimmedRunners") != nil
-                    ? store.bool(forKey: "settings.showDimmedRunners")
-                    : true,
+                wrappedValue: store.bool(forKey: "settings.showDimmedRunners"),
                 "settings.showDimmedRunners",
                 store: store
             )
             _showPopoverArrow = AppStorage(
-                wrappedValue: store.object(forKey: "settings.showPopoverArrow") != nil
-                    ? store.bool(forKey: "settings.showPopoverArrow")
-                    : true,
+                wrappedValue: store.bool(forKey: "settings.showPopoverArrow"),
                 "settings.showPopoverArrow",
                 store: store
             )
             _betaChannel = AppStorage(
-                wrappedValue: store.object(forKey: "settings.betaChannel") != nil
-                    ? store.bool(forKey: "settings.betaChannel")
-                    : false,
+                wrappedValue: store.bool(forKey: "settings.betaChannel"),
                 "settings.betaChannel",
                 store: store
             )

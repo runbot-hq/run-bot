@@ -53,12 +53,9 @@ public enum NotificationMode: String, CaseIterable, Sendable {
 /// `notificationMode` is a computed property. The `@Observable` macro only
 /// auto-instruments stored properties — computed properties do not receive
 /// `_$observationRegistrar` calls. `notificationMode` therefore does NOT
-/// participate in the `@Observable` change-tracking graph. `@ObservationIgnored`
-/// on a computed property is a no-op at the macro level (the macro never
-/// instruments computed properties regardless), but is retained as an explicit
-/// signal that this property is intentionally untracked. A future
-/// `withObservationTracking` consumer reading `notificationMode` will NOT be
-/// re-invoked on change — it will remain valid but silently stale.
+/// participate in the `@Observable` change-tracking graph and is intentionally
+/// untracked. A `withObservationTracking` consumer reading `notificationMode`
+/// will remain valid but will not be re-invoked when the raw value changes.
 ///
 /// ## SwiftUI consumption
 /// The correct pattern for a SwiftUI view inside this module is `@Bindable` on
@@ -109,18 +106,15 @@ public final class NotificationPreferences {
     /// ## @Observable tracking
     /// This is a computed property — the `@Observable` macro never emits
     /// `_$observationRegistrar` calls for computed properties regardless of
-    /// attributes. `@ObservationIgnored` here is a no-op at the macro level,
-    /// but is retained as an explicit, machine-readable signal that this property
-    /// is intentionally untracked. A `withObservationTracking` consumer that
-    /// reads this property will remain valid but will not be re-invoked when the
-    /// raw value changes. See the class-level `## SwiftUI consumption` doc for
+    /// attributes. This property is intentionally untracked; a
+    /// `withObservationTracking` consumer reading it will remain valid but
+    /// silently stale. See the class-level `## SwiftUI consumption` doc for
     /// the correct binding pattern.
     ///
     /// ## Dispatch wiring
     /// Wired in #2070. Call `shouldNotify(conclusion:)` at every
     /// `UNUserNotificationCenter` dispatch site to gate notifications by this
     /// preference.
-    @ObservationIgnored
     public var notificationMode: NotificationMode {
         get { NotificationMode(rawValue: notificationModeRaw) ?? .never }
         set { notificationModeRaw = newValue.rawValue }
@@ -164,9 +158,9 @@ public final class NotificationPreferences {
     /// ## wrappedValue semantics
     /// `AppStorage(wrappedValue:_:store:)` — the first argument is the fallback
     /// default used when the key is absent from `store`, not a forced seed value.
-    /// When the key is already present, `@AppStorage` reads it from `store`
-    /// directly and ignores `wrappedValue` entirely. Passing the plain default
-    /// constant here is therefore correct and sufficient.
+    /// Because `register(defaults:)` has already run above, `store.string(forKey:)`
+    /// is always safe to call directly — it returns the registered default on
+    /// first launch and the persisted value thereafter.
     public init(store: UserDefaults) {
         store.register(defaults: [
             "notifications.notificationMode": NotificationMode.never.rawValue,
