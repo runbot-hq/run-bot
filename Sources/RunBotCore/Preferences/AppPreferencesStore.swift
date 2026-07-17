@@ -128,11 +128,32 @@ public final class AppPreferencesStore {
     /// `register(defaults:)` only sets keys that are absent; it never overwrites
     /// persisted values, so upgrading users are unaffected.
     ///
+    /// ## No public `register(into:)` — by design
+    /// Unlike `NotificationPreferences`, this type has no public static
+    /// `register(into:)` method. There are no known external callers that need
+    /// to seed these keys before constructing an `AppPreferencesStore` instance.
+    /// If that requirement arises, add a parallel `public static func register(into:)`
+    /// following the same pattern as `NotificationPreferences`.
+    ///
     /// ## Test-injection path (`if store !== .standard`)
     /// When a non-standard suite is injected (unit tests), each `@AppStorage`
-    /// property is re-targeted to that suite by re-initialising its `_` backing
-    /// wrapper directly. The production path skips this block entirely because
-    /// `@AppStorage` already targets `.standard` by default at the declaration site.
+    /// property is re-targeted to that suite by re-initialising its compiler-
+    /// synthesised `_` backing wrapper directly. This relies on the stable
+    /// `_propertyName` naming convention for `@propertyWrapper` backing storage —
+    /// a de-facto Swift standard, not an ABI guarantee. It is the accepted idiom
+    /// for this pattern (used identically in `NotificationPreferences`) and is
+    /// extremely unlikely to change, but worth knowing if a future Swift or
+    /// SwiftUI toolchain update causes unexpected test failures here.
+    /// The production path skips this block entirely because `@AppStorage` already
+    /// targets `.standard` by default at the declaration site.
+    ///
+    /// ## @AppStorage subscription note
+    /// At declaration time, `@AppStorage` registers an internal `NotificationCenter`
+    /// subscription against `.standard`. After the test-injection rebind, reads and
+    /// writes correctly target the injected suite, but that original `.standard`
+    /// subscription is never torn down. In practice this is harmless — tests are
+    /// serialised on `@MainActor` so cross-suite notification bleed cannot race —
+    /// but it is worth knowing if flaky main-actor test behaviour appears.
     ///
     /// ## wrappedValue semantics
     /// `AppStorage(wrappedValue:_:store:)` — the first argument is a fallback
@@ -151,10 +172,10 @@ public final class AppPreferencesStore {
             Self.keyBetaChannel: false,
         ])
         if store !== UserDefaults.standard {
-            // Re-target each @AppStorage to the injected test suite.
-            // wrappedValue is a fallback default only — @AppStorage reads the key
-            // directly from store on first access regardless of this value.
-            // Literals match the declaration-site defaults above.
+            // Re-target each @AppStorage to the injected test suite via the
+            // compiler-synthesised _ backing wrapper. See ## Test-injection path
+            // in the doc above for the stability note on this pattern.
+            // wrappedValue is a fallback default only — never observed at runtime.
             _showDimmedRunners = AppStorage(wrappedValue: true, Self.keyShowDimmedRunners, store: store)
             _showPopoverArrow = AppStorage(wrappedValue: true, Self.keyShowPopoverArrow, store: store)
             _betaChannel = AppStorage(wrappedValue: false, Self.keyBetaChannel, store: store)

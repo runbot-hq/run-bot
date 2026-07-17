@@ -25,8 +25,6 @@ public final class LocalRunnerIndex {
     /// Maps runnerName → installPath, persisted to `UserDefaults`.
     public private(set) var runnerIndex: [String: String] = [:]
 
-    // MARK: - Init
-
     /// The `UserDefaults` store used for persistence. Defaults to `.standard`; injectable for tests.
     private let defaults: UserDefaults
 
@@ -37,6 +35,8 @@ public final class LocalRunnerIndex {
     /// Reused encoder. Only ever called from `LocalRunnerStore`'s serial actor executor,
     /// so there is no concurrent access — matching the pattern in `ScopePreferencesStore` (P17).
     private let encoder = JSONEncoder()
+
+    // MARK: - Init
 
     /// Initialises the index and loads the persisted entries from `UserDefaults`.
     /// If stored `Data` exists but cannot be decoded, the error is logged and the

@@ -169,6 +169,21 @@ public final class NotificationPreferences {
     /// direct `UserDefaults` readers see `"never"` on first launch instead of `nil`.
     /// Never overwrites persisted values.
     ///
+    /// ## Test-injection path (`if store !== .standard`)
+    /// Re-targets `@AppStorage` via the compiler-synthesised `_notificationModeRaw`
+    /// backing wrapper. This relies on the stable `_propertyName` naming convention
+    /// for `@propertyWrapper` backing storage — a de-facto Swift standard, not an
+    /// ABI guarantee. Extremely unlikely to change, but worth knowing if a future
+    /// Swift or SwiftUI toolchain update causes unexpected test failures here.
+    ///
+    /// ## @AppStorage subscription note
+    /// At declaration time, `@AppStorage` registers an internal `NotificationCenter`
+    /// subscription against `.standard`. After the test-injection rebind, reads and
+    /// writes correctly target the injected suite, but that original `.standard`
+    /// subscription is never torn down. In practice this is harmless — tests are
+    /// serialised on `@MainActor` so cross-suite notification bleed cannot race —
+    /// but it is worth knowing if flaky main-actor test behaviour appears.
+    ///
     /// ## wrappedValue semantics
     /// `AppStorage(wrappedValue:_:store:)` first argument is a fallback default
     /// used only when the key is absent. Because `register(into:)` has already
@@ -182,11 +197,12 @@ public final class NotificationPreferences {
         // there is no duplication between init and register(into:).
         Self.register(into: store)
         if store !== UserDefaults.standard {
-            // Re-target @AppStorage to the injected test suite.
-            // wrappedValue is a fallback default only — @AppStorage reads the key
-            // directly from store on first access regardless of this value.
+            // Re-target @AppStorage to the injected test suite via the
+            // compiler-synthesised _ backing wrapper. See ## Test-injection path
+            // in the doc above for the stability note on this pattern.
+            // wrappedValue is a fallback default only — never observed at runtime.
             _notificationModeRaw = AppStorage(
-                wrappedValue: NotificationMode.never.rawValue, // fallback only — never observed at runtime
+                wrappedValue: NotificationMode.never.rawValue,
                 Self.keyNotificationMode,
                 store: store
             )
