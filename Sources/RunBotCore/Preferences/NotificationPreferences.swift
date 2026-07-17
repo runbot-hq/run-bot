@@ -38,6 +38,25 @@ public enum NotificationMode: String, CaseIterable, Sendable {
 /// the `@AppStorage` property is re-pointed to that suite so unit tests can
 /// supply an ephemeral suite without polluting the real preferences database.
 ///
+/// ## @AppStorage + @ObservationIgnored
+/// `_notificationModeRaw` uses both `@AppStorage` and `@ObservationIgnored`.
+/// This combination is required and intentional:
+/// - `@AppStorage` is a property wrapper. Without `@ObservationIgnored`, the
+///   `@Observable` macro would try to synthesise observation tracking for the
+///   compiler-generated `_` backing variable, which conflicts with the wrapper's
+///   own storage and produces a compile error.
+/// - `@ObservationIgnored` suppresses that instrumentation. This is safe because
+///   `@AppStorage` publishes its own changes via the SwiftUI environment; it does
+///   not need `@Observable`'s registrar.
+///
+/// ## notificationMode and @Observable tracking
+/// `notificationMode` is a computed property. The `@Observable` macro only
+/// auto-instruments stored properties — computed properties do not receive
+/// `_$observationRegistrar` calls. `notificationMode` therefore does NOT
+/// participate in the `@Observable` change-tracking graph. This is intentional
+/// and consistent with `AppPreferencesStore`. SwiftUI consumers bind via
+/// `@AppStorage` or the `shared` singleton directly.
+///
 /// ## Orphaned UserDefaults keys
 /// The previous `notifications.notifyOnSuccess` and `notifications.notifyOnFailure`
 /// keys are intentionally left in UserDefaults without cleanup. The app has
@@ -59,6 +78,9 @@ public final class NotificationPreferences {
     /// applies the typed `NotificationMode(rawValue:) ?? .never` guard. Keeping
     /// this internal prevents raw String writes from outside the module that would
     /// bypass that guard and silently corrupt the persisted value.
+    ///
+    /// `@ObservationIgnored` is required — see the class-level doc comment for
+    /// the `@AppStorage + @ObservationIgnored` rationale.
     ///
     /// Default changed from `.all` to `.never` in #2082.
     @ObservationIgnored

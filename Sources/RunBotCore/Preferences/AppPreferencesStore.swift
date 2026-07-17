@@ -13,10 +13,17 @@ import SwiftUI
 /// ephemeral in-memory suite instead of polluting `.standard`. Production code
 /// always uses the `shared` singleton, which calls `init()` → `init(store: .standard)`.
 ///
-/// ## @AppStorage
-/// Properties use `@AppStorage` for the production path (`.standard`). When a
-/// non-standard suite is injected (test path), `@AppStorage` is re-pointed to that
-/// suite via the `store:` overload so test isolation is preserved (P7).
+/// ## @AppStorage + @ObservationIgnored
+/// Every stored preference uses both `@AppStorage` and `@ObservationIgnored`.
+/// This combination is required and intentional:
+/// - `@AppStorage` is a property wrapper. Without `@ObservationIgnored`, the
+///   `@Observable` macro would try to synthesise observation tracking for the
+///   compiler-generated `_` backing variable, which conflicts with the wrapper's
+///   own storage and produces a compile error.
+/// - `@ObservationIgnored` suppresses that instrumentation. This is safe because
+///   `@AppStorage` publishes its own changes via the SwiftUI environment; it does
+///   not need `@Observable`'s registrar. SwiftUI views bind directly to the
+///   `@AppStorage` property and receive updates through that channel.
 ///
 /// ## Thread safety
 /// `@MainActor`-isolated. All `@AppStorage` writes run on the main thread; no
@@ -35,6 +42,9 @@ public final class AppPreferencesStore {
     public static let shared = AppPreferencesStore()
 
     // MARK: - Preferences
+
+    // @ObservationIgnored is required on every @AppStorage property in this
+    // @Observable class — see the class-level doc comment for the full rationale.
 
     /// Whether to show dimmed (offline/idle) runners in the runners list.
     ///
