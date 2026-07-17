@@ -85,16 +85,14 @@ public final class AppPreferencesStore {
     public init(store: UserDefaults) {
         if store !== UserDefaults.standard {
             _showDimmedRunners = AppStorage(
-                wrappedValue: store.bool(forKey: "settings.showDimmedRunners") == false
-                    && store.object(forKey: "settings.showDimmedRunners") == nil ? true
-                    : store.bool(forKey: "settings.showDimmedRunners"),
+                wrappedValue: store.object(forKey: "settings.showDimmedRunners") == nil
+                    ? true : store.bool(forKey: "settings.showDimmedRunners"),
                 "settings.showDimmedRunners",
                 store: store
             )
             _showPopoverArrow = AppStorage(
-                wrappedValue: store.bool(forKey: "settings.showPopoverArrow") == false
-                    && store.object(forKey: "settings.showPopoverArrow") == nil ? true
-                    : store.bool(forKey: "settings.showPopoverArrow"),
+                wrappedValue: store.object(forKey: "settings.showPopoverArrow") == nil
+                    ? true : store.bool(forKey: "settings.showPopoverArrow"),
                 "settings.showPopoverArrow",
                 store: store
             )

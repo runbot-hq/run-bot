@@ -53,25 +53,29 @@ public final class NotificationPreferences {
 
     // MARK: - Preferences
 
-    /// Unified notification mode replacing the two separate Bool flags.
-    /// Persisted as a `String` rawValue in UserDefaults.
+    /// Raw `String` backing store for `notificationMode`.
     ///
-    /// Default changed from `.all` to `.never` in #2082 — opt-in is the better
-    /// default for a notification preference; users who want alerts can enable them.
+    /// `internal` by design — external callers must use `notificationMode` which
+    /// applies the typed `NotificationMode(rawValue:) ?? .never` guard. Keeping
+    /// this internal prevents raw String writes from outside the module that would
+    /// bypass that guard and silently corrupt the persisted value.
+    ///
+    /// Default changed from `.all` to `.never` in #2082.
+    @ObservationIgnored
+    @AppStorage("notifications.notificationMode")
+    var _notificationModeRaw: String = NotificationMode.never.rawValue
+
+    /// Unified notification mode replacing the two separate Bool flags.
+    /// Persisted as a `String` rawValue in UserDefaults via `_notificationModeRaw`.
+    ///
+    /// Writing this property updates `_notificationModeRaw` (and therefore
+    /// UserDefaults) atomically. Unrecognised raw values fall back to `.never`
+    /// (e.g. after a downgrade that removes a previously persisted case).
     ///
     /// ## Dispatch wiring
     /// Wired in #2070. Call `shouldNotify(conclusion:)` at every
     /// `UNUserNotificationCenter` dispatch site to gate notifications by this
     /// preference.
-    @ObservationIgnored
-    @AppStorage("notifications.notificationMode")
-    public var _notificationModeRaw: String = NotificationMode.never.rawValue
-
-    /// Typed accessor for `notificationMode`.
-    ///
-    /// Writing this property updates `_notificationModeRaw` (and therefore
-    /// UserDefaults) atomically. Unrecognised raw values fall back to `.never`
-    /// (e.g. after a downgrade that removes a previously persisted case).
     public var notificationMode: NotificationMode {
         get { NotificationMode(rawValue: _notificationModeRaw) ?? .never }
         set { _notificationModeRaw = newValue.rawValue }
