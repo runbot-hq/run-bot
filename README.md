@@ -23,19 +23,21 @@ GitHub Actions and local runners — in your macOS menu bar.
 
 ## Features
 
-**🚦 Workflow status**
+#### 🚦 Workflow status
+
 - Live run status across all your repos and orgs — expand any run into a full **Workflow → Jobs → Steps** tree with elapsed time and live progress
 - Drill into jobs and steps; copy logs at the workflow, job, or step level
 - Re-run all, re-run failed jobs, or cancel directly from the panel or right-click context menu
 - Right-click a run to open the workflow or commit on GitHub
 
-**🏃 Local runner manager**
+#### 🏃 Local runner manager
+
 - Provision new runners in one click — the app handles the token, the install script, and the registration with GitHub
 - Add pre-existing runners already on your Mac
 - Start, stop, and deregister runners directly from the UI — no Terminal or github.com required
 - Active runners show live **CPU & memory** badges while a job is in progress
 
-**🤖 Actions for local runners**
+#### 🤖 Actions for local runners
 
 An open-source ecosystem of GitHub Actions built specifically for self-hosted
 macOS runners — drop them into any workflow and they run directly on your Mac:
