@@ -198,8 +198,14 @@ struct ActionRowView: View {
         // active rows tick live. Only bind tickSnapshot when in-progress to avoid
         // unnecessary redraws on completed/queued rows.
         //
-        // Condition: show when (not loading) OR (loading but a job has already started).
-        // Equivalent to: suppress only when status is .loading AND firstJobStartedAt is nil.
+        // Condition reads: show elapsed UNLESS the row is still in .loading AND no job has
+        // started yet. That is the only state where group.elapsed would be a meaningless
+        // "time since workflow was created" with no job context.
+        // Equivalent form: suppress when (.loading AND firstJobStartedAt == nil).
+        //
+        // group.elapsed always returns a non-empty string for every state where
+        // showElapsed == true: inProgress/queued use firstJobStartedAt ?? createdAt → now,
+        // and completed uses firstJobStartedAt → lastJobCompletedAt. No empty-Text risk.
         let showElapsed = group.groupStatus != .loading || group.firstJobStartedAt != nil
         if showElapsed {
             Text(group.elapsed)
@@ -207,9 +213,14 @@ struct ActionRowView: View {
                 .foregroundColor(.secondary)
                 .lineLimit(1)
                 .fixedSize(horizontal: true, vertical: false)
-                // Both arms are String so Swift can resolve the ternary type.
-                // group.id is a stable sentinel for non-inProgress rows; it can never
-                // alias with a tick value (including tick == 0 on reconnect).
+                // .id() uses String on both arms so Swift resolves the ternary type via AnyHashable.
+                // For .inProgress rows: identity changes each tick → forces a live redraw.
+                // For all other rows: group.id (a stable String) is used as a no-change sentinel
+                // so SwiftUI does not redraw unnecessarily. group.id is String; tickSnapshot is Int;
+                // AnyHashable wrapping means they can never alias across different types —
+                // no cross-row or cross-state identity collision is possible.
+                // Note: .queued elapsed reflects the value at last poll, not per-second — this is
+                // intentional. Per-second ticking on a queued run would be misleading.
                 .id(group.groupStatus == .inProgress ? "\(tickSnapshot)" : group.id)
         }
         if #available(macOS 26, *) {
