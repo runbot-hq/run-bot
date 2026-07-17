@@ -124,7 +124,7 @@ struct ActionRowView: View {
     ///
     /// Column order (#984):
     /// graph-dot · local-remote-icon · sha · repo-name · commit-title · branch-text · Spacer
-    /// · time-ago · steps/total · elapsed(mm:ss, active only) · statusBadge
+    /// · time-ago · steps/total · elapsed(mm:ss) · statusBadge
     ///
     /// - sha: `group.label` (7-char sha or PR#), muted mono
     /// - repo-name: `group.repoShortName` stripped from owner/repo
@@ -167,12 +167,18 @@ struct ActionRowView: View {
         .padding(.vertical, 4)
     }
 
-    /// Trailing meta: time-ago · steps/total · elapsed (active only) · statusBadge.
+    /// Trailing meta: time-ago · steps/total · elapsed · statusBadge.
+    ///
+    /// - time-ago: derived from `firstJobStartedAt ?? createdAt` so it is visible
+    ///   even in queued/loading states before jobs have populated.
+    /// - elapsed: shown for ALL statuses — completed rows show their final duration,
+    ///   active rows show a live ticking value (keyed to `tick`).
     ///
     /// statusBadge is wrapped in its own standalone GlassEffectContainer — scoped to badge only.
     /// ⚠️ Do NOT expand this container to the row or rowContainer (#957).
     @ViewBuilder private func metaTrailing(tick tickSnapshot: Int) -> some View {
-        if let start = group.firstJobStartedAt {
+        // Use createdAt as fallback so time-ago is visible before firstJobStartedAt populates.
+        if let start = group.firstJobStartedAt ?? group.createdAt {
             Text(RelativeTimeFormatter.string(from: start))
                 .font(RBFont.mono)
                 .foregroundColor(.secondary)
@@ -187,12 +193,16 @@ struct ActionRowView: View {
                 .lineLimit(1)
                 .fixedSize(horizontal: true, vertical: false)
         }
-        if group.groupStatus == .inProgress || group.groupStatus == .queued || group.groupStatus == .loading {
+        // Show elapsed for all statuses. Completed rows display a static final duration;
+        // active rows tick live. Only bind tickSnapshot when in-progress to avoid
+        // unnecessary redraws on completed/queued rows.
+        if group.groupStatus != .loading || group.firstJobStartedAt != nil {
             Text(group.elapsed)
                 .font(RBFont.mono)
                 .foregroundColor(.secondary)
                 .lineLimit(1)
                 .fixedSize(horizontal: true, vertical: false)
+                .id(group.groupStatus == .inProgress ? tickSnapshot : 0)
         }
         if #available(macOS 26, *) {
             GlassEffectContainer { statusBadge }
