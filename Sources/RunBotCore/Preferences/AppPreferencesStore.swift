@@ -164,7 +164,8 @@ public final class AppPreferencesStore {
     /// SwiftUI toolchain update causes unexpected test failures here.
     /// **Failure mode if broken:** reads silently fall back to `.standard` —
     /// tests pass while asserting against the wrong store. The `#if DEBUG` canary
-    /// assert at the rebind site below will catch this at test runtime.
+    /// below writes a sentinel into the injected suite and reads it back through
+    /// the rebound property, so a broken rebind fails loudly rather than silently.
     /// The production path skips this block entirely because `@AppStorage` already
     /// targets `.standard` by default at the declaration site.
     ///
@@ -200,16 +201,20 @@ public final class AppPreferencesStore {
             _showDimmedRunners = AppStorage(wrappedValue: true, Self.keyShowDimmedRunners, store: store)
             _showPopoverArrow = AppStorage(wrappedValue: true, Self.keyShowPopoverArrow, store: store)
             _betaChannel = AppStorage(wrappedValue: false, Self.keyBetaChannel, store: store)
-            // Canary: if the _ rebind pattern ever breaks (Swift/SwiftUI toolchain
-            // change), reads will silently fall back to .standard instead of the
-            // injected suite. Assert here so test failures are obvious rather than
-            // manifesting as wrong-store assertions passing silently.
+            // Canary: write a sentinel into the injected suite then read it back
+            // through the rebound property. If the _backing rebind ever silently
+            // breaks (toolchain change), reads fall back to .standard and this
+            // assert fires — making the failure loud rather than a wrong-store
+            // assertion passing silently.
             #if DEBUG
+            let sentinel = "__canary__"
+            store.set(sentinel, forKey: Self.keyShowDimmedRunners)
             assert(
-                store.object(forKey: Self.keyShowDimmedRunners) != nil,
-                "AppPreferencesStore test-injection canary: injected suite has no registered defaults. "
-                + "register(defaults:) must run before the _backing rebind."
+                store.string(forKey: Self.keyShowDimmedRunners) == sentinel,
+                "AppPreferencesStore test-injection canary: _backing rebind did not redirect "
+                + "reads to the injected suite — check _propertyName compiler convention."
             )
+            store.removeObject(forKey: Self.keyShowDimmedRunners) // restore; register(defaults:) re-seeds on next read
             #endif
         }
         // else: production path — @AppStorage already targets .standard by
