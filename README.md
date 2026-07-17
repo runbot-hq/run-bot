@@ -42,7 +42,7 @@ macOS runners — drop them into any workflow and they run directly on your Mac:
 
 - **[AFM Release Notes](https://github.com/runbot-hq/afm-release-notes-action)** — Generates structured release notes from your commit history using Apple Intelligence (on-device AFM). No cloud API, no tokens — runs entirely on-device via Apple Foundation Models.
 - **[Local AI Localisation](https://github.com/runbot-hq/translation-framework-action)** — Translates strings and localisation files using Apple AI Tranlsation Framework on-device. Inspired by Babel; no external service required.
-- **[AI Remediation](https://github.com/runbot-hq/ai-remediation-action)** *(⚠️️ coming soon ⚠️️)* — On a failed run, automatically invokes an AI CLI of your choice (Claude Code, Gemini, Aider, Codex…) with full context: branch, commit SHA, failure log, and repo links. Full paper trail in the CI log; no UI dependency.
+- **[AI Code Review](https://github.com/runbot-hq/local-ai-code-review-action)** — GitHub Action that reviews pull request diffs using a local Ollama model (Qwen, CodeGeeX, etc.) on a self-hosted runner. No cloud API required.
 
 > All actions run on `self-hosted` runners — the same local runner RunBot manages — giving them direct access to your filesystem, installed tools, and on-device AI that cloud runners cannot reach.
 
