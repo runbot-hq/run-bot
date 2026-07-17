@@ -156,24 +156,23 @@ public final class NotificationPreferences {
     /// actor is a compile error; there is no race hazard from `public` visibility.
     ///
     /// ## register(defaults:)
-    /// Called **unconditionally** before the `if` branch — including on the
-    /// production `.standard` path — so that direct `UserDefaults` readers see
-    /// `"never"` on first launch instead of `nil`. Never overwrites persisted values.
+    /// Delegated to `Self.register(into: store)` — single registration body,
+    /// no duplication. Called **unconditionally** before the `if` branch so that
+    /// direct `UserDefaults` readers see `"never"` on first launch instead of `nil`.
+    /// Never overwrites persisted values.
     ///
     /// ## wrappedValue semantics
     /// `AppStorage(wrappedValue:_:store:)` first argument is a fallback default
-    /// only — used when the key is absent. Because `register(defaults:)` already
-    /// ran, `store.string(forKey:)` is safe and non-nil; the `?? .never` is a
+    /// only — used when the key is absent. Because `register(into:)` has already
+    /// run, `store.string(forKey:)` is safe and non-nil; the `?? .never` is a
     /// belt-and-suspenders guard against a cleared registration domain in tests.
     public init(store: UserDefaults) {
-        // Register unconditionally — seeds .standard on first-launch and the
-        // injected suite in tests. Never overwrites existing values.
-        store.register(defaults: [
-            "notifications.notificationMode": NotificationMode.never.rawValue,
-        ])
+        // Single registration body — delegates to the public static method so
+        // there is no duplication between init and register(into:).
+        Self.register(into: store)
         if store !== UserDefaults.standard {
             // Re-target @AppStorage to the injected test suite.
-            // store.string(forKey:) is safe here because register(defaults:) ran above.
+            // store.string(forKey:) is safe here because register(into:) ran above.
             _notificationModeRaw = AppStorage(
                 wrappedValue: store.string(forKey: "notifications.notificationMode")
                     ?? NotificationMode.never.rawValue,
@@ -187,13 +186,15 @@ public final class NotificationPreferences {
 
     // MARK: - Registration
 
-    /// Registers factory defaults into `store` so that `string(forKey:)` returns
-    /// the intended value on first launch without requiring a nil-guard.
+    /// Registers factory defaults into `store`.
     ///
-    /// `init(store:)` calls this automatically. This method is `public` for
-    /// **external test setup only** — call it when code reads `UserDefaults`
-    /// directly before constructing a `NotificationPreferences` instance.
-    /// Production callers should use `shared` and never need this directly.
+    /// `init(store:)` delegates to this method — it is the **single registration
+    /// body** for this type. This method is `public` for **external test setup
+    /// only**: call it when code reads `UserDefaults` directly before constructing
+    /// a `NotificationPreferences` instance. Production callers should use `shared`
+    /// and never need to call this directly.
+    ///
+    /// - Parameter store: The `UserDefaults` instance to register defaults into.
     ///
     /// Default changed from `.all` to `.never` in #2082.
     public static func register(into store: UserDefaults) {
