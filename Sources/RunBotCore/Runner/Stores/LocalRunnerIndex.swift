@@ -30,6 +30,14 @@ public final class LocalRunnerIndex {
     /// The `UserDefaults` store used for persistence. Defaults to `.standard`; injectable for tests.
     private let defaults: UserDefaults
 
+    /// Reused decoder. Only ever called from `LocalRunnerStore`'s serial actor executor,
+    /// so there is no concurrent access — matching the pattern in `ScopePreferencesStore` (P17).
+    private let decoder = JSONDecoder()
+
+    /// Reused encoder. Only ever called from `LocalRunnerStore`'s serial actor executor,
+    /// so there is no concurrent access — matching the pattern in `ScopePreferencesStore` (P17).
+    private let encoder = JSONEncoder()
+
     /// Initialises the index and loads the persisted entries from `UserDefaults`.
     /// If stored `Data` exists but cannot be decoded, the error is logged and the
     /// index starts empty — preserving the invariant that `init` never throws.
@@ -66,7 +74,7 @@ public final class LocalRunnerIndex {
     private func loadIndex() {
         if let data = defaults.data(forKey: Self.indexKey) {
             do {
-                runnerIndex = try JSONDecoder().decode([String: String].self, from: data)
+                runnerIndex = try decoder.decode([String: String].self, from: data)
                 log("LocalRunnerIndex › loadIndex — \(runnerIndex.count) entry(ies): \(runnerIndex.keys.sorted())", category: .runner)
             } catch {
                 log("LocalRunnerIndex › loadIndex — JSON decode failed: \(error). Starting with empty index.", category: .runner)
@@ -82,7 +90,7 @@ public final class LocalRunnerIndex {
     /// On encode failure, logs the error and leaves the stored value unchanged.
     private func persistIndex() {
         do {
-            let data = try JSONEncoder().encode(runnerIndex)
+            let data = try encoder.encode(runnerIndex)
             defaults.set(data, forKey: Self.indexKey)
             log("LocalRunnerIndex › persistIndex — \(runnerIndex.count) entry(ies) written", category: .runner)
         } catch {

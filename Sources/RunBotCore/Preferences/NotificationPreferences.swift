@@ -2,6 +2,7 @@
 // RunBotCore
 import Foundation
 import Observation
+import SwiftUI
 
 // MARK: - NotificationMode
 
@@ -32,10 +33,16 @@ public enum NotificationMode: String, CaseIterable, Sendable {
 /// Persists notification preferences to UserDefaults.
 ///
 /// ## Dependency injection (P7)
-/// The `didSet` observers write to the injected `defaults` instance rather than
-/// directly to `UserDefaults.standard`, matching the pattern in `AppPreferencesStore`
-/// so that unit tests can supply an ephemeral suite without polluting the real
-/// preferences database.
+/// `@AppStorage` handles the register-read-write lifecycle for the production
+/// path (`.standard`). When a non-standard suite is injected via `init(store:)`,
+/// the `@AppStorage` property is re-pointed to that suite so unit tests can
+/// supply an ephemeral suite without polluting the real preferences database.
+///
+/// ## Orphaned UserDefaults keys
+/// The previous `notifications.notifyOnSuccess` and `notifications.notifyOnFailure`
+/// keys are intentionally left in UserDefaults without cleanup. The app has
+/// zero users in the wild, so no migration path is needed. The dead keys are
+/// harmless and will simply be ignored.
 @MainActor
 @Observable
 public final class NotificationPreferences {
@@ -44,37 +51,30 @@ public final class NotificationPreferences {
     /// the only zero-argument construction path outside this file.
     public static let shared = NotificationPreferences()
 
-    /// UserDefaults key constants.
-    private enum Key {
-        /// Key for the notification mode enum.
-        static let notificationMode = "notifications.notificationMode"
-    }
-
-    // MARK: - Backing store
-
-    /// The `UserDefaults` instance used for all reads and writes.
-    /// Injected at init; defaults to `.standard` in production.
-    private let defaults: UserDefaults
-
     // MARK: - Preferences
 
     /// Unified notification mode replacing the two separate Bool flags.
     /// Persisted as a `String` rawValue in UserDefaults.
     ///
+    /// Default changed from `.all` to `.never` in #2082 — opt-in is the better
+    /// default for a notification preference; users who want alerts can enable them.
+    ///
     /// ## Dispatch wiring
     /// Wired in #2070. Call `shouldNotify(conclusion:)` at every
     /// `UNUserNotificationCenter` dispatch site to gate notifications by this
     /// preference.
+    @ObservationIgnored
+    @AppStorage("notifications.notificationMode")
+    public var _notificationModeRaw: String = NotificationMode.never.rawValue
+
+    /// Typed accessor for `notificationMode`.
     ///
-    /// ## Orphaned UserDefaults keys
-    /// The previous `notifications.notifyOnSuccess` and `notifications.notifyOnFailure`
-    /// keys are intentionally left in UserDefaults without cleanup. The app has
-    /// zero users in the wild, so no migration path is needed. The dead keys are
-    /// harmless and will simply be ignored.
+    /// Writing this property updates `_notificationModeRaw` (and therefore
+    /// UserDefaults) atomically. Unrecognised raw values fall back to `.never`
+    /// (e.g. after a downgrade that removes a previously persisted case).
     public var notificationMode: NotificationMode {
-        didSet {
-            defaults.set(notificationMode.rawValue, forKey: Key.notificationMode)
-        }
+        get { NotificationMode(rawValue: _notificationModeRaw) ?? .never }
+        set { _notificationModeRaw = newValue.rawValue }
     }
 
     // MARK: - Init
@@ -105,45 +105,16 @@ public final class NotificationPreferences {
     /// caller. Constructing this type off the main actor is a compiler error —
     /// the caller must be `@MainActor` or use `await MainActor.run { ... }`.
     /// There is no race hazard from making `init(store:)` public.
-    ///
-    /// Calls `register(into: store)` automatically — no need to call it
-    /// separately in production code.
     public init(store: UserDefaults) {
-        self.defaults = store
-        // register(defaults:) only sets values that are not already present —
-        // it does NOT overwrite persisted values. Existing users upgrading from
-        // a build where the default was .all keep their saved preference unchanged.
-        // Only a genuine first-launch (or fresh test suite) sees the .never default.
-        NotificationPreferences.register(into: store)
-        // Use ?? rather than ! so that a test suite whose registration domain was
-        // cleared (e.g. via removePersistentDomain without re-registering) falls
-        // back gracefully instead of crashing. Behaviour is identical to the force-
-        // unwrap on every normal path where register(into:) has run.
-        // The inner ?? .never guards against an unrecognised rawValue (e.g. after a
-        // downgrade that removes a case that was previously persisted).
-        let rawMode = store.string(forKey: Key.notificationMode) ?? NotificationMode.never.rawValue
-        notificationMode = NotificationMode(rawValue: rawMode) ?? .never
-    }
-
-    // MARK: - Registration
-
-    /// Registers factory defaults so that `string(forKey:)` returns the intended
-    /// value on first launch without requiring an `object(forKey:) == nil` guard.
-    ///
-    /// `init(store:)` calls this automatically in production. This method is
-    /// `public` for test setup only — call it when you need defaults registered
-    /// before `init` runs (e.g. testing code that reads from `UserDefaults`
-    /// directly before constructing a `NotificationPreferences` instance).
-    ///
-    /// - Parameter store: The `UserDefaults` instance to register defaults into.
-    ///   Pass `.standard` for production; pass a suite instance in tests.
-    ///
-    /// Default changed from `.all` to `.never` in #2082 — opt-in is the better
-    /// default for a notification preference; users who want alerts can enable them.
-    public static func register(into store: UserDefaults) {
-        store.register(defaults: [
-            Key.notificationMode: NotificationMode.never.rawValue,
-        ])
+        if store !== UserDefaults.standard {
+            let raw = store.string(forKey: "notifications.notificationMode")
+                ?? NotificationMode.never.rawValue
+            __notificationModeRaw = AppStorage(
+                wrappedValue: raw,
+                "notifications.notificationMode",
+                store: store
+            )
+        }
     }
 }
 

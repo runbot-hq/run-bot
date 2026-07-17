@@ -2,6 +2,7 @@
 // RunBotCore
 import Foundation
 import Observation
+import SwiftUI
 
 // MARK: - AppPreferencesStore
 
@@ -12,38 +13,26 @@ import Observation
 /// ephemeral in-memory suite instead of polluting `.standard`. Production code
 /// always uses the `shared` singleton, which calls `init()` → `init(store: .standard)`.
 ///
+/// ## @AppStorage
+/// Properties use `@AppStorage` for the production path (`.standard`). When a
+/// non-standard suite is injected (test path), `@AppStorage` is re-pointed to that
+/// suite via the `store:` overload so test isolation is preserved (P7).
+///
 /// ## Thread safety
-/// `@MainActor`-isolated. All `didSet` writes run on the main thread; no additional
-/// synchronisation is needed.
+/// `@MainActor`-isolated. All `@AppStorage` writes run on the main thread; no
+/// additional synchronisation is needed.
 ///
 /// ## pollingInterval removal (Step 10, #2069)
 /// `pollingInterval` and `pollingRange` were removed from this type because
 /// `RunnerPoller` no longer reads them — poll cadence is fully driven by
 /// `PollIntervalStrategy`. The `settings.pollingInterval` UserDefaults key is
-/// no longer registered in `register(defaults:)` (removed in this step) and goes
-/// unread by the app. Existing installs that previously wrote a value retain it
-/// in UserDefaults but it has no effect.
+/// no longer registered and goes unread by the app. Existing installs that
+/// previously wrote a value retain it in UserDefaults but it has no effect.
 @MainActor
 @Observable
 public final class AppPreferencesStore {
     /// Shared singleton — use this instead of calling init directly.
     public static let shared = AppPreferencesStore()
-
-    /// UserDefaults key constants used by `AppPreferencesStore`.
-    private enum Key {
-        /// Key for the show-dimmed-runners toggle.
-        static let showDimmedRunners = "settings.showDimmedRunners"
-        /// Key for the show-popover-arrow toggle.
-        static let showPopoverArrow = "settings.showPopoverArrow"
-        /// Key for the beta channel toggle.
-        static let betaChannel = "settings.betaChannel"
-    }
-
-    // MARK: - Backing store
-
-    /// The `UserDefaults` instance used for all reads and writes.
-    /// Injected at init; defaults to `.standard` in production.
-    private let defaults: UserDefaults
 
     // MARK: - Preferences
 
@@ -52,9 +41,9 @@ public final class AppPreferencesStore {
     /// Retained for UserDefaults backwards-compatibility only — no longer surfaced
     /// in the UI (#510). Do not remove: removing would break the stored key for
     /// users upgrading from older versions.
-    public var showDimmedRunners: Bool {
-        didSet { defaults.set(showDimmedRunners, forKey: Key.showDimmedRunners) }
-    }
+    @ObservationIgnored
+    @AppStorage("settings.showDimmedRunners")
+    public var showDimmedRunners: Bool = true
 
     /// Whether the NSPopover anchor arrow is shown.
     ///
@@ -64,18 +53,18 @@ public final class AppPreferencesStore {
     ///
     /// Takes effect on the next `openPanel()` call — the arrow state is baked in
     /// at `popover.show()` time and cannot be changed mid-session.
-    public var showPopoverArrow: Bool {
-        didSet { defaults.set(showPopoverArrow, forKey: Key.showPopoverArrow) }
-    }
+    @ObservationIgnored
+    @AppStorage("settings.showPopoverArrow")
+    public var showPopoverArrow: Bool = true
 
     /// Whether to offer pre-release (beta) builds in the update check.
     ///
     /// When `true`, `UpdateChecker` will also consider pre-release GitHub releases
     /// when looking for a newer version. Defaults to `false` so users stay on the
     /// stable channel unless they explicitly opt in.
-    public var betaChannel: Bool {
-        didSet { defaults.set(betaChannel, forKey: Key.betaChannel) }
-    }
+    @ObservationIgnored
+    @AppStorage("settings.betaChannel")
+    public var betaChannel: Bool = false
 
     // MARK: - Init
 
@@ -90,15 +79,30 @@ public final class AppPreferencesStore {
     ///   Pass `.standard` in production (via the `shared` singleton) or an
     ///   ephemeral suite (`UserDefaults(suiteName:)`) in unit tests to avoid
     ///   polluting the real preferences database. (P7)
+    ///
+    /// When `store` is not `.standard`, each `@AppStorage` property is
+    /// re-initialised against `store` so test isolation is preserved.
     public init(store: UserDefaults) {
-        self.defaults = store
-        store.register(defaults: [
-            Key.showDimmedRunners: true,
-            Key.showPopoverArrow: true,
-            Key.betaChannel: false,
-        ])
-        showDimmedRunners = store.bool(forKey: Key.showDimmedRunners)
-        showPopoverArrow = store.bool(forKey: Key.showPopoverArrow)
-        betaChannel = store.bool(forKey: Key.betaChannel)
+        if store !== UserDefaults.standard {
+            _showDimmedRunners = AppStorage(
+                wrappedValue: store.bool(forKey: "settings.showDimmedRunners") == false
+                    && store.object(forKey: "settings.showDimmedRunners") == nil ? true
+                    : store.bool(forKey: "settings.showDimmedRunners"),
+                "settings.showDimmedRunners",
+                store: store
+            )
+            _showPopoverArrow = AppStorage(
+                wrappedValue: store.bool(forKey: "settings.showPopoverArrow") == false
+                    && store.object(forKey: "settings.showPopoverArrow") == nil ? true
+                    : store.bool(forKey: "settings.showPopoverArrow"),
+                "settings.showPopoverArrow",
+                store: store
+            )
+            _betaChannel = AppStorage(
+                wrappedValue: store.bool(forKey: "settings.betaChannel"),
+                "settings.betaChannel",
+                store: store
+            )
+        }
     }
 }
