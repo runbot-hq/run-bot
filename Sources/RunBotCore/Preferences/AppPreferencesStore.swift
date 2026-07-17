@@ -114,5 +114,7 @@ public final class AppPreferencesStore {
                 store: store
             )
         }
+        // else: production path — @AppStorage already targets .standard by
+        // default at the declaration site; no rebinding needed.
     }
 }

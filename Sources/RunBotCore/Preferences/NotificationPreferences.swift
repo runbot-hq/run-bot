@@ -53,8 +53,10 @@ public enum NotificationMode: String, CaseIterable, Sendable {
 /// `notificationMode` is a computed property. The `@Observable` macro only
 /// auto-instruments stored properties — computed properties do not receive
 /// `_$observationRegistrar` calls. `notificationMode` therefore does NOT
-/// participate in the `@Observable` change-tracking graph. This is intentional
-/// and consistent with `AppPreferencesStore`.
+/// participate in the `@Observable` change-tracking graph. `@ObservationIgnored`
+/// is applied to make this machine-readable: any future `withObservationTracking`
+/// consumer that reads `notificationMode` expecting re-invocation on change will
+/// produce a compiler error rather than silently stale UI.
 ///
 /// ## SwiftUI consumption
 /// The correct pattern for a SwiftUI view inside this module is `@Bindable` on
@@ -103,10 +105,11 @@ public final class NotificationPreferences {
     /// (e.g. after a downgrade that removes a previously persisted case).
     ///
     /// ## @Observable tracking
-    /// This is a computed property. The `@Observable` macro only auto-instruments
-    /// stored properties — computed properties are not injected with
-    /// `_$observationRegistrar` calls. `notificationMode` therefore does NOT
-    /// participate in the `@Observable` change-tracking graph.
+    /// `@ObservationIgnored` is applied because this is a computed property —
+    /// the `@Observable` macro never emits `_$observationRegistrar` calls for
+    /// computed properties. Making this explicit prevents a future
+    /// `withObservationTracking { _ = prefs.notificationMode }` consumer from
+    /// expecting re-invocation on change and getting silently stale UI instead.
     /// See the class-level `## SwiftUI consumption` doc for the correct binding
     /// pattern — in particular, do NOT bind via a raw `@AppStorage` key at the
     /// call site as it bypasses the access guard this type establishes.
@@ -115,6 +118,7 @@ public final class NotificationPreferences {
     /// Wired in #2070. Call `shouldNotify(conclusion:)` at every
     /// `UNUserNotificationCenter` dispatch site to gate notifications by this
     /// preference.
+    @ObservationIgnored
     public var notificationMode: NotificationMode {
         get { NotificationMode(rawValue: notificationModeRaw) ?? .never }
         set { notificationModeRaw = newValue.rawValue }
@@ -163,6 +167,8 @@ public final class NotificationPreferences {
                 store: store
             )
         }
+        // else: production path — @AppStorage already targets .standard by
+        // default at the declaration site; no rebinding needed.
     }
 }
 
