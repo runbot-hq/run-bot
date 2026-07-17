@@ -56,6 +56,8 @@ public enum NotificationMode: String, CaseIterable, Sendable {
 /// - `@Observable` tracking is intentionally absent for `notificationModeRaw`.
 ///   External `withObservationTracking` observers will NOT be notified of
 ///   changes — this is by design. UI updates go through `@Bindable` / `@AppStorage`.
+///   **This failure mode is silent** — reads compile fine and return correct values;
+///   change callbacks simply never arrive. Use `@Bindable` instead.
 ///
 /// ## notificationMode — intentionally untracked computed property
 /// `notificationMode` is a computed property. The `@Observable` macro only
@@ -80,6 +82,10 @@ public enum NotificationMode: String, CaseIterable, Sendable {
 /// external callers must go through `notificationMode`, which applies the
 /// `NotificationMode(rawValue:) ?? .never` guard. It is not `private` so that
 /// `@testable import` test targets can inspect the raw stored value directly.
+/// Note: because this is an app target (not a library), a `public extension` on
+/// `NotificationPreferences` in another file could technically re-expose this
+/// property. That is undesirable — any such extension must not redeclare or
+/// proxy `notificationModeRaw` as public.
 ///
 /// ## Orphaned UserDefaults keys
 /// The previous `notifications.notifyOnSuccess` and `notifications.notifyOnFailure`
@@ -113,6 +119,9 @@ public final class NotificationPreferences {
     ///
     /// `@ObservationIgnored` is required here (not redundant) — see
     /// class-level ## @AppStorage + @ObservationIgnored.
+    ///
+    /// ⚠️ Not `@Observable`-tracked — `withObservationTracking` will not re-fire.
+    /// Consume `notificationMode` (the typed accessor) via `@Bindable` instead.
     ///
     /// Default changed from `.all` to `.never` in #2082.
     @ObservationIgnored // required — see class-level ## @AppStorage + @ObservationIgnored
@@ -175,6 +184,9 @@ public final class NotificationPreferences {
     /// for `@propertyWrapper` backing storage — a de-facto Swift standard, not an
     /// ABI guarantee. Extremely unlikely to change, but worth knowing if a future
     /// Swift or SwiftUI toolchain update causes unexpected test failures here.
+    /// **Failure mode if broken:** reads silently fall back to `.standard` —
+    /// tests pass while asserting against the wrong store. The `#if DEBUG` canary
+    /// assert at the rebind site below will catch this at test runtime.
     ///
     /// ## @AppStorage subscription note
     /// At declaration time, `@AppStorage` registers an internal `NotificationCenter`
@@ -206,6 +218,17 @@ public final class NotificationPreferences {
                 Self.keyNotificationMode,
                 store: store
             )
+            // Canary: if the _ rebind pattern ever breaks (Swift/SwiftUI toolchain
+            // change), reads will silently fall back to .standard instead of the
+            // injected suite. Assert here so test failures are obvious rather than
+            // manifesting as wrong-store assertions passing silently.
+            #if DEBUG
+            assert(
+                store.object(forKey: Self.keyNotificationMode) != nil,
+                "NotificationPreferences test-injection canary: injected suite has no registered defaults. "
+                + "register(into:) must run before the _backing rebind."
+            )
+            #endif
         }
         // else: production path — @AppStorage already targets .standard by
         // default at the declaration site; no rebinding needed.

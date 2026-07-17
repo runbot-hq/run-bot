@@ -36,6 +36,9 @@ import SwiftUI
 ///   External observers that use `withObservationTracking` will NOT be notified
 ///   of changes — this is by design. UI updates go through SwiftUI's `@Bindable`
 ///   / `@AppStorage` channel, not through `@Observable`'s registrar.
+///   **This failure mode is silent** — a `withObservationTracking` read compiles
+///   and returns the correct value on first access; it just never re-fires.
+///   Use `@Bindable` instead. See per-property callouts below.
 ///
 /// ## Thread safety
 /// `@MainActor`-isolated. All `@AppStorage` writes run on the main thread; no
@@ -51,6 +54,7 @@ import SwiftUI
 @Observable
 public final class AppPreferencesStore {
     /// Shared singleton — use this instead of calling `init` directly.
+    /// `private convenience init()` is `private` — all production code must go through `shared`.
     public static let shared = AppPreferencesStore()
 
     // MARK: - Keys
@@ -75,12 +79,19 @@ public final class AppPreferencesStore {
     // conflicts with @AppStorage's own compiler-generated backing storage
     // and produces a compile error. See ## @AppStorage + @ObservationIgnored
     // in the class doc above for the full explanation.
+    //
+    // ⚠️ NOT @Observable-tracked — withObservationTracking will NOT re-fire on change.
+    // Use @Bindable against the owning instance for SwiftUI change propagation.
+    // This is intentional and silent: reads compile fine, callbacks just never arrive.
 
     /// Whether to show dimmed (offline/idle) runners in the runners list.
     ///
     /// Retained for UserDefaults backwards-compatibility only — no longer surfaced
     /// in the UI (#510). Do not remove: removing would orphan the stored key for
     /// users upgrading from older versions.
+    ///
+    /// ⚠️ Not `@Observable`-tracked — `withObservationTracking` will not re-fire.
+    /// Consume via `@Bindable`. See class-level `## @AppStorage + @ObservationIgnored`.
     @ObservationIgnored // required — see class-level ## @AppStorage + @ObservationIgnored
     @AppStorage(AppPreferencesStore.keyShowDimmedRunners)
     public var showDimmedRunners: Bool = true
@@ -93,6 +104,9 @@ public final class AppPreferencesStore {
     ///
     /// Takes effect on the next `openPanel()` call — the arrow state is baked in
     /// at `popover.show()` time and cannot be changed mid-session.
+    ///
+    /// ⚠️ Not `@Observable`-tracked — `withObservationTracking` will not re-fire.
+    /// Consume via `@Bindable`. See class-level `## @AppStorage + @ObservationIgnored`.
     @ObservationIgnored // required — see class-level ## @AppStorage + @ObservationIgnored
     @AppStorage(AppPreferencesStore.keyShowPopoverArrow)
     public var showPopoverArrow: Bool = true
@@ -102,6 +116,9 @@ public final class AppPreferencesStore {
     /// When `true`, `UpdateChecker` will also consider pre-release GitHub releases
     /// when looking for a newer version. Defaults to `false` so users stay on the
     /// stable channel unless they explicitly opt in.
+    ///
+    /// ⚠️ Not `@Observable`-tracked — `withObservationTracking` will not re-fire.
+    /// Consume via `@Bindable`. See class-level `## @AppStorage + @ObservationIgnored`.
     @ObservationIgnored // required — see class-level ## @AppStorage + @ObservationIgnored
     @AppStorage(AppPreferencesStore.keyBetaChannel)
     public var betaChannel: Bool = false
@@ -109,6 +126,7 @@ public final class AppPreferencesStore {
     // MARK: - Init
 
     /// Convenience initialiser for production use. Calls `init(store: .standard)`.
+    /// `private` — all production code must go through `shared`.
     private convenience init() {
         self.init(store: .standard)
     }
@@ -144,6 +162,9 @@ public final class AppPreferencesStore {
     /// for this pattern (used identically in `NotificationPreferences`) and is
     /// extremely unlikely to change, but worth knowing if a future Swift or
     /// SwiftUI toolchain update causes unexpected test failures here.
+    /// **Failure mode if broken:** reads silently fall back to `.standard` —
+    /// tests pass while asserting against the wrong store. The `#if DEBUG` canary
+    /// assert at the rebind site below will catch this at test runtime.
     /// The production path skips this block entirely because `@AppStorage` already
     /// targets `.standard` by default at the declaration site.
     ///
@@ -179,6 +200,17 @@ public final class AppPreferencesStore {
             _showDimmedRunners = AppStorage(wrappedValue: true, Self.keyShowDimmedRunners, store: store)
             _showPopoverArrow = AppStorage(wrappedValue: true, Self.keyShowPopoverArrow, store: store)
             _betaChannel = AppStorage(wrappedValue: false, Self.keyBetaChannel, store: store)
+            // Canary: if the _ rebind pattern ever breaks (Swift/SwiftUI toolchain
+            // change), reads will silently fall back to .standard instead of the
+            // injected suite. Assert here so test failures are obvious rather than
+            // manifesting as wrong-store assertions passing silently.
+            #if DEBUG
+            assert(
+                store.object(forKey: Self.keyShowDimmedRunners) != nil,
+                "AppPreferencesStore test-injection canary: injected suite has no registered defaults. "
+                + "register(defaults:) must run before the _backing rebind."
+            )
+            #endif
         }
         // else: production path — @AppStorage already targets .standard by
         // default at the declaration site; no rebinding needed.
