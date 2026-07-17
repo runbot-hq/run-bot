@@ -2,6 +2,10 @@
 // RunBotCore
 import Foundation
 import Observation
+// SwiftUI is imported for @AppStorage only. See the class-level
+// ## @AppStorage + @ObservationIgnored doc for the full rationale.
+// Outside a SwiftUI view hierarchy @AppStorage degrades gracefully to a
+// plain UserDefaults read/write; persistence correctness is unaffected.
 import SwiftUI
 
 // MARK: - NotificationMode
@@ -35,36 +39,47 @@ public enum NotificationMode: String, CaseIterable, Sendable {
 /// ## Dependency injection (P7)
 /// `@AppStorage` handles the register-read-write lifecycle for the production
 /// path (`.standard`). When a non-standard suite is injected via `init(store:)`,
-/// the `@AppStorage` property is re-pointed to that suite so unit tests can
-/// supply an ephemeral suite without polluting the real preferences database.
+/// the `@AppStorage` backing wrapper is re-pointed to that suite so unit tests
+/// can supply an ephemeral suite without polluting the real preferences database.
 ///
 /// ## @AppStorage + @ObservationIgnored
 /// `notificationModeRaw` uses both `@AppStorage` and `@ObservationIgnored`.
 /// This combination is required and intentional:
 /// - `@AppStorage` is a property wrapper. Without `@ObservationIgnored`, the
-///   `@Observable` macro would try to synthesise observation tracking for the
+///   `@Observable` macro tries to synthesise observation tracking for the
 ///   compiler-generated `_` backing variable, which conflicts with the wrapper's
-///   own storage and produces a compile error.
-/// - `@ObservationIgnored` suppresses that instrumentation. This is safe because
-///   `@AppStorage` publishes its own changes via the SwiftUI environment; it does
-///   not need `@Observable`'s registrar.
+///   own storage and produces a compile error. `@ObservationIgnored` suppresses
+///   that instrumentation.
+/// - Outside a SwiftUI view hierarchy `@AppStorage` still reads/writes
+///   `UserDefaults` correctly. Change propagation to views happens via
+///   `@Bindable` on the owning instance, not through the SwiftUI environment.
+/// - `@Observable` tracking is intentionally absent for `notificationModeRaw`.
+///   External `withObservationTracking` observers will NOT be notified of
+///   changes — this is by design. UI updates go through `@Bindable` / `@AppStorage`.
 ///
-/// ## notificationMode and @Observable tracking
+/// ## notificationMode — intentionally untracked computed property
 /// `notificationMode` is a computed property. The `@Observable` macro only
-/// auto-instruments stored properties — computed properties do not receive
-/// `_$observationRegistrar` calls. `notificationMode` therefore does NOT
-/// participate in the `@Observable` change-tracking graph and is intentionally
-/// untracked. A `withObservationTracking` consumer reading `notificationMode`
-/// will remain valid but will not be re-invoked when the raw value changes.
+/// auto-instruments **stored** properties — computed properties never receive
+/// `_$observationRegistrar` calls regardless of any attributes. `notificationMode`
+/// therefore does NOT participate in the `@Observable` change-tracking graph.
+/// A `withObservationTracking` consumer reading `notificationMode` will remain
+/// valid but will NOT be re-invoked when the value changes (silently stale).
+/// This is intentional — the correct binding pattern is `@Bindable`; see
+/// ## SwiftUI consumption below.
 ///
 /// ## SwiftUI consumption
-/// The correct pattern for a SwiftUI view inside this module is `@Bindable` on
-/// the `shared` instance and bind against `notificationMode` directly — the
-/// setter writes through to `notificationModeRaw` and `@AppStorage` propagates
-/// the change. Do NOT bind via a raw `@AppStorage("notifications.notificationMode")`
-/// at the call site: that bypasses the `internal` access guard on `notificationModeRaw`
-/// and creates an implicit coupling to the raw key string that this type is
-/// explicitly designed to encapsulate.
+/// Bind via `@Bindable` on the `shared` instance against `notificationMode`
+/// directly — the setter writes through to `notificationModeRaw` and
+/// `@AppStorage` propagates the change to the view.
+/// Do NOT bind via a raw `@AppStorage("notifications.notificationMode")` at
+/// the call site: that bypasses the `internal` access guard on `notificationModeRaw`
+/// and couples the call site to the raw key string this type exists to encapsulate.
+///
+/// ## notificationModeRaw access level
+/// `notificationModeRaw` is `internal`, not `public`. This is intentional:
+/// external callers must go through `notificationMode`, which applies the
+/// `NotificationMode(rawValue:) ?? .never` guard. It is not `private` so that
+/// `@testable import` test targets can inspect the raw stored value directly.
 ///
 /// ## Orphaned UserDefaults keys
 /// The previous `notifications.notifyOnSuccess` and `notifications.notifyOnFailure`
@@ -83,38 +98,35 @@ public final class NotificationPreferences {
 
     /// Raw `String` backing store for `notificationMode`.
     ///
-    /// `internal` by design — external callers must use `notificationMode` which
-    /// applies the typed `NotificationMode(rawValue:) ?? .never` guard. Keeping
-    /// this internal prevents raw String writes from outside the module that would
-    /// bypass that guard and silently corrupt the persisted value.
+    /// `internal` intentionally — external callers must use the typed
+    /// `notificationMode` accessor which applies the `?? .never` guard.
+    /// Not `private` so `@testable import` test targets can inspect it directly.
+    /// See class-level ## notificationModeRaw access level.
     ///
-    /// `@ObservationIgnored` is required — see the class-level doc comment for
-    /// the `@AppStorage + @ObservationIgnored` rationale.
+    /// `@ObservationIgnored` is required here (not redundant) — see
+    /// class-level ## @AppStorage + @ObservationIgnored.
     ///
     /// Default changed from `.all` to `.never` in #2082.
-    @ObservationIgnored
+    @ObservationIgnored // required — see class-level ## @AppStorage + @ObservationIgnored
     @AppStorage("notifications.notificationMode")
     var notificationModeRaw: String = NotificationMode.never.rawValue
 
-    /// Unified notification mode replacing the two separate Bool flags.
+    /// Typed read/write accessor for the notification mode preference.
     /// Persisted as a `String` rawValue in UserDefaults via `notificationModeRaw`.
     ///
-    /// Writing this property updates `notificationModeRaw` (and therefore
-    /// UserDefaults) atomically. Unrecognised raw values fall back to `.never`
-    /// (e.g. after a downgrade that removes a previously persisted case).
+    /// Writes update `notificationModeRaw` (and therefore UserDefaults) atomically.
+    /// Unrecognised raw values fall back to `.never` (e.g. after a downgrade).
     ///
-    /// ## @Observable tracking
-    /// This is a computed property — the `@Observable` macro never emits
-    /// `_$observationRegistrar` calls for computed properties regardless of
-    /// attributes. This property is intentionally untracked; a
-    /// `withObservationTracking` consumer reading it will remain valid but
-    /// silently stale. See the class-level `## SwiftUI consumption` doc for
-    /// the correct binding pattern.
+    /// ## Observation tracking — intentionally absent
+    /// This is a computed property. The `@Observable` macro never instruments
+    /// computed properties — no `_$observationRegistrar` calls are emitted here
+    /// regardless of any attribute. `withObservationTracking` consumers reading
+    /// this property will NOT be re-invoked on change. Use `@Bindable` instead;
+    /// see class-level ## SwiftUI consumption.
     ///
     /// ## Dispatch wiring
     /// Wired in #2070. Call `shouldNotify(conclusion:)` at every
-    /// `UNUserNotificationCenter` dispatch site to gate notifications by this
-    /// preference.
+    /// `UNUserNotificationCenter` dispatch site to gate notifications.
     public var notificationMode: NotificationMode {
         get { NotificationMode(rawValue: notificationModeRaw) ?? .never }
         set { notificationModeRaw = newValue.rawValue }
@@ -123,49 +135,45 @@ public final class NotificationPreferences {
     // MARK: - Init
 
     /// Convenience initialiser for production use. Calls `init(store: .standard)`.
-    ///
-    /// `private` by design — forces all production code through the `shared` singleton.
-    /// Tests and Previews that need a fresh instance use `init(store:)` directly.
+    /// `private` — all production code must go through `shared`.
     private convenience init() {
         self.init(store: .standard)
     }
 
     /// Designated initialiser.
     ///
-    /// - Parameter store: The `UserDefaults` suite to read from and write to.
-    ///   Pass `.standard` in production (via the `shared` singleton) or an
-    ///   ephemeral suite (`UserDefaults(suiteName:)`) in unit tests to avoid
-    ///   polluting the real preferences database. (P7)
+    /// - Parameter store: The `UserDefaults` suite to use. Pass `.standard` in
+    ///   production (via `shared`) or an ephemeral suite in unit tests (P7).
     ///
     /// ## Why `public`
-    /// `public` is required for test-target injection (P7) — test targets are
-    /// separate modules and cannot access `internal` members. This is intentional
-    /// and not an oversight. The `private convenience init()` ensures zero-argument
-    /// construction outside this file still routes through `shared`.
+    /// Required for test-target injection (P7) — test targets are separate modules
+    /// and cannot access `internal` members. The `private convenience init()`
+    /// ensures zero-argument construction outside this file still routes through
+    /// `shared`. Making `init(store:)` public is intentional, not an oversight.
     ///
-    /// ## `@MainActor` safety
-    /// `@MainActor` isolation is enforced by the class declaration, not by the
-    /// caller. Constructing this type off the main actor is a compiler error —
-    /// the caller must be `@MainActor` or use `await MainActor.run { ... }`.
-    /// There is no race hazard from making `init(store:)` public.
+    /// ## @MainActor safety
+    /// Isolation is enforced by the class declaration. Calling this off the main
+    /// actor is a compile error; there is no race hazard from `public` visibility.
     ///
     /// ## register(defaults:)
-    /// Called unconditionally so that any direct `UserDefaults` reader (migration
-    /// helpers, analytics, crash reporters) sees `"never"` on first launch rather
-    /// than `nil`. `register(defaults:)` only sets keys that are absent — it
-    /// never overwrites persisted values.
+    /// Called **unconditionally** before the `if` branch — including on the
+    /// production `.standard` path — so that direct `UserDefaults` readers see
+    /// `"never"` on first launch instead of `nil`. Never overwrites persisted values.
     ///
     /// ## wrappedValue semantics
-    /// `AppStorage(wrappedValue:_:store:)` — the first argument is the fallback
-    /// default used when the key is absent from `store`, not a forced seed value.
-    /// Because `register(defaults:)` has already run above, `store.string(forKey:)`
-    /// is always safe to call directly — it returns the registered default on
-    /// first launch and the persisted value thereafter.
+    /// `AppStorage(wrappedValue:_:store:)` first argument is a fallback default
+    /// only — used when the key is absent. Because `register(defaults:)` already
+    /// ran, `store.string(forKey:)` is safe and non-nil; the `?? .never` is a
+    /// belt-and-suspenders guard against a cleared registration domain in tests.
     public init(store: UserDefaults) {
+        // Register unconditionally — seeds .standard on first-launch and the
+        // injected suite in tests. Never overwrites existing values.
         store.register(defaults: [
             "notifications.notificationMode": NotificationMode.never.rawValue,
         ])
         if store !== UserDefaults.standard {
+            // Re-target @AppStorage to the injected test suite.
+            // store.string(forKey:) is safe here because register(defaults:) ran above.
             _notificationModeRaw = AppStorage(
                 wrappedValue: store.string(forKey: "notifications.notificationMode")
                     ?? NotificationMode.never.rawValue,
@@ -179,18 +187,15 @@ public final class NotificationPreferences {
 
     // MARK: - Registration
 
-    /// Registers factory defaults so that `string(forKey:)` returns the intended
-    /// value on first launch without requiring an `object(forKey:) == nil` guard.
+    /// Registers factory defaults into `store` so that `string(forKey:)` returns
+    /// the intended value on first launch without requiring a nil-guard.
     ///
-    /// `init(store:)` calls this automatically — this method is `public` for
-    /// external test setup only, for code that reads from `UserDefaults` directly
-    /// before constructing a `NotificationPreferences` instance.
+    /// `init(store:)` calls this automatically. This method is `public` for
+    /// **external test setup only** — call it when code reads `UserDefaults`
+    /// directly before constructing a `NotificationPreferences` instance.
+    /// Production callers should use `shared` and never need this directly.
     ///
-    /// - Parameter store: The `UserDefaults` instance to register defaults into.
-    ///   Pass `.standard` for production; pass a suite instance in tests.
-    ///
-    /// Default changed from `.all` to `.never` in #2082 — opt-in is the better
-    /// default for a notification preference.
+    /// Default changed from `.all` to `.never` in #2082.
     public static func register(into store: UserDefaults) {
         store.register(defaults: [
             "notifications.notificationMode": NotificationMode.never.rawValue,
@@ -206,33 +211,25 @@ public extension NotificationPreferences {
     /// Returns `true` if a notification should be sent for the given job conclusion.
     ///
     /// Gating rules per mode:
-    /// - `.failuresOnly` uses `conclusion.isFailure` (includes `.timedOut`,
-    ///   `.startupFailure`, `.actionRequired` alongside `.failure`).
-    /// - `.successesOnly` uses `conclusion == .success` (not `!isFailure`) — only
-    ///   an explicit `.success` passes; `.neutral`, `.skipped`, `.cancelled` etc.
-    ///   are excluded from this mode.
-    /// - `.all` passes everything (including `.neutral` from a nil fallback).
-    /// - `.never` passes nothing.
-    ///
-    /// Call this at every `UNUserNotificationCenter` dispatch site before
-    /// scheduling a notification request:
+    /// - `.failuresOnly` — uses `conclusion.isFailure` which includes `.timedOut`,
+    ///   `.startupFailure`, `.actionRequired` alongside `.failure`. Not `== .failure`.
+    /// - `.successesOnly` — uses `conclusion == .success` only; `.neutral`,
+    ///   `.skipped`, `.cancelled` etc. do not pass this mode.
+    /// - `.all` — passes everything.
+    /// - `.never` — passes nothing.
     ///
     /// ```swift
-    /// // When already on the @MainActor:
+    /// // On @MainActor:
     /// if NotificationPreferences.shared.shouldNotify(conclusion: .success) {
     ///     scheduleNotification(for: job)
     /// }
-    /// // When crossing from a non-main actor, use await MainActor.run:
+    /// // From a non-main actor:
     /// let shouldFire = await MainActor.run { prefs.shouldNotify(conclusion: conclusion) }
     /// ```
-    ///
-    /// - Parameter conclusion: The `JobConclusion` of the completed job.
-    /// - Returns: Whether the current `notificationMode` permits sending a
-    ///   notification for this outcome.
     func shouldNotify(conclusion: JobConclusion) -> Bool {
         switch notificationMode {
         case .all:           return true
-        case .failuresOnly:  return conclusion.isFailure // not == .failure; includes .timedOut, .startupFailure, .actionRequired
+        case .failuresOnly:  return conclusion.isFailure
         case .successesOnly: return conclusion == .success
         case .never:         return false
         }
