@@ -39,7 +39,7 @@ public enum NotificationMode: String, CaseIterable, Sendable {
 /// supply an ephemeral suite without polluting the real preferences database.
 ///
 /// ## @AppStorage + @ObservationIgnored
-/// `_notificationModeRaw` uses both `@AppStorage` and `@ObservationIgnored`.
+/// `notificationModeRaw` uses both `@AppStorage` and `@ObservationIgnored`.
 /// This combination is required and intentional:
 /// - `@AppStorage` is a property wrapper. Without `@ObservationIgnored`, the
 ///   `@Observable` macro would try to synthesise observation tracking for the
@@ -85,12 +85,12 @@ public final class NotificationPreferences {
     /// Default changed from `.all` to `.never` in #2082.
     @ObservationIgnored
     @AppStorage("notifications.notificationMode")
-    var _notificationModeRaw: String = NotificationMode.never.rawValue
+    var notificationModeRaw: String = NotificationMode.never.rawValue
 
     /// Unified notification mode replacing the two separate Bool flags.
-    /// Persisted as a `String` rawValue in UserDefaults via `_notificationModeRaw`.
+    /// Persisted as a `String` rawValue in UserDefaults via `notificationModeRaw`.
     ///
-    /// Writing this property updates `_notificationModeRaw` (and therefore
+    /// Writing this property updates `notificationModeRaw` (and therefore
     /// UserDefaults) atomically. Unrecognised raw values fall back to `.never`
     /// (e.g. after a downgrade that removes a previously persisted case).
     ///
@@ -102,15 +102,15 @@ public final class NotificationPreferences {
     /// and consistent with `AppPreferencesStore`, where all `@AppStorage` properties
     /// are `@ObservationIgnored`. SwiftUI consumers should bind to the `shared`
     /// singleton's `notificationMode` via an `@AppStorage` binding or observe
-    /// `_notificationModeRaw` directly if observation tracking is needed.
+    /// `notificationModeRaw` directly if observation tracking is needed.
     ///
     /// ## Dispatch wiring
     /// Wired in #2070. Call `shouldNotify(conclusion:)` at every
     /// `UNUserNotificationCenter` dispatch site to gate notifications by this
     /// preference.
     public var notificationMode: NotificationMode {
-        get { NotificationMode(rawValue: _notificationModeRaw) ?? .never }
-        set { _notificationModeRaw = newValue.rawValue }
+        get { NotificationMode(rawValue: notificationModeRaw) ?? .never }
+        set { notificationModeRaw = newValue.rawValue }
     }
 
     // MARK: - Init
@@ -145,7 +145,7 @@ public final class NotificationPreferences {
         if store !== UserDefaults.standard {
             let raw = store.string(forKey: "notifications.notificationMode")
                 ?? NotificationMode.never.rawValue
-            __notificationModeRaw = AppStorage(
+            _notificationModeRaw = AppStorage(
                 wrappedValue: raw,
                 "notifications.notificationMode",
                 store: store
