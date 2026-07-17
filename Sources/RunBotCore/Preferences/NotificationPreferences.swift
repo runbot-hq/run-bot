@@ -72,6 +72,16 @@ public final class NotificationPreferences {
     /// UserDefaults) atomically. Unrecognised raw values fall back to `.never`
     /// (e.g. after a downgrade that removes a previously persisted case).
     ///
+    /// ## @Observable tracking
+    /// This is a computed property. The `@Observable` macro only auto-instruments
+    /// stored properties — computed properties are not injected with
+    /// `_$observationRegistrar` calls. `notificationMode` therefore does NOT
+    /// participate in the `@Observable` change-tracking graph. This is intentional
+    /// and consistent with `AppPreferencesStore`, where all `@AppStorage` properties
+    /// are `@ObservationIgnored`. SwiftUI consumers should bind to the `shared`
+    /// singleton's `notificationMode` via an `@AppStorage` binding or observe
+    /// `_notificationModeRaw` directly if observation tracking is needed.
+    ///
     /// ## Dispatch wiring
     /// Wired in #2070. Call `shouldNotify(conclusion:)` at every
     /// `UNUserNotificationCenter` dispatch site to gate notifications by this

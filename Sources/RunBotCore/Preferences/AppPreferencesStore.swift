@@ -96,6 +96,10 @@ public final class AppPreferencesStore {
                 "settings.showPopoverArrow",
                 store: store
             )
+            // No nil-guard needed: bool(forKey:) returns false when the key is absent,
+            // and false is the correct default for betaChannel. The asymmetry with the
+            // sibling properties above is intentional — those default to true, so a
+            // missing key must be distinguished from an explicit false.
             _betaChannel = AppStorage(
                 wrappedValue: store.bool(forKey: "settings.betaChannel"),
                 "settings.betaChannel",
