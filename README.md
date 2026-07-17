@@ -56,7 +56,7 @@ macOS runners — drop them into any workflow and they run directly on your Mac:
 Installs via Terminal.app directly from GitHub releases. Updates arrive automatically with Ed25519 signature, ensuring secure delivery.
 
 ```bash
-curl -fsSL https://runbot-hq.github.io/run-bot/install.sh | bash
+curl -fsSL https://runbot-hq.github.io/install.sh | bash
 ```
 
 ---
