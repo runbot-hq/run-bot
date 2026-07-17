@@ -25,3 +25,4 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           model: qwen3.5:9b
+          maximum_response_tokens: 8192  # deep tier (>=150 reviewable lines) uses think=true and needs the headroom
