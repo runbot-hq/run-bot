@@ -33,7 +33,7 @@ One control plane for all your local runner needs. Provision new organization or
 
 #### 🤖 AI-powered actions
 
-Utilize your local AI capabilities in CI. Run AI PR reviews, AI localization, and AI release notes. Full overview here: [Composable Local AI Actions](https://github.com/runbot-hq?view_as=public#actions) 
+Utilize your local AI capabilities in CI. Run AI PR reviews, AI localization, and AI release notes. [More info here](https://github.com/runbot-hq?view_as=public#actions) 
 
 ---
 
