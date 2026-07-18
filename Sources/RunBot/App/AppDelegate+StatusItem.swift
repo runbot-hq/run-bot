@@ -47,7 +47,7 @@ extension AppDelegate {
     /// Returns the menu-bar icon for the given aggregate status.
     ///
     /// Prefers the bundled `StatusBarIcon` asset (the robot-face template PNG),
-    /// loaded via `Bundle.module` by its literal path inside the (uncompiled)
+    /// loaded via `Self.resourceBundle` by its literal path inside the (uncompiled)
     /// `Assets.xcassets` folder — see below for why. Falls back to the SF
     /// Symbol chain when the asset is missing, preserving the original
     /// triple-fallback behaviour for safety.
@@ -89,7 +89,7 @@ extension AppDelegate {
             return icon
         }
         #if DEBUG
-        assertionFailure("StatusBarIcon asset missing from Bundle.module — check Sources/RunBot/Resources/Assets.xcassets/StatusBarIcon.imageset (see issue #2079)")
+        assertionFailure("StatusBarIcon asset missing from resourceBundle — check Sources/RunBot/Resources/Assets.xcassets/StatusBarIcon.imageset (see issue #2079)")
         #endif
         return NSImage(systemSymbolName: status.symbolName, accessibilityDescription: nil)
             ?? NSImage()
@@ -103,7 +103,35 @@ extension AppDelegate {
     /// icons).
     private static let statusBarIconPointSize = NSSize(width: 18, height: 18)
 
-    /// Cached `StatusBarIcon` image, loaded from `Bundle.module` exactly once.
+    /// Resolves `RunBot_RunBot.bundle` from the correct location for both contexts:
+    ///
+    /// - Packaged `.app`: `Bundle.main.resourceURL` resolves to
+    ///   `Contents/Resources/` — exactly where `build.sh` places the bundle
+    ///   and where codesign requires it. `Bundle.module` must NOT be used
+    ///   here: SwiftPM's generated accessor probes `Bundle.main.bundleURL`
+    ///   (the app root), which codesign rejects as unsealed content.
+    ///   See issue #2136.
+    ///
+    /// - `swift run` / direct `.build/` binary: `Bundle.module` is used as
+    ///   the fallback — SwiftPM's generated accessor knows the correct
+    ///   `.build/` output path for development.
+    ///
+    /// Do NOT replace this with `Bundle.module`. Do NOT delete this constant.
+    /// See issue #2136 and #2137.
+    private static let resourceBundle: Bundle = {
+        // Packaged .app path: Contents/Resources/RunBot_RunBot.bundle
+        if let resourceURL = Bundle.main.resourceURL {
+            let bundleURL = resourceURL.appendingPathComponent("RunBot_RunBot.bundle")
+            if let bundle = Bundle(url: bundleURL) {
+                return bundle
+            }
+        }
+        // Development fallback: swift run / .build/ direct execution.
+        // Bundle.module's generated accessor knows the .build/ output path.
+        return Bundle.module
+    }()
+
+    /// Cached `StatusBarIcon` image, loaded from `resourceBundle` exactly once.
     ///
     /// - Important: `swift build` (the plain SwiftPM CLI toolchain used by
     ///   `build.sh`, as opposed to `xcodebuild`) does **not** run `actool` to
@@ -152,7 +180,7 @@ extension AppDelegate {
 
         for scale in [1, 2, 3] {
             let filename = scale == 1 ? "StatusBarIcon" : "StatusBarIcon@\(scale)x"
-            guard let path = Bundle.module.path(forResource: filename, ofType: "png", inDirectory: imagesetDir),
+            guard let path = Self.resourceBundle.path(forResource: filename, ofType: "png", inDirectory: imagesetDir),
                   let data = NSData(contentsOfFile: path),
                   let rep = NSBitmapImageRep(data: data as Data) else {
                 continue
@@ -164,7 +192,7 @@ extension AppDelegate {
 
         guard loadedAny else {
             #if DEBUG
-            assertionFailure("StatusBarIcon asset missing from \(imagesetDir) in Bundle.module — check Sources/RunBot/Resources/Assets.xcassets/StatusBarIcon.imageset (see issue #2079)")
+            assertionFailure("StatusBarIcon asset missing from \(imagesetDir) in resourceBundle — check Sources/RunBot/Resources/Assets.xcassets/StatusBarIcon.imageset (see issue #2079)")
             #endif
             return nil
         }
