@@ -78,9 +78,11 @@ cp "Resources/Info.plist" \
 # Do NOT move the bundle into Contents/Resources/. See issue #2126.
 RESOURCE_BUNDLE=".build/arm64-apple-macosx/release/${APP_NAME}_${APP_NAME}.bundle"
 if [[ -d "$RESOURCE_BUNDLE" ]]; then
-  # cp -R (uppercase) is intentional on macOS: lowercase -r does not follow
-  # symlinks inside .bundle directories; uppercase -R does. Do not change
-  # to -r or the bundle contents may be silently incomplete.
+  # cp -R (uppercase) is intentional on macOS: -R preserves symlinks as-is
+  # (copies the symlink itself, not the target it points to). Lowercase -r
+  # dereferences symlinks and copies the target content instead, which can
+  # silently corrupt .bundle directory structures that rely on symlinks.
+  # Do NOT change to -r.
   cp -R "$RESOURCE_BUNDLE" \
      "$OUT_DIR/$APP_NAME.app/"
 else
