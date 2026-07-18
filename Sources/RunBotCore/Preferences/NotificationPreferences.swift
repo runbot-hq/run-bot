@@ -162,6 +162,15 @@ public final class NotificationPreferences {
     /// - Parameter store: The `UserDefaults` suite to use. Pass `.standard` in
     ///   production (via `shared`) or an ephemeral suite in unit tests (P7).
     ///
+    ///   **Non-standard suites must only be passed from test targets.**
+    ///   Constructing a live, non-test instance with a non-standard suite is
+    ///   unsupported: the orphaned `.standard` `NotificationCenter` subscription
+    ///   described in `## @AppStorage subscription note` below would cause
+    ///   spurious `@AppStorage` re-reads against `.standard` on every
+    ///   `.standard` write — silently updating state from the wrong store.
+    ///   In production, `shared` (which targets `.standard`) is the only
+    ///   supported construction path.
+    ///
     /// ## Why `public`
     /// Required for test-target injection (P7) — test targets are separate modules
     /// and cannot access `internal` members. The `private convenience init()`
@@ -204,9 +213,14 @@ public final class NotificationPreferences {
     /// At declaration time, `@AppStorage` registers an internal `NotificationCenter`
     /// subscription against `.standard`. After the test-injection rebind, reads and
     /// writes correctly target the injected suite, but that original `.standard`
-    /// subscription is never torn down. In practice this is harmless — tests are
-    /// serialised on `@MainActor` so cross-suite notification bleed cannot race —
-    /// but it is worth knowing if flaky main-actor test behaviour appears.
+    /// subscription is never torn down — this is a limitation of the `@AppStorage`
+    /// API; there is no public teardown mechanism.
+    /// In test targets this is harmless: tests are serialised on `@MainActor` and
+    /// no test writes to `.standard` for these keys, so the undead subscription
+    /// never fires. In production, `shared` always targets `.standard` so there
+    /// is no split-brain. The hazard only arises if `init(store:)` is called with
+    /// a non-standard suite outside a test target — which is explicitly unsupported;
+    /// see the `store` parameter doc above.
     ///
     /// ## wrappedValue semantics
     /// `AppStorage(wrappedValue:_:store:)` first argument is a fallback default
