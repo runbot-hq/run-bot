@@ -62,46 +62,39 @@ cp ".build/arm64-apple-macosx/release/$APP_NAME" \
 cp "Resources/Info.plist" \
    "$OUT_DIR/$APP_NAME.app/Contents/"
 
-# SwiftPM's auto-generated resource_bundle_accessor.swift resolves
-# Bundle.module via Bundle.main.resourceURL, which on macOS points to
-# RunBot.app/Contents/Resources/. So the bundle must live at:
-#   Contents/Resources/RunBot_RunBot.bundle
-# Do NOT move it to the app bundle root — codesign rejects any directory
-# at the app root other than Contents/ as "unsealed contents". See #2134.
+# ── StatusBarIcon PNGs ───────────────────────────────────────────────────────
+# PNGs are shipped as loose files directly in Contents/Resources/.
+# They are loaded via Bundle.main in AppDelegate+StatusItem.swift, which
+# correctly resolves to Contents/Resources/ for a packaged .app.
 #
-# The built bundle contains Assets.xcassets at its root (SwiftPM's .process()
-# rule copies resources to the bundle root, so the source-tree path
-# Sources/RunBot/Resources/Assets.xcassets becomes Assets.xcassets at the
-# bundle root — not a nested subdirectory). It is copied in uncompiled as a
-# plain directory tree (no Assets.car — actool is not run by `swift build`).
-# All Bundle.module access fails if this bundle is missing or misplaced —
-# not just icon lookups. The app code loads assets by their literal nested
-# path — see AppDelegate+StatusItem.swift.
-#
-# NAMING: ${APP_NAME}_${APP_NAME}.bundle (doubled name) is NOT a typo.
-# SwiftPM's bundle naming convention is <TargetName>_<ModuleName>.bundle.
-# Because this package has a single target where the target name and module
-# name are both "RunBot", the result is RunBot_RunBot.bundle. This is
-# SwiftPM-generated and matches what resource_bundle_accessor.swift expects.
-RESOURCE_BUNDLE=".build/arm64-apple-macosx/release/${APP_NAME}_${APP_NAME}.bundle"
-if [[ -d "$RESOURCE_BUNDLE" ]]; then
-  # SOURCE TRUST: $RESOURCE_BUNDLE is a path inside .build/, the local SwiftPM
-  # build output directory. It is produced entirely by `swift build` from this
-  # project's own source — it is not user-supplied, downloaded, or externally
-  # controlled. There is no untrusted content being copied into the app bundle.
-  #
-  # cp -R (uppercase) is intentional on macOS: -R preserves symlinks as-is
-  # (copies the symlink itself, not the target it points to). Lowercase -r
-  # dereferences symlinks and copies the target content instead, which can
-  # silently corrupt .bundle directory structures that rely on symlinks.
-  # Do NOT change to -r.
-  cp -R "$RESOURCE_BUNDLE" \
-     "$OUT_DIR/$APP_NAME.app/Contents/Resources/"
-else
-  echo "✗ Expected resource bundle not found at $RESOURCE_BUNDLE" >&2
-  echo "  All Bundle.module access will fail at runtime (icons, assets, and all other resources)." >&2
+# ⚠️  AI AGENT: Do NOT reintroduce resources: [.process("Resources")] in
+# Package.swift and do NOT go back to Bundle.module / RunBot_RunBot.bundle.
+# The previous approach caused an unsolvable three-way conflict:
+#   - SwiftPM's accessor probed Bundle.main.bundleURL (app root) for the bundle
+#   - codesign hard-rejects any directory at the app root other than Contents/
+#   - Moving the bundle to Contents/Resources/ is codesign-safe but the binary
+#     never looked there — crash on every clean install
+# Loose files + Bundle.main eliminates all three sides of the conflict.
+# See issue #2139 and #2136 for the full history.
+STATUS_ICON_SRC="Sources/RunBot/Resources/Assets.xcassets/StatusBarIcon.imageset"
+STATUS_ICON_DST="$OUT_DIR/$APP_NAME.app/Contents/Resources"
+
+if [[ ! -d "$STATUS_ICON_SRC" ]]; then
+  echo "✗ StatusBarIcon assets not found at $STATUS_ICON_SRC" >&2
   exit 1
 fi
+
+cp "$STATUS_ICON_SRC/StatusBarIcon.png"    "$STATUS_ICON_DST/"
+cp "$STATUS_ICON_SRC/StatusBarIcon@2x.png" "$STATUS_ICON_DST/"
+cp "$STATUS_ICON_SRC/StatusBarIcon@3x.png" "$STATUS_ICON_DST/"
+
+# Verify all three landed — catches any silent cp failure before signing.
+for f in StatusBarIcon.png StatusBarIcon@2x.png StatusBarIcon@3x.png; do
+  if [[ ! -f "$STATUS_ICON_DST/$f" ]]; then
+    echo "✗ $f missing from Contents/Resources after copy" >&2
+    exit 1
+  fi
+done
 
 # ── Signing ──────────────────────────────────────────────────────────────────
 # codesign --sign - (ad-hoc identity) is used for both local dev builds and
@@ -114,18 +107,13 @@ fi
 #
 # --force: replaces any existing signature on re-runs without prompting.
 #   Required because `swift build` may leave a partial sig on the binary.
-# --deep: recursively signs nested bundles (including RunBot_RunBot.bundle
-#   inside Contents/Resources/).
-#   Without --deep, Gatekeeper rejects the app because the nested bundle
-#   is unsigned even though the outer .app is signed.
-#   ⚠️  --deep is deprecated by Apple for production/notarised builds because
-#   it can miss dynamically loaded bundles and does not replicate the
-#   explicit signing order that notarisation requires. For ad-hoc builds
-#   (local and CI) it is acceptable. Explicit per-bundle signing is the
-#   correct long-term path — tracked in issue #2128.
-#   Do NOT remove --deep without implementing explicit signing first.
+# --deep is NOT needed here: the PNGs in Contents/Resources/ are plain files,
+#   not nested bundles with executable code. They are sealed as resources by
+#   the outer app signature. No nested bundle exists to recurse into.
+#   See issue #2139 — removing RunBot_RunBot.bundle also removes the need
+#   for --deep. Do NOT add --deep back without a specific reason.
 echo "→ Ad-hoc signing..."
-codesign --force --deep --sign - "$OUT_DIR/$APP_NAME.app"
+codesign --force --sign - "$OUT_DIR/$APP_NAME.app"
 
 # ── Zipping ──────────────────────────────────────────────────────────────────
 # ditto is used instead of zip/tar intentionally:
