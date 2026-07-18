@@ -12,8 +12,10 @@
 #   fully audited for unset variable references beyond the VERSION expansion.
 #   Adding -u requires confirming every variable reference either has a value
 #   or a default guard. That audit is deferred. Do not add -u until it is done.
-# • -o pipefail is redundant here — no command in this script uses a pipe
-#   where a mid-pipe failure would otherwise be silently swallowed.
+# • -o pipefail is intentionally omitted pending a full pipeline audit.
+#   The version validation step already uses a printf | grep pipeline, and
+#   further pipelines may be added in future. Until every pipeline in this
+#   script is confirmed safe under pipefail, the flag stays off.
 set -e
 
 APP_NAME="RunBot"
@@ -69,12 +71,14 @@ cp "Resources/Info.plist" \
 #   Fatal error: could not load resource bundle:
 #   from /Applications/RunBot.app/RunBot_RunBot.bundle
 #
-# The bundle contains Sources/RunBot/Resources/Assets.xcassets (declared via
-# `resources: [.process("Resources")]` in Package.swift), copied in
-# uncompiled as a plain directory tree (no Assets.car — actool is not run
-# by `swift build`). All Bundle.module access fails if this bundle is
-# missing or misplaced — not just icon lookups. The app code must load
-# assets by their literal nested path — see AppDelegate+StatusItem.swift.
+# The built bundle contains Assets.xcassets at its root (SwiftPM's .process()
+# rule copies resources to the bundle root, so the source-tree path
+# Sources/RunBot/Resources/Assets.xcassets becomes Assets.xcassets at the
+# bundle root — not a nested subdirectory). It is copied in uncompiled as a
+# plain directory tree (no Assets.car — actool is not run by `swift build`).
+# All Bundle.module access fails if this bundle is missing or misplaced —
+# not just icon lookups. The app code must load assets by their literal
+# nested path — see AppDelegate+StatusItem.swift.
 # Do NOT move the bundle into Contents/Resources/. See issue #2126.
 RESOURCE_BUNDLE=".build/arm64-apple-macosx/release/${APP_NAME}_${APP_NAME}.bundle"
 if [[ -d "$RESOURCE_BUNDLE" ]]; then
@@ -92,10 +96,13 @@ else
 fi
 
 # ── Signing ──────────────────────────────────────────────────────────────────
-# codesign --sign - (ad-hoc identity) is intentional for local dev builds.
-# Developer ID signing and notarisation are performed in CI by publish.yml
-# using the team certificate stored in GitHub Actions secrets — they are
-# NOT done here to keep the local build loop fast and credential-free.
+# codesign --sign - (ad-hoc identity) is used for both local dev builds and
+# CI builds. publish.yml calls `bash build.sh` with CI=true and does not
+# perform a separate Developer ID codesign step — the CI signing step is an
+# Ed25519 signature of the zip for update verification (see the "Sign release
+# zip" step in publish.yml), which is distinct from codesign certificate signing.
+# There is currently no Gatekeeper notarisation in the release pipeline.
+# See issue #2128 for the tracked work to add explicit per-bundle signing.
 #
 # --force: replaces any existing signature on re-runs without prompting.
 #   Required because `swift build` may leave a partial sig on the binary.
@@ -104,9 +111,9 @@ fi
 #   is unsigned even though the outer .app is signed.
 #   ⚠️  --deep is deprecated by Apple for production/notarised builds because
 #   it can miss dynamically loaded bundles and does not replicate the
-#   explicit signing order that notarisation requires. For local ad-hoc
-#   builds it is acceptable. For CI/notarisation, explicit per-bundle
-#   signing is the correct long-term path — tracked in issue #2128.
+#   explicit signing order that notarisation requires. For ad-hoc builds
+#   (local and CI) it is acceptable. Explicit per-bundle signing is the
+#   correct long-term path — tracked in issue #2128.
 #   Do NOT silently remove --deep without implementing explicit signing first.
 echo "→ Ad-hoc signing..."
 codesign --force --deep --sign - "$OUT_DIR/$APP_NAME.app"
@@ -125,12 +132,10 @@ ditto -c -k --keepParent \
     "$OUT_DIR/$APP_NAME.app" \
     "$OUT_DIR/RunBot.zip"
 
-# version.txt is written for consumers outside this script:
-# • The gh-pages deploy step in publish.yml reads it to stamp the download
-#   page with the current version.
-# • The install.sh version-check logic reads it to display the installed
-#   version after a fresh install.
-# It is not consumed by this script itself — that is intentional.
+# version.txt is written as a build output alongside the zip. Its consumers
+# are outside this script (install.sh and/or the gh-pages deploy pipeline).
+# It is not read by publish.yml directly — that workflow derives the version
+# from its own tag computation step.
 echo "$VERSION" > "$OUT_DIR/version.txt"
 
 echo "✓ Done — dist/RunBot.zip is ready"
