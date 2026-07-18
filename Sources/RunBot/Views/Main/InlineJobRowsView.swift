@@ -128,12 +128,17 @@ private struct StepRowView: View {
                     .truncationMode(.tail)
                     .layoutPriority(1)
                 Spacer(minLength: 4)
-                // GitHubStep.status is a raw String; "in_progress" means the step is running.
-                if step.status == "in_progress" || step.conclusion != nil {
-                    Text(step.elapsed)
-                        .font(.caption2.monospacedDigit())
-                        .foregroundColor(Color.rbTextTertiary)
-                        .fixedSize()
+                // Show elapsed for any step that has started (i.e. not still queued).
+                // Previously guarded on `in_progress || conclusion != nil`, which hid
+                // labels for steps in unexpected states (e.g. "waiting") — fixes #2148.
+                if step.status != "queued" {
+                    let elapsedStr = step.elapsed
+                    if !elapsedStr.isEmpty {
+                        Text(elapsedStr)
+                            .font(.caption2.monospacedDigit())
+                            .foregroundColor(Color.rbTextTertiary)
+                            .fixedSize()
+                    }
                 }
                 Image(systemName: "chevron.right")
                     .font(.system(size: 9, weight: .semibold))
@@ -238,10 +243,12 @@ private struct JobRowCard: View {
                         .foregroundColor(Color.rbTextTertiary)
                         .fixedSize()
                 }
-                // ActiveJob.startDate is the parsed Date? equivalent of the raw .startedAt
-                // String bridge from GitHubJob — non-nil means the job has started.
-                if job.startDate != nil {
-                    Text(job.elapsed)
+                // Guard on non-empty elapsed string rather than startDate != nil.
+                // startDate can be nil if the API response date string fails to parse,
+                // which would silently suppress the label — fixes #2148.
+                let jobElapsed = job.elapsed
+                if !jobElapsed.isEmpty {
+                    Text(jobElapsed)
                         .font(.caption2.monospacedDigit())
                         .foregroundColor(Color.rbTextTertiary)
                         .fixedSize()
