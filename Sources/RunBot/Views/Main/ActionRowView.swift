@@ -128,7 +128,7 @@ struct ActionRowView: View {
     ///
     /// - sha: `group.label` (7-char sha or PR#), muted mono
     /// - repo-name: `group.repoShortName` stripped from owner/repo
-    /// - branch: plain `Text` capped at maxWidth 80, hidden when nil
+    /// - branch: plain `Text` capped at RBMetrics.actionRowBranchMaxWidth, hidden when nil
     private var rowContent: some View {
         let tickSnapshot = tick
         return HStack(spacing: 6) {
@@ -149,7 +149,7 @@ struct ActionRowView: View {
                 .foregroundColor(group.isDimmed ? .secondary : .primary)
                 .lineLimit(1)
                 .truncationMode(.tail)
-                .frame(maxWidth: 160, alignment: .leading)
+                .frame(maxWidth: RBMetrics.actionRowTitleMaxWidth, alignment: .leading)
                 .help(group.title)
                 .layoutPriority(1)
             // Branch — plain text, hidden when nil (#1194)
@@ -159,7 +159,7 @@ struct ActionRowView: View {
                     .foregroundColor(.secondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
-                    .frame(maxWidth: 80, alignment: .leading)
+                    .frame(maxWidth: RBMetrics.actionRowBranchMaxWidth, alignment: .leading)
                     .layoutPriority(0)
             }
             Spacer()
