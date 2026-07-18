@@ -6,6 +6,9 @@ import SwiftUI
 
 // MARK: - Set toggle helper
 /// Set mutation helpers used internally by `InlineJobRowsView`.
+///
+/// `Set` has no built-in `toggle(_:)` — this extension provides the SwiftUI
+/// state-mutation pattern used by `expandedJobIDs` in `InlineJobRowsView`.
 private extension Set {
     /// Removes `member` if present; inserts it if absent.
     mutating func toggle(_ member: Element) {
@@ -128,13 +131,31 @@ private struct StepRowView: View {
                     .truncationMode(.tail)
                     .layoutPriority(1)
                 Spacer(minLength: 4)
-                // Show elapsed only for non-queued steps that have a parsed startDate.
-                // `GitHubStep` has no `createdAt` fallback, so `startDate == nil` means
-                // `formatElapsed` would return the sentinel "00:00" rather than a real
-                // duration — we suppress that to avoid misleading UI.
-                // The status != "queued" guard handles steps blocked before they start
-                // (e.g. concurrency groups), while startDate != nil ensures we only
-                // render once timing data is actually available — fixes #2129.
+                // ELAPSED GUARD — two conditions, both required:
+                //
+                // 1. status != "queued"
+                //    Steps that have not yet been dispatched carry status "queued".
+                //    They have no startedAt timestamp, so there is genuinely no
+                //    elapsed time to display. Steps blocked by a concurrency group
+                //    also arrive here before transitioning to "in_progress".
+                //    NOTE: status is a raw String from the GitHub API — there is
+                //    intentionally no typed enum used here because the API can
+                //    introduce new status values (e.g. "waiting", "pending") that
+                //    we want to fall through to the elapsed display rather than
+                //    silently suppress. Only "queued" is excluded.
+                //
+                // 2. step.startDate != nil
+                //    `GitHubStep` has no `createdAt` field in the GitHub Actions
+                //    API response, so unlike `GitHubJob` there is no createdDate
+                //    fallback. `formatElapsed(start:end:isCompleted:now:)` returns
+                //    the sentinel "00:00" (not "") when start is nil — displaying
+                //    that would be misleading for a step that has not started.
+                //    This guard ensures we only render once real timing data exists.
+                //
+                // DO NOT replace with `!step.elapsed.isEmpty` — formatElapsed
+                // NEVER returns ""; it always returns "00:00", "--:--", or mm:ss.
+                // An isEmpty check would be a dead condition and would leak
+                // sentinel strings into the UI.
                 if step.status != "queued", step.startDate != nil {
                     Text(step.elapsed)
                         .font(.caption2.monospacedDigit())
@@ -154,6 +175,11 @@ private struct StepRowView: View {
         .stepContextMenu(step: step, onTap: onTap)
     }
     /// Foreground colour for the step conclusion icon.
+    ///
+    /// Uses raw String comparisons because `step.conclusion` is a raw `String?`
+    /// from the GitHub API — not a typed enum. `stepConclusion` (the typed
+    /// accessor on `GitHubStep`) is available but not used here to keep the
+    /// switch exhaustive over the raw values without an extra conversion.
     private var iconColor: Color {
         switch step.conclusion {
         case "success": return Color.rbSuccess
@@ -192,8 +218,12 @@ private struct JobRowCard: View {
     private var totalSteps: Int { job.steps.count }
     /// Number of completed steps in this job.
     private var completedSteps: Int {
-        // GitHubStep.conclusion is a raw String? — non-nil means the step has finished.
-        // GitHubStep.status is a raw String — "completed" means the step has finished.
+        // Two conditions are intentional — both are needed, not redundant:
+        // - conclusion != nil: step finished with a result (success/failure/skipped/…).
+        // - status == "completed": defensive fallback for API responses where
+        //   conclusion is temporarily absent but the step is no longer running.
+        // Using a union (||) rather than conclusion-only avoids an off-by-one in
+        // the steps/total counter when the API populates fields out of order.
         job.steps.filter { $0.conclusion != nil || $0.status == "completed" }.count
     }
     /// Renders the job tree connector, card header, and optional expanded step list.
@@ -244,11 +274,26 @@ private struct JobRowCard: View {
                         .foregroundColor(Color.rbTextTertiary)
                         .fixedSize()
                 }
-                // Show elapsed when at least one parsed date is available.
-                // `GitHubJob.elapsed(now:)` uses `startDate ?? createdDate` as its start,
-                // so guarding on either date being non-nil matches the model's own fallback
-                // logic and prevents the "00:00" sentinel from leaking onto purely queued
-                // jobs that have neither date populated — fixes #2129.
+                // ELAPSED GUARD — mirrors GitHubJob.elapsed(now:)'s own start logic:
+                // `formatElapsed(start: startDate ?? createdDate, ...)`. We show the
+                // label iff at least one of those dates is non-nil, which means the
+                // model itself has real timing data to display.
+                //
+                // WHY NOT `job.startDate != nil` alone:
+                //   startDate parses `startedAt` via ISO8601DateFormatter. If the API
+                //   returns a date string in a format the formatter can't parse, startDate
+                //   is nil even though createdDate may still be valid. That was the
+                //   original bug (#2129) — the label was silently dropped.
+                //
+                // WHY NOT `!job.elapsed.isEmpty`:
+                //   `formatElapsed` NEVER returns "". It always returns "00:00",
+                //   "--:--", or a mm:ss string. An isEmpty check is a dead condition
+                //   and would leak "00:00" onto queued jobs that have no dates at all.
+                //
+                // WHY NOT guard on `job.jobStatus`:
+                //   Status is unreliable as a timing proxy — a completed job can still
+                //   lack a startedAt if the API response was partial. Date presence is
+                //   the authoritative signal.
                 if job.startDate != nil || job.createdDate != nil {
                     Text(job.elapsed)
                         .font(.caption2.monospacedDigit())
@@ -265,8 +310,10 @@ private struct JobRowCard: View {
     /// Vertically stacked step rows shown when the job card is expanded.
     private var stepsContainer: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // GitHubStep has no `id` property — `number` (1-based step index within
-            // the job) is the stable identifier assigned by the GitHub API.
+            // `GitHubStep` has no `id` property — `number` is the 1-based step index
+            // assigned by the GitHub API and is stable within a job run. It is the
+            // correct ForEach identity key. Do not use array index as the id — steps
+            // can be reordered by the API between refreshes.
             ForEach(Array(job.steps.enumerated()), id: \.element.number) { index, step in
                 StepRowView(
                     step: step,
@@ -300,13 +347,20 @@ struct InlineJobRowsView: View {
     @Environment(PanelVisibilityState.self) private var panelVisibilityState: PanelVisibilityState
     /// The set of job IDs whose step lists are currently expanded.
     @State private var expandedJobIDs: Set<Int> = []
-    /// A stable snapshot of `tick` captured at view evaluation time, used to key job row identity.
+    /// A stable snapshot of `tick` captured at view evaluation time.
+    ///
+    /// Embedding `tick` in each `JobRowCard`'s SwiftUI identity string forces
+    /// SwiftUI to re-evaluate the card on every timer tick, which drives the
+    /// live elapsed-time counter. Without this, SwiftUI's diffing would consider
+    /// stable job IDs unchanged and skip re-rendering elapsed labels.
+    /// Do not remove the tick component from the `.id(...)` modifier.
     private var tickSnapshot: Int { tick }
     /// Renders the list of job cards, gated on the panel being open.
     var body: some View {
         Group {
             if panelVisibilityState.isOpen {
-                // jobStatus is the typed accessor on ActiveJob; raw job.status is a String.
+                // `jobStatus` is the typed accessor on `ActiveJob`; `raw.status` is a
+                // raw String. fullExpand shows all jobs; default shows only running ones.
                 let jobs = fullExpand ? group.jobs : group.jobs.filter { $0.jobStatus == .inProgress }
                 VStack(alignment: .leading, spacing: 2) {
                     ForEach(Array(jobs.enumerated()), id: \.element.id) { index, job in
@@ -319,6 +373,9 @@ struct InlineJobRowsView: View {
                             onToggle: { expandedJobIDs.toggle(job.id) },
                             onStepTap: { step in onStepTap(job, step) }
                         )
+                        // job.id alone would be stable enough for diffing, but tick
+                        // must be part of the identity to force re-render on each
+                        // timer tick for live elapsed updates. See `tickSnapshot`.
                         .id("\(job.id)-\(tickSnapshot)")
                     }
                 }
