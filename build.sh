@@ -4,6 +4,18 @@
 # "undefined in POSIX sh" — those are false positives. All three constructs
 # are well-defined in bash and are used intentionally throughout this script.
 # Do NOT change [[ ]] to [ ] or =~ to expr/case to "fix" those warnings.
+
+# ⚠️  set -e is intentional without -u or -o pipefail:
+# • -u (treat unset vars as errors) is intentionally omitted — NOT because
+#   ${var:-default} is unsafe under -u (it is safe; that construct is defined
+#   precisely to handle the unset case), but because this script has not been
+#   fully audited for unset variable references beyond the VERSION expansion.
+#   Adding -u requires confirming every variable reference either has a value
+#   or a default guard. That audit is deferred — tracked in issue #2131.
+# • -o pipefail is intentionally omitted pending a full pipeline audit.
+#   The version validation step already uses a printf | grep pipeline, and
+#   further pipelines may be added in future. Until every pipeline in this
+#   script is confirmed safe under pipefail, the flag stays off.
 set -e
 
 APP_NAME="RunBot"
@@ -35,53 +47,113 @@ echo "→ Compiling arm64 binary..."
 swift build -c release --arch arm64
 
 echo "→ Assembling .app bundle..."
+# rm -rf is intentional and safe: OUT_DIR is always the hardcoded string
+# "dist" — a local subdirectory relative to the project root, never an
+# absolute or system path. It is never set from user input or environment
+# variables. A full wipe before each build prevents stale files from a
+# previous run being silently included in the zip (e.g. a leftover binary
+# from a different arch).
 rm -rf "$OUT_DIR"
 mkdir -p "$OUT_DIR/$APP_NAME.app/Contents/MacOS"
-mkdir -p "$OUT_DIR/$APP_NAME.app/Contents/Resources"
+# Note: Contents/Resources/ is intentionally not created here.
+# Info.plist is copied directly to Contents/ (not Contents/Resources/).
+# RunBot_RunBot.bundle lives at the app bundle ROOT per SwiftPM's
+# resource_bundle_accessor.swift lookup — see comment below.
 
 cp ".build/arm64-apple-macosx/release/$APP_NAME" \
    "$OUT_DIR/$APP_NAME.app/Contents/MacOS/"
 cp "Resources/Info.plist" \
    "$OUT_DIR/$APP_NAME.app/Contents/"
 
-# SwiftPM copies Sources/RunBot/Resources/Assets.xcassets (declared via
-# `resources: [.process("Resources")]` in Package.swift) into a
-# RunBot_RunBot.bundle inside the build output directory. Note: `swift
-# build` does NOT run actool here — the .xcassets folder is copied in
-# uncompiled, as a plain subdirectory tree (no Assets.car). Copying the
-# whole bundle into Contents/Resources/ is what lets Bundle.module (which
-# resolves to Bundle.main.resourceURL + "/RunBot_RunBot.bundle" when
-# running from an app bundle) actually find it at runtime — see issue
-# #2079. Note this does NOT make NSImage(named:) able to see it (it only
-# searches the flat Contents/Resources/ directory, not bundles nested
-# inside it), and it does NOT make Bundle.module.image(forResource:) able
-# to see it either (that's a flat, bundle-root-only lookup, and the PNG is
-# 3 levels deep inside Assets.xcassets/StatusBarIcon.imageset/). The app
-# code must load the PNG by its literal nested path instead — see
-# AppDelegate+StatusItem.swift. Do NOT remove this copy step.
+# SwiftPM's auto-generated resource_bundle_accessor.swift resolves
+# Bundle.module by searching for RunBot_RunBot.bundle at the app bundle
+# ROOT (i.e. RunBot.app/RunBot_RunBot.bundle), NOT inside Contents/Resources/.
+# Placing the bundle anywhere else causes a fatal crash at launch:
+#
+#   Fatal error: could not load resource bundle:
+#   from /Applications/RunBot.app/RunBot_RunBot.bundle
+#
+# The built bundle contains Assets.xcassets at its root (SwiftPM's .process()
+# rule copies resources to the bundle root, so the source-tree path
+# Sources/RunBot/Resources/Assets.xcassets becomes Assets.xcassets at the
+# bundle root — not a nested subdirectory). It is copied in uncompiled as a
+# plain directory tree (no Assets.car — actool is not run by `swift build`).
+# All Bundle.module access fails if this bundle is missing or misplaced —
+# not just icon lookups. The app code must load assets by their literal
+# nested path — see AppDelegate+StatusItem.swift.
+# Do NOT move the bundle into Contents/Resources/. See issue #2126.
+#
+# NAMING: ${APP_NAME}_${APP_NAME}.bundle (doubled name) is NOT a typo.
+# SwiftPM's bundle naming convention is <TargetName>_<ModuleName>.bundle.
+# Because this package has a single target where the target name and module
+# name are both "RunBot", the result is RunBot_RunBot.bundle. This is
+# SwiftPM-generated and matches what resource_bundle_accessor.swift expects.
 RESOURCE_BUNDLE=".build/arm64-apple-macosx/release/${APP_NAME}_${APP_NAME}.bundle"
 if [[ -d "$RESOURCE_BUNDLE" ]]; then
+  # SOURCE TRUST: $RESOURCE_BUNDLE is a path inside .build/, the local SwiftPM
+  # build output directory. It is produced entirely by `swift build` from this
+  # project's own source — it is not user-supplied, downloaded, or externally
+  # controlled. There is no untrusted content being copied into the app bundle.
+  #
+  # cp -R (uppercase) is intentional on macOS: -R preserves symlinks as-is
+  # (copies the symlink itself, not the target it points to). Lowercase -r
+  # dereferences symlinks and copies the target content instead, which can
+  # silently corrupt .bundle directory structures that rely on symlinks.
+  # Do NOT change to -r.
   cp -R "$RESOURCE_BUNDLE" \
-     "$OUT_DIR/$APP_NAME.app/Contents/Resources/"
+     "$OUT_DIR/$APP_NAME.app/"
 else
   echo "✗ Expected resource bundle not found at $RESOURCE_BUNDLE" >&2
-  echo "  Asset catalog lookups (StatusBarIcon, etc.) will fail at runtime." >&2
+  echo "  All Bundle.module access will fail at runtime (icons, assets, and all other resources)." >&2
   exit 1
 fi
 
+# ── Signing ──────────────────────────────────────────────────────────────────
+# codesign --sign - (ad-hoc identity) is used for both local dev builds and
+# CI builds. publish.yml calls `bash build.sh` with CI=true and does not
+# perform a separate Developer ID codesign step — the CI signing step is an
+# Ed25519 signature of the zip for update verification (see the "Sign release
+# zip" step in publish.yml), which is distinct from codesign certificate signing.
+# There is currently no Gatekeeper notarisation in the release pipeline.
+# See issue #2128 for the tracked work to add explicit per-bundle signing.
+#
+# --force: replaces any existing signature on re-runs without prompting.
+#   Required because `swift build` may leave a partial sig on the binary.
+# --deep: recursively signs nested bundles (including RunBot_RunBot.bundle).
+#   Without --deep, Gatekeeper rejects the app because the nested bundle
+#   is unsigned even though the outer .app is signed.
+#   ⚠️  --deep is deprecated by Apple for production/notarised builds because
+#   it can miss dynamically loaded bundles and does not replicate the
+#   explicit signing order that notarisation requires. For ad-hoc builds
+#   (local and CI) it is acceptable. Explicit per-bundle signing is the
+#   correct long-term path — tracked in issue #2128.
+#   Do NOT silently remove --deep without implementing explicit signing first.
 echo "→ Ad-hoc signing..."
 codesign --force --deep --sign - "$OUT_DIR/$APP_NAME.app"
 
+# ── Zipping ──────────────────────────────────────────────────────────────────
+# ditto is used instead of zip/tar intentionally:
+# • ditto preserves macOS extended attributes, symlinks, and resource forks
+#   that standard `zip` and `tar` silently strip.
+# • Stripping these breaks the .app bundle structure — macOS will refuse to
+#   launch it or Gatekeeper will reject it.
+# • The -c -k --keepParent flags produce a zip-format archive (not CPIO)
+#   that is compatible with the `unzip` call in install.sh.
+# Do NOT replace ditto with zip or tar.
 echo "→ Zipping..."
 ditto -c -k --keepParent \
     "$OUT_DIR/$APP_NAME.app" \
     "$OUT_DIR/RunBot.zip"
 
+# version.txt is written as a build output alongside the zip. Its consumers
+# are outside this script (install.sh and/or the gh-pages deploy pipeline).
+# It is not read by publish.yml directly — that workflow derives the version
+# from its own tag computation step.
 echo "$VERSION" > "$OUT_DIR/version.txt"
 
 echo "✓ Done — dist/RunBot.zip is ready"
 
-# ── Launch via `open` (not direct binary) ───────────────────────────────────
+# ── Launch via `open` (not direct binary) ────────────────────────────────────
 # IMPORTANT: The OAuth callback URL scheme (runbot://) is registered with
 # macOS Launch Services only when the .app bundle is launched via `open` or
 # Finder. Running the binary directly (./dist/RunBot.app/Contents/MacOS/RunBot)
@@ -90,11 +162,18 @@ echo "✓ Done — dist/RunBot.zip is ready"
 #
 # Always use `open dist/RunBot.app` for development — this script does it
 # automatically. The pkill ensures a clean restart without a stale process.
-# ────────────────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
 # Only kill/relaunch the running app when building locally, not in CI.
 if [[ -z "${CI:-}" ]]; then
     echo "→ Restarting app via open (registers runbot:// URL scheme)..."
+    # pkill exits non-zero when no matching process is found — that is
+    # expected on a first build and must not abort the script via set -e.
+    # The || true suppresses that expected non-zero exit intentionally.
     pkill -x RunBot 2>/dev/null || true
+    # sleep 0.5 gives Launch Services time to deregister the old bundle
+    # before `open` re-registers it. Without this pause the URL scheme
+    # (runbot://) can transiently resolve to the terminating process,
+    # causing the first OAuth callback after a rebuild to silently fail.
     sleep 0.5
     open "$OUT_DIR/$APP_NAME.app"
     echo "✓ RunBot launched"
