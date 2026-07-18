@@ -55,32 +55,20 @@ let package = Package(
                 .product(name: "MenuBarKit", package: "MenuBarKit"),
             ],
             path: "Sources/RunBot",
-            // ⚠️ AI AGENT: This resources entry is required for Bundle.module to
-            // exist and to find anything in Resources/Assets.xcassets (e.g.
-            // StatusBarIcon) at runtime. Without it, there is no
-            // RunBot_RunBot.bundle at all — see issue #2079.
+            // ⚠️ AI AGENT: resources: [.process("Resources")] has been intentionally
+            // REMOVED. Do NOT add it back without reading issue #2139 and #2136 first.
             //
-            // Note: `swift build` (the plain SwiftPM CLI, used by build.sh)
-            // does NOT run actool to compile Assets.xcassets into Assets.car
-            // the way Xcode does. It copies the .xcassets folder into the
-            // resource bundle verbatim, as an uncompiled subdirectory tree
-            // (confirmed via direct runtime inspection during the #2079
-            // follow-up: Bundle.module's contents were just ["Assets.xcassets"]).
+            // Previously this entry caused SwiftPM to generate RunBot_RunBot.bundle
+            // and resource_bundle_accessor.swift. The generated accessor probes
+            // Bundle.main.bundleURL (the app root) for the bundle — but codesign
+            // hard-rejects any directory at the app root other than Contents/.
+            // This created an unsolvable three-way conflict between SwiftPM,
+            // codesign, and the standard macOS .app layout.
             //
-            // This means NEITHER NSImage(named:) (searches Bundle.main's
-            // compiled asset-catalog machinery) NOR
-            // Bundle.module.image(forResource:) / path(forResource:ofType:)
-            // (flat, bundle-root-only lookups) can find StatusBarIcon — both
-            // expect either a compiled .car or a flat file at the bundle
-            // root, and neither exists here. AppDelegate+StatusItem.swift
-            // must load the PNG directly via its literal nested path
-            // (Bundle.module.path(forResource:ofType:inDirectory:) pointed at
-            // "Assets.xcassets/StatusBarIcon.imageset") + NSImage(contentsOfFile:).
-            // Do NOT remove this resources entry, and do NOT "simplify" the
-            // loading code back to NSImage(named:) or image(forResource:).
-            resources: [
-                .process("Resources")
-            ],
+            // Fix: PNGs are now shipped as loose files in Contents/Resources/ by
+            // build.sh and loaded via Bundle.main, which correctly resolves to
+            // Contents/Resources/ for a packaged .app. No bundle, no accessor,
+            // no conflict. See AppDelegate+StatusItem.swift and build.sh.
             swiftSettings: [
                 .enableUpcomingFeature("NonisolatedNonsendingByDefault")
             ]
