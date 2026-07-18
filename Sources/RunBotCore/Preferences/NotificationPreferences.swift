@@ -42,6 +42,16 @@ public enum NotificationMode: String, CaseIterable, Sendable {
 /// the `@AppStorage` backing wrapper is re-pointed to that suite so unit tests
 /// can supply an ephemeral suite without polluting the real preferences database.
 ///
+/// ## Why `final`
+/// `final` prevents subclasses from shadowing `@Observable`-synthesised stored
+/// properties or `@AppStorage` backing variables. The `@Observable` macro emits
+/// `_$observationRegistrar` and per-property `_$id` accessors as concrete stored
+/// members of this exact type; a subclass that re-declared any preference property
+/// would silently shadow those members and break observation tracking in ways that
+/// are extremely difficult to diagnose. `final` makes this a compile error.
+/// Test isolation is achieved via constructor injection (`init(store:)`), not
+/// subclassing — there is no testing use case that requires a subclass.
+///
 /// ## @AppStorage + @ObservationIgnored
 /// `notificationModeRaw` uses both `@AppStorage` and `@ObservationIgnored`.
 /// This combination is required and intentional:
@@ -138,11 +148,15 @@ public final class NotificationPreferences {
 
     /// Read-only accessor for the raw persisted `String` value of `notificationMode`.
     ///
-    /// `internal` — intended for `@testable import` test targets that need to assert
-    /// the raw stored value directly (e.g. to verify UserDefaults round-trip correctness).
+    /// **Intentionally test-only** — this property has no production callsite and
+    /// that is correct. Production code always uses the typed `notificationMode`
+    /// accessor. This property exists solely so `@testable import` test targets can
+    /// assert on the raw persisted value (e.g. to verify UserDefaults round-trip
+    /// correctness) without being granted a write path into `notificationModeRaw`.
+    /// If it appears unused in production analysis tools or coverage reports, that
+    /// is expected and not a signal to remove it.
     /// Read-only by design: the write path intentionally goes through `notificationMode`,
     /// which applies the `NotificationMode(rawValue:) ?? .never` guard.
-    /// Production code should always use `notificationMode` instead.
     var notificationModeRawValue: String { notificationModeRaw }
 
     /// Typed read/write accessor for the notification mode preference.

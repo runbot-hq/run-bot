@@ -19,6 +19,16 @@ import SwiftUI
 /// ephemeral in-memory suite instead of polluting `.standard`. Production code
 /// always uses the `shared` singleton, which calls `init()` → `init(store: .standard)`.
 ///
+/// ## Why `final`
+/// `final` prevents subclasses from shadowing `@Observable`-synthesised stored
+/// properties or `@AppStorage` backing variables. The `@Observable` macro emits
+/// `_$observationRegistrar` and per-property `_$id` accessors as concrete stored
+/// members of this exact type; a subclass that re-declared any preference property
+/// would silently shadow those members and break observation tracking in ways that
+/// are extremely difficult to diagnose. `final` makes this a compile error.
+/// Test isolation is achieved via constructor injection (`init(store:)`), not
+/// subclassing — there is no testing use case that requires a subclass.
+///
 /// ## @AppStorage + @ObservationIgnored
 /// Every stored preference uses both `@AppStorage` and `@ObservationIgnored`.
 /// This combination is required and intentional:
@@ -88,12 +98,20 @@ public final class AppPreferencesStore {
     ///
     /// Retained for UserDefaults backwards-compatibility only — no longer surfaced
     /// in the UI (#510). Do not remove: removing would orphan the stored key for
-    /// users upgrading from older versions.
+    /// users upgrading from older versions, causing `UserDefaults.bool(forKey:)` at
+    /// any direct call site to silently return `false` (the zero value) rather than
+    /// the registration default of `true` — a behaviour change invisible to those
+    /// callers. The property must remain registered in `register(defaults:)` even if
+    /// no UI surface ever reads it again.
     ///
     /// ⚠️ Not `@Observable`-tracked — `withObservationTracking` will not re-fire.
     /// Consume via `@Bindable`. See class-level `## @AppStorage + @ObservationIgnored`.
     @ObservationIgnored // required — see class-level ## @AppStorage + @ObservationIgnored
     @AppStorage(AppPreferencesStore.keyShowDimmedRunners)
+    // ↑ Declaration context: Self. is not available here (no implicit self in attribute
+    // arguments). AppPreferencesStore.key… is used at the declaration site; Self.key…
+    // is used inside init(store:) and other method bodies where `self` is in scope.
+    // The difference is purely syntactic — both resolve to the identical static property.
     public var showDimmedRunners: Bool = true
 
     /// Whether the NSPopover anchor arrow is shown.
@@ -109,6 +127,8 @@ public final class AppPreferencesStore {
     /// Consume via `@Bindable`. See class-level `## @AppStorage + @ObservationIgnored`.
     @ObservationIgnored // required — see class-level ## @AppStorage + @ObservationIgnored
     @AppStorage(AppPreferencesStore.keyShowPopoverArrow)
+    // ↑ Declaration context — AppPreferencesStore.key… not Self.key… for the same
+    // reason as keyShowDimmedRunners above.
     public var showPopoverArrow: Bool = true
 
     /// Whether to offer pre-release (beta) builds in the update check.
@@ -121,6 +141,8 @@ public final class AppPreferencesStore {
     /// Consume via `@Bindable`. See class-level `## @AppStorage + @ObservationIgnored`.
     @ObservationIgnored // required — see class-level ## @AppStorage + @ObservationIgnored
     @AppStorage(AppPreferencesStore.keyBetaChannel)
+    // ↑ Declaration context — AppPreferencesStore.key… not Self.key… for the same
+    // reason as keyShowDimmedRunners above.
     public var betaChannel: Bool = false
 
     // MARK: - Init
@@ -148,12 +170,15 @@ public final class AppPreferencesStore {
     ///   supported construction path.
     ///
     /// ## register(defaults:)
-    /// Called **unconditionally** — including on the production `.standard` path.
-    /// This seeds the UserDefaults registration domain so that any direct
-    /// `UserDefaults` reader (migration helpers, analytics, crash reporters)
-    /// sees the correct value on first launch rather than the zero-value `false`.
-    /// `register(defaults:)` only sets keys that are absent; it never overwrites
-    /// persisted values, so upgrading users are unaffected.
+    /// Called **unconditionally** on every `init` — including on every production
+    /// app launch via `shared`. This is intentional and cheap: `register(defaults:)`
+    /// only writes to the registration domain (an in-memory overlay), never to the
+    /// persisted store. It never overwrites user-set values — if a key is already
+    /// present in any domain, the registration value is silently ignored. The cost
+    /// is a dictionary lookup per key, negligible relative to app startup. Calling
+    /// it every launch ensures the registration domain is always populated,
+    /// regardless of launch order or whether other code has called
+    /// `removePersistentDomain(forName:)` in a test.
     ///
     /// ## No public `register(into:)` — by design
     /// Unlike `NotificationPreferences`, this type has no public static
@@ -216,6 +241,8 @@ public final class AppPreferencesStore {
     public init(store: UserDefaults) {
         // Register unconditionally — seeds .standard on production first-launch
         // and the injected suite in tests. Never overwrites existing values.
+        // Cheap: writes only to the in-memory registration domain. Safe to call
+        // on every app launch. See ## register(defaults:) in the doc above.
         store.register(defaults: [
             Self.keyShowDimmedRunners: true,
             Self.keyShowPopoverArrow: true,
@@ -227,6 +254,9 @@ public final class AppPreferencesStore {
             // in the doc above for the stability note on this pattern.
             // wrappedValue is a fallback default only — never observed at runtime.
             // No canary assert here — see ## Why there is no rebind canary assert.
+            // Self.key… (not AppPreferencesStore.key…) is valid here: Self. is
+            // available in method bodies; the attribute-argument restriction that
+            // forced the type-name spelling at the declaration site does not apply.
             _showDimmedRunners = AppStorage(wrappedValue: true, Self.keyShowDimmedRunners, store: store)
             _showPopoverArrow = AppStorage(wrappedValue: true, Self.keyShowPopoverArrow, store: store)
             _betaChannel = AppStorage(wrappedValue: false, Self.keyBetaChannel, store: store)

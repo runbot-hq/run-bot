@@ -8,9 +8,24 @@ import Foundation
 /// Owns the `UserDefaults`-backed name → install-path index for locally-registered runners.
 ///
 /// Pure persistence layer with no knowledge of the runner model — easily unit-testable in isolation.
-/// Non-isolated: owned exclusively by the `LocalRunnerStore` actor, which serializes all access.
-/// `UserDefaults` read/write of individual keys is thread-safe; this class uses no KVO or
-/// change notifications on `UserDefaults`, so no main-actor coordination is required.
+///
+/// ## Why not `@MainActor`
+/// `LocalRunnerIndex` is owned exclusively by the `LocalRunnerStore` actor, which provides
+/// serial execution. `@MainActor` isolation would be both incorrect (the actor is not the main
+/// actor) and unnecessary — all access is already serialised through `LocalRunnerStore`'s
+/// executor. `UserDefaults` read/write of individual keys is documented thread-safe by Apple;
+/// this class uses no KVO or `NotificationCenter` subscriptions on `UserDefaults`, so no
+/// main-actor coordination is required. Contrast with `AppPreferencesStore` and
+/// `NotificationPreferences`, which use `@AppStorage` (a SwiftUI property wrapper that requires
+/// `@MainActor`) — `LocalRunnerIndex` stores plain `Data` blobs and does not use `@AppStorage`.
+///
+/// ## Why `final`
+/// `final` prevents subclasses from shadowing the `decoder` / `encoder` stored properties or
+/// the `loadIndex` / `persistIndex` helpers. The correctness invariant — that all reads and
+/// writes share the same reused `JSONDecoder` / `JSONEncoder` instances under a single actor's
+/// serialised execution — would be violated if a subclass re-declared those members. `final`
+/// makes any such attempt a compile error. Test isolation is achieved via the `defaults`
+/// constructor parameter, not subclassing.
 ///
 /// Storage format: JSON-encoded `[String: String]` stored as `Data` under `indexKey`.
 public final class LocalRunnerIndex {
