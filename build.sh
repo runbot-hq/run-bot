@@ -44,25 +44,24 @@ cp ".build/arm64-apple-macosx/release/$APP_NAME" \
 cp "Resources/Info.plist" \
    "$OUT_DIR/$APP_NAME.app/Contents/"
 
-# SwiftPM copies Sources/RunBot/Resources/Assets.xcassets (declared via
-# `resources: [.process("Resources")]` in Package.swift) into a
-# RunBot_RunBot.bundle inside the build output directory. Note: `swift
-# build` does NOT run actool here — the .xcassets folder is copied in
-# uncompiled, as a plain subdirectory tree (no Assets.car). Copying the
-# whole bundle into Contents/Resources/ is what lets Bundle.module (which
-# resolves to Bundle.main.resourceURL + "/RunBot_RunBot.bundle" when
-# running from an app bundle) actually find it at runtime — see issue
-# #2079. Note this does NOT make NSImage(named:) able to see it (it only
-# searches the flat Contents/Resources/ directory, not bundles nested
-# inside it), and it does NOT make Bundle.module.image(forResource:) able
-# to see it either (that's a flat, bundle-root-only lookup, and the PNG is
-# 3 levels deep inside Assets.xcassets/StatusBarIcon.imageset/). The app
-# code must load the PNG by its literal nested path instead — see
-# AppDelegate+StatusItem.swift. Do NOT remove this copy step.
+# SwiftPM's auto-generated resource_bundle_accessor.swift resolves
+# Bundle.module by searching for RunBot_RunBot.bundle at the app bundle
+# ROOT (i.e. RunBot.app/RunBot_RunBot.bundle), NOT inside Contents/Resources/.
+# Placing the bundle anywhere else causes a fatal crash at launch:
+#
+#   Fatal error: could not load resource bundle:
+#   from /Applications/RunBot.app/RunBot_RunBot.bundle
+#
+# The bundle contains Sources/RunBot/Resources/Assets.xcassets (declared via
+# `resources: [.process("Resources")]` in Package.swift), copied in
+# uncompiled as a plain directory tree (no Assets.car — actool is not run
+# by `swift build`). The app code must load assets by their literal nested
+# path — see AppDelegate+StatusItem.swift. Do NOT move the bundle back into
+# Contents/Resources/. See issue #2126.
 RESOURCE_BUNDLE=".build/arm64-apple-macosx/release/${APP_NAME}_${APP_NAME}.bundle"
 if [[ -d "$RESOURCE_BUNDLE" ]]; then
   cp -R "$RESOURCE_BUNDLE" \
-     "$OUT_DIR/$APP_NAME.app/Contents/Resources/"
+     "$OUT_DIR/$APP_NAME.app/"
 else
   echo "✗ Expected resource bundle not found at $RESOURCE_BUNDLE" >&2
   echo "  Asset catalog lookups (StatusBarIcon, etc.) will fail at runtime." >&2
