@@ -288,7 +288,7 @@ enum RBMetrics {
     /// Scale factor applied to `ProgressView` in the update action row.
     /// 0.7 keeps the spinner visually consistent with the `.small` control size of adjacent buttons.
     static let updateProgressScale: CGFloat = 0.7
-    /// Maximum width for the commit/PR title label in `ActionRowView`.
+    /// Maximum width for the commit/PR title label in `ActionRowView` (#2130).
     /// Caps the greedy `.layoutPriority(1)` text so it can't consume the full row width.
     /// The existing `.lineLimit(1)` + `.truncationMode(.tail)` produce an ellipsis at this cap.
     static let actionRowTitleMaxWidth: CGFloat = 160
