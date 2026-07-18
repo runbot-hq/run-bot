@@ -47,9 +47,9 @@ extension AppDelegate {
     /// Returns the menu-bar icon for the given aggregate status.
     ///
     /// Prefers the bundled `StatusBarIcon` asset (the robot-face template PNG),
-    /// loaded via `Bundle.module` by its literal path inside the (uncompiled)
-    /// `Assets.xcassets` folder — see below for why. Falls back to the SF
-    /// Symbol chain when the asset is missing, preserving the original
+    /// loaded via `RunBotResources.bundle` by its literal path inside the
+    /// (uncompiled) `Assets.xcassets` folder — see below for why. Falls back
+    /// to the SF Symbol chain when the asset is missing, preserving the original
     /// triple-fallback behaviour for safety.
     ///
     /// - Note: `status` is used only by the SF Symbol fallback chain (step 2).
@@ -71,15 +71,13 @@ extension AppDelegate {
     ///    loudly instead of hiding behind a plausible-looking placeholder).
     ///
     ///    ⚠️ Deliberately NOT `NSImage(named:)` and NOT
-    ///    `Bundle.module.image(forResource:)`. Both are asset-catalog/named-
-    ///    image lookups that expect either a compiled `Assets.car` or a flat
-    ///    file at the bundle root. `swift build` (used by build.sh) does
-    ///    neither — it copies `Assets.xcassets` into the resource bundle
-    ///    verbatim, uncompiled, as a real subdirectory tree. Confirmed by
-    ///    direct runtime inspection: `Bundle.module`'s contents were just
-    ///    `["Assets.xcassets"]`, no `.car`, no extracted PNGs at the root.
-    ///    The only lookup that actually finds the file is one that knows the
-    ///    literal nested path (`Assets.xcassets/StatusBarIcon.imageset/...`).
+    ///    `Bundle.module.image(forResource:)` and NOT `Bundle.module` directly.
+    ///    See `RunBotResources.swift` for why `Bundle.module` must not be used
+    ///    here — its generated lookup probes the app root, which codesign rejects.
+    ///    `swift build` (used by build.sh) does not run actool — Assets.xcassets
+    ///    is copied verbatim into the resource bundle as an uncompiled directory
+    ///    tree. The only lookup that finds the file is one that knows the literal
+    ///    nested path (`Assets.xcassets/StatusBarIcon.imageset/...`).
     ///    Do NOT revert to either of those APIs here.
     /// 2. `status.symbolName`             — correct SF Symbol for the current status.
     ///    Reached only if the StatusBarIcon asset is genuinely missing/corrupt.
@@ -89,7 +87,7 @@ extension AppDelegate {
             return icon
         }
         #if DEBUG
-        assertionFailure("StatusBarIcon asset missing from Bundle.module — check Sources/RunBot/Resources/Assets.xcassets/StatusBarIcon.imageset (see issue #2079)")
+        assertionFailure("StatusBarIcon asset missing from RunBotResources.bundle — check Sources/RunBot/Resources/Assets.xcassets/StatusBarIcon.imageset (see issue #2138)")
         #endif
         return NSImage(systemSymbolName: status.symbolName, accessibilityDescription: nil)
             ?? NSImage()
@@ -103,16 +101,16 @@ extension AppDelegate {
     /// icons).
     private static let statusBarIconPointSize = NSSize(width: 18, height: 18)
 
-    /// Cached `StatusBarIcon` image, loaded from `Bundle.module` exactly once.
+    /// Cached `StatusBarIcon` image, loaded from `RunBotResources.bundle` exactly once.
     ///
     /// - Important: `swift build` (the plain SwiftPM CLI toolchain used by
     ///   `build.sh`, as opposed to `xcodebuild`) does **not** run `actool` to
     ///   compile `Assets.xcassets` into `Assets.car`. It just copies the whole
     ///   `.xcassets` folder into the resource bundle verbatim, as a plain
     ///   subdirectory tree. Confirmed by direct runtime inspection during the
-    ///   #2079 follow-up investigation: `Bundle.module`'s top-level directory
-    ///   listing contained only `["Assets.xcassets"]` — no `Assets.car`, no
-    ///   flattened/extracted PNGs at the bundle root.
+    ///   #2079 follow-up investigation: `RunBotResources.bundle`'s top-level
+    ///   directory listing contained only `["Assets.xcassets"]` — no `Assets.car`,
+    ///   no flattened/extracted PNGs at the bundle root.
     ///
     ///   This is why both `NSImage(named:)` (searches Bundle.main's asset
     ///   catalog machinery, which needs a compiled `.car`) and
@@ -135,11 +133,10 @@ extension AppDelegate {
     ///   `.size` is explicitly forced to `statusBarIconPointSize` above to
     ///   correct for this.
     ///
-    /// - Note: `Bundle.image(forResource:)` also re-reads from disk on every
-    ///   call, unlike `NSImage(named:)` which uses AppKit's internal
-    ///   named-image cache — so this is cached as a `static let` regardless,
-    ///   since `updateStatusIcon()` calls `menuBarImage(for:)` on every
-    ///   runner-poll tick.
+    /// - Note: `RunBotResources.bundle` returns the same bundle instance on
+    ///   every call (it is a `static nonisolated let`), so caching here as a
+    ///   `static let` is still correct for the NSBitmapImageRep cost, not for
+    ///   repeated bundle lookups.
     private static let statusBarIcon: NSImage? = {
         // Loads every @Nx PNG that exists (1x/2x/3x) as a representation of
         // a single NSImage, so AppKit can pick the sharpest one for the
@@ -152,7 +149,7 @@ extension AppDelegate {
 
         for scale in [1, 2, 3] {
             let filename = scale == 1 ? "StatusBarIcon" : "StatusBarIcon@\(scale)x"
-            guard let path = Bundle.module.path(forResource: filename, ofType: "png", inDirectory: imagesetDir),
+            guard let path = RunBotResources.bundle.path(forResource: filename, ofType: "png", inDirectory: imagesetDir),
                   let data = NSData(contentsOfFile: path),
                   let rep = NSBitmapImageRep(data: data as Data) else {
                 continue
@@ -164,7 +161,7 @@ extension AppDelegate {
 
         guard loadedAny else {
             #if DEBUG
-            assertionFailure("StatusBarIcon asset missing from \(imagesetDir) in Bundle.module — check Sources/RunBot/Resources/Assets.xcassets/StatusBarIcon.imageset (see issue #2079)")
+            assertionFailure("StatusBarIcon asset missing from Assets.xcassets/StatusBarIcon.imageset in RunBotResources.bundle — check Sources/RunBot/Resources/Assets.xcassets/StatusBarIcon.imageset (see issue #2138)")
             #endif
             return nil
         }
