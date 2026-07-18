@@ -55,10 +55,7 @@ echo "→ Assembling .app bundle..."
 # from a different arch).
 rm -rf "$OUT_DIR"
 mkdir -p "$OUT_DIR/$APP_NAME.app/Contents/MacOS"
-# Note: Contents/Resources/ is intentionally not created here.
-# Info.plist is copied directly to Contents/ (not Contents/Resources/).
-# RunBot_RunBot.bundle lives at the app bundle ROOT per SwiftPM's
-# resource_bundle_accessor.swift lookup — see comment below.
+mkdir -p "$OUT_DIR/$APP_NAME.app/Contents/Resources"
 
 cp ".build/arm64-apple-macosx/release/$APP_NAME" \
    "$OUT_DIR/$APP_NAME.app/Contents/MacOS/"
@@ -66,12 +63,11 @@ cp "Resources/Info.plist" \
    "$OUT_DIR/$APP_NAME.app/Contents/"
 
 # SwiftPM's auto-generated resource_bundle_accessor.swift resolves
-# Bundle.module by searching for RunBot_RunBot.bundle at the app bundle
-# ROOT (i.e. RunBot.app/RunBot_RunBot.bundle), NOT inside Contents/Resources/.
-# Placing the bundle anywhere else causes a fatal crash at launch:
-#
-#   Fatal error: could not load resource bundle:
-#   from /Applications/RunBot.app/RunBot_RunBot.bundle
+# Bundle.module via Bundle.main.resourceURL, which on macOS points to
+# RunBot.app/Contents/Resources/. So the bundle must live at:
+#   Contents/Resources/RunBot_RunBot.bundle
+# Do NOT move it to the app bundle root — codesign rejects any directory
+# at the app root other than Contents/ as "unsealed contents". See #2134.
 #
 # The built bundle contains Assets.xcassets at its root (SwiftPM's .process()
 # rule copies resources to the bundle root, so the source-tree path
@@ -79,9 +75,8 @@ cp "Resources/Info.plist" \
 # bundle root — not a nested subdirectory). It is copied in uncompiled as a
 # plain directory tree (no Assets.car — actool is not run by `swift build`).
 # All Bundle.module access fails if this bundle is missing or misplaced —
-# not just icon lookups. The app code must load assets by their literal
-# nested path — see AppDelegate+StatusItem.swift.
-# Do NOT move the bundle into Contents/Resources/. See issue #2126.
+# not just icon lookups. The app code loads assets by their literal nested
+# path — see AppDelegate+StatusItem.swift.
 #
 # NAMING: ${APP_NAME}_${APP_NAME}.bundle (doubled name) is NOT a typo.
 # SwiftPM's bundle naming convention is <TargetName>_<ModuleName>.bundle.
@@ -101,7 +96,7 @@ if [[ -d "$RESOURCE_BUNDLE" ]]; then
   # silently corrupt .bundle directory structures that rely on symlinks.
   # Do NOT change to -r.
   cp -R "$RESOURCE_BUNDLE" \
-     "$OUT_DIR/$APP_NAME.app/"
+     "$OUT_DIR/$APP_NAME.app/Contents/Resources/"
 else
   echo "✗ Expected resource bundle not found at $RESOURCE_BUNDLE" >&2
   echo "  All Bundle.module access will fail at runtime (icons, assets, and all other resources)." >&2
@@ -115,11 +110,12 @@ fi
 # Ed25519 signature of the zip for update verification (see the "Sign release
 # zip" step in publish.yml), which is distinct from codesign certificate signing.
 # There is currently no Gatekeeper notarisation in the release pipeline.
-# See issue #2128 for the tracked work to add explicit per-bundle signing.
+# See issue #2128 for the tracked work to add notarisation.
 #
 # --force: replaces any existing signature on re-runs without prompting.
 #   Required because `swift build` may leave a partial sig on the binary.
-# --deep: recursively signs nested bundles (including RunBot_RunBot.bundle).
+# --deep: recursively signs nested bundles (including RunBot_RunBot.bundle
+#   inside Contents/Resources/).
 #   Without --deep, Gatekeeper rejects the app because the nested bundle
 #   is unsigned even though the outer .app is signed.
 #   ⚠️  --deep is deprecated by Apple for production/notarised builds because
@@ -127,7 +123,7 @@ fi
 #   explicit signing order that notarisation requires. For ad-hoc builds
 #   (local and CI) it is acceptable. Explicit per-bundle signing is the
 #   correct long-term path — tracked in issue #2128.
-#   Do NOT silently remove --deep without implementing explicit signing first.
+#   Do NOT remove --deep without implementing explicit signing first.
 echo "→ Ad-hoc signing..."
 codesign --force --deep --sign - "$OUT_DIR/$APP_NAME.app"
 
