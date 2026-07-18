@@ -37,7 +37,10 @@ swift build -c release --arch arm64
 echo "→ Assembling .app bundle..."
 rm -rf "$OUT_DIR"
 mkdir -p "$OUT_DIR/$APP_NAME.app/Contents/MacOS"
-mkdir -p "$OUT_DIR/$APP_NAME.app/Contents/Resources"
+# Note: Contents/Resources/ is intentionally not created here.
+# Info.plist is copied directly to Contents/ (not Contents/Resources/).
+# RunBot_RunBot.bundle lives at the app bundle ROOT per SwiftPM's
+# resource_bundle_accessor.swift lookup — see comment below.
 
 cp ".build/arm64-apple-macosx/release/$APP_NAME" \
    "$OUT_DIR/$APP_NAME.app/Contents/MacOS/"
@@ -55,16 +58,17 @@ cp "Resources/Info.plist" \
 # The bundle contains Sources/RunBot/Resources/Assets.xcassets (declared via
 # `resources: [.process("Resources")]` in Package.swift), copied in
 # uncompiled as a plain directory tree (no Assets.car — actool is not run
-# by `swift build`). The app code must load assets by their literal nested
-# path — see AppDelegate+StatusItem.swift. Do NOT move the bundle back into
-# Contents/Resources/. See issue #2126.
+# by `swift build`). All Bundle.module access fails if this bundle is
+# missing or misplaced — not just icon lookups. The app code must load
+# assets by their literal nested path — see AppDelegate+StatusItem.swift.
+# Do NOT move the bundle into Contents/Resources/. See issue #2126.
 RESOURCE_BUNDLE=".build/arm64-apple-macosx/release/${APP_NAME}_${APP_NAME}.bundle"
 if [[ -d "$RESOURCE_BUNDLE" ]]; then
   cp -R "$RESOURCE_BUNDLE" \
      "$OUT_DIR/$APP_NAME.app/"
 else
   echo "✗ Expected resource bundle not found at $RESOURCE_BUNDLE" >&2
-  echo "  Asset catalog lookups (StatusBarIcon, etc.) will fail at runtime." >&2
+  echo "  All Bundle.module access will fail at runtime (icons, assets, and all other resources)." >&2
   exit 1
 fi
 
