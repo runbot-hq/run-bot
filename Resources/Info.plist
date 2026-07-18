@@ -2,10 +2,10 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<key>CFBundleIconFile</key>
-	<string>AppIcon</string>
 	<key>CFBundleExecutable</key>
 	<string>RunBot</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
 	<key>CFBundleIdentifier</key>
 	<string>io.github.runbot-hq</string>
 	<key>CFBundleName</key>
@@ -13,7 +13,7 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>0.7.5</string>
+	<string>0.7.6</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
@@ -26,12 +26,12 @@
 		</dict>
 	</array>
 	<key>CFBundleVersion</key>
-	<string>5355</string>
+	<string>5358</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>13.0</string>
 	<key>LSUIElement</key>
 	<true/>
 	<key>RBVersionString</key>
-	<string>0.7.5</string>
+	<string>0.7.6-beta.1</string>
 </dict>
 </plist>
