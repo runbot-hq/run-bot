@@ -15,7 +15,7 @@ GitHub Actions and local runners — in your macOS menu bar.
 ![Apple Silicon](https://img.shields.io/badge/Apple_Silicon-arm64-000000?logo=apple&logoColor=white)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 
-[Website](https://runbot-hq.github.io/run-bot) · [Docs](docs/) · [Install](https://github.com/runbot-hq/run-bot#install) · [Privacy](docs/privacy.md)
+[Website](https://runbot-hq.github.io/run-bot) · [Docs](docs/) · [Install](https://github.com/runbot-hq/run-bot#install) · [Action Eco-System](https://github.com/runbot-hq?view_as=public#actions) 
 
 </div>
 
@@ -33,7 +33,7 @@ One control plane for all your local runner needs. Provision new organization or
 
 #### 🤖 AI-powered actions
 
-Utilize your local AI capabilities in CI. Run AI PR reviews, AI localization, and AI release notes. [More info here](https://github.com/runbot-hq?view_as=public#actions) 
+Utilize your local AI capabilities in CI. Run AI PR reviews, AI localization, and AI release notes. 
 
 ---
 
