@@ -91,7 +91,7 @@ public enum NotificationMode: String, CaseIterable, Sendable {
 /// `notificationModeRaw` is `private`. External callers must use the typed
 /// `notificationMode` accessor, which applies the `NotificationMode(rawValue:) ?? .never`
 /// guard. Tests that need to inspect the persisted raw value use the `internal`
-/// read-only `notificationModeRawValue` accessor — which exposes the value
+/// read-only `rawNotificationMode` accessor — which exposes the value
 /// without opening a write path to the whole module. This enforces the guard
 /// at the language level rather than by doc convention.
 ///
@@ -132,7 +132,7 @@ public final class NotificationPreferences {
     ///
     /// `private` — the compiler enforces that only this type's own code can write
     /// the raw value. External callers read via `notificationMode` (typed, guarded)
-    /// or inspect via `notificationModeRawValue` (internal read-only, for tests).
+    /// or inspect via `rawNotificationMode` (internal read-only, for tests).
     /// See class-level ## notificationModeRaw access level.
     ///
     /// `@ObservationIgnored` is required here (not redundant) — see
@@ -157,7 +157,12 @@ public final class NotificationPreferences {
     /// is expected and not a signal to remove it.
     /// Read-only by design: the write path intentionally goes through `notificationMode`,
     /// which applies the `NotificationMode(rawValue:) ?? .never` guard.
-    var notificationModeRawValue: String { notificationModeRaw }
+    ///
+    /// Named `rawNotificationMode` (not `notificationModeRawValue`) to avoid the
+    /// `Value` suffix implying `RawRepresentable.RawValue` semantics — this is a
+    /// plain read-through alias forced by the `private` name collision with
+    /// `notificationModeRaw`.
+    var rawNotificationMode: String { notificationModeRaw }
 
     /// Typed read/write accessor for the notification mode preference.
     /// Persisted as a `String` rawValue in UserDefaults via `notificationModeRaw`.
