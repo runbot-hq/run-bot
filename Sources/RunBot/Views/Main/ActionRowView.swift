@@ -149,6 +149,8 @@ struct ActionRowView: View {
                 .foregroundColor(group.isDimmed ? .secondary : .primary)
                 .lineLimit(1)
                 .truncationMode(.tail)
+                .frame(maxWidth: 160, alignment: .leading)
+                .help(group.title)
                 .layoutPriority(1)
             // Branch — plain text, hidden when nil (#1194)
             if let branch = group.headBranch {
