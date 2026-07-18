@@ -62,6 +62,24 @@ cp ".build/arm64-apple-macosx/release/$APP_NAME" \
 cp "Resources/Info.plist" \
    "$OUT_DIR/$APP_NAME.app/Contents/"
 
+# ── App Icon ─────────────────────────────────────────────────────────────────
+# AppIcon.icns is the macOS app icon (Finder, Dock, About screen).
+# It is generated from wb.png via `magick` + `iconutil` and committed to
+# Resources/ as a pre-built binary. swift build does not run actool so
+# AppIcon.appiconset inside Assets.xcassets would be silently ignored —
+# the .icns approach is the correct method for the current swift build pipeline.
+# See issue #2145 and issue #2144 (Option B / xcodebuild path, future work).
+if [[ ! -f "Resources/AppIcon.icns" ]]; then
+  echo "✗ Resources/AppIcon.icns not found" >&2
+  exit 1
+fi
+cp "Resources/AppIcon.icns" \
+   "$OUT_DIR/$APP_NAME.app/Contents/Resources/"
+if [[ ! -f "$OUT_DIR/$APP_NAME.app/Contents/Resources/AppIcon.icns" ]]; then
+  echo "✗ AppIcon.icns missing from Contents/Resources after copy" >&2
+  exit 1
+fi
+
 # ── StatusBarIcon PNGs ───────────────────────────────────────────────────────
 # PNGs are shipped as loose files directly in Contents/Resources/.
 # They are loaded via Bundle.main in AppDelegate+StatusItem.swift, which
