@@ -115,21 +115,25 @@ fi
 # Ed25519 signature of the zip for update verification (see the "Sign release
 # zip" step in publish.yml), which is distinct from codesign certificate signing.
 # There is currently no Gatekeeper notarisation in the release pipeline.
-# See issue #2128 for the tracked work to add explicit per-bundle signing.
+# See issue #2128 for the tracked work to add notarisation.
 #
-# --force: replaces any existing signature on re-runs without prompting.
-#   Required because `swift build` may leave a partial sig on the binary.
-# --deep: recursively signs nested bundles (including RunBot_RunBot.bundle).
-#   Without --deep, Gatekeeper rejects the app because the nested bundle
-#   is unsigned even though the outer .app is signed.
-#   ⚠️  --deep is deprecated by Apple for production/notarised builds because
-#   it can miss dynamically loaded bundles and does not replicate the
-#   explicit signing order that notarisation requires. For ad-hoc builds
-#   (local and CI) it is acceptable. Explicit per-bundle signing is the
-#   correct long-term path — tracked in issue #2128.
-#   Do NOT silently remove --deep without implementing explicit signing first.
-echo "→ Ad-hoc signing..."
-codesign --force --deep --sign - "$OUT_DIR/$APP_NAME.app"
+# SIGNING ORDER: RunBot_RunBot.bundle must be signed BEFORE the outer .app.
+# codesign seals the app container when signing the .app — all nested bundles
+# must already be signed at that point or codesign rejects them as
+# "unsealed contents". --deep is NOT used here because:
+#   1. RunBot_RunBot.bundle sits at the app bundle ROOT (not inside Contents/),
+#      and codesign --deep on the outer .app errors with:
+#        "unsealed contents present in the bundle root"
+#      when any non-Contents directory is present at the root. See issue #2132.
+#   2. --deep is deprecated by Apple for all builds — explicit per-bundle
+#      signing in inside-out order is the correct and supported approach.
+# Do NOT add --deep back. Do NOT reorder these two codesign calls.
+echo "→ Signing resource bundle..."
+codesign --force --sign - \
+  "$OUT_DIR/$APP_NAME.app/${APP_NAME}_${APP_NAME}.bundle"
+
+echo "→ Signing app..."
+codesign --force --sign - "$OUT_DIR/$APP_NAME.app"
 
 # ── Zipping ──────────────────────────────────────────────────────────────────
 # ditto is used instead of zip/tar intentionally:
