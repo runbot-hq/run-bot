@@ -229,6 +229,13 @@ private struct JobRowCard: View {
     /// Renders the job tree connector, card header, and optional expanded step list.
     var body: some View {
         HStack(alignment: .top, spacing: 0) {
+            // isLast && !isExpanded — intentional compound condition:
+            // When this is the last job AND it is expanded, we pass isLast: false
+            // so TreeLineLeader draws a full-height straight bar rather than the
+            // terminal elbow. This keeps the vertical connector running through the
+            // expanded step list, preserving the tree hierarchy visually.
+            // If isExpanded were not factored in, the elbow would render at the job
+            // header row while steps are still shown below it, breaking the geometry.
             TreeLineLeader(isLast: isLast && !isExpanded, indent: dotIndent)
                 .frame(maxHeight: .infinity)
             VStack(alignment: .leading, spacing: 0) {
@@ -354,6 +361,13 @@ struct InlineJobRowsView: View {
     /// live elapsed-time counter. Without this, SwiftUI's diffing would consider
     /// stable job IDs unchanged and skip re-rendering elapsed labels.
     /// Do not remove the tick component from the `.id(...)` modifier.
+    ///
+    /// NOTE: replacing the SwiftUI identity on every tick means any card-level
+    /// `@State` would reset each tick. This is intentional and safe today because
+    /// `JobRowCard` carries no `@State` of its own — `expandedJobIDs` lives here
+    /// in the parent and is therefore preserved across ticks. If card-level `@State`
+    /// is added in the future, move that state up to this view or use a different
+    /// refresh strategy.
     private var tickSnapshot: Int { tick }
     /// Renders the list of job cards, gated on the panel being open.
     var body: some View {
