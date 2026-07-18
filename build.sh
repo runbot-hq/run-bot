@@ -6,11 +6,14 @@
 # Do NOT change [[ ]] to [ ] or =~ to expr/case to "fix" those warnings.
 
 # ⚠️  set -e is intentional without -u or -o pipefail:
-# • -u (treat unset vars as errors) would break ${1:-0.0.0-dev} and any
-#   other parameter-default expansions used throughout this script.
+# • -u (treat unset vars as errors) is intentionally omitted — NOT because
+#   ${var:-default} is unsafe under -u (it is safe; that construct is defined
+#   precisely to handle the unset case), but because this script has not been
+#   fully audited for unset variable references beyond the VERSION expansion.
+#   Adding -u requires confirming every variable reference either has a value
+#   or a default guard. That audit is deferred. Do not add -u until it is done.
 # • -o pipefail is redundant here — no command in this script uses a pipe
 #   where a mid-pipe failure would otherwise be silently swallowed.
-# Do NOT add -u or -o pipefail without auditing every expansion first.
 set -e
 
 APP_NAME="RunBot"
@@ -97,10 +100,12 @@ fi
 # --deep: recursively signs nested bundles (including RunBot_RunBot.bundle).
 #   Without --deep, Gatekeeper rejects the app because the nested bundle
 #   is unsigned even though the outer .app is signed.
-#   Note: --deep is flagged as deprecated in some SDK docs, but the
-#   replacement (explicit per-bundle signing) requires knowing bundle paths
-#   ahead of time. --deep remains the correct approach for a dynamic bundle
-#   layout produced by SwiftPM.
+#   ⚠️  --deep is deprecated by Apple for production/notarised builds because
+#   it can miss dynamically loaded bundles and does not replicate the
+#   explicit signing order that notarisation requires. For local ad-hoc
+#   builds it is acceptable. For CI/notarisation, explicit per-bundle
+#   signing is the correct long-term path — tracked in issue #2128.
+#   Do NOT silently remove --deep without implementing explicit signing first.
 echo "→ Ad-hoc signing..."
 codesign --force --deep --sign - "$OUT_DIR/$APP_NAME.app"
 
