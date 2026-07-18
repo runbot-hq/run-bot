@@ -87,7 +87,7 @@ extension AppDelegate {
             return icon
         }
         #if DEBUG
-        assertionFailure("StatusBarIcon asset missing from RunBotResources.bundle — check Sources/RunBot/Resources/Assets.xcassets/StatusBarIcon.imageset (see issue #2138)")
+        assertionFailure("StatusBarIcon asset missing from RunBotResources.bundle — check Assets.xcassets/StatusBarIcon.imageset (see issue #2138)")
         #endif
         return NSImage(systemSymbolName: status.symbolName, accessibilityDescription: nil)
             ?? NSImage()
@@ -161,7 +161,10 @@ extension AppDelegate {
 
         guard loadedAny else {
             #if DEBUG
-            assertionFailure("StatusBarIcon asset missing from Assets.xcassets/StatusBarIcon.imageset in RunBotResources.bundle — check Sources/RunBot/Resources/Assets.xcassets/StatusBarIcon.imageset (see issue #2138)")
+            assertionFailure(
+                "StatusBarIcon asset missing from \(imagesetDir) in RunBotResources.bundle"
+                + " — check Sources/RunBot/Resources/Assets.xcassets/StatusBarIcon.imageset (see issue #2138)"
+            )
             #endif
             return nil
         }
