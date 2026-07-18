@@ -55,7 +55,7 @@ curl -fsSL https://runbot-hq.github.io/install.sh | bash
 
 --- 
 
-**Test a branch:**
+## Test a branch:
 
 Requires cloning the repo to a local folder first
 
