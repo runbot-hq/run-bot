@@ -47,10 +47,12 @@ echo "→ Compiling arm64 binary..."
 swift build -c release --arch arm64
 
 echo "→ Assembling .app bundle..."
-# rm -rf is intentional and safe: OUT_DIR is always the local `dist/`
-# build artefact directory, never a system path. A full wipe before
-# each build prevents stale files from a previous run being silently
-# included in the zip (e.g. a leftover binary from a different arch).
+# rm -rf is intentional and safe: OUT_DIR is always the hardcoded string
+# "dist" — a local subdirectory relative to the project root, never an
+# absolute or system path. It is never set from user input or environment
+# variables. A full wipe before each build prevents stale files from a
+# previous run being silently included in the zip (e.g. a leftover binary
+# from a different arch).
 rm -rf "$OUT_DIR"
 mkdir -p "$OUT_DIR/$APP_NAME.app/Contents/MacOS"
 # Note: Contents/Resources/ is intentionally not created here.
@@ -80,8 +82,19 @@ cp "Resources/Info.plist" \
 # not just icon lookups. The app code must load assets by their literal
 # nested path — see AppDelegate+StatusItem.swift.
 # Do NOT move the bundle into Contents/Resources/. See issue #2126.
+#
+# NAMING: ${APP_NAME}_${APP_NAME}.bundle (doubled name) is NOT a typo.
+# SwiftPM's bundle naming convention is <TargetName>_<ModuleName>.bundle.
+# Because this package has a single target where the target name and module
+# name are both "RunBot", the result is RunBot_RunBot.bundle. This is
+# SwiftPM-generated and matches what resource_bundle_accessor.swift expects.
 RESOURCE_BUNDLE=".build/arm64-apple-macosx/release/${APP_NAME}_${APP_NAME}.bundle"
 if [[ -d "$RESOURCE_BUNDLE" ]]; then
+  # SOURCE TRUST: $RESOURCE_BUNDLE is a path inside .build/, the local SwiftPM
+  # build output directory. It is produced entirely by `swift build` from this
+  # project's own source — it is not user-supplied, downloaded, or externally
+  # controlled. There is no untrusted content being copied into the app bundle.
+  #
   # cp -R (uppercase) is intentional on macOS: -R preserves symlinks as-is
   # (copies the symlink itself, not the target it points to). Lowercase -r
   # dereferences symlinks and copies the target content instead, which can
