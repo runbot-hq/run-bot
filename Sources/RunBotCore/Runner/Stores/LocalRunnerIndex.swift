@@ -32,9 +32,17 @@ public final class LocalRunnerIndex {
     /// so there is no concurrent access — matching the pattern in `ScopePreferencesStore` (P17).
     private let decoder = JSONDecoder()
 
-    /// Reused encoder. Only ever called from `LocalRunnerStore`'s serial actor executor,
+    /// Reused encoder. `.sortedKeys` ensures deterministic byte output so that two
+    /// `persistIndex()` calls with identical logical content produce identical `Data`,
+    /// preventing spurious `UserDefaults` writes and the associated
+    /// `NSUserDefaultsDidChangeNotification` churn.
+    /// Only ever called from `LocalRunnerStore`'s serial actor executor,
     /// so there is no concurrent access — matching the pattern in `ScopePreferencesStore` (P17).
-    private let encoder = JSONEncoder()
+    private let encoder: JSONEncoder = {
+        let e = JSONEncoder()
+        e.outputFormatting = [.sortedKeys]
+        return e
+    }()
 
     // MARK: - Init
 

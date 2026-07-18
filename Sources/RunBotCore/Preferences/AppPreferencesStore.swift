@@ -161,6 +161,10 @@ public final class AppPreferencesStore {
     /// to seed these keys before constructing an `AppPreferencesStore` instance.
     /// If that requirement arises, add a parallel `public static func register(into:)`
     /// following the same pattern as `NotificationPreferences`.
+    /// Note: if new keys are added to `AppPreferencesStore`, they must be added to
+    /// the `register(defaults:)` dictionary below — there is no centralised static
+    /// method to update. This is the accepted drift risk of the inline pattern;
+    /// the mitigation is to extract `register(into:)` at that point.
     ///
     /// ## Test-injection path (`if store !== .standard`)
     /// When a non-standard suite is injected (unit tests), each `@AppStorage`

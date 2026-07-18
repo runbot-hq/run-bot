@@ -265,7 +265,7 @@ public final class NotificationPreferences {
     /// Default changed from `.all` to `.never` in #2082.
     public static func register(into store: UserDefaults) {
         store.register(defaults: [
-            keyNotificationMode: NotificationMode.never.rawValue,
+            Self.keyNotificationMode: NotificationMode.never.rawValue,
         ])
     }
 }
