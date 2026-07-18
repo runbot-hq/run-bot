@@ -11,7 +11,7 @@
 #   precisely to handle the unset case), but because this script has not been
 #   fully audited for unset variable references beyond the VERSION expansion.
 #   Adding -u requires confirming every variable reference either has a value
-#   or a default guard. That audit is deferred. Do not add -u until it is done.
+#   or a default guard. That audit is deferred — tracked in issue #2131.
 # • -o pipefail is intentionally omitted pending a full pipeline audit.
 #   The version validation step already uses a printf | grep pipeline, and
 #   further pipelines may be added in future. Until every pipeline in this
