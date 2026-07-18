@@ -74,18 +74,16 @@ public enum NotificationMode: String, CaseIterable, Sendable {
 /// directly — the setter writes through to `notificationModeRaw` and
 /// `@AppStorage` propagates the change to the view.
 /// Do NOT bind via a raw `@AppStorage("notifications.notificationMode")` at
-/// the call site: that bypasses the `internal` access guard on `notificationModeRaw`
-/// and couples the call site to the raw key string this type exists to encapsulate.
+/// the call site: that bypasses the typed `notificationMode` accessor and
+/// couples the call site to the raw key string this type exists to encapsulate.
 ///
 /// ## notificationModeRaw access level
-/// `notificationModeRaw` is `internal`, not `public`. This is intentional:
-/// external callers must go through `notificationMode`, which applies the
-/// `NotificationMode(rawValue:) ?? .never` guard. It is not `private` so that
-/// `@testable import` test targets can inspect the raw stored value directly.
-/// Note: because this is an app target (not a library), a `public extension` on
-/// `NotificationPreferences` in another file could technically re-expose this
-/// property. That is undesirable — any such extension must not redeclare or
-/// proxy `notificationModeRaw` as public.
+/// `notificationModeRaw` is `private`. External callers must use the typed
+/// `notificationMode` accessor, which applies the `NotificationMode(rawValue:) ?? .never`
+/// guard. Tests that need to inspect the persisted raw value use the `internal`
+/// read-only `notificationModeRawValue` accessor — which exposes the value
+/// without opening a write path to the whole module. This enforces the guard
+/// at the language level rather than by doc convention.
 ///
 /// ## Orphaned UserDefaults keys
 /// The previous `notifications.notifyOnSuccess` and `notifications.notifyOnFailure`
@@ -110,11 +108,21 @@ public final class NotificationPreferences {
 
     // MARK: - Preferences
 
+    // Every @AppStorage property below also carries @ObservationIgnored.
+    // This is REQUIRED — not redundant. Without it the @Observable macro
+    // conflicts with @AppStorage's own compiler-generated backing storage
+    // and produces a compile error. See ## @AppStorage + @ObservationIgnored
+    // in the class doc above for the full explanation.
+    //
+    // ⚠️ NOT @Observable-tracked — withObservationTracking will NOT re-fire on change.
+    // Use @Bindable against the owning instance for SwiftUI change propagation.
+    // This is intentional and silent: reads compile fine, callbacks just never arrive.
+
     /// Raw `String` backing store for `notificationMode`.
     ///
-    /// `internal` intentionally — external callers must use the typed
-    /// `notificationMode` accessor which applies the `?? .never` guard.
-    /// Not `private` so `@testable import` test targets can inspect it directly.
+    /// `private` — the compiler enforces that only this type's own code can write
+    /// the raw value. External callers read via `notificationMode` (typed, guarded)
+    /// or inspect via `notificationModeRawValue` (internal read-only, for tests).
     /// See class-level ## notificationModeRaw access level.
     ///
     /// `@ObservationIgnored` is required here (not redundant) — see
@@ -126,7 +134,16 @@ public final class NotificationPreferences {
     /// Default changed from `.all` to `.never` in #2082.
     @ObservationIgnored // required — see class-level ## @AppStorage + @ObservationIgnored
     @AppStorage(NotificationPreferences.keyNotificationMode)
-    var notificationModeRaw: String = NotificationMode.never.rawValue
+    private var notificationModeRaw: String = NotificationMode.never.rawValue
+
+    /// Read-only accessor for the raw persisted `String` value of `notificationMode`.
+    ///
+    /// `internal` — intended for `@testable import` test targets that need to assert
+    /// the raw stored value directly (e.g. to verify UserDefaults round-trip correctness).
+    /// Read-only by design: the write path intentionally goes through `notificationMode`,
+    /// which applies the `NotificationMode(rawValue:) ?? .never` guard.
+    /// Production code should always use `notificationMode` instead.
+    var notificationModeRawValue: String { notificationModeRaw }
 
     /// Typed read/write accessor for the notification mode preference.
     /// Persisted as a `String` rawValue in UserDefaults via `notificationModeRaw`.
