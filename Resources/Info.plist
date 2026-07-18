@@ -24,12 +24,12 @@
 		</dict>
 	</array>
 	<key>CFBundleVersion</key>
-	<string>5338</string>
+	<string>5351</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>13.0</string>
 	<key>LSUIElement</key>
 	<true/>
 	<key>RBVersionString</key>
-	<string>0.7.4-beta.2</string>
+	<string>0.7.4-beta.3</string>
 </dict>
 </plist>
