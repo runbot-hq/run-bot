@@ -39,9 +39,9 @@ public final class LocalRunnerIndex {
     /// Only ever called from `LocalRunnerStore`'s serial actor executor,
     /// so there is no concurrent access — matching the pattern in `ScopePreferencesStore` (P17).
     private let encoder: JSONEncoder = {
-        let e = JSONEncoder()
-        e.outputFormatting = [.sortedKeys]
-        return e
+        let enc = JSONEncoder()
+        enc.outputFormatting = [.sortedKeys]
+        return enc
     }()
 
     // MARK: - Init
