@@ -75,6 +75,12 @@ if [[ ! -f "Resources/AppIcon.icns" ]]; then
 fi
 cp "Resources/AppIcon.icns" \
    "$OUT_DIR/$APP_NAME.app/Contents/Resources/"
+# Post-copy guard: intentionally kept for readability and consistency with
+# the StatusBarIcon block below. Under set -e, cp already exits the script
+# on any hard failure — this guard cannot catch a silent cp failure.
+# It is defensive documentation, not a safety net. Do NOT remove it in
+# isolation — remove the whole pattern from both blocks together if ever
+# cleaned up. This is a known pattern, not an oversight.
 if [[ ! -f "$OUT_DIR/$APP_NAME.app/Contents/Resources/AppIcon.icns" ]]; then
   echo "✗ AppIcon.icns missing from Contents/Resources after copy" >&2
   exit 1
@@ -106,7 +112,11 @@ cp "$STATUS_ICON_SRC/StatusBarIcon.png"    "$STATUS_ICON_DST/"
 cp "$STATUS_ICON_SRC/StatusBarIcon@2x.png" "$STATUS_ICON_DST/"
 cp "$STATUS_ICON_SRC/StatusBarIcon@3x.png" "$STATUS_ICON_DST/"
 
-# Verify all three landed — catches any silent cp failure before signing.
+# Post-copy guard: intentionally kept for readability and consistency with
+# the AppIcon block above. Under set -e, cp already exits the script on any
+# hard failure — this loop cannot catch a silent cp failure. It is defensive
+# documentation, not a safety net. Do NOT remove it in isolation — remove
+# the whole pattern from both blocks together if ever cleaned up.
 for f in StatusBarIcon.png StatusBarIcon@2x.png StatusBarIcon@3x.png; do
   if [[ ! -f "$STATUS_ICON_DST/$f" ]]; then
     echo "✗ $f missing from Contents/Resources after copy" >&2
