@@ -47,7 +47,7 @@ extension AppDelegate {
     /// Returns the menu-bar icon for the given aggregate status.
     ///
     /// Prefers the bundled `StatusBarIcon` asset (the robot-face template PNG),
-    /// loaded via `Bundle.module` by its literal path inside the (uncompiled)
+    /// loaded via `Self.resourceBundle` by its literal path inside the (uncompiled)
     /// `Assets.xcassets` folder — see below for why. Falls back to the SF
     /// Symbol chain when the asset is missing, preserving the original
     /// triple-fallback behaviour for safety.
@@ -89,7 +89,7 @@ extension AppDelegate {
             return icon
         }
         #if DEBUG
-        assertionFailure("StatusBarIcon asset missing from Bundle.module — check Sources/RunBot/Resources/Assets.xcassets/StatusBarIcon.imageset (see issue #2079)")
+        assertionFailure("StatusBarIcon asset missing from resourceBundle — check Sources/RunBot/Resources/Assets.xcassets/StatusBarIcon.imageset (see issue #2079)")
         #endif
         return NSImage(systemSymbolName: status.symbolName, accessibilityDescription: nil)
             ?? NSImage()
@@ -103,7 +103,26 @@ extension AppDelegate {
     /// icons).
     private static let statusBarIconPointSize = NSSize(width: 18, height: 18)
 
-    /// Cached `StatusBarIcon` image, loaded from `Bundle.module` exactly once.
+    /// Resolves `RunBot_RunBot.bundle` from `Contents/Resources/` — where
+    /// `build.sh` places it and where `codesign` requires it to be.
+    ///
+    /// `Bundle.module` must NOT be used here. SwiftPM's auto-generated
+    /// `resource_bundle_accessor.swift` resolves `Bundle.module` via
+    /// `Bundle.main.bundleURL`, which inside a `.app` is the app root
+    /// (`RunBot.app/`). `codesign` rejects any directory at the app root
+    /// other than `Contents/`, so the bundle cannot legally live there.
+    ///
+    /// `Bundle.main.resourceURL` on macOS always resolves to
+    /// `Contents/Resources/` — the correct location. See issue #2137.
+    ///
+    /// Do NOT replace this with `Bundle.module`. Do NOT delete this constant.
+    private static let resourceBundle: Bundle? = {
+        guard let resourceURL = Bundle.main.resourceURL else { return nil }
+        let bundleURL = resourceURL.appendingPathComponent("RunBot_RunBot.bundle")
+        return Bundle(url: bundleURL)
+    }()
+
+    /// Cached `StatusBarIcon` image, loaded from `resourceBundle` exactly once.
     ///
     /// - Important: `swift build` (the plain SwiftPM CLI toolchain used by
     ///   `build.sh`, as opposed to `xcodebuild`) does **not** run `actool` to
@@ -121,11 +140,10 @@ extension AppDelegate {
     ///   to look three directories deep, inside
     ///   `Assets.xcassets/StatusBarIcon.imageset/`, for a scale-suffixed file.
     ///
-    ///   The fix: build the path into the `.imageset` folder explicitly and
-    ///   load each `@Nx` PNG directly by literal path, as raw
-    ///   `NSBitmapImageRep`s combined into one `NSImage`. This bypasses
-    ///   asset-catalog/named-image lookup entirely, so it works the same
-    ///   whether or not the catalog was ever compiled.
+    ///   The fix: `resourceBundle` resolves `RunBot_RunBot.bundle` from
+    ///   `Contents/Resources/` via `Bundle.main.resourceURL`. The nested path
+    ///   lookup into `.imageset/` is unchanged — only the bundle used to
+    ///   perform that lookup has changed.
     ///
     /// - Important: loading a raw PNG this way (instead of through a
     ///   compiled catalog) means AppKit has no `Contents.json` telling it
@@ -152,7 +170,8 @@ extension AppDelegate {
 
         for scale in [1, 2, 3] {
             let filename = scale == 1 ? "StatusBarIcon" : "StatusBarIcon@\(scale)x"
-            guard let path = Bundle.module.path(forResource: filename, ofType: "png", inDirectory: imagesetDir),
+            guard let bundle = Self.resourceBundle,
+                  let path = bundle.path(forResource: filename, ofType: "png", inDirectory: imagesetDir),
                   let data = NSData(contentsOfFile: path),
                   let rep = NSBitmapImageRep(data: data as Data) else {
                 continue
@@ -164,7 +183,7 @@ extension AppDelegate {
 
         guard loadedAny else {
             #if DEBUG
-            assertionFailure("StatusBarIcon asset missing from \(imagesetDir) in Bundle.module — check Sources/RunBot/Resources/Assets.xcassets/StatusBarIcon.imageset (see issue #2079)")
+            assertionFailure("StatusBarIcon asset missing from \(imagesetDir) in resourceBundle — check Sources/RunBot/Resources/Assets.xcassets/StatusBarIcon.imageset (see issue #2079)")
             #endif
             return nil
         }
