@@ -47,9 +47,9 @@ extension AppDelegate {
     /// Returns the menu-bar icon for the given aggregate status.
     ///
     /// Prefers the bundled `StatusBarIcon` asset (the robot-face template PNG),
-    /// loaded via `Self.resourceBundle` by its literal path inside the (uncompiled)
-    /// `Assets.xcassets` folder — see below for why. Falls back to the SF
-    /// Symbol chain when the asset is missing, preserving the original
+    /// loaded via `AppDelegate.resourceBundle` by its literal path inside the
+    /// (uncompiled) `Assets.xcassets` folder — see below for why. Falls back
+    /// to the SF Symbol chain when the asset is missing, preserving the original
     /// triple-fallback behaviour for safety.
     ///
     /// - Note: `status` is used only by the SF Symbol fallback chain (step 2).
@@ -116,6 +116,10 @@ extension AppDelegate {
     /// `Contents/Resources/` — the correct location. See issue #2137.
     ///
     /// Do NOT replace this with `Bundle.module`. Do NOT delete this constant.
+    ///
+    /// - Note: Referenced as `AppDelegate.resourceBundle` (not `Self.resourceBundle`)
+    ///   inside static let initializers — Swift does not allow covariant `Self`
+    ///   references in stored property initializers in class extensions.
     private static let resourceBundle: Bundle? = {
         guard let resourceURL = Bundle.main.resourceURL else { return nil }
         let bundleURL = resourceURL.appendingPathComponent("RunBot_RunBot.bundle")
@@ -140,9 +144,9 @@ extension AppDelegate {
     ///   to look three directories deep, inside
     ///   `Assets.xcassets/StatusBarIcon.imageset/`, for a scale-suffixed file.
     ///
-    ///   The fix: `resourceBundle` resolves `RunBot_RunBot.bundle` from
-    ///   `Contents/Resources/` via `Bundle.main.resourceURL`. The nested path
-    ///   lookup into `.imageset/` is unchanged — only the bundle used to
+    ///   The fix: `AppDelegate.resourceBundle` resolves `RunBot_RunBot.bundle`
+    ///   from `Contents/Resources/` via `Bundle.main.resourceURL`. The nested
+    ///   path lookup into `.imageset/` is unchanged — only the bundle used to
     ///   perform that lookup has changed.
     ///
     /// - Important: loading a raw PNG this way (instead of through a
@@ -170,7 +174,7 @@ extension AppDelegate {
 
         for scale in [1, 2, 3] {
             let filename = scale == 1 ? "StatusBarIcon" : "StatusBarIcon@\(scale)x"
-            guard let bundle = Self.resourceBundle,
+            guard let bundle = AppDelegate.resourceBundle,
                   let path = bundle.path(forResource: filename, ofType: "png", inDirectory: imagesetDir),
                   let data = NSData(contentsOfFile: path),
                   let rep = NSBitmapImageRep(data: data as Data) else {
