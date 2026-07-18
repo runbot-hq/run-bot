@@ -128,17 +128,18 @@ private struct StepRowView: View {
                     .truncationMode(.tail)
                     .layoutPriority(1)
                 Spacer(minLength: 4)
-                // Show elapsed for any step that has started (i.e. not still queued).
-                // Previously guarded on `in_progress || conclusion != nil`, which hid
-                // labels for steps in unexpected states (e.g. "waiting") — fixes #2148.
-                if step.status != "queued" {
-                    let elapsedStr = step.elapsed
-                    if !elapsedStr.isEmpty {
-                        Text(elapsedStr)
-                            .font(.caption2.monospacedDigit())
-                            .foregroundColor(Color.rbTextTertiary)
-                            .fixedSize()
-                    }
+                // Show elapsed only for non-queued steps that have a parsed startDate.
+                // `GitHubStep` has no `createdAt` fallback, so `startDate == nil` means
+                // `formatElapsed` would return the sentinel "00:00" rather than a real
+                // duration — we suppress that to avoid misleading UI.
+                // The status != "queued" guard handles steps blocked before they start
+                // (e.g. concurrency groups), while startDate != nil ensures we only
+                // render once timing data is actually available — fixes #2129.
+                if step.status != "queued", step.startDate != nil {
+                    Text(step.elapsed)
+                        .font(.caption2.monospacedDigit())
+                        .foregroundColor(Color.rbTextTertiary)
+                        .fixedSize()
                 }
                 Image(systemName: "chevron.right")
                     .font(.system(size: 9, weight: .semibold))
@@ -243,12 +244,13 @@ private struct JobRowCard: View {
                         .foregroundColor(Color.rbTextTertiary)
                         .fixedSize()
                 }
-                // Guard on non-empty elapsed string rather than startDate != nil.
-                // startDate can be nil if the API response date string fails to parse,
-                // which would silently suppress the label — fixes #2148.
-                let jobElapsed = job.elapsed
-                if !jobElapsed.isEmpty {
-                    Text(jobElapsed)
+                // Show elapsed when at least one parsed date is available.
+                // `GitHubJob.elapsed(now:)` uses `startDate ?? createdDate` as its start,
+                // so guarding on either date being non-nil matches the model's own fallback
+                // logic and prevents the "00:00" sentinel from leaking onto purely queued
+                // jobs that have neither date populated — fixes #2129.
+                if job.startDate != nil || job.createdDate != nil {
+                    Text(job.elapsed)
                         .font(.caption2.monospacedDigit())
                         .foregroundColor(Color.rbTextTertiary)
                         .fixedSize()
