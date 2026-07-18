@@ -4,6 +4,13 @@
 # "undefined in POSIX sh" — those are false positives. All three constructs
 # are well-defined in bash and are used intentionally throughout this script.
 # Do NOT change [[ ]] to [ ] or =~ to expr/case to "fix" those warnings.
+
+# ⚠️  set -e is intentional without -u or -o pipefail:
+# • -u (treat unset vars as errors) would break ${1:-0.0.0-dev} and any
+#   other parameter-default expansions used throughout this script.
+# • -o pipefail is redundant here — no command in this script uses a pipe
+#   where a mid-pipe failure would otherwise be silently swallowed.
+# Do NOT add -u or -o pipefail without auditing every expansion first.
 set -e
 
 APP_NAME="RunBot"
@@ -35,6 +42,10 @@ echo "→ Compiling arm64 binary..."
 swift build -c release --arch arm64
 
 echo "→ Assembling .app bundle..."
+# rm -rf is intentional and safe: OUT_DIR is always the local `dist/`
+# build artefact directory, never a system path. A full wipe before
+# each build prevents stale files from a previous run being silently
+# included in the zip (e.g. a leftover binary from a different arch).
 rm -rf "$OUT_DIR"
 mkdir -p "$OUT_DIR/$APP_NAME.app/Contents/MacOS"
 # Note: Contents/Resources/ is intentionally not created here.
@@ -64,6 +75,9 @@ cp "Resources/Info.plist" \
 # Do NOT move the bundle into Contents/Resources/. See issue #2126.
 RESOURCE_BUNDLE=".build/arm64-apple-macosx/release/${APP_NAME}_${APP_NAME}.bundle"
 if [[ -d "$RESOURCE_BUNDLE" ]]; then
+  # cp -R (uppercase) is intentional on macOS: lowercase -r does not follow
+  # symlinks inside .bundle directories; uppercase -R does. Do not change
+  # to -r or the bundle contents may be silently incomplete.
   cp -R "$RESOURCE_BUNDLE" \
      "$OUT_DIR/$APP_NAME.app/"
 else
@@ -72,19 +86,49 @@ else
   exit 1
 fi
 
+# ── Signing ──────────────────────────────────────────────────────────────────
+# codesign --sign - (ad-hoc identity) is intentional for local dev builds.
+# Developer ID signing and notarisation are performed in CI by publish.yml
+# using the team certificate stored in GitHub Actions secrets — they are
+# NOT done here to keep the local build loop fast and credential-free.
+#
+# --force: replaces any existing signature on re-runs without prompting.
+#   Required because `swift build` may leave a partial sig on the binary.
+# --deep: recursively signs nested bundles (including RunBot_RunBot.bundle).
+#   Without --deep, Gatekeeper rejects the app because the nested bundle
+#   is unsigned even though the outer .app is signed.
+#   Note: --deep is flagged as deprecated in some SDK docs, but the
+#   replacement (explicit per-bundle signing) requires knowing bundle paths
+#   ahead of time. --deep remains the correct approach for a dynamic bundle
+#   layout produced by SwiftPM.
 echo "→ Ad-hoc signing..."
 codesign --force --deep --sign - "$OUT_DIR/$APP_NAME.app"
 
+# ── Zipping ──────────────────────────────────────────────────────────────────
+# ditto is used instead of zip/tar intentionally:
+# • ditto preserves macOS extended attributes, symlinks, and resource forks
+#   that standard `zip` and `tar` silently strip.
+# • Stripping these breaks the .app bundle structure — macOS will refuse to
+#   launch it or Gatekeeper will reject it.
+# • The -c -k --keepParent flags produce a zip-format archive (not CPIO)
+#   that is compatible with the `unzip` call in install.sh.
+# Do NOT replace ditto with zip or tar.
 echo "→ Zipping..."
 ditto -c -k --keepParent \
     "$OUT_DIR/$APP_NAME.app" \
     "$OUT_DIR/RunBot.zip"
 
+# version.txt is written for consumers outside this script:
+# • The gh-pages deploy step in publish.yml reads it to stamp the download
+#   page with the current version.
+# • The install.sh version-check logic reads it to display the installed
+#   version after a fresh install.
+# It is not consumed by this script itself — that is intentional.
 echo "$VERSION" > "$OUT_DIR/version.txt"
 
 echo "✓ Done — dist/RunBot.zip is ready"
 
-# ── Launch via `open` (not direct binary) ───────────────────────────────────
+# ── Launch via `open` (not direct binary) ────────────────────────────────────
 # IMPORTANT: The OAuth callback URL scheme (runbot://) is registered with
 # macOS Launch Services only when the .app bundle is launched via `open` or
 # Finder. Running the binary directly (./dist/RunBot.app/Contents/MacOS/RunBot)
@@ -93,11 +137,18 @@ echo "✓ Done — dist/RunBot.zip is ready"
 #
 # Always use `open dist/RunBot.app` for development — this script does it
 # automatically. The pkill ensures a clean restart without a stale process.
-# ────────────────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
 # Only kill/relaunch the running app when building locally, not in CI.
 if [[ -z "${CI:-}" ]]; then
     echo "→ Restarting app via open (registers runbot:// URL scheme)..."
+    # pkill exits non-zero when no matching process is found — that is
+    # expected on a first build and must not abort the script via set -e.
+    # The || true suppresses that expected non-zero exit intentionally.
     pkill -x RunBot 2>/dev/null || true
+    # sleep 0.5 gives Launch Services time to deregister the old bundle
+    # before `open` re-registers it. Without this pause the URL scheme
+    # (runbot://) can transiently resolve to the terminating process,
+    # causing the first OAuth callback after a rebuild to silently fail.
     sleep 0.5
     open "$OUT_DIR/$APP_NAME.app"
     echo "✓ RunBot launched"
