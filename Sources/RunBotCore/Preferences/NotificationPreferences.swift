@@ -92,8 +92,14 @@ public enum NotificationMode: String, CaseIterable, Sendable {
 /// `notificationMode` accessor, which applies the `NotificationMode(rawValue:) ?? .never`
 /// guard. Tests that need to inspect the persisted raw value use the `internal`
 /// read-only `rawNotificationMode` accessor — which exposes the value
-/// without opening a write path to the whole module. This enforces the guard
-/// at the language level rather than by doc convention.
+/// without opening a write path to the whole module.
+/// **`rawNotificationMode` is `internal` by necessity, not by intent** —
+/// Swift's `@testable import` only promotes `internal` access; `private` is
+/// invisible even under `@testable import`. The access level cannot be tightened
+/// further without losing the test access path. Intra-module production code
+/// in `RunBotCore` must use `notificationMode` (typed, guarded) — reading
+/// `rawNotificationMode` directly skips the `?? .never` fallback and yields
+/// an unguarded raw `String` that may be stale or unrecognised after a downgrade.
 ///
 /// ## Orphaned UserDefaults keys
 /// The previous `notifications.notifyOnSuccess` and `notifications.notifyOnFailure`
@@ -148,20 +154,30 @@ public final class NotificationPreferences {
 
     /// Read-only accessor for the raw persisted `String` value of `notificationMode`.
     ///
-    /// **Intentionally test-only** — this property has no production callsite and
-    /// that is correct. Production code always uses the typed `notificationMode`
-    /// accessor. This property exists solely so `@testable import` test targets can
-    /// assert on the raw persisted value (e.g. to verify UserDefaults round-trip
-    /// correctness) without being granted a write path into `notificationModeRaw`.
-    /// If it appears unused in production analysis tools or coverage reports, that
-    /// is expected and not a signal to remove it.
-    /// Read-only by design: the write path intentionally goes through `notificationMode`,
-    /// which applies the `NotificationMode(rawValue:) ?? .never` guard.
+    /// **Intended for test targets only** — access via `@testable import RunBotCore`.
+    /// Production and intra-module code must use `notificationMode` instead, which
+    /// applies the `NotificationMode(rawValue:) ?? .never` guard. Reading this
+    /// property directly yields an unguarded raw `String` that may be stale or
+    /// unrecognised after a downgrade — the `?? .never` fallback is absent here
+    /// by design (the raw value is what tests need to assert on).
+    ///
+    /// `internal` access level is required by Swift's `@testable import` mechanism:
+    /// `@testable import` only promotes `internal` visibility; `private` is
+    /// invisible to test targets even under `@testable`. The access level cannot
+    /// be tightened to `private` without losing the test access path entirely.
+    /// This is the minimum viable access level for this use case.
+    ///
+    /// This property has no production callsite and that is correct. If it appears
+    /// unused in production analysis tools or coverage reports, that is expected
+    /// and not a signal to remove it.
     ///
     /// Named `rawNotificationMode` (not `notificationModeRawValue`) to avoid the
     /// `Value` suffix implying `RawRepresentable.RawValue` semantics — this is a
     /// plain read-through alias forced by the `private` name collision with
     /// `notificationModeRaw`.
+    // ⚠️ internal by necessity — @testable import requires internal, not private.
+    // Intra-module production callers: use notificationMode (typed, ?? .never guarded).
+    // This accessor skips the guard and returns the raw unvalidated String.
     var rawNotificationMode: String { notificationModeRaw }
 
     /// Typed read/write accessor for the notification mode preference.
