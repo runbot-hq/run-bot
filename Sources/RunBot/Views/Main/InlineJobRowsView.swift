@@ -193,6 +193,12 @@ private struct StepRowView: View {
 // MARK: - JobRowCard
 /// Expandable card that represents one job within a workflow run.
 /// Tapping the header toggles the step list; long-press opens the job in Safari.
+///
+/// NOTE: This struct must remain free of `@State`. `InlineJobRowsView` replaces
+/// each card's SwiftUI identity on every timer tick (`.id("\(job.id)-\(tick)")`) to
+/// drive live elapsed-time re-renders. Any `@State` added here would silently reset
+/// on every tick. If card-level state is needed in the future, hoist it to
+/// `InlineJobRowsView` or adopt a different refresh strategy before adding it.
 private struct JobRowCard: View {
     /// The job this card represents.
     let job: ActiveJob
