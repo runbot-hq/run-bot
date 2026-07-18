@@ -326,6 +326,16 @@ public final class NotificationPreferences {
 
 /// Gating methods for `NotificationMode` — call `shouldNotify(conclusion:)` before
 /// scheduling a `UNNotificationRequest`.
+///
+/// ## Why a `public extension` rather than methods on the main type body
+/// Grouping dispatch-gating logic in a separate extension — rather than
+/// interleaving it with persistence declarations — makes the file scannable:
+/// the main body covers storage, keys, init, and registration; this extension
+/// covers all callsite-facing query logic. The `public` on the extension block
+/// is an access-level default for the members it contains, not a deliberate
+/// split of the type's interface. All members here are `public` by extension
+/// inheritance and could equivalently live in the main body without any
+/// behaviour change.
 public extension NotificationPreferences {
     /// Returns `true` if a notification should be sent for the given job conclusion.
     ///

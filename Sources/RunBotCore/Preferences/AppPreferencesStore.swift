@@ -96,6 +96,14 @@ public final class AppPreferencesStore {
 
     /// Whether to show dimmed (offline/idle) runners in the runners list.
     ///
+    /// ## Why `public`
+    /// `public` is required by `AppPreferencesStoreProtocol` conformance — the
+    /// protocol declares this property `public` so that `RunnerPoller` and other
+    /// consumers can read it through the protocol existential without importing
+    /// internals. Even though this property has no current UI surface, its
+    /// visibility must match the protocol requirement; downgrading to `internal`
+    /// would break the conformance.
+    ///
     /// Retained for UserDefaults backwards-compatibility only — no longer surfaced
     /// in the UI (#510). Do not remove: removing would orphan the stored key for
     /// users upgrading from older versions, causing `UserDefaults.bool(forKey:)` at
@@ -168,6 +176,15 @@ public final class AppPreferencesStore {
     ///   `.standard` write — silently updating UI state from the wrong store.
     ///   In production, `shared` (which targets `.standard`) is the only
     ///   supported construction path.
+    ///
+    /// ## Why `public`
+    /// Test targets are separate Swift modules and cannot call `internal` members
+    /// even with `@testable import` — `@testable` promotes `internal` for type
+    /// members accessed via the module's public interface, but a designated
+    /// `init` that callers invoke directly must be `public` for cross-module use.
+    /// The zero-argument `private convenience init()` ensures production code
+    /// outside this file cannot construct a rogue instance; `public init(store:)`
+    /// is the intentional and only supported test-injection path.
     ///
     /// ## register(defaults:)
     /// Called **unconditionally** on every `init` — including on every production
