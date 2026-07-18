@@ -128,7 +128,22 @@ struct ActionRowView: View {
     ///
     /// - sha: `group.label` (7-char sha or PR#), muted mono
     /// - repo-name: `group.repoShortName` stripped from owner/repo
-    /// - branch: plain `Text` capped at maxWidth 80, hidden when nil
+    /// - branch: plain `Text` capped at RBMetrics.actionRowBranchMaxWidth, hidden when nil
+    ///
+    /// TITLE MODIFIER ORDER — do not reorder without reading this:
+    /// 1. `.lineLimit(1)` + `.truncationMode(.tail)` configure truncation behaviour on the Text.
+    /// 2. `.frame(maxWidth: RBMetrics.actionRowTitleMaxWidth)` caps the width, triggering the
+    ///    ellipsis configured above. Must come AFTER truncation config, not before.
+    /// 3. `.help(group.title)` attaches the tooltip to the already-frame-capped view — correct
+    ///    scope. Always fires even when the title fits within the cap; this is intentional.
+    ///    Conditionally suppressing it would require measuring rendered text width, which is
+    ///    non-trivial in SwiftUI and not worth the complexity. macOS .help() on short labels
+    ///    is a known accepted pattern across the ecosystem.
+    /// 4. `.layoutPriority(1)` applies to the framed view — this is correct and intentional.
+    ///    It means the title frame wins space over headBranch (priority 0) during layout
+    ///    negotiation, but is still capped at actionRowTitleMaxWidth. Do NOT move
+    ///    .layoutPriority above .frame: the priority must apply to the constrained container,
+    ///    not the raw unbounded Text.
     private var rowContent: some View {
         let tickSnapshot = tick
         return HStack(spacing: 6) {
@@ -147,9 +162,11 @@ struct ActionRowView: View {
             Text(group.title)
                 .font(.system(size: 12))
                 .foregroundColor(group.isDimmed ? .secondary : .primary)
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .layoutPriority(1)
+                .lineLimit(1)                                                          // step 1: configure truncation
+                .truncationMode(.tail)                                                 // step 1: configure truncation
+                .frame(maxWidth: RBMetrics.actionRowTitleMaxWidth, alignment: .leading) // step 2: cap width, triggers ellipsis
+                .help(group.title)                                                     // step 3: tooltip on capped view (always-on by design)
+                .layoutPriority(1)                                                     // step 4: priority on the frame, not raw Text
             // Branch — plain text, hidden when nil (#1194)
             if let branch = group.headBranch {
                 Text(branch)
@@ -157,7 +174,7 @@ struct ActionRowView: View {
                     .foregroundColor(.secondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
-                    .frame(maxWidth: 80, alignment: .leading)
+                    .frame(maxWidth: RBMetrics.actionRowBranchMaxWidth, alignment: .leading)
                     .layoutPriority(0)
             }
             Spacer()
