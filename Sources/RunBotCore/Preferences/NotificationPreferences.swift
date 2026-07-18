@@ -185,9 +185,20 @@ public final class NotificationPreferences {
     /// ABI guarantee. Extremely unlikely to change, but worth knowing if a future
     /// Swift or SwiftUI toolchain update causes unexpected test failures here.
     /// **Failure mode if broken:** reads silently fall back to `.standard` —
-    /// tests pass while asserting against the wrong store. The `#if DEBUG` canary
-    /// below writes a sentinel into the injected suite and reads it back through
-    /// the rebound property, so a broken rebind fails loudly rather than silently.
+    /// tests pass while asserting against the wrong store.
+    ///
+    /// ## Why there is no rebind canary assert
+    /// A meaningful canary would need to read back through the rebound
+    /// `@AppStorage` property (e.g. `assert(notificationModeRaw == sentinel)`) to
+    /// prove the wrapper now targets the injected suite. That is not safely
+    /// possible here: `@AppStorage` on a `@MainActor` class requires the actor
+    /// to be fully initialised before stored properties are accessible during
+    /// `init`. An assert on `store.object(forKey:) != nil` only proves
+    /// `register(into:)` ran — already guaranteed unconditionally above — and
+    /// gives false confidence rather than real verification. The correct
+    /// verification is in the test suite: each test that injects a suite asserts
+    /// reads and writes round-trip through that suite, which is a stronger and
+    /// more legible guarantee than any init-time canary.
     ///
     /// ## @AppStorage subscription note
     /// At declaration time, `@AppStorage` registers an internal `NotificationCenter`
@@ -214,26 +225,12 @@ public final class NotificationPreferences {
             // compiler-synthesised _ backing wrapper. See ## Test-injection path
             // in the doc above for the stability note on this pattern.
             // wrappedValue is a fallback default only — never observed at runtime.
+            // No canary assert here — see ## Why there is no rebind canary assert.
             _notificationModeRaw = AppStorage(
                 wrappedValue: NotificationMode.never.rawValue,
                 Self.keyNotificationMode,
                 store: store
             )
-            // Canary: write a sentinel into the injected suite then read it back
-            // through the rebound property. If the _backing rebind ever silently
-            // breaks (toolchain change), reads fall back to .standard and this
-            // assert fires — making the failure loud rather than a wrong-store
-            // assertion passing silently.
-            #if DEBUG
-            let sentinel = "__canary__"
-            store.set(sentinel, forKey: Self.keyNotificationMode)
-            assert(
-                store.string(forKey: Self.keyNotificationMode) == sentinel,
-                "NotificationPreferences test-injection canary: _backing rebind did not redirect "
-                + "reads to the injected suite — check _propertyName compiler convention."
-            )
-            store.removeObject(forKey: Self.keyNotificationMode) // restore; register(into:) re-seeds on next read
-            #endif
         }
         // else: production path — @AppStorage already targets .standard by
         // default at the declaration site; no rebinding needed.
