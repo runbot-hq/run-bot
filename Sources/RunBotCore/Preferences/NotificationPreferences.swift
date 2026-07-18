@@ -175,9 +175,6 @@ public final class NotificationPreferences {
     /// `Value` suffix implying `RawRepresentable.RawValue` semantics — this is a
     /// plain read-through alias forced by the `private` name collision with
     /// `notificationModeRaw`.
-    // ⚠️ internal by necessity — @testable import requires internal, not private.
-    // Intra-module production callers: use notificationMode (typed, ?? .never guarded).
-    // This accessor skips the guard and returns the raw unvalidated String.
     var rawNotificationMode: String { notificationModeRaw }
 
     /// Typed read/write accessor for the notification mode preference.
