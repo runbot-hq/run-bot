@@ -115,7 +115,9 @@ extension AppDelegate {
 
 // MARK: - AppDelegate + NSPopoverDelegate
 // Extension responsible for NSPopover construction, KVO, and async subscriptions.
-// swiftlint:disable:next missing_docs
+// The extension and setupPanel() are internal by necessity (AppDelegate is internal);
+// missing_docs is suppressed for this block only.
+// swiftlint:disable missing_docs
 extension AppDelegate: NSPopoverDelegate {
 
     // MARK: Popover construction
@@ -132,7 +134,8 @@ extension AppDelegate: NSPopoverDelegate {
         newPopover.contentSize = NSSize(width: 480, height: 300)
         newPopover.animates = false
         // .applicationDefined: popoverShouldClose(_:) is consulted on every
-        // is true, keeping the popover alive when user clicks in NSOpenPanel.
+        // outside interaction. Re-asserting before every show() ensures AppKit
+        // does not revert to .transient between sessions.
         // Manual NSEvent monitor + NSWorkspace observer handle hide-on-app-switch.
         newPopover.behavior = .applicationDefined
         newPopover.delegate = self
@@ -143,6 +146,7 @@ extension AppDelegate: NSPopoverDelegate {
         setupKVO(controller: controller)
         log("AppDelegate › setupPanel — complete")
     }
+// swiftlint:enable missing_docs
 
     // MARK: NSPopoverDelegate
 
