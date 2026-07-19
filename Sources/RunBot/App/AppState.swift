@@ -46,6 +46,7 @@ import RunBotCore
 // AppDelegate.applicationDidFinishLaunching calls
 // `await appState.start(onUpdateStatusIcon:)` after hydrating display names.
 // AppState.start() runs the ordered async startup sequence:
+//   warmUp (Step 0) — pre-populates TokenCache from login shell for GUI launches
 //   startObservations (before any await — prevents sign-out event drop)
 //   → refreshAsync → store.start
 //   → checkAndHandle → scheduleBackgroundCheck
@@ -144,7 +145,7 @@ final class AppState {
     /// Backing store for the `localRunnerStore` computed property.
     /// Seeded by `start()` immediately after `LocalRunnerStore.configure()` runs.
     /// `@ObservationIgnored` because this is a write-only backing field — nothing
-    /// outside `AppState` reads it, so the `@Observable` macro’s synthesised
+    /// outside `AppState` reads it, so the `@Observable` macro's synthesised
     /// registrar calls would be unconditional no-ops. Marking it ignored removes
     /// that dead overhead and makes the intent explicit.
     @ObservationIgnored private var _localRunnerStore: LocalRunnerStore?
@@ -235,7 +236,7 @@ final class AppState {
     ///
     /// `@Observable` + `nonisolated(unsafe)` + `@ObservationIgnored`:
     /// - `@ObservationIgnored`: write-only fields; nothing outside `AppState`
-    ///   reads them, so the macro’s synthesised registrar calls are no-ops.
+    ///   reads them, so the macro's synthesised registrar calls are no-ops.
     ///   Marking ignored suppresses that dead overhead.
     /// - `nonisolated(unsafe)`: allows `deinit` (nonisolated in Swift 6) to
     ///   call `.cancel()` directly. `Task.cancel()` is thread-safe; writes only
@@ -310,6 +311,10 @@ final class AppState {
     /// `LocalRunnerStore.shared` before configure has run.
     ///
     /// Sequence:
+    /// 0. `github.warmUp()` — pre-populates `TokenCache` from the login shell so
+    ///    `GH_TOKEN` / `GITHUB_TOKEN` are available on GUI app launches from Finder,
+    ///    the Dock, or login items (where `launchd` does not inherit the shell env).
+    ///    No-op on terminal launches or when a Keychain OAuth token is present.
     /// 1. Seed `_localRunnerStore` from `LocalRunnerStore.shared` (already configured).
     /// 2. Create `RunnerPoller`.
     /// 3. `startObservations()` — wire sign-out + status-icon tasks BEFORE any await
@@ -364,6 +369,18 @@ final class AppState {
             return
         }
         log("AppState › start — begin (LocalRunnerStore.configure already called by AppDelegate)")
+
+        // Step 0: pre-populate TokenCache from the login shell.
+        // GUI apps launched from Finder/Dock/login items are spawned by launchd and
+        // do not inherit the shell environment — GH_TOKEN is absent from ProcessInfo.
+        // warmUp() spawns /bin/zsh -i -l on a background thread to source ~/.zprofile
+        // and ~/.zshrc, then caches the result. By the time the first poll fires
+        // (Step 5), token() returns immediately from the populated cache.
+        // No-op when: Keychain OAuth token present, terminal launch, CI environment.
+        log("AppState › start — awaiting github.warmUp()")
+        await github.warmUp()
+        log("AppState › start — warmUp complete")
+
         seedStoreAndPoller()  // Steps 1–2: kept in a helper to stay within function_body_length.
 
         // Step 3: wire domain observation tasks BEFORE any await.
