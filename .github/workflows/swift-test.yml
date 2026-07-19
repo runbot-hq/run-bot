@@ -28,6 +28,13 @@ jobs:
         # "no member 'x'" errors when a dependency added new API since the last
         # cached checkout. Clearing this is the minimum required fix.
         #
+        # macOS-ONLY PATH: ~/Library/Caches/org.swift.swiftpm is correct for
+        # macOS (this workflow targets macos-26 only). On Linux the equivalent
+        # is ~/.cache/org.swift.swiftpm (XDG Base Directory spec). If a Linux
+        # job is ever added, this step must be updated or split per-platform —
+        # the macOS path will silently not exist on Linux and the rm -rf will
+        # be a no-op, leaving stale cache entries in place.
+        #
         # WHY ~/.swiftpm IS NOT CLEARED:
         # ~/.swiftpm contains security.lock and collection metadata. Clearing it
         # on every run adds unnecessary network round-trips to reconstruct that
