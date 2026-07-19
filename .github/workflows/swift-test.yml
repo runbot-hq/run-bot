@@ -20,7 +20,25 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Clear SPM cache
-        run: rm -rf ~/.cache/org.swift.swiftpm
+        # WHY: SPM maintains two separate on-disk caches that must both be cleared
+        # to guarantee a fresh resolution on every run.
+        #
+        # 1. ~/Library/Caches/org.swift.swiftpm — the source checkout cache (macOS).
+        #    SPM resolves branch-pinned deps (branch: "main") to HEAD here. Stale
+        #    entries cause "no member 'x'" errors when a dependency added a new API
+        #    since the last cached checkout.
+        #
+        # 2. ~/.swiftpm — the per-user SPM data directory. Contains fetch caches,
+        #    security.lock, and collection metadata. Clearing this ensures SPM
+        #    re-fetches all dependency metadata from the network rather than
+        #    serving stale resolved versions from a local mirror.
+        #
+        # Both directories are safe to delete — SPM recreates them on the next run.
+        # Do NOT add these paths to an actions/cache step; caching them
+        # re-introduces the stale-resolution problem this step prevents.
+        run: |
+          rm -rf ~/Library/Caches/org.swift.swiftpm
+          rm -rf ~/.swiftpm
 
       - name: Run tests
         run: swift test
