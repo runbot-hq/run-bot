@@ -94,7 +94,7 @@ final class AppState {
     ///
     /// Testability note: constructing `AppState` is zero-cost (no side effects
     /// until `start()` is called), so a test can create `AppState()` or use
-    /// `AppState(lifecycleService:)` to inject a stub, and never call `start()`.
+    /// `AppState(lifecycleService:)` to inject a stub, and never call `start()`.\
     /// The protocol typing and `var` storage enable that pattern. A full
     /// `AppStateProtocol` extraction is deferred — see WHY NOT AppStateProtocol
     /// in the file-level comment.
@@ -555,6 +555,13 @@ final class AppState {
                     log("AppState › didSignOut — ⚠️ runnerStore nil at sign-out time; skipping start()")
                     continue
                 }
+                // TokenCache.invalidate() is called by OAuthService before emitting
+                // on this stream, clearing both the cached token and the shellFailed
+                // flag. On a Finder/Dock/login-item launch with no Keychain token,
+                // the first token() call inside this store.start() will re-spawn
+                // /bin/zsh -i -l to recover GH_TOKEN (~50–200 ms). The result is
+                // cached immediately, so only the first poll cycle after each
+                // sign-out pays the shell cost — not every subsequent cycle.
                 await store.start()
             }
         }
