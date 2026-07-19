@@ -106,6 +106,7 @@ extension AppDelegate {
     /// by the process exit and require no explicit cancellation.
     ///
     /// Fires for ALL quit paths: in-app button, Cmd+Q, Dock, system shutdown.
+    // swiftlint:disable:next missing_docs
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         log("AppDelegate › applicationShouldTerminate — stopping appState tasks")
         appState.stop()
