@@ -20,16 +20,11 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Clear SPM cache
-        # Clear both the macOS and Linux cache paths.
-        # macOS runners: ~/Library/Caches/org.swift.swiftpm
-        # Linux runners: ~/.cache/org.swift.swiftpm
-        # Without this, SPM resolves branch-tracked deps (branch: "main") to
-        # whatever commit was cached from the previous run instead of fetching
-        # the current HEAD — causing "no member 'x'" errors when a dependency
-        # adds a new API between runs.
-        run: |
-          rm -rf ~/Library/Caches/org.swift.swiftpm
-          rm -rf ~/.cache/org.swift.swiftpm
+        # macOS SPM cache path. Without this, SPM resolves branch-tracked deps
+        # (branch: "main") to the commit cached from the previous run instead of
+        # fetching the current HEAD — causing "no member 'x'" errors when a
+        # dependency adds new API between runs.
+        run: rm -rf ~/Library/Caches/org.swift.swiftpm
 
       - name: Run tests
         run: swift test
