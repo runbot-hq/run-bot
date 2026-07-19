@@ -80,10 +80,17 @@ import SwiftUI
 // positioningRect. ❌ NEVER call popover.show() again on resize.
 
 // MARK: - AppDelegate + NSApplicationDelegate (termination)
+//
+// WHY plain `extension AppDelegate` (no conformance label):
+// `AppDelegate` is declared `NSApplicationDelegate` on the class itself in
+// AppDelegate.swift. Swift treats a protocol conformance as belonging to
+// the type, not to a specific extension — methods in any extension of that
+// type satisfy the conformance. Re-writing `extension AppDelegate: NSApplicationDelegate`
+// here is a compile error ("redundant conformance"). The plain extension form
+// is correct; `applicationShouldTerminate` is still dispatched by AppKit as
+// an NSApplicationDelegate callback.
 
-/// Handles app termination. Kept in a dedicated extension separate from
-/// `NSPopoverDelegate` so each conformance lives in its own semantic block.
-extension AppDelegate: NSApplicationDelegate {
+extension AppDelegate {
 
     /// Cancels domain-level tasks before the app exits, then returns `.terminateNow`.
     ///

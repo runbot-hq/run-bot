@@ -5,15 +5,21 @@
 
 /// Minimal interface for the GitHub poll-loop actor.
 ///
-/// Typed as `any RunnerPollerProtocol` in `AppDelegate` so tests and SwiftUI
+/// Typed as `any RunnerPollerProtocol` in `AppState` so tests and SwiftUI
 /// previews can substitute a `MockPoller` without importing the RunBot app target.
 public protocol RunnerPollerProtocol: AnyObject {
-    /// Starts the poll loop, observers, and initial fetch.
+    /// Starts (or restarts) the poll loop, observers, and initial fetch.
     func start() async
+    /// Cancels all running Tasks owned by this poller.
+    ///
+    /// Called from `AppState.stop()` on termination (#2153) so the poll loop
+    /// is drained before the process exits. Safe to call multiple times —
+    /// cancelling an already-cancelled `Task` is a no-op in Swift Concurrency.
+    func cancel()
     /// The observable state object driven by this poller.
     ///
     /// Exposed on the protocol so callers holding `any RunnerPollerProtocol` —
-    /// including `AppDelegate` and SwiftUI preview hosts — can inject `state`
+    /// including `AppState` and SwiftUI preview hosts — can inject `state`
     /// into the environment without importing the concrete type.
     var state: RunnerState { get }
 }
@@ -21,7 +27,13 @@ public protocol RunnerPollerProtocol: AnyObject {
 // MARK: - Conformance
 
 /// `RunnerPoller` is the production implementation of `RunnerPollerProtocol`.
-extension RunnerPoller: RunnerPollerProtocol {}
+extension RunnerPoller: RunnerPollerProtocol {
+    /// Cancels all poll-loop and scope-observation tasks.
+    /// Delegates to `PollLoopCoordinator.cancelAll()` — same path as `isolated deinit`.
+    public func cancel() {
+        pollLoop.cancelAll()
+    }
+}
 
 // MARK: - MockPoller
 
@@ -67,4 +79,6 @@ public actor MockPoller: RunnerPollerProtocol {
 
     /// No-op. Does not start a poll loop or make any network calls.
     public func start() async {}
+    /// No-op. No tasks to cancel.
+    public func cancel() {}
 }
