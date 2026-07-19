@@ -20,25 +20,24 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Clear SPM cache
-        # WHY: SPM maintains two separate on-disk caches that must both be cleared
-        # to guarantee a fresh resolution on every run.
+        # WHY: SPM's source-checkout cache must be cleared to guarantee fresh
+        # resolution of branch-pinned dependencies (branch: "main") on every run.
         #
-        # 1. ~/Library/Caches/org.swift.swiftpm — the source checkout cache (macOS).
-        #    SPM resolves branch-pinned deps (branch: "main") to HEAD here. Stale
-        #    entries cause "no member 'x'" errors when a dependency added a new API
-        #    since the last cached checkout.
+        # ~/Library/Caches/org.swift.swiftpm — the source checkout cache (macOS).
+        # SPM resolves branch-pinned deps to HEAD here. Stale entries cause
+        # "no member 'x'" errors when a dependency added new API since the last
+        # cached checkout. Clearing this is the minimum required fix.
         #
-        # 2. ~/.swiftpm — the per-user SPM data directory. Contains fetch caches,
-        #    security.lock, and collection metadata. Clearing this ensures SPM
-        #    re-fetches all dependency metadata from the network rather than
-        #    serving stale resolved versions from a local mirror.
+        # WHY ~/.swiftpm IS NOT CLEARED:
+        # ~/.swiftpm contains security.lock and collection metadata. Clearing it
+        # on every run adds unnecessary network round-trips to reconstruct that
+        # metadata and would defeat any future package security pinning that
+        # stores state there. It does not affect branch-pinned resolution.
         #
-        # Both directories are safe to delete — SPM recreates them on the next run.
-        # DO NOT add these paths to an actions/cache step; caching them
-        # re-introduces the stale-resolution problem this step prevents.
+        # DO NOT add ~/Library/Caches/org.swift.swiftpm to an actions/cache
+        # step — caching it re-introduces the stale-resolution problem.
         run: |
           rm -rf ~/Library/Caches/org.swift.swiftpm
-          rm -rf ~/.swiftpm
 
       - name: Run tests
         run: swift test
