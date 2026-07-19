@@ -47,7 +47,7 @@ import RunBotCore
 // `await appState.start(onUpdateStatusIcon:)` after hydrating display names.
 // AppState.start() runs the ordered async startup sequence:
 //   seedStoreAndPoller → startObservations (BEFORE any await — prevents sign-out
-//   event drop) → warmUp → refreshAsync → store.start
+//   event drop) → refreshAsync → store.start
 //   → checkAndHandle → scheduleBackgroundCheck
 // LocalRunnerStore.configure() is called by AppDelegate BEFORE the startup
 // Task, not inside start() — see issue #1741 for why ordering matters.
@@ -314,16 +314,13 @@ final class AppState {
     /// 2. `startObservations()` — sync; wires sign-out + status-icon tasks BEFORE any
     ///    await so sign-out events during startup are never dropped (stream is unbuffered).
     ///    MUST follow seedStoreAndPoller() — signOutTask reads self.runnerStore.
-    /// 3. `github.warmUp()` — FIRST suspension point; pre-populates `TokenCache` from
-    ///    the login shell so `GH_TOKEN` / `GITHUB_TOKEN` are available on GUI app
-    ///    launches from Finder, the Dock, or login items (where `launchd` does not
-    ///    inherit the shell env). Placed after startObservations() so the sign-out
-    ///    stream is already wired before this ~50–100 ms subprocess runs.
-    ///    No-op on terminal launches or when a Keychain OAuth token is present.
-    /// 4. `refreshAsync()` — hydrates local runners before poll loop fires.
-    /// 5. `runnerStore.start()` — begins the poll loop.
-    /// 6. `autoUpdater.checkAndHandle` — launch-time update check.
-    /// 7. `autoUpdater.scheduleBackgroundCheck` — periodic update scheduler.
+    /// 3. `refreshAsync()` — first suspension point; hydrates local runners before poll loop fires.
+    /// 4. `runnerStore.start()` — begins the poll loop. The first `token()` call suspends
+    ///    here on a cold Finder/Dock/login-item launch (~50–200 ms login shell) then caches
+    ///    the result. Terminal/CI/OAuth launches resolve from ProcessInfo or Keychain and
+    ///    return immediately.
+    /// 5. `autoUpdater.checkAndHandle` — launch-time update check.
+    /// 6. `autoUpdater.scheduleBackgroundCheck` — periodic update scheduler.
     ///
     /// Idempotency: guarded by `_didStart`, set unconditionally on first entry
     /// before any branch. A second call is always a no-op regardless of which
@@ -375,7 +372,7 @@ final class AppState {
 
         // Step 2: wire domain observation tasks BEFORE any await.
         // signOutTask subscribes to oauthService.makeSignOutStream() here. If this
-        // call were deferred until after any suspension point (warmUp, refreshAsync,
+        // call were deferred until after any suspension point (refreshAsync,
         // checkAndHandle — which can take tens of seconds on a slow connection), any
         // sign-out event during startup would be dropped — the stream is not buffered,
         // so missed events are gone. The poll loop would continue issuing requests with
@@ -392,19 +389,7 @@ final class AppState {
         startObservations(onUpdateStatusIcon: onUpdateStatusIcon)
         log("AppState › start — observations wired (sign-out listener active)")
 
-        // Step 3: pre-populate TokenCache from the login shell.
-        // This is the first suspension point in start(). Placed AFTER startObservations()
-        // to honour the documented invariant: sign-out stream must be wired before any
-        // await. warmUp() spawns /bin/zsh -i -l on a background thread (~50–100 ms) to
-        // source ~/.zprofile and ~/.zshrc and recover GH_TOKEN for GUI-launch contexts
-        // where launchd does not inherit the shell environment. The result is cached;
-        // by the time the first poll fires (Step 5), token() returns from the warm cache.
-        // No-op when: Keychain OAuth token present, terminal launch, CI environment.
-        log("AppState › start — awaiting github.warmUp()")
-        await github.warmUp()
-        log("AppState › start — warmUp complete")
-
-        // Step 4: await local runner hydration before starting the poll loop.
+        // Step 3: await local runner hydration before starting the poll loop.
         // refreshAsync() suspends until disk hydration completes; refresh() (the
         // fire-and-forget variant) would return immediately and let store.start()
         // fire fetch() on the very next runloop turn — before the refresh Task
@@ -423,14 +408,20 @@ final class AppState {
             return
         }
 
-        // Step 5: start the poll loop.
+        // Step 4: start the poll loop.
+        // On a cold Finder/Dock/login-item launch, the first poll cycle's token()
+        // call suspends here for ~50–200 ms while the login shell sources
+        // ~/.zprofile and ~/.zshrc to recover GH_TOKEN. The result is cached;
+        // all subsequent poll cycles return immediately from the in-memory cache.
+        // Terminal, CI, and Keychain OAuth launches resolve from ProcessInfo or
+        // Keychain and do not spawn a shell.
         await store.start()
         log("AppState › start — poll loop started")
 
-        // Step 6: update check.
+        // Step 5: update check.
         await autoUpdater.checkAndHandle(state: runnerState)
 
-        // Step 7: background update scheduler.
+        // Step 6: background update scheduler.
         autoUpdater.scheduleBackgroundCheck(state: runnerState)
         log("AppState › start — update background scheduler registered")
     }
@@ -509,7 +500,7 @@ final class AppState {
         // Observations{} has did-set semantics: it emits once immediately with the
         // current aggregateStatus on first subscription, so any status writes that
         // race between here and store.start() are covered by that initial emission.
-        // Do NOT move this after warmUp() or any later await — see the Step 2 comment
+        // Do NOT move this after any await — see the Step 2 comment
         // in start() for the sign-out window reasoning.
         // ⚠️ MUST be called after seedStoreAndPoller() — signOutTask accesses
         // self.runnerStore which is set by seedStoreAndPoller(). Calling this
