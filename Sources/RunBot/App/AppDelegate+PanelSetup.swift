@@ -89,7 +89,7 @@ import SwiftUI
 // here is a compile error ("redundant conformance"). The plain extension form
 // is correct; `applicationShouldTerminate` is still dispatched by AppKit as
 // an NSApplicationDelegate callback.
-
+// swiftlint:disable:next missing_docs
 extension AppDelegate {
 
     /// Cancels domain-level tasks before the app exits, then returns `.terminateNow`.
