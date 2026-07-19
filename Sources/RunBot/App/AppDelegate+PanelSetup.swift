@@ -106,7 +106,6 @@ extension AppDelegate {
     /// by the process exit and require no explicit cancellation.
     ///
     /// Fires for ALL quit paths: in-app button, Cmd+Q, Dock, system shutdown.
-    // swiftlint:disable:next missing_docs
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         log("AppDelegate › applicationShouldTerminate — stopping appState tasks")
         appState.stop()
@@ -115,14 +114,13 @@ extension AppDelegate {
 }
 
 // MARK: - AppDelegate + NSPopoverDelegate
-
-/// Extension responsible for NSPopover construction, KVO, and async subscriptions.
+// Extension responsible for NSPopover construction, KVO, and async subscriptions.
+// swiftlint:disable:next missing_docs
 extension AppDelegate: NSPopoverDelegate {
 
     // MARK: Popover construction
-
-    /// Builds the NSPopover, embeds the SwiftUI hosting controller, wires KVO
-    /// and async subscriptions.
+    // Builds the NSPopover, embeds the SwiftUI hosting controller, wires KVO
+    // and async subscriptions.
     func setupPanel() {
         log("AppDelegate › setupPanel — begin")
         let controller = NSHostingController(rootView: mainView())
