@@ -12,10 +12,15 @@ public protocol RunnerPollerProtocol: AnyObject {
     func start() async
     /// Cancels all running Tasks owned by this poller.
     ///
+    /// `nonisolated` so callers on any actor (including `@MainActor AppState.stop()`)
+    /// can call this without an `await`. Safe because the implementation delegates to
+    /// `PollLoopCoordinator.cancelAll()` which is a `final class` method — not
+    /// actor-isolated — and `Task.cancel()` is documented as thread-safe.
+    ///
     /// Called from `AppState.stop()` on termination (#2153) so the poll loop
     /// is drained before the process exits. Safe to call multiple times —
     /// cancelling an already-cancelled `Task` is a no-op in Swift Concurrency.
-    func cancel()
+    nonisolated func cancel()
     /// The observable state object driven by this poller.
     ///
     /// Exposed on the protocol so callers holding `any RunnerPollerProtocol` —
@@ -29,8 +34,13 @@ public protocol RunnerPollerProtocol: AnyObject {
 /// `RunnerPoller` is the production implementation of `RunnerPollerProtocol`.
 extension RunnerPoller: RunnerPollerProtocol {
     /// Cancels all poll-loop and scope-observation tasks.
-    /// Delegates to `PollLoopCoordinator.cancelAll()` — same path as `isolated deinit`.
-    public func cancel() {
+    ///
+    /// `nonisolated` to satisfy the protocol requirement without an `await` at
+    /// every call site. Safe because `PollLoopCoordinator` is a `final class`
+    /// (not an actor) and `cancelAll()` only calls `Task.cancel()` + nils handles —
+    /// both thread-safe operations. Same cancellation path as `RunnerPoller`'s
+    /// `isolated deinit`.
+    public nonisolated func cancel() {
         pollLoop.cancelAll()
     }
 }
@@ -80,5 +90,5 @@ public actor MockPoller: RunnerPollerProtocol {
     /// No-op. Does not start a poll loop or make any network calls.
     public func start() async {}
     /// No-op. No tasks to cancel.
-    public func cancel() {}
+    public nonisolated func cancel() {}
 }
