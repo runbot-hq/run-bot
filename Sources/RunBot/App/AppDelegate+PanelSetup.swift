@@ -106,6 +106,7 @@ extension AppDelegate {
     /// by the process exit and require no explicit cancellation.
     ///
     /// Fires for ALL quit paths: in-app button, Cmd+Q, Dock, system shutdown.
+    // swiftlint:disable:next missing_docs
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         log("AppDelegate › applicationShouldTerminate — stopping appState tasks")
         appState.stop()
@@ -115,14 +116,12 @@ extension AppDelegate {
 
 // MARK: - AppDelegate + NSPopoverDelegate
 // Extension responsible for NSPopover construction, KVO, and async subscriptions.
-// The extension and setupPanel() are internal by necessity (AppDelegate is internal);
-// missing_docs is suppressed for this block only.
-// swiftlint:disable missing_docs
 extension AppDelegate: NSPopoverDelegate {
 
     // MARK: Popover construction
     // Builds the NSPopover, embeds the SwiftUI hosting controller, wires KVO
     // and async subscriptions.
+    // swiftlint:disable:next missing_docs
     func setupPanel() {
         log("AppDelegate › setupPanel — begin")
         let controller = NSHostingController(rootView: mainView())
@@ -134,8 +133,7 @@ extension AppDelegate: NSPopoverDelegate {
         newPopover.contentSize = NSSize(width: 480, height: 300)
         newPopover.animates = false
         // .applicationDefined: popoverShouldClose(_:) is consulted on every
-        // outside interaction. Re-asserting before every show() ensures AppKit
-        // does not revert to .transient between sessions.
+        // is true, keeping the popover alive when user clicks in NSOpenPanel.
         // Manual NSEvent monitor + NSWorkspace observer handle hide-on-app-switch.
         newPopover.behavior = .applicationDefined
         newPopover.delegate = self
@@ -146,7 +144,6 @@ extension AppDelegate: NSPopoverDelegate {
         setupKVO(controller: controller)
         log("AppDelegate › setupPanel — complete")
     }
-// swiftlint:enable missing_docs
 
     // MARK: NSPopoverDelegate
 
