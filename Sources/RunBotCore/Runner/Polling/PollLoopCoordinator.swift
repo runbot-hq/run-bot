@@ -84,6 +84,7 @@ final class PollLoopCoordinator: @unchecked Sendable {
     // is broken here — cancelAll() cancels the task, releasing its strong reference and
     // allowing ARC to complete deallocation. Do not remove cancelAll() from this deinit
     // without restoring [weak self] in RunnerPoller.start()'s poll task closure.
+    // swiftlint:disable:next missing_docs
     deinit { cancelAll() }
 
     // MARK: - Mutation
