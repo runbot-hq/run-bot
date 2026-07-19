@@ -239,8 +239,9 @@ final class AppState {
     ///   Marking ignored suppresses that dead overhead.
     /// - `nonisolated(unsafe)`: allows `deinit` (nonisolated in Swift 6) to
     ///   call `.cancel()` directly. `Task.cancel()` is thread-safe; writes only
-    ///   happen on `@MainActor` inside `startObservations()`. Safe because deinit
-    ///   runs after the last strong reference drops — no concurrent write possible.
+    ///   happen on `@MainActor` inside `startObservations()` and `stop()`.
+    ///   Safe because deinit runs after the last strong reference drops —
+    ///   no concurrent write possible.
     ///
     /// Note: `localRunnerStore` is a *computed* property (not a stored var), so
     /// `@Observable` does NOT synthesise registrar calls for it — neither
@@ -284,11 +285,13 @@ final class AppState {
         // WHY nonisolated(unsafe) on the task vars (not @MainActor deinit):
         // Swift 6 deinit is nonisolated and cannot access @MainActor-isolated
         // properties. Task.cancel() is documented as thread-safe, and writes to
-        // these vars only happen on @MainActor inside startObservations(). The
-        // nonisolated(unsafe) annotation opts out of the actor-isolation check;
-        // the data-race safety is upheld by the write-on-MainActor / cancel-in-
-        // deinit ordering (deinit runs after the last strong reference drops,
-        // so no concurrent write can occur at this point).
+        // these vars only happen on @MainActor inside startObservations() and
+        // stop(). The nonisolated(unsafe) annotation opts out of the actor-isolation
+        // check; the data-race safety is upheld by the write-on-MainActor /
+        // cancel-in-deinit ordering (deinit runs after the last strong reference
+        // drops, so no concurrent write can occur at this point).
+        // If stop() was called first (e.g. from applicationShouldTerminate), these
+        // are already nil and .cancel() is a no-op.
         statusIconTask?.cancel()
         signOutTask?.cancel()
     }
@@ -301,6 +304,13 @@ final class AppState {
     /// exits (#2153). Cancelling here drains the run loop cleanly so AppKit's
     /// termination path does not stall on the first quit attempt.
     ///
+    /// `@MainActor` is explicit even though `AppState` is a `@MainActor final class`
+    /// (which would provide implicit isolation). The annotation is present because
+    /// `statusIconTask` and `signOutTask` are `nonisolated(unsafe)` — their doc
+    /// comments state the invariant "writes only happen on @MainActor". Making
+    /// the annotation explicit here keeps the compiler enforcing that invariant
+    /// at this write site rather than relying on it being upheld by the call site.
+    ///
     /// SCOPE: cancels `statusIconTask`, `signOutTask`, and the `runnerStore`
     /// poll loop. SwiftUI `@State`-owned tasks (`sheetPoll` in
     /// `PanelContainerView`, `displayTick` in `PanelMainView`) are NOT
@@ -308,8 +318,9 @@ final class AppState {
     /// and require no explicit cancellation.
     ///
     /// Idempotent: safe to call multiple times. Each property is nilled after
-    /// cancellation so a second call is a no-op.
-    func stop() {
+    /// cancellation so a second call is a no-op. `deinit` may also cancel
+    /// `statusIconTask`/`signOutTask` — `.cancel()` on `nil` is harmless.
+    @MainActor func stop() {
         log("AppState › stop — cancelling domain tasks")
         statusIconTask?.cancel()
         statusIconTask = nil
