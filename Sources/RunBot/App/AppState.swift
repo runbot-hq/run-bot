@@ -94,7 +94,7 @@ final class AppState {
     ///
     /// Testability note: constructing `AppState` is zero-cost (no side effects
     /// until `start()` is called), so a test can create `AppState()` or use
-    /// `AppState(lifecycleService:)` to inject a stub, and never call `start()`.\
+    /// `AppState(lifecycleService:)` to inject a stub, and never call `start()`.
     /// The protocol typing and `var` storage enable that pattern. A full
     /// `AppStateProtocol` extraction is deferred — see WHY NOT AppStateProtocol
     /// in the file-level comment.
