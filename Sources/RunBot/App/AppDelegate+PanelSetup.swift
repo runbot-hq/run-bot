@@ -79,6 +79,35 @@ import SwiftUI
 // the popover in-place — the arrow stays pinned to the original
 // positioningRect. ❌ NEVER call popover.show() again on resize.
 
+// MARK: - AppDelegate + NSApplicationDelegate (termination)
+
+/// Handles app termination. Kept in a dedicated extension separate from
+/// `NSPopoverDelegate` so each conformance lives in its own semantic block.
+extension AppDelegate: NSApplicationDelegate {
+
+    /// Cancels domain-level tasks before the app exits, then returns `.terminateNow`.
+    ///
+    /// Without this, AppKit's default `applicationShouldTerminate` behaviour
+    /// stalls on the first `terminate(nil)` call while active structured tasks
+    /// (polling loops, observation tasks) keep the run loop busy — causing the
+    /// quit button and Cmd+Q to appear to require a double press (#2153).
+    ///
+    /// SCOPE: delegates to `appState.stop()` which cancels `statusIconTask`,
+    /// `signOutTask`, and the `runnerStore` poll loop. SwiftUI `@State`-owned
+    /// tasks (`sheetPoll` in `PanelContainerView`, `displayTick` in
+    /// `PanelMainView`) are NOT cancelled here — they are implicitly terminated
+    /// by the process exit and require no explicit cancellation.
+    ///
+    /// Fires for ALL quit paths: in-app button, Cmd+Q, Dock, system shutdown.
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        log("AppDelegate › applicationShouldTerminate — stopping appState tasks")
+        appState.stop()
+        return .terminateNow
+    }
+}
+
+// MARK: - AppDelegate + NSPopoverDelegate
+
 /// Extension responsible for NSPopover construction, KVO, and async subscriptions.
 extension AppDelegate: NSPopoverDelegate {
 
@@ -107,28 +136,6 @@ extension AppDelegate: NSPopoverDelegate {
 
         setupKVO(controller: controller)
         log("AppDelegate › setupPanel — complete")
-    }
-
-    // MARK: NSApplicationDelegate — termination
-
-    /// Cancels domain-level tasks before the app exits, then returns `.terminateNow`.
-    ///
-    /// Without this, AppKit's default `applicationShouldTerminate` behaviour
-    /// stalls on the first `terminate(nil)` call while active structured tasks
-    /// (polling loops, observation tasks) keep the run loop busy — causing the
-    /// quit button and Cmd+Q to appear to require a double press (#2153).
-    ///
-    /// SCOPE: `appState.stop()` cancels domain-level tasks owned by `AppState`
-    /// (runner polling, job observation, icon update loops). SwiftUI `@State`-owned
-    /// tasks — `sheetPoll` in `PanelContainerView` and `displayTick` in
-    /// `PanelMainView` — are NOT cancelled here; they are implicitly terminated
-    /// by the process exit and require no explicit cancellation.
-    ///
-    /// Fires for ALL quit paths: in-app button, Cmd+Q, Dock, system shutdown.
-    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        log("AppDelegate › applicationShouldTerminate — stopping appState tasks")
-        appState.stop()
-        return .terminateNow
     }
 
     // MARK: NSPopoverDelegate

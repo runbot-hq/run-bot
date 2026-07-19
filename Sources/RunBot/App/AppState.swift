@@ -144,7 +144,7 @@ final class AppState {
     /// Backing store for the `localRunnerStore` computed property.
     /// Seeded by `start()` immediately after `LocalRunnerStore.configure()` runs.
     /// `@ObservationIgnored` because this is a write-only backing field — nothing
-    /// outside `AppState` reads it, so the `@Observable` macro’s synthesised
+    /// outside `AppState` reads it, so the `@Observable` macro's synthesised
     /// registrar calls would be unconditional no-ops. Marking it ignored removes
     /// that dead overhead and makes the intent explicit.
     @ObservationIgnored private var _localRunnerStore: LocalRunnerStore?
@@ -235,7 +235,7 @@ final class AppState {
     ///
     /// `@Observable` + `nonisolated(unsafe)` + `@ObservationIgnored`:
     /// - `@ObservationIgnored`: write-only fields; nothing outside `AppState`
-    ///   reads them, so the macro’s synthesised registrar calls are no-ops.
+    ///   reads them, so the macro's synthesised registrar calls are no-ops.
     ///   Marking ignored suppresses that dead overhead.
     /// - `nonisolated(unsafe)`: allows `deinit` (nonisolated in Swift 6) to
     ///   call `.cancel()` directly. `Task.cancel()` is thread-safe; writes only
@@ -291,6 +291,33 @@ final class AppState {
         // so no concurrent write can occur at this point).
         statusIconTask?.cancel()
         signOutTask?.cancel()
+    }
+
+    // MARK: - Shutdown
+
+    /// Cancels all domain-level tasks owned by `AppState`.
+    ///
+    /// Called from `AppDelegate.applicationShouldTerminate` before the process
+    /// exits (#2153). Cancelling here drains the run loop cleanly so AppKit's
+    /// termination path does not stall on the first quit attempt.
+    ///
+    /// SCOPE: cancels `statusIconTask`, `signOutTask`, and the `runnerStore`
+    /// poll loop. SwiftUI `@State`-owned tasks (`sheetPoll` in
+    /// `PanelContainerView`, `displayTick` in `PanelMainView`) are NOT
+    /// cancelled here — they are implicitly terminated by the process exit
+    /// and require no explicit cancellation.
+    ///
+    /// Idempotent: safe to call multiple times. Each property is nilled after
+    /// cancellation so a second call is a no-op.
+    func stop() {
+        log("AppState › stop — cancelling domain tasks")
+        statusIconTask?.cancel()
+        statusIconTask = nil
+        signOutTask?.cancel()
+        signOutTask = nil
+        runnerStore?.cancel()
+        runnerStore = nil
+        log("AppState › stop — done")
     }
 
     // MARK: - Startup
