@@ -79,7 +79,7 @@ public actor RunnerPoller {
   // All tick/busy counters are `private`; `rateLimitRemaining` is `internal` due to
   // SPM cross-file actor extension rules (see its doc-comment below).
   // The only sanctioned write path is
-  // `updateAdaptiveCounters(hasActiveWork:busyRunnerCount:)` for the tick/busy
+  // `updateAdaptiveCounters(hasActive:busyRunnerCount:)` for the tick/busy
   // counters, and `applyFetchResult` for `rateLimitRemaining`.
   // `updateAdaptiveCounters` is `internal` (not `private`) for the same SPM reason;
   // the ⚠️ warning lives on that method.
@@ -105,7 +105,7 @@ public actor RunnerPoller {
   var rateLimitRemaining: Int = PollIntervalStrategy.rateLimitUnavailable
 
   /// Owns the two structured `Task` handles for the poll loop.
-  /// `private` — all call sites (startObservingScopes, start(), isolated deinit)
+  /// `private` — all call sites (startObservingScopes, start(), isolated deinit, cancel())
   /// are in this file; no extension file needs access.
   private let pollLoop = PollLoopCoordinator()
   /// Observable read model — the source of truth for all views and AppDelegate observers.
@@ -184,6 +184,20 @@ public actor RunnerPoller {
 
   /// Cancels all running Tasks owned by this actor before it is freed.
   isolated deinit {
+    pollLoop.cancelAll()
+  }
+
+  // MARK: - Shutdown
+
+  /// Cancels all poll-loop and scope-observation tasks.
+  ///
+  /// `nonisolated` to satisfy `RunnerPollerProtocol` without requiring `await` at
+  /// call sites. Safe because `PollLoopCoordinator` is a `final class` (not an actor)
+  /// and `cancelAll()` only calls `Task.cancel()` — documented as thread-safe.
+  /// This is the same cancellation path as `isolated deinit` above.
+  ///
+  /// Called from `AppState.stop()` on app termination (#2153).
+  public nonisolated func cancel() {
     pollLoop.cancelAll()
   }
 
