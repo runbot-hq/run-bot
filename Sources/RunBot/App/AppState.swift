@@ -371,7 +371,7 @@ final class AppState {
         }
         log("AppState › start — begin (LocalRunnerStore.configure already called by AppDelegate)")
 
-        seedStoreAndPoller()  // Steps 1: kept in a helper to stay within function_body_length.
+        seedStoreAndPoller()  // Step 1: kept in a helper to stay within function_body_length.
 
         // Step 2: wire domain observation tasks BEFORE any await.
         // signOutTask subscribes to oauthService.makeSignOutStream() here. If this
