@@ -77,6 +77,7 @@ final class PollLoopCoordinator: @unchecked Sendable {
     // MARK: - Init
 
     /// Creates a new coordinator with all task handles set to `nil`.
+    /// Called exclusively from `RunnerPoller.init` via `private let pollLoop = PollLoopCoordinator()`.
     init() {}
 
     // ⚠️ Load-bearing deinit: RunnerPoller's poll task captures `self` (RunnerPoller)
@@ -84,7 +85,6 @@ final class PollLoopCoordinator: @unchecked Sendable {
     // is broken here — cancelAll() cancels the task, releasing its strong reference and
     // allowing ARC to complete deallocation. Do not remove cancelAll() from this deinit
     // without restoring [weak self] in RunnerPoller.start()'s poll task closure.
-    // swiftlint:disable:next missing_docs
     deinit { cancelAll() }
 
     // MARK: - Mutation

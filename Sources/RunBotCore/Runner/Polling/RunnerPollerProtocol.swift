@@ -12,12 +12,13 @@ public protocol RunnerPollerProtocol: AnyObject {
     func start() async
     /// Cancels all running Tasks owned by this poller.
     ///
-    /// `nonisolated` so callers on any actor (including `@MainActor AppState.stop()`)
-    /// can call this without an `await`. The implementation lives in `RunnerPoller.swift`
-    /// (same file as `private let pollLoop`) because Swift's `private` is file-scoped —
-    /// a cross-file extension cannot access a `private` stored property even on the
-    /// same type. Safe to call multiple times; cancelling an already-cancelled `Task`
-    /// is a no-op in Swift Concurrency.
+    /// Declared `nonisolated` so callers on any actor (including `@MainActor`
+    /// `AppState.stop()`) can invoke this without `await`. Implementations must
+    /// only call thread-safe methods — e.g. `Task.cancel()` — from this context.
+    ///
+    /// Called from `AppState.stop()` on termination (#2153) so the poll loop
+    /// drains before the process exits. Safe to call multiple times — cancelling
+    /// an already-cancelled `Task` is a no-op in Swift Concurrency.
     nonisolated func cancel()
     /// The observable state object driven by this poller.
     ///
@@ -29,10 +30,9 @@ public protocol RunnerPollerProtocol: AnyObject {
 
 // MARK: - Conformance
 
-// `RunnerPoller` is the production implementation of `RunnerPollerProtocol`.
-// `cancel()` body lives in `RunnerPoller.swift` (not here) because `pollLoop`
-// is `private` to that file. Swift's `private` is file-scoped; a cross-file
-// extension cannot access a `private` stored property even on the same type.
+/// Declares `RunnerPoller` as the production implementation of `RunnerPollerProtocol`.
+/// The `cancel()` body lives in `RunnerPoller.swift` where the `private` `pollLoop`
+/// property is in scope.
 extension RunnerPoller: RunnerPollerProtocol {}
 
 // MARK: - MockPoller
@@ -57,7 +57,7 @@ extension RunnerPoller: RunnerPollerProtocol {}
 ///
 /// **Usage in tests**
 /// Inject `MockPoller` wherever `any RunnerPollerProtocol` is expected.
-/// Call `start()` freely — it is a guaranteed no-op and never starts a Task.
+/// Call `start()` or `cancel()` freely — both are guaranteed no-ops.
 ///
 /// > Note: `init` is `@MainActor`-isolated because `RunnerState` is an
 /// > `@MainActor` class. In a plain `async` test function (which is not
@@ -79,6 +79,7 @@ public actor MockPoller: RunnerPollerProtocol {
 
     /// No-op. Does not start a poll loop or make any network calls.
     public func start() async {}
-    /// No-op. No tasks to cancel.
+
+    /// No-op. No tasks to cancel on a mock.
     public nonisolated func cancel() {}
 }
