@@ -46,8 +46,8 @@ import RunBotCore
 // AppDelegate.applicationDidFinishLaunching calls
 // `await appState.start(onUpdateStatusIcon:)` after hydrating display names.
 // AppState.start() runs the ordered async startup sequence:
-//   startObservations (before any await — prevents sign-out event drop)
-//   → refreshAsync → store.start
+//   seedStoreAndPoller → startObservations (BEFORE any await — prevents sign-out
+//   event drop) → refreshAsync → store.start
 //   → checkAndHandle → scheduleBackgroundCheck
 // LocalRunnerStore.configure() is called by AppDelegate BEFORE the startup
 // Task, not inside start() — see issue #1741 for why ordering matters.
@@ -144,7 +144,7 @@ final class AppState {
     /// Backing store for the `localRunnerStore` computed property.
     /// Seeded by `start()` immediately after `LocalRunnerStore.configure()` runs.
     /// `@ObservationIgnored` because this is a write-only backing field — nothing
-    /// outside `AppState` reads it, so the `@Observable` macro’s synthesised
+    /// outside `AppState` reads it, so the `@Observable` macro's synthesised
     /// registrar calls would be unconditional no-ops. Marking it ignored removes
     /// that dead overhead and makes the intent explicit.
     @ObservationIgnored private var _localRunnerStore: LocalRunnerStore?
@@ -235,7 +235,7 @@ final class AppState {
     ///
     /// `@Observable` + `nonisolated(unsafe)` + `@ObservationIgnored`:
     /// - `@ObservationIgnored`: write-only fields; nothing outside `AppState`
-    ///   reads them, so the macro’s synthesised registrar calls are no-ops.
+    ///   reads them, so the macro's synthesised registrar calls are no-ops.
     ///   Marking ignored suppresses that dead overhead.
     /// - `nonisolated(unsafe)`: allows `deinit` (nonisolated in Swift 6) to
     ///   call `.cancel()` directly. `Task.cancel()` is thread-safe; writes only
@@ -310,14 +310,17 @@ final class AppState {
     /// `LocalRunnerStore.shared` before configure has run.
     ///
     /// Sequence:
-    /// 1. Seed `_localRunnerStore` from `LocalRunnerStore.shared` (already configured).
-    /// 2. Create `RunnerPoller`.
-    /// 3. `startObservations()` — wire sign-out + status-icon tasks BEFORE any await
-    ///    so sign-out events during startup are never dropped (stream is unbuffered).
-    /// 4. `refreshAsync()` — hydrates local runners before poll loop fires.
-    /// 5. `runnerStore.start()` — begins the poll loop.
-    /// 6. `autoUpdater.checkAndHandle` — launch-time update check.
-    /// 7. `autoUpdater.scheduleBackgroundCheck` — periodic update scheduler.
+    /// 1. `seedStoreAndPoller()` — sync; seeds `_localRunnerStore` and creates `RunnerPoller`.
+    /// 2. `startObservations()` — sync; wires sign-out + status-icon tasks BEFORE any
+    ///    await so sign-out events during startup are never dropped (stream is unbuffered).
+    ///    MUST follow seedStoreAndPoller() — signOutTask reads self.runnerStore.
+    /// 3. `refreshAsync()` — first suspension point; hydrates local runners before poll loop fires.
+    /// 4. `runnerStore.start()` — begins the poll loop. The first `token()` call suspends
+    ///    here on a cold Finder/Dock/login-item launch (~50–200 ms login shell) then caches
+    ///    the result. Terminal/CI/OAuth launches resolve from ProcessInfo or Keychain and
+    ///    return immediately.
+    /// 5. `autoUpdater.checkAndHandle` — launch-time update check.
+    /// 6. `autoUpdater.scheduleBackgroundCheck` — periodic update scheduler.
     ///
     /// Idempotency: guarded by `_didStart`, set unconditionally on first entry
     /// before any branch. A second call is always a no-op regardless of which
@@ -364,16 +367,21 @@ final class AppState {
             return
         }
         log("AppState › start — begin (LocalRunnerStore.configure already called by AppDelegate)")
-        seedStoreAndPoller()  // Steps 1–2: kept in a helper to stay within function_body_length.
 
-        // Step 3: wire domain observation tasks BEFORE any await.
+        seedStoreAndPoller()  // Step 1: kept in a helper to stay within function_body_length.
+
+        // Step 2: wire domain observation tasks BEFORE any await.
         // signOutTask subscribes to oauthService.makeSignOutStream() here. If this
-        // call were deferred until after the update-check await (Step 6 / checkAndHandle, which can
-        // take tens of seconds on a slow connection), any sign-out event during
-        // startup would be dropped — the stream is not buffered, so missed events
-        // are gone. The poll loop would continue issuing requests with a cleared
-        // Keychain token, returning 401 on every cycle, with no env-token fallback
-        // until a full app restart.
+        // call were deferred until after any suspension point (refreshAsync,
+        // checkAndHandle — which can take tens of seconds on a slow connection), any
+        // sign-out event during startup would be dropped — the stream is not buffered,
+        // so missed events are gone. The poll loop would continue issuing requests with
+        // a cleared Keychain token, returning 401 on every cycle, with no env-token
+        // fallback until a full app restart.
+        // MUST follow seedStoreAndPoller() (Step 1): signOutTask reads self.runnerStore,
+        // which is set by seedStoreAndPoller(). The sign-out loop handles a nil
+        // runnerStore gracefully via `continue`, so this ordering is safe — wiring
+        // first and seeding second would degrade sign-out on the first event only.
         // statusIconTask uses Observations{} which has did-set semantics (emits the
         // current aggregateStatus on first subscription), so wiring it here rather
         // than after store.start() is safe — any status writes that race are covered
@@ -381,7 +389,7 @@ final class AppState {
         startObservations(onUpdateStatusIcon: onUpdateStatusIcon)
         log("AppState › start — observations wired (sign-out listener active)")
 
-        // Step 4: await local runner hydration before starting the poll loop.
+        // Step 3: await local runner hydration before starting the poll loop.
         // refreshAsync() suspends until disk hydration completes; refresh() (the
         // fire-and-forget variant) would return immediately and let store.start()
         // fire fetch() on the very next runloop turn — before the refresh Task
@@ -400,21 +408,27 @@ final class AppState {
             return
         }
 
-        // Step 5: start the poll loop.
+        // Step 4: start the poll loop.
+        // On a cold Finder/Dock/login-item launch, the first poll cycle's token()
+        // call suspends here for ~50–200 ms while the login shell sources
+        // ~/.zprofile and ~/.zshrc to recover GH_TOKEN. The result is cached;
+        // all subsequent poll cycles return immediately from the in-memory cache.
+        // Terminal, CI, and Keychain OAuth launches resolve from ProcessInfo or
+        // Keychain and do not spawn a shell.
         await store.start()
         log("AppState › start — poll loop started")
 
-        // Step 6: update check.
+        // Step 5: update check.
         await autoUpdater.checkAndHandle(state: runnerState)
 
-        // Step 7: background update scheduler.
+        // Step 6: background update scheduler.
         autoUpdater.scheduleBackgroundCheck(state: runnerState)
         log("AppState › start — update background scheduler registered")
     }
 
     // MARK: - Startup helpers
 
-    /// Seeds `_localRunnerStore` and creates `RunnerPoller` (Steps 1–2 of the
+    /// Seeds `_localRunnerStore` and creates `RunnerPoller` (Step 1 of the
     /// startup sequence). Extracted from `start()` to keep that function within
     /// the SwiftLint `function_body_length` warning threshold (90 lines).
     ///
@@ -439,7 +453,7 @@ final class AppState {
     /// after every fetch cycle — no sink needed. Scope-change restarts are handled
     /// internally by `RunnerPoller` via `withObservationTracking` / `AsyncStream`.
     private func seedStoreAndPoller() {
-        // Step 1
+        // Step 1a
         // Tripwire: if configure() was not called before start(), LocalRunnerStore.shared
         // will fatalError below. This assert fires in DEBUG/test runs first, giving a
         // readable message closer to the actual cause than the fatalError in .shared.
@@ -447,7 +461,7 @@ final class AppState {
         _localRunnerStore = LocalRunnerStore.shared
         log("AppState › start — _localRunnerStore seeded")
 
-        // Step 2
+        // Step 1b
         // `AppPreferencesStore.shared` and `ScopeStore.shared` are passed explicitly
         // because Swift 6 does not allow `@MainActor`-isolated expressions as
         // default-value arguments in a nonisolated context.
@@ -459,7 +473,7 @@ final class AppState {
             // must never silently drop local runners from the poll cycle.
             localRunners: { [runnerState] in runnerState.localRunners },
             // Capture the computed property at RunnerPoller init time — the
-            // value resolves to _localRunnerStore (seeded in Step 1 above) and
+            // value resolves to _localRunnerStore (seeded in Step 1a above) and
             // is frozen into the closure. A test double must be in place before
             // seedStoreAndPoller() runs; post-init replacement of _localRunnerStore
             // will NOT be reflected in this capture.
@@ -481,17 +495,20 @@ final class AppState {
     /// `onUpdateStatusIcon` is a callback rather than a direct AppDelegate reference
     /// to avoid AppState holding a strong reference to AppDelegate.
     private func startObservations(onUpdateStatusIcon: @escaping @MainActor () -> Void) {
+        // Ordering tripwire: seedStoreAndPoller() MUST have run before this method.
+        // signOutTask reads self.runnerStore (set by seedStoreAndPoller). If called
+        // out of order, the guard-let inside signOutTask silently drops the first
+        // sign-out event — no crash, no log, just a stalled poll loop after sign-out.
+        // The assert catches a call-order swap in DEBUG/test runs before it ships.
+        assert(runnerStore != nil, "AppState.startObservations: must be called after seedStoreAndPoller() — runnerStore is nil")
+
         // Status icon observation.
-        // Wired at Step 3 — BEFORE store.start() and any network awaits. This is
-        // safe because Observations{} has did-set semantics: it emits once
-        // immediately with the current aggregateStatus on first subscription, so
-        // any status writes that race between here and store.start() are covered
-        // by that initial emission. Do NOT move this after checkAndHandle() —
-        // see the Step 3 comment in start() for the sign-out window reasoning.
-        // ⚠️ MUST be called after seedStoreAndPoller() — signOutTask accesses
-        // self.runnerStore which is set by seedStoreAndPoller(). Calling this
-        // before seedStoreAndPoller() would make the guard in signOutTask always
-        // fail on the first sign-out event.
+        // Wired at Step 2 — BEFORE any suspension point. This is safe because
+        // Observations{} has did-set semantics: it emits once immediately with the
+        // current aggregateStatus on first subscription, so any status writes that
+        // race between here and store.start() are covered by that initial emission.
+        // Do NOT move this after any await — see the Step 2 comment
+        // in start() for the sign-out window reasoning.
         //
         // CAPTURE NOTE: `onUpdateStatusIcon` is captured strongly inside this Task
         // and lives for the process lifetime. AppDelegate must pass a weakly
@@ -514,7 +531,7 @@ final class AppState {
         // Why store.start() is called after sign-out (PR #1138 regression history):
         // Before #1138, polling was driven by a Timer. After sign-out the timer fired,
         // fetch() ran, githubToken() found the keychain cleared, and naturally fell
-        // through to env-var tokens (GH_TOKEN / GITHUB_TOKEN).
+        // through to the env-token fallback (GH_TOKEN / GITHUB_TOKEN).
         // #1138 replaced the timer with a Task that loops on Task.sleep — it never
         // calls start() again on its own, so the env-token fallback only works if
         // start() is explicitly invoked after sign-out. That is what this loop does.
@@ -541,6 +558,13 @@ final class AppState {
                     log("AppState › didSignOut — ⚠️ runnerStore nil at sign-out time; skipping start()")
                     continue
                 }
+                // TokenCache.invalidate() is called by OAuthService before emitting
+                // on this stream, clearing both the cached token and the shellOutcome
+                // field. On a Finder/Dock/login-item launch with no Keychain token,
+                // the first token() call inside this store.start() will re-spawn
+                // /bin/zsh -i -l to recover GH_TOKEN (~50–200 ms). The result is
+                // cached immediately, so only the first poll cycle after each
+                // sign-out pays the shell cost — not every subsequent cycle.
                 await store.start()
             }
         }

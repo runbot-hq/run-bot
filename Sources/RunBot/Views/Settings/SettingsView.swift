@@ -194,6 +194,28 @@ struct SettingsView: View {
             }
         }
         .onAppear(perform: onAppearAction)
+        .task {
+            // `onAppearAction` checks `oauthService.hasAnyToken` which reads
+            // `ProcessInfo.processInfo.environment` directly. When the app is
+            // launched via Finder (not a shell), env vars like `GH_TOKEN` are
+            // absent from the process environment even if exported in the
+            // user's shell profile — so `hasAnyToken` returns `false` and
+            // `isCLIAuthenticated` stays unset, leaving the status light dark.
+            //
+            // `TokenCache.token()` runs the full resolution chain including a
+            // login-shell fallback (`/bin/zsh -lc 'echo $GH_TOKEN'`), so it
+            // finds the token regardless of launch method. We call it here
+            // once on appear and flip `isCLIAuthenticated` when it resolves.
+            //
+            // Guard: skip if the user is already signed in via OAuth — in that
+            // case neither status text nor the green dot reference `isCLIAuthenticated`.
+            guard !isOAuthAuthenticated else { return }
+            let token = await appState.github.token()
+            isCLIAuthenticated = token != nil
+            #if DEBUG
+            log("SettingsView › github.token() resolved — isCLIAuthenticated=\(isCLIAuthenticated)")
+            #endif
+        }
         .onDisappear {
             // Cancel and unconditionally nil the sign-in task — the for-await loop
             // exits promptly on cancellation (AsyncStream respects task cancellation)
