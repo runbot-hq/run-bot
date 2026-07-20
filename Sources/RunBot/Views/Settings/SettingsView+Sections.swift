@@ -271,6 +271,16 @@ internal extension SettingsView {
     /// that is what is installed. The subtitle wording is deliberate; it was updated in
     /// #2085 specifically to prevent users from misreading the toggle's scope. Do not
     /// shorten or remove the second sentence.
+    ///
+    /// ## onChange zip-wipe (#2162 / #2163)
+    ///
+    /// When the user toggles the beta channel, any cached `update.zip` from the previous
+    /// channel is stale and must be removed so the next update check starts fresh.
+    /// The zip lives at `~/Library/Caches/<schedulerIdentifier>/update.zip`.
+    ///
+    /// `autoUpdater.schedulerIdentifier` is used directly (not a hardcoded string) so
+    /// the path stays in sync if the identifier is ever changed — a hardcoded copy would
+    /// silently break with no compiler error (#2163).
     var betaChannelRow: some View {
         let bindableBeta = Bindable(settings)
         return HStack {
@@ -282,6 +292,14 @@ internal extension SettingsView {
             Spacer()
             Toggle("", isOn: bindableBeta.betaChannel)
                 .toggleStyle(.switch).tint(Color.rbSuccess).labelsHidden()
+                .onChange(of: settings.betaChannel) { _, _ in
+                    let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
+                    let zip = caches?.appendingPathComponent(autoUpdater.schedulerIdentifier)
+                                     .appendingPathComponent("update.zip")
+                    zip.flatMap { try? FileManager.default.removeItem(at: $0) }
+                    runnerState.apply(.idle)
+                    Task { await autoUpdater.checkAndHandle(state: runnerState) }
+                }
         }
         .padding(.horizontal, RBSpacing.md).padding(.top, 6).padding(.bottom, 6)
     }
