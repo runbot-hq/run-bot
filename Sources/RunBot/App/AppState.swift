@@ -528,7 +528,7 @@ final class AppState {
         // Why store.start() is called after sign-out (PR #1138 regression history):
         // Before #1138, polling was driven by a Timer. After sign-out the timer fired,
         // fetch() ran, githubToken() found the keychain cleared, and naturally fell
-        // through to env-var tokens (GH_TOKEN / GITHUB_TOKEN).
+        // through to env-token tokens (GH_TOKEN / GITHUB_TOKEN).
         // #1138 replaced the timer with a Task that loops on Task.sleep — it never
         // calls start() again on its own, so the env-token fallback only works if
         // start() is explicitly invoked after sign-out. That is what this loop does.
@@ -556,8 +556,8 @@ final class AppState {
                     continue
                 }
                 // TokenCache.invalidate() is called by OAuthService before emitting
-                // on this stream, clearing both the cached token and the shellFailed
-                // flag. On a Finder/Dock/login-item launch with no Keychain token,
+                // on this stream, clearing both the cached token and the shellOutcome
+                // field. On a Finder/Dock/login-item launch with no Keychain token,
                 // the first token() call inside this store.start() will re-spawn
                 // /bin/zsh -i -l to recover GH_TOKEN (~50–200 ms). The result is
                 // cached immediately, so only the first poll cycle after each
