@@ -5,6 +5,7 @@
 - [Targets](#targets)
 - [Editor](#editor)
 - [Dev Loop](#dev-loop)
+- [Logging](#logging)
 - [Verification](#verification-run-before-every-commit--pr)
 - [Auth during Development](#auth-during-development)
 - [Adding Dependencies](#adding-dependencies)
@@ -144,6 +145,83 @@ log stream --level debug \
 ```
 
 `Ctrl+C` stops the stream. To also capture to a file, append `| tee /tmp/runbot_log.txt` to the last line.
+
+---
+
+## Logging
+
+RunBot uses Apple's **unified logging** (`os.Logger`), not `print` / `fputs` / stderr. All app log calls go through `RunBotCore.log(_:category:file:line:)`. Inspect them with `log stream` (live) or `log show` (after the fact) — never by tailing a file or reading stdout.
+
+### The command that works
+
+```bash
+log stream --level debug --style compact \
+  --predicate 'process == "RunBot" AND subsystem == "com.eoncode.run-bot"'
+```
+
+The `process == "RunBot"` anchor is **required** — see the level gotcha below. The `subsystem` clause then trims Apple's framework noise so you see only RunBot's own `log()` output.
+
+### ⚠️ Two different identifiers
+
+These are not the same string, and mixing them up is the #1 reason a log filter returns nothing:
+
+| Identifier | Value | Used by |
+|---|---|---|
+| **Logger subsystem** | `com.eoncode.run-bot` | `os.Logger` — use in log predicates |
+| **Bundle ID / prefs domain** | `io.github.runbot-hq` | `UserDefaults`, `runbot://` URL scheme, update scheduler |
+
+Filtering `log stream` on `io.github.runbot-hq` returns **nothing** from the app's own logs. Filter on `com.eoncode.run-bot` for app logs; expect to *see* `io.github.runbot-hq` inside `UserDefaults` (`CFPrefs`) lines, which is normal.
+
+### ⚠️ Debug-level anchor gotcha
+
+App `log()` calls emit at **debug** level (shown as `Db` in `log stream`). A predicate on `subsystem ==` **alone silently drops them** unless debug capture is explicitly enabled for that subsystem. Anchoring on `process == "RunBot"` force-enables full capture for the process:
+
+```bash
+# ✅ Works — process anchor enables debug capture, subsystem trims OS noise
+log stream --level debug --style compact \
+  --predicate 'process == "RunBot" AND subsystem == "com.eoncode.run-bot"'
+
+# ⚠️ Often logs nothing — app debug lines are silently dropped
+log stream --level debug \
+  --predicate 'subsystem == "com.eoncode.run-bot"'
+```
+
+### Catching library / cross-subsystem logs
+
+Some logs come from other subsystems — SPM dependencies or Apple frameworks reacting to app behaviour. To catch everything from the process and filter by keyword, drop the subsystem clause and grep:
+
+```bash
+log stream --level debug --style compact --predicate 'process == "RunBot"' \
+  | grep -iE "update|beta|download|install|relaunch|release|zip|signature|ready|fail|error|phase|semver|asset"
+```
+
+This is particularly useful when debugging the update/relaunch path, where `AppUpdater` (a separate SPM package) may log under its own subsystem.
+
+### Reading logs after the fact
+
+`log stream` is live-only. To inspect an event that already fired:
+
+```bash
+log show --last 10m --info --debug \
+  --predicate 'process == "RunBot" AND subsystem == "com.eoncode.run-bot"'
+```
+
+### Capturing for a bug report
+
+```bash
+log stream --level debug --style compact \
+  --predicate 'process == "RunBot" AND subsystem == "com.eoncode.run-bot"' \
+  | tee /tmp/runbot_log.txt
+```
+
+Start it before reproducing the bug, then attach `/tmp/runbot_log.txt`. For update/relaunch issues (e.g. [#2152](https://github.com/runbot-hq/run-bot/issues/2152)), use the broader `grep` variant above to catch logs from all subsystems.
+
+### Best practices when adding logs
+
+- Always use `log(...)`, never `print` or `fputs(..., stderr)`.
+- Instrument state transitions and failure branches — if a code path can silently fail (e.g. update phase changes, install, relaunch), it must log its entry, its guards, and its outcome.
+- Prefer `.general` unless a dedicated category has a real consumer; keep the category set small.
+- `file` and `line` are captured automatically via `#file` / `#line` — don't pass them manually.
 
 ---
 
