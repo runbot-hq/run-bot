@@ -20,7 +20,7 @@ let package = Package(
         // Tracks main — resolves to HEAD on every CI run. Do not pin to a revision.
         .package(url: "https://github.com/runbot-hq/AppUpdater", branch: "main"),
         // Tracks main — resolves to HEAD on every CI run. Do not pin to a revision.
-        .package(url: "https://github.com/runbot-hq/GitHubClient", branch: "fix/token-cache-gui-launch-env"),
+        .package(url: "https://github.com/runbot-hq/GitHubClient", branch: "main"),
         // Tracks main — resolves to HEAD on every CI run. Do not pin to a revision.
         // Source lives at https://github.com/runbot-hq/MenuBarKit
         .package(url: "https://github.com/runbot-hq/MenuBarKit", branch: "main"),
