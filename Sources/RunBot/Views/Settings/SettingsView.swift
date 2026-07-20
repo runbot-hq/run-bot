@@ -210,10 +210,10 @@ struct SettingsView: View {
             // Guard: skip if the user is already signed in via OAuth — in that
             // case neither status text nor the green dot reference `isCLIAuthenticated`.
             guard !isOAuthAuthenticated else { return }
-            let token = await appState.github.tokenCache.token()
+            let token = await appState.github.token()
             isCLIAuthenticated = token != nil
             #if DEBUG
-            log("SettingsView › tokenCache.token() resolved — isCLIAuthenticated=\(isCLIAuthenticated)")
+            log("SettingsView › github.token() resolved — isCLIAuthenticated=\(isCLIAuthenticated)")
             #endif
         }
         .onDisappear {
