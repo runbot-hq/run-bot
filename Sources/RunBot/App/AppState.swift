@@ -495,6 +495,13 @@ final class AppState {
     /// `onUpdateStatusIcon` is a callback rather than a direct AppDelegate reference
     /// to avoid AppState holding a strong reference to AppDelegate.
     private func startObservations(onUpdateStatusIcon: @escaping @MainActor () -> Void) {
+        // Ordering tripwire: seedStoreAndPoller() MUST have run before this method.
+        // signOutTask reads self.runnerStore (set by seedStoreAndPoller). If called
+        // out of order, the guard-let inside signOutTask silently drops the first
+        // sign-out event — no crash, no log, just a stalled poll loop after sign-out.
+        // The assert catches a call-order swap in DEBUG/test runs before it ships.
+        assert(runnerStore != nil, "AppState.startObservations: must be called after seedStoreAndPoller() — runnerStore is nil")
+
         // Status icon observation.
         // Wired at Step 2 — BEFORE any suspension point. This is safe because
         // Observations{} has did-set semantics: it emits once immediately with the
@@ -502,10 +509,6 @@ final class AppState {
         // race between here and store.start() are covered by that initial emission.
         // Do NOT move this after any await — see the Step 2 comment
         // in start() for the sign-out window reasoning.
-        // ⚠️ MUST be called after seedStoreAndPoller() — signOutTask accesses
-        // self.runnerStore which is set by seedStoreAndPoller(). Calling this
-        // before seedStoreAndPoller() would make the guard in signOutTask always
-        // fail on the first sign-out event.
         //
         // CAPTURE NOTE: `onUpdateStatusIcon` is captured strongly inside this Task
         // and lives for the process lifetime. AppDelegate must pass a weakly
@@ -528,7 +531,7 @@ final class AppState {
         // Why store.start() is called after sign-out (PR #1138 regression history):
         // Before #1138, polling was driven by a Timer. After sign-out the timer fired,
         // fetch() ran, githubToken() found the keychain cleared, and naturally fell
-        // through to env-token tokens (GH_TOKEN / GITHUB_TOKEN).
+        // through to the env-token fallback (GH_TOKEN / GITHUB_TOKEN).
         // #1138 replaced the timer with a Task that loops on Task.sleep — it never
         // calls start() again on its own, so the env-token fallback only works if
         // start() is explicitly invoked after sign-out. That is what this loop does.
