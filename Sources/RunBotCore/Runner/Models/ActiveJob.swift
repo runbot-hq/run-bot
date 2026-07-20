@@ -135,32 +135,27 @@ public struct ActiveJob: Identifiable, Equatable, Sendable {
 
     /// Returns a copy with `runnerName` replaced.
     public func copying(runnerName newValue: String?) -> ActiveJob {
-        withUpdatedRaw(raw.copying(runnerName: newValue))
+        withUpdatedRaw(raw.copying { $0.runnerName = newValue })
     }
 
     /// Returns a copy with `startedAt` replaced.
     public func copying(startedAt newValue: String?) -> ActiveJob {
-        withUpdatedRaw(raw.copying(startedAt: newValue))
+        withUpdatedRaw(raw.copying { $0.startedAt = newValue })
     }
 
     /// Returns a copy with `completedAt` replaced.
     public func copying(completedAt newValue: String?) -> ActiveJob {
-        withUpdatedRaw(raw.copying(completedAt: newValue))
-    }
-
-    /// Returns a copy with `createdAt` replaced.
-    public func copying(createdAt newValue: String?) -> ActiveJob {
-        withUpdatedRaw(raw.copying(createdAt: newValue))
+        withUpdatedRaw(raw.copying { $0.completedAt = newValue })
     }
 
     /// Returns a copy with `steps` replaced.
     public func copying(steps newValue: [GitHubStep]) -> ActiveJob {
-        withUpdatedRaw(raw.copying(steps: newValue))
+        withUpdatedRaw(raw.copying { $0.steps = newValue })
     }
 
     /// Returns a copy with `conclusion` replaced.
     public func copying(conclusion newValue: JobConclusion?) -> ActiveJob {
-        withUpdatedRaw(raw.copying(conclusion: newValue?.rawValue))
+        withUpdatedRaw(raw.copying { $0.conclusion = newValue?.rawValue })
     }
 
     // MARK: asCompleted
@@ -175,7 +170,7 @@ public struct ActiveJob: Identifiable, Equatable, Sendable {
         if raw.completedAt == nil {
             let iso = ISO8601DateFormatter()
             iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-            updatedRaw = raw.copying(completedAt: iso.string(from: fallbackDate))
+            updatedRaw = raw.copying { $0.completedAt = iso.string(from: fallbackDate) }
         } else {
             updatedRaw = raw
         }

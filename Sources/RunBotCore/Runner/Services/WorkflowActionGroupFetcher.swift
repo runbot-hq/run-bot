@@ -470,20 +470,15 @@ public struct WorkflowActionGroupFetcher: Sendable, WorkflowActionGroupFetcherPr
     guard hasBetterSteps else { return nil }
     // Use copying() helpers so any future field added to ActiveJob is
     // automatically preserved from `job` without a manual update here.
-    // `.copying(createdAt:)` is included explicitly even though copying()
-    // already carries all unlisted fields forward unchanged — the original
-    // bug (commit f8264d3) dropped createdAt in an earlier version of this
-    // function that used the full constructor. The explicit call is
-    // belt-and-suspenders: it documents intent, costs nothing at runtime,
-    // and guards against a future refactor that switches back to a
-    // constructor form accidentally dropping the field again.
-    // ActiveJob has no direct startedAt/completedAt/createdAt — route through raw.
+    // Note: createdAt is `let` on GitHubJob and cannot be mutated via copying(update:);
+    // it is always preserved unchanged through withUpdatedRaw, so no explicit
+    // copying(createdAt:) call is needed here.
+    // ActiveJob has no direct startedAt/completedAt — route through raw.
     return
       job
       .copying(runnerName: freshJob.runnerName ?? job.runnerName)
       .copying(startedAt: freshJob.raw.startedAt ?? job.raw.startedAt)
       .copying(completedAt: freshJob.raw.completedAt ?? job.raw.completedAt)
-      .copying(createdAt: freshJob.raw.createdAt ?? job.raw.createdAt)
       .copying(steps: freshJob.steps)
   }
 }
