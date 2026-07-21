@@ -3,9 +3,9 @@
 import Foundation
 import Observation
 // SwiftUI is imported for @AppStorage only (showDimmedRunners, showPopoverArrow).
-// betaChannel no longer uses @AppStorage — it is a computed property backed by
-// _store directly so that @Observable instruments its setter and .onChange fires.
-// See ## betaChannel — why computed, not @AppStorage below.
+// betaChannel uses a stored var + didSet so that @Observable instruments its
+// getter and setter automatically, and .onChange fires correctly.
+// See ## betaChannel — why stored var, not computed or @AppStorage below.
 import SwiftUI
 
 // MARK: - AppPreferencesStore
@@ -44,26 +44,31 @@ import SwiftUI
 ///   and returns the correct value on first access; it just never re-fires.
 ///   Use `@Bindable` instead.
 /// ⚠️ Do NOT apply this pattern to any property that needs `.onChange` to fire.
-///   See ## betaChannel — why computed, not @AppStorage below.
+///   See ## betaChannel — why stored var, not computed or @AppStorage below.
 ///
-/// ## betaChannel — why computed, not @AppStorage
-/// `betaChannel` cannot use `@ObservationIgnored @AppStorage` because
-/// `SettingsView+Sections` attaches `.onChange(of: settings.betaChannel)`
-/// to trigger an immediate update check when the user toggles the beta switch.
-/// `.onChange` subscribes through the `@Observable` observation graph.
-/// `@ObservationIgnored` suppresses the `withMutation(keyPath:)` call in the
-/// setter, so the observation graph is never notified and `.onChange` never fires.
-/// This was the root cause of the install button never appearing on beta toggle
-/// (introduced July 17, root-caused in #2177).
+/// ## betaChannel — why stored var, not computed or @AppStorage
+/// `betaChannel` MUST be `@Observable`-tracked so that `.onChange(of: settings.betaChannel)`
+/// fires in `SettingsView+Sections.betaChannelRow`.
 ///
-/// Fix: `betaChannel` is a computed property. The getter reads `_store` directly;
-/// the setter writes `_store` directly. Because the property has no `@ObservationIgnored`
-/// attribute, the `@Observable` macro instruments the computed setter with
-/// `withMutation(keyPath:)` — the observation graph is notified on every write and
-/// `.onChange` fires correctly. Persistence is identical to the old `@AppStorage`
-/// path — same key (`settings.betaChannel`), same `UserDefaults` suite.
-/// Test injection works via `_store`, which is assigned from the injected suite
-/// in `init(store:)` before `register(defaults:)` runs.
+/// **Why not `@ObservationIgnored @AppStorage`:**
+/// `@ObservationIgnored` suppresses `withMutation(keyPath:)` in the setter, so
+/// the observation graph is never notified and `.onChange` never fires silently.
+///
+/// **Why not a computed property:**
+/// `@Observable` only auto-instruments *stored* properties. For a hand-written
+/// computed property, the macro sees an existing getter/setter body and leaves
+/// them completely untouched — no `_$observationRegistrar.access(keyPath:)` in
+/// the getter, no `_$observationRegistrar.withMutation(keyPath:)` in the setter.
+/// The observation graph is never wired and `.onChange` never fires.
+/// This was the root cause confirmed in #2183 (July 2026).
+///
+/// **Fix — stored var + didSet:**
+/// `betaChannel` is a plain stored `var`. The `@Observable` macro instruments
+/// its getter with `access(keyPath:)` and its setter with `withMutation(keyPath:)`
+/// automatically. `didSet` persists the new value to `_store` (UserDefaults).
+/// The stored var is seeded from UserDefaults in `init(store:)` after
+/// `register(defaults:)`. `didSet` does NOT fire during init in Swift, so the
+/// seed assignment is safe and will not double-write to UserDefaults.
 ///
 /// ## Thread safety
 /// `@MainActor`-isolated. All writes run on the main thread; no
@@ -134,31 +139,25 @@ public final class AppPreferencesStore {
     /// when looking for a newer version. Defaults to `false` so users stay on the
     /// stable channel unless they explicitly opt in.
     ///
-    /// ## Why computed, not @AppStorage
-    /// This property MUST be `@Observable`-tracked so that `.onChange(of: settings.betaChannel)`
-    /// fires in `SettingsView+Sections.betaChannelRow`. `@ObservationIgnored @AppStorage`
-    /// suppresses `withMutation(keyPath:)` and breaks `.onChange` silently.
-    /// See class-level `## betaChannel — why computed, not @AppStorage`.
+    /// ## Why stored var + didSet, not @AppStorage or computed
+    /// `@Observable` only instruments stored properties. A computed property or
+    /// `@ObservationIgnored @AppStorage` would both prevent `withMutation(keyPath:)`
+    /// from being called, silently breaking `.onChange(of: settings.betaChannel)`.
+    /// See class-level `## betaChannel — why stored var, not computed or @AppStorage`.
     ///
-    /// Persistence is via `_store` (direct `UserDefaults` read/write), same key as before.
+    /// Persistence is via `_store` (direct `UserDefaults` write in `didSet`), same
+    /// key as before. The stored var is seeded from `_store` in `init(store:)`.
     /// Test injection works via `_store` assigned in `init(store:)`.
-    public var betaChannel: Bool {
-        get {
-            let value = _store.bool(forKey: Self.keyBetaChannel)
+    public var betaChannel: Bool = false {
+        didSet {
+            guard oldValue != betaChannel else { return }
             log(
-                "【AppPreferencesStore.betaChannel.get】value=\(value)",
+                "【AppPreferencesStore.betaChannel.didSet】\(oldValue) → \(betaChannel)",
                 category: .general
             )
-            return value
-        }
-        set {
+            _store.set(betaChannel, forKey: Self.keyBetaChannel)
             log(
-                "【AppPreferencesStore.betaChannel.set】old=\(_store.bool(forKey: Self.keyBetaChannel)) new=\(newValue)",
-                category: .general
-            )
-            _store.set(newValue, forKey: Self.keyBetaChannel)
-            log(
-                "【AppPreferencesStore.betaChannel.set】persisted to UserDefaults key=\(Self.keyBetaChannel) store=\(_store)",
+                "【AppPreferencesStore.betaChannel.didSet】persisted to \(Self.keyBetaChannel)",
                 category: .general
             )
         }
@@ -189,11 +188,10 @@ public final class AppPreferencesStore {
     /// Called unconditionally on every `init`. Cheap: writes only to the
     /// in-memory registration domain. Never overwrites user-set values.
     ///
-    /// ## betaChannel test injection
-    /// `betaChannel` no longer uses `@AppStorage`, so there is no `_betaChannel`
-    /// backing wrapper to rebind. Test injection for `betaChannel` works via
-    /// `_store`, which is assigned from the injected suite before `register(defaults:)`
-    /// runs. Reads and writes in tests target the injected suite automatically.
+    /// ## betaChannel seed
+    /// `betaChannel` is a stored var seeded from UserDefaults after
+    /// `register(defaults:)` runs. `didSet` does NOT fire during init in Swift —
+    /// the assignment is safe and will not double-write to UserDefaults.
     ///
     /// ## @AppStorage subscription note
     /// `showDimmedRunners` and `showPopoverArrow` still use `@AppStorage`, which
@@ -206,16 +204,19 @@ public final class AppPreferencesStore {
             "【AppPreferencesStore.init】store=\(store === UserDefaults.standard ? ".standard" : "injected")",
             category: .general
         )
-        // Assign _store before register(defaults:) so betaChannel computed
-        // property targets the correct suite from the first read.
+        // Assign _store before register(defaults:) so betaChannel didSet
+        // targets the correct suite from the first write.
         _store = store
         store.register(defaults: [
             Self.keyShowDimmedRunners: true,
             Self.keyShowPopoverArrow: true,
             Self.keyBetaChannel: false,
         ])
+        // Seed betaChannel from the (possibly injected) store.
+        // didSet does NOT fire during init — no double-write to UserDefaults.
+        betaChannel = store.bool(forKey: Self.keyBetaChannel)
         log(
-            "【AppPreferencesStore.init】register(defaults:) done — betaChannel=\(store.bool(forKey: Self.keyBetaChannel))",
+            "【AppPreferencesStore.init】betaChannel seeded from store: \(betaChannel)",
             category: .general
         )
         if store !== UserDefaults.standard {
