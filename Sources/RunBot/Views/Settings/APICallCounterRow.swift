@@ -59,13 +59,14 @@ public struct APICallCounterRow: View {
     }
 
     /// Leading VStack: title + optional description, left-aligned, shrink before wrap.
-    /// Trailing VStack: Spacers vertically centre the number+bar HStack against the
-    /// full height of the leading column.
+    /// Trailing VStack: stretched to full row height via maxHeight:.infinity so
+    /// Spacer(minLength:0) pairs genuinely centre the number+bar HStack vertically.
     public var body: some View {
         HStack(alignment: .center, spacing: 12) {
-            // Leading: title + optional description, left aligned
+            // Leading: title + optional description, left aligned, shrink before wrap
             VStack(alignment: .leading, spacing: 2) {
                 Text("API Calls (last hour)")
+                    .font(.body)
                     .lineLimit(1)
                     .minimumScaleFactor(0.75)
                 if !vm.resetLabel.isEmpty {
@@ -78,7 +79,8 @@ public struct APICallCounterRow: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            // Trailing: VStack with Spacers vertically centres the number+bar HStack
+            // Trailing: stretched VStack so Spacers have height to work with,
+            // centering the number+bar HStack at the vertical midpoint of the row
             VStack {
                 Spacer(minLength: 0)
                 HStack(alignment: .center, spacing: 6) {
@@ -91,6 +93,7 @@ public struct APICallCounterRow: View {
                 }
                 Spacer(minLength: 0)
             }
+            .frame(maxHeight: .infinity)
         }
         .help(
             """
