@@ -75,8 +75,8 @@ public struct APICallCounterRow: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            // Trailing: count + progress bar, stacked and centered
-            VStack(alignment: .trailing, spacing: 4) {
+            // Trailing: count + progress bar on a single line
+            HStack(alignment: .center, spacing: 6) {
                 Text(vm.label)
                     .foregroundStyle(vm.statusColor)
                     .monospacedDigit()
