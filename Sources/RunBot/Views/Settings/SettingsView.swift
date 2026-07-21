@@ -150,6 +150,11 @@ struct SettingsView: View {
     /// Retains the sign-out listener Task so it is cancelled when the view disappears.
     @State private var signOutTask: Task<Void, Never>?
 
+    /// Retains the update-check Task so it is cancelled when the view disappears.
+    /// Prevents a ghost write to runnerState if Settings is closed before the
+    /// network call returns. Mirrors the signInTask/signOutTask cancellation pattern.
+    @State private var updateCheckTask: Task<Void, Never>?
+
     /// `true` while `LocalRunnersView` is displayed instead of the main settings scroll.
     @State var showLocalRunners = false
 
@@ -249,7 +254,7 @@ struct SettingsView: View {
             log("【SettingsView.task】github.token() resolved — isCLIAuthenticated=\(isCLIAuthenticated)", category: .general)
         }
         .onDisappear {
-            log("【SettingsView.onDisappear】cancelling signInTask/signOutTask", category: .general)
+            log("【SettingsView.onDisappear】cancelling signInTask/signOutTask/updateCheckTask", category: .general)
             // Cancel and unconditionally nil the sign-in task — the for-await loop
             // exits promptly on cancellation (AsyncStream respects task cancellation)
             // so isSigningIn will never flip back via the stream after this point.
@@ -258,6 +263,10 @@ struct SettingsView: View {
             signInTask = nil
             signOutTask?.cancel()
             signOutTask = nil
+            // Cancel the update-check task so a ghost write to runnerState cannot
+            // occur if Settings is closed before the network call returns.
+            updateCheckTask?.cancel()
+            updateCheckTask = nil
             // Reset isSigningIn so a close-during-flow doesn't leave a stale spinner
             // on the next open. The stream task is already cancelled above, so the
             // for-await loop will not reset it — we must do it explicitly here.
@@ -350,6 +359,10 @@ struct SettingsView: View {
         // checkAndHandle only writes runnerState if it finds a newer version;
         // otherwise the current phase is left untouched, so no UI flicker occurs.
         //
+        // The handle is stored in updateCheckTask so onDisappear can cancel it
+        // if the user closes Settings before the network call returns — preventing
+        // a ghost write to runnerState after the view lifecycle ends.
+        //
         // This fires once per Settings panel open. .onAppear is attached to the
         // root Group (not settingsBody), so it does NOT fire on back-navigation
         // from LocalRunnersView or ScopesView — see body comment above.
@@ -357,7 +370,7 @@ struct SettingsView: View {
         // Mirrors the identical pattern in betaChannelRow.onChange.
         // Principle P6 (reach-goal): named task on a user-interactive path.
         // Principle P9: structured concurrency — no Timer or DispatchQueue.
-        Task(name: "settings-appear-update-check") { @MainActor in
+        updateCheckTask = Task(name: "settings-appear-update-check") { @MainActor in
             await autoUpdater.checkAndHandle(state: runnerState)
         }
     }
