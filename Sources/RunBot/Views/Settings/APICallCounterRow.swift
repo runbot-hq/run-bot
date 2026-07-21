@@ -58,24 +58,27 @@ public struct APICallCounterRow: View {
         self.resetDate = resetDate
     }
 
-    /// The row's body: leading title/reset-label block and trailing count/progress-bar block,
-    /// joined by a center-aligned HStack so the progress bar stays vertically centred
-    /// regardless of whether the reset sub-label is visible.
+    /// The row's body: leading title/description block (shrinkable) and trailing
+    /// count/progress-bar block, baseline-aligned so the count always sits beside
+    /// the title regardless of whether the description sub-label is visible.
     public var body: some View {
-        HStack(alignment: .center, spacing: 12) {
-            // Leading: title + optional multiline reset label
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            // Leading: title + optional description; both shrink before wrapping
             VStack(alignment: .leading, spacing: 2) {
                 Text("API Calls (last hour)")
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
                 if !vm.resetLabel.isEmpty {
                     Text(vm.resetLabel)
                         .font(.caption)
                         .foregroundStyle(Color.rbTextSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            // Trailing: count + progress bar on a single line
+            // Trailing: count + progress bar on a single line, baseline-pinned to title
             HStack(alignment: .center, spacing: 6) {
                 Text(vm.label)
                     .foregroundStyle(vm.statusColor)
