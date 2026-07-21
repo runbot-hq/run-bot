@@ -1,5 +1,6 @@
 // SettingsView.swift
 // RunBot
+
 import AppKit
 import AppUpdater
 import GitHubClient
@@ -8,6 +9,7 @@ import ServiceManagement
 import SwiftUI
 
 // MARK: - SettingsView
+
 // Settings view — complete implementation for all phases 1-6.
 //
 // HEIGHT CONTRACT:
@@ -34,9 +36,12 @@ import SwiftUI
 /// No `onRestartPolling` callback is needed — all `ScopeStore` mutations are
 /// observed by `RunnerPoller`'s `withObservationTracking` loop automatically.
 struct SettingsView: View {
+
     // MARK: - Inputs
+
     /// Callback invoked when the user taps the back button.
     let onBack: () -> Void
+
     /// The local runner actor forwarded into `LocalRunnersView`.
     ///
     /// WHY THIS EXISTS AS A STORED PROPERTY:
@@ -65,22 +70,36 @@ struct SettingsView: View {
     private var localRunnerStore: LocalRunnerStore {
         _localRunnerStoreOverride ?? appState.localRunnerStore
     }
+
     /// Backing slot for the `localRunnerStore` computed property.
     /// `nil` in production (resolved from `appState` at render time).
     /// Set explicitly in tests/Previews via `init(localRunnerStore:)`.
     private var _localRunnerStoreOverride: LocalRunnerStore?
+
     // MARK: - Injected services
+
     /// Single coordinator for all domain-level state (oauth, lifecycle, runners, updater).
     /// Replaces four separate injected objects — see issue #2040.
     /// `AppState` has no singleton — the single instance is owned by `AppDelegate`
     /// and must be supplied explicitly by the caller. There is no safe default.
     let appState: AppState
+
     /// App-wide preference store (polling interval, popover arrow, beta channel, etc.).
-    /// Injected as a concrete reference; `@Observable` types don't need `@State` wrapping.
-    let settings: AppPreferencesStore
+    ///
+    /// FIX #2174: was `let` — `Bindable(settings)` constructed inside a computed-var body
+    /// creates a transient wrapper whose write is silently discarded at end of body
+    /// evaluation, so the backing store is never mutated and `onChange` never fires.
+    /// `@Bindable var` makes SwiftUI track the reference stably across render cycles and
+    /// lets us use `$settings.betaChannel` / `$settings.showPopoverArrow` directly.
+    @Bindable var settings: AppPreferencesStore
+
     /// Notification preference store (notify-on-success, notify-on-failure).
-    /// Injected as a concrete reference; `@Observable` types don't need `@State` wrapping.
-    let notifications: NotificationPreferences
+    ///
+    /// FIX #2174: same `let` → `@Bindable var` fix as `settings` above.
+    /// `generalSection` previously used `Bindable(notifications)` in a computed var,
+    /// which had the same silent-drop problem. Now uses `$notifications.notificationMode`.
+    @Bindable var notifications: NotificationPreferences
+
     /// Scope store — injected so SwiftUI can track `@Observable` mutations reactively.
     ///
     /// Injected rather than read from `appState` because `AppState` does not expose
@@ -98,6 +117,7 @@ struct SettingsView: View {
     // extension files in this module; not part of the public API of SettingsView.
     // If you are tempted to tighten these to `private`, note that Swift will not
     // allow it — the compiler will reject it at SettingsView+Sections.swift.
+
     /// Forwarded OAuth service from `appState`. Internal by necessity — see NOTE above.
     var oauthService: any OAuthServiceProtocol { appState.oauthService }
     /// Forwarded lifecycle service from `appState`. Internal by necessity — see NOTE above.
@@ -108,27 +128,36 @@ struct SettingsView: View {
     var autoUpdater: AppUpdater { appState.autoUpdater }
 
     // MARK: - Local UI state
+
     /// Mirrors `LoginItem.isEnabled`; toggled by the Launch at Login switch.
     @State var launchAtLogin = LoginItem.isEnabled
+
     /// `true` when a valid OAuth token is stored in the keychain.
     /// Seeded from `oauthService.isAuthenticated` in `init` to avoid a false
     /// flash before `.onAppear` fires. Kept in sync by `onAppearAction()`'s streams.
     @State var isOAuthAuthenticated: Bool
+
     /// `true` when a CLI token (GH_TOKEN / GITHUB_TOKEN) is present but no OAuth token.
     /// Seeded from `oauthService` in `init` to avoid a false flash before `.onAppear`.
     @State var isCLIAuthenticated: Bool
+
     /// `true` while the OAuth sign-in flow is in progress.
     @State var isSigningIn = false
+
     /// Retains the sign-in listener Task so it is cancelled when the view disappears.
     @State private var signInTask: Task<Void, Never>?
+
     /// Retains the sign-out listener Task so it is cancelled when the view disappears.
     @State private var signOutTask: Task<Void, Never>?
+
     /// `true` while `LocalRunnersView` is displayed instead of the main settings scroll.
     @State var showLocalRunners = false
+
     /// `true` while `ScopesView` is displayed instead of the main settings scroll.
     @State var showScopes = false
 
     // MARK: - Init
+
     /// Creates the view with injected dependencies.
     ///
     /// `isOAuthAuthenticated` and `isCLIAuthenticated` are seeded synchronously from
@@ -155,31 +184,35 @@ struct SettingsView: View {
     ) {
         self.onBack = onBack
         self.appState = appState
-        self._localRunnerStoreOverride = localRunnerStore   // stored as-is; never triggers AppState getter
-        self.settings = settings
-        self.notifications = notifications
+        self._localRunnerStoreOverride = localRunnerStore
+        // @Bindable var — assign via _settings/_notifications wrappers
+        self._settings = Bindable(settings)
+        self._notifications = Bindable(notifications)
         self.scopeStore = scopeStore
         _isOAuthAuthenticated = State(initialValue: appState.oauthService.isAuthenticated)
         _isCLIAuthenticated = State(initialValue: !appState.oauthService.isAuthenticated && appState.oauthService.hasAnyToken)
+        log("【SettingsView.init】settings=\(ObjectIdentifier(settings)) betaChannel=\(settings.betaChannel) notifications=\(ObjectIdentifier(notifications))", category: .general)
     }
 
     // MARK: - Computed properties
+
     /// Full version string (preserves pre-release suffixes like `-beta.1`).
     var appVersion: String { Bundle.main.rbVersionString }
+
     /// Build number from `CFBundleVersion`.
-    var appBuild: String {
-        Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "—"
-    }
+    var appBuild: String { Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "—" }
 
     // MARK: - Body
+
     /// Root view: swaps between the settings scroll, `LocalRunnersView`, and `ScopesView`.
     var body: some View {
+        log("【SettingsView.body】rendered — settings=\(ObjectIdentifier(settings)) betaChannel=\(settings.betaChannel)", category: .general)
         // Lifecycle modifiers live on the root (wrapping all branches) so
         // onAppearAction()/onDisappear fire only when the settings panel itself
         // opens/closes — NOT on every navigation to LocalRunnersView/ScopesView.
         // Attaching them to `settingsBody` caused needless re-reads and
         // Task recreation on every back-navigation.
-        Group {
+        return Group {
             if showLocalRunners {
                 LocalRunnersView(
                     onBack: { showLocalRunners = false },
@@ -212,11 +245,10 @@ struct SettingsView: View {
             guard !isOAuthAuthenticated else { return }
             let token = await appState.github.token()
             isCLIAuthenticated = token != nil
-            #if DEBUG
-            log("SettingsView › github.token() resolved — isCLIAuthenticated=\(isCLIAuthenticated)")
-            #endif
+            log("【SettingsView.task】github.token() resolved — isCLIAuthenticated=\(isCLIAuthenticated)", category: .general)
         }
         .onDisappear {
+            log("【SettingsView.onDisappear】cancelling signInTask/signOutTask", category: .general)
             // Cancel and unconditionally nil the sign-in task — the for-await loop
             // exits promptly on cancellation (AsyncStream respects task cancellation)
             // so isSigningIn will never flip back via the stream after this point.
@@ -285,32 +317,30 @@ struct SettingsView: View {
     private func onAppearAction() { // skipcq: SW-R1002 — reviewed; complexity acceptable for this onAppear setup
         isOAuthAuthenticated = oauthService.isAuthenticated
         isCLIAuthenticated = !oauthService.isAuthenticated && oauthService.hasAnyToken
-        #if DEBUG
-        let envToken = oauthService.hasAnyToken
-        log("SettingsView › onAppear — isAuthenticated=\(oauthService.isAuthenticated) hasAnyToken=\(envToken) isOAuthAuthenticated=\(isOAuthAuthenticated) isCLIAuthenticated=\(isCLIAuthenticated)")
-        #endif
+        log("【SettingsView.onAppear】isAuthenticated=\(oauthService.isAuthenticated) hasAnyToken=\(oauthService.hasAnyToken) isOAuthAuthenticated=\(isOAuthAuthenticated) isCLIAuthenticated=\(isCLIAuthenticated) settings=\(ObjectIdentifier(settings)) betaChannel=\(settings.betaChannel)", category: .general)
 
         signInTask = Task { @MainActor in
             for await success in oauthService.makeSignInStream() {
-                log("SettingsView › signInStream — success=\(success), updating auth state")
+                log("【SettingsView.signInStream】success=\(success) — updating auth state", category: .general)
                 isOAuthAuthenticated = success
                 isCLIAuthenticated = !success && oauthService.hasAnyToken
-                log("SettingsView › signInStream — isOAuthAuthenticated=\(isOAuthAuthenticated) isCLIAuthenticated=\(isCLIAuthenticated)")
+                log("【SettingsView.signInStream】isOAuthAuthenticated=\(isOAuthAuthenticated) isCLIAuthenticated=\(isCLIAuthenticated)", category: .general)
                 isSigningIn = false
             }
         }
 
         signOutTask = Task { @MainActor in
             for await _ in oauthService.makeSignOutStream() {
-                log("SettingsView › didSignOut — hasAnyToken=\(oauthService.hasAnyToken)")
+                log("【SettingsView.signOutStream】didSignOut — hasAnyToken=\(oauthService.hasAnyToken)", category: .general)
                 isOAuthAuthenticated = false
                 isCLIAuthenticated = oauthService.hasAnyToken
-                log("SettingsView › didSignOut — isOAuthAuthenticated=\(isOAuthAuthenticated) isCLIAuthenticated=\(isCLIAuthenticated)")
+                log("【SettingsView.signOutStream】isOAuthAuthenticated=\(isOAuthAuthenticated) isCLIAuthenticated=\(isCLIAuthenticated)", category: .general)
             }
         }
     }
 
     // MARK: - Header
+
     /// Top bar with back button and "Settings" title.
     private var headerBar: some View {
         HStack {
@@ -329,12 +359,15 @@ struct SettingsView: View {
     }
 
     // MARK: - Helpers
+
     /// Applies or removes the Login Item entry based on `enabled`, then
     /// syncs `launchAtLogin` to the actual system state via `LoginItem.isEnabled`.
     /// On success the value is unchanged; on failure the toggle snaps back automatically.
     func applyLaunchAtLogin(_ enabled: Bool) {
+        log("【SettingsView.applyLaunchAtLogin】enabled=\(enabled)", category: .general)
         LoginItem.setEnabled(enabled)
         launchAtLogin = LoginItem.isEnabled
+        log("【SettingsView.applyLaunchAtLogin】result LoginItem.isEnabled=\(LoginItem.isEnabled)", category: .general)
     }
 
     /// Initiates the OAuth sign-in flow via the injected `oauthService`.
@@ -343,19 +376,19 @@ struct SettingsView: View {
     /// Opening the browser is the app layer's responsibility — `OAuthService` (Core)
     /// has no AppKit dependency and cannot call `NSWorkspace` directly.
     func signInWithGitHub() {
-        log("SettingsView › signInWithGitHub — isSigningIn=true")
+        log("【SettingsView.signInWithGitHub】isSigningIn=true", category: .general)
         isSigningIn = true
         if let url = oauthService.makeSignInURL() {
             NSWorkspace.shared.open(url)
         } else {
-            log("SettingsView › signInWithGitHub: makeSignInURL returned nil — aborting")
+            log("【SettingsView.signInWithGitHub】makeSignInURL returned nil — aborting", category: .general)
             isSigningIn = false
         }
     }
 
     /// Signs out of GitHub via the injected `oauthService`.
     func signOutOfGitHub() {
-        log("SettingsView › signOutOfGitHub — calling oauthService.signOut()")
+        log("【SettingsView.signOutOfGitHub】calling oauthService.signOut()", category: .general)
         oauthService.signOut()
     }
 }
