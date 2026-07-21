@@ -178,26 +178,12 @@ internal extension SettingsView {
 
     /// General section: notification toggles, launch-at-login, popover arrow, and beta channel.
     ///
-    /// The polling interval row was removed in #2069 — RunnerPoller now drives its own
-    /// cadence via `PollIntervalStrategy` and no longer reads `pollingInterval` from
-    /// `AppPreferencesStore`. The underlying preference key is retained for potential
-    /// future use (e.g. per-scope overrides) but is no longer surfaced in the UI.
-    ///
-    /// The API call counter row was moved to `accountSection` in #2082 — it is semantically
-    /// tied to the authenticated GitHub token, not to general app preferences.
-    ///
-    /// `settings` and `notifications` are injected `let` properties on an `@Observable` type.
-    /// SwiftUI cannot synthesise `$`-bindings from plain `let` stored properties, so we
-    /// capture each store in a local `Bindable` wrapper before using `$` syntax.
-    ///
-    /// Notifications and Launch at login rows use `VStack(title + subtitle)` on the left
-    /// and the control right-aligned, matching the pattern used by `betaChannelRow` and
-    /// `popoverArrowRow`. The Notifications `Picker` uses `.fixedSize()` rather than a
-    /// hardcoded `.frame(width:)` so its width is always derived from the selected item
-    /// label — avoids the narrow-on-first-render flakiness caused by width being measured
-    /// before the selected item string was known.
+    /// FIX #2174: `notifications` is now `@Bindable var` on `SettingsView` — we use
+    /// `$notifications.notificationMode` directly instead of constructing a local
+    /// `Bindable(notifications)` wrapper inside this computed var body. The local
+    /// wrapper pattern silently drops writes (see issue #2174).
     var generalSection: some View {
-        let bindableNotifications = Bindable(notifications)
+        log("【generalSection】rendered — settings.betaChannel=\(settings.betaChannel) notifications.notificationMode=\(notifications.notificationMode)", category: .general)
         return VStack(alignment: .leading, spacing: 0) {
             Text("General").font(RBFont.sectionHeader).foregroundColor(Color.rbTextSecondary)
                 .padding(.horizontal, RBSpacing.md).padding(.top, 8).padding(.bottom, 4)
@@ -208,16 +194,20 @@ internal extension SettingsView {
                         .font(.caption2).foregroundColor(Color.rbTextSecondary)
                 }
                 Spacer()
+                // FIX #2174: was Bindable(notifications).notificationMode — now $notifications.notificationMode
                 // .fixedSize() lets the picker measure its own intrinsic width from the
                 // selected item label. A hardcoded .frame(width:) fights SwiftUI's
                 // menu-picker measurement and produces a narrow control on first render.
-                Picker("Notifications", selection: bindableNotifications.notificationMode) {
+                Picker("Notifications", selection: $notifications.notificationMode) {
                     ForEach(NotificationMode.allCases, id: \.self) { mode in
                         Text(mode.label).tag(mode)
                     }
                 }
                 .labelsHidden()
                 .fixedSize()
+                .onChange(of: notifications.notificationMode) { old, new in
+                    log("【generalSection】notificationMode changed \(old) → \(new)", category: .general)
+                }
             }
             .padding(.horizontal, RBSpacing.md).padding(.vertical, 6)
             HStack(alignment: .center) {
@@ -229,7 +219,10 @@ internal extension SettingsView {
                 Spacer()
                 Toggle("", isOn: $launchAtLogin)
                     .toggleStyle(.switch).tint(Color.rbSuccess).labelsHidden()
-                    .onChange(of: launchAtLogin) { _, newVal in applyLaunchAtLogin(newVal) }
+                    .onChange(of: launchAtLogin) { _, newVal in
+                        log("【generalSection】launchAtLogin changed → \(newVal)", category: .general)
+                        applyLaunchAtLogin(newVal)
+                    }
             }
             .padding(.horizontal, RBSpacing.md).padding(.vertical, 6)
             #if DEBUG
@@ -244,9 +237,9 @@ internal extension SettingsView {
 
     /// Toggle row that shows or hides the NSPopover anchor arrow.
     ///
-    /// Uses a local `Bindable` wrapper for the same reason as `generalSection`.
+    /// FIX #2174: was `Bindable(settings).showPopoverArrow` — now `$settings.showPopoverArrow`.
     var popoverArrowRow: some View {
-        let bindableSettings = Bindable(settings)
+        log("【popoverArrowRow】rendered — showPopoverArrow=\(settings.showPopoverArrow)", category: .general)
         return HStack {
             VStack(alignment: .leading, spacing: 2) {
                 Text("Show popover arrow").font(.system(size: 12))
@@ -254,8 +247,12 @@ internal extension SettingsView {
                     .font(.caption2).foregroundColor(Color.rbTextSecondary)
             }
             Spacer()
-            Toggle("", isOn: bindableSettings.showPopoverArrow)
+            // FIX #2174: was Bindable(settings).showPopoverArrow — now $settings.showPopoverArrow
+            Toggle("", isOn: $settings.showPopoverArrow)
                 .toggleStyle(.switch).tint(Color.rbSuccess).labelsHidden()
+                .onChange(of: settings.showPopoverArrow) { old, new in
+                    log("【popoverArrowRow】showPopoverArrow changed \(old) → \(new)", category: .general)
+                }
         }
         .padding(.horizontal, RBSpacing.md).padding(.top, 6).padding(.bottom, 6)
     }
@@ -275,22 +272,13 @@ internal extension SettingsView {
     ///
     /// ## Immediate check on toggle (#2162)
     ///
-    /// `.onChange(of: settings.betaChannel)` (not `bindableBeta.betaChannel.wrappedValue`)
-    /// is the correct observation target — `settings` is the underlying `@Observable` store.
-    /// On every toggle direction:
-    /// 1. The cached zip at `/update.zip` is deleted so
-    ///    `checkAndHandle` cannot skip the download and jump straight to `.ready` with a
-    ///    stale (potentially wrong-channel) zip already on disk.
-    ///    `autoUpdater.schedulerIdentifier` is used directly so the path stays in sync
-    ///    if the identifier ever changes — a hardcoded copy would silently break.
-    /// 2. `checkAndHandle` is called immediately — no waiting for the background scheduler.
-    ///    `apply(.idle)` is intentionally NOT called before the task (#2168): doing so
-    ///    collapses `aboutSection`'s `currentPhase != .idle` guard synchronously, tearing
-    ///    down `updateActionRow` before the async check can call `apply(.available)`.
-    ///    `checkAndHandle` drives state to the correct terminal phase itself — the
-    ///    pre-reset was redundant and the source of the install-button-never-appears bug.
+    /// FIX #2174: was `Bindable(settings).betaChannel` — now `$settings.betaChannel`.
+    /// The old pattern constructed a transient `Bindable` wrapper inside this computed
+    /// var body; the write hit that wrapper and was silently discarded, so the backing
+    /// store was never mutated and `onChange` never fired. Using `$settings.betaChannel`
+    /// routes the write through the stable `@Bindable var settings` on `SettingsView`.
     var betaChannelRow: some View {
-        let bindableBeta = Bindable(settings)
+        log("【betaChannelRow】rendered — betaChannel=\(settings.betaChannel) settings=\(ObjectIdentifier(settings))", category: .general)
         return HStack {
             VStack(alignment: .leading, spacing: 2) {
                 Text("Beta channel").font(.system(size: 12))
@@ -298,11 +286,12 @@ internal extension SettingsView {
                     .font(.caption2).foregroundColor(Color.rbTextSecondary)
             }
             Spacer()
-            Toggle("", isOn: bindableBeta.betaChannel)
+            // FIX #2174: was Bindable(settings).betaChannel — now $settings.betaChannel
+            Toggle("", isOn: $settings.betaChannel)
                 .toggleStyle(.switch).tint(Color.rbSuccess).labelsHidden()
                 .onChange(of: settings.betaChannel) { _, newValue in
                     // DEBUG #2170 — remove once beta-toggle install-button bug is resolved
-                    log("【beta-toggle】onChange fired — betaChannel=\(newValue)", category: .general)
+                    log("【beta-toggle】onChange fired — betaChannel=\(newValue) settings=\(ObjectIdentifier(settings))", category: .general)
 
                     let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
                     log("【beta-toggle】cachesDir=\(caches?.path ?? "NIL")", category: .general)
@@ -328,8 +317,6 @@ internal extension SettingsView {
 
                     log("【beta-toggle】spawning Task", category: .general)
                     Task {
-                        // DEBUG #2170 — Thread.isMainThread unavailable in async context (Swift 6);
-                        // Task inherits @MainActor from the onChange closure so actor is always main.
                         log("【beta-toggle】Task ENTERED (actor=main)", category: .general)
                         await autoUpdater.checkAndHandle(state: runnerState)
                         log("【beta-toggle】Task COMPLETED", category: .general)
@@ -434,12 +421,6 @@ internal extension SettingsView {
                         .font(.caption2).foregroundColor(Color.rbTextSecondary)
                 }
                 Spacer()
-                // The download fires automatically — the user never taps a Download
-                // button. This matches the macOS/Sparkle convention: downloading is
-                // low-risk and reversible (a cached zip), so consent is only required
-                // at install. Do NOT add a Download button here (Principle 5:
-                // unsupported is correct). The disabled Install & Relaunch button is
-                // the in-progress signal — it becomes active when .ready is reached.
                 Button("Install & Relaunch") {}
                     .buttonStyle(.borderedProminent)
                     .controlSize(.small)
@@ -450,16 +431,9 @@ internal extension SettingsView {
                 // fields — it returns .available instead (no isDownloading flag; see
                 // RunnerState+AppUpdater.swift currentPhase doc and Principle 1).
                 // The ProgressView below never renders. The case must remain for
-                // compiler exhaustiveness. Do NOT add an isDownloading: Bool flag to
-                // RunnerState to make this reachable — that violates Principle 1 (one
-                // enum owns all state) and Principle 4 (no sprawl). If download
-                // progress UI is ever genuinely needed, the right fix is a
-                // downloading(version: String, progress: Double) case on UpdatePhase.
+                // compiler exhaustiveness.
                 VStack(alignment: .leading, spacing: 1) {
                     Text("Update available: \(version)").font(.system(size: 12))
-                    // ProgressView label is intentionally visible (not hidden) so VoiceOver
-                    // announces "Downloading update…" — spec #1797 acceptance criterion.
-                    // Do NOT add .labelsHidden() here.
                     ProgressView("Downloading update…")
                         .scaleEffect(RBMetrics.updateProgressScale)
                 }
@@ -472,6 +446,7 @@ internal extension SettingsView {
                 }
                 Spacer()
                 Button("Install & Relaunch") {
+                    log("【updateActionRow】Install & Relaunch tapped — phase=\(runnerState.currentPhase)", category: .general)
                     Task { await autoUpdater.installAndRelaunch(state: runnerState) }
                 }
                 .buttonStyle(.borderedProminent)
@@ -485,12 +460,8 @@ internal extension SettingsView {
                         .font(.caption2).foregroundColor(Color.rbTextSecondary)
                 }
                 Spacer()
-                // Retry re-runs the full pipeline from scratch (check → download →
-                // verify → cache). There is no partial resume, no saved download
-                // offset, no rehydration of prior state. Principle 2: binary outcomes
-                // only. If the retry succeeds it reaches .ready; if it fails again
-                // it returns here. The user retries until it works or gives up.
                 Button("Retry") {
+                    log("【updateActionRow】Retry tapped — phase=\(runnerState.currentPhase)", category: .general)
                     Task { await autoUpdater.checkAndHandle(state: runnerState) }
                 }
                 .buttonStyle(.borderedProminent)
