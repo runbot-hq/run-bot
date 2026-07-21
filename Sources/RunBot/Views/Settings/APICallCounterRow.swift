@@ -35,8 +35,13 @@ extension View {
 
 // MARK: - APICallCounterRow
 
-/// Settings row that shows `"410 / 5,000"` with a colour-coded progress bar
-/// and an optional "Resets in N min/sec" sub-label driven by `resetDate`.
+/// Settings row that shows `"410 / 5,000"` with a colour-coded progress bar.
+///
+/// Layout (matches every other settings row in SettingsView+Sections.swift):
+///   HStack(alignment: .center)
+///   ├── VStack(leading): title + description   ← compresses via lineLimit+minimumScaleFactor
+///   ├── Spacer()
+///   └── HStack: count + progress bar           ← layoutPriority(1), always wins, right-aligned
 ///
 /// Usage:
 /// ```swift
@@ -44,56 +49,43 @@ extension View {
 /// ```
 public struct APICallCounterRow: View {
     /// View model that drives the counter label, colour, and snapshot.
-    /// `@State` so SwiftUI owns the lifetime and the instance survives view identity changes.
     @State private var vm = APICallCounterViewModel()
 
     /// Optional rate-limit reset date forwarded from `RunnerState.rateLimitResetDate`.
-    /// `nil` when no rate-limit response has been received yet; the reset sub-label is
-    /// suppressed when this is `nil`.
     private let resetDate: Date?
 
-    /// Creates a new `APICallCounterRow` with a fresh view model.
-    /// - Parameter resetDate: Optional rate-limit reset date from `RunnerState`.
     public init(resetDate: Date? = nil) {
         self.resetDate = resetDate
     }
 
-    /// Leading VStack: title + optional description, left-aligned, shrink before wrap.
-    /// Trailing VStack: stretched to full row height via maxHeight:.infinity so
-    /// Spacer(minLength:0) pairs genuinely centre the number+bar HStack vertically.
     public var body: some View {
         HStack(alignment: .center, spacing: 12) {
-            // Leading: title + optional description, left aligned, shrink before wrap
+            // Leading: title + description, left-aligned, shrink horizontally before wrapping
             VStack(alignment: .leading, spacing: 2) {
                 Text("API Calls (last hour)")
-                    .font(.body)
+                    .font(.system(size: 12))
                     .lineLimit(1)
                     .minimumScaleFactor(0.75)
-                if !vm.resetLabel.isEmpty {
-                    Text(vm.resetLabel)
-                        .font(.caption)
-                        .foregroundStyle(Color.rbTextSecondary)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.75)
-                }
+                Text("Tracks GitHub API requests consumed in the current rate-limit window.")
+                    .font(.caption2)
+                    .foregroundColor(Color.rbTextSecondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
 
-            // Trailing: stretched VStack so Spacers have height to work with,
-            // centering the number+bar HStack at the vertical midpoint of the row
-            VStack {
-                Spacer(minLength: 0)
-                HStack(alignment: .center, spacing: 6) {
-                    Text(vm.label)
-                        .foregroundStyle(vm.statusColor)
-                        .monospacedDigit()
-                    ProgressView(value: vm.snap.fraction)
-                        .frame(width: 60)
-                        .tint(vm.statusColor)
-                }
-                Spacer(minLength: 0)
+            Spacer()
+
+            // Trailing: count + progress bar, right-aligned, always wins layout negotiation
+            HStack(alignment: .center, spacing: 6) {
+                Text(vm.label)
+                    .font(.system(size: 12))
+                    .foregroundStyle(vm.statusColor)
+                    .monospacedDigit()
+                ProgressView(value: vm.snap.fraction)
+                    .frame(width: 60)
+                    .tint(vm.statusColor)
             }
-            .frame(maxHeight: .infinity)
+            .layoutPriority(1)
         }
         .help(
             """
@@ -104,10 +96,8 @@ public struct APICallCounterRow: View {
             """
         )
         // SYNC INVARIANT — both modifiers are required, do not remove either:
-        // • onAppear  → seeds the VM on first render AND re-syncs after the view
-        //               returns from off-screen (Settings closed and reopened).
+        // • onAppear  → seeds the VM on first render AND re-syncs on Settings re-open.
         // • onChange  → keeps the VM live while the view stays on screen.
-        // Removing onAppear breaks re-entry; removing onChange breaks live updates.
         .onChange(of: resetDate) { _, newVal in vm.resetDate = newVal }
         .onAppear { vm.resetDate = resetDate }
         .counterPolling(vm)
