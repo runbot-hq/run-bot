@@ -151,15 +151,19 @@ public final class AppPreferencesStore {
     public var betaChannel: Bool = false {
         didSet {
             guard oldValue != betaChannel else { return }
+            #if DEBUG
             log(
                 "【AppPreferencesStore.betaChannel.didSet】\(oldValue) → \(betaChannel)",
                 category: .general
             )
+            #endif
             _store.set(betaChannel, forKey: Self.keyBetaChannel)
+            #if DEBUG
             log(
                 "【AppPreferencesStore.betaChannel.didSet】persisted to \(Self.keyBetaChannel)",
                 category: .general
             )
+            #endif
         }
     }
 
@@ -200,12 +204,17 @@ public final class AppPreferencesStore {
     /// injected suite, but the `.standard` subscription is not torn down
     /// (no public teardown API). Harmless in tests — see original doc for detail.
     public init(store: UserDefaults) {
+        #if DEBUG
         log(
             "【AppPreferencesStore.init】store=\(store === UserDefaults.standard ? ".standard" : "injected")",
             category: .general
         )
-        // Assign _store before register(defaults:) so betaChannel didSet
-        // targets the correct suite from the first write.
+        #endif
+        // _store must be assigned before the betaChannel seed below so that
+        // any post-init didSet on betaChannel writes to the injected suite.
+        // NOTE: didSet does NOT fire on the seed assignment — Swift suppresses
+        // didSet during init — so _store's value here has no effect on that
+        // line. It matters only for runtime writes after init completes.
         _store = store
         store.register(defaults: [
             Self.keyShowDimmedRunners: true,
@@ -215,10 +224,12 @@ public final class AppPreferencesStore {
         // Seed betaChannel from the (possibly injected) store.
         // didSet does NOT fire during init — no double-write to UserDefaults.
         betaChannel = store.bool(forKey: Self.keyBetaChannel)
+        #if DEBUG
         log(
             "【AppPreferencesStore.init】betaChannel seeded from store: \(betaChannel)",
             category: .general
         )
+        #endif
         if store !== UserDefaults.standard {
             // Re-target @AppStorage wrappers to the injected test suite.
             // betaChannel has no @AppStorage wrapper — _store handles it above.
@@ -232,10 +243,12 @@ public final class AppPreferencesStore {
                 Self.keyShowPopoverArrow,
                 store: store
             )
+            #if DEBUG
             log(
                 "【AppPreferencesStore.init】test suite injected — @AppStorage wrappers rebound",
                 category: .general
             )
+            #endif
         }
     }
 }

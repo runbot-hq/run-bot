@@ -183,7 +183,9 @@ internal extension SettingsView {
     /// `Bindable(notifications)` wrapper inside this computed var body. The local
     /// wrapper pattern silently drops writes (see issue #2174).
     var generalSection: some View {
+        #if DEBUG
         log("【generalSection】rendered — settings.betaChannel=\(settings.betaChannel) notifications.notificationMode=\(notifications.notificationMode)", category: .general)
+        #endif
         return VStack(alignment: .leading, spacing: 0) {
             Text("General").font(RBFont.sectionHeader).foregroundColor(Color.rbTextSecondary)
                 .padding(.horizontal, RBSpacing.md).padding(.top, 8).padding(.bottom, 4)
@@ -205,9 +207,11 @@ internal extension SettingsView {
                 }
                 .labelsHidden()
                 .fixedSize()
+                #if DEBUG
                 .onChange(of: notifications.notificationMode) { old, new in
                     log("【generalSection】notificationMode changed \(old) → \(new)", category: .general)
                 }
+                #endif
             }
             .padding(.horizontal, RBSpacing.md).padding(.vertical, 6)
             HStack(alignment: .center) {
@@ -220,7 +224,9 @@ internal extension SettingsView {
                 Toggle("", isOn: $launchAtLogin)
                     .toggleStyle(.switch).tint(Color.rbSuccess).labelsHidden()
                     .onChange(of: launchAtLogin) { _, newVal in
+                        #if DEBUG
                         log("【generalSection】launchAtLogin changed → \(newVal)", category: .general)
+                        #endif
                         applyLaunchAtLogin(newVal)
                     }
             }
@@ -239,7 +245,9 @@ internal extension SettingsView {
     ///
     /// FIX #2174: was `Bindable(settings).showPopoverArrow` — now `$settings.showPopoverArrow`.
     var popoverArrowRow: some View {
+        #if DEBUG
         log("【popoverArrowRow】rendered — showPopoverArrow=\(settings.showPopoverArrow)", category: .general)
+        #endif
         return HStack {
             VStack(alignment: .leading, spacing: 2) {
                 Text("Show popover arrow").font(.system(size: 12))
@@ -250,9 +258,11 @@ internal extension SettingsView {
             // FIX #2174: was Bindable(settings).showPopoverArrow — now $settings.showPopoverArrow
             Toggle("", isOn: $settings.showPopoverArrow)
                 .toggleStyle(.switch).tint(Color.rbSuccess).labelsHidden()
+                #if DEBUG
                 .onChange(of: settings.showPopoverArrow) { old, new in
                     log("【popoverArrowRow】showPopoverArrow changed \(old) → \(new)", category: .general)
                 }
+                #endif
         }
         .padding(.horizontal, RBSpacing.md).padding(.top, 6).padding(.bottom, 6)
     }
@@ -285,7 +295,9 @@ internal extension SettingsView {
     /// a previous channel's check persisted after `checkAndHandle` returned "no update
     /// available", keeping the install button visible indefinitely.
     var betaChannelRow: some View {
+        #if DEBUG
         log("【betaChannelRow】rendered — betaChannel=\(settings.betaChannel) settings=\(ObjectIdentifier(settings))", category: .general)
+        #endif
         return HStack {
             VStack(alignment: .leading, spacing: 2) {
                 Text("Beta channel").font(.system(size: 12))
@@ -297,43 +309,62 @@ internal extension SettingsView {
             Toggle("", isOn: $settings.betaChannel)
                 .toggleStyle(.switch).tint(Color.rbSuccess).labelsHidden()
                 .onChange(of: settings.betaChannel) { _, newValue in
-runnerState.apply(.idle)
-log("【beta-toggle】onChange fired — betaChannel=\(newValue) settings=\(ObjectIdentifier(settings))", category: .general)
+                    // DEBUG #2170 — remove once beta-toggle install-button bug is verified fixed
+                    #if DEBUG
+                    log("【beta-toggle】onChange fired — betaChannel=\(newValue) settings=\(ObjectIdentifier(settings))", category: .general)
+                    #endif
 
                     // FIX #2188: reset phase to .idle immediately so the install button
                     // hides at once, before the async check completes.
                     runnerState.apply(.idle)
+
+                    #if DEBUG
                     log("【beta-toggle】phase reset to .idle", category: .general)
+                    #endif
 
                     let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
-                    log("【beta-toggle】cachesDir=\(caches?.path ?? "NIL")", category: .general)
-
                     let zip = caches?.appendingPathComponent(autoUpdater.schedulerIdentifier)
                                      .appendingPathComponent("update.zip")
+
+                    #if DEBUG
+                    log("【beta-toggle】cachesDir=\(caches?.path ?? "NIL")", category: .general)
                     log("【beta-toggle】zip path=\(zip?.path ?? "NIL")", category: .general)
+                    #endif
 
                     if let zip {
                         let exists = FileManager.default.fileExists(atPath: zip.path)
+                        #if DEBUG
                         log("【beta-toggle】zip exists=\(exists)", category: .general)
+                        #endif
                         if exists {
                             do {
                                 try FileManager.default.removeItem(at: zip)
+                                #if DEBUG
                                 log("【beta-toggle】zip deleted OK", category: .general)
+                                #endif
                             } catch {
+                                #if DEBUG
                                 log("【beta-toggle】zip delete FAILED: \(error)", category: .general)
+                                #endif
                             }
                         }
-                    } else {
-                        log("【beta-toggle】zip is nil — skipping delete", category: .general)
                     }
 
+                    #if DEBUG
                     log("【beta-toggle】spawning Task", category: .general)
+                    #endif
                     Task {
+                        #if DEBUG
                         log("【beta-toggle】Task ENTERED (actor=main)", category: .general)
+                        #endif
                         await autoUpdater.checkAndHandle(state: runnerState)
+                        #if DEBUG
                         log("【beta-toggle】Task COMPLETED", category: .general)
+                        #endif
                     }
+                    #if DEBUG
                     log("【beta-toggle】onChange handler EXIT", category: .general)
+                    #endif
                 }
         }
         .padding(.horizontal, RBSpacing.md).padding(.top, 6).padding(.bottom, 6)
@@ -372,20 +403,11 @@ log("【beta-toggle】onChange fired — betaChannel=\(newValue) settings=\(Obje
                 }
             }
             .padding(.horizontal, RBSpacing.md).padding(.vertical, 5)
-// DEBUG #2170 — remove once beta-toggle install-button bug is verified fixed
-if shouldShowUpdateRow && runnerState.currentPhase != .idle {
+            if runnerState.currentPhase != .idle {
                 Divider().padding(.leading, RBSpacing.md)
                 updateActionRow
             }
         }
-    }
-
-    /// DEBUG #2170 — gates `updateActionRow` and logs every evaluation.
-    /// Remove after beta-toggle install-button bug is verified fixed.
-    private var shouldShowUpdateRow: Bool {
-        let show = runnerState.currentPhase != .idle
-        log("【aboutSection】shouldShowUpdateRow=\(show) phase=\(runnerState.currentPhase)", category: .general)
-        return show
     }
 
     // MARK: - Update action row
@@ -414,8 +436,10 @@ if shouldShowUpdateRow && runnerState.currentPhase != .idle {
     /// UI somewhere else in the view hierarchy, please read issue #1794 first.
     /// The single-row approach is the final design for v1, not a placeholder.
     var updateActionRow: some View {
+        #if DEBUG
         // DEBUG #2170 — remove once beta-toggle install-button bug is verified fixed
         log("【updateActionRow】RENDERED — phase=\(runnerState.currentPhase)", category: .general)
+        #endif
         return HStack(spacing: 8) {
             // ❌ DO NOT add .accessibilityHidden(true) here.
             // Accessibility modifiers on this icon are out of scope for v1 (#1794).
@@ -458,7 +482,9 @@ if shouldShowUpdateRow && runnerState.currentPhase != .idle {
                 }
                 Spacer()
                 Button("Install & Relaunch") {
+                    #if DEBUG
                     log("【updateActionRow】Install & Relaunch tapped — phase=\(runnerState.currentPhase)", category: .general)
+                    #endif
                     Task { await autoUpdater.installAndRelaunch(state: runnerState) }
                 }
                 .buttonStyle(.borderedProminent)
@@ -473,7 +499,9 @@ if shouldShowUpdateRow && runnerState.currentPhase != .idle {
                 }
                 Spacer()
                 Button("Retry") {
+                    #if DEBUG
                     log("【updateActionRow】Retry tapped — phase=\(runnerState.currentPhase)", category: .general)
+                    #endif
                     Task { await autoUpdater.checkAndHandle(state: runnerState) }
                 }
                 .buttonStyle(.borderedProminent)
