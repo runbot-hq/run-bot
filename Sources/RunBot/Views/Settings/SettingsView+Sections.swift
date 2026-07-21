@@ -282,9 +282,12 @@ internal extension SettingsView {
     ///      stale (potentially wrong-channel) zip already on disk.
     ///      `autoUpdater.schedulerIdentifier` is used directly so the path stays in sync
     ///      if the identifier ever changes — a hardcoded copy would silently break.
-    ///   2. `runnerState.apply(.idle)` resets the update UI
-    ///      (`availableUpdate`, `cachedUpdateVersion`, `updateActionFailed`).
-    ///   3. `checkAndHandle` is called immediately — no waiting for the background scheduler.
+    ///   2. `checkAndHandle` is called immediately — no waiting for the background scheduler.
+    ///      `apply(.idle)` is intentionally NOT called before the task (#2168): doing so
+    ///      collapses `aboutSection`'s `currentPhase != .idle` guard synchronously, tearing
+    ///      down `updateActionRow` before the async check can call `apply(.available)`.
+    ///      `checkAndHandle` drives state to the correct terminal phase itself — the
+    ///      pre-reset was redundant and the source of the install-button-never-appears bug.
     var betaChannelRow: some View {
         let bindableBeta = Bindable(settings)
         return HStack {
@@ -301,7 +304,6 @@ internal extension SettingsView {
                     let zip = caches?.appendingPathComponent(autoUpdater.schedulerIdentifier)
                                      .appendingPathComponent("update.zip")
                     zip.map { try? FileManager.default.removeItem(at: $0) }
-                    runnerState.apply(.idle)
                     Task { await autoUpdater.checkAndHandle(state: runnerState) }
                 }
         }
