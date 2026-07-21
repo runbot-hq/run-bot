@@ -310,7 +310,9 @@ struct SettingsView: View {
         .padding(.bottom, 16)
     }
 
-    /// Runs on `.onAppear`: re-syncs auth state from `oauthService` and starts sign-in / sign-out listeners.
+    /// Runs on `.onAppear`: re-syncs auth state from `oauthService` and starts sign-in /
+    /// sign-out listeners. Also triggers a fresh update check so the latest available
+    /// version is always offered when the user opens Settings (fix #2208).
     ///
     /// Auth state is already seeded from `oauthService` in `init`, so this is a no-op
     /// on the first render. On subsequent appears (e.g. after a hide/show cycle) it
@@ -338,6 +340,25 @@ struct SettingsView: View {
                 isCLIAuthenticated = oauthService.hasAnyToken
                 log("【SettingsView.signOutStream】OAuth=\(isOAuthAuthenticated) CLI=\(isCLIAuthenticated)", category: .general)
             }
+        }
+
+        // FIX #2208: check for a newer version whenever the user opens Settings
+        // so the latest available version is always offered — not only at launch
+        // or on the 24h background tick.
+        //
+        // No phase reset — existing state is preserved during the check.
+        // checkAndHandle only writes runnerState if it finds a newer version;
+        // otherwise the current phase is left untouched, so no UI flicker occurs.
+        //
+        // This fires once per Settings panel open. .onAppear is attached to the
+        // root Group (not settingsBody), so it does NOT fire on back-navigation
+        // from LocalRunnersView or ScopesView — see body comment above.
+        //
+        // Mirrors the identical pattern in betaChannelRow.onChange.
+        // Principle P6 (reach-goal): named task on a user-interactive path.
+        // Principle P9: structured concurrency — no Timer or DispatchQueue.
+        Task(name: "settings-appear-update-check") { @MainActor in
+            await autoUpdater.checkAndHandle(state: runnerState)
         }
     }
 
