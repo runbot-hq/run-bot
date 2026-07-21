@@ -237,13 +237,27 @@ jobs:
           echo "Tag $TAG is available."
 
       # ── Patch Info.plist ──────────────────────────────────────────────────────────────
-      # CFBundleShortVersionString  ← X.Y.Z only (macOS strips pre-release
-      #                               suffixes here for display)
-      # RBVersionString             ← full semver incl. pre-release suffix
-      #                               (e.g. "0.7.3-beta.1"); read by
-      #                               UpdateChecker.checkForUpdate
-      # CFBundleVersion             ← monotonically incrementing build number
-      #                               derived from total git commit count
+      #
+      # FIX #2199: CFBundleShortVersionString is set to the FULL VERSION string
+      # (including pre-release suffix) for beta builds. Previously it was always
+      # stripped to the numeric core (SHORT_VERSION="${VERSION%%-*}"), which caused
+      # AppUpdater's post-swap verifier to always fail for beta installs:
+      #   expected: 0.7.8-beta.1  (from the GitHub release tag)
+      #   got:      0.7.8         (from CFBundleShortVersionString in the installed bundle)
+      # See: https://github.com/runbot-hq/run-bot/issues/2199
+      #
+      # Key semantics after this fix:
+      #   CFBundleShortVersionString  ← full VERSION for beta (e.g. "0.7.8-beta.1")
+      #                                 numeric-only for release (e.g. "0.7.8")
+      #                                 AppUpdater reads this key for post-swap verification.
+      #                                 macOS does NOT require this to be numeric-only;
+      #                                 the pre-release suffix is displayed correctly
+      #                                 in About dialogs and System Information.
+      #   RBVersionString             ← full VERSION always (e.g. "0.7.8-beta.1")
+      #                                 read by UpdateChecker.checkForUpdate for update
+      #                                 selection. Both keys are now in sync for beta.
+      #   CFBundleVersion             ← monotonically incrementing build number derived
+      #                                 from total git commit count.
       #
       # BUILD is captured before the plist commit step adds one more commit,
       # so CFBundleVersion at the tagged commit will be N while git rev-list
@@ -254,21 +268,84 @@ jobs:
       - name: Patch Info.plist
         run: |
           set -euo pipefail
+
           VERSION="${{ steps.tag.outputs.version }}"
-          SHORT_VERSION="${VERSION%%-*}"
+          CHANNEL="${{ steps.tag.outputs.channel }}"
           BUILD=$(git rev-list --count HEAD)
 
+          echo "[plist] INPUT  version=${VERSION} channel=${CHANNEL} build=${BUILD}"
+
+          # Read current values before patching so any unexpected pre-existing
+          # state is visible in CI logs.
+          PRE_SHORT=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" Resources/Info.plist)
+          PRE_RB=$(/usr/libexec/PlistBuddy    -c "Print :RBVersionString"            Resources/Info.plist)
+          PRE_BUILD=$(/usr/libexec/PlistBuddy  -c "Print :CFBundleVersion"           Resources/Info.plist)
+          echo "[plist] BEFORE CFBundleShortVersionString=${PRE_SHORT}"
+          echo "[plist] BEFORE RBVersionString=${PRE_RB}"
+          echo "[plist] BEFORE CFBundleVersion=${PRE_BUILD}"
+
+          # FIX #2199: for beta builds, CFBundleShortVersionString must carry the
+          # full pre-release suffix so AppUpdater's post-swap verifier matches.
+          # For release builds, VERSION has no suffix, so the assignment is identical
+          # to the old SHORT_VERSION="${VERSION%%-*}" behaviour.
+          if [[ "$CHANNEL" == "beta" ]]; then
+            SHORT_VERSION="$VERSION"         # e.g. "0.7.8-beta.1" — full semver
+            echo "[plist] CHANNEL=beta  → CFBundleShortVersionString will be set to full VERSION=${VERSION} (fix #2199)"
+          else
+            SHORT_VERSION="${VERSION%%-*}"   # e.g. "0.7.8" — strip suffix for release
+            echo "[plist] CHANNEL=release → CFBundleShortVersionString will be set to numeric core SHORT_VERSION=${SHORT_VERSION}"
+          fi
+
+          echo "[plist] PATCHING CFBundleShortVersionString → ${SHORT_VERSION}"
           /usr/libexec/PlistBuddy -c \
             "Set :CFBundleShortVersionString ${SHORT_VERSION}" \
             Resources/Info.plist
+
+          echo "[plist] PATCHING RBVersionString → ${VERSION}"
           /usr/libexec/PlistBuddy -c \
             "Set :RBVersionString ${VERSION}" \
             Resources/Info.plist
+
+          echo "[plist] PATCHING CFBundleVersion → ${BUILD}"
           /usr/libexec/PlistBuddy -c \
             "Set :CFBundleVersion ${BUILD}" \
             Resources/Info.plist
 
-          echo "Patched Info.plist: shortVersion=${SHORT_VERSION} fullVersion=${VERSION} build=${BUILD}"
+          # Read back all patched keys immediately after writing to catch any
+          # PlistBuddy silent failure (e.g. wrong key path, type coercion issue).
+          POST_SHORT=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" Resources/Info.plist)
+          POST_RB=$(/usr/libexec/PlistBuddy    -c "Print :RBVersionString"            Resources/Info.plist)
+          POST_BUILD=$(/usr/libexec/PlistBuddy  -c "Print :CFBundleVersion"           Resources/Info.plist)
+          echo "[plist] AFTER  CFBundleShortVersionString=${POST_SHORT}"
+          echo "[plist] AFTER  RBVersionString=${POST_RB}"
+          echo "[plist] AFTER  CFBundleVersion=${POST_BUILD}"
+
+          # Explicit assertions — fail loud if any key didn't take.
+          if [[ "$POST_SHORT" != "$SHORT_VERSION" ]]; then
+            echo "::error::[plist] CFBundleShortVersionString mismatch after patch: expected=${SHORT_VERSION} got=${POST_SHORT}" >&2
+            exit 1
+          fi
+          if [[ "$POST_RB" != "$VERSION" ]]; then
+            echo "::error::[plist] RBVersionString mismatch after patch: expected=${VERSION} got=${POST_RB}" >&2
+            exit 1
+          fi
+          if [[ "$POST_BUILD" != "$BUILD" ]]; then
+            echo "::error::[plist] CFBundleVersion mismatch after patch: expected=${BUILD} got=${POST_BUILD}" >&2
+            exit 1
+          fi
+
+          # Post-swap verifier alignment check (fix #2199).
+          # AppUpdater strips the leading 'v' from the release tag and compares
+          # against CFBundleShortVersionString. Assert they will match now.
+          EXPECTED_BY_APPUPDATER="$VERSION"   # tag without leading 'v'
+          if [[ "$POST_SHORT" != "$EXPECTED_BY_APPUPDATER" ]]; then
+            echo "::error::[plist] POST-SWAP VERIFIER MISMATCH PREDICTED: AppUpdater expects CFBundleShortVersionString=${EXPECTED_BY_APPUPDATER} but plist has ${POST_SHORT} — install will fail post-swap verification. This is the bug from #2199." >&2
+            exit 1
+          fi
+
+          echo "[plist] ALL ASSERTIONS PASSED"
+          echo "[plist] SUMMARY: channel=${CHANNEL} shortVersion=${POST_SHORT} rbVersion=${POST_RB} build=${POST_BUILD}"
+          echo "[plist] SUMMARY: CFBundleShortVersionString and RBVersionString are in sync — AppUpdater post-swap verification will pass."
 
       # ── Build ────────────────────────────────────────────────────────────────────
       - name: Build
@@ -293,6 +370,44 @@ jobs:
             exit 1
           fi
           echo "Zip verified: RunBot.app/Contents/MacOS/RunBot is present at archive root."
+
+          # Read CFBundleShortVersionString from the zipped bundle's Info.plist
+          # to confirm the patched plist made it into the archive.
+          TMPDIR_ZIP=$(mktemp -d)
+          unzip -q "$ZIP" "RunBot.app/Contents/Info.plist" -d "$TMPDIR_ZIP"
+          ZIP_SHORT=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" \
+            "$TMPDIR_ZIP/RunBot.app/Contents/Info.plist")
+          ZIP_RB=$(/usr/libexec/PlistBuddy -c "Print :RBVersionString" \
+            "$TMPDIR_ZIP/RunBot.app/Contents/Info.plist")
+          ZIP_BUILD=$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" \
+            "$TMPDIR_ZIP/RunBot.app/Contents/Info.plist")
+          rm -rf "$TMPDIR_ZIP"
+
+          echo "[zip-verify] CFBundleShortVersionString=${ZIP_SHORT}"
+          echo "[zip-verify] RBVersionString=${ZIP_RB}"
+          echo "[zip-verify] CFBundleVersion=${ZIP_BUILD}"
+
+          EXPECTED_VERSION="${{ steps.tag.outputs.version }}"
+          EXPECTED_CHANNEL="${{ steps.tag.outputs.channel }}"
+
+          # For beta: CFBundleShortVersionString must equal the full version (fix #2199).
+          # For release: it must equal the numeric core.
+          if [[ "$EXPECTED_CHANNEL" == "beta" ]]; then
+            EXPECTED_SHORT="$EXPECTED_VERSION"
+          else
+            EXPECTED_SHORT="${EXPECTED_VERSION%%-*}"
+          fi
+
+          if [[ "$ZIP_SHORT" != "$EXPECTED_SHORT" ]]; then
+            echo "::error::[zip-verify] CFBundleShortVersionString mismatch in zip: expected=${EXPECTED_SHORT} got=${ZIP_SHORT} — AppUpdater post-swap verification will fail. This is the bug from #2199." >&2
+            exit 1
+          fi
+          if [[ "$ZIP_RB" != "$EXPECTED_VERSION" ]]; then
+            echo "::error::[zip-verify] RBVersionString mismatch in zip: expected=${EXPECTED_VERSION} got=${ZIP_RB}" >&2
+            exit 1
+          fi
+
+          echo "[zip-verify] ALL VERSION ASSERTIONS PASSED in zip bundle."
           echo "zip_path=$ZIP" >> "$GITHUB_OUTPUT"
 
       # ── Sign release zip with Ed25519 ─────────────────────────────────────────────────
