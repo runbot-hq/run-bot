@@ -1,5 +1,6 @@
 // RunnerState+AppUpdater.swift
 // RunBotCore
+
 import AppUpdater
 import Foundation
 
@@ -41,29 +42,27 @@ extension RunnerState: UpdateStateProviding {
     /// property (tracked by `@Observable`) in sync with the raw fields, so
     /// SwiftUI views that read `currentPhase` are correctly invalidated.
     public func apply(_ phase: UpdatePhase) {
+        // DEBUG #2170 — remove once beta-toggle install-button bug is resolved
+        logger.debug("【RunnerState.apply】phase=\(phase) — previous=\(self.currentPhase)")
         switch phase {
         case .idle:
             availableUpdate = nil
             cachedUpdateVersion = nil
             updateActionFailed = false
-
         case .available(let version):
             availableUpdate = version
             cachedUpdateVersion = nil
             updateActionFailed = false
-
         case .downloading(let version):
             // Show that a download is in progress: update label visible,
             // cachedUpdateVersion cleared so install button is hidden while downloading.
             availableUpdate = version
             cachedUpdateVersion = nil
             updateActionFailed = false
-
         case .ready(let version):
             availableUpdate = version
             cachedUpdateVersion = version
             updateActionFailed = false
-
         case .failed(let version):
             // ✅ REVIEWED: availableUpdate is intentionally preserved when version == nil.
             //
@@ -82,7 +81,6 @@ extension RunnerState: UpdateStateProviding {
             cachedUpdateVersion = nil
             updateActionFailed = true
         }
-
         // Keep the stored `currentPhase` in sync.
         // `currentPhase` is a stored `@Observable` property on `RunnerState`.
         // Assigning it here — after all raw-field mutations — guarantees that
@@ -90,6 +88,8 @@ extension RunnerState: UpdateStateProviding {
         // fully-consistent post-transition state. Views reading `currentPhase`
         // are invalidated exactly once per `apply(_:)` call.
         currentPhase = derivedPhase()
+        // DEBUG #2170 — remove once beta-toggle install-button bug is resolved
+        logger.debug("【RunnerState.apply】→ currentPhase=\(self.currentPhase)")
     }
 
     // MARK: - derivedPhase
@@ -100,10 +100,10 @@ extension RunnerState: UpdateStateProviding {
     /// assigned to the stored `currentPhase` property.
     ///
     /// Priority order (highest to lowest):
-    /// 1. `.ready`    — zip on disk and a version known
-    /// 2. `.failed`   — an action failure is flagged
+    /// 1. `.ready` — zip on disk and a version known
+    /// 2. `.failed` — an action failure is flagged
     /// 3. `.available`— a version is known but no zip yet
-    /// 4. `.idle`     — nothing in progress
+    /// 4. `.idle` — nothing in progress
     ///
     /// ## `.downloading` is intentionally not reconstructable
     ///
@@ -121,9 +121,7 @@ extension RunnerState: UpdateStateProviding {
     /// stored `currentPhase` property, which is always up to date after
     /// any `apply(_:)` call.
     private func derivedPhase() -> UpdatePhase {
-        if let version = cachedUpdateVersion {
-            return .ready(version: version)
-        }
+        if let version = cachedUpdateVersion { return .ready(version: version) }
         // ✅ REVIEWED: .ready is evaluated first. If both cachedUpdateVersion and
         // updateActionFailed are set simultaneously, .ready wins and .failed is
         // suppressed. This is safe only because apply(.failed(...)) always sets
@@ -135,12 +133,8 @@ extension RunnerState: UpdateStateProviding {
         // combined state and will silently get .ready instead of .failed.
         // Direct mutation of raw storage without going through apply(_:) is
         // not supported and not defended against here.
-        if updateActionFailed {
-            return .failed(version: availableUpdate)
-        }
-        if let version = availableUpdate {
-            return .available(version: version)
-        }
+        if updateActionFailed { return .failed(version: availableUpdate) }
+        if let version = availableUpdate { return .available(version: version) }
         return .idle
     }
 }

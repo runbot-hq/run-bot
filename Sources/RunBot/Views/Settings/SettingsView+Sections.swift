@@ -1,14 +1,17 @@
 // SettingsView+Sections.swift
 // RunBot
+
 import AppUpdater
 import RunBotCore
 import SwiftUI
 
 // MARK: - SettingsView sections extension
+
 /// Settings sections broken out from `SettingsView` for readability.
 internal extension SettingsView {
 
     // MARK: - Account
+
     /// GitHub sign-in / sign-out controls, authentication status, and API call counter.
     var accountSection: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -34,12 +37,10 @@ internal extension SettingsView {
                                     .foregroundColor(Color.rbTextTertiary)
                             }
                         }
-                        Button(action: signOutOfGitHub) {
-                            Text("Sign out").font(.caption2)
-                        }
-                        .buttonStyle(.bordered)
-                        .tint(Color.rbDanger)
-                        .help("Remove OAuth token from Keychain. GH_TOKEN / GITHUB_TOKEN env vars used as fallback if available.")
+                        Button(action: signOutOfGitHub) { Text("Sign out").font(.caption2) }
+                            .buttonStyle(.bordered)
+                            .tint(Color.rbDanger)
+                            .help("Remove OAuth token from Keychain. GH_TOKEN / GITHUB_TOKEN env vars used as fallback if available.")
                     }
                 } else if isCLIAuthenticated {
                     HStack(spacing: 10) {
@@ -51,11 +52,9 @@ internal extension SettingsView {
                                 .foregroundColor(Color.rbTextSecondary)
                         }
                         Spacer()
-                        Button(action: signInWithGitHub) {
-                            Text("Sign in with GitHub").font(.caption2)
-                        }
-                        .buttonStyle(.bordered)
-                        .help("Authorize RunBot via GitHub OAuth and store token in Keychain")
+                        Button(action: signInWithGitHub) { Text("Sign in with GitHub").font(.caption2) }
+                            .buttonStyle(.bordered)
+                            .help("Authorize RunBot via GitHub OAuth and store token in Keychain")
                     }
                 } else {
                     // Unauthenticated — no status dot (there is no auth state to indicate).
@@ -63,11 +62,9 @@ internal extension SettingsView {
                     // intentionally absent here. This is not a missing element.
                     HStack {
                         Spacer()
-                        Button(action: signInWithGitHub) {
-                            Text("Sign in with GitHub").font(.caption2)
-                        }
-                        .buttonStyle(.bordered)
-                        .help("Authorize RunBot via GitHub OAuth and store token in Keychain")
+                        Button(action: signInWithGitHub) { Text("Sign in with GitHub").font(.caption2) }
+                            .buttonStyle(.bordered)
+                            .help("Authorize RunBot via GitHub OAuth and store token in Keychain")
                     }
                 }
             }
@@ -88,6 +85,7 @@ internal extension SettingsView {
     }
 
     // MARK: - Management
+
     /// "Management" section: header label + nav rows for local runners and scopes.
     var managementSection: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -177,6 +175,7 @@ internal extension SettingsView {
     }
 
     // MARK: - General
+
     /// General section: notification toggles, launch-at-login, popover arrow, and beta channel.
     ///
     /// The polling interval row was removed in #2069 — RunnerPoller now drives its own
@@ -242,6 +241,7 @@ internal extension SettingsView {
     }
 
     // MARK: - Popover arrow row (#1184)
+
     /// Toggle row that shows or hides the NSPopover anchor arrow.
     ///
     /// Uses a local `Bindable` wrapper for the same reason as `generalSection`.
@@ -261,6 +261,7 @@ internal extension SettingsView {
     }
 
     // MARK: - Beta channel row
+
     /// Toggle row that opts the user into pre-release (beta) builds for the in-app update check.
     ///
     /// ## Scope of this toggle — read before changing the subtitle
@@ -277,17 +278,17 @@ internal extension SettingsView {
     /// `.onChange(of: settings.betaChannel)` (not `bindableBeta.betaChannel.wrappedValue`)
     /// is the correct observation target — `settings` is the underlying `@Observable` store.
     /// On every toggle direction:
-    ///   1. The cached zip at `<schedulerIdentifier>/update.zip` is deleted so
-    ///      `checkAndHandle` cannot skip the download and jump straight to `.ready` with a
-    ///      stale (potentially wrong-channel) zip already on disk.
-    ///      `autoUpdater.schedulerIdentifier` is used directly so the path stays in sync
-    ///      if the identifier ever changes — a hardcoded copy would silently break.
-    ///   2. `checkAndHandle` is called immediately — no waiting for the background scheduler.
-    ///      `apply(.idle)` is intentionally NOT called before the task (#2168): doing so
-    ///      collapses `aboutSection`'s `currentPhase != .idle` guard synchronously, tearing
-    ///      down `updateActionRow` before the async check can call `apply(.available)`.
-    ///      `checkAndHandle` drives state to the correct terminal phase itself — the
-    ///      pre-reset was redundant and the source of the install-button-never-appears bug.
+    /// 1. The cached zip at `/update.zip` is deleted so
+    ///    `checkAndHandle` cannot skip the download and jump straight to `.ready` with a
+    ///    stale (potentially wrong-channel) zip already on disk.
+    ///    `autoUpdater.schedulerIdentifier` is used directly so the path stays in sync
+    ///    if the identifier ever changes — a hardcoded copy would silently break.
+    /// 2. `checkAndHandle` is called immediately — no waiting for the background scheduler.
+    ///    `apply(.idle)` is intentionally NOT called before the task (#2168): doing so
+    ///    collapses `aboutSection`'s `currentPhase != .idle` guard synchronously, tearing
+    ///    down `updateActionRow` before the async check can call `apply(.available)`.
+    ///    `checkAndHandle` drives state to the correct terminal phase itself — the
+    ///    pre-reset was redundant and the source of the install-button-never-appears bug.
     var betaChannelRow: some View {
         let bindableBeta = Bindable(settings)
         return HStack {
@@ -299,18 +300,46 @@ internal extension SettingsView {
             Spacer()
             Toggle("", isOn: bindableBeta.betaChannel)
                 .toggleStyle(.switch).tint(Color.rbSuccess).labelsHidden()
-                .onChange(of: settings.betaChannel) { _, _ in
+                .onChange(of: settings.betaChannel) { _, newValue in
+                    // DEBUG #2170 — remove once beta-toggle install-button bug is resolved
+                    logger.debug("【beta-toggle】onChange fired — betaChannel=\(newValue)")
+
                     let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
+                    logger.debug("【beta-toggle】cachesDir=\(caches?.path ?? \"NIL\")")
+
                     let zip = caches?.appendingPathComponent(autoUpdater.schedulerIdentifier)
                                      .appendingPathComponent("update.zip")
-                    zip.map { try? FileManager.default.removeItem(at: $0) }
-                    Task { await autoUpdater.checkAndHandle(state: runnerState) }
+                    logger.debug("【beta-toggle】zip path=\(zip?.path ?? \"NIL\")")
+
+                    if let zip {
+                        let exists = FileManager.default.fileExists(atPath: zip.path)
+                        logger.debug("【beta-toggle】zip exists=\(exists)")
+                        if exists {
+                            do {
+                                try FileManager.default.removeItem(at: zip)
+                                logger.debug("【beta-toggle】zip deleted OK")
+                            } catch {
+                                logger.debug("【beta-toggle】zip delete FAILED: \(error)")
+                            }
+                        }
+                    } else {
+                        logger.debug("【beta-toggle】zip is nil — skipping delete")
+                    }
+
+                    logger.debug("【beta-toggle】spawning Task")
+                    Task {
+                        logger.debug("【beta-toggle】Task ENTERED on actor=\(Thread.isMainThread ? \"main\" : \"bg\")")
+                        await autoUpdater.checkAndHandle(state: runnerState)
+                        logger.debug("【beta-toggle】Task COMPLETED")
+                    }
+                    logger.debug("【beta-toggle】onChange handler EXIT")
                 }
         }
         .padding(.horizontal, RBSpacing.md).padding(.top, 6).padding(.bottom, 6)
     }
 
     // MARK: - About
+
     /// App version, build number, and update available banner (when a newer release exists).
     ///
     /// ## Why `Bundle.main.isPreReleaseBuild`, not `appVersion.contains("-")`
@@ -342,11 +371,20 @@ internal extension SettingsView {
                 }
             }
             .padding(.horizontal, RBSpacing.md).padding(.vertical, 5)
-            if runnerState.currentPhase != .idle {
+            // DEBUG #2170 — remove once beta-toggle install-button bug is resolved
+            if shouldShowUpdateRow {
                 Divider().padding(.leading, RBSpacing.md)
                 updateActionRow
             }
         }
+    }
+
+    /// DEBUG #2170 — gates `updateActionRow` and logs every evaluation.
+    /// Remove after beta-toggle install-button bug is resolved.
+    private var shouldShowUpdateRow: Bool {
+        let show = runnerState.currentPhase != .idle
+        logger.debug("【aboutSection】shouldShowUpdateRow=\(show) phase=\(runnerState.currentPhase)")
+        return show
     }
 
     // MARK: - Update action row
@@ -375,7 +413,9 @@ internal extension SettingsView {
     /// UI somewhere else in the view hierarchy, please read issue #1794 first.
     /// The single-row approach is the final design for v1, not a placeholder.
     var updateActionRow: some View {
-        HStack(spacing: 8) {
+        // DEBUG #2170 — remove once beta-toggle install-button bug is resolved
+        let _ = logger.debug("【updateActionRow】RENDERED — phase=\(runnerState.currentPhase)")
+        return HStack(spacing: 8) {
             // ❌ DO NOT add .accessibilityHidden(true) here.
             // Accessibility modifiers on this icon are out of scope for v1 (#1794).
             Image(systemName: "arrow.down.circle.fill")
@@ -385,7 +425,6 @@ internal extension SettingsView {
                 // Guard in aboutSection prevents us reaching here, but the
                 // compiler requires exhaustiveness.
                 EmptyView()
-
             case .available(let version):
                 VStack(alignment: .leading, spacing: 1) {
                     Text("Update available: \(version)").font(.system(size: 12))
@@ -403,7 +442,6 @@ internal extension SettingsView {
                     .buttonStyle(.borderedProminent)
                     .controlSize(.small)
                     .disabled(true)
-
             case .downloading(let version):
                 // ⚠️ This case is unreachable at runtime.
                 // RunnerState.currentPhase cannot reconstruct .downloading from stored
@@ -424,7 +462,6 @@ internal extension SettingsView {
                         .scaleEffect(RBMetrics.updateProgressScale)
                 }
                 Spacer()
-
             case .ready(let version):
                 VStack(alignment: .leading, spacing: 1) {
                     Text("Update available: \(version)").font(.system(size: 12))
@@ -433,14 +470,11 @@ internal extension SettingsView {
                 }
                 Spacer()
                 Button("Install & Relaunch") {
-                    Task {
-                        await autoUpdater.installAndRelaunch(state: runnerState)
-                    }
+                    Task { await autoUpdater.installAndRelaunch(state: runnerState) }
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)
                 .help("Install and relaunch RunBot")
-
             case .failed(let version):
                 VStack(alignment: .leading, spacing: 1) {
                     Text("Update available" + (version.map { ": \($0)" } ?? ""))
@@ -455,9 +489,7 @@ internal extension SettingsView {
                 // only. If the retry succeeds it reaches .ready; if it fails again
                 // it returns here. The user retries until it works or gives up.
                 Button("Retry") {
-                    Task {
-                        await autoUpdater.checkAndHandle(state: runnerState)
-                    }
+                    Task { await autoUpdater.checkAndHandle(state: runnerState) }
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)
@@ -486,6 +518,7 @@ private struct StatusCountBadge: View {
     /// The formatted string to display, e.g. "2 active, 1 inactive".
     /// Pass an empty string to suppress the badge entirely — no layout space is consumed.
     let label: String
+
     /// Renders a capsule pill with `label` text, or nothing when `label` is empty.
     var body: some View {
         if !label.isEmpty {
