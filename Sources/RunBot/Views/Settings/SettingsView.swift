@@ -191,7 +191,8 @@ struct SettingsView: View {
         self.scopeStore = scopeStore
         _isOAuthAuthenticated = State(initialValue: appState.oauthService.isAuthenticated)
         _isCLIAuthenticated = State(initialValue: !appState.oauthService.isAuthenticated && appState.oauthService.hasAnyToken)
-        log("【SettingsView.init】settings=\(ObjectIdentifier(settings)) betaChannel=\(settings.betaChannel) notifications=\(ObjectIdentifier(notifications))", category: .general)
+        log("【SettingsView.init】settings=\(ObjectIdentifier(settings)) betaChannel=\(settings.betaChannel)", category: .general)
+        log("【SettingsView.init】notifications=\(ObjectIdentifier(notifications))", category: .general)
     }
 
     // MARK: - Computed properties
@@ -317,14 +318,15 @@ struct SettingsView: View {
     private func onAppearAction() { // skipcq: SW-R1002 — reviewed; complexity acceptable for this onAppear setup
         isOAuthAuthenticated = oauthService.isAuthenticated
         isCLIAuthenticated = !oauthService.isAuthenticated && oauthService.hasAnyToken
-        log("【SettingsView.onAppear】isAuthenticated=\(oauthService.isAuthenticated) hasAnyToken=\(oauthService.hasAnyToken) isOAuthAuthenticated=\(isOAuthAuthenticated) isCLIAuthenticated=\(isCLIAuthenticated) settings=\(ObjectIdentifier(settings)) betaChannel=\(settings.betaChannel)", category: .general)
+        log("【SettingsView.onAppear】auth=\(oauthService.isAuthenticated) hasToken=\(oauthService.hasAnyToken)", category: .general)
+        log("【SettingsView.onAppear】settings=\(ObjectIdentifier(settings)) betaChannel=\(settings.betaChannel)", category: .general)
 
         signInTask = Task { @MainActor in
             for await success in oauthService.makeSignInStream() {
                 log("【SettingsView.signInStream】success=\(success) — updating auth state", category: .general)
                 isOAuthAuthenticated = success
                 isCLIAuthenticated = !success && oauthService.hasAnyToken
-                log("【SettingsView.signInStream】isOAuthAuthenticated=\(isOAuthAuthenticated) isCLIAuthenticated=\(isCLIAuthenticated)", category: .general)
+                log("【SettingsView.signInStream】OAuth=\(isOAuthAuthenticated) CLI=\(isCLIAuthenticated)", category: .general)
                 isSigningIn = false
             }
         }
@@ -334,7 +336,7 @@ struct SettingsView: View {
                 log("【SettingsView.signOutStream】didSignOut — hasAnyToken=\(oauthService.hasAnyToken)", category: .general)
                 isOAuthAuthenticated = false
                 isCLIAuthenticated = oauthService.hasAnyToken
-                log("【SettingsView.signOutStream】isOAuthAuthenticated=\(isOAuthAuthenticated) isCLIAuthenticated=\(isCLIAuthenticated)", category: .general)
+                log("【SettingsView.signOutStream】OAuth=\(isOAuthAuthenticated) CLI=\(isCLIAuthenticated)", category: .general)
             }
         }
     }
