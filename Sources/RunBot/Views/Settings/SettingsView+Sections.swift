@@ -271,6 +271,20 @@ internal extension SettingsView {
     /// that is what is installed. The subtitle wording is deliberate; it was updated in
     /// #2085 specifically to prevent users from misreading the toggle's scope. Do not
     /// shorten or remove the second sentence.
+    ///
+    /// ## Immediate check on toggle (#2162)
+    ///
+    /// `.onChange(of: settings.betaChannel)` (not `bindableBeta.betaChannel.wrappedValue`)
+    /// is the correct observation target — `settings` is the underlying `@Observable` store.
+    /// On every toggle direction:
+    ///   1. The cached zip at `<schedulerIdentifier>/update.zip` is deleted so
+    ///      `checkAndHandle` cannot skip the download and jump straight to `.ready` with a
+    ///      stale (potentially wrong-channel) zip already on disk.
+    ///      `autoUpdater.schedulerIdentifier` is used directly so the path stays in sync
+    ///      if the identifier ever changes — a hardcoded copy would silently break.
+    ///   2. `runnerState.apply(.idle)` resets the update UI
+    ///      (`availableUpdate`, `cachedUpdateVersion`, `updateActionFailed`).
+    ///   3. `checkAndHandle` is called immediately — no waiting for the background scheduler.
     var betaChannelRow: some View {
         let bindableBeta = Bindable(settings)
         return HStack {
@@ -282,6 +296,14 @@ internal extension SettingsView {
             Spacer()
             Toggle("", isOn: bindableBeta.betaChannel)
                 .toggleStyle(.switch).tint(Color.rbSuccess).labelsHidden()
+                .onChange(of: settings.betaChannel) { _, _ in
+                    let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
+                    let zip = caches?.appendingPathComponent(autoUpdater.schedulerIdentifier)
+                                     .appendingPathComponent("update.zip")
+                    zip.map { try? FileManager.default.removeItem(at: $0) }
+                    runnerState.apply(.idle)
+                    Task { await autoUpdater.checkAndHandle(state: runnerState) }
+                }
         }
         .padding(.horizontal, RBSpacing.md).padding(.top, 6).padding(.bottom, 6)
     }
