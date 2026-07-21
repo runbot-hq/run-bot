@@ -58,23 +58,31 @@ public struct APICallCounterRow: View {
         self.resetDate = resetDate
     }
 
-    /// The row's body: label, formatted count, colour-coded progress bar, and optional reset time.
+    /// The row's body: leading title/reset-label block and trailing count/progress-bar block,
+    /// joined by a center-aligned HStack so the progress bar stays vertically centred
+    /// regardless of whether the reset sub-label is visible.
     public var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            HStack {
+        HStack(alignment: .center, spacing: 12) {
+            // Leading: title + optional multiline reset label
+            VStack(alignment: .leading, spacing: 2) {
                 Text("API Calls (last hour)")
-                Spacer()
+                if !vm.resetLabel.isEmpty {
+                    Text(vm.resetLabel)
+                        .font(.caption)
+                        .foregroundStyle(Color.rbTextSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            // Trailing: count + progress bar, stacked and centered
+            VStack(alignment: .trailing, spacing: 4) {
                 Text(vm.label)
                     .foregroundStyle(vm.statusColor)
                     .monospacedDigit()
                 ProgressView(value: vm.snap.fraction)
                     .frame(width: 60)
                     .tint(vm.statusColor)
-            }
-            if !vm.resetLabel.isEmpty {
-                Text(vm.resetLabel)
-                    .font(.caption)
-                    .foregroundStyle(Color.rbTextSecondary)
             }
         }
         .help(
