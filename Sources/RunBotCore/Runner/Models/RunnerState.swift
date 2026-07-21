@@ -71,24 +71,29 @@ public final class RunnerState {
     /// Written exclusively by `AppUpdater` via `apply(_:)` in
     /// `RunnerState+AppUpdater.swift`. Read by views to show the update label.
     ///
-    /// `internal(set)` — not `private(set)` — because Swift's `private` is
-    /// file-scoped: the setter must be visible to `apply(_:)` in
-    /// `RunnerState+AppUpdater.swift`, which is a different file. Moving stored
-    /// properties into the extension file is non-standard and was rejected.
-    /// The invariant (only `apply(_:)` may write these) is enforced by
-    /// convention; see `currentPhase` warning comment in that file.
+    /// ## Why `internal(set)` and not `private(set)`
+    ///
+    /// Swift's `private` is file-scoped. A `private(set)` here would make the
+    /// setter invisible to `apply(_:)` in `RunnerState+AppUpdater.swift`, which
+    /// is a different file in the same module. Moving stored properties into the
+    /// extension file is non-standard and was rejected. `internal(set)` is
+    /// therefore the only viable access level — the module boundary enforces
+    /// that nothing *outside* `RunBotCore` can write these properties, and the
+    /// convention that only `apply(_:)` writes them within the module is
+    /// documented here and in `RunnerState+AppUpdater.swift`.
+    ///
+    /// This reasoning applies equally to `cachedUpdateVersion`,
+    /// `updateActionFailed`, and `currentPhase` below.
     public internal(set) var availableUpdate: String?
 
     /// Version string of the cached update zip, or `nil` if none cached.
     ///
-    /// `internal(set)` for the same reason as `availableUpdate` above —
-    /// `private(set)` would make the setter inaccessible across file boundaries.
+    /// `internal(set)` — see `availableUpdate` for the full rationale.
     public internal(set) var cachedUpdateVersion: String?
 
     /// `true` when a download or install attempt has failed.
     ///
-    /// `internal(set)` for the same reason as `availableUpdate` above —
-    /// `private(set)` would make the setter inaccessible across file boundaries.
+    /// `internal(set)` — see `availableUpdate` for the full rationale.
     public internal(set) var updateActionFailed: Bool = false
 
     /// The current update phase, derived from the raw storage fields above and
@@ -104,10 +109,9 @@ public final class RunnerState {
     /// underlying data changed.
     ///
     /// Promoting it to a stored `var` means the macro tracks it directly.
-    /// `apply(_:)` assigns `self.currentPhase = derivedPhase(for:)` at the end
+    /// `apply(_:)` assigns `self.currentPhase = derivedPhase()` at the end
     /// of every phase transition, so it is always consistent with the raw fields.
     ///
-    /// `internal(set)` for the same file-scope reason as the other auto-update
-    /// properties above — only `apply(_:)` writes it in practice.
+    /// `internal(set)` — see `availableUpdate` for the full rationale.
     public internal(set) var currentPhase: UpdatePhase = .idle
 }
