@@ -326,12 +326,20 @@ struct SettingsView: View {
     /// Auth state is already seeded from `oauthService` in `init`, so this is a no-op
     /// on the first render. On subsequent appears (e.g. after a hide/show cycle) it
     /// re-reads the current state and re-registers the stream tasks.
+    ///
+    /// All three tasks are cancelled before reassignment so a rapid open→open cycle
+    /// (panel re-shown without a disappear) cannot leak the prior stream listeners
+    /// or an in-flight network call.
     private func onAppearAction() { // skipcq: SW-R1002 — reviewed; complexity acceptable for this onAppear setup
         isOAuthAuthenticated = oauthService.isAuthenticated
         isCLIAuthenticated = !oauthService.isAuthenticated && oauthService.hasAnyToken
         log("【SettingsView.onAppear】auth=\(oauthService.isAuthenticated) hasToken=\(oauthService.hasAnyToken)", category: .general)
         log("【SettingsView.onAppear】settings=\(ObjectIdentifier(settings)) betaChannel=\(settings.betaChannel)", category: .general)
 
+        // Cancel before reassigning — guards against the rapid open→open case
+        // where the panel is re-shown without an intervening onDisappear, which
+        // would otherwise silently leak the prior task.
+        signInTask?.cancel()
         signInTask = Task { @MainActor in
             for await success in oauthService.makeSignInStream() {
                 log("【SettingsView.signInStream】success=\(success) — updating auth state", category: .general)
@@ -342,6 +350,7 @@ struct SettingsView: View {
             }
         }
 
+        signOutTask?.cancel()
         signOutTask = Task { @MainActor in
             for await _ in oauthService.makeSignOutStream() {
                 log("【SettingsView.signOutStream】didSignOut — hasAnyToken=\(oauthService.hasAnyToken)", category: .general)
@@ -370,6 +379,7 @@ struct SettingsView: View {
         // Mirrors the identical pattern in betaChannelRow.onChange.
         // Principle P6 (reach-goal): named task on a user-interactive path.
         // Principle P9: structured concurrency — no Timer or DispatchQueue.
+        updateCheckTask?.cancel()
         updateCheckTask = Task(name: "settings-appear-update-check") { @MainActor in
             await autoUpdater.checkAndHandle(state: runnerState)
         }
