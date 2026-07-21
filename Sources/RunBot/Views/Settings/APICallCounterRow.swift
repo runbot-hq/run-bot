@@ -58,12 +58,12 @@ public struct APICallCounterRow: View {
         self.resetDate = resetDate
     }
 
-    /// The row's body: leading title/description block (shrinkable) and trailing
-    /// count/progress-bar block, baseline-aligned so the count always sits beside
-    /// the title regardless of whether the description sub-label is visible.
+    /// Leading VStack: title + optional description, left-aligned, shrink before wrap.
+    /// Trailing VStack: Spacers vertically centre the number+bar HStack against the
+    /// full height of the leading column.
     public var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 12) {
-            // Leading: title + optional description; both shrink before wrapping
+        HStack(alignment: .center, spacing: 12) {
+            // Leading: title + optional description, left aligned
             VStack(alignment: .leading, spacing: 2) {
                 Text("API Calls (last hour)")
                     .lineLimit(1)
@@ -78,14 +78,18 @@ public struct APICallCounterRow: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            // Trailing: count + progress bar on a single line, baseline-pinned to title
-            HStack(alignment: .center, spacing: 6) {
-                Text(vm.label)
-                    .foregroundStyle(vm.statusColor)
-                    .monospacedDigit()
-                ProgressView(value: vm.snap.fraction)
-                    .frame(width: 60)
-                    .tint(vm.statusColor)
+            // Trailing: VStack with Spacers vertically centres the number+bar HStack
+            VStack {
+                Spacer(minLength: 0)
+                HStack(alignment: .center, spacing: 6) {
+                    Text(vm.label)
+                        .foregroundStyle(vm.statusColor)
+                        .monospacedDigit()
+                    ProgressView(value: vm.snap.fraction)
+                        .frame(width: 60)
+                        .tint(vm.statusColor)
+                }
+                Spacer(minLength: 0)
             }
         }
         .help(
