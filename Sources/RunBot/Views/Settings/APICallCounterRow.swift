@@ -58,14 +58,12 @@ public struct APICallCounterRow: View {
         self.resetDate = resetDate
     }
 
-    /// Leading VStack: title + optional description, left-aligned, shrink before wrap.
-    /// Trailing VStack: Spacer(minLength:0) pairs centre the count+bar HStack within
-    /// the row. The outer HStack carries .frame(minHeight:44) so the spacers always
-    /// have a concrete height budget to divide — without it they collapse to zero
-    /// inside List/Form which sizes rows to intrinsic content height.
+    /// Leading VStack holds title + optional reset label and compresses to make room
+    /// for the trailing count+bar HStack, which wins width via .layoutPriority(1).
+    /// HStack(alignment: .center) vertically centres both columns against each other.
     public var body: some View {
         HStack(alignment: .center, spacing: 12) {
-            // Leading: title + optional description, left aligned, shrink before wrap
+            // Leading: title + optional description — compresses when space is tight
             VStack(alignment: .leading, spacing: 2) {
                 Text("API Calls (last hour)")
                     .lineLimit(1)
@@ -80,22 +78,17 @@ public struct APICallCounterRow: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            // Trailing: Spacers vertically centre the count+bar HStack.
-            // The outer HStack's minHeight gives them a real budget to push against.
-            VStack {
-                Spacer(minLength: 0)
-                HStack(alignment: .center, spacing: 6) {
-                    Text(vm.label)
-                        .foregroundStyle(vm.statusColor)
-                        .monospacedDigit()
-                    ProgressView(value: vm.snap.fraction)
-                        .frame(width: 60)
-                        .tint(vm.statusColor)
-                }
-                Spacer(minLength: 0)
+            // Trailing: count + progress bar — always wins, never compresses
+            HStack(alignment: .center, spacing: 6) {
+                Text(vm.label)
+                    .foregroundStyle(vm.statusColor)
+                    .monospacedDigit()
+                ProgressView(value: vm.snap.fraction)
+                    .frame(width: 60)
+                    .tint(vm.statusColor)
             }
+            .layoutPriority(1)
         }
-        .frame(minHeight: 44)
         .help(
             """
             GitHub REST calls in the last 60 minutes.
