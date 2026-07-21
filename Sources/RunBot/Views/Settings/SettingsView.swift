@@ -150,6 +150,11 @@ struct SettingsView: View {
     /// Retains the sign-out listener Task so it is cancelled when the view disappears.
     @State private var signOutTask: Task<Void, Never>?
 
+    /// Retains the update-check Task so it is cancelled when the view disappears.
+    /// Prevents a ghost write to runnerState if Settings is closed before the
+    /// network call returns. Mirrors the signInTask/signOutTask cancellation pattern.
+    @State private var updateCheckTask: Task<Void, Never>?
+
     /// `true` while `LocalRunnersView` is displayed instead of the main settings scroll.
     @State var showLocalRunners = false
 
@@ -249,7 +254,7 @@ struct SettingsView: View {
             log("【SettingsView.task】github.token() resolved — isCLIAuthenticated=\(isCLIAuthenticated)", category: .general)
         }
         .onDisappear {
-            log("【SettingsView.onDisappear】cancelling signInTask/signOutTask", category: .general)
+            log("【SettingsView.onDisappear】cancelling signInTask/signOutTask/updateCheckTask", category: .general)
             // Cancel and unconditionally nil the sign-in task — the for-await loop
             // exits promptly on cancellation (AsyncStream respects task cancellation)
             // so isSigningIn will never flip back via the stream after this point.
@@ -258,6 +263,10 @@ struct SettingsView: View {
             signInTask = nil
             signOutTask?.cancel()
             signOutTask = nil
+            // Cancel the update-check task so a ghost write to runnerState cannot
+            // occur if Settings is closed before the network call returns.
+            updateCheckTask?.cancel()
+            updateCheckTask = nil
             // Reset isSigningIn so a close-during-flow doesn't leave a stale spinner
             // on the next open. The stream task is already cancelled above, so the
             // for-await loop will not reset it — we must do it explicitly here.
@@ -310,17 +319,27 @@ struct SettingsView: View {
         .padding(.bottom, 16)
     }
 
-    /// Runs on `.onAppear`: re-syncs auth state from `oauthService` and starts sign-in / sign-out listeners.
+    /// Runs on `.onAppear`: re-syncs auth state from `oauthService` and starts sign-in /
+    /// sign-out listeners. Also triggers a fresh update check so the latest available
+    /// version is always offered when the user opens Settings (fix #2208).
     ///
     /// Auth state is already seeded from `oauthService` in `init`, so this is a no-op
     /// on the first render. On subsequent appears (e.g. after a hide/show cycle) it
     /// re-reads the current state and re-registers the stream tasks.
+    ///
+    /// All three tasks are cancelled before reassignment so a rapid open→open cycle
+    /// (panel re-shown without a disappear) cannot leak the prior stream listeners
+    /// or an in-flight network call.
     private func onAppearAction() { // skipcq: SW-R1002 — reviewed; complexity acceptable for this onAppear setup
         isOAuthAuthenticated = oauthService.isAuthenticated
         isCLIAuthenticated = !oauthService.isAuthenticated && oauthService.hasAnyToken
         log("【SettingsView.onAppear】auth=\(oauthService.isAuthenticated) hasToken=\(oauthService.hasAnyToken)", category: .general)
         log("【SettingsView.onAppear】settings=\(ObjectIdentifier(settings)) betaChannel=\(settings.betaChannel)", category: .general)
 
+        // Cancel before reassigning — guards against the rapid open→open case
+        // where the panel is re-shown without an intervening onDisappear, which
+        // would otherwise silently leak the prior task.
+        signInTask?.cancel()
         signInTask = Task { @MainActor in
             for await success in oauthService.makeSignInStream() {
                 log("【SettingsView.signInStream】success=\(success) — updating auth state", category: .general)
@@ -331,6 +350,7 @@ struct SettingsView: View {
             }
         }
 
+        signOutTask?.cancel()
         signOutTask = Task { @MainActor in
             for await _ in oauthService.makeSignOutStream() {
                 log("【SettingsView.signOutStream】didSignOut — hasAnyToken=\(oauthService.hasAnyToken)", category: .general)
@@ -338,6 +358,30 @@ struct SettingsView: View {
                 isCLIAuthenticated = oauthService.hasAnyToken
                 log("【SettingsView.signOutStream】OAuth=\(isOAuthAuthenticated) CLI=\(isCLIAuthenticated)", category: .general)
             }
+        }
+
+        // FIX #2208: check for a newer version whenever the user opens Settings
+        // so the latest available version is always offered — not only at launch
+        // or on the 24h background tick.
+        //
+        // No phase reset — existing state is preserved during the check.
+        // checkAndHandle only writes runnerState if it finds a newer version;
+        // otherwise the current phase is left untouched, so no UI flicker occurs.
+        //
+        // The handle is stored in updateCheckTask so onDisappear can cancel it
+        // if the user closes Settings before the network call returns — preventing
+        // a ghost write to runnerState after the view lifecycle ends.
+        //
+        // This fires once per Settings panel open. .onAppear is attached to the
+        // root Group (not settingsBody), so it does NOT fire on back-navigation
+        // from LocalRunnersView or ScopesView — see body comment above.
+        //
+        // Mirrors the identical pattern in betaChannelRow.onChange.
+        // Principle P6 (reach-goal): named task on a user-interactive path.
+        // Principle P9: structured concurrency — no Timer or DispatchQueue.
+        updateCheckTask?.cancel()
+        updateCheckTask = Task(name: "settings-appear-update-check") { @MainActor in
+            await autoUpdater.checkAndHandle(state: runnerState)
         }
     }
 
