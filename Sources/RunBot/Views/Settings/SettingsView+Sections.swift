@@ -302,37 +302,37 @@ internal extension SettingsView {
                 .toggleStyle(.switch).tint(Color.rbSuccess).labelsHidden()
                 .onChange(of: settings.betaChannel) { _, newValue in
                     // DEBUG #2170 — remove once beta-toggle install-button bug is resolved
-                    logger.debug("【beta-toggle】onChange fired — betaChannel=\(newValue)")
+                    log("【beta-toggle】onChange fired — betaChannel=\(newValue)", category: .general)
 
                     let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
-                    logger.debug("【beta-toggle】cachesDir=\(caches?.path ?? \"NIL\")")
+                    log("【beta-toggle】cachesDir=\(caches?.path ?? "NIL")", category: .general)
 
                     let zip = caches?.appendingPathComponent(autoUpdater.schedulerIdentifier)
                                      .appendingPathComponent("update.zip")
-                    logger.debug("【beta-toggle】zip path=\(zip?.path ?? \"NIL\")")
+                    log("【beta-toggle】zip path=\(zip?.path ?? "NIL")", category: .general)
 
                     if let zip {
                         let exists = FileManager.default.fileExists(atPath: zip.path)
-                        logger.debug("【beta-toggle】zip exists=\(exists)")
+                        log("【beta-toggle】zip exists=\(exists)", category: .general)
                         if exists {
                             do {
                                 try FileManager.default.removeItem(at: zip)
-                                logger.debug("【beta-toggle】zip deleted OK")
+                                log("【beta-toggle】zip deleted OK", category: .general)
                             } catch {
-                                logger.debug("【beta-toggle】zip delete FAILED: \(error)")
+                                log("【beta-toggle】zip delete FAILED: \(error)", category: .general)
                             }
                         }
                     } else {
-                        logger.debug("【beta-toggle】zip is nil — skipping delete")
+                        log("【beta-toggle】zip is nil — skipping delete", category: .general)
                     }
 
-                    logger.debug("【beta-toggle】spawning Task")
+                    log("【beta-toggle】spawning Task", category: .general)
                     Task {
-                        logger.debug("【beta-toggle】Task ENTERED on actor=\(Thread.isMainThread ? \"main\" : \"bg\")")
+                        log("【beta-toggle】Task ENTERED on actor=\(Thread.isMainThread ? "main" : "bg")", category: .general)
                         await autoUpdater.checkAndHandle(state: runnerState)
-                        logger.debug("【beta-toggle】Task COMPLETED")
+                        log("【beta-toggle】Task COMPLETED", category: .general)
                     }
-                    logger.debug("【beta-toggle】onChange handler EXIT")
+                    log("【beta-toggle】onChange handler EXIT", category: .general)
                 }
         }
         .padding(.horizontal, RBSpacing.md).padding(.top, 6).padding(.bottom, 6)
@@ -383,7 +383,7 @@ internal extension SettingsView {
     /// Remove after beta-toggle install-button bug is resolved.
     private var shouldShowUpdateRow: Bool {
         let show = runnerState.currentPhase != .idle
-        logger.debug("【aboutSection】shouldShowUpdateRow=\(show) phase=\(runnerState.currentPhase)")
+        log("【aboutSection】shouldShowUpdateRow=\(show) phase=\(runnerState.currentPhase)", category: .general)
         return show
     }
 
@@ -414,7 +414,7 @@ internal extension SettingsView {
     /// The single-row approach is the final design for v1, not a placeholder.
     var updateActionRow: some View {
         // DEBUG #2170 — remove once beta-toggle install-button bug is resolved
-        let _ = logger.debug("【updateActionRow】RENDERED — phase=\(runnerState.currentPhase)")
+        _ = log("【updateActionRow】RENDERED — phase=\(runnerState.currentPhase)", category: .general)
         return HStack(spacing: 8) {
             // ❌ DO NOT add .accessibilityHidden(true) here.
             // Accessibility modifiers on this icon are out of scope for v1 (#1794).
