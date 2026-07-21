@@ -1,5 +1,6 @@
 // RunnerState.swift
 // RunBotCore
+import AppUpdater
 import Foundation
 import GitHubClient
 import Observation
@@ -18,10 +19,9 @@ import Observation
 /// because Swift requires the setter to match the accessibility of a `public` protocol
 /// `{ get set }` requirement — see `RunnerViewModelProtocol` for the rationale.
 /// Only `LocalRunnerStore` (in `RunBotCore`) writes them in practice.
-/// The auto-update storage properties (`availableUpdate`,
-/// `cachedUpdateVersion`, `updateActionFailed`) are written
-/// exclusively by `AppUpdater` via `UpdateStateProviding.apply(_:)`, declared in
-/// `RunnerState+AppUpdater.swift`.
+/// The auto-update storage properties (`availableUpdate`, `cachedUpdateVersion`,
+/// `updateActionFailed`, `currentPhase`) are written exclusively by `AppUpdater`
+/// via `UpdateStateProviding.apply(_:)`, declared in `RunnerState+AppUpdater.swift`.
 @Observable
 @MainActor
 public final class RunnerState {
@@ -90,4 +90,24 @@ public final class RunnerState {
     /// `internal(set)` for the same reason as `availableUpdate` above —
     /// `private(set)` would make the setter inaccessible across file boundaries.
     public internal(set) var updateActionFailed: Bool = false
+
+    /// The current update phase, derived from the raw storage fields above and
+    /// kept in sync by `apply(_:)` in `RunnerState+AppUpdater.swift`.
+    ///
+    /// ## Why this is a stored property, not a computed one
+    ///
+    /// The `@Observable` macro only instruments *stored* properties. A computed
+    /// `currentPhase` is never directly registered with the observation system,
+    /// so SwiftUI views that access `runnerState.currentPhase` are never
+    /// invalidated when `availableUpdate` or `cachedUpdateVersion` change —
+    /// the update row stays hidden after a beta-channel toggle even though the
+    /// underlying data changed.
+    ///
+    /// Promoting it to a stored `var` means the macro tracks it directly.
+    /// `apply(_:)` assigns `self.currentPhase = derivedPhase(for:)` at the end
+    /// of every phase transition, so it is always consistent with the raw fields.
+    ///
+    /// `internal(set)` for the same file-scope reason as the other auto-update
+    /// properties above — only `apply(_:)` writes it in practice.
+    public internal(set) var currentPhase: UpdatePhase = .idle
 }

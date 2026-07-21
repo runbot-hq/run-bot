@@ -15,6 +15,11 @@ import Foundation
 /// This conformance lives in its own file so the `import AppUpdater`
 /// dependency is confined here and `RunnerState.swift` stays free of the
 /// library import.
+///
+/// Note: `RunnerState.swift` now imports `AppUpdater` for the `UpdatePhase`
+/// type used by the stored `currentPhase` property. The conformance-only
+/// import is still confined to this file; `RunnerState.swift`'s import is
+/// the minimal addition required to type the stored property.
 extension RunnerState: UpdateStateProviding {
 
     // MARK: - apply
@@ -30,6 +35,11 @@ extension RunnerState: UpdateStateProviding {
     /// | `.downloading(version)` | `availableUpdate = version`; zip URL / failure fields cleared |
     /// | `.ready(version)` | `availableUpdate = version`; `cachedUpdateVersion = version`; failure flags cleared |
     /// | `.failed(version)` | `updateActionFailed = true`; zip URL cleared |
+    ///
+    /// At the end of every case, `self.currentPhase` is assigned the value
+    /// returned by `derivedPhase(for:)`. This keeps the stored `currentPhase`
+    /// property (tracked by `@Observable`) in sync with the raw fields, so
+    /// SwiftUI views that read `currentPhase` are correctly invalidated.
     public func apply(_ phase: UpdatePhase) {
         switch phase {
         case .idle:
@@ -72,67 +82,59 @@ extension RunnerState: UpdateStateProviding {
             cachedUpdateVersion = nil
             updateActionFailed = true
         }
+
+        // Keep the stored `currentPhase` in sync.
+        // `currentPhase` is a stored `@Observable` property on `RunnerState`.
+        // Assigning it here — after all raw-field mutations — guarantees that
+        // the single observation notification SwiftUI receives reflects the
+        // fully-consistent post-transition state. Views reading `currentPhase`
+        // are invalidated exactly once per `apply(_:)` call.
+        currentPhase = derivedPhase()
     }
 
-    // MARK: - currentPhase
+    // MARK: - derivedPhase
 
-    /// Derives the current `UpdatePhase` from the observable storage fields.
+    /// Derives the canonical `UpdatePhase` from the current raw storage fields.
+    ///
+    /// Called at the end of every `apply(_:)` case to produce the value
+    /// assigned to the stored `currentPhase` property.
     ///
     /// Priority order (highest to lowest):
-    /// 1. `.ready` — zip on disk and a version known
-    /// 2. `.failed` — an action failure is flagged
-    /// 3. `.available` — a version is known but no zip yet
-    /// 4. `.idle` — nothing in progress
+    /// 1. `.ready`    — zip on disk and a version known
+    /// 2. `.failed`   — an action failure is flagged
+    /// 3. `.available`— a version is known but no zip yet
+    /// 4. `.idle`     — nothing in progress
     ///
     /// ## `.downloading` is intentionally not reconstructable
     ///
     /// `RunnerState` has no `isDownloading: Bool` flag and never will
     /// (Principle 1: no boolean flags). From stored fields, `.downloading`
     /// and `.available` are identical — both have `cachedUpdateVersion == nil`.
-    /// This means `currentPhase` returns `.available` while a download is
-    /// in progress.
+    /// This means `derivedPhase()` returns `.available` while a download is
+    /// in progress. This is correct and deliberate — see the full rationale
+    /// in the original `currentPhase` doc comment.
     ///
-    /// This is correct and deliberate:
-    /// - `AppUpdater` reads `currentPhase` only to distinguish `.ready` from
-    ///   non-ready. It never keys on `.downloading` for any decision.
-    /// - The `.downloading` case in `updateActionRow` is therefore unreachable
-    ///   at runtime. This is not a bug — it is Principle 5 (unsupported is
-    ///   correct). The UI shows a disabled button during download, which is
-    ///   the right behaviour for a library that does less, not more.
-    /// - Adding `isDownloading: Bool` storage would violate Principle 1 and
-    ///   Principle 4. If download progress UI is ever required, the correct
-    ///   fix is to add a `downloading(version: String, progress: Double)` case
-    ///   to `UpdatePhase` — not to add a parallel flag here.
-    public var currentPhase: UpdatePhase {
+    /// ## Private: only `apply(_:)` should call this
+    ///
+    /// This helper is `private` because nothing outside `apply(_:)` should
+    /// derive a phase from raw fields. All external reads go through the
+    /// stored `currentPhase` property, which is always up to date after
+    /// any `apply(_:)` call.
+    private func derivedPhase() -> UpdatePhase {
         if let version = cachedUpdateVersion {
             return .ready(version: version)
         }
         // ✅ REVIEWED: .ready is evaluated first. If both cachedUpdateVersion and
         // updateActionFailed are set simultaneously, .ready wins and .failed is
         // suppressed. This is safe only because apply(.failed(...)) always sets
-        // cachedUpdateVersion = nil, making the combined state unreachable through the
-        // apply(_:) path.
+        // cachedUpdateVersion = nil, making the combined state unreachable through
+        // the apply(_:) path.
         //
         // WARNING: Any RunBotCore-internal code that writes to cachedUpdateVersion or
         // updateActionFailed directly — bypassing apply(_:) — can produce this
         // combined state and will silently get .ready instead of .failed.
         // Direct mutation of raw storage without going through apply(_:) is
         // not supported and not defended against here.
-        //
-        // ℹ️ ACCESS LEVEL: These properties are `public internal(set)` — not
-        // `private(set)`. This is intentional and the only viable option:
-        //
-        // - `private(set)` was considered. Swift's `private` is file-scoped, so
-        //   `private(set)` on properties declared in RunnerState.swift would make
-        //   the setters inaccessible to apply(_:) in this extension file. It does
-        //   not compile.
-        // - Moving the properties into this extension file was considered and
-        //   rejected. Storing stored properties on extension files is non-standard
-        //   and bad architecture.
-        // - `internal(set)` is therefore the correct and only viable access level.
-        //   The exposure is a side effect of Swift's file-scoped privacy model,
-        //   not a design flaw. The invariant is enforced by convention and the
-        //   warning above.
         if updateActionFailed {
             return .failed(version: availableUpdate)
         }
