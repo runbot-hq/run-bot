@@ -17,9 +17,8 @@ let package = Package(
     // Do NOT edit Package.resolved manually. Do NOT commit Package.resolved.
     // If a dependency's API changes → fix the call site here, never lock the dep.
     dependencies: [
-        // Temporarily tracking fix/post-swap-verification-2193 for PR #56 validation.
-        // Revert to branch: "main" once #56 is merged into AppUpdater main.
-        .package(url: "https://github.com/runbot-hq/AppUpdater", branch: "fix/post-swap-verification-2193"),
+        // Tracks main — resolves to HEAD on every CI run. Do not pin to a revision.
+        .package(url: "https://github.com/runbot-hq/AppUpdater", branch: "main"),
         // Tracks main — resolves to HEAD on every CI run. Do not pin to a revision.
         .package(url: "https://github.com/runbot-hq/GitHubClient", branch: "main"),
         // Tracks main — resolves to HEAD on every CI run. Do not pin to a revision.
