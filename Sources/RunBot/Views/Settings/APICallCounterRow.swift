@@ -59,14 +59,15 @@ public struct APICallCounterRow: View {
     }
 
     /// Leading VStack: title + optional description, left-aligned, shrink before wrap.
-    /// Trailing VStack: stretched to full row height via maxHeight:.infinity so
-    /// Spacer(minLength:0) pairs genuinely centre the number+bar HStack vertically.
+    /// Trailing VStack: Spacer(minLength:0) pairs centre the count+bar HStack within
+    /// the row. The outer HStack carries .frame(minHeight:44) so the spacers always
+    /// have a concrete height budget to divide — without it they collapse to zero
+    /// inside List/Form which sizes rows to intrinsic content height.
     public var body: some View {
         HStack(alignment: .center, spacing: 12) {
             // Leading: title + optional description, left aligned, shrink before wrap
             VStack(alignment: .leading, spacing: 2) {
                 Text("API Calls (last hour)")
-                    .font(.body)
                     .lineLimit(1)
                     .minimumScaleFactor(0.75)
                 if !vm.resetLabel.isEmpty {
@@ -74,13 +75,13 @@ public struct APICallCounterRow: View {
                         .font(.caption)
                         .foregroundStyle(Color.rbTextSecondary)
                         .lineLimit(1)
-                        .minimumScaleFactor(0.75)
+                        .minimumScaleFactor(0.85)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            // Trailing: stretched VStack so Spacers have height to work with,
-            // centering the number+bar HStack at the vertical midpoint of the row
+            // Trailing: Spacers vertically centre the count+bar HStack.
+            // The outer HStack's minHeight gives them a real budget to push against.
             VStack {
                 Spacer(minLength: 0)
                 HStack(alignment: .center, spacing: 6) {
@@ -93,8 +94,8 @@ public struct APICallCounterRow: View {
                 }
                 Spacer(minLength: 0)
             }
-            .frame(maxHeight: .infinity)
         }
+        .frame(minHeight: 44)
         .help(
             """
             GitHub REST calls in the last 60 minutes.
