@@ -328,7 +328,9 @@ internal extension SettingsView {
 
                     log("【beta-toggle】spawning Task", category: .general)
                     Task {
-                        log("【beta-toggle】Task ENTERED on actor=\(Thread.isMainThread ? "main" : "bg")", category: .general)
+                        // DEBUG #2170 — Thread.isMainThread unavailable in async context (Swift 6);
+                        // Task inherits @MainActor from the onChange closure so actor is always main.
+                        log("【beta-toggle】Task ENTERED (actor=main)", category: .general)
                         await autoUpdater.checkAndHandle(state: runnerState)
                         log("【beta-toggle】Task COMPLETED", category: .general)
                     }
@@ -414,7 +416,7 @@ internal extension SettingsView {
     /// The single-row approach is the final design for v1, not a placeholder.
     var updateActionRow: some View {
         // DEBUG #2170 — remove once beta-toggle install-button bug is resolved
-        _ = log("【updateActionRow】RENDERED — phase=\(runnerState.currentPhase)", category: .general)
+        log("【updateActionRow】RENDERED — phase=\(runnerState.currentPhase)", category: .general)
         return HStack(spacing: 8) {
             // ❌ DO NOT add .accessibilityHidden(true) here.
             // Accessibility modifiers on this icon are out of scope for v1 (#1794).
