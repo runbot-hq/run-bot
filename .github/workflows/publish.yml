@@ -334,9 +334,13 @@ jobs:
             exit 1
           fi
 
-          # Post-swap verifier alignment check (fix #2199).
-          # AppUpdater strips the leading 'v' from the release tag and compares
-          # against CFBundleShortVersionString. Assert they will match now.
+          # Post-swap verifier alignment check (fix #2199) — beta only.
+          # For beta, SHORT_VERSION == VERSION (full semver including pre-release
+          # suffix), so this check asserts that CFBundleShortVersionString exactly
+          # matches what AppUpdater will expect after stripping the leading 'v'
+          # from the release tag. For release, SHORT_VERSION == VERSION (no suffix),
+          # so this check is structurally equivalent to the POST_SHORT assertion
+          # above and adds no additional coverage in that branch.
           EXPECTED_BY_APPUPDATER="$VERSION"   # tag without leading 'v'
           if [[ "$POST_SHORT" != "$EXPECTED_BY_APPUPDATER" ]]; then
             echo "::error::[plist] POST-SWAP VERIFIER MISMATCH PREDICTED: AppUpdater expects CFBundleShortVersionString=${EXPECTED_BY_APPUPDATER} but plist has ${POST_SHORT} — install will fail post-swap verification. This is the bug from #2199." >&2
@@ -552,7 +556,7 @@ jobs:
 
       # ── Tag + push ─────────────────────────────────────────────────────────────────
       - name: Tag and push
-        if: ${{ inputs.dry_run != 'true' }}'
+        if: ${{ inputs.dry_run != 'true' }}
         run: |
           set -euo pipefail
           TAG="${{ steps.tag.outputs.tag }}"
