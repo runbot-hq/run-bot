@@ -43,7 +43,9 @@ extension RunnerState: UpdateStateProviding {
     /// SwiftUI views that read `currentPhase` are correctly invalidated.
     public func apply(_ phase: UpdatePhase) {
         // DEBUG #2170 — remove once beta-toggle install-button bug is resolved
+        #if DEBUG
         log("【RunnerState.apply】phase=\(phase) — previous=\(self.currentPhase)", category: .runner)
+        #endif
         switch phase {
         case .idle:
             availableUpdate = nil
@@ -89,7 +91,9 @@ extension RunnerState: UpdateStateProviding {
         // are invalidated exactly once per `apply(_:)` call.
         currentPhase = derivedPhase()
         // DEBUG #2170 — remove once beta-toggle install-button bug is resolved
+        #if DEBUG
         log("【RunnerState.apply】→ currentPhase=\(self.currentPhase)", category: .runner)
+        #endif
     }
 
     // MARK: - derivedPhase
