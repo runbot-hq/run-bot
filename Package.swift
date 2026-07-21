@@ -17,8 +17,9 @@ let package = Package(
     // Do NOT edit Package.resolved manually. Do NOT commit Package.resolved.
     // If a dependency's API changes → fix the call site here, never lock the dep.
     dependencies: [
-        // Tracks main — resolves to HEAD on every CI run. Do not pin to a revision.
-        .package(url: "https://github.com/runbot-hq/AppUpdater", branch: "main"),
+        // ⚠️ TEMPORARY: pointing to fix branch for run-bot#2193 / AppUpdater#55 testing.
+        // Revert to branch: "main" once AppUpdater#55 is merged.
+        .package(url: "https://github.com/runbot-hq/AppUpdater", branch: "fix/sequential-relaunch-after-replace"),
         // Tracks main — resolves to HEAD on every CI run. Do not pin to a revision.
         .package(url: "https://github.com/runbot-hq/GitHubClient", branch: "main"),
         // Tracks main — resolves to HEAD on every CI run. Do not pin to a revision.
