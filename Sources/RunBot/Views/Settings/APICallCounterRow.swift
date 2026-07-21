@@ -58,15 +58,15 @@ public struct APICallCounterRow: View {
         self.resetDate = resetDate
     }
 
-    /// Leading VStack: title + optional description, left-aligned, shrink before wrap.
-    /// Trailing VStack: stretched to full row height via maxHeight:.infinity so
-    /// Spacer(minLength:0) pairs genuinely centre the number+bar HStack vertically.
+    /// Leading VStack (title + optional description) yields space via layoutPriority(0).
+    /// Trailing HStack (count + bar) wins space via layoutPriority(1) and never compresses.
+    /// HStack(alignment: .center) vertically centers both sides against each other —
+    /// this is the correct SwiftUI primitive for standard row layout in List/Form.
     public var body: some View {
         HStack(alignment: .center, spacing: 12) {
-            // Leading: title + optional description, left aligned, shrink before wrap
+            // Leading: title + optional description, left-aligned, shrinks before trailing
             VStack(alignment: .leading, spacing: 2) {
                 Text("API Calls (last hour)")
-                    .font(.body)
                     .lineLimit(1)
                     .minimumScaleFactor(0.75)
                 if !vm.resetLabel.isEmpty {
@@ -78,22 +78,19 @@ public struct APICallCounterRow: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+            .layoutPriority(0)
 
-            // Trailing: stretched VStack so Spacers have height to work with,
-            // centering the number+bar HStack at the vertical midpoint of the row
-            VStack {
-                Spacer(minLength: 0)
-                HStack(alignment: .center, spacing: 6) {
-                    Text(vm.label)
-                        .foregroundStyle(vm.statusColor)
-                        .monospacedDigit()
-                    ProgressView(value: vm.snap.fraction)
-                        .frame(width: 60)
-                        .tint(vm.statusColor)
-                }
-                Spacer(minLength: 0)
+            // Trailing: count + progress bar, right-aligned, never compresses
+            HStack(spacing: 6) {
+                Text(vm.label)
+                    .foregroundStyle(vm.statusColor)
+                    .monospacedDigit()
+                    .fixedSize()
+                ProgressView(value: vm.snap.fraction)
+                    .frame(width: 60)
+                    .tint(vm.statusColor)
             }
-            .frame(maxHeight: .infinity)
+            .layoutPriority(1)
         }
         .help(
             """
