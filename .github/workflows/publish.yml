@@ -237,13 +237,32 @@ jobs:
           echo "Tag $TAG is available."
 
       # ── Patch Info.plist ──────────────────────────────────────────────────────────────
-      # CFBundleShortVersionString  ← X.Y.Z only (macOS strips pre-release
-      #                               suffixes here for display)
-      # RBVersionString             ← full semver incl. pre-release suffix
-      #                               (e.g. "0.7.3-beta.1"); read by
-      #                               UpdateChecker.checkForUpdate
-      # CFBundleVersion             ← monotonically incrementing build number
-      #                               derived from total git commit count
+      #
+      # FIX #2199: CFBundleShortVersionString must carry the FULL version string
+      # (including pre-release suffix) for beta builds. Previously it was always
+      # set to SHORT_VERSION (numeric core only, e.g. "0.7.8"), while RBVersionString
+      # carried the full semver ("0.7.8-beta.1"). AppUpdater's post-swap verification
+      # reads CFBundleShortVersionString and compares it against the GitHub release tag
+      # (stripped of its leading "v"). For a beta build this comparison was:
+      #
+      #   CFBundleShortVersionString = "0.7.8"
+      #   expected (from tag)        = "0.7.8-beta.1"
+      #   result                     = MISMATCH → install aborted every time
+      #
+      # Fix: for beta channel, write the full version ("0.7.8-beta.1") into
+      # CFBundleShortVersionString so the post-swap check passes. Stable builds
+      # continue to use the numeric core only ("0.7.8") — no change there.
+      #
+      # macOS does NOT enforce a numeric-only constraint on CFBundleShortVersionString
+      # for non-App-Store apps. The OS will display the full string without issue.
+      #
+      # Key inventory after this step:
+      #   CFBundleShortVersionString  ← full version for beta  (e.g. "0.7.8-beta.1")
+      #                                 numeric core for stable (e.g. "0.7.8")
+      #   RBVersionString             ← always full semver      (e.g. "0.7.8-beta.1")
+      #                                 read by UpdateChecker.checkForUpdate
+      #   CFBundleVersion             ← monotonically incrementing build number
+      #                                 derived from total git commit count
       #
       # BUILD is captured before the plist commit step adds one more commit,
       # so CFBundleVersion at the tagged commit will be N while git rev-list
@@ -255,20 +274,66 @@ jobs:
         run: |
           set -euo pipefail
           VERSION="${{ steps.tag.outputs.version }}"
+          CHANNEL="${{ steps.tag.outputs.channel }}"
           SHORT_VERSION="${VERSION%%-*}"
           BUILD=$(git rev-list --count HEAD)
 
+          echo "── Patch Info.plist ──────────────────────────────────────────────"
+          echo "  channel         = $CHANNEL"
+          echo "  VERSION         = $VERSION"
+          echo "  SHORT_VERSION   = $SHORT_VERSION"
+          echo "  BUILD           = $BUILD"
+
+          # FIX #2199: For beta builds, CFBundleShortVersionString must equal the
+          # full version string so AppUpdater's post-swap verification passes.
+          # For stable builds, use the numeric core (unchanged behaviour).
+          if [[ "$CHANNEL" == "beta" ]]; then
+            BUNDLE_SHORT_VERSION="$VERSION"
+            echo "  BUNDLE_SHORT_VERSION = $BUNDLE_SHORT_VERSION  (beta: full semver)"
+          else
+            BUNDLE_SHORT_VERSION="$SHORT_VERSION"
+            echo "  BUNDLE_SHORT_VERSION = $BUNDLE_SHORT_VERSION  (stable: numeric core)"
+          fi
+
+          echo "── Reading Info.plist BEFORE patch ───────────────────────────────"
+          echo "  CFBundleShortVersionString (before) = $(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' Resources/Info.plist)"
+          echo "  RBVersionString            (before) = $(/usr/libexec/PlistBuddy -c 'Print :RBVersionString' Resources/Info.plist)"
+          echo "  CFBundleVersion            (before) = $(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' Resources/Info.plist)"
+
           /usr/libexec/PlistBuddy -c \
-            "Set :CFBundleShortVersionString ${SHORT_VERSION}" \
+            "Set :CFBundleShortVersionString ${BUNDLE_SHORT_VERSION}" \
             Resources/Info.plist
+          echo "  ✓ Set CFBundleShortVersionString → ${BUNDLE_SHORT_VERSION}"
+
           /usr/libexec/PlistBuddy -c \
             "Set :RBVersionString ${VERSION}" \
             Resources/Info.plist
+          echo "  ✓ Set RBVersionString → ${VERSION}"
+
           /usr/libexec/PlistBuddy -c \
             "Set :CFBundleVersion ${BUILD}" \
             Resources/Info.plist
+          echo "  ✓ Set CFBundleVersion → ${BUILD}"
 
-          echo "Patched Info.plist: shortVersion=${SHORT_VERSION} fullVersion=${VERSION} build=${BUILD}"
+          echo "── Reading Info.plist AFTER patch ────────────────────────────────"
+          PATCHED_SHORT=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' Resources/Info.plist)
+          PATCHED_RB=$(/usr/libexec/PlistBuddy -c 'Print :RBVersionString' Resources/Info.plist)
+          PATCHED_BUILD=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' Resources/Info.plist)
+          echo "  CFBundleShortVersionString (after) = $PATCHED_SHORT"
+          echo "  RBVersionString            (after) = $PATCHED_RB"
+          echo "  CFBundleVersion            (after) = $PATCHED_BUILD"
+
+          # Sanity assertions — fail fast here rather than after a full build.
+          if [[ "$PATCHED_SHORT" != "$BUNDLE_SHORT_VERSION" ]]; then
+            echo "::error::CFBundleShortVersionString mismatch after patch: expected '$BUNDLE_SHORT_VERSION', got '$PATCHED_SHORT'" >&2
+            exit 1
+          fi
+          if [[ "$PATCHED_RB" != "$VERSION" ]]; then
+            echo "::error::RBVersionString mismatch after patch: expected '$VERSION', got '$PATCHED_RB'" >&2
+            exit 1
+          fi
+          echo "  ✓ All plist assertions passed."
+          echo "── Patch Info.plist complete ─────────────────────────────────────"
 
       # ── Build ────────────────────────────────────────────────────────────────────
       - name: Build
@@ -276,23 +341,99 @@ jobs:
         env:
           CI: "true"
 
-      # ── Verify zip ─────────────────────────────────────────────────────────────────
+      # ── Verify zip + post-build plist readback ────────────────────────────────────
+      #
+      # Two responsibilities:
+      #   1. Confirm RunBot.app/Contents/MacOS/RunBot is present at the archive root
+      #      (existing check — unchanged).
+      #   2. NEW: Extract Info.plist from the built zip and verify that the version
+      #      keys baked into the binary match what we patched. Catches any build.sh
+      #      or Xcode step that re-reads Info.plist from a stale source and overwrites
+      #      the patched values. Without this check a version mismatch would only be
+      #      discovered at AppUpdater's post-swap verification — after the user has
+      #      already downloaded and installed the update.
       - name: Verify zip
         id: verify
         run: |
           set -euo pipefail
+          VERSION="${{ steps.tag.outputs.version }}"
+          CHANNEL="${{ steps.tag.outputs.channel }}"
+          SHORT_VERSION="${VERSION%%-*}"
+
+          # Recompute expected CFBundleShortVersionString using same logic as Patch step.
+          if [[ "$CHANNEL" == "beta" ]]; then
+            EXPECTED_SHORT="$VERSION"
+          else
+            EXPECTED_SHORT="$SHORT_VERSION"
+          fi
+
           ZIP=$(find dist -name '*.zip' | head -1)
           if [[ -z "$ZIP" ]]; then
             echo "error: no zip found in dist/" >&2
             exit 1
           fi
-          echo "Verifying $ZIP"
+
+          echo "── Verify zip ────────────────────────────────────────────────────"
+          echo "  ZIP             = $ZIP"
+          echo "  VERSION         = $VERSION"
+          echo "  CHANNEL         = $CHANNEL"
+          echo "  EXPECTED_SHORT  = $EXPECTED_SHORT"
+
+          echo "── Checking archive structure ─────────────────────────────────────"
           if ! unzip -l "$ZIP" | grep -qE '^\s+[0-9].*\s+RunBot\.app/Contents/MacOS/RunBot$'; then
             echo "error: RunBot.app/Contents/MacOS/RunBot not found at archive root in $ZIP" >&2
             unzip -l "$ZIP" >&2
             exit 1
           fi
-          echo "Zip verified: RunBot.app/Contents/MacOS/RunBot is present at archive root."
+          echo "  ✓ RunBot.app/Contents/MacOS/RunBot present at archive root."
+
+          echo "── Post-build plist readback from zip (fix #2199) ─────────────────"
+          # Extract Info.plist from the zip into a temp dir without extracting the
+          # full bundle. unzip -p pipes the file content to stdout; plutil converts
+          # binary plist to XML so PlistBuddy can parse it.
+          TMPDIR_PLIST=$(mktemp -d)
+          trap "rm -rf '$TMPDIR_PLIST'" EXIT
+
+          unzip -p "$ZIP" "RunBot.app/Contents/Info.plist" > "$TMPDIR_PLIST/Info.plist"
+
+          # Convert binary plist to XML if needed (plutil is a no-op on already-XML).
+          plutil -convert xml1 "$TMPDIR_PLIST/Info.plist"
+
+          BUILT_SHORT=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$TMPDIR_PLIST/Info.plist")
+          BUILT_RB=$(/usr/libexec/PlistBuddy -c 'Print :RBVersionString' "$TMPDIR_PLIST/Info.plist")
+          BUILT_BUILD=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$TMPDIR_PLIST/Info.plist")
+
+          echo "  CFBundleShortVersionString (built zip) = $BUILT_SHORT"
+          echo "  RBVersionString            (built zip) = $BUILT_RB"
+          echo "  CFBundleVersion            (built zip) = $BUILT_BUILD"
+          echo "  Expected CFBundleShortVersionString    = $EXPECTED_SHORT"
+          echo "  Expected RBVersionString               = $VERSION"
+
+          # Assert CFBundleShortVersionString — this is exactly what AppUpdater's
+          # post-swap verification reads. If it doesn't match here, the install
+          # will fail for every user. Fail the build now instead.
+          if [[ "$BUILT_SHORT" != "$EXPECTED_SHORT" ]]; then
+            echo "::error::CFBundleShortVersionString in built zip does not match expected value." >&2
+            echo "::error::  built:    '$BUILT_SHORT'" >&2
+            echo "::error::  expected: '$EXPECTED_SHORT'" >&2
+            echo "::error::This means the build overwrote the patched plist. Investigate build.sh / Xcode settings." >&2
+            exit 1
+          fi
+          echo "  ✓ CFBundleShortVersionString matches expected value."
+
+          # Assert RBVersionString — this is what UpdateChecker uses to identify
+          # the available version. Must always equal the full semver.
+          if [[ "$BUILT_RB" != "$VERSION" ]]; then
+            echo "::error::RBVersionString in built zip does not match expected value." >&2
+            echo "::error::  built:    '$BUILT_RB'" >&2
+            echo "::error::  expected: '$VERSION'" >&2
+            exit 1
+          fi
+          echo "  ✓ RBVersionString matches expected value."
+
+          echo "  ✓ Post-build plist readback assertions passed."
+          echo "── Verify zip complete ───────────────────────────────────────────"
+
           echo "zip_path=$ZIP" >> "$GITHUB_OUTPUT"
 
       # ── Sign release zip with Ed25519 ─────────────────────────────────────────────────
