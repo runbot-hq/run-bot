@@ -58,32 +58,42 @@ public struct APICallCounterRow: View {
         self.resetDate = resetDate
     }
 
-    /// The row's body: leading title/reset-label block and trailing count/progress-bar block,
-    /// joined by a center-aligned HStack so the progress bar stays vertically centred
-    /// regardless of whether the reset sub-label is visible.
+    /// Leading VStack: title + optional description, left-aligned, shrink before wrap.
+    /// Trailing VStack: stretched to full row height via maxHeight:.infinity so
+    /// Spacer(minLength:0) pairs genuinely centre the number+bar HStack vertically.
     public var body: some View {
         HStack(alignment: .center, spacing: 12) {
-            // Leading: title + optional multiline reset label
+            // Leading: title + optional description, left aligned, shrink before wrap
             VStack(alignment: .leading, spacing: 2) {
                 Text("API Calls (last hour)")
+                    .font(.body)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
                 if !vm.resetLabel.isEmpty {
                     Text(vm.resetLabel)
                         .font(.caption)
                         .foregroundStyle(Color.rbTextSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            // Trailing: count + progress bar on a single line
-            HStack(alignment: .center, spacing: 6) {
-                Text(vm.label)
-                    .foregroundStyle(vm.statusColor)
-                    .monospacedDigit()
-                ProgressView(value: vm.snap.fraction)
-                    .frame(width: 60)
-                    .tint(vm.statusColor)
+            // Trailing: stretched VStack so Spacers have height to work with,
+            // centering the number+bar HStack at the vertical midpoint of the row
+            VStack {
+                Spacer(minLength: 0)
+                HStack(alignment: .center, spacing: 6) {
+                    Text(vm.label)
+                        .foregroundStyle(vm.statusColor)
+                        .monospacedDigit()
+                    ProgressView(value: vm.snap.fraction)
+                        .frame(width: 60)
+                        .tint(vm.statusColor)
+                }
+                Spacer(minLength: 0)
             }
+            .frame(maxHeight: .infinity)
         }
         .help(
             """
