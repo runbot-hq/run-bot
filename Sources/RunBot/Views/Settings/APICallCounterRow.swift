@@ -35,16 +35,16 @@ extension View {
 
 // MARK: - APICallCounterRow
 
-/// Settings row that shows "410 / 5,000" with a colour-coded progress bar
+/// Settings row that shows `"410 / 5,000"` with a colour-coded progress bar
 /// and a static description sub-label. Layout:
 ///
 ///   HStack
 ///   ├── VStack(leading): title (shrinks) + description (multiline, grows down)
 ///   └── VStack: Spacer / HStack(number + bar) / Spacer  ← vertically centred
 ///
-/// The trailing VStack stretches to full row height via .frame(maxHeight: .infinity)
+/// The trailing VStack stretches to full row height via `.frame(maxHeight: .infinity)`
 /// so the Spacers have real height to divide, centering the number+bar HStack.
-/// layoutPriority(1) on the trailing side means it always wins space negotiation;
+/// `layoutPriority(1)` on the trailing side means it always wins space negotiation;
 /// the leading VStack yields and its title shrinks before the trailing is touched.
 ///
 /// Usage:
@@ -53,15 +53,21 @@ extension View {
 /// ```
 public struct APICallCounterRow: View {
     /// View model that drives the counter label, colour, and snapshot.
+    /// `@State` so SwiftUI owns the lifetime and the instance survives view identity changes.
     @State private var vm = APICallCounterViewModel()
 
     /// Optional rate-limit reset date forwarded from `RunnerState.rateLimitResetDate`.
+    /// `nil` when no rate-limit response has been received yet.
     private let resetDate: Date?
 
+    /// Creates a new `APICallCounterRow` with a fresh view model.
+    /// - Parameter resetDate: Optional rate-limit reset date from `RunnerState`.
     public init(resetDate: Date? = nil) {
         self.resetDate = resetDate
     }
 
+    /// The row body: leading title/description block and trailing count/progress block.
+    /// Leading yields space via `layoutPriority(0)`; trailing wins via `layoutPriority(1)`.
     public var body: some View {
         HStack(alignment: .center, spacing: 12) {
 
@@ -106,6 +112,11 @@ public struct APICallCounterRow: View {
             Only successful (non-nil) calls are counted.
             """
         )
+        // SYNC INVARIANT — both modifiers are required, do not remove either:
+        // • onAppear  → seeds the VM on first render AND re-syncs after the view
+        //               returns from off-screen (Settings closed and reopened).
+        // • onChange  → keeps the VM live while the view stays on screen.
+        // Removing onAppear breaks re-entry; removing onChange breaks live updates.
         .onChange(of: resetDate) { _, newVal in vm.resetDate = newVal }
         .onAppear { vm.resetDate = resetDate }
         .counterPolling(vm)
