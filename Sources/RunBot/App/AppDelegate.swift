@@ -231,21 +231,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let newW = min(max(preferred.width > 0 ? preferred.width : Self.minWidth, Self.minWidth), maxWidth)
         let newH = min(max(preferred.height, 60), maxHeight)
         let currentSize = popover.contentSize
-        let buttonFrame = statusItem?.button?.window?.convertToScreen(
+        let buttonScreenFrame = statusItem?.button?.window?.convertToScreen(
             statusItem?.button?.frame ?? .zero
         ) ?? .zero
         let visibleFrame = statusItemScreen.visibleFrame
-        log("AppDelegate › resizeAndRepositionPanel — "
-            + "preferred=(\(preferred.width),\(preferred.height)) "
-            + "clamped=(\(newW),\(newH)) "
-            + "current=(\(currentSize.width),\(currentSize.height)) "
-            + "buttonScreenFrame=\(buttonFrame) "
-            + "visibleFrame=\(visibleFrame) "
-            + "autoHideMenubar=\(NSMenu.menuBarVisible == false)")
+        let autoHide = !NSMenu.menuBarVisible()
+        // Build log string in parts to avoid Swift type-checker timeout on
+        // long string-interpolation chains (#2235 compiler fix).
+        let logMsg = "AppDelegate › resizeAndRepositionPanel"
+            + " preferred=(\(preferred.width),\(preferred.height))"
+            + " clamped=(\(newW),\(newH))"
+            + " current=(\(currentSize.width),\(currentSize.height))"
+            + " buttonScreenFrame=\(buttonScreenFrame)"
+            + " visibleFrame=\(visibleFrame)"
+            + " autoHideMenubar=\(autoHide)"
+        log(logMsg)
         if abs(currentSize.width - newW) > 1 || abs(currentSize.height - newH) > 1 {
-            log("AppDelegate › resizeAndRepositionPanel — WRITING contentSize=(\(newW),\(newH)) delta=(\(newW - currentSize.width),\(newH - currentSize.height))")
+            let dw = newW - currentSize.width
+            let dh = newH - currentSize.height
+            log("AppDelegate › resizeAndRepositionPanel — WRITING contentSize=(\(newW),\(newH)) delta=(\(dw),\(dh))")
             popover.contentSize = NSSize(width: newW, height: newH)
-            log("AppDelegate › resizeAndRepositionPanel — POST-WRITE popoverWindowFrame=\(popover.contentViewController?.view.window?.frame ?? .zero)")
+            let postFrame = popover.contentViewController?.view.window?.frame ?? .zero
+            log("AppDelegate › resizeAndRepositionPanel — POST-WRITE popoverWindowFrame=\(postFrame)")
         } else {
             log("AppDelegate › resizeAndRepositionPanel — no-op: size unchanged within 1pt")
         }
@@ -266,16 +273,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func navigate(to view: AnyView) {
         let beforeSize = popover?.contentSize ?? .zero
         let beforePreferred = hostingController?.preferredContentSize ?? .zero
-        log("AppDelegate › navigate — ENTER "
-            + "beforeContentSize=(\(beforeSize.width),\(beforeSize.height)) "
-            + "beforePreferred=(\(beforePreferred.width),\(beforePreferred.height)) "
-            + "autoHideMenubar=\(NSMenu.menuBarVisible == false) "
-            + "buttonScreenFrame=\(statusItem?.button?.window?.convertToScreen(statusItem?.button?.frame ?? .zero) ?? .zero)")
+        let autoHide = !NSMenu.menuBarVisible()
+        let btnScreenFrame = statusItem?.button?.window?.convertToScreen(
+            statusItem?.button?.frame ?? .zero
+        ) ?? .zero
+        // Build log string in parts to avoid Swift type-checker timeout on
+        // long string-interpolation chains (#2235 compiler fix).
+        let enterMsg = "AppDelegate › navigate — ENTER"
+            + " beforeContentSize=(\(beforeSize.width),\(beforeSize.height))"
+            + " beforePreferred=(\(beforePreferred.width),\(beforePreferred.height))"
+            + " autoHideMenubar=\(autoHide)"
+            + " buttonScreenFrame=\(btnScreenFrame)"
+        log(enterMsg)
         hostingController?.rootView = view
         let afterPreferred = hostingController?.preferredContentSize ?? .zero
-        log("AppDelegate › navigate — rootView swapped "
-            + "afterPreferred=(\(afterPreferred.width),\(afterPreferred.height)) "
-            + "(KVO will fire when SwiftUI finishes layout)")
+        log("AppDelegate › navigate — rootView swapped afterPreferred=(\(afterPreferred.width),\(afterPreferred.height)) (KVO will fire when SwiftUI finishes layout)")
         // ⚠️ FIX #2232: resizeAndRepositionPanel() intentionally NOT called here.
         // Previously this line caused a double contentSize write on every view switch:
         //   1. Here — synchronous, stale preferredContentSize (SwiftUI not yet laid out)
@@ -441,13 +453,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             popover.behavior = .applicationDefined
             popover.delegate = self
-            log("AppDelegate › openPanel — PRE-SHOW behavior=\(popover.behavior.rawValue) delegate=\(String(describing: popover.delegate)) "
-                + "buttonBounds=\(button.bounds) buttonScreenFrame=\(button.window?.convertToScreen(button.frame) ?? .zero) "
-                + "visibleFrame=\(statusItemScreen.visibleFrame) "
-                + "autoHideMenubar=\(NSMenu.menuBarVisible == false)")
+            let autoHide = !NSMenu.menuBarVisible()
+            let btnScreenFrame = button.window?.convertToScreen(button.frame) ?? .zero
+            let vFrame = statusItemScreen.visibleFrame
+            // Build log string in parts to avoid Swift type-checker timeout on
+            // long string-interpolation chains (#2235 compiler fix).
+            let preShowMsg = "AppDelegate › openPanel — PRE-SHOW"
+                + " behavior=\(popover.behavior.rawValue)"
+                + " delegate=\(String(describing: popover.delegate))"
+                + " buttonBounds=\(button.bounds)"
+                + " buttonScreenFrame=\(btnScreenFrame)"
+                + " visibleFrame=\(vFrame)"
+                + " autoHideMenubar=\(autoHide)"
+            log(preShowMsg)
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-            log("AppDelegate › openPanel — POST-SHOW behavior=\(popover.behavior.rawValue) "
-                + "popoverWindowFrame=\(popover.contentViewController?.view.window?.frame ?? .zero)")
+            let postWinFrame = popover.contentViewController?.view.window?.frame ?? .zero
+            log("AppDelegate › openPanel — POST-SHOW behavior=\(popover.behavior.rawValue) popoverWindowFrame=\(postWinFrame)")
         }
         makePopoverWindowKeyIfPossible()
         resizeAndRepositionPanel()
