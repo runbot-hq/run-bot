@@ -150,11 +150,6 @@ struct SettingsView: View {
     /// Retains the sign-out listener Task so it is cancelled when the view disappears.
     @State private var signOutTask: Task<Void, Never>?
 
-    /// Retains the update-check Task so it is cancelled when the view disappears.
-    /// Prevents a ghost write to runnerState if Settings is closed before the
-    /// network call returns. Mirrors the signInTask/signOutTask cancellation pattern.
-    @State private var updateCheckTask: Task<Void, Never>?
-
     /// `true` while `LocalRunnersView` is displayed instead of the main settings scroll.
     @State var showLocalRunners = false
 
@@ -253,8 +248,28 @@ struct SettingsView: View {
             isCLIAuthenticated = token != nil
             log("【SettingsView.task】github.token() resolved — isCLIAuthenticated=\(isCLIAuthenticated)", category: .general)
         }
+        // FIX #2223 / #2216: run the update check via a SwiftUI-owned .task so it
+        // fires on every entry path — including cold-open → Settings, where
+        // .onAppear on an NSPanel-hosted root Group is not guaranteed to fire.
+        //
+        // Previously, onAppearAction() manually spawned updateCheckTask (an
+        // unstructured Task) and onDisappear cancelled it. That covered
+        // Main → Settings but missed the cold-open path.
+        //
+        // SwiftUI .task starts when the view appears and is automatically
+        // cancelled when the view disappears — no @State handle or manual
+        // cancel needed. This is strictly simpler and covers both paths:
+        //   • Cold-open → Settings : .task fires ✅
+        //   • Main → Settings nav  : .task fires ✅
+        //   • Back-nav sub-views   : root Group does not re-appear → no extra check ✅
+        //   • Settings closed mid-check: SwiftUI cancels automatically ✅
+        //
+        // Principle P9: structured concurrency — no manual Task or DispatchQueue.
+        .task {
+            await autoUpdater.checkAndHandle(state: runnerState)
+        }
         .onDisappear {
-            log("【SettingsView.onDisappear】cancelling signInTask/signOutTask/updateCheckTask", category: .general)
+            log("【SettingsView.onDisappear】cancelling signInTask/signOutTask", category: .general)
             // Cancel and unconditionally nil the sign-in task — the for-await loop
             // exits promptly on cancellation (AsyncStream respects task cancellation)
             // so isSigningIn will never flip back via the stream after this point.
@@ -263,10 +278,6 @@ struct SettingsView: View {
             signInTask = nil
             signOutTask?.cancel()
             signOutTask = nil
-            // Cancel the update-check task so a ghost write to runnerState cannot
-            // occur if Settings is closed before the network call returns.
-            updateCheckTask?.cancel()
-            updateCheckTask = nil
             // Reset isSigningIn so a close-during-flow doesn't leave a stale spinner
             // on the next open. The stream task is already cancelled above, so the
             // for-await loop will not reset it — we must do it explicitly here.
@@ -320,16 +331,16 @@ struct SettingsView: View {
     }
 
     /// Runs on `.onAppear`: re-syncs auth state from `oauthService` and starts sign-in /
-    /// sign-out listeners. Also triggers a fresh update check so the latest available
-    /// version is always offered when the user opens Settings (fix #2208).
+    /// sign-out listeners.
     ///
     /// Auth state is already seeded from `oauthService` in `init`, so this is a no-op
     /// on the first render. On subsequent appears (e.g. after a hide/show cycle) it
     /// re-reads the current state and re-registers the stream tasks.
     ///
-    /// All three tasks are cancelled before reassignment so a rapid open→open cycle
-    /// (panel re-shown without a disappear) cannot leak the prior stream listeners
-    /// or an in-flight network call.
+    /// Update checking is intentionally NOT done here — it is owned by the SwiftUI
+    /// .task modifier in body, which covers both cold-open and navigation paths
+    /// (fix #2223). All tasks are cancelled before reassignment so a rapid open→open
+    /// cycle cannot leak prior stream listeners.
     private func onAppearAction() { // skipcq: SW-R1002 — reviewed; complexity acceptable for this onAppear setup
         isOAuthAuthenticated = oauthService.isAuthenticated
         isCLIAuthenticated = !oauthService.isAuthenticated && oauthService.hasAnyToken
@@ -358,30 +369,6 @@ struct SettingsView: View {
                 isCLIAuthenticated = oauthService.hasAnyToken
                 log("【SettingsView.signOutStream】OAuth=\(isOAuthAuthenticated) CLI=\(isCLIAuthenticated)", category: .general)
             }
-        }
-
-        // FIX #2208: check for a newer version whenever the user opens Settings
-        // so the latest available version is always offered — not only at launch
-        // or on the 24h background tick.
-        //
-        // No phase reset — existing state is preserved during the check.
-        // checkAndHandle only writes runnerState if it finds a newer version;
-        // otherwise the current phase is left untouched, so no UI flicker occurs.
-        //
-        // The handle is stored in updateCheckTask so onDisappear can cancel it
-        // if the user closes Settings before the network call returns — preventing
-        // a ghost write to runnerState after the view lifecycle ends.
-        //
-        // This fires once per Settings panel open. .onAppear is attached to the
-        // root Group (not settingsBody), so it does NOT fire on back-navigation
-        // from LocalRunnersView or ScopesView — see body comment above.
-        //
-        // Mirrors the identical pattern in betaChannelRow.onChange.
-        // Principle P6 (reach-goal): named task on a user-interactive path.
-        // Principle P9: structured concurrency — no Timer or DispatchQueue.
-        updateCheckTask?.cancel()
-        updateCheckTask = Task(name: "settings-appear-update-check") { @MainActor in
-            await autoUpdater.checkAndHandle(state: runnerState)
         }
     }
 
