@@ -82,6 +82,20 @@ import SwiftUI
 // This resize/reposition fix mirrors MenuBarKit PR #6 exactly and is NOT
 // the fix for the open-time issue below — those are two independent bugs.
 //
+// ⚠️ INSTRUMENTATION + DEGENERATE-BASELINE GUARD (this revision):
+// resizeAndRepositionPanel() previously had ZERO logging, so a sidejump that
+// happens WHILE the panel is already open (content grows as data streams in,
+// e.g. workflow rows populating after open) was invisible in log dumps —
+// every prior fix attempt was debugging the open-time anchor path
+// (showPopoverRetryingIfNeeded) because that was the only instrumented one.
+// Every call now logs oldFrame / dw / dh / newOrigin. Additionally, if the
+// `oldFrame` read at the top of the function is degenerate — zero width or
+// height, or origin.x == 0 while the status item's screen visibleFrame does
+// NOT start at x == 0 — the delta shift is skipped and a warning is logged
+// instead of propagating a bad baseline into window.setFrameOrigin(). This
+// does not replace the delta math above; it guards it and makes the next
+// repro observable instead of another blind theory.
+//
 // AUTOHIDE SIDE-JUMP AT OPEN TIME (separate issue from the above — NOT
 // covered by MenuBarKit PR #6, which only addresses resize/reposition):
 // With "Automatically hide and show the menu bar" enabled, the click that
@@ -250,6 +264,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// corrects the window origin using a DELTA-based shift (never absolute
     /// button/screen coordinates — see the "LATERAL JUMP PREVENTION" note at
     /// the top of this file, and runbot-hq/MenuBarKit issue #12).
+    ///
+    /// ⚠️ Every branch of this function is logged (see "INSTRUMENTATION +
+    /// DEGENERATE-BASELINE GUARD" note at the top of this file). Do not strip
+    /// the logging in a future cleanup pass without checking whether the
+    /// mid-session sidejump has actually been closed out — it was invisible
+    /// for multiple debugging rounds specifically because this function was
+    /// silent.
     func resizeAndRepositionPanel() {
         guard panelIsOpen, let popover, let controller = hostingController else { return }
         let preferred = controller.preferredContentSize
@@ -260,6 +281,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let sizeChanged = abs(currentSize.width - newW) > 1 || abs(currentSize.height - newH) > 1
         guard sizeChanged else { return }
         guard let window = popover.contentViewController?.view.window else {
+            log("AppDelegate › resizeAndRepositionPanel — no window, setting contentSize only newW=\(newW) newH=\(newH)")
             popover.contentSize = NSSize(width: newW, height: newH)
             return
         }
@@ -269,12 +291,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let oldFrame = window.frame
         let dw = newW - currentSize.width
         let dh = newH - currentSize.height
+        log("AppDelegate › resizeAndRepositionPanel — oldFrame=\(oldFrame) currentSize=\(currentSize) " +
+            "newW=\(newW) newH=\(newH) dw=\(dw) dh=\(dh)")
+        // Degenerate-baseline guard: if oldFrame is zero-sized, or its origin.x
+        // is 0 while the status item's screen does NOT start at x == 0, the
+        // frame we just read is not a trustworthy baseline for the delta shift
+        // (see "INSTRUMENTATION + DEGENERATE-BASELINE GUARD" note above). Skip
+        // the origin correction rather than propagate a bad baseline — the
+        // window still resizes via contentSize below, just without the
+        // (currently unreliable) position correction for this one call.
+        let screenVisibleOriginX = statusItemScreen.visibleFrame.origin.x
+        let oldFrameLooksDegenerate = oldFrame.width <= 0 || oldFrame.height <= 0
+            || (oldFrame.origin.x == 0 && screenVisibleOriginX != 0)
+        if oldFrameLooksDegenerate {
+            log("AppDelegate › resizeAndRepositionPanel — WARNING: oldFrame looks degenerate " +
+                "(oldFrame=\(oldFrame) screenVisibleOriginX=\(screenVisibleOriginX)), " +
+                "applying contentSize WITHOUT origin correction")
+            popover.contentSize = NSSize(width: newW, height: newH)
+            return
+        }
         popover.contentSize = NSSize(width: newW, height: newH)
         // Shift the EXISTING origin by the delta — never recompute an absolute
         // target from button/screen coordinates (see doc comment above).
         var newOrigin = oldFrame.origin
         newOrigin.x -= dw / 2   // grow symmetrically → midX stays fixed
         newOrigin.y -= dh       // grow downward only → maxY (top/arrow edge) stays fixed
+        log("AppDelegate › resizeAndRepositionPanel — newOrigin=\(newOrigin)")
         window.setFrameOrigin(newOrigin)
     }
 
