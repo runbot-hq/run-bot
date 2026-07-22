@@ -38,6 +38,12 @@ extension View {
 /// Settings row that shows `"410 / 5,000"` with a colour-coded progress bar
 /// and an optional "Resets in N min/sec" sub-label driven by `resetDate`.
 ///
+/// Layout:
+///   HStack
+///   ├── VStack(leading): title + description   ← shrinks horizontally, grows downward
+///   └── VStack(trailing): vertically centers the number+bar HStack
+///       └── HStack: count + progress bar       ← always wins width, never compresses
+///
 /// Usage:
 /// ```swift
 /// APICallCounterRow(resetDate: runnerState.rateLimitResetDate)
@@ -58,42 +64,44 @@ public struct APICallCounterRow: View {
         self.resetDate = resetDate
     }
 
-    /// Leading VStack: title + optional description, left-aligned.
-    /// Shrinks horizontally before the trailing block does (layoutPriority 0 vs 1).
-    /// Trailing HStack: number + progress bar, always gets its natural width first.
-    /// HStack(alignment: .center) vertically centers both sides against each other.
+    /// Row body: leading title/description block and trailing count/progress-bar block.
+    /// Leading shrinks horizontally first; trailing is always vertically centered.
     public var body: some View {
         HStack(alignment: .center, spacing: 12) {
-            // Leading: shrinks when space is tight; trailing wins space negotiation
+
+            // LEFT: title + optional description.
+            // - Left-aligned, shrinks horizontally before trailing does (layoutPriority 0).
+            // - Description is unconstrained vertically: grows downward, never bleeds right.
             VStack(alignment: .leading, spacing: 2) {
                 Text("API Calls (last hour)")
-                    .font(.body)
                     .lineLimit(1)
                     .minimumScaleFactor(0.75)
                 if !vm.resetLabel.isEmpty {
                     Text(vm.resetLabel)
                         .font(.caption)
                         .foregroundStyle(Color.rbTextSecondary)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.75)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
-            // No .frame(maxWidth: .infinity) — that was the bug in every previous PR.
-            // Default layoutPriority(0) means this side yields space to the trailing block.
+            .layoutPriority(0)
 
-            // Trailing: always rendered at natural width; never compressed.
-            // HStack(alignment: .center) on the parent vertically centers this
-            // against the leading VStack without any Spacer tricks.
-            HStack(alignment: .center, spacing: 6) {
-                Text(vm.label)
-                    .foregroundStyle(vm.statusColor)
-                    .monospacedDigit()
-                ProgressView(value: vm.snap.fraction)
-                    .frame(width: 60)
-                    .tint(vm.statusColor)
+            // RIGHT: number + progress bar, horizontally side-by-side,
+            // vertically centered against the full height of the leading VStack.
+            VStack(alignment: .trailing, spacing: 0) {
+                HStack(spacing: 6) {
+                    Text(vm.label)
+                        .foregroundStyle(vm.statusColor)
+                        .monospacedDigit()
+                        .fixedSize()
+                    ProgressView(value: vm.snap.fraction)
+                        .frame(width: 60)
+                        .tint(vm.statusColor)
+                }
             }
+            .frame(maxHeight: .infinity, alignment: .center)
             .layoutPriority(1)
         }
+        .fixedSize(horizontal: false, vertical: true)
         .help(
             """
             GitHub REST calls in the last 60 minutes.
