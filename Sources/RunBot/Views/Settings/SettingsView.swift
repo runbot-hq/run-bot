@@ -22,9 +22,25 @@ import SwiftUI
 // ❌ NEVER use GeometryReader for the height.
 // ❌ NEVER add idealHeight to the root frame.
 //
-// WIDTH CONTRACT:
-// .frame(idealWidth: 480) — only idealWidth needed. NSPanel handles bounds.
-// ❌ NEVER remove idealWidth: 480.
+// WIDTH CONTRACT (NSPopover + KVO-on-preferredContentSize architecture, fix/#1017):
+// Sizing is driven by NSHostingController.preferredContentSize via KVO
+// (see AppDelegate+PanelSetup.swift SIZE NOTE). preferredContentSize is
+// computed from this view's `fittingSize`, which in turn depends on
+// SwiftUI reporting a DEFINITE intrinsic width. A `maxWidth: .infinity`
+// frame reports back whatever width the popover ALREADY has -- fittingSize
+// echoes the existing contentSize and no resize ever fires. This is
+// documented explicitly in runbot-hq/MenuBarKit issue #12 "Content Width
+// Requirements": use either a fixed `.frame(width:)` or `.fixedSize()` on
+// the root stack, never `maxWidth: .infinity`.
+// SettingsView always wants a stable width regardless of content, so a
+// fixed `.frame(width: 480)` is used below -- NOT idealWidth/.infinity.
+// ❌ NEVER change `.frame(width: 480)` back to `idealWidth:`/`maxWidth: .infinity`
+//    -- that silently breaks resizing into and within Settings (confirmed
+//    root cause of the "Settings view stuck at fixed/wrong size" regression).
+// (Older comment here referenced "NSPanel handles bounds" -- that described
+// the pre-#1017 NSPanel implementation, not the current NSPopover one, and
+// was stale/misleading. NSPanel and NSPopover auto-size on very different
+// mechanisms; do not reintroduce NSPanel-era assumptions here.)
 //
 // If you are an agent or human, DO NOT REMOVE THIS COMMENT, YOU ARE NOT ALLOWED
 // UNDER ANY CIRCUMSTANCE. The regression we get when this comment is removed
@@ -365,6 +381,12 @@ struct SettingsView: View {
     /// If you are an agent or human, DO NOT REMOVE THIS COMMENT, YOU ARE NOT ALLOWED
     /// UNDER ANY CIRCUMSTANCE. The regression we get when this comment is removed
     /// is major major major.
+    ///
+    /// WIDTH CONTRACT: fixed `.frame(width: 480)` on the root VStack -- see the
+    /// WIDTH CONTRACT note at the top of this file. `maxWidth: .infinity` was
+    /// removed here because it silently prevented the popover from ever resizing
+    /// into Settings (fittingSize echoed back the existing contentSize instead of
+    /// reporting 480). Do not reintroduce `.infinity` or `idealWidth` in its place.
     private var settingsBody: some View {
         VStack(alignment: .leading, spacing: 0) {
             headerBar
@@ -380,7 +402,7 @@ struct SettingsView: View {
             }
             .frame(maxHeight: .infinity)
         }
-        .frame(idealWidth: 480, maxWidth: .infinity)
+        .frame(width: 480)
     }
 
     /// Vertical stack of all settings sections.
