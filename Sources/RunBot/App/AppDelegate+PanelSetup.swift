@@ -40,11 +40,29 @@ import SwiftUI
 // ❌ NEVER replace statusItemProvider with a stored weak var wired at setup time.
 //    It will always be nil because setupStatusItem() runs after setupPanel().
 // ❌ NEVER call popover.show() again on resize.
+//
+// isMenuBarHidden CORRECT SIGNAL (fix/#2239):
+//   screenH < 0 || buttonY >= screenH
+//
+//   screenH < 0 means button.window.screen returned nil. This can happen when
+//   the Dock slides the NSStatusItem window fully off the screen edge. Any
+//   contentSize write in this state causes AppKit to re-run anchor geometry
+//   against the invalid button position → side-jump to x=0.
+//
+//   WRONG expressions (do not use):
+//     screenH > 0 && buttonY >= screenH  ← evaluates false when screen==nil
+//                                           (screenH=-1, `> 0` fails, guard skipped)
+//     buttonScreen != nil && buttonY >= screenH  ← same problem
+//
+//   Observed values:
+//     Hidden (screen nil):   buttonY=-1,   screenH=-1
+//     Hidden (screen alive): buttonY=982,  screenH=982
+//     Visible:               buttonY=949,  screenH=982
 
 // MARK: - GuardedPopover
 
 /// NSPopover subclass that intercepts all `contentSize` writes and skips them
-/// when the auto-hide menubar is hidden (buttonY >= screenH).
+/// when the auto-hide menubar is hidden (button window off-screen).
 ///
 /// ## Why this is needed (fix/#2239)
 /// `sizingOptions = .preferredContentSize` causes AppKit to write `contentSize`
@@ -60,13 +78,13 @@ import SwiftUI
 /// the popover is constructed. `statusItemProvider` is a closure evaluated at
 /// write-time so it always reads the live statusItem value.
 ///
-/// ## Guard logic
-/// When the auto-hide menubar is hidden the Dock pushes the NSStatusItem
-/// button window off the top of the screen: `buttonWin.frame.origin.y >=
-/// screen.frame.height`. Any `contentSize` write in this state causes AppKit
-/// to re-run anchor geometry against the off-screen button, collapsing the
-/// popover x-origin to 0 (side-jump). We skip the write; the current size is
-/// already correct. The next write after the menubar re-appears proceeds normally.
+/// ## isMenuBarHidden signal
+/// `screenH < 0 || buttonY >= screenH`
+/// - screenH < 0: button.window.screen is nil — button window is off-screen.
+/// - buttonY >= screenH: screen still associated but origin is at/beyond edge.
+/// Either means AppKit anchor geometry is invalid; skip the contentSize write.
+/// ❌ Do NOT use `screenH > 0 && buttonY >= screenH` — that evaluates false
+///    when screen==nil (screenH=-1), allowing the write and causing side-jump.
 final class GuardedPopover: NSPopover {
 
     /// Lazy provider for the current NSStatusItem.
@@ -81,7 +99,11 @@ final class GuardedPopover: NSPopover {
             let buttonWin = button?.window
             let buttonY = buttonWin?.frame.origin.y ?? -1
             let screenH = buttonWin?.screen?.frame.height ?? -1
-            let isMenuBarHidden = screenH > 0 && buttonY >= screenH
+            // fix/#2239: screenH < 0 means screen==nil (button off-screen);
+            // buttonY >= screenH is the normal hidden case.
+            // ❌ Do NOT use `screenH > 0 && buttonY >= screenH` — evaluates
+            //    false when screen is nil, skipping the guard and causing jump.
+            let isMenuBarHidden = screenH < 0 || buttonY >= screenH
             log("GuardedPopover › contentSize setter — "
                 + "new=(\(newValue.width),\(newValue.height)) "
                 + "current=(\(super.contentSize.width),\(super.contentSize.height)) "
@@ -89,7 +111,7 @@ final class GuardedPopover: NSPopover {
                 + "isMenuBarHidden=\(isMenuBarHidden)")
             guard !isMenuBarHidden else {
                 log("GuardedPopover › contentSize setter — SKIP: "
-                    + "isMenuBarHidden=true (buttonY=\(buttonY) >= screenH=\(screenH)) (fix/#2239)")
+                    + "isMenuBarHidden=true (screenH=\(screenH) buttonY=\(buttonY)) (fix/#2239)")
                 return
             }
             log("GuardedPopover › contentSize setter — WRITE (\(newValue.width),\(newValue.height))")
