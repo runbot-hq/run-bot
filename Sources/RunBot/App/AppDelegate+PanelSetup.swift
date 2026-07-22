@@ -30,21 +30,17 @@ import SwiftUI
 // and an NSWorkspace observer (workspaceObserver), both installed by openPanel()
 // and torn down by tearDownOpenState().
 //
-// SIZE / SIDE-JUMP FIX (fix/#2239 + fix/#2241):
+// SIZE / SIDE-JUMP FIX (fix/#2239):
 // contentSize writes are intercepted by GuardedPopover.contentSize (below).
 // The setter evaluates isMenuBarHidden via statusItemProvider — a lazy closure
 // that reads self.statusItem at write-time. This is required because setupPanel()
 // runs before setupStatusItem(), so statusItem is nil at construction time.
-//
-// ❌ NEVER set sizingOptions = .preferredContentSize — that causes side-jump.
-//    AppKit writes contentSize internally via an ObjC path that bypasses
-//    GuardedPopover's Swift override entirely (confirmed by log: zero
-//    "GuardedPopover › contentSize setter" lines during jump sequence).
-//    NSHostingController still computes preferredContentSize without it —
-//    the KVO observer in setupKVO() fires on every preferredContentSize change
-//    and routes all writes through resizeAndRepositionPanel() → GuardedPopover
-//    → Swift dispatch → isMenuBarHidden guard. This is the only safe write path.
-//
+// ✅ sizingOptions = .preferredContentSize is kept — required for
+//    NSHostingController to keep computing preferredContentSize.
+//    Without this, preferredContentSize never changes and the KVO observer
+//    never fires — popover freezes at initial size.
+//    The ObjC write path from sizingOptions is intercepted by
+//    GuardedPopover.contentSize setter. See fix/#2239.
 // ❌ NEVER replace statusItemProvider with a stored weak var wired at setup time.
 //    It will always be nil because setupStatusItem() runs after setupPanel().
 // ❌ NEVER call popover.show() again on resize.
@@ -72,12 +68,14 @@ import SwiftUI
 /// NSPopover subclass that intercepts all `contentSize` writes and skips them
 /// when the auto-hide menubar is hidden (button window off-screen).
 ///
-/// ## Why this is needed (fix/#2239 + fix/#2241)
-/// Setting `sizingOptions = .preferredContentSize` causes AppKit to write
-/// `contentSize` internally via an ObjC path that bypasses this Swift override
-/// entirely. The KVO observer on `preferredContentSize` (setupKVO) routes all
-/// writes through `resizeAndRepositionPanel()` → `popover.contentSize =` →
-/// Swift vtable → this setter → isMenuBarHidden guard.
+/// ## Why this is needed (fix/#2239)
+/// `sizingOptions = .preferredContentSize` causes AppKit to write `contentSize`
+/// internally whenever SwiftUI's `preferredContentSize` changes (row expand,
+/// view swap, etc.). This write path is synchronous inside the SwiftUI layout
+/// pass and bypasses any guard in `resizeAndRepositionPanel()`.
+///
+/// By owning the setter we intercept ALL write paths — AppKit-internal AND
+/// the manual path from `resizeAndRepositionPanel()` — in one place.
 ///
 /// ## Lazy statusItemProvider
 /// `setupPanel()` runs before `setupStatusItem()`, so `statusItem` is nil when
@@ -138,12 +136,12 @@ extension AppDelegate: NSPopoverDelegate {
     func setupPanel() {
         log("AppDelegate › setupPanel — begin")
         let controller = NSHostingController(rootView: mainView())
-        // ❌ NEVER set sizingOptions = .preferredContentSize here.
-        // AppKit writes contentSize via an ObjC path that bypasses GuardedPopover's
-        // Swift override. preferredContentSize is still computed by NSHostingController
-        // — the KVO observer below fires on every change and routes writes through
-        // resizeAndRepositionPanel() → GuardedPopover → isMenuBarHidden guard.
-        // See fix/#2241 and PanelVisibilityState.swift regression guard.
+        // Required: keeps NSHostingController computing preferredContentSize.
+        // Without this, preferredContentSize never changes and the KVO observer
+        // never fires — popover freezes at initial size.
+        // The ObjC write path from sizingOptions is intercepted by
+        // GuardedPopover.contentSize setter. See fix/#2239.
+        controller.sizingOptions = .preferredContentSize
         hostingController = controller
 
         let newPopover = GuardedPopover()
@@ -200,8 +198,6 @@ extension AppDelegate: NSPopoverDelegate {
     /// Attaches a KVO observer on `controller.preferredContentSize`.
     /// Fires `resizeAndRepositionPanel()` on the main actor whenever SwiftUI
     /// publishes a new preferred size (row expand, view swap, etc.).
-    /// This is the ONLY safe write path for contentSize — routes through
-    /// GuardedPopover.contentSize setter → isMenuBarHidden guard.
     private func setupKVO(controller: NSHostingController<AnyView>) {
         log("AppDelegate › setupKVO — attaching preferredContentSize observer")
         sizeObservation = controller.observe(
