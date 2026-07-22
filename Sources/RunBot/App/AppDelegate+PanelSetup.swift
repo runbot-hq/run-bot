@@ -73,17 +73,84 @@ import SwiftUI
 //      them when the popover closes. SwiftUI re-presents on re-open if the
 //      binding is still true. savedNavState = .settings ensures navigation.
 //
-// SIZE NOTE:
-// popover.contentSize is updated (both width AND height) via KVO on
-// NSHostingController.preferredContentSize, routed through
-// resizeAndRepositionPanel() which guards against writes while the
-// auto-hide menubar is hidden (isMenuBarHidden guard, fix/#2237).
-// ❌ NEVER set sizingOptions = .preferredContentSize.
-// That causes AppKit to write contentSize internally, bypassing the
-// isMenuBarHidden guard entirely — any row expansion or route change
-// while the menubar is hidden will side-jump to x=0.
-// The KVO path in setupKVO() is the only correct resize path.
+// SIZE / SIDE-JUMP FIX (fix/#2237):
+// popover.contentSize is updated via two paths:
+//   1. AppKit-internal: sizingOptions = .preferredContentSize causes AppKit
+//      to write contentSize directly when SwiftUI preferredContentSize changes
+//      (row expand, view swap, etc.).
+//   2. Manual KVO: setupKVO() observes preferredContentSize and calls
+//      resizeAndRepositionPanel(), which also writes contentSize.
+//
+// Both paths now flow through GuardedPopover.contentSize setter (below),
+// which applies the isMenuBarHidden guard (buttonY >= screenH) before
+// forwarding to super. This intercepts ALL writes regardless of call path.
+//
+// ✅ Keep sizingOptions = .preferredContentSize — it is required to keep
+//    NSHostingController computing and publishing preferredContentSize.
+//    Without it the KVO observer never fires and the popover freezes.
+// ✅ Keep the KVO observer in setupKVO() — it handles clamping (min/max)
+//    and the resizeAndRepositionPanel() logging path.
 // ❌ NEVER call popover.show() again on resize.
+
+// MARK: - GuardedPopover
+
+/// NSPopover subclass that intercepts all `contentSize` writes and skips them
+/// when the auto-hide menubar is hidden (buttonY >= screenH).
+///
+/// ## Why this is needed
+/// `sizingOptions = .preferredContentSize` causes AppKit to write `contentSize`
+/// internally whenever SwiftUI's `preferredContentSize` changes (row expand,
+/// view swap, etc.). This write path bypasses any guard in
+/// `resizeAndRepositionPanel()` — it fires synchronously inside the SwiftUI
+/// layout pass, before our KVO Task is scheduled.
+///
+/// By owning the setter we intercept both the AppKit-internal write AND the
+/// manual write from `resizeAndRepositionPanel()` in a single place.
+///
+/// ## Guard logic
+/// When the auto-hide menubar is hidden the Dock pushes the NSStatusItem
+/// button window off the top of the screen: `buttonWin.frame.origin.y >=
+/// screen.frame.height`. Any `contentSize` write in this state causes AppKit
+/// to re-run anchor geometry against the off-screen button, collapsing the
+/// popover x-origin to 0 (side-jump). We skip the write; the current size is
+/// already correct. The next write after the menubar re-appears has a valid
+/// button position and goes through normally.
+///
+/// ## What does NOT work as a signal
+/// `button.window.screen == nil` — screen association is retained even when
+/// the menubar is hidden. The correct signal is `buttonY >= screenH`.
+final class GuardedPopover: NSPopover {
+
+    /// Weak reference to the status item, used to read button window geometry
+    /// for the isMenuBarHidden guard. Set by AppDelegate after setup.
+    weak var statusItem: NSStatusItem?
+
+    override var contentSize: NSSize {
+        get { super.contentSize }
+        set {
+            let buttonWin = statusItem?.button?.window
+            let buttonWinFrame = buttonWin?.frame
+            let buttonScreen = buttonWin?.screen
+            let buttonY = buttonWinFrame?.origin.y ?? -1
+            let screenH = buttonScreen?.frame.height ?? -1
+            let isMenuBarHidden = buttonScreen != nil && buttonY >= screenH
+            log("GuardedPopover › contentSize setter — "
+                + "new=(\(newValue.width),\(newValue.height)) "
+                + "current=(\(super.contentSize.width),\(super.contentSize.height)) "
+                + "buttonY=\(buttonY) screenH=\(screenH) "
+                + "isMenuBarHidden=\(isMenuBarHidden)")
+            guard !isMenuBarHidden else {
+                log("GuardedPopover › contentSize setter — SKIP: "
+                    + "isMenuBarHidden=true (buttonY=\(buttonY) >= screenH=\(screenH)) (fix/#2237)")
+                return
+            }
+            log("GuardedPopover › contentSize setter — WRITE (\(newValue.width),\(newValue.height))")
+            super.contentSize = newValue
+        }
+    }
+}
+
+// MARK: - AppDelegate + NSPopoverDelegate
 
 /// Extension responsible for NSPopover construction, KVO, and async subscriptions.
 extension AppDelegate: NSPopoverDelegate {
@@ -95,27 +162,29 @@ extension AppDelegate: NSPopoverDelegate {
     func setupPanel() {
         log("AppDelegate › setupPanel — begin")
         let controller = NSHostingController(rootView: mainView())
-        // ❌ Do NOT restore sizingOptions = .preferredContentSize here.
-        // That causes AppKit to write contentSize internally on every SwiftUI
-        // preferredContentSize change (row expand, route switch, etc.), bypassing
-        // resizeAndRepositionPanel() and its isMenuBarHidden guard. The result is
-        // a side-jump to x=0 whenever the button window is off-screen.
-        // The KVO observer in setupKVO() is the only correct resize path.
-        // See SIZE NOTE in the file header and fix/#2237.
+        // sizingOptions = .preferredContentSize is required to keep
+        // NSHostingController computing and publishing preferredContentSize.
+        // Without it, preferredContentSize never changes and the KVO observer
+        // never fires — the popover freezes at initial size.
+        // The side-jump from AppKit's internal contentSize writes is intercepted
+        // by GuardedPopover.contentSize setter instead. See SIZE note in file header.
+        controller.sizingOptions = .preferredContentSize
         hostingController = controller
 
-        let newPopover = NSPopover()
+        let newPopover = GuardedPopover()
+        newPopover.statusItem = statusItem   // wire geometry source for guard
         newPopover.contentViewController = controller
         newPopover.contentSize = NSSize(width: 480, height: 300)
         newPopover.animates = false
         // .applicationDefined: popoverShouldClose(_:) is consulted on every
-        // is true, keeping the popover alive when user clicks in NSOpenPanel.
+        // dismiss attempt. Returns true, keeping the popover alive only when
+        // the manual monitor's hasActiveSheet guard fires.
         // Manual NSEvent monitor + NSWorkspace observer handle hide-on-app-switch.
         newPopover.behavior = .applicationDefined
         newPopover.delegate = self
 
         popover = newPopover
-        log("AppDelegate › setupPanel — popover created, wiring KVO + subscriptions")
+        log("AppDelegate › setupPanel — GuardedPopover created, wiring KVO + subscriptions")
 
         setupKVO(controller: controller)
         log("AppDelegate › setupPanel — complete")
@@ -170,12 +239,10 @@ extension AppDelegate: NSPopoverDelegate {
     // MARK: KVO
 
     /// Observes `preferredContentSize` and routes every resize through
-    /// `resizeAndRepositionPanel()`, which guards against contentSize writes
-    /// while the auto-hide menubar is hidden (fix/#2237).
+    /// `resizeAndRepositionPanel()` for clamping (min/max width/height).
     ///
-    /// This is the ONLY path that writes `popover.contentSize`.
-    /// ❌ Do NOT add sizingOptions = .preferredContentSize — see SIZE NOTE
-    /// in the file header.
+    /// The actual side-jump guard now lives in `GuardedPopover.contentSize`
+    /// and fires for both this path and AppKit's internal sizingOptions path.
     private func setupKVO(controller: NSHostingController<AnyView>) {
         log("AppDelegate › setupKVO — attaching preferredContentSize observer")
         sizeObservation = controller.observe(
