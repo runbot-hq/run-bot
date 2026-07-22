@@ -415,20 +415,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         pinnedPopoverOriginX = pinnedX
         windowFrameObservation = popoverWindow.observe(\.frame, options: [.new]) {
             [weak self] win, change in
-            guard let self, let newFrame = change.newValue else { return }
-            guard let px = self.pinnedPopoverOriginX else { return }
-            let buttonY = self.statusItem?.button?.window?.frame.origin.y ?? -1
-            let screenH = self.statusItem?.button?.window?.screen?.frame.height ?? -1
-            let isMenuBarHidden = screenH < 0 || buttonY >= screenH
-            log("AppDelegate › windowFrameObservation — "
-                + "new=\(newFrame) pinnedX=\(px) "
-                + "buttonY=\(buttonY) screenH=\(screenH) "
-                + "isMenuBarHidden=\(isMenuBarHidden) xDrift=\(newFrame.origin.x - px)")
-            guard isMenuBarHidden, abs(newFrame.origin.x - px) > 1 else { return }
-            log("AppDelegate › windowFrameObservation — SNAP x \(newFrame.origin.x) → \(px)")
-            var corrected = newFrame
-            corrected.origin.x = px
-            win.setFrameOrigin(corrected.origin)
+            // KVO fires on a non-isolated thread; hop to MainActor to safely
+            // read @MainActor-isolated properties (fix/#2239).
+            guard let newFrame = change.newValue else { return }
+            Task { @MainActor [weak self, win] in
+                guard let self else { return }
+                guard let px = self.pinnedPopoverOriginX else { return }
+                let buttonY = self.statusItem?.button?.window?.frame.origin.y ?? -1
+                let screenH = self.statusItem?.button?.window?.screen?.frame.height ?? -1
+                let isMenuBarHidden = screenH < 0 || buttonY >= screenH
+                log("AppDelegate › windowFrameObservation — "
+                    + "new=\(newFrame) pinnedX=\(px) "
+                    + "buttonY=\(buttonY) screenH=\(screenH) "
+                    + "isMenuBarHidden=\(isMenuBarHidden) xDrift=\(newFrame.origin.x - px)")
+                guard isMenuBarHidden, abs(newFrame.origin.x - px) > 1 else { return }
+                log("AppDelegate › windowFrameObservation — SNAP x \(newFrame.origin.x) → \(px)")
+                var corrected = newFrame
+                corrected.origin.x = px
+                win.setFrameOrigin(corrected.origin)
+            }
         }
     }
 
@@ -474,9 +479,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self.panelSheetState.restoreTransientHideStateIfNeeded()
         }
         lifecycleCoordinator.installMonitors(
-            panelIsOpen: { [weak self] in self?.panelIsOpen ?? false },
-            hasActiveOverlay: { [weak self] in self?.overlayGate.hasActiveOverlay ?? false },
-            popoverFrame: { [weak self] in self?.popover?.contentViewController?.view.window?.frame },
+            hasActiveSheet: { [weak self] in self?.hasActiveSheet ?? false },
+            popoverWindow: { [weak self] in self?.popover?.contentViewController?.view.window },
             onHide: { [weak self] in self?.hidePanel() }
         )
         log("AppDelegate › openPanel — done")
