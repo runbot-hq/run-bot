@@ -54,6 +54,16 @@ import SwiftUI
 // Updating contentSize repositions the popover body but keeps the arrow
 // anchored to the original positioningRect on the status bar button.
 //
+// DEFERRED RESIZE IN navigate(to:) AND openPanel() — fix/#2234:
+// With macOS menu bar auto-hide enabled, the status bar button's backing
+// NSWindow lives in an off-screen slot managed by the Dock process. A
+// synchronous contentSize write immediately after show() or a rootView swap
+// causes AppKit to re-solve the arrow anchor against the off-screen button
+// geometry, producing a lateral jump. The fix is to defer contentSize writes
+// to the next main-actor scheduling turn via Task { @MainActor }, so AppKit
+// has committed the anchor before any resize arrives.
+// See issue #2234 and ARCHITECTURE.md §Preventing Side-Jump on Resize.
+//
 // PANELVISIBILITYSTATE:
 // panelVisibilityState.isOpen is set in openPanel()/closePanel()/hidePanel().
 // ❌ NEVER remove. ❌ NEVER remove from wrapEnv().
@@ -193,31 +203,69 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Popover resize
 
     /// Clamps the popover's `contentSize` to the current screen bounds.
-    /// Called after every rootView swap and from the KVO size observer.
+    /// Called after every rootView swap (deferred) and from the KVO size observer (deferred).
     /// ⚠️ Never call `popover.show()` here — updating `contentSize` resizes in place
     /// without re-anchoring the arrow.
+    /// ⚠️ Never call this synchronously from navigate(to:) or openPanel() — always
+    /// via a deferred Task { @MainActor } to prevent side-jump with auto-hide menu bar.
+    /// See issue #2234 and DEFERRED RESIZE note in the file header.
     func resizeAndRepositionPanel() {
-        guard panelIsOpen, let popover, let controller = hostingController else { return }
+        guard panelIsOpen, let popover, let controller = hostingController else {
+            log("AppDelegate › resizeAndRepositionPanel — guard exit: panelIsOpen=\(panelIsOpen) popover=\(popover != nil) controller=\(hostingController != nil)")
+            return
+        }
         let preferred = controller.preferredContentSize
-        guard preferred.height > 0 else { return }
+        guard preferred.height > 0 else {
+            log("AppDelegate › resizeAndRepositionPanel — guard exit: preferred.height=\(preferred.height) <= 0, skipping")
+            return
+        }
         let newW = min(max(preferred.width > 0 ? preferred.width : Self.minWidth, Self.minWidth), maxWidth)
         let newH = min(max(preferred.height, 60), maxHeight)
         let currentSize = popover.contentSize
+        let buttonWin = statusItem?.button?.window
+        let buttonWinFrame = buttonWin?.frame
+        let buttonWinScreen = buttonWin?.screen
+        log("AppDelegate › resizeAndRepositionPanel — preferred=(\(preferred.width),\(preferred.height)) "
+            + "clamped=(\(newW),\(newH)) current=(\(currentSize.width),\(currentSize.height)) "
+            + "buttonWindow=\(String(describing: buttonWinFrame)) "
+            + "buttonScreen=\(String(describing: buttonWinScreen?.frame))")
         if abs(currentSize.width - newW) > 1 || abs(currentSize.height - newH) > 1 {
+            log("AppDelegate › resizeAndRepositionPanel — WRITING contentSize=(\(newW),\(newH)) "
+                + "delta=(\(newW - currentSize.width),\(newH - currentSize.height))")
             popover.contentSize = NSSize(width: newW, height: newH)
+            log("AppDelegate › resizeAndRepositionPanel — contentSize written, "
+                + "popover.contentSize=\(popover.contentSize)")
+        } else {
+            log("AppDelegate › resizeAndRepositionPanel — no-op: size unchanged (delta within 1pt)")
         }
     }
 
     // MARK: - Navigation
 
-    /// Swaps the hosting controller's `rootView` to `view` and immediately
-    /// recalculates the popover size. The popover arrow stays pinned.
+    /// Swaps the hosting controller's `rootView` to `view` and defers the popover
+    /// resize to the next main-actor scheduling turn.
+    ///
+    /// The resize is deferred via `Task { @MainActor }` (fix/#2234). With macOS
+    /// menu bar auto-hide enabled, a synchronous `contentSize` write on the same
+    /// run-loop turn as the rootView swap causes AppKit to re-solve the arrow anchor
+    /// against the off-screen button geometry, producing a lateral jump. Deferring
+    /// ensures AppKit has committed the anchor before the resize write arrives.
+    ///
     /// ❌ NEVER call this from a SwiftUI view — use callbacks only.
     /// Calling directly from a SwiftUI view creates a retain cycle via the
     /// closure capture and bypasses the actor-safe callback path.
+    /// ❌ NEVER remove the Task deferral and call resizeAndRepositionPanel()
+    /// synchronously here — that reintroduces the auto-hide side-jump. See #2234.
     func navigate(to view: AnyView) {
+        log("AppDelegate › navigate(to:) — rootView swap, deferring resize (fix/#2234)")
         hostingController?.rootView = view
-        resizeAndRepositionPanel()
+        // Defer contentSize write to next main-actor scheduling turn.
+        // See DEFERRED RESIZE note in file header and issue #2234.
+        Task { @MainActor [weak self] in
+            log("AppDelegate › navigate(to:) deferred Task — calling resizeAndRepositionPanel")
+            self?.resizeAndRepositionPanel()
+            log("AppDelegate › navigate(to:) deferred Task — done")
+        }
     }
 
     // MARK: - Make key for text input
@@ -357,6 +405,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Toggles the popover: opens it if closed, closes it if open.
     /// Called by the NSStatusItem button action.
     @objc func togglePanel() {
+        log("AppDelegate › togglePanel — panelIsOpen=\(panelIsOpen)")
         if panelIsOpen { closePanel() } else { openPanel() }
     }
 
@@ -364,8 +413,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Shows the popover anchored to the status bar button.
     /// ⚠️ show() is called ONCE per open. Resize is done via contentSize only.
+    ///
+    /// DEFERRED RESIZE (fix/#2234):
+    /// resizeAndRepositionPanel() and navigate(to: restored) are both deferred
+    /// to the next main-actor scheduling turn via a single Task { @MainActor }.
+    /// This prevents the lateral side-jump that occurs with auto-hide menu bar
+    /// when a synchronous contentSize write races against the not-yet-committed
+    /// show() anchor geometry. See DEFERRED RESIZE note in the file header.
     func openPanel() {
-        guard let button = statusItem?.button, let popover else { return }
+        guard let button = statusItem?.button, let popover else {
+            log("AppDelegate › openPanel — guard exit: button=\(statusItem?.button != nil) popover=\(self.popover != nil)")
+            return
+        }
+        let buttonFrame = button.bounds
+        let buttonWinFrame = button.window?.frame
+        let buttonWinScreen = button.window?.screen?.frame
+        log("AppDelegate › openPanel — ENTER button.bounds=\(buttonFrame) "
+            + "button.window.frame=\(String(describing: buttonWinFrame)) "
+            + "button.window.screen=\(String(describing: buttonWinScreen))")
         log("AppDelegate › openPanel — LocalRunnerStore pushes state on every cycle, no seed needed")
         lifecycleCoordinator.setPanelIsOpen(true)
         panelVisibilityState.isOpen = true
@@ -376,15 +441,62 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             popover.behavior = .applicationDefined
             popover.delegate = self
-            log("AppDelegate › openPanel — PRE-SHOW behavior=\(popover.behavior.rawValue) delegate=\(String(describing: popover.delegate))")
+            log("AppDelegate › openPanel — PRE-SHOW "
+                + "behavior=\(popover.behavior.rawValue) "
+                + "delegate=\(String(describing: popover.delegate)) "
+                + "button.bounds=\(button.bounds) "
+                + "button.window=\(String(describing: button.window?.frame))")
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-            log("AppDelegate › openPanel — POST-SHOW behavior=\(popover.behavior.rawValue)")
+            let postShowWinFrame = popover.contentViewController?.view.window?.frame
+            log("AppDelegate › openPanel — POST-SHOW "
+                + "behavior=\(popover.behavior.rawValue) "
+                + "popoverWindow.frame=\(String(describing: postShowWinFrame))")
+        } else {
+            log("AppDelegate › openPanel — restored preserved sheet window, skipping show()")
         }
         makePopoverWindowKeyIfPossible()
-        resizeAndRepositionPanel()
-        if let saved = appState.savedNavState, !hasActiveSheet, let restored = validatedView(for: saved) {
-            navigate(to: restored)
+
+        // ── fix/#2234: defer resize + nav-restore ──────────────────────────────
+        // A synchronous contentSize write here (or via navigate(to:)) causes
+        // AppKit to re-solve the arrow anchor while the button's NSWindow may
+        // still be in the Dock's off-screen auto-hide slot, producing a lateral
+        // jump. Deferring to the next main-actor turn gives AppKit one scheduling
+        // cycle to commit the show() anchor before we touch contentSize.
+        //
+        // navigate(to:) now also defers its own resize internally, so the
+        // Task below does NOT call resizeAndRepositionPanel() again after
+        // navigate — that would be a double write. The sequence is:
+        //   1. resizeAndRepositionPanel()  — sizes for the current view
+        //   2. navigate(to: restored)      — swaps rootView, defers its OWN resize
+        // The two resizes land on consecutive main-actor turns, which is fine.
+        log("AppDelegate › openPanel — scheduling deferred resize+nav Task (fix/#2234)")
+        Task { @MainActor [weak self] in
+            guard let self else {
+                log("AppDelegate › openPanel deferred Task — self nil, skipping")
+                return
+            }
+            let winFrameAtTask = self.popover?.contentViewController?.view.window?.frame
+            let buttonBoundsAtTask = self.statusItem?.button?.bounds
+            let buttonWinAtTask = self.statusItem?.button?.window?.frame
+            log("AppDelegate › openPanel deferred Task — ENTER "
+                + "popoverWindow.frame=\(String(describing: winFrameAtTask)) "
+                + "button.bounds=\(String(describing: buttonBoundsAtTask)) "
+                + "button.window.frame=\(String(describing: buttonWinAtTask))")
+            self.resizeAndRepositionPanel()
+            if let saved = self.appState.savedNavState,
+               !self.hasActiveSheet,
+               let restored = self.validatedView(for: saved) {
+                log("AppDelegate › openPanel deferred Task — restoring savedNavState=\(saved)")
+                self.navigate(to: restored)
+            } else {
+                log("AppDelegate › openPanel deferred Task — no savedNavState to restore "
+                    + "(savedNavState=\(String(describing: self.appState.savedNavState)) "
+                    + "hasActiveSheet=\(self.hasActiveSheet))")
+            }
+            log("AppDelegate › openPanel deferred Task — done")
         }
+        // ── end fix/#2234 ──────────────────────────────────────────────────────
+
         Task { @MainActor [weak self] in
             guard let self, !self.preservedSheetWindowHide else { return }
             self.panelSheetState.restoreTransientHideStateIfNeeded()
