@@ -30,6 +30,16 @@ import SwiftUI
 // UNDER ANY CIRCUMSTANCE. The regression we get when this comment is removed
 // is major major major.
 
+// ACCESS LEVEL NOTE — why so many `var` instead of `private var`:
+// Swift `private` is file-scoped. SettingsView is split across multiple files
+// (SettingsView.swift, SettingsView+Sections.swift, etc.). Any property or
+// method that an extension file reads or writes MUST be `internal` (the default
+// `var`) — `private` and `fileprivate` both restrict to the declaring file only.
+// Properties that are ONLY used inside this file (SettingsView.swift) are
+// `private var` as normal. The split is intentional — not a visibility leak.
+// ❌ Do NOT tighten `var` to `private var` without checking SettingsView+Sections.swift
+//    first — the compiler will reject it there.
+
 /// Root settings view. Navigation rows lead to `LocalRunnersView` and `ScopesView`.
 /// See HEIGHT/WIDTH CONTRACT comments above before making layout changes.
 ///
@@ -102,6 +112,11 @@ struct SettingsView: View {
 
     /// Scope store — injected so SwiftUI can track `@Observable` mutations reactively.
     ///
+    /// `let` not `@Bindable`: no two-way bindings into `scopeStore` are needed from this
+    /// file — mutations happen inside `ScopesView` which receives the store directly.
+    /// `@Bindable` would be misleading here since nothing uses `$scopeStore.*`.
+    /// If a binding is ever needed, convert to `@Bindable var`.
+    ///
     /// Injected rather than read from `appState` because `AppState` does not expose
     /// a `scopeStore` accessor — scopes are managed independently of runner state.
     /// Runners flow through `AppState.runnerState` (owned by `LocalRunnerStore`);
@@ -109,56 +124,78 @@ struct SettingsView: View {
     let scopeStore: ScopeStore
 
     // MARK: - Convenience accessors (avoid noisy appState.x at every call site)
-    // ❌ NOT a leakage oversight — these are `internal` by Swift necessity, not by choice.
-    // Swift `private` does not cross file boundaries; `SettingsView+Sections.swift`
-    // (a separate file) needs these. `fileprivate` is also per-file in Swift, so it
-    // would not help either. `internal` is the tightest access level available for
-    // cross-file use within the same type. The intent is: readable by SettingsView
-    // extension files in this module; not part of the public API of SettingsView.
-    // If you are tempted to tighten these to `private`, note that Swift will not
-    // allow it — the compiler will reject it at SettingsView+Sections.swift.
+    // These are `internal` (bare `var`) by Swift necessity — see ACCESS LEVEL NOTE
+    // at the top of this file. `private` would break SettingsView+Sections.swift.
 
-    /// Forwarded OAuth service from `appState`. Internal by necessity — see NOTE above.
+    /// Forwarded OAuth service from `appState`. Internal by necessity — see ACCESS LEVEL NOTE.
     var oauthService: any OAuthServiceProtocol { appState.oauthService }
-    /// Forwarded lifecycle service from `appState`. Internal by necessity — see NOTE above.
+    /// Forwarded lifecycle service from `appState`. Internal by necessity — see ACCESS LEVEL NOTE.
     var lifecycleService: any RunnerLifecycleServiceProtocol { appState.lifecycleService }
-    /// Forwarded runner state from `appState`. Internal by necessity — see NOTE above.
+    /// Forwarded runner state from `appState`. Internal by necessity — see ACCESS LEVEL NOTE.
     var runnerState: RunnerState { appState.runnerState }
-    /// Forwarded auto-updater from `appState`. Internal by necessity — see NOTE above.
+    /// Forwarded auto-updater from `appState`. Internal by necessity — see ACCESS LEVEL NOTE.
     var autoUpdater: AppUpdater { appState.autoUpdater }
 
+    // MARK: - Computed properties
+
+    /// Full version string (preserves pre-release suffixes like `-beta.1`).
+    /// Internal by necessity — read by `SettingsView+Sections.swift`. See ACCESS LEVEL NOTE.
+    var appVersion: String { Bundle.main.rbVersionString }
+
+    /// Build number from `CFBundleVersion`.
+    /// Internal by necessity — read by `SettingsView+Sections.swift`. See ACCESS LEVEL NOTE.
+    var appBuild: String { Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "—" }
+
     // MARK: - Local UI state
+    //
+    // Access level split — why some are `private` and others are not:
+    //   `private`  — signInTask, signOutTask: only ever touched inside THIS file
+    //               (onAppearAction spawns them, onDisappear cancels them).
+    //               No extension file reads or writes these — private is correct.
+    //   `internal` — everything else: read or written by SettingsView+Sections.swift
+    //               (e.g. section views read isOAuthAuthenticated, isSigningIn,
+    //               launchAtLogin; navigation sections toggle showLocalRunners/showScopes).
+    //               Must be internal — see ACCESS LEVEL NOTE at top of file.
 
     /// Mirrors `LoginItem.isEnabled`; toggled by the Launch at Login switch.
+    /// Internal by necessity — read/written by `SettingsView+Sections.swift`. See ACCESS LEVEL NOTE.
     @State var launchAtLogin = LoginItem.isEnabled
 
     /// `true` when a valid OAuth token is stored in the keychain.
-    /// Seeded from `oauthService.isAuthenticated` in `init` to avoid a false
-    /// flash before `.onAppear` fires. Kept in sync by `onAppearAction()`'s streams.
+    /// Seeded from `oauthService.isAuthenticated` in `init` to avoid a false flash
+    /// before `.onAppear` fires. Kept in sync by `onAppearAction()`'s streams.
+    /// Internal by necessity — read by `SettingsView+Sections.swift`. See ACCESS LEVEL NOTE.
     @State var isOAuthAuthenticated: Bool
 
     /// `true` when a CLI token (GH_TOKEN / GITHUB_TOKEN) is present but no OAuth token.
     /// Seeded from `oauthService` in `init` to avoid a false flash before `.onAppear`.
+    /// Written twice per appear: once synchronously by onAppearAction() as a fast-path
+    /// seed, and once asynchronously by Task 1 as the authoritative resolved value.
+    /// See Task 1 comment in body for the write-ordering details and known rapid-reopen gap.
+    /// Internal by necessity — read by `SettingsView+Sections.swift`. See ACCESS LEVEL NOTE.
     @State var isCLIAuthenticated: Bool
 
     /// `true` while the OAuth sign-in flow is in progress.
+    /// Internal by necessity — read by `SettingsView+Sections.swift` (sign-in button state).
+    /// See ACCESS LEVEL NOTE.
     @State var isSigningIn = false
 
-    /// Retains the sign-in listener Task so it is cancelled when the view disappears.
+    /// Retains the sign-in listener Task so it can be cancelled on disappear.
+    /// `private` — only touched inside this file (onAppearAction / onDisappear).
+    /// No extension file accesses this. See LOCAL UI STATE access-level split above.
     @State private var signInTask: Task<Void, Never>?
 
-    /// Retains the sign-out listener Task so it is cancelled when the view disappears.
+    /// Retains the sign-out listener Task so it can be cancelled on disappear.
+    /// `private` — only touched inside this file (onAppearAction / onDisappear).
+    /// No extension file accesses this. See LOCAL UI STATE access-level split above.
     @State private var signOutTask: Task<Void, Never>?
 
-    /// Retains the update-check Task so it is cancelled when the view disappears.
-    /// Prevents a ghost write to runnerState if Settings is closed before the
-    /// network call returns. Mirrors the signInTask/signOutTask cancellation pattern.
-    @State private var updateCheckTask: Task<Void, Never>?
-
     /// `true` while `LocalRunnersView` is displayed instead of the main settings scroll.
+    /// Internal by necessity — toggled by `SettingsView+Sections.swift`. See ACCESS LEVEL NOTE.
     @State var showLocalRunners = false
 
     /// `true` while `ScopesView` is displayed instead of the main settings scroll.
+    /// Internal by necessity — toggled by `SettingsView+Sections.swift`. See ACCESS LEVEL NOTE.
     @State var showScopes = false
 
     // MARK: - Init
@@ -200,24 +237,26 @@ struct SettingsView: View {
         log("【SettingsView.init】notifications=\(ObjectIdentifier(notifications))", category: .general)
     }
 
-    // MARK: - Computed properties
-
-    /// Full version string (preserves pre-release suffixes like `-beta.1`).
-    var appVersion: String { Bundle.main.rbVersionString }
-
-    /// Build number from `CFBundleVersion`.
-    var appBuild: String { Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "—" }
-
     // MARK: - Body
 
     /// Root view: swaps between the settings scroll, `LocalRunnersView`, and `ScopesView`.
+    ///
+    /// The `log()` call at the top of body is intentional — it is a pure side-effect-free
+    /// diagnostic that does not mutate state and does not affect the view tree. SwiftUI
+    /// may call body multiple times; the log helps trace unexpected re-render frequency
+    /// in debug builds. It is not a state mutation and does not violate SwiftUI's
+    /// no-side-effects-in-body rule (which targets state writes, not logging).
     var body: some View {
         log("【SettingsView.body】rendered — settings=\(ObjectIdentifier(settings)) betaChannel=\(settings.betaChannel)", category: .general)
-        // Lifecycle modifiers live on the root (wrapping all branches) so
+        // Lifecycle modifiers live on the root Group (wrapping all branches) so
         // onAppearAction()/onDisappear fire only when the settings panel itself
         // opens/closes — NOT on every navigation to LocalRunnersView/ScopesView.
-        // Attaching them to `settingsBody` caused needless re-reads and
-        // Task recreation on every back-navigation.
+        // Attaching them to `settingsBody` caused needless re-reads and Task
+        // recreation on every back-navigation. The Group has no layout impact —
+        // it is a transparent modifier container, not a VStack/HStack.
+        // ❌ Do NOT replace the root Group with a VStack/HStack — Group is transparent;
+        //    a layout container would change the view's layout identity and affect
+        //    the modifier-firing semantics described above.
         return Group {
             if showLocalRunners {
                 LocalRunnersView(
@@ -233,28 +272,73 @@ struct SettingsView: View {
             }
         }
         .onAppear(perform: onAppearAction)
+        // TASK 1 of 2 — CLI token resolution.
+        // Resolves isCLIAuthenticated via the login-shell fallback for Finder-launched
+        // apps where env vars are absent from the process environment.
+        //
+        // THIS TASK IS INTENTIONALLY INDEPENDENT of task 2 below.
+        // SwiftUI runs multiple .task modifiers concurrently with no ordering guarantee.
+        // Task 2 (update check) reads runnerState from appState by value at call time
+        // and has NO dependency on isCLIAuthenticated or the result of this task.
+        // ❌ Do NOT merge these two tasks to "add ordering" unless checkAndHandle is
+        //    changed to require auth state — if that ever happens, sequence them
+        //    explicitly inside a single .task instead of relying on chaining order.
+        //
+        // isCLIAuthenticated write ordering (pre-existing, not introduced here):
+        // onAppearAction() writes isCLIAuthenticated synchronously from
+        // oauthService.hasAnyToken as a fast-path best-effort seed — it is cheap
+        // and keeps the UI correct for the common case without waiting for the network.
+        // This task then overwrites it once github.token() resolves asynchronously
+        // as the authoritative value (covers Finder-launch env var absence).
+        //
+        // Known gap — rapid open→open cycle:
+        // On a rapid open→open (panel re-shown without onDisappear), onAppearAction()
+        // re-runs and resets isCLIAuthenticated to the sync seed value. However,
+        // SwiftUI does NOT re-fire .task unless view identity changes or the view
+        // fully disappears/reappears — so the async authoritative overwrite does
+        // not run again. isCLIAuthenticated stays at the sync seed on that cycle.
+        // This is pre-existing behaviour; not introduced by this PR. In practice
+        // the sync seed (oauthService.hasAnyToken) is correct for most users and
+        // the gap only affects Finder-launched apps with shell-only env var tokens.
         .task {
-            // `onAppearAction` checks `oauthService.hasAnyToken` which reads
-            // `ProcessInfo.processInfo.environment` directly. When the app is
-            // launched via Finder (not a shell), env vars like `GH_TOKEN` are
-            // absent from the process environment even if exported in the
-            // user's shell profile — so `hasAnyToken` returns `false` and
-            // `isCLIAuthenticated` stays unset, leaving the status light dark.
-            //
-            // `TokenCache.token()` runs the full resolution chain including a
-            // login-shell fallback (`/bin/zsh -lc 'echo $GH_TOKEN'`), so it
-            // finds the token regardless of launch method. We call it here
-            // once on appear and flip `isCLIAuthenticated` when it resolves.
-            //
             // Guard: skip if the user is already signed in via OAuth — in that
             // case neither status text nor the green dot reference `isCLIAuthenticated`.
             guard !isOAuthAuthenticated else { return }
             let token = await appState.github.token()
             isCLIAuthenticated = token != nil
-            log("【SettingsView.task】github.token() resolved — isCLIAuthenticated=\(isCLIAuthenticated)", category: .general)
+            log("【SettingsView.task1】github.token() resolved — isCLIAuthenticated=\(isCLIAuthenticated)", category: .general)
+        }
+        // TASK 2 of 2 — Update check (FIX #2223 / #2216).
+        // Fires on every entry path — including cold-open → Settings, where
+        // .onAppear on an NSPanel-hosted root Group is not guaranteed to fire.
+        // SwiftUI owns the task lifetime: starts on appear, cancelled on disappear.
+        //
+        // INTENTIONALLY CONCURRENT with task 1 above — no ordering dependency.
+        // checkAndHandle(state:) receives runnerState by value (computed property
+        // returning appState.runnerState at call time). It does NOT read
+        // isCLIAuthenticated and does NOT depend on task 1 completing first.
+        // If that ever changes, sequence both calls inside a single .task.
+        //
+        // NSPanel teardown assumption (tracked in issue #2231):
+        // .task reliability here depends on the NSPanel host fully deiniting the
+        // SwiftUI view tree on close, which resets task identity so this task
+        // relaunches on the next open. If the panel is ever changed to retain the
+        // view tree across closes (partial teardown), .task and .onAppear would
+        // be equally unreliable for the cold-open path and an .id() modifier to
+        // force identity reset would be required instead. See #2231.
+        //
+        // Entry-path matrix:
+        //   • Cold-open → Settings : .task fires ✅
+        //   • Main → Settings nav  : .task fires ✅
+        //   • Back-nav sub-views   : root Group does not re-appear → no extra check ✅
+        //   • Settings closed mid-check: SwiftUI cancels automatically ✅
+        //
+        // Principle P9: structured concurrency — no manual Task or DispatchQueue.
+        .task {
+            await autoUpdater.checkAndHandle(state: runnerState)
         }
         .onDisappear {
-            log("【SettingsView.onDisappear】cancelling signInTask/signOutTask/updateCheckTask", category: .general)
+            log("【SettingsView.onDisappear】cancelling signInTask/signOutTask", category: .general)
             // Cancel and unconditionally nil the sign-in task — the for-await loop
             // exits promptly on cancellation (AsyncStream respects task cancellation)
             // so isSigningIn will never flip back via the stream after this point.
@@ -263,10 +347,6 @@ struct SettingsView: View {
             signInTask = nil
             signOutTask?.cancel()
             signOutTask = nil
-            // Cancel the update-check task so a ghost write to runnerState cannot
-            // occur if Settings is closed before the network call returns.
-            updateCheckTask?.cancel()
-            updateCheckTask = nil
             // Reset isSigningIn so a close-during-flow doesn't leave a stale spinner
             // on the next open. The stream task is already cancelled above, so the
             // for-await loop will not reset it — we must do it explicitly here.
@@ -320,16 +400,24 @@ struct SettingsView: View {
     }
 
     /// Runs on `.onAppear`: re-syncs auth state from `oauthService` and starts sign-in /
-    /// sign-out listeners. Also triggers a fresh update check so the latest available
-    /// version is always offered when the user opens Settings (fix #2208).
+    /// sign-out listeners.
     ///
-    /// Auth state is already seeded from `oauthService` in `init`, so this is a no-op
-    /// on the first render. On subsequent appears (e.g. after a hide/show cycle) it
-    /// re-reads the current state and re-registers the stream tasks.
+    /// WHY auth state is re-seeded here even though init already seeds it:
+    /// `init` seeds once at construction time. On a hide/show cycle the view is NOT
+    /// reconstructed — the same instance reappears. onAppearAction re-syncs so the
+    /// status light and sign-in button always reflect the live keychain state at the
+    /// moment the panel becomes visible, not the state at first construction.
+    /// This is not redundant — it is a deliberate re-read for the re-appear case.
     ///
-    /// All three tasks are cancelled before reassignment so a rapid open→open cycle
-    /// (panel re-shown without a disappear) cannot leak the prior stream listeners
-    /// or an in-flight network call.
+    /// Update checking is intentionally NOT done here — it is owned by Task 2 of 2
+    /// in body (.task modifier), which covers both cold-open and navigation paths
+    /// (fix #2223). All tasks are cancelled before reassignment so a rapid open→open
+    /// cycle cannot leak prior stream listeners.
+    ///
+    /// isCLIAuthenticated is written synchronously here as a fast-path seed.
+    /// Task 1 in body overwrites it asynchronously with the authoritative value
+    /// once github.token() resolves. On a rapid open→open cycle, Task 1 does not
+    /// re-fire — see the Task 1 comment in body for the known gap and rationale.
     private func onAppearAction() { // skipcq: SW-R1002 — reviewed; complexity acceptable for this onAppear setup
         isOAuthAuthenticated = oauthService.isAuthenticated
         isCLIAuthenticated = !oauthService.isAuthenticated && oauthService.hasAnyToken
@@ -358,30 +446,6 @@ struct SettingsView: View {
                 isCLIAuthenticated = oauthService.hasAnyToken
                 log("【SettingsView.signOutStream】OAuth=\(isOAuthAuthenticated) CLI=\(isCLIAuthenticated)", category: .general)
             }
-        }
-
-        // FIX #2208: check for a newer version whenever the user opens Settings
-        // so the latest available version is always offered — not only at launch
-        // or on the 24h background tick.
-        //
-        // No phase reset — existing state is preserved during the check.
-        // checkAndHandle only writes runnerState if it finds a newer version;
-        // otherwise the current phase is left untouched, so no UI flicker occurs.
-        //
-        // The handle is stored in updateCheckTask so onDisappear can cancel it
-        // if the user closes Settings before the network call returns — preventing
-        // a ghost write to runnerState after the view lifecycle ends.
-        //
-        // This fires once per Settings panel open. .onAppear is attached to the
-        // root Group (not settingsBody), so it does NOT fire on back-navigation
-        // from LocalRunnersView or ScopesView — see body comment above.
-        //
-        // Mirrors the identical pattern in betaChannelRow.onChange.
-        // Principle P6 (reach-goal): named task on a user-interactive path.
-        // Principle P9: structured concurrency — no Timer or DispatchQueue.
-        updateCheckTask?.cancel()
-        updateCheckTask = Task(name: "settings-appear-update-check") { @MainActor in
-            await autoUpdater.checkAndHandle(state: runnerState)
         }
     }
 
