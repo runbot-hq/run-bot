@@ -45,34 +45,40 @@ import SwiftUI
 // NSPopover windows are key-capable natively. NSApp.activate() is
 // sufficient to allow TextFields to receive first-responder.
 //
-// LATERAL JUMP PREVENTION — REAL ROOT CAUSE (found empirically, two prior fixes failed):
-// It is tempting to assume AppKit preserves the popover's anchor point when
-// `contentSize` changes. IT DOES NOT reliably do so when the anchor is near a
-// screen edge. Observed failure: status item at x=904 (38pt wide, near the
-// right edge of a ~960pt-wide screen). Popover opens small, then SettingsView
-// renders its real content and `contentSize` grows to ~506x577. AppKit's
-// internal edge-avoidance logic, when the naive right-aligned growth would
-// overflow the screen's right edge, snaps the window's origin.x to 0.0 instead
-// of keeping it flush against the right edge — producing a hard, visible jump
-// from "near button" to "far left edge of screen".
+// LATERAL JUMP PREVENTION — delta-based fix (matches runbot-hq/MenuBarKit #12 / PR #6):
 //
-// Two earlier fix attempts both failed against this:
-//   1. Manually applying a delta correction (oldFrame.origin - dw/2, -dh) —
-//      this operated on `window.frame` AFTER AppKit had already computed its
-//      (buggy, edge-snapped) frame, so the delta was computed from bad data in.
-//   2. Trusting AppKit's own relayout entirely (removing the delta correction) —
-//      this is the case that produces the x=0.0 snap directly, unmasked.
+// NSPopover only centers its window around the positioningRect ONCE, at
+// show() time. After that, mutating contentSize alone causes AppKit to grow
+// the window from its bottom-left corner — nothing re-runs the centering
+// math, so the arrow stays pinned while the box drifts away from it.
 //
-// FIX (this version): resizeAndRepositionPanel() computes the desired window
-// origin ITSELF from the status item button's screen frame (not from the
-// popover window's current/already-corrupted frame), then clamps that origin
-// to the current screen's visible bounds before calling `setFrameOrigin`.
-// This never lets AppKit's internal edge-avoidance heuristic run at all —
-// we always supply a valid, on-screen, button-anchored origin directly.
-//   • x = button center, clamped so the window never crosses either screen edge
-//   • y = anchored to the button's bottom edge (popover hangs below the menu bar)
-// ⚠️ Still never call `popover.show()` again on resize — only `contentSize`
-//    followed by our own `setFrameOrigin` call.
+// FOUR FAILED APPROACHES (see runbot-hq/MenuBarKit issue #12 for the full
+// writeup — this file's history repeated each of these before landing here):
+//   1. No correction at all — box visibly drifts/snaps away from the arrow.
+//   2. `window.frame.midX` as anchor, offset by `contentSize/2` — WRONG:
+//      `window.frame` includes NSPopover chrome (shadow/border/arrow chrome)
+//      but `contentSize` does not. Mixing the two coordinate spaces produces
+//      a systematic offset (observed: window snapped to x=0 near a screen edge).
+//   3. Re-querying `button.window.frame` / button screen position on every
+//      resize — WRONG: button screen coordinates are NOT stable across
+//      sessions. macOS auto-hide slides the whole status bar off/on screen,
+//      changing button screen-Y between open/close cycles.
+//   4. Reading `window.frame` for the correction AFTER writing `contentSize`
+//      — WRONG: AppKit repositions the window as a side-effect of the
+//      `contentSize` write, so frame is already stale by the time it's read.
+//
+// WORKING FIX: compute the DELTA and shift the EXISTING origin by it — never
+// compute an absolute target position from button/screen coordinates:
+//   let oldFrame = window.frame          // read BEFORE contentSize mutation
+//   let dw = newW - currentSize.width
+//   let dh = newH - currentSize.height
+//   popover.contentSize = ...            // AppKit grows from bottom-left
+//   newOrigin.x = oldFrame.origin.x - dw / 2   // grow symmetrically → midX fixed
+//   newOrigin.y = oldFrame.origin.y - dh       // grow downward only → maxY fixed
+// This works because: no absolute coordinates → no chrome/content space
+// mismatch; no button position query → immune to auto-hide Y drift; oldFrame
+// is captured before the mutation → not affected by AppKit's reposition
+// side-effect. Purely relative math, correct on any screen/content size.
 //
 // AUTOHIDE SIDE-JUMP AT OPEN TIME (separate issue, still fixed):
 // With "Automatically hide and show the menu bar" enabled, the status item's
@@ -227,10 +233,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Popover resize
 
     /// Clamps the popover's `contentSize` to the current screen bounds, then
-    /// explicitly repositions the window from the status item button's screen
-    /// frame — never from AppKit's own (potentially edge-snapped) frame.
-    /// See the "LATERAL JUMP PREVENTION" note at the top of this file for why
-    /// trusting `window.frame` here is unsafe.
+    /// corrects the window origin using a DELTA-based shift (never absolute
+    /// button/screen coordinates — see the "LATERAL JUMP PREVENTION" note at
+    /// the top of this file, and runbot-hq/MenuBarKit issue #12).
     func resizeAndRepositionPanel() {
         guard panelIsOpen, let popover, let controller = hostingController else { return }
         let preferred = controller.preferredContentSize
@@ -240,27 +245,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let currentSize = popover.contentSize
         let sizeChanged = abs(currentSize.width - newW) > 1 || abs(currentSize.height - newH) > 1
         guard sizeChanged else { return }
+        guard let window = popover.contentViewController?.view.window else {
+            popover.contentSize = NSSize(width: newW, height: newH)
+            return
+        }
+        // Read the frame BEFORE mutating contentSize — AppKit repositions the
+        // window as a side-effect of the contentSize write, so reading after
+        // would give a frame already shifted by AppKit's own bottom-left growth.
+        let oldFrame = window.frame
+        let dw = newW - currentSize.width
+        let dh = newH - currentSize.height
         popover.contentSize = NSSize(width: newW, height: newH)
-        repositionPanel(width: newW, height: newH)
-    }
-
-    /// Sets the popover window's origin from the status item button's screen
-    /// frame, clamped to the button's screen visible bounds. Called after every
-    /// `contentSize` write so the window never drifts to an AppKit-computed
-    /// edge-snapped position (see `resizeAndRepositionPanel()` doc comment).
-    private func repositionPanel(width: CGFloat, height: CGFloat) {
-        guard let button = statusItem?.button,
-              let buttonWindow = button.window,
-              let window = popover?.contentViewController?.view.window else { return }
-        let buttonFrame = buttonWindow.frame
-        guard buttonFrame.width > 0, buttonFrame.height > 0 else { return }
-        let screen = buttonWindow.screen ?? statusItemScreen
-        let visible = screen.visibleFrame
-        let desiredX = buttonFrame.midX - width / 2
-        let clampedX = min(max(desiredX, visible.minX), visible.maxX - width)
-        let desiredY = buttonFrame.minY - height
-        let clampedY = min(max(desiredY, visible.minY), visible.maxY - height)
-        window.setFrameOrigin(NSPoint(x: clampedX, y: clampedY))
+        // Shift the EXISTING origin by the delta — never recompute an absolute
+        // target from button/screen coordinates (see doc comment above).
+        var newOrigin = oldFrame.origin
+        newOrigin.x -= dw / 2   // grow symmetrically → midX stays fixed
+        newOrigin.y -= dh       // grow downward only → maxY (top/arrow edge) stays fixed
+        window.setFrameOrigin(newOrigin)
     }
 
     // MARK: - Navigation
