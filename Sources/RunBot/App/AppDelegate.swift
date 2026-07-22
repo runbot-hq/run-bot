@@ -533,11 +533,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     + "popoverWindow=\(popoverWindow.frame)")
                 windowFrameObservation = popoverWindow.observe(
                     \.frame,
-                    options: [.old, .new]
+                    options: [.new]
                 ) { [weak self] win, change in
                     guard let self else { return }
-                    guard let newFrame = change.newValue,
-                          let oldFrame = change.oldValue else { return }
+                    guard let newFrame = change.newValue else { return }
                     guard let pinnedX = self.pinnedPopoverOriginX else { return }
                     let buttonY = self.statusItem?.button?.window?.frame.origin.y ?? -1
                     let screenH = self.statusItem?.button?.window?.screen?.frame.height ?? -1
@@ -548,7 +547,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     // and allowing the side-jump to x=0.
                     let isMenuBarHidden = screenH < 0 || buttonY >= screenH
                     log("AppDelegate › windowFrameObservation — "
-                        + "old=\(oldFrame) new=\(newFrame) "
+                        + "new=\(newFrame) "
                         + "pinnedX=\(pinnedX) "
                         + "buttonY=\(buttonY) screenH=\(screenH) "
                         + "isMenuBarHidden=\(isMenuBarHidden) "
