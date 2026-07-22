@@ -64,6 +64,21 @@ import SwiftUI
 // has committed the anchor before any resize arrives.
 // See issue #2234 and ARCHITECTURE.md §Preventing Side-Jump on Resize.
 //
+// SIDE-JUMP UNDER AUTO-HIDE MENUBAR (HIDDEN STATE) — fix/#2237:
+// When the macOS auto-hide menubar is fully hidden (retracted into the top
+// edge), the NSStatusItem button's backing NSWindow is in the Dock process's
+// off-screen slot and button.window.screen is nil. In this state, ANY
+// contentSize write — width change, height-only change, anything — causes
+// AppKit to re-run full anchor geometry against nil/off-screen button geometry,
+// collapsing the popover x-origin to 0 (side-jump). This is NOT a timing
+// issue; deferring the write (fix/#2234) does not help because the write
+// itself is the trigger regardless of when it arrives.
+// Fix: resizeAndRepositionPanel() guards on buttonScreen=nil and skips the
+// write entirely while the menubar is hidden. The current size is already
+// correct. The next KVO fire after the menubar re-appears will have a valid
+// buttonScreen and the write goes through normally.
+// See issue #2237.
+//
 // PANELVISIBILITYSTATE:
 // panelVisibilityState.isOpen is set in openPanel()/closePanel()/hidePanel().
 // ❌ NEVER remove. ❌ NEVER remove from wrapEnv().
@@ -209,6 +224,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// ⚠️ Never call this synchronously from navigate(to:) or openPanel() — always
     /// via a deferred Task { @MainActor } to prevent side-jump with auto-hide menu bar.
     /// See issue #2234 and DEFERRED RESIZE note in the file header.
+    /// ⚠️ The write is skipped entirely when buttonScreen=nil (menubar hidden in
+    /// auto-hide mode) — any contentSize write in that state causes AppKit to
+    /// re-run anchor geometry against off-screen button geometry, jumping x to 0.
+    /// See issue #2237 and SIDE-JUMP UNDER AUTO-HIDE MENUBAR note in the file header.
     func resizeAndRepositionPanel() {
         guard panelIsOpen, let popover, let controller = hostingController else {
             log("AppDelegate › resizeAndRepositionPanel — guard exit: panelIsOpen=\(panelIsOpen) popover=\(popover != nil) controller=\(hostingController != nil)")
@@ -224,11 +243,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let currentSize = popover.contentSize
         let buttonWin = statusItem?.button?.window
         let buttonWinFrame = buttonWin?.frame
-        let buttonWinScreen = buttonWin?.screen
+        let buttonScreen = buttonWin?.screen
         log("AppDelegate › resizeAndRepositionPanel — preferred=(\(preferred.width),\(preferred.height)) "
             + "clamped=(\(newW),\(newH)) current=(\(currentSize.width),\(currentSize.height)) "
             + "buttonWindow=\(String(describing: buttonWinFrame)) "
-            + "buttonScreen=\(String(describing: buttonWinScreen?.frame))")
+            + "buttonScreen=\(String(describing: buttonScreen?.frame))")
+        // fix/#2237: skip contentSize write when buttonScreen=nil.
+        // With auto-hide menubar hidden, button.window.screen is nil (button's
+        // NSWindow is in the Dock's off-screen slot). Any contentSize write in
+        // this state causes AppKit to re-run full anchor geometry against nil
+        // screen geometry, collapsing the popover x-origin to 0 (side-jump).
+        // Skipping the write is safe — the current size is correct, and the
+        // next KVO fire after the menubar re-appears will have a valid
+        // buttonScreen and the write will go through normally.
+        guard buttonScreen != nil else {
+            log("AppDelegate › resizeAndRepositionPanel — SKIP: buttonScreen=nil (menubar hidden), "
+                + "deferring write preferred=(\(preferred.width),\(preferred.height)) (fix/#2237)")
+            return
+        }
+        log("AppDelegate › resizeAndRepositionPanel — buttonScreen=\(buttonScreen!) write unblocked")
         if abs(currentSize.width - newW) > 1 || abs(currentSize.height - newH) > 1 {
             log("AppDelegate › resizeAndRepositionPanel — WRITING contentSize=(\(newW),\(newH)) "
                 + "delta=(\(newW - currentSize.width),\(newH - currentSize.height))")
