@@ -154,9 +154,13 @@ struct SettingsView: View {
     @State private var signOutTask: Task<Void, Never>?
 
     /// `true` while `LocalRunnersView` is displayed instead of the main settings scroll.
+    /// Internal by necessity — read by `SettingsView+Sections.swift`. See CONVENIENCE
+    /// ACCESSORS note above for why `private` is not an option across file boundaries.
     @State var showLocalRunners = false
 
     /// `true` while `ScopesView` is displayed instead of the main settings scroll.
+    /// Internal by necessity — read by `SettingsView+Sections.swift`. See CONVENIENCE
+    /// ACCESSORS note above for why `private` is not an option across file boundaries.
     @State var showScopes = false
 
     // MARK: - Init
@@ -249,8 +253,16 @@ struct SettingsView: View {
         // and keeps the UI correct for the common case without waiting for the network.
         // This task then overwrites it once github.token() resolves asynchronously
         // as the authoritative value (covers Finder-launch env var absence).
-        // The async overwrite is always correct and always wins; there is no harmful
-        // race — both writes target the same @State property on the MainActor.
+        //
+        // Known gap — rapid open→open cycle:
+        // On a rapid open→open (panel re-shown without onDisappear), onAppearAction()
+        // re-runs and resets isCLIAuthenticated to the sync seed value. However,
+        // SwiftUI does NOT re-fire .task unless view identity changes or the view
+        // fully disappears/reappears — so the async authoritative overwrite does
+        // not run again. isCLIAuthenticated stays at the sync seed on that cycle.
+        // This is pre-existing behaviour; not introduced by this PR. In practice
+        // the sync seed (oauthService.hasAnyToken) is correct for most users and
+        // the gap only affects Finder-launched apps with shell-only env var tokens.
         .task {
             // Guard: skip if the user is already signed in via OAuth — in that
             // case neither status text nor the green dot reference `isCLIAuthenticated`.
@@ -270,13 +282,13 @@ struct SettingsView: View {
         // isCLIAuthenticated and does NOT depend on task 1 completing first.
         // If that ever changes, sequence both calls inside a single .task.
         //
-        // NSPanel teardown assumption:
+        // NSPanel teardown assumption (tracked in issue #2231):
         // .task reliability here depends on the NSPanel host fully deiniting the
         // SwiftUI view tree on close, which resets task identity so this task
         // relaunches on the next open. If the panel is ever changed to retain the
         // view tree across closes (partial teardown), .task and .onAppear would
         // be equally unreliable for the cold-open path and an .id() modifier to
-        // force identity reset would be required instead.
+        // force identity reset would be required instead. See #2231.
         //
         // Entry-path matrix:
         //   • Cold-open → Settings : .task fires ✅
@@ -364,7 +376,8 @@ struct SettingsView: View {
     ///
     /// isCLIAuthenticated is written synchronously here as a fast-path seed.
     /// Task 1 in body overwrites it asynchronously with the authoritative value
-    /// once github.token() resolves. See Task 1 comment in body for details.
+    /// once github.token() resolves. On a rapid open→open cycle, Task 1 does not
+    /// re-fire — see the Task 1 comment in body for the known gap and rationale.
     private func onAppearAction() { // skipcq: SW-R1002 — reviewed; complexity acceptable for this onAppear setup
         isOAuthAuthenticated = oauthService.isAuthenticated
         isCLIAuthenticated = !oauthService.isAuthenticated && oauthService.hasAnyToken
