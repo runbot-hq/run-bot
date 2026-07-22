@@ -83,10 +83,11 @@ import SwiftUI
 //
 // CORRECT FIX — GuardedPopover contentSize override (fix/#2239):
 // GuardedPopover subclasses NSPopover and overrides the contentSize setter.
-// The setter evaluates isMenuBarHidden (buttonY >= screenH) using a lazy
-// statusItemProvider closure (not a stored ref, because setupPanel() runs
-// before setupStatusItem()). When hidden, the write is skipped; the current
-// size is already correct. When visible, the write proceeds normally.
+// The setter evaluates isMenuBarHidden (screenH < 0 || buttonY >= screenH)
+// using a lazy statusItemProvider closure (not a stored ref, because
+// setupPanel() runs before setupStatusItem()). When hidden, the write is
+// skipped; the current size is already correct. When visible, the write
+// proceeds normally.
 // sizingOptions = .preferredContentSize is kept so SwiftUI keeps publishing
 // preferredContentSize — GuardedPopover intercepts before super.contentSize
 // is written. This blocks ALL write paths (sizingOptions pipe AND manual
@@ -96,6 +97,23 @@ import SwiftUI
 // ⚠️ var popover MUST be typed as GuardedPopover? (not NSPopover?) so Swift
 // dispatches contentSize writes through the override. If typed as NSPopover?,
 // Swift uses static dispatch to the base class and the override is never called.
+//
+// isMenuBarHidden CORRECT SIGNAL (fix/#2239 + fix/#2240):
+//   screenH < 0 || buttonY >= screenH
+//
+//   screenH < 0 means button.window.screen returned nil. The Dock slides the
+//   NSStatusItem window fully off the screen when autohide retracts the bar,
+//   and at that moment screen becomes nil → screenH = -1. This IS the hidden
+//   state.
+//
+//   WRONG expressions (do not use):
+//     screenH > 0 && buttonY >= screenH  ← evaluates false when screen==nil
+//                                           (screenH=-1, `> 0` fails, guard skipped)
+//
+//   Observed in logs:
+//     Hidden (screen nil):   buttonY=982,  screenH=-1   ← side-jump occurs here
+//     Hidden (screen alive): buttonY=982,  screenH=982
+//     Visible:               buttonY=949,  screenH=982
 //
 // PANELVISIBILITYSTATE:
 // panelVisibilityState.isOpen is set in openPanel()/closePanel()/hidePanel().
@@ -206,7 +224,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// KVO observation on the popover window's NSWindow.frame.
     /// Fires synchronously on frame changes, before compositing.
     /// Snaps x back to pinnedPopoverOriginX when AppKit corrupts it while
-    /// the auto-hide menubar is hidden (buttonY >= screenH).
+    /// the auto-hide menubar is hidden (screenH < 0 || buttonY >= screenH).
     /// Installed in openPanel(), removed in tearDownOpenState().
     var windowFrameObservation: NSKeyValueObservation?
 
@@ -294,7 +312,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let buttonScreen = buttonWin?.screen
         let buttonY = buttonWinFrame?.origin.y ?? -1
         let screenH = buttonScreen?.frame.height ?? -1
-        let isMenuBarHidden = buttonScreen != nil && buttonY >= screenH
+        let isMenuBarHidden = screenH < 0 || buttonY >= screenH
         log("AppDelegate › resizeAndRepositionPanel — "
             + "preferred=(\(preferred.width),\(preferred.height)) "
             + "clamped=(\(newW),\(newH)) "
@@ -523,7 +541,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     guard let pinnedX = self.pinnedPopoverOriginX else { return }
                     let buttonY = self.statusItem?.button?.window?.frame.origin.y ?? -1
                     let screenH = self.statusItem?.button?.window?.screen?.frame.height ?? -1
-                    let isMenuBarHidden = screenH > 0 && buttonY >= screenH
+                    // fix/#2240: screenH < 0 means screen==nil — the Dock has pushed
+                    // the button window off-screen (menubar fully retracted).
+                    // This IS the hidden state. Do NOT use `screenH > 0 && buttonY >= screenH`
+                    // — that evaluates false when screen is nil, skipping the snap guard
+                    // and allowing the side-jump to x=0.
+                    let isMenuBarHidden = screenH < 0 || buttonY >= screenH
                     log("AppDelegate › windowFrameObservation — "
                         + "old=\(oldFrame) new=\(newFrame) "
                         + "pinnedX=\(pinnedX) "
@@ -589,13 +612,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let self, !self.preservedSheetWindowHide else { return }
             self.panelSheetState.restoreTransientHideStateIfNeeded()
         }
+
         lifecycleCoordinator.installMonitors(
-            hasActiveSheet: { [weak self] in
-                guard let self else { return false }
-                return self.hasActiveSheet || self.lifecycleCoordinator.isSheetDismissing
-                    || self.overlayGate.hasActiveOverlay
-            },
-            popoverWindow: { [weak self] in self?.popover?.contentViewController?.view.window },
+            panelIsOpen: { [weak self] in self?.panelIsOpen ?? false },
+            hasActiveOverlay: { [weak self] in self?.overlayGate.hasActiveOverlay ?? false },
+            popoverFrame: { [weak self] in self?.popover?.contentViewController?.view.window?.frame },
             onHide: { [weak self] in self?.hidePanel() }
         )
         log("AppDelegate › openPanel — monitors installed via lifecycleCoordinator")
