@@ -53,14 +53,25 @@ import SwiftUI
 // Only update contentSize — never re-call popover.show() on resize.
 // Updating contentSize repositions the popover body but keeps the arrow
 // anchored to the original positioningRect on the status bar button.
+// AppKit itself preserves the anchor point on contentSize changes —
+// resizeAndRepositionPanel() must NOT manually call setFrameOrigin, since
+// that fights AppKit's own anchor-preserving relayout and can make jumps worse.
 //
-// AUTOHIDE SIDE-JUMP FIX:
-// When the macOS menu bar is in auto-hide mode, the status bar button's screen
-// position differs from normal. AppKit grows the popover from the bottom-left
-// corner of the window frame when contentSize is updated, causing a visible
-// horizontal jump. The fix reads the window frame BEFORE writing contentSize,
-// computes the delta, and calls setFrameOrigin to re-centre the window after
-// the resize — keeping the arrow pinned to the status bar button at all times.
+// AUTOHIDE SIDE-JUMP ROOT CAUSE (open-time, not resize-time):
+// With "Automatically hide and show the menu bar" enabled, the status item's
+// button can still be off-screen or mid-slide-in at the moment togglePanel()
+// fires from the initial click (the click itself is what triggers the menu
+// bar to reveal). If popover.show(relativeTo:of:preferredEdge:) is called
+// before AppKit has finished laying out the revealed menu bar, it anchors
+// against a stale/zero button frame, producing a popover window pinned at
+// x=0 instead of under the status item — visible as a side-jump once the
+// menu bar settles and the click is retried.
+//
+// FIX: showPopoverRetryingIfNeeded() checks that the status item's window
+// has a valid (non-zero, on-screen) frame before calling show(). If not yet
+// valid, it retries on the next run-loop turn (menu bar reveal is a fast
+// system animation, so a couple of retries at most are needed) instead of
+// showing immediately against bad geometry.
 //
 // PANELVISIBILITYSTATE:
 // panelVisibilityState.isOpen is set in openPanel()/closePanel()/hidePanel().
@@ -166,6 +177,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem?.button?.window?.screen ?? NSScreen.main ?? NSScreen.screens[0]
     }
 
+    /// Number of `showPopoverRetryingIfNeeded()` retries attempted for the current open.
+    /// Reset to 0 at the start of every `openPanel()` call.
+    private var showRetryCount = 0
+    /// Hard cap on retries so a persistently invalid button frame can never hang
+    /// the open path or loop forever — falls back to showing immediately.
+    private static let maxShowRetries = 10
+
     // MARK: - Sheet guard
 
     /// Returns true when a SwiftUI sheet is currently presented over the popover.
@@ -200,25 +218,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Popover resize
 
-    /// Clamps the popover's `contentSize` to the current screen bounds, then
-    /// corrects the window origin so the popover stays centred on the status bar
-    /// button after the resize.
-    ///
-    /// WHY THE ORIGIN CORRECTION IS NEEDED (autohide side-jump fix):
-    /// AppKit grows an NSPopover from the bottom-left corner of its backing window
-    /// when `contentSize` is updated. On a normal menu bar the arrow is always
-    /// near the top edge, so a height increase pushes the window downward and the
-    /// arrow stays roughly pinned. But with menu bar auto-hide enabled the status
-    /// bar button sits at a different screen position, and the uncorrected
-    /// bottom-left growth causes a visible horizontal jump.
-    ///
-    /// FIX: read the window frame BEFORE writing contentSize, compute the width and
-    /// height deltas, then call setFrameOrigin to re-centre the window:
-    ///   • x shifts left by half the width delta (keeps horizontal centre stable)
-    ///   • y shifts down by the full height delta (keeps the top/arrow edge pinned)
-    ///
+    /// Clamps the popover's `contentSize` to the current screen bounds.
+    /// Called after every rootView swap and from the KVO size observer.
     /// ⚠️ Never call `popover.show()` here — updating `contentSize` resizes in place
-    /// without re-anchoring the arrow. show() would re-anchor and cause a jump.
+    /// without re-anchoring the arrow. AppKit itself preserves the anchor point on
+    /// this path — do NOT manually call `setFrameOrigin` here, it fights AppKit's
+    /// own anchor-preserving relayout and can introduce jumps rather than fix them.
     func resizeAndRepositionPanel() {
         guard panelIsOpen, let popover, let controller = hostingController else { return }
         let preferred = controller.preferredContentSize
@@ -226,18 +231,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let newW = min(max(preferred.width > 0 ? preferred.width : Self.minWidth, Self.minWidth), maxWidth)
         let newH = min(max(preferred.height, 60), maxHeight)
         let currentSize = popover.contentSize
-        guard abs(currentSize.width - newW) > 1 || abs(currentSize.height - newH) > 1 else { return }
-        // Read frame BEFORE mutating contentSize — AppKit updates the frame
-        // immediately on the contentSize write, so reading after gives the new frame.
-        guard let window = popover.contentViewController?.view.window else { return }
-        let oldFrame = window.frame
-        let dw = newW - currentSize.width
-        let dh = newH - currentSize.height
-        popover.contentSize = NSSize(width: newW, height: newH)
-        window.setFrameOrigin(NSPoint(
-            x: oldFrame.origin.x - dw / 2,
-            y: oldFrame.origin.y - dh
-        ))
+        if abs(currentSize.width - newW) > 1 || abs(currentSize.height - newH) > 1 {
+            popover.contentSize = NSSize(width: newW, height: newH)
+        }
     }
 
     // MARK: - Navigation
@@ -408,10 +404,52 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             popover.behavior = .applicationDefined
             popover.delegate = self
-            log("AppDelegate › openPanel — PRE-SHOW behavior=\(popover.behavior.rawValue) delegate=\(String(describing: popover.delegate))")
-            popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-            log("AppDelegate › openPanel — POST-SHOW behavior=\(popover.behavior.rawValue)")
+            showRetryCount = 0
+            showPopoverRetryingIfNeeded(button: button, popover: popover)
+        } else {
+            finishOpenPanel()
         }
+    }
+
+    /// Shows `popover` relative to `button`, retrying on the next run-loop turn if the
+    /// button's backing window does not yet have a valid on-screen frame.
+    ///
+    /// AUTOHIDE FIX: with menu bar auto-hide enabled, the click that triggers
+    /// `togglePanel()` is often the SAME click that reveals the menu bar. AppKit may
+    /// not have finished laying out the revealed status item at that instant, so
+    /// `button.window`'s frame can still be zero/off-screen. Calling `popover.show()`
+    /// against that stale geometry anchors the popover at the wrong location (e.g. x=0),
+    /// producing a visible side-jump once the layout catches up.
+    ///
+    /// This defers `show()` (via `DispatchQueue.main.async`, capped at
+    /// `Self.maxShowRetries` attempts) until `button.window` reports a non-zero frame
+    /// that intersects a known screen — i.e. the menu bar has finished revealing.
+    private func showPopoverRetryingIfNeeded(button: NSStatusBarButton, popover: NSPopover) {
+        let buttonFrame = button.window?.frame ?? .zero
+        let frameLooksValid = buttonFrame.width > 0 && buttonFrame.height > 0
+            && NSScreen.screens.contains { $0.frame.intersects(buttonFrame) }
+        guard frameLooksValid || showRetryCount >= Self.maxShowRetries else {
+            showRetryCount += 1
+            log("AppDelegate › showPopoverRetryingIfNeeded — button frame not yet valid " +
+                "(\(buttonFrame)), retry \(showRetryCount)/\(Self.maxShowRetries)")
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.showPopoverRetryingIfNeeded(button: button, popover: popover)
+            }
+            return
+        }
+        log("AppDelegate › openPanel — PRE-SHOW behavior=\(popover.behavior.rawValue) " +
+            "delegate=\(String(describing: popover.delegate)) buttonFrame=\(buttonFrame)")
+        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        log("AppDelegate › openPanel — POST-SHOW behavior=\(popover.behavior.rawValue)")
+        finishOpenPanel()
+    }
+
+    /// Completes the open sequence after `popover.show()` (or the preserved-window
+    /// restore path) has run: activates the key window, resizes to fit content,
+    /// restores saved navigation state, and installs the outside-click / app-switch
+    /// monitors.
+    private func finishOpenPanel() {
         makePopoverWindowKeyIfPossible()
         resizeAndRepositionPanel()
         if let saved = appState.savedNavState, !hasActiveSheet, let restored = validatedView(for: saved) {
