@@ -73,23 +73,22 @@ import SwiftUI
 //      them when the popover closes. SwiftUI re-presents on re-open if the
 //      binding is still true. savedNavState = .settings ensures navigation.
 //
-// SIZE NOTE (CORRECTED — was the actual root cause of the repeated side-jump):
-// popover.contentSize is updated (both width AND height) EXCLUSIVELY via our
-// own KVO handler on NSHostingController.preferredContentSize, which calls
-// resizeAndRepositionPanel() in AppDelegate.swift.
-//
-// ❌ NEVER set `controller.sizingOptions = .preferredContentSize`.
-//    This was set here for a long time and is the documented, explicit ban
-//    in PanelVisibilityState.swift ("NEVER set sizingOptions =
-//    .preferredContentSize — that causes side-jump") that this file was
-//    silently violating. With that option set, NSHostingController resizes
-//    its OWN backing window to match preferredContentSize automatically,
-//    racing with our manual resizeAndRepositionPanel() delta-correction KVO
-//    handler. Two independent resize paths mutating the same window frame on
-//    the same layout pass corrupts whichever `oldFrame` snapshot our delta
-//    math reads, producing the exact origin.x-snaps-to-0 jump seen across
-//    every previous fix attempt — no amount of correcting the delta math
-//    itself can fix a race with a second, automatic resizer.
+// SIZE NOTE:
+// popover.contentSize is updated (both width AND height) via KVO on
+// NSHostingController.preferredContentSize. `sizingOptions =
+// .preferredContentSize` is REQUIRED here — it is what makes AppKit compute
+// and publish `preferredContentSize` from SwiftUI's intrinsic layout in the
+// first place. Removing it (tried once, reverted) leaves the popover stuck
+// at its initial contentSize forever: no further KVO fires, so
+// resizeAndRepositionPanel() never runs again and the panel cannot grow to
+// show Settings or any other view. The side-jump bug is NOT caused by this
+// flag — it is caused by resizeAndRepositionPanel() mixing chrome and
+// content coordinate spaces when correcting the origin after AppKit's
+// default grow-from-bottom-left resize. Fix that by reading window.frame
+// BEFORE mutating contentSize, then shifting origin by the exact
+// (newSize - oldSize) delta — see resizeAndRepositionPanel() in
+// AppDelegate.swift. Never touch sizingOptions to solve a jump/reposition
+// bug; it only controls whether preferredContentSize is computed at all.
 // ❌ NEVER call popover.show() again on resize.
 
 /// Extension responsible for NSPopover construction, KVO, and async subscriptions.
@@ -102,12 +101,7 @@ extension AppDelegate: NSPopoverDelegate {
     func setupPanel() {
         log("AppDelegate › setupPanel — begin")
         let controller = NSHostingController(rootView: mainView())
-        // ❌ NEVER set controller.sizingOptions = .preferredContentSize here.
-        // See "SIZE NOTE" above — it causes NSHostingController to resize its
-        // own window automatically, racing with resizeAndRepositionPanel()'s
-        // manual delta correction and corrupting the frame it reads.
-        // Leaving sizingOptions at its default ([]) means ONLY our KVO-driven
-        // resizeAndRepositionPanel() ever touches popover.contentSize/frame.
+        controller.sizingOptions = .preferredContentSize
         hostingController = controller
 
         let newPopover = NSPopover()
