@@ -64,32 +64,41 @@ import SwiftUI
 // has committed the anchor before any resize arrives.
 // See issue #2234 and ARCHITECTURE.md §Preventing Side-Jump on Resize.
 //
-// SIDE-JUMP UNDER AUTO-HIDE MENUBAR (HIDDEN STATE) — fix/#2239:
+// SIDE-JUMP UNDER AUTO-HIDE MENUBAR (HIDDEN STATE) — fix/#2239 + fix/#2241:
 // When the macOS auto-hide menubar is fully hidden (retracted into the top
 // edge), the Dock pushes the NSStatusItem button's backing NSWindow off the
-// top of the screen: buttonWin.frame.origin.y rises to >= screen.frame.height.
+// top of the screen: buttonWin.frame.origin.y rises to >= screen.frame.height,
+// or screen becomes nil entirely (screenH = -1).
 // In this state ANY contentSize write causes AppKit to re-run full anchor
 // geometry against the off-screen button geometry, collapsing the popover
-// x-origin to 0 (side-jump).
+// x-origin to 0 (side-jump) and corrupting the arrow anchor.
 //
-// CORRECT FIX — GuardedPopover contentSize override (fix/#2239):
+// CORRECT FIX — GuardedPopover contentSize override (fix/#2239 + fix/#2241):
 // GuardedPopover subclasses NSPopover and overrides the contentSize setter.
 // The setter evaluates isMenuBarHidden (screenH < 0 || buttonY >= screenH)
 // using a lazy statusItemProvider closure (not a stored ref, because
 // setupPanel() runs before setupStatusItem()). When hidden, the write is
-// skipped; the current size is already correct. When visible, the write
-// proceeds normally.
-// sizingOptions = .preferredContentSize is kept so SwiftUI keeps publishing
-// preferredContentSize — GuardedPopover intercepts before super.contentSize
-// is written. This blocks ALL write paths (sizingOptions pipe AND manual
-// resizeAndRepositionPanel) in one place.
-// See AppDelegate+PanelSetup.swift and issue #2239.
+// swallowed entirely — no call to super.contentSize, so AppKit never
+// re-runs anchor geometry. When visible, the write proceeds normally.
+//
+// ❌ NEVER set sizingOptions = .preferredContentSize on the NSHostingController.
+//    AppKit uses this to write contentSize internally via an ObjC path that
+//    bypasses GuardedPopover's Swift override entirely. NSHostingController
+//    still computes preferredContentSize without it — the KVO observer in
+//    setupKVO() routes all writes through resizeAndRepositionPanel() →
+//    GuardedPopover → isMenuBarHidden guard. This is the only safe write path.
+//    See fix/#2241 and PanelVisibilityState.swift regression guard.
+//
+// ❌ NEVER add a window-frame KVO snap (windowFrameObservation / setFrameOrigin).
+//    Snapping x after AppKit has committed the frame acts too late — the arrow
+//    anchor geometry is already baked with the corrupted origin. The window body
+//    moves but the arrow stays wrong. Block the write upstream instead.
 //
 // ⚠️ var popover MUST be typed as GuardedPopover? (not NSPopover?) so Swift
 // dispatches contentSize writes through the override. If typed as NSPopover?,
 // Swift uses static dispatch to the base class and the override is never called.
 //
-// isMenuBarHidden CORRECT SIGNAL (fix/#2239 + fix/#2240):
+// isMenuBarHidden CORRECT SIGNAL (fix/#2239 + fix/#2241):
 //   screenH < 0 || buttonY >= screenH
 //
 //   screenH < 0 means button.window.screen returned nil. The Dock slides the
@@ -183,22 +192,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// KVO observation token for `NSHostingController.preferredContentSize`.
     var sizeObservation: NSKeyValueObservation?
 
-    // MARK: - fix/#2239: window frame KVO snap
-
-    /// X-origin of the popover window captured immediately after popover.show().
-    /// Used by `windowFrameObservation` to snap x back when AppKit corrupts it
-    /// during a contentSize write while the auto-hide menubar is hidden.
-    /// Reset in `tearDownOpenState()`.
-    var pinnedPopoverOriginX: CGFloat?
-
-    /// KVO observation on the popover window's `NSWindow.frame`.
-    /// Fires synchronously before compositing; snaps x back to `pinnedPopoverOriginX`
-    /// when `isMenuBarHidden` is true and AppKit collapses the origin to 0.
-    /// Installed in `openPanel()` via `installWindowFrameSnap(on:pinned:)`.
-    /// Removed in `tearDownOpenState()`.
-    /// ❌ NEVER nil this before `tearDownOpenState()` — removes the snap guard.
-    var windowFrameObservation: NSKeyValueObservation?
-
     /// Shared observable that tracks whether the panel is open.
     /// Injected into every SwiftUI view via `wrapEnv(_:)`.
     /// ❌ NEVER remove. ❌ NEVER remove from wrapEnv().
@@ -255,7 +248,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Clamps the popover's `contentSize` to the current screen bounds.
     /// Always call via `Task { @MainActor }` — never synchronously from
     /// `navigate(to:)` or `openPanel()` (causes auto-hide side-jump, fix/#2234).
-    /// contentSize writes are guarded by `GuardedPopover` (fix/#2239).
+    /// contentSize writes are guarded by `GuardedPopover` (fix/#2239 + fix/#2241).
     func resizeAndRepositionPanel() {
         guard panelIsOpen, let popover, let controller = hostingController else {
             log("AppDelegate › resizeAndRepositionPanel — guard exit: "
@@ -307,18 +300,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Dismiss
 
     /// Shared teardown called by every close/hide path.
-    /// Removes `windowFrameObservation`, resets `panelIsOpen`, and clears
-    /// `panelVisibilityState.isOpen`.
+    /// Resets `panelIsOpen` and clears `panelVisibilityState.isOpen`.
     /// ⚠️ Must be called on the main actor.
     @MainActor
     func tearDownOpenState() {
 #if DEBUG
         log("AppDelegate › tearDownOpenState — caller=\(Thread.callStackSymbols[1])")
 #endif
-        log("AppDelegate › tearDownOpenState — removing windowFrameObservation "
-            + "pinnedOriginX=\(String(describing: pinnedPopoverOriginX))")
-        windowFrameObservation = nil
-        pinnedPopoverOriginX = nil
         lifecycleCoordinator.tearDown()
         panelVisibilityState.isOpen = false
     }
@@ -405,37 +393,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if panelIsOpen { closePanel() } else { openPanel() }
     }
 
-    // MARK: - Window frame snap (fix/#2239)
-
-    /// Installs a KVO observer on `popoverWindow.frame` that snaps the x-origin
-    /// back to `pinnedX` whenever AppKit corrupts it (collapses to 0) during a
-    /// contentSize write while `isMenuBarHidden` is true.
-    /// Called once per open from `openPanel()`. Torn down in `tearDownOpenState()`.
-    func installWindowFrameSnap(on popoverWindow: NSWindow, pinned pinnedX: CGFloat) {
-        pinnedPopoverOriginX = pinnedX
-        windowFrameObservation = popoverWindow.observe(\.frame, options: [.new]) { [weak self] win, change in
-            // KVO fires on a non-isolated thread; hop to MainActor to safely
-            // read @MainActor-isolated properties (fix/#2239).
-            guard let newFrame = change.newValue else { return }
-            Task { @MainActor [weak self, win] in
-                guard let self else { return }
-                guard let px = self.pinnedPopoverOriginX else { return }
-                let buttonY = self.statusItem?.button?.window?.frame.origin.y ?? -1
-                let screenH = self.statusItem?.button?.window?.screen?.frame.height ?? -1
-                let isMenuBarHidden = screenH < 0 || buttonY >= screenH
-                log("AppDelegate › windowFrameObservation — "
-                    + "new=\(newFrame) pinnedX=\(px) "
-                    + "buttonY=\(buttonY) screenH=\(screenH) "
-                    + "isMenuBarHidden=\(isMenuBarHidden) xDrift=\(newFrame.origin.x - px)")
-                guard isMenuBarHidden, abs(newFrame.origin.x - px) > 1 else { return }
-                log("AppDelegate › windowFrameObservation — SNAP x \(newFrame.origin.x) → \(px)")
-                var corrected = newFrame
-                corrected.origin.x = px
-                win.setFrameOrigin(corrected.origin)
-            }
-        }
-    }
-
     // MARK: - Open
 
     /// Shows the popover anchored to the status bar button.
@@ -458,10 +415,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
             log("AppDelegate › openPanel — POST-SHOW "
                 + "popoverWindow=\(String(describing: popover.contentViewController?.view.window?.frame))")
-            if let popoverWindow = popover.contentViewController?.view.window {
-                installWindowFrameSnap(on: popoverWindow, pinned: popoverWindow.frame.origin.x)
-                log("AppDelegate › openPanel — windowFrameSnap installed pinnedX=\(popoverWindow.frame.origin.x)")
-            }
         }
         makePopoverWindowKeyIfPossible()
         Task { @MainActor [weak self] in
