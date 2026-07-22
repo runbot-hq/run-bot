@@ -228,37 +228,36 @@ struct SettingsView: View {
             }
         }
         .onAppear(perform: onAppearAction)
+        // TASK 1 of 2 — CLI token resolution.
+        // Resolves isCLIAuthenticated via the login-shell fallback for Finder-launched
+        // apps where env vars are absent from the process environment.
+        // THIS TASK IS INTENTIONALLY INDEPENDENT of task 2 below.
+        // SwiftUI runs multiple .task modifiers concurrently with no ordering guarantee.
+        // Task 2 (update check) reads runnerState from appState by value at call time
+        // and has NO dependency on isCLIAuthenticated or the result of this task.
+        // ❌ Do NOT merge these two tasks to "add ordering" unless checkAndHandle is
+        //    changed to require auth state — if that ever happens, sequence them
+        //    explicitly inside a single .task instead of relying on chaining order.
         .task {
-            // `onAppearAction` checks `oauthService.hasAnyToken` which reads
-            // `ProcessInfo.processInfo.environment` directly. When the app is
-            // launched via Finder (not a shell), env vars like `GH_TOKEN` are
-            // absent from the process environment even if exported in the
-            // user's shell profile — so `hasAnyToken` returns `false` and
-            // `isCLIAuthenticated` stays unset, leaving the status light dark.
-            //
-            // `TokenCache.token()` runs the full resolution chain including a
-            // login-shell fallback (`/bin/zsh -lc 'echo $GH_TOKEN'`), so it
-            // finds the token regardless of launch method. We call it here
-            // once on appear and flip `isCLIAuthenticated` when it resolves.
-            //
             // Guard: skip if the user is already signed in via OAuth — in that
             // case neither status text nor the green dot reference `isCLIAuthenticated`.
             guard !isOAuthAuthenticated else { return }
             let token = await appState.github.token()
             isCLIAuthenticated = token != nil
-            log("【SettingsView.task】github.token() resolved — isCLIAuthenticated=\(isCLIAuthenticated)", category: .general)
+            log("【SettingsView.task1】github.token() resolved — isCLIAuthenticated=\(isCLIAuthenticated)", category: .general)
         }
-        // FIX #2223 / #2216: run the update check via a SwiftUI-owned .task so it
-        // fires on every entry path — including cold-open → Settings, where
+        // TASK 2 of 2 — Update check (FIX #2223 / #2216).
+        // Fires on every entry path — including cold-open → Settings, where
         // .onAppear on an NSPanel-hosted root Group is not guaranteed to fire.
+        // SwiftUI owns the task lifetime: starts on appear, cancelled on disappear.
         //
-        // Previously, onAppearAction() manually spawned updateCheckTask (an
-        // unstructured Task) and onDisappear cancelled it. That covered
-        // Main → Settings but missed the cold-open path.
+        // INTENTIONALLY CONCURRENT with task 1 above — no ordering dependency.
+        // checkAndHandle(state:) receives runnerState by value (computed property
+        // returning appState.runnerState at call time). It does NOT read
+        // isCLIAuthenticated and does NOT depend on task 1 completing first.
+        // If that ever changes, sequence both calls inside a single .task.
         //
-        // SwiftUI .task starts when the view appears and is automatically
-        // cancelled when the view disappears — no @State handle or manual
-        // cancel needed. This is strictly simpler and covers both paths:
+        // Entry-path matrix:
         //   • Cold-open → Settings : .task fires ✅
         //   • Main → Settings nav  : .task fires ✅
         //   • Back-nav sub-views   : root Group does not re-appear → no extra check ✅
@@ -337,8 +336,8 @@ struct SettingsView: View {
     /// on the first render. On subsequent appears (e.g. after a hide/show cycle) it
     /// re-reads the current state and re-registers the stream tasks.
     ///
-    /// Update checking is intentionally NOT done here — it is owned by the SwiftUI
-    /// .task modifier in body, which covers both cold-open and navigation paths
+    /// Update checking is intentionally NOT done here — it is owned by task 2 of 2
+    /// in body (.task modifier), which covers both cold-open and navigation paths
     /// (fix #2223). All tasks are cancelled before reassignment so a rapid open→open
     /// cycle cannot leak prior stream listeners.
     private func onAppearAction() { // skipcq: SW-R1002 — reviewed; complexity acceptable for this onAppear setup
