@@ -73,6 +73,14 @@ import SwiftUI
 //      them when the popover closes. SwiftUI re-presents on re-open if the
 //      binding is still true. savedNavState = .settings ensures navigation.
 //
+// KVO SIZE OBSERVER — single source of truth for contentSize (#2232/#2233):
+// The KVO observer on preferredContentSize is the ONLY path that should
+// write popover.contentSize during normal operation (post-open).
+// navigate(to:) previously also called resizeAndRepositionPanel() synchronously,
+// causing two rapid contentSize writes per view switch. Under auto-hide menubar
+// geometry this produced a side-jump. That call was removed — see navigate(to:)
+// in AppDelegate.swift and issue #2233.
+//
 // SIZE NOTE:
 // popover.contentSize is updated (both width AND height) via KVO on
 // NSHostingController.preferredContentSize. Updating contentSize resizes
@@ -158,15 +166,32 @@ extension AppDelegate: NSPopoverDelegate {
     // MARK: KVO
 
     /// Observes `preferredContentSize` and updates both width and height.
+    ///
+    /// This is the SINGLE SOURCE OF TRUTH for contentSize updates while the
+    /// popover is open (#2232/#2233). navigate(to:) no longer calls
+    /// resizeAndRepositionPanel() — this observer handles all post-open resizes.
     private func setupKVO(controller: NSHostingController<AnyView>) {
         log("AppDelegate › setupKVO — attaching preferredContentSize observer")
         sizeObservation = controller.observe(
             \.preferredContentSize,
-            options: [.new]
+            options: [.new, .old]
         ) { [weak self] _, change in
-            guard let size = change.newValue, size.height > 0 else { return }
+            let newSize = change.newValue ?? .zero
+            let oldSize = change.oldValue ?? .zero
+            guard newSize.height > 0 else {
+                // Zero height = SwiftUI hasn't laid out the new view yet.
+                // This fires immediately after rootView is swapped; ignore it.
+                // resizeAndRepositionPanel() has its own guard preferred.height > 0
+                // but logging here makes the double-fire visible in logs.
+                log("AppDelegate › KVO preferredContentSize — IGNORED new=(\(newSize.width),\(newSize.height)) old=(\(oldSize.width),\(oldSize.height)) height=0 (pre-layout)")
+                return
+            }
+            log("AppDelegate › KVO preferredContentSize — FIRED new=(\(newSize.width),\(newSize.height)) old=(\(oldSize.width),\(oldSize.height)) — scheduling resizeAndRepositionPanel")
             // KVO can fire on a background thread — hop to main before touching UI.
-            Task { @MainActor [weak self] in self?.resizeAndRepositionPanel() }
+            Task { @MainActor [weak self] in
+                log("AppDelegate › KVO preferredContentSize — Task @MainActor executing resizeAndRepositionPanel")
+                self?.resizeAndRepositionPanel()
+            }
         }
     }
 }

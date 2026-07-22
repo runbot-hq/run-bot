@@ -54,6 +54,16 @@ import SwiftUI
 // Updating contentSize repositions the popover body but keeps the arrow
 // anchored to the original positioningRect on the status bar button.
 //
+// SIDE-JUMP UNDER AUTO-HIDE MENUBAR — fix #2232/#2233:
+// navigate(to:) previously called resizeAndRepositionPanel() synchronously
+// before SwiftUI had finished laying out the new view. This caused two rapid
+// contentSize writes per view switch:
+//   1. Synchronous call in navigate(to:)  — stale preferredContentSize
+//   2. KVO observer Task (ms later)       — correct new preferredContentSize
+// Under auto-hide menubar geometry, AppKit's two repositioning passes resolved
+// to different x-origins → side-jump. Fix: remove the synchronous call.
+// The KVO observer is the single source of truth for contentSize updates.
+//
 // PANELVISIBILITYSTATE:
 // panelVisibilityState.isOpen is set in openPanel()/closePanel()/hidePanel().
 // ❌ NEVER remove. ❌ NEVER remove from wrapEnv().
@@ -192,32 +202,87 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Popover resize
 
-    /// Clamps the popover's `contentSize` to the current screen bounds.
-    /// Called after every rootView swap and from the KVO size observer.
+    /// Clamps the popover's `contentSize` to the current screen bounds and writes it.
+    ///
+    /// This is the ONLY place that writes `popover.contentSize` while the popover
+    /// is open. It is called exclusively from the KVO observer on
+    /// `preferredContentSize` (AppDelegate+PanelSetup.swift) and from `openPanel()`
+    /// (once, at open time, after `show()`).
+    ///
+    /// ⚠️ SIDE-JUMP GUARD (#2232/#2233):
+    /// Do NOT call this from `navigate(to:)`. Doing so causes two rapid
+    /// contentSize writes per view switch (one synchronous with stale size,
+    /// one deferred from KVO with the correct size). Under auto-hide menubar
+    /// geometry AppKit resolves each write's repositioning pass to a different
+    /// x-origin → side-jump. The KVO observer is the single source of truth.
+    ///
     /// ⚠️ Never call `popover.show()` here — updating `contentSize` resizes in place
     /// without re-anchoring the arrow.
     func resizeAndRepositionPanel() {
-        guard panelIsOpen, let popover, let controller = hostingController else { return }
+        guard panelIsOpen, let popover, let controller = hostingController else {
+            log("AppDelegate › resizeAndRepositionPanel — guard exit: panelIsOpen=\(panelIsOpen) popover=\(popover != nil) controller=\(hostingController != nil)")
+            return
+        }
         let preferred = controller.preferredContentSize
-        guard preferred.height > 0 else { return }
+        guard preferred.height > 0 else {
+            log("AppDelegate › resizeAndRepositionPanel — guard exit: preferredContentSize.height=\(preferred.height) (not yet laid out)")
+            return
+        }
         let newW = min(max(preferred.width > 0 ? preferred.width : Self.minWidth, Self.minWidth), maxWidth)
         let newH = min(max(preferred.height, 60), maxHeight)
         let currentSize = popover.contentSize
+        let buttonFrame = statusItem?.button?.window?.convertToScreen(
+            statusItem?.button?.frame ?? .zero
+        ) ?? .zero
+        let visibleFrame = statusItemScreen.visibleFrame
+        log("AppDelegate › resizeAndRepositionPanel — "
+            + "preferred=(\(preferred.width),\(preferred.height)) "
+            + "clamped=(\(newW),\(newH)) "
+            + "current=(\(currentSize.width),\(currentSize.height)) "
+            + "buttonScreenFrame=\(buttonFrame) "
+            + "visibleFrame=\(visibleFrame) "
+            + "autoHideMenubar=\(NSMenu.menuBarVisible == false)")
         if abs(currentSize.width - newW) > 1 || abs(currentSize.height - newH) > 1 {
+            log("AppDelegate › resizeAndRepositionPanel — WRITING contentSize=(\(newW),\(newH)) delta=(\(newW - currentSize.width),\(newH - currentSize.height))")
             popover.contentSize = NSSize(width: newW, height: newH)
+            log("AppDelegate › resizeAndRepositionPanel — POST-WRITE popoverWindowFrame=\(popover.contentViewController?.view.window?.frame ?? .zero)")
+        } else {
+            log("AppDelegate › resizeAndRepositionPanel — no-op: size unchanged within 1pt")
         }
     }
 
     // MARK: - Navigation
 
-    /// Swaps the hosting controller's `rootView` to `view` and immediately
-    /// recalculates the popover size. The popover arrow stays pinned.
+    /// Swaps the hosting controller's `rootView` to `view`.
+    /// The popover arrow stays pinned. Size update is handled exclusively
+    /// by the KVO observer on `preferredContentSize` once SwiftUI finishes layout.
+    ///
+    /// ⚠️ Do NOT call resizeAndRepositionPanel() here — see resizeAndRepositionPanel()
+    /// doc comment for the auto-hide side-jump explanation (#2232/#2233).
+    ///
     /// ❌ NEVER call this from a SwiftUI view — use callbacks only.
     /// Calling directly from a SwiftUI view creates a retain cycle via the
     /// closure capture and bypasses the actor-safe callback path.
     func navigate(to view: AnyView) {
+        let beforeSize = popover?.contentSize ?? .zero
+        let beforePreferred = hostingController?.preferredContentSize ?? .zero
+        log("AppDelegate › navigate — ENTER "
+            + "beforeContentSize=(\(beforeSize.width),\(beforeSize.height)) "
+            + "beforePreferred=(\(beforePreferred.width),\(beforePreferred.height)) "
+            + "autoHideMenubar=\(NSMenu.menuBarVisible == false) "
+            + "buttonScreenFrame=\(statusItem?.button?.window?.convertToScreen(statusItem?.button?.frame ?? .zero) ?? .zero)")
         hostingController?.rootView = view
-        resizeAndRepositionPanel()
+        let afterPreferred = hostingController?.preferredContentSize ?? .zero
+        log("AppDelegate › navigate — rootView swapped "
+            + "afterPreferred=(\(afterPreferred.width),\(afterPreferred.height)) "
+            + "(KVO will fire when SwiftUI finishes layout)")
+        // ⚠️ FIX #2232: resizeAndRepositionPanel() intentionally NOT called here.
+        // Previously this line caused a double contentSize write on every view switch:
+        //   1. Here — synchronous, stale preferredContentSize (SwiftUI not yet laid out)
+        //   2. KVO observer Task — correct new preferredContentSize
+        // Two rapid writes → two AppKit repositioning passes → different x-origins
+        // under auto-hide menubar geometry → side-jump.
+        // The KVO observer is the single source of truth for contentSize.
     }
 
     // MARK: - Make key for text input
@@ -376,9 +441,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             popover.behavior = .applicationDefined
             popover.delegate = self
-            log("AppDelegate › openPanel — PRE-SHOW behavior=\(popover.behavior.rawValue) delegate=\(String(describing: popover.delegate))")
+            log("AppDelegate › openPanel — PRE-SHOW behavior=\(popover.behavior.rawValue) delegate=\(String(describing: popover.delegate)) "
+                + "buttonBounds=\(button.bounds) buttonScreenFrame=\(button.window?.convertToScreen(button.frame) ?? .zero) "
+                + "visibleFrame=\(statusItemScreen.visibleFrame) "
+                + "autoHideMenubar=\(NSMenu.menuBarVisible == false)")
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-            log("AppDelegate › openPanel — POST-SHOW behavior=\(popover.behavior.rawValue)")
+            log("AppDelegate › openPanel — POST-SHOW behavior=\(popover.behavior.rawValue) "
+                + "popoverWindowFrame=\(popover.contentViewController?.view.window?.frame ?? .zero)")
         }
         makePopoverWindowKeyIfPossible()
         resizeAndRepositionPanel()
