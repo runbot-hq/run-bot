@@ -64,19 +64,29 @@ import SwiftUI
 // has committed the anchor before any resize arrives.
 // See issue #2234 and ARCHITECTURE.md §Preventing Side-Jump on Resize.
 //
-// SIDE-JUMP UNDER AUTO-HIDE MENUBAR (HIDDEN STATE) — fix/#2237:
+// SIDE-JUMP UNDER AUTO-HIDE MENUBAR (HIDDEN STATE) — fix/#2237 (corrected):
 // When the macOS auto-hide menubar is fully hidden (retracted into the top
-// edge), the NSStatusItem button's backing NSWindow is in the Dock process's
-// off-screen slot and button.window.screen is nil. In this state, ANY
-// contentSize write — width change, height-only change, anything — causes
-// AppKit to re-run full anchor geometry against nil/off-screen button geometry,
-// collapsing the popover x-origin to 0 (side-jump). This is NOT a timing
-// issue; deferring the write (fix/#2234) does not help because the write
-// itself is the trigger regardless of when it arrives.
-// Fix: resizeAndRepositionPanel() guards on buttonScreen=nil and skips the
-// write entirely while the menubar is hidden. The current size is already
-// correct. The next KVO fire after the menubar re-appears will have a valid
-// buttonScreen and the write goes through normally.
+// edge), the Dock pushes the NSStatusItem button's backing NSWindow off the
+// top of the screen: buttonWin.frame.origin.y rises to >= screen.frame.height.
+// In this state ANY contentSize write causes AppKit to re-run full anchor
+// geometry against the off-screen button geometry, collapsing the popover
+// x-origin to 0 (side-jump).
+//
+// IMPORTANT — what does NOT work as a signal:
+//   button.window.screen == nil  ← WRONG. The screen association is kept
+//   even while the menubar is hidden. This was the incorrect guard in the
+//   first attempt (PR #2238) and it never fired.
+//
+// CORRECT signal: buttonWin.frame.origin.y >= buttonScreen.frame.height
+//   Observed in logs: buttonY=982, screenH=982 when hidden.
+//   Observed in logs: buttonY=949, screenH=982 when visible.
+//
+// Fix: resizeAndRepositionPanel() computes isMenuBarHidden from this
+// comparison and skips the contentSize write entirely while hidden.
+// The current rendered size is already correct (SwiftUI laid it out fine);
+// only AppKit's contentSize book-keeping is stale. The next KVO fire after
+// the menubar re-appears will have buttonY < screenH and the write goes
+// through normally.
 // See issue #2237.
 //
 // PANELVISIBILITYSTATE:
@@ -224,9 +234,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// ⚠️ Never call this synchronously from navigate(to:) or openPanel() — always
     /// via a deferred Task { @MainActor } to prevent side-jump with auto-hide menu bar.
     /// See issue #2234 and DEFERRED RESIZE note in the file header.
-    /// ⚠️ The write is skipped entirely when buttonScreen=nil (menubar hidden in
-    /// auto-hide mode) — any contentSize write in that state causes AppKit to
-    /// re-run anchor geometry against off-screen button geometry, jumping x to 0.
+    /// ⚠️ The write is skipped when the auto-hide menubar is hidden (buttonY >= screenH).
+    /// Any contentSize write while the button window is off-screen causes AppKit to
+    /// re-run full anchor geometry against off-screen button geometry → x collapses to 0.
     /// See issue #2237 and SIDE-JUMP UNDER AUTO-HIDE MENUBAR note in the file header.
     func resizeAndRepositionPanel() {
         guard panelIsOpen, let popover, let controller = hostingController else {
@@ -241,33 +251,49 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let newW = min(max(preferred.width > 0 ? preferred.width : Self.minWidth, Self.minWidth), maxWidth)
         let newH = min(max(preferred.height, 60), maxHeight)
         let currentSize = popover.contentSize
+        let popoverWinFrame = popover.contentViewController?.view.window?.frame
         let buttonWin = statusItem?.button?.window
         let buttonWinFrame = buttonWin?.frame
         let buttonScreen = buttonWin?.screen
-        log("AppDelegate › resizeAndRepositionPanel — preferred=(\(preferred.width),\(preferred.height)) "
-            + "clamped=(\(newW),\(newH)) current=(\(currentSize.width),\(currentSize.height)) "
-            + "buttonWindow=\(String(describing: buttonWinFrame)) "
-            + "buttonScreen=\(String(describing: buttonScreen?.frame))")
-        // fix/#2237: skip contentSize write when buttonScreen=nil.
-        // With auto-hide menubar hidden, button.window.screen is nil (button's
-        // NSWindow is in the Dock's off-screen slot). Any contentSize write in
-        // this state causes AppKit to re-run full anchor geometry against nil
-        // screen geometry, collapsing the popover x-origin to 0 (side-jump).
-        // Skipping the write is safe — the current size is correct, and the
-        // next KVO fire after the menubar re-appears will have a valid
-        // buttonScreen and the write will go through normally.
-        guard buttonScreen != nil else {
-            log("AppDelegate › resizeAndRepositionPanel — SKIP: buttonScreen=nil (menubar hidden), "
-                + "deferring write preferred=(\(preferred.width),\(preferred.height)) (fix/#2237)")
+        let buttonY = buttonWinFrame?.origin.y ?? -1
+        let screenH = buttonScreen?.frame.height ?? -1
+        let isMenuBarHidden = buttonScreen != nil && buttonY >= screenH
+        log("AppDelegate › resizeAndRepositionPanel — "
+            + "preferred=(\(preferred.width),\(preferred.height)) "
+            + "clamped=(\(newW),\(newH)) "
+            + "current=(\(currentSize.width),\(currentSize.height)) "
+            + "popoverWin=\(String(describing: popoverWinFrame)) "
+            + "buttonWin=\(String(describing: buttonWinFrame)) "
+            + "buttonScreen=\(String(describing: buttonScreen?.frame)) "
+            + "buttonY=\(buttonY) screenH=\(screenH) "
+            + "isMenuBarHidden=\(isMenuBarHidden)")
+        // fix/#2237 (corrected): skip contentSize write when menubar is hidden.
+        //
+        // button.window.screen == nil is NOT the correct signal — the screen
+        // association is retained even when the menubar is hidden. The correct
+        // signal is buttonWin.frame.origin.y >= screen.frame.height: when the
+        // Dock slides the NSStatusItem window off the top edge its y-origin
+        // rises to equal the screen height.
+        //
+        // Any contentSize write while isMenuBarHidden causes AppKit to re-run
+        // full anchor geometry against the off-screen button position, collapsing
+        // the popover x-origin to 0 (side-jump). Skipping the write is safe —
+        // SwiftUI has already laid out the correct content; only AppKit's
+        // contentSize book-keeping is stale. The next KVO fire after the menubar
+        // re-appears will have buttonY < screenH and the write goes through.
+        guard !isMenuBarHidden else {
+            log("AppDelegate › resizeAndRepositionPanel — SKIP: isMenuBarHidden=true "
+                + "(buttonY=\(buttonY) >= screenH=\(screenH)), deferring contentSize write (fix/#2237)")
             return
         }
-        log("AppDelegate › resizeAndRepositionPanel — buttonScreen=\(buttonScreen!) write unblocked")
         if abs(currentSize.width - newW) > 1 || abs(currentSize.height - newH) > 1 {
             log("AppDelegate › resizeAndRepositionPanel — WRITING contentSize=(\(newW),\(newH)) "
-                + "delta=(\(newW - currentSize.width),\(newH - currentSize.height))")
+                + "delta=(\(newW - currentSize.width),\(newH - currentSize.height)) "
+                + "popoverWin=\(String(describing: popoverWinFrame))")
             popover.contentSize = NSSize(width: newW, height: newH)
-            log("AppDelegate › resizeAndRepositionPanel — contentSize written, "
-                + "popover.contentSize=\(popover.contentSize)")
+            let postWriteFrame = popover.contentViewController?.view.window?.frame
+            log("AppDelegate › resizeAndRepositionPanel — contentSize written "
+                + "popoverWin.post=\(String(describing: postWriteFrame))")
         } else {
             log("AppDelegate › resizeAndRepositionPanel — no-op: size unchanged (delta within 1pt)")
         }
