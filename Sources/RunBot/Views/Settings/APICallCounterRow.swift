@@ -64,6 +64,8 @@ public struct APICallCounterRow: View {
         self.resetDate = resetDate
     }
 
+    /// Row body: leading title/description block and trailing count/progress-bar block.
+    /// Leading shrinks horizontally first; trailing is always vertically centered.
     public var body: some View {
         HStack(alignment: .center, spacing: 12) {
 
@@ -85,7 +87,6 @@ public struct APICallCounterRow: View {
 
             // RIGHT: number + progress bar, horizontally side-by-side,
             // vertically centered against the full height of the leading VStack.
-            // alignmentGuide pins the VStack's center to the HStack's .center axis.
             VStack(alignment: .trailing, spacing: 0) {
                 HStack(spacing: 6) {
                     Text(vm.label)
