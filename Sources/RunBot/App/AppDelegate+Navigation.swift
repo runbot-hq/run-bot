@@ -32,6 +32,10 @@ extension AppDelegate {
     ///    but that is `settingsView()`'s responsibility — not this function's.
     /// ❌ NEVER re-wrap those views from here —
     ///    nesting causes multiple overlapping dim overlays → gray/black flash.
+    ///
+    /// `onSizeChange` is forwarded to `resizeAndRepositionPanel(preferredSize:)` —
+    /// see the SIZE REPORTING note in PanelContainerView.swift and the SIZE NOTE
+    /// in AppDelegate+PanelSetup.swift. This replaces the removed KVO observer.
     func mainView() -> AnyView {
         let inner = PanelMainView(
             onStepTap: { [weak self] (job: ActiveJob, step: GitHubStep) in
@@ -49,7 +53,10 @@ extension AppDelegate {
             onSelectSettings: { [weak self] in self?.navigateToSettings() }
         )
         // PanelContainerView applied once at root.
-        return wrapEnv(PanelContainerView(content: inner))
+        return wrapEnv(PanelContainerView(
+            content: inner,
+            onSizeChange: { [weak self] size in self?.resizeAndRepositionPanel(preferredSize: size) }
+        ))
     }
 
     /// Builds the settings view, wrapped in PanelContainerView because sheets are
@@ -60,6 +67,12 @@ extension AppDelegate {
     /// No `onRestartPolling` is passed — ScopeStore mutations are observed by
     /// `RunnerPoller.startObservingScopes` via `withObservationTracking`, which
     /// restarts the poll task automatically without an explicit callback.
+    ///
+    /// `onSizeChange` is forwarded the same way as in `mainView()` — see there.
+    /// This is what makes Settings able to resize into/out of at all: previously
+    /// SettingsView's own `maxWidth: .infinity` blocked size reporting entirely
+    /// (fixed separately), and the KVO path this replaces was independently
+    /// unreliable for width per runbot-hq/MenuBarKit issue #12.
     func settingsView() -> AnyView {
         let inner = SettingsView(
             onBack: { [weak self] in
@@ -70,7 +83,10 @@ extension AppDelegate {
             appState: appState
         )
         // PanelContainerView needed here too: sheets are presented from SettingsView.
-        return wrapEnv(PanelContainerView(content: inner))
+        return wrapEnv(PanelContainerView(
+            content: inner,
+            onSizeChange: { [weak self] size in self?.resizeAndRepositionPanel(preferredSize: size) }
+        ))
     }
 
     // MARK: - Navigation actions
