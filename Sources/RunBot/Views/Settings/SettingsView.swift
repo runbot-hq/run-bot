@@ -139,6 +139,9 @@ struct SettingsView: View {
 
     /// `true` when a CLI token (GH_TOKEN / GITHUB_TOKEN) is present but no OAuth token.
     /// Seeded from `oauthService` in `init` to avoid a false flash before `.onAppear`.
+    /// Written twice per appear: once synchronously by onAppearAction() as a fast-path
+    /// seed, and once asynchronously by Task 1 as the authoritative resolved value.
+    /// See Task 1 comment in body for details on this intentional ordering.
     @State var isCLIAuthenticated: Bool
 
     /// `true` while the OAuth sign-in flow is in progress.
@@ -231,6 +234,7 @@ struct SettingsView: View {
         // TASK 1 of 2 — CLI token resolution.
         // Resolves isCLIAuthenticated via the login-shell fallback for Finder-launched
         // apps where env vars are absent from the process environment.
+        //
         // THIS TASK IS INTENTIONALLY INDEPENDENT of task 2 below.
         // SwiftUI runs multiple .task modifiers concurrently with no ordering guarantee.
         // Task 2 (update check) reads runnerState from appState by value at call time
@@ -238,6 +242,15 @@ struct SettingsView: View {
         // ❌ Do NOT merge these two tasks to "add ordering" unless checkAndHandle is
         //    changed to require auth state — if that ever happens, sequence them
         //    explicitly inside a single .task instead of relying on chaining order.
+        //
+        // isCLIAuthenticated write ordering (pre-existing, not introduced here):
+        // onAppearAction() writes isCLIAuthenticated synchronously from
+        // oauthService.hasAnyToken as a fast-path best-effort seed — it is cheap
+        // and keeps the UI correct for the common case without waiting for the network.
+        // This task then overwrites it once github.token() resolves asynchronously
+        // as the authoritative value (covers Finder-launch env var absence).
+        // The async overwrite is always correct and always wins; there is no harmful
+        // race — both writes target the same @State property on the MainActor.
         .task {
             // Guard: skip if the user is already signed in via OAuth — in that
             // case neither status text nor the green dot reference `isCLIAuthenticated`.
@@ -256,6 +269,14 @@ struct SettingsView: View {
         // returning appState.runnerState at call time). It does NOT read
         // isCLIAuthenticated and does NOT depend on task 1 completing first.
         // If that ever changes, sequence both calls inside a single .task.
+        //
+        // NSPanel teardown assumption:
+        // .task reliability here depends on the NSPanel host fully deiniting the
+        // SwiftUI view tree on close, which resets task identity so this task
+        // relaunches on the next open. If the panel is ever changed to retain the
+        // view tree across closes (partial teardown), .task and .onAppear would
+        // be equally unreliable for the cold-open path and an .id() modifier to
+        // force identity reset would be required instead.
         //
         // Entry-path matrix:
         //   • Cold-open → Settings : .task fires ✅
@@ -340,6 +361,10 @@ struct SettingsView: View {
     /// in body (.task modifier), which covers both cold-open and navigation paths
     /// (fix #2223). All tasks are cancelled before reassignment so a rapid open→open
     /// cycle cannot leak prior stream listeners.
+    ///
+    /// isCLIAuthenticated is written synchronously here as a fast-path seed.
+    /// Task 1 in body overwrites it asynchronously with the authoritative value
+    /// once github.token() resolves. See Task 1 comment in body for details.
     private func onAppearAction() { // skipcq: SW-R1002 — reviewed; complexity acceptable for this onAppear setup
         isOAuthAuthenticated = oauthService.isAuthenticated
         isCLIAuthenticated = !oauthService.isAuthenticated && oauthService.hasAnyToken
