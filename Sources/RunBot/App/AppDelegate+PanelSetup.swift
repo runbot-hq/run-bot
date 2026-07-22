@@ -127,6 +127,8 @@ extension AppDelegate: NSPopoverDelegate {
 
     // MARK: Popover construction
 
+    /// Constructs the `GuardedPopover`, wires the hosting controller, and attaches KVO.
+    /// Called once from `applicationDidFinishLaunching`. ❌ NEVER call more than once.
     func setupPanel() {
         log("AppDelegate › setupPanel — begin")
         let controller = NSHostingController(rootView: mainView())
@@ -158,17 +160,26 @@ extension AppDelegate: NSPopoverDelegate {
 
     // MARK: NSPopoverDelegate
 
+    /// Allows the popover to close. Always returns `true`; AppKit calls this before
+    /// any programmatic or user-driven close.
     public func popoverShouldClose(_ popover: NSPopover) -> Bool {
         #if DEBUG
-        log("AppDelegate › popoverShouldClose — CALLED behavior=\(popover.behavior.rawValue) panelIsOpen=\(panelIsOpen) caller=\(Thread.callStackSymbols[1])")
+        log("AppDelegate › popoverShouldClose — "
+            + "behavior=\(popover.behavior.rawValue) "
+            + "panelIsOpen=\(panelIsOpen) "
+            + "caller=\(Thread.callStackSymbols[1])")
         #endif
         log("AppDelegate › popoverShouldClose — returning true (allowing close)")
         return true
     }
 
+    /// Called by AppKit after the popover window closes. Tears down open state
+    /// when the OS closes the popover unexpectedly (outside the normal hide/close paths).
     public func popoverDidClose(_ _: Notification) {
         #if DEBUG
-        log("AppDelegate › popoverDidClose — panelIsOpen=\(panelIsOpen) behavior=\((NSApp.delegate as? AppDelegate)?.popover?.behavior.rawValue ?? -1) stack=\(Thread.callStackSymbols.prefix(5).joined(separator: "||"))")
+        let behaviorRaw = (NSApp.delegate as? AppDelegate)?.popover?.behavior.rawValue ?? -1
+        let stack = Thread.callStackSymbols.prefix(5).joined(separator: "||")
+        log("AppDelegate › popoverDidClose — panelIsOpen=\(panelIsOpen) behavior=\(behaviorRaw) stack=\(stack)")
         #endif
         guard panelIsOpen else {
             log("AppDelegate › popoverDidClose — guard exit (panelIsOpen already false)")
@@ -180,6 +191,9 @@ extension AppDelegate: NSPopoverDelegate {
 
     // MARK: KVO
 
+    /// Attaches a KVO observer on `controller.preferredContentSize`.
+    /// Fires `resizeAndRepositionPanel()` on the main actor whenever SwiftUI
+    /// publishes a new preferred size (row expand, view swap, etc.).
     private func setupKVO(controller: NSHostingController<AnyView>) {
         log("AppDelegate › setupKVO — attaching preferredContentSize observer")
         sizeObservation = controller.observe(
