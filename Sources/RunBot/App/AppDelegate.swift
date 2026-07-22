@@ -54,6 +54,14 @@ import SwiftUI
 // Updating contentSize repositions the popover body but keeps the arrow
 // anchored to the original positioningRect on the status bar button.
 //
+// AUTOHIDE SIDE-JUMP FIX:
+// When the macOS menu bar is in auto-hide mode, the status bar button's screen
+// position differs from normal. AppKit grows the popover from the bottom-left
+// corner of the window frame when contentSize is updated, causing a visible
+// horizontal jump. The fix reads the window frame BEFORE writing contentSize,
+// computes the delta, and calls setFrameOrigin to re-centre the window after
+// the resize — keeping the arrow pinned to the status bar button at all times.
+//
 // PANELVISIBILITYSTATE:
 // panelVisibilityState.isOpen is set in openPanel()/closePanel()/hidePanel().
 // ❌ NEVER remove. ❌ NEVER remove from wrapEnv().
@@ -192,10 +200,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Popover resize
 
-    /// Clamps the popover's `contentSize` to the current screen bounds.
-    /// Called after every rootView swap and from the KVO size observer.
+    /// Clamps the popover's `contentSize` to the current screen bounds, then
+    /// corrects the window origin so the popover stays centred on the status bar
+    /// button after the resize.
+    ///
+    /// WHY THE ORIGIN CORRECTION IS NEEDED (autohide side-jump fix):
+    /// AppKit grows an NSPopover from the bottom-left corner of its backing window
+    /// when `contentSize` is updated. On a normal menu bar the arrow is always
+    /// near the top edge, so a height increase pushes the window downward and the
+    /// arrow stays roughly pinned. But with menu bar auto-hide enabled the status
+    /// bar button sits at a different screen position, and the uncorrected
+    /// bottom-left growth causes a visible horizontal jump.
+    ///
+    /// FIX: read the window frame BEFORE writing contentSize, compute the width and
+    /// height deltas, then call setFrameOrigin to re-centre the window:
+    ///   • x shifts left by half the width delta (keeps horizontal centre stable)
+    ///   • y shifts down by the full height delta (keeps the top/arrow edge pinned)
+    ///
     /// ⚠️ Never call `popover.show()` here — updating `contentSize` resizes in place
-    /// without re-anchoring the arrow.
+    /// without re-anchoring the arrow. show() would re-anchor and cause a jump.
     func resizeAndRepositionPanel() {
         guard panelIsOpen, let popover, let controller = hostingController else { return }
         let preferred = controller.preferredContentSize
@@ -203,9 +226,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let newW = min(max(preferred.width > 0 ? preferred.width : Self.minWidth, Self.minWidth), maxWidth)
         let newH = min(max(preferred.height, 60), maxHeight)
         let currentSize = popover.contentSize
-        if abs(currentSize.width - newW) > 1 || abs(currentSize.height - newH) > 1 {
-            popover.contentSize = NSSize(width: newW, height: newH)
-        }
+        guard abs(currentSize.width - newW) > 1 || abs(currentSize.height - newH) > 1 else { return }
+        // Read frame BEFORE mutating contentSize — AppKit updates the frame
+        // immediately on the contentSize write, so reading after gives the new frame.
+        guard let window = popover.contentViewController?.view.window else { return }
+        let oldFrame = window.frame
+        let dw = newW - currentSize.width
+        let dh = newH - currentSize.height
+        popover.contentSize = NSSize(width: newW, height: newH)
+        window.setFrameOrigin(NSPoint(
+            x: oldFrame.origin.x - dw / 2,
+            y: oldFrame.origin.y - dh
+        ))
     }
 
     // MARK: - Navigation
