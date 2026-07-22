@@ -79,13 +79,22 @@ import SwiftUI
 // mismatch; no button position query → immune to auto-hide Y drift; oldFrame
 // is captured before the mutation → not affected by AppKit's reposition
 // side-effect. Purely relative math, correct on any screen/content size.
+// This resize/reposition fix mirrors MenuBarKit PR #6 exactly and is NOT
+// the fix for the open-time issue below — those are two independent bugs.
 //
-// AUTOHIDE SIDE-JUMP AT OPEN TIME (separate issue, still fixed):
-// With "Automatically hide and show the menu bar" enabled, the status item's
-// button can still be off-screen or mid-slide-in at the moment togglePanel()
-// fires from the initial click. showPopoverRetryingIfNeeded() checks that the
-// status item's window has a valid (non-zero, on-screen) frame before calling
-// show(); if not yet valid it retries on the next run-loop turn.
+// AUTOHIDE SIDE-JUMP AT OPEN TIME (separate issue from the above — NOT
+// covered by MenuBarKit PR #6, which only addresses resize/reposition):
+// With "Automatically hide and show the menu bar" enabled, the click that
+// triggers togglePanel() is often the SAME click that reveals the menu bar.
+// showPopoverRetryingIfNeeded() used to accept the FIRST run-loop tick where
+// button.window.frame looked non-zero and on-screen as "ready" — but during
+// the reveal slide animation, the frame passes that check WHILE STILL MOVING.
+// show() then anchors against a transitional (not-yet-final) frame; the menu
+// bar finishes sliding a moment later, the button's real resting frame shifts,
+// and the already-shown popover does not follow — producing a sidejump that
+// only reproduces with autohide enabled. Fixed by requiring the frame to be
+// IDENTICAL across two consecutive run-loop ticks (i.e. settled, not just
+// "non-zero") before calling show(). See showPopoverRetryingIfNeeded() below.
 //
 // PANELVISIBILITYSTATE:
 // panelVisibilityState.isOpen is set in openPanel()/closePanel()/hidePanel().
@@ -197,6 +206,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Hard cap on retries so a persistently invalid button frame can never hang
     /// the open path or loop forever — falls back to showing immediately.
     private static let maxShowRetries = 10
+    /// The button frame observed on the PREVIOUS `showPopoverRetryingIfNeeded()`
+    /// tick, used to confirm the frame has settled (identical two ticks in a row)
+    /// rather than trusting a single non-zero sample taken mid-slide-in.
+    /// Reset to nil at the start of every `openPanel()` call.
+    private var lastObservedButtonFrame: NSRect?
 
     // MARK: - Sheet guard
 
@@ -433,6 +447,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             popover.behavior = .applicationDefined
             popover.delegate = self
             showRetryCount = 0
+            lastObservedButtonFrame = nil
             showPopoverRetryingIfNeeded(button: button, popover: popover)
         } else {
             finishOpenPanel()
@@ -440,26 +455,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// Shows `popover` relative to `button`, retrying on the next run-loop turn if the
-    /// button's backing window does not yet have a valid on-screen frame.
+    /// button's backing window does not yet have a valid, SETTLED on-screen frame.
     ///
     /// AUTOHIDE FIX: with menu bar auto-hide enabled, the click that triggers
     /// `togglePanel()` is often the SAME click that reveals the menu bar. AppKit may
     /// not have finished laying out the revealed status item at that instant, so
-    /// `button.window`'s frame can still be zero/off-screen. Calling `popover.show()`
-    /// against that stale geometry anchors the popover at the wrong location (e.g. x=0),
-    /// producing a visible side-jump once the layout catches up.
+    /// `button.window`'s frame can still be zero/off-screen, OR — the case a single
+    /// non-zero sample missed — mid-slide-in with a frame that is non-zero and
+    /// on-screen but NOT YET FINAL. Calling `popover.show()` against that
+    /// transitional geometry anchors the popover at the wrong location; the menu
+    /// bar then finishes revealing, the button's real resting frame shifts, and
+    /// the already-shown popover does not follow — producing a visible sidejump.
     ///
-    /// This defers `show()` (via `DispatchQueue.main.async`, capped at
-    /// `Self.maxShowRetries` attempts) until `button.window` reports a non-zero frame
-    /// that intersects a known screen — i.e. the menu bar has finished revealing.
+    /// Fix: require the frame to be IDENTICAL across two consecutive run-loop
+    /// ticks (settled) before accepting it, not just non-zero/on-screen once.
+    /// Deferred via `DispatchQueue.main.async`, capped at `Self.maxShowRetries`
+    /// attempts, after which it falls back to showing with whatever frame is
+    /// available so the open path can never hang indefinitely.
     private func showPopoverRetryingIfNeeded(button: NSStatusBarButton, popover: NSPopover) {
         let buttonFrame = button.window?.frame ?? .zero
         let frameLooksValid = buttonFrame.width > 0 && buttonFrame.height > 0
             && NSScreen.screens.contains { $0.frame.intersects(buttonFrame) }
-        guard frameLooksValid || showRetryCount >= Self.maxShowRetries else {
+        let frameSettled = frameLooksValid && lastObservedButtonFrame == buttonFrame
+        guard frameSettled || showRetryCount >= Self.maxShowRetries else {
             showRetryCount += 1
-            log("AppDelegate › showPopoverRetryingIfNeeded — button frame not yet valid " +
-                "(\(buttonFrame)), retry \(showRetryCount)/\(Self.maxShowRetries)")
+            lastObservedButtonFrame = frameLooksValid ? buttonFrame : nil
+            log("AppDelegate › showPopoverRetryingIfNeeded — button frame not yet settled " +
+                "(\(buttonFrame), validNow=\(frameLooksValid)), retry \(showRetryCount)/\(Self.maxShowRetries)")
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 self.showPopoverRetryingIfNeeded(button: button, popover: popover)
