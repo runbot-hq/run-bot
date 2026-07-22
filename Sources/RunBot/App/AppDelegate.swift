@@ -413,8 +413,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Called once per open from `openPanel()`. Torn down in `tearDownOpenState()`.
     func installWindowFrameSnap(on popoverWindow: NSWindow, pinned pinnedX: CGFloat) {
         pinnedPopoverOriginX = pinnedX
-        windowFrameObservation = popoverWindow.observe(\.frame, options: [.new]) {
-            [weak self] win, change in
+        windowFrameObservation = popoverWindow.observe(\.frame, options: [.new]) { [weak self] win, change in
             // KVO fires on a non-isolated thread; hop to MainActor to safely
             // read @MainActor-isolated properties (fix/#2239).
             guard let newFrame = change.newValue else { return }
