@@ -5,7 +5,8 @@ import SwiftUI
 
 // MARK: - PanelContainerView
 //
-// Thin wrapper around the real panel content that adds a sheet-dim overlay.
+// Thin wrapper around the real panel content that adds a sheet-dim overlay
+// AND reports the content's intrinsic size to the popover host.
 //
 // WHY THIS EXISTS (#1017 — NSPopover sheet dim):
 // NSPopoverWindowFrame (the backing window of NSPopover) does not participate
@@ -20,7 +21,32 @@ import SwiftUI
 //
 // ❌ NEVER remove the overlay — without it the popover content is fully
 //    interactive behind an open sheet, which is confusing and buggy.
-// ❌ NEVER use GeometryReader here — it fights NSPopover's sizing.
+//
+// ── SIZE REPORTING (matches runbot-hq/MenuBarKit PR #6's setupPopover()) ───
+//
+// PopoverController's own CRITICAL GOTCHA comment: "observe from SwiftUI
+// only. NSView KVO / frameDidChangeNotification silently fail inside
+// NSPopover. Use GeometryReader + onChange." RunBot previously drove sizing
+// via KVO on NSHostingController.preferredContentSize (AppKit re-deriving a
+// size FROM SwiftUI's layout) instead of SwiftUI reporting its own size
+// directly — precisely the unreliable path MenuBarKit's own writeup warns
+// against, especially for width changes.
+//
+// `onSizeChange` is invoked from a GeometryReader wrapping `content` (see
+// body below), on both `.onAppear` and `.onChange(of: geo.size)`, mirroring
+// PopoverController.setupPopover() wrapping `pendingRootView` the same way.
+// AppDelegate wires this to `resizeAndRepositionPanel(preferredSize:)`,
+// which is the ONLY thing that mutates `popover.contentSize` — this view
+// never touches AppKit sizing APIs directly.
+//
+// ❌ An earlier version of this file warned "NEVER use GeometryReader here —
+//    it fights NSPopover's sizing." That was true only because a KVO
+//    observer was ALSO active and independently re-deriving size from
+//    AppKit — two competing size-reporting paths is what fought each other.
+//    This version REPLACES the KVO path entirely rather than adding to it,
+//    so there is exactly one source of truth for size, matching PR #6.
+// ❌ NEVER re-introduce KVO on preferredContentSize alongside this —
+//    that reintroduces the two-competing-paths problem this fix removes.
 //
 // ── TRANSIENT HIDE / RESTORE ANIMATION INVARIANT ────────────────────────────────────────
 //
@@ -83,10 +109,16 @@ import SwiftUI
 //
 // ────────────────────────────────────────────────────────────────────────────
 
-/// Wraps popover content and dims it when a SwiftUI sheet is active.
+/// Wraps popover content, dims it when a SwiftUI sheet is active, and reports
+/// its intrinsic size upward via `onSizeChange` (see SIZE REPORTING note above).
 struct PanelContainerView<Content: View>: View {
     /// The child view to wrap.
     let content: Content
+
+    /// Invoked with the content's current size on `.onAppear` and whenever it
+    /// changes. Defaults to a no-op so existing call sites that don't need
+    /// sizing keep compiling. See SIZE REPORTING note above.
+    var onSizeChange: (CGSize) -> Void = { _ in }
 
     /// Whether a sheet is currently active over the popover.
     ///
@@ -120,15 +152,35 @@ struct PanelContainerView<Content: View>: View {
     @Environment(PanelVisibilityState.self) private var panelVisibilityState: PanelVisibilityState
 
     /// Creates a `PanelContainerView` wrapping the given content.
-    /// - Parameter content: The child view to wrap inside the dim-overlay container.
-    init(content: Content) {
+    /// - Parameters:
+    ///   - content: The child view to wrap inside the dim-overlay container.
+    ///   - onSizeChange: Invoked with the content's size on appear and on every
+    ///     change. Defaults to a no-op. See SIZE REPORTING note above.
+    init(content: Content, onSizeChange: @escaping (CGSize) -> Void = { _ in }) {
         self.content = content
+        self.onSizeChange = onSizeChange
     }
 
-    /// Root view: stacks `content`, the zero-size `WindowReader`, and the optional dim overlay.
+    /// Root view: stacks `content` (wrapped in a size-reporting GeometryReader),
+    /// the zero-size `WindowReader`, and the optional dim overlay.
     var body: some View {
         ZStack {
             content
+                // Size reporting — matches PopoverController.setupPopover() in
+                // runbot-hq/MenuBarKit PR #6, which wraps pendingRootView in an
+                // identical background(GeometryReader{...}) construct.
+                // Using .background (not a wrapping GeometryReader as the direct
+                // parent) so this view never influences `content`'s own layout —
+                // GeometryReader as a direct container can otherwise report back
+                // an unconstrained/proposed size rather than content's actual
+                // fitting size.
+                .background(
+                    GeometryReader { geo in
+                        Color.clear
+                            .onAppear { onSizeChange(geo.size) }
+                            .onChange(of: geo.size) { _, newSize in onSizeChange(newSize) }
+                    }
+                )
             // WindowReader captures the hosting NSWindow asynchronously.
             // Zero-size so it doesn't affect layout.
             WindowReader(window: $hostWindow)
