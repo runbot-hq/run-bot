@@ -21,8 +21,10 @@ import SwiftUI
 //
 // HOW THE POPOVER WORKS:
 // 1. NSPopover with animates=false, behavior=.applicationDefined.
-// 2. Shown via popover.show(relativeTo: button.bounds, of: button,
-//    preferredEdge: .minY) — anchors to the status bar button once on open.
+// 2. Shown via popover.show(relativeTo: positioningRect, of: button,
+//    preferredEdge: .minY) — anchors to a 1pt sliver at the status item
+//    button's horizontal midpoint (see positioningRect(for:) below and the
+//    ANCHOR RECT note), NOT the full button bounds.
 // 3. Size is driven by KVO on NSHostingController.preferredContentSize.
 //    Both width AND height are updated via popover.contentSize.
 // 4. Width is clamped to [minWidth..maxWidth] from screen bounds.
@@ -30,6 +32,20 @@ import SwiftUI
 //    (outside clicks) and NSWorkspace app-switch notification.
 //    See openPanel() for the monitor implementation.
 //    See docs/graveyard.md for history of attempted alternatives.
+//
+// ANCHOR RECT — 1pt midX sliver, not full button.bounds (matches
+// runbot-hq/MenuBarKit PR #6's positioningRect(for:)):
+// NSPopover centers itself against whatever rect is passed to show() at
+// show()-time. Passing the FULL button.bounds means that if the button's
+// width shifts even slightly — e.g. during a menu-bar autohide reveal, while
+// neighboring status items are still repositioning/settling — the popover's
+// initial anchor point moves with it, independent of and prior to anything
+// resizeAndRepositionPanel() does. Using a synthetic 1pt-wide rect pinned to
+// bounds.midX removes that dependency: the anchor point is a single stable
+// x-coordinate rather than a rect whose width can itself be in flux.
+// positioningRect(for:) also guards against degenerate (zero width/height)
+// button bounds, returning nil so callers can skip show() for that tick
+// rather than anchoring to a meaningless rect.
 //
 // ARROW VISIBILITY (#1184):
 // The NSPopover anchor arrow visibility is controlled by the `shouldHideAnchor`
@@ -82,7 +98,7 @@ import SwiftUI
 // This resize/reposition fix mirrors MenuBarKit PR #6 exactly and is NOT
 // the fix for the open-time issue below — those are two independent bugs.
 //
-// ⚠️ INSTRUMENTATION + DEGENERATE-BASELINE GUARD (this revision):
+// ⚠️ INSTRUMENTATION + DEGENERATE-BASELINE GUARD:
 // resizeAndRepositionPanel() previously had ZERO logging, so a sidejump that
 // happens WHILE the panel is already open (content grows as data streams in,
 // e.g. workflow rows populating after open) was invisible in log dumps —
@@ -97,7 +113,8 @@ import SwiftUI
 // repro observable instead of another blind theory.
 //
 // AUTOHIDE SIDE-JUMP AT OPEN TIME (separate issue from the above — NOT
-// covered by MenuBarKit PR #6, which only addresses resize/reposition):
+// covered by MenuBarKit PR #6's applyContentSize, which only addresses
+// resize/reposition):
 // With "Automatically hide and show the menu bar" enabled, the click that
 // triggers togglePanel() is often the SAME click that reveals the menu bar.
 // showPopoverRetryingIfNeeded() used to accept the FIRST run-loop tick where
@@ -109,6 +126,9 @@ import SwiftUI
 // only reproduces with autohide enabled. Fixed by requiring the frame to be
 // IDENTICAL across two consecutive run-loop ticks (i.e. settled, not just
 // "non-zero") before calling show(). See showPopoverRetryingIfNeeded() below.
+// Combined with the 1pt-midX positioningRect above: settle-detection ensures
+// we don't anchor mid-slide; the midX sliver ensures that even a small
+// residual width jitter in the button doesn't itself become an anchor error.
 //
 // PANELVISIBILITYSTATE:
 // panelVisibilityState.isOpen is set in openPanel()/closePanel()/hidePanel().
@@ -496,6 +516,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// Returns a fresh positioningRect derived from the button's CURRENT bounds:
+    /// a 1pt-wide sliver pinned to the button's horizontal midpoint, or `nil` if
+    /// those bounds are degenerate (zero width/height).
+    ///
+    /// Matches `MBKPopoverController.positioningRect(for:)` in runbot-hq/MenuBarKit
+    /// PR #6. Deliberately NOT `button.bounds` — passing the full bounds means the
+    /// popover's initial anchor point moves if the button's width itself shifts
+    /// (e.g. mid-autohide-reveal, while neighboring status items are still
+    /// resettling), which is a jump source independent of and prior to anything
+    /// `resizeAndRepositionPanel()` does. A 1pt sliver removes that dependency —
+    /// the anchor is a single stable x-coordinate, not a rect whose own width can
+    /// be in flux. See the "ANCHOR RECT" note at the top of this file.
+    private func positioningRect(for button: NSStatusBarButton) -> NSRect? {
+        let bounds = button.bounds
+        guard bounds.width > 0, bounds.height > 0 else {
+            log("AppDelegate › positioningRect — skipped: button.bounds is degenerate \(bounds)")
+            return nil
+        }
+        return NSRect(x: bounds.midX - 0.5, y: bounds.minY, width: 1, height: bounds.height)
+    }
+
     /// Shows `popover` relative to `button`, retrying on the next run-loop turn if the
     /// button's backing window does not yet have a valid, SETTLED on-screen frame.
     ///
@@ -514,15 +555,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Deferred via `DispatchQueue.main.async`, capped at `Self.maxShowRetries`
     /// attempts, after which it falls back to showing with whatever frame is
     /// available so the open path can never hang indefinitely.
+    ///
+    /// Also anchors via `positioningRect(for:)` (1pt midX sliver) rather than
+    /// `button.bounds` directly — see the "ANCHOR RECT" note at the top of this
+    /// file. If the bounds are degenerate on a given tick, this is treated the
+    /// same as an unsettled frame and retried.
     private func showPopoverRetryingIfNeeded(button: NSStatusBarButton, popover: NSPopover) {
         let buttonFrame = button.window?.frame ?? .zero
         let frameLooksValid = buttonFrame.width > 0 && buttonFrame.height > 0
             && NSScreen.screens.contains { $0.frame.intersects(buttonFrame) }
         let frameSettled = frameLooksValid && lastObservedButtonFrame == buttonFrame
-        guard frameSettled || showRetryCount >= Self.maxShowRetries else {
+        guard let rect = (frameSettled || showRetryCount >= Self.maxShowRetries)
+            ? positioningRect(for: button) : nil else {
             showRetryCount += 1
             lastObservedButtonFrame = frameLooksValid ? buttonFrame : nil
-            log("AppDelegate › showPopoverRetryingIfNeeded — button frame not yet settled " +
+            log("AppDelegate › showPopoverRetryingIfNeeded — button frame not yet settled or bounds degenerate " +
                 "(\(buttonFrame), validNow=\(frameLooksValid)), retry \(showRetryCount)/\(Self.maxShowRetries)")
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
@@ -531,8 +578,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         log("AppDelegate › openPanel — PRE-SHOW behavior=\(popover.behavior.rawValue) " +
-            "delegate=\(String(describing: popover.delegate)) buttonFrame=\(buttonFrame)")
-        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+            "delegate=\(String(describing: popover.delegate)) buttonFrame=\(buttonFrame) positioningRect=\(rect)")
+        popover.show(relativeTo: rect, of: button, preferredEdge: .minY)
         log("AppDelegate › openPanel — POST-SHOW behavior=\(popover.behavior.rawValue)")
         finishOpenPanel()
     }
