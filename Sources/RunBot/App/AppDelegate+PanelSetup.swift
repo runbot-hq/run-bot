@@ -75,9 +75,15 @@ import SwiftUI
 //
 // SIZE NOTE:
 // popover.contentSize is updated (both width AND height) via KVO on
-// NSHostingController.preferredContentSize. Updating contentSize resizes
-// the popover in-place — the arrow stays pinned to the original
-// positioningRect. ❌ NEVER call popover.show() again on resize.
+// NSHostingController.preferredContentSize, routed through
+// resizeAndRepositionPanel() which guards against writes while the
+// auto-hide menubar is hidden (isMenuBarHidden guard, fix/#2237).
+// ❌ NEVER set sizingOptions = .preferredContentSize.
+// That causes AppKit to write contentSize internally, bypassing the
+// isMenuBarHidden guard entirely — any row expansion or route change
+// while the menubar is hidden will side-jump to x=0.
+// The KVO path in setupKVO() is the only correct resize path.
+// ❌ NEVER call popover.show() again on resize.
 
 /// Extension responsible for NSPopover construction, KVO, and async subscriptions.
 extension AppDelegate: NSPopoverDelegate {
@@ -89,7 +95,13 @@ extension AppDelegate: NSPopoverDelegate {
     func setupPanel() {
         log("AppDelegate › setupPanel — begin")
         let controller = NSHostingController(rootView: mainView())
-        controller.sizingOptions = .preferredContentSize
+        // ❌ Do NOT restore sizingOptions = .preferredContentSize here.
+        // That causes AppKit to write contentSize internally on every SwiftUI
+        // preferredContentSize change (row expand, route switch, etc.), bypassing
+        // resizeAndRepositionPanel() and its isMenuBarHidden guard. The result is
+        // a side-jump to x=0 whenever the button window is off-screen.
+        // The KVO observer in setupKVO() is the only correct resize path.
+        // See SIZE NOTE in the file header and fix/#2237.
         hostingController = controller
 
         let newPopover = NSPopover()
@@ -157,7 +169,13 @@ extension AppDelegate: NSPopoverDelegate {
 
     // MARK: KVO
 
-    /// Observes `preferredContentSize` and updates both width and height.
+    /// Observes `preferredContentSize` and routes every resize through
+    /// `resizeAndRepositionPanel()`, which guards against contentSize writes
+    /// while the auto-hide menubar is hidden (fix/#2237).
+    ///
+    /// This is the ONLY path that writes `popover.contentSize`.
+    /// ❌ Do NOT add sizingOptions = .preferredContentSize — see SIZE NOTE
+    /// in the file header.
     private func setupKVO(controller: NSHostingController<AnyView>) {
         log("AppDelegate › setupKVO — attaching preferredContentSize observer")
         sizeObservation = controller.observe(
