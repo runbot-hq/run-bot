@@ -70,17 +70,12 @@ internal extension SettingsView {
             }
             .padding(.horizontal, RBSpacing.md).padding(.vertical, 8)
             Divider().padding(.leading, RBSpacing.md)
-            // API call counter: title row first, description caption below.
+            // APICallCounterRow owns its title AND description internally.
+            // DO NOT add a separate description Text sibling here — that was the
+            // root cause of the layout bug fixed in #2217.
             APICallCounterRow()
-                .font(.system(size: 12))
                 .padding(.horizontal, RBSpacing.md)
-                .padding(.top, 8)
-                .padding(.bottom, 2)
-            Text("Tracks GitHub API requests consumed in the current rate-limit window.")
-                .font(.caption2)
-                .foregroundColor(Color.rbTextSecondary)
-                .padding(.horizontal, RBSpacing.md)
-                .padding(.bottom, 8)
+                .padding(.vertical, 8)
         }
     }
 
