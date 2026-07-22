@@ -30,6 +30,16 @@ import SwiftUI
 // UNDER ANY CIRCUMSTANCE. The regression we get when this comment is removed
 // is major major major.
 
+// ACCESS LEVEL NOTE — why so many `var` instead of `private var`:
+// Swift `private` is file-scoped. SettingsView is split across multiple files
+// (SettingsView.swift, SettingsView+Sections.swift, etc.). Any property or
+// method that an extension file reads or writes MUST be `internal` (the default
+// `var`) — `private` and `fileprivate` both restrict to the declaring file only.
+// Properties that are ONLY used inside this file (SettingsView.swift) are
+// `private var` as normal. The split is intentional — not a visibility leak.
+// ❌ Do NOT tighten `var` to `private var` without checking SettingsView+Sections.swift
+//    first — the compiler will reject it there.
+
 /// Root settings view. Navigation rows lead to `LocalRunnersView` and `ScopesView`.
 /// See HEIGHT/WIDTH CONTRACT comments above before making layout changes.
 ///
@@ -102,6 +112,11 @@ struct SettingsView: View {
 
     /// Scope store — injected so SwiftUI can track `@Observable` mutations reactively.
     ///
+    /// `let` not `@Bindable`: no two-way bindings into `scopeStore` are needed from this
+    /// file — mutations happen inside `ScopesView` which receives the store directly.
+    /// `@Bindable` would be misleading here since nothing uses `$scopeStore.*`.
+    /// If a binding is ever needed, convert to `@Bindable var`.
+    ///
     /// Injected rather than read from `appState` because `AppState` does not expose
     /// a `scopeStore` accessor — scopes are managed independently of runner state.
     /// Runners flow through `AppState.runnerState` (owned by `LocalRunnerStore`);
@@ -109,58 +124,78 @@ struct SettingsView: View {
     let scopeStore: ScopeStore
 
     // MARK: - Convenience accessors (avoid noisy appState.x at every call site)
-    // ❌ NOT a leakage oversight — these are `internal` by Swift necessity, not by choice.
-    // Swift `private` does not cross file boundaries; `SettingsView+Sections.swift`
-    // (a separate file) needs these. `fileprivate` is also per-file in Swift, so it
-    // would not help either. `internal` is the tightest access level available for
-    // cross-file use within the same type. The intent is: readable by SettingsView
-    // extension files in this module; not part of the public API of SettingsView.
-    // If you are tempted to tighten these to `private`, note that Swift will not
-    // allow it — the compiler will reject it at SettingsView+Sections.swift.
+    // These are `internal` (bare `var`) by Swift necessity — see ACCESS LEVEL NOTE
+    // at the top of this file. `private` would break SettingsView+Sections.swift.
 
-    /// Forwarded OAuth service from `appState`. Internal by necessity — see NOTE above.
+    /// Forwarded OAuth service from `appState`. Internal by necessity — see ACCESS LEVEL NOTE.
     var oauthService: any OAuthServiceProtocol { appState.oauthService }
-    /// Forwarded lifecycle service from `appState`. Internal by necessity — see NOTE above.
+    /// Forwarded lifecycle service from `appState`. Internal by necessity — see ACCESS LEVEL NOTE.
     var lifecycleService: any RunnerLifecycleServiceProtocol { appState.lifecycleService }
-    /// Forwarded runner state from `appState`. Internal by necessity — see NOTE above.
+    /// Forwarded runner state from `appState`. Internal by necessity — see ACCESS LEVEL NOTE.
     var runnerState: RunnerState { appState.runnerState }
-    /// Forwarded auto-updater from `appState`. Internal by necessity — see NOTE above.
+    /// Forwarded auto-updater from `appState`. Internal by necessity — see ACCESS LEVEL NOTE.
     var autoUpdater: AppUpdater { appState.autoUpdater }
 
+    // MARK: - Computed properties
+
+    /// Full version string (preserves pre-release suffixes like `-beta.1`).
+    /// Internal by necessity — read by `SettingsView+Sections.swift`. See ACCESS LEVEL NOTE.
+    var appVersion: String { Bundle.main.rbVersionString }
+
+    /// Build number from `CFBundleVersion`.
+    /// Internal by necessity — read by `SettingsView+Sections.swift`. See ACCESS LEVEL NOTE.
+    var appBuild: String { Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "—" }
+
     // MARK: - Local UI state
+    //
+    // Access level split — why some are `private` and others are not:
+    //   `private`  — signInTask, signOutTask: only ever touched inside THIS file
+    //               (onAppearAction spawns them, onDisappear cancels them).
+    //               No extension file reads or writes these — private is correct.
+    //   `internal` — everything else: read or written by SettingsView+Sections.swift
+    //               (e.g. section views read isOAuthAuthenticated, isSigningIn,
+    //               launchAtLogin; navigation sections toggle showLocalRunners/showScopes).
+    //               Must be internal — see ACCESS LEVEL NOTE at top of file.
 
     /// Mirrors `LoginItem.isEnabled`; toggled by the Launch at Login switch.
+    /// Internal by necessity — read/written by `SettingsView+Sections.swift`. See ACCESS LEVEL NOTE.
     @State var launchAtLogin = LoginItem.isEnabled
 
     /// `true` when a valid OAuth token is stored in the keychain.
-    /// Seeded from `oauthService.isAuthenticated` in `init` to avoid a false
-    /// flash before `.onAppear` fires. Kept in sync by `onAppearAction()`'s streams.
+    /// Seeded from `oauthService.isAuthenticated` in `init` to avoid a false flash
+    /// before `.onAppear` fires. Kept in sync by `onAppearAction()`'s streams.
+    /// Internal by necessity — read by `SettingsView+Sections.swift`. See ACCESS LEVEL NOTE.
     @State var isOAuthAuthenticated: Bool
 
     /// `true` when a CLI token (GH_TOKEN / GITHUB_TOKEN) is present but no OAuth token.
     /// Seeded from `oauthService` in `init` to avoid a false flash before `.onAppear`.
     /// Written twice per appear: once synchronously by onAppearAction() as a fast-path
     /// seed, and once asynchronously by Task 1 as the authoritative resolved value.
-    /// See Task 1 comment in body for details on this intentional ordering.
+    /// See Task 1 comment in body for the write-ordering details and known rapid-reopen gap.
+    /// Internal by necessity — read by `SettingsView+Sections.swift`. See ACCESS LEVEL NOTE.
     @State var isCLIAuthenticated: Bool
 
     /// `true` while the OAuth sign-in flow is in progress.
+    /// Internal by necessity — read by `SettingsView+Sections.swift` (sign-in button state).
+    /// See ACCESS LEVEL NOTE.
     @State var isSigningIn = false
 
-    /// Retains the sign-in listener Task so it is cancelled when the view disappears.
+    /// Retains the sign-in listener Task so it can be cancelled on disappear.
+    /// `private` — only touched inside this file (onAppearAction / onDisappear).
+    /// No extension file accesses this. See LOCAL UI STATE access-level split above.
     @State private var signInTask: Task<Void, Never>?
 
-    /// Retains the sign-out listener Task so it is cancelled when the view disappears.
+    /// Retains the sign-out listener Task so it can be cancelled on disappear.
+    /// `private` — only touched inside this file (onAppearAction / onDisappear).
+    /// No extension file accesses this. See LOCAL UI STATE access-level split above.
     @State private var signOutTask: Task<Void, Never>?
 
     /// `true` while `LocalRunnersView` is displayed instead of the main settings scroll.
-    /// Internal by necessity — read by `SettingsView+Sections.swift`. See CONVENIENCE
-    /// ACCESSORS note above for why `private` is not an option across file boundaries.
+    /// Internal by necessity — toggled by `SettingsView+Sections.swift`. See ACCESS LEVEL NOTE.
     @State var showLocalRunners = false
 
     /// `true` while `ScopesView` is displayed instead of the main settings scroll.
-    /// Internal by necessity — read by `SettingsView+Sections.swift`. See CONVENIENCE
-    /// ACCESSORS note above for why `private` is not an option across file boundaries.
+    /// Internal by necessity — toggled by `SettingsView+Sections.swift`. See ACCESS LEVEL NOTE.
     @State var showScopes = false
 
     // MARK: - Init
@@ -202,24 +237,26 @@ struct SettingsView: View {
         log("【SettingsView.init】notifications=\(ObjectIdentifier(notifications))", category: .general)
     }
 
-    // MARK: - Computed properties
-
-    /// Full version string (preserves pre-release suffixes like `-beta.1`).
-    var appVersion: String { Bundle.main.rbVersionString }
-
-    /// Build number from `CFBundleVersion`.
-    var appBuild: String { Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "—" }
-
     // MARK: - Body
 
     /// Root view: swaps between the settings scroll, `LocalRunnersView`, and `ScopesView`.
+    ///
+    /// The `log()` call at the top of body is intentional — it is a pure side-effect-free
+    /// diagnostic that does not mutate state and does not affect the view tree. SwiftUI
+    /// may call body multiple times; the log helps trace unexpected re-render frequency
+    /// in debug builds. It is not a state mutation and does not violate SwiftUI's
+    /// no-side-effects-in-body rule (which targets state writes, not logging).
     var body: some View {
         log("【SettingsView.body】rendered — settings=\(ObjectIdentifier(settings)) betaChannel=\(settings.betaChannel)", category: .general)
-        // Lifecycle modifiers live on the root (wrapping all branches) so
+        // Lifecycle modifiers live on the root Group (wrapping all branches) so
         // onAppearAction()/onDisappear fire only when the settings panel itself
         // opens/closes — NOT on every navigation to LocalRunnersView/ScopesView.
-        // Attaching them to `settingsBody` caused needless re-reads and
-        // Task recreation on every back-navigation.
+        // Attaching them to `settingsBody` caused needless re-reads and Task
+        // recreation on every back-navigation. The Group has no layout impact —
+        // it is a transparent modifier container, not a VStack/HStack.
+        // ❌ Do NOT replace the root Group with a VStack/HStack — Group is transparent;
+        //    a layout container would change the view's layout identity and affect
+        //    the modifier-firing semantics described above.
         return Group {
             if showLocalRunners {
                 LocalRunnersView(
@@ -365,11 +402,14 @@ struct SettingsView: View {
     /// Runs on `.onAppear`: re-syncs auth state from `oauthService` and starts sign-in /
     /// sign-out listeners.
     ///
-    /// Auth state is already seeded from `oauthService` in `init`, so this is a no-op
-    /// on the first render. On subsequent appears (e.g. after a hide/show cycle) it
-    /// re-reads the current state and re-registers the stream tasks.
+    /// WHY auth state is re-seeded here even though init already seeds it:
+    /// `init` seeds once at construction time. On a hide/show cycle the view is NOT
+    /// reconstructed — the same instance reappears. onAppearAction re-syncs so the
+    /// status light and sign-in button always reflect the live keychain state at the
+    /// moment the panel becomes visible, not the state at first construction.
+    /// This is not redundant — it is a deliberate re-read for the re-appear case.
     ///
-    /// Update checking is intentionally NOT done here — it is owned by task 2 of 2
+    /// Update checking is intentionally NOT done here — it is owned by Task 2 of 2
     /// in body (.task modifier), which covers both cold-open and navigation paths
     /// (fix #2223). All tasks are cancelled before reassignment so a rapid open→open
     /// cycle cannot leak prior stream listeners.
