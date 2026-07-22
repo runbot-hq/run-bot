@@ -23,12 +23,8 @@ import SwiftUI
 // 1. NSPopover with animates=false, behavior=.applicationDefined.
 // 2. Shown via popover.show(relativeTo: button.bounds, of: button,
 //    preferredEdge: .minY) — anchors to the status bar button once on open.
-//    The arrow anchor is determined by positioningRect+view at show() time
-//    and is NOT moved when contentSize is updated later.
 // 3. Size is driven by KVO on NSHostingController.preferredContentSize.
 //    Both width AND height are updated via popover.contentSize.
-//    ⚠️ Do NOT call popover.show() again on resize — that re-anchors and jumps.
-//    Updating contentSize alone resizes in place with the arrow fixed.
 // 4. Width is clamped to [minWidth..maxWidth] from screen bounds.
 // 5. Dismiss: popover.performClose(nil) driven by the global NSEvent monitor
 //    (outside clicks) and NSWorkspace app-switch notification.
@@ -49,29 +45,41 @@ import SwiftUI
 // NSPopover windows are key-capable natively. NSApp.activate() is
 // sufficient to allow TextFields to receive first-responder.
 //
-// LATERAL JUMP PREVENTION:
-// Only update contentSize — never re-call popover.show() on resize.
-// Updating contentSize repositions the popover body but keeps the arrow
-// anchored to the original positioningRect on the status bar button.
-// AppKit itself preserves the anchor point on contentSize changes —
-// resizeAndRepositionPanel() must NOT manually call setFrameOrigin, since
-// that fights AppKit's own anchor-preserving relayout and can make jumps worse.
+// LATERAL JUMP PREVENTION — REAL ROOT CAUSE (found empirically, two prior fixes failed):
+// It is tempting to assume AppKit preserves the popover's anchor point when
+// `contentSize` changes. IT DOES NOT reliably do so when the anchor is near a
+// screen edge. Observed failure: status item at x=904 (38pt wide, near the
+// right edge of a ~960pt-wide screen). Popover opens small, then SettingsView
+// renders its real content and `contentSize` grows to ~506x577. AppKit's
+// internal edge-avoidance logic, when the naive right-aligned growth would
+// overflow the screen's right edge, snaps the window's origin.x to 0.0 instead
+// of keeping it flush against the right edge — producing a hard, visible jump
+// from "near button" to "far left edge of screen".
 //
-// AUTOHIDE SIDE-JUMP ROOT CAUSE (open-time, not resize-time):
+// Two earlier fix attempts both failed against this:
+//   1. Manually applying a delta correction (oldFrame.origin - dw/2, -dh) —
+//      this operated on `window.frame` AFTER AppKit had already computed its
+//      (buggy, edge-snapped) frame, so the delta was computed from bad data in.
+//   2. Trusting AppKit's own relayout entirely (removing the delta correction) —
+//      this is the case that produces the x=0.0 snap directly, unmasked.
+//
+// FIX (this version): resizeAndRepositionPanel() computes the desired window
+// origin ITSELF from the status item button's screen frame (not from the
+// popover window's current/already-corrupted frame), then clamps that origin
+// to the current screen's visible bounds before calling `setFrameOrigin`.
+// This never lets AppKit's internal edge-avoidance heuristic run at all —
+// we always supply a valid, on-screen, button-anchored origin directly.
+//   • x = button center, clamped so the window never crosses either screen edge
+//   • y = anchored to the button's bottom edge (popover hangs below the menu bar)
+// ⚠️ Still never call `popover.show()` again on resize — only `contentSize`
+//    followed by our own `setFrameOrigin` call.
+//
+// AUTOHIDE SIDE-JUMP AT OPEN TIME (separate issue, still fixed):
 // With "Automatically hide and show the menu bar" enabled, the status item's
 // button can still be off-screen or mid-slide-in at the moment togglePanel()
-// fires from the initial click (the click itself is what triggers the menu
-// bar to reveal). If popover.show(relativeTo:of:preferredEdge:) is called
-// before AppKit has finished laying out the revealed menu bar, it anchors
-// against a stale/zero button frame, producing a popover window pinned at
-// x=0 instead of under the status item — visible as a side-jump once the
-// menu bar settles and the click is retried.
-//
-// FIX: showPopoverRetryingIfNeeded() checks that the status item's window
-// has a valid (non-zero, on-screen) frame before calling show(). If not yet
-// valid, it retries on the next run-loop turn (menu bar reveal is a fast
-// system animation, so a couple of retries at most are needed) instead of
-// showing immediately against bad geometry.
+// fires from the initial click. showPopoverRetryingIfNeeded() checks that the
+// status item's window has a valid (non-zero, on-screen) frame before calling
+// show(); if not yet valid it retries on the next run-loop turn.
 //
 // PANELVISIBILITYSTATE:
 // panelVisibilityState.isOpen is set in openPanel()/closePanel()/hidePanel().
@@ -218,12 +226,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Popover resize
 
-    /// Clamps the popover's `contentSize` to the current screen bounds.
-    /// Called after every rootView swap and from the KVO size observer.
-    /// ⚠️ Never call `popover.show()` here — updating `contentSize` resizes in place
-    /// without re-anchoring the arrow. AppKit itself preserves the anchor point on
-    /// this path — do NOT manually call `setFrameOrigin` here, it fights AppKit's
-    /// own anchor-preserving relayout and can introduce jumps rather than fix them.
+    /// Clamps the popover's `contentSize` to the current screen bounds, then
+    /// explicitly repositions the window from the status item button's screen
+    /// frame — never from AppKit's own (potentially edge-snapped) frame.
+    /// See the "LATERAL JUMP PREVENTION" note at the top of this file for why
+    /// trusting `window.frame` here is unsafe.
     func resizeAndRepositionPanel() {
         guard panelIsOpen, let popover, let controller = hostingController else { return }
         let preferred = controller.preferredContentSize
@@ -231,9 +238,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let newW = min(max(preferred.width > 0 ? preferred.width : Self.minWidth, Self.minWidth), maxWidth)
         let newH = min(max(preferred.height, 60), maxHeight)
         let currentSize = popover.contentSize
-        if abs(currentSize.width - newW) > 1 || abs(currentSize.height - newH) > 1 {
-            popover.contentSize = NSSize(width: newW, height: newH)
-        }
+        let sizeChanged = abs(currentSize.width - newW) > 1 || abs(currentSize.height - newH) > 1
+        guard sizeChanged else { return }
+        popover.contentSize = NSSize(width: newW, height: newH)
+        repositionPanel(width: newW, height: newH)
+    }
+
+    /// Sets the popover window's origin from the status item button's screen
+    /// frame, clamped to the button's screen visible bounds. Called after every
+    /// `contentSize` write so the window never drifts to an AppKit-computed
+    /// edge-snapped position (see `resizeAndRepositionPanel()` doc comment).
+    private func repositionPanel(width: CGFloat, height: CGFloat) {
+        guard let button = statusItem?.button,
+              let buttonWindow = button.window,
+              let window = popover?.contentViewController?.view.window else { return }
+        let buttonFrame = buttonWindow.frame
+        guard buttonFrame.width > 0, buttonFrame.height > 0 else { return }
+        let screen = buttonWindow.screen ?? statusItemScreen
+        let visible = screen.visibleFrame
+        let desiredX = buttonFrame.midX - width / 2
+        let clampedX = min(max(desiredX, visible.minX), visible.maxX - width)
+        let desiredY = buttonFrame.minY - height
+        let clampedY = min(max(desiredY, visible.minY), visible.maxY - height)
+        window.setFrameOrigin(NSPoint(x: clampedX, y: clampedY))
     }
 
     // MARK: - Navigation
