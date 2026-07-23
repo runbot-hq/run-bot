@@ -35,17 +35,17 @@ import SwiftUI
 // ID-KEYING — why .id(navigationID) is still required:
 //   shell.content is AnyView. When navigate() swaps it, SwiftUI diffs
 //   AnyView→AnyView internals without destroying the subtree. Without
-//   .id(), PanelContainerView isn’t recreated, its onAppear never fires,
-//   and the GeometryReader doesn’t re-report size for the new content.
+//   .id(), PanelContainerView isn't recreated, its onAppear never fires,
+//   and the GeometryReader doesn't re-report size for the new content.
 //   Incrementing navigationID forces full subtree recreation — identical
-//   to PR #6’s .id(appState.route) on the Group switch.
+//   to PR #6's .id(appState.route) on the Group switch.
 //
 // ARCHITECTURE:
 //   NavigationShell     — @Observable object, lives on AppDelegate.
 //                         Owns `content: AnyView` + `navigationID: Int`.
 //   NavigationShellView — SwiftUI view, permanent NSHostingController root.
 //                         Injects panelSizeReporter env key so
-//                         PanelContainerView’s GeometryReader (inside
+//                         PanelContainerView's GeometryReader (inside
 //                         AnyView boundary) calls resizeAndRepositionPanel.
 //
 // ❌ NEVER replace NavigationShell as hostingController.rootView.
@@ -57,13 +57,13 @@ import SwiftUI
 @Observable
 @MainActor
 final class NavigationShell {
-    /// The currently displayed content. Set by `AppDelegate.navigate(to:)`.
+    /// The currently displayed content. Set by `AppDelegate.navigate(to:)`.\
     var content: AnyView
 
     /// Monotonically incrementing counter. Incremented by `navigate(to:)` on
     /// every content swap. `NavigationShellView` applies `.id(navigationID)` to
     /// force SwiftUI to destroy/recreate the child subtree, guaranteeing
-    /// PanelContainerView’s `onAppear` fires with the new view’s intrinsic size.
+    /// PanelContainerView's `onAppear` fires with the new view's intrinsic size.
     ///
     /// ❌ NEVER reset to 0 — only ever increment.
     var navigationID: Int = 0
@@ -77,8 +77,8 @@ final class NavigationShell {
 /// Permanent SwiftUI root hosted by NSHostingController.
 ///
 /// Injects `onSizeChange` into the environment via `panelSizeReporter` so
-/// `PanelContainerView`’s inner GeometryReader (inside the AnyView boundary)
-/// can call it with the typed content’s true intrinsic size.
+/// `PanelContainerView`'s inner GeometryReader (inside the AnyView boundary)
+/// can call it with the typed content's true intrinsic size.
 ///
 /// Also applies `.id(shell.navigationID)` to force full subtree recreation on
 /// every `navigate()` call, guaranteeing `onAppear` fires for the new content.
@@ -91,7 +91,12 @@ struct NavigationShellView: View {
     /// Forwarded from AppDelegate to resizeAndRepositionPanel(preferredSize:).
     /// Injected into the environment so PanelContainerView can call it
     /// from inside the AnyView boundary where typed intrinsic size is measurable.
-    let onSizeChange: (CGSize) -> Void
+    ///
+    /// `@MainActor @Sendable` matches the `PanelSizeReporterKey` type exactly,
+    /// satisfying Swift strict concurrency at the `.environment(\.panelSizeReporter, …)` call.
+    /// AppDelegate is `@MainActor`, so the closure passed from `setupPanel()` is
+    /// implicitly `@MainActor` — the explicit annotation here makes that requirement visible.
+    let onSizeChange: @MainActor @Sendable (CGSize) -> Void
 
     var body: some View {
         shell.content
