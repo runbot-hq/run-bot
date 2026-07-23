@@ -387,6 +387,13 @@ struct SettingsView: View {
     /// removed here because it silently prevented the popover from ever resizing
     /// into Settings (fittingSize echoed back the existing contentSize instead of
     /// reporting 480). Do not reintroduce `.infinity` or `idealWidth` in its place.
+    ///
+    /// .fixedSize() is chained after .frame(width: 480) so SwiftUI uses exactly
+    /// 480pt for width AND reports the view's intrinsic height rather than filling
+    /// whatever height NSHostingController proposes. Without it the GeometryReader
+    /// in NavigationShellView sees the current popover height echoed back — a no-op
+    /// loop that keeps the panel frozen at its previous height on every navigate().
+    /// ❌ NEVER remove .fixedSize() from this line — it breaks height resizing.
     private var settingsBody: some View {
         VStack(alignment: .leading, spacing: 0) {
             headerBar
@@ -403,6 +410,7 @@ struct SettingsView: View {
             .frame(maxHeight: .infinity)
         }
         .frame(width: 480)
+        .fixedSize()   // reports intrinsic height — breaks the GeometryReader echo loop
     }
 
     /// Vertical stack of all settings sections.
