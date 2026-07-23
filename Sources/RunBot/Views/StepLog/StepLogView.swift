@@ -12,11 +12,10 @@ import SwiftUI
 // ║ LAYOUT RULES:                                                              ║
 // ║ • Root: .frame(idealWidth: 480, maxWidth: .infinity, alignment: .top)     ║
 // ║ • idealWidth: 480 hints SwiftUI's initial natural width measurement.      ║
-// ║   PanelContainerView's GeometryReader picks up the reported size and      ║
-// ║   forwards it via onSizeChange →                                          ║
-// ║   resizeAndRepositionPanel(preferredSize:) in AppDelegate.swift.          ║
-// ║   KVO on preferredContentSize is NOT used (removed — see gap analysis     ║
-// ║   commit 97f15d5 and MenuBarKit PR #6).                                   ║
+// ║   NSHostingController reads idealWidth as preferredContentSize.width      ║
+// ║   on the first layout pass (NSPanel architecture, not NSPopover).         ║
+// ║   The panel then resizes to content-driven width via KVO on               ║
+// ║   preferredContentSize (see AppDelegate.sizeObservation).                 ║
 // ║ • Log content MUST be inside the ScrollView.                              ║
 // ║ • Header MUST be outside the ScrollView (always visible, not scrolled).  ║
 // ║ ❌ NEVER use .frame(maxWidth: .infinity, maxHeight: .infinity) — the      ║
@@ -26,8 +25,9 @@ import SwiftUI
 // ║ ❌ NEVER add .frame(height:) here                                         ║
 // ║ ❌ NEVER add .fixedSize() here                                            ║
 // ║ ✔ ScrollView MUST have .frame(maxHeight: visibleFrame * 0.75) cap        ║
-// ║   Without it, SwiftUI reports the full log text height as the content     ║
-// ║   size on navigate → panel grows off-screen. (ref #370)                  ║
+// ║   Without it, with sizingOptions=.preferredContentSize, SwiftUI           ║
+// ║   reports the full log text height as preferredContentSize.height on      ║
+// ║   navigate → panel grows off-screen. (ref #370)                           ║
 // ║ ❌ NEVER remove the .frame(maxHeight:) from the ScrollView                ║
 // ║                                                                            ║
 // ║ If you are an agent or human, DO NOT REMOVE THIS COMMENT, YOU ARE NOT     ║
@@ -216,12 +216,12 @@ struct StepLogView: View {
                         .padding(.horizontal, RBSpacing.md).padding(.vertical, 8)
                 }
             }
-            // ⚠️ REQUIRED -- caps content size height. Prevents panel growing off-screen.
+            // ⚠️ REQUIRED -- caps preferredContentSize.height. Prevents panel growing off-screen.
             // ❌ NEVER remove this modifier.
             .frame(maxHeight: NSScreen.main.map { $0.visibleFrame.height * 0.75 } ?? 600)
         }
         // ════════════════════════════════════════════════════════════════════════
-        // ⚠️ idealWidth: 480 hints the initial panel width before GeometryReader fires.
+        // ⚠️ idealWidth: 480 hints the initial panel width before KVO fires.
         // ❌ NEVER use .frame(maxWidth: .infinity, maxHeight: .infinity)
         // ❌ NEVER omit idealWidth: 480
         // ❌ NEVER add .frame(height:) or .fixedSize() here
