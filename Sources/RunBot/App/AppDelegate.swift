@@ -257,11 +257,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Popover resize
 
-    /// Clamps `preferred` to the current screen bounds, then corrects the window
-    /// origin using a DELTA-based shift (never absolute button/screen coordinates
-    /// — see the "LATERAL JUMP PREVENTION" note at the top of this file, and
-    /// runbot-hq/MenuBarKit issue #12 / PR #6).
+    /// Clamps `preferred` to the current screen bounds, then either records the
+    /// size (when the popover is not yet shown) or corrects the window origin
+    /// using a DELTA-based shift (when the popover is open).
     ///
+    /// PRE-SHOW RECORDING (matches runbot-hq/MenuBarKit PR #6 applyContentSize):
+    /// When the GeometryReader fires onAppear before the popover is fully shown,
+    /// the size must be recorded into popover.contentSize rather than dropped.
+    /// finishOpenPanel() reads fittingSize immediately after show() — if
+    /// contentSize was updated here, fittingSize reflects the correct size and
+    /// the popover opens at the right dimensions on the very first frame.
+    ///
+    /// POST-SHOW REPOSITION (see LATERAL JUMP PREVENTION note above):
     /// Called exclusively by NavigationShellView's GeometryReader onSizeChange.
     /// SwiftUI reports its own size directly; this function never reads
     /// `preferredContentSize` or any KVO-derived value.
@@ -270,13 +277,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// the mid-session sidejump is closed (was invisible for multiple rounds
     /// because this function was previously silent).
     func resizeAndRepositionPanel(preferredSize preferred: CGSize) {
-        guard panelIsOpen, let popover else { return }
+        guard let popover else { return }
         guard preferred.height > 0 else { return }
         let newW = min(max(preferred.width > 0 ? preferred.width : Self.minWidth, Self.minWidth), maxWidth)
         let newH = min(max(preferred.height, 60), maxHeight)
         let currentSize = popover.contentSize
         let sizeChanged = abs(currentSize.width - newW) > 1 || abs(currentSize.height - newH) > 1
         guard sizeChanged else { return }
+
+        // Matches PR #6: when not yet shown, record the size so fittingSize
+        // pre-sizing in finishOpenPanel() opens at the correct dimensions.
+        // ❌ NEVER early-return here without recording — the size would be
+        //    dropped and the popover would open frozen at its initial size.
+        guard panelIsOpen else {
+            log("AppDelegate › resizeAndRepositionPanel — not open yet, recording contentSize newW=\(newW) newH=\(newH)")
+            popover.contentSize = NSSize(width: newW, height: newH)
+            return
+        }
+
         guard let window = popover.contentViewController?.view.window else {
             log("AppDelegate › resizeAndRepositionPanel — no window, setting contentSize only newW=\(newW) newH=\(newH)")
             popover.contentSize = NSSize(width: newW, height: newH)
