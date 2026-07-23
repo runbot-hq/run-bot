@@ -22,6 +22,8 @@ import SwiftUI
 //
 // NSPopover provides its own glass chrome automatically.
 // Do NOT add .background() or NSVisualEffectView at this level.
+// Do NOT add any background colour to this VStack or the ScrollView — the
+// NSGlassEffectView behind this tree must reach the desktop unobstructed.
 /// Root panel view rendered inside the NSPopover.
 struct PanelMainView: View {
     /// Called when user taps a step row.
@@ -103,6 +105,7 @@ struct PanelMainView: View {
                 }
             actionsSectionScrollable
         }
+        .background(.clear)  // ← DO NOT REMOVE: lets NSGlassEffectView refract through
         .frame(minWidth: 280, maxWidth: 900, alignment: .top)
         .onAppear {
             if panelVisibilityState.isOpen { systemStats.start() }
@@ -127,6 +130,8 @@ struct PanelMainView: View {
         ScrollView(.vertical, showsIndicators: true) {
             actionsSectionContent
         }
+        .scrollContentBackground(.hidden)  // ← DO NOT REMOVE: kills ScrollView's opaque grey background
+        .background(.clear)                // ← DO NOT REMOVE: belt-and-suspenders clear
         .frame(maxHeight: screenScrollMaxHeight)
     }
 
