@@ -71,20 +71,14 @@ import SwiftUI
 // the window from its bottom-left corner — nothing re-runs the centering
 // math, so the arrow stays pinned while the box drifts away from it.
 //
-// FOUR FAILED APPROACHES (see runbot-hq/MenuBarKit issue #12 for the full
-// writeup — this file's history repeated each of these before landing here):
-//   1. No correction at all — box visibly drifts/snaps away from the arrow.
-//   2. `window.frame.midX` as anchor, offset by `contentSize/2` — WRONG:
-//      `window.frame` includes NSPopover chrome (shadow/border/arrow chrome)
-//      but `contentSize` does not. Mixing the two coordinate spaces produces
-//      a systematic offset (observed: window snapped to x=0 near a screen edge).
-//   3. Re-querying `button.window.frame` / button screen position on every
-//      resize — WRONG: button screen coordinates are NOT stable across
-//      sessions. macOS auto-hide slides the whole status bar off/on screen,
-//      changing button screen-Y between open/close cycles.
-//   4. Reading `window.frame` for the correction AFTER writing `contentSize`
-//      — WRONG: AppKit repositions the window as a side-effect of the
-//      `contentSize` write, so frame is already stale by the time it's read.
+// Failed approaches (full writeup in runbot-hq/MenuBarKit issue #12):
+//   1. No correction — box drifts from arrow.
+//   2. window.frame.midX offset by contentSize/2 — mixes chrome and content
+//      coordinate spaces → systematic ~100pt offset (window to screen edge).
+//   3. Re-querying button screen position on every resize — button Y is NOT
+//      stable across sessions (auto-hide slides status bar off/on screen).
+//   4. Reading window.frame AFTER writing contentSize — AppKit repositions
+//      as a side-effect of the write, so frame is already stale.
 //
 // WORKING FIX: compute the DELTA and shift the EXISTING origin by it — never
 // compute an absolute target position from button/screen coordinates:
