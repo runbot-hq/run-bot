@@ -22,30 +22,33 @@ import SwiftUI
 // ❌ NEVER remove the overlay — without it the popover content is fully
 //    interactive behind an open sheet, which is confusing and buggy.
 //
-// ── SIZE REPORTING ───────────────────────────────────────────────────────────────────
+// ── SIZE REPORTING (matches runbot-hq/MenuBarKit PR #6's setupPopover()) ───
 //
-// This view is the ACTIVE size-reporting path. It lives INSIDE the AnyView
-// boundary created by NavigationShell.content, so its GeometryReader measures
-// PanelMainView’s TYPED, .fixedSize()-constrained intrinsic size — not the
-// proposed size echoed back from NSHostingController.
+// PopoverController's own CRITICAL GOTCHA comment: "observe from SwiftUI
+// only. NSView KVO / frameDidChangeNotification silently fail inside
+// NSPopover. Use GeometryReader + onChange." RunBot previously drove sizing
+// via KVO on NSHostingController.preferredContentSize (AppKit re-deriving a
+// size FROM SwiftUI's layout) instead of SwiftUI reporting its own size
+// directly — precisely the unreliable path MenuBarKit's own writeup warns
+// against, especially for width changes.
 //
-// HOW IT WORKS:
-//   NavigationShellView injects the resize callback via the `panelSizeReporter`
-//   environment key. This view reads that key and calls it from the
-//   background(GeometryReader) on `content`, on both `.onAppear` and
-//   `.onChange(of: geo.size)`.
+// `onSizeChange` is invoked from a GeometryReader wrapping `content` (see
+// body below), on both `.onAppear` and `.onChange(of: geo.size)`, mirroring
+// PopoverController.setupPopover() wrapping `pendingRootView` the same way.
+// AppDelegate wires this to `resizeAndRepositionPanel(preferredSize:)`,
+// which is the ONLY thing that mutates `popover.contentSize` — this view
+// never touches AppKit sizing APIs directly.
 //
-//   This matches PopoverController.setupPopover() in runbot-hq/MenuBarKit PR #6:
-//   pendingRootView.background(GeometryReader { ... .onAppear { applyContentSize }
-//                                               ... .onChange { applyContentSize } })
-//   — the key difference is PR #6 has a typed root view; RunBot uses the
-//   environment key to cross the AnyView boundary.
+// ❌ An earlier version of this file warned "NEVER use GeometryReader here —
+//    it fights NSPopover's sizing." That was true only because a KVO
+//    observer was ALSO active and independently re-deriving size from
+//    AppKit — two competing size-reporting paths is what fought each other.
+//    This version REPLACES the KVO path entirely rather than adding to it,
+//    so there is exactly one source of truth for size, matching PR #6.
+// ❌ NEVER re-introduce KVO on preferredContentSize alongside this —
+//    that reintroduces the two-competing-paths problem this fix removes.
 //
-// ❌ NEVER re-introduce a GeometryReader at NavigationShellView level — it is
-//    outside the AnyView boundary and measures the proposed (frozen) size.
-// ❌ NEVER re-introduce KVO on preferredContentSize — two competing paths.
-//
-// ── TRANSIENT HIDE / RESTORE ANIMATION INVARIANT ─────────────────────────────────
+// ── TRANSIENT HIDE / RESTORE ANIMATION INVARIANT ────────────────────────────────────────
 //
 // PROBLEM (fixed, do not regress):
 // When the user switches away from the app while a sheet is open, hidePanel()
@@ -73,7 +76,7 @@ import SwiftUI
 //   closePanel() →  isTransientHide stays false  →  isOpen = false
 //   onChange(false): stopPolling(), isTransientHide=false so isSheetActive = false ✅
 //
-// ── POLL TASK GUARD SPLIT (do not re-split, fixed jitter)──────────────────────
+// ── POLL TASK GUARD SPLIT (do not re-split, fixed jitter)───────────────────────
 //
 // PROBLEM (fixed, do not regress):
 // An earlier iteration split the guard into two: first guard hostWindow != nil,
@@ -89,7 +92,7 @@ import SwiftUI
 // consistently regardless of which condition fails. The else branch is where
 // isTransientHide is checked before any state mutation.
 //
-// ── SLEEP-FIRST LOOP ORDER (do not change) ─────────────────────────────────
+// ── SLEEP-FIRST LOOP ORDER (do not change) ─────────────────────────────────────
 //
 // The poll loop sleeps BEFORE executing the guard. hostWindow is delivered via
 // DispatchQueue.main.async in WindowReader.makeNSView, so it is nil for at least
@@ -97,7 +100,7 @@ import SwiftUI
 // Timer.scheduledTimer behaviour (first fire after 100ms, not immediately) and
 // avoids an immediate guard-fail tick before hostWindow is populated.
 //
-// ── CANCELLATION: bare try on Task.sleep ───────────────────────────────────
+// ── CANCELLATION: bare try on Task.sleep ───────────────────────────────────────
 //
 // Task.sleep is called with bare `try`, not `try?`. When stopPolling() cancels
 // the task mid-sleep, CancellationError propagates out of the loop immediately
@@ -107,21 +110,15 @@ import SwiftUI
 // ────────────────────────────────────────────────────────────────────────────
 
 /// Wraps popover content, dims it when a SwiftUI sheet is active, and reports
-/// its intrinsic size upward via the `panelSizeReporter` environment key.
+/// its intrinsic size upward via `onSizeChange` (see SIZE REPORTING note above).
 struct PanelContainerView<Content: View>: View {
     /// The child view to wrap.
     let content: Content
 
-    /// Legacy per-instance size callback — retained for call-site compatibility.
-    /// The active size-reporting path is via `panelSizeReporter` from the environment.
-    /// Defaults to a no-op so existing call sites compile without changes.
+    /// Invoked with the content's current size on `.onAppear` and whenever it
+    /// changes. Defaults to a no-op so existing call sites that don't need
+    /// sizing keep compiling. See SIZE REPORTING note above.
     var onSizeChange: (CGSize) -> Void = { _ in }
-
-    /// Size-reporter injected by NavigationShellView via the environment.
-    /// This is the ACTIVE path — called from the background(GeometryReader) on
-    /// `content`, which is inside the AnyView boundary where intrinsic size is
-    /// measurable. Nil when not injected (e.g. in Previews).
-    @Environment(\.panelSizeReporter) private var panelSizeReporter
 
     /// Whether a sheet is currently active over the popover.
     ///
@@ -157,18 +154,11 @@ struct PanelContainerView<Content: View>: View {
     /// Creates a `PanelContainerView` wrapping the given content.
     /// - Parameters:
     ///   - content: The child view to wrap inside the dim-overlay container.
-    ///   - onSizeChange: Legacy per-instance callback. Defaults to no-op.
-    ///     The active size path is `panelSizeReporter` from the environment.
+    ///   - onSizeChange: Invoked with the content's size on appear and on every
+    ///     change. Defaults to a no-op. See SIZE REPORTING note above.
     init(content: Content, onSizeChange: @escaping (CGSize) -> Void = { _ in }) {
         self.content = content
         self.onSizeChange = onSizeChange
-    }
-
-    /// Calls both the legacy per-instance callback and the environment reporter.
-    /// Called from the background(GeometryReader) on appear and on size change.
-    private func reportSize(_ size: CGSize) {
-        onSizeChange(size)
-        panelSizeReporter?(size)
     }
 
     /// Root view: stacks `content` (wrapped in a size-reporting GeometryReader),
@@ -176,16 +166,19 @@ struct PanelContainerView<Content: View>: View {
     var body: some View {
         ZStack {
             content
-                // SIZE REPORTING — active path.
-                // GeometryReader is inside the AnyView boundary so it measures
-                // PanelMainView's typed, .fixedSize()-constrained intrinsic size.
-                // Using .background (not a wrapping GeometryReader) so the
-                // GeometryReader never influences content’s own layout proposal.
+                // Size reporting — matches PopoverController.setupPopover() in
+                // runbot-hq/MenuBarKit PR #6, which wraps pendingRootView in an
+                // identical background(GeometryReader{...}) construct.
+                // Using .background (not a wrapping GeometryReader as the direct
+                // parent) so this view never influences `content`'s own layout —
+                // GeometryReader as a direct container can otherwise report back
+                // an unconstrained/proposed size rather than content's actual
+                // fitting size.
                 .background(
                     GeometryReader { geo in
                         Color.clear
-                            .onAppear { reportSize(geo.size) }
-                            .onChange(of: geo.size) { _, newSize in reportSize(newSize) }
+                            .onAppear { onSizeChange(geo.size) }
+                            .onChange(of: geo.size) { _, newSize in onSizeChange(newSize) }
                     }
                 )
             // WindowReader captures the hosting NSWindow asynchronously.
@@ -206,15 +199,30 @@ struct PanelContainerView<Content: View>: View {
             }
         }
         // Animate overlay appearance/disappearance.
+        // This only plays on genuine false→true (sheet opens) and true→false
+        // (sheet closes) transitions. It does NOT re-play on transient hide/restore
+        // because isSheetActive is kept true throughout — see invariant above.
         .animation(.easeInOut(duration: 0.15), value: isSheetActive)
         .onAppear { startPolling() }
         .onDisappear { stopPolling() }
         .onChange(of: panelVisibilityState.isOpen) { _, open in
             if open {
+                // Re-open after transient hide or fresh open.
+                // Reset the flag so the next close is treated as a real close
+                // unless hidePanel() sets it again.
                 panelVisibilityState.isTransientHide = false
                 startPolling()
+                // ❌ Do NOT reset isSheetActive here — on transient restore the
+                //    sheet window is still alive and isSheetActive is still true.
+                //    Resetting it here would trigger a false→true cycle and replay
+                //    the cover animation on every app-switch restore.
             } else {
                 stopPolling()
+                // Only clear the overlay on a genuine full close (closePanel).
+                // On transient hide, hidePanel() sets isTransientHide = true
+                // before flipping isOpen, so we skip the clear here.
+                // Clearing during a transient hide would cause the animation to
+                // replay on re-entry even though the sheet never actually closed.
                 if !panelVisibilityState.isTransientHide {
                     isSheetActive = false
                 }
@@ -223,27 +231,65 @@ struct PanelContainerView<Content: View>: View {
     }
 
     // MARK: - Sheet detection
+    //
+    // NSWindow.sheets is the authoritative source for whether a sheet is
+    // currently attached. We poll it because NSPopoverWindowFrame does not
+    // post NSWindow.willBeginSheetNotification / didEndSheetNotification, and
+    // there is no KVO-observable property without subclassing NSWindow.
+    //
+    // Task interval 100ms: fast enough to feel instant, cheap enough at 10Hz.
 
+    /// Starts (or restarts) the repeating sheet-detection poll task.
+    ///
+    /// Always calls `stopPolling()` first to cancel any existing task.
+    /// Safe to call multiple times — will not create duplicate tasks.
+    /// `@MainActor` is explicit so the compiler statically verifies that `pollTask`
+    /// (a `@State`-backed property) is always mutated on the main actor.
     @MainActor private func startPolling() {
         stopPolling()
+// Sleep-FIRST — see "SLEEP-FIRST LOOP ORDER" comment at the top of this file.
+        // Single atomic guard — do NOT split. See "POLL TASK GUARD SPLIT" comment above.
+        // bare `try` — see "CANCELLATION" comment at the top of this file.
         pollTask = Task(name: "sheetPoll") { @MainActor in
             while !Task.isCancelled {
                 try await Task.sleep(for: .milliseconds(100))
+                // Single atomic guard — do NOT split into two separate guards.
+                // See "POLL TASK GUARD SPLIT" comment at the top of this file for why.
+                //
+                // This guard fails when:
+                //   a) isOpen is false (panel is closing or closed)
+                //   b) hostWindow is nil (not yet delivered by WindowReader async)
+                //   c) window.isVisible is false (transient hide — window ordered out)
+                //
+                // In all these cases we fall into the else branch to decide whether
+                // to clear isSheetActive. We only clear it on a genuine close, not
+                // during a transient hide where the sheet window is still alive.
                 guard panelVisibilityState.isOpen,
                       let window = hostWindow,
                       window.isVisible
                 else {
+                    // isTransientHide = true means hidePanel() caused this guard
+                    // to fail (window ordered out but sheet still attached).
+                    // Keep isSheetActive as-is so restore has nothing to re-animate.
+                    //
+                    // isTransientHide = false means closePanel() or the window
+                    // genuinely disappeared — safe to clear.
                     if !panelVisibilityState.isTransientHide, isSheetActive {
                         isSheetActive = false
                     }
                     continue
                 }
+
+                // Window is visible and panel is open — ground truth read.
                 let hasVisibleSheet = window.sheets.contains { $0.isVisible }
+                // Guard against redundant SwiftUI state updates (no-op if unchanged).
                 if hasVisibleSheet != isSheetActive { isSheetActive = hasVisibleSheet }
             }
         }
     }
 
+    /// Cancels and nils the poll task.
+    /// `@MainActor` matches `startPolling()` — both mutate `pollTask`.
     @MainActor private func stopPolling() {
         pollTask?.cancel()
         pollTask = nil
@@ -258,15 +304,27 @@ struct PanelContainerView<Content: View>: View {
 /// delivered asynchronously via DispatchQueue.main.async because NSView.window
 /// is nil during the synchronous makeNSView call (the view hasn't been added
 /// to a window yet at that point).
+///
+/// The poll task in PanelContainerView handles the nil-window case gracefully
+/// via its atomic guard — do not assume hostWindow is non-nil on first tick.
 private struct WindowReader: NSViewRepresentable {
+    /// Updated with the NSWindow that hosts this view hierarchy.
     @Binding var window: NSWindow?
 
+    /// Creates the underlying NSView and reports its window asynchronously.
     func makeNSView(context _: Context) -> NSView {
         let view = NSView(frame: .zero)
+        // Async because view.window is nil synchronously at make time.
         DispatchQueue.main.async { window = view.window }
         return view
     }
 
+    /// Updates the window binding when the view's window changes.
+    /// Guards against redundant binding updates — nsView.window is stable after
+    /// the first assignment and re-dispatching on every SwiftUI update would
+    /// trigger unnecessary state invalidations in PanelContainerView.
+    /// Pointer equality is safe here because NSPopover reuses the same NSWindow
+    /// object across transient hide/restore cycles.
     func updateNSView(_ nsView: NSView, context _: Context) {
         guard nsView.window != window else { return }
         DispatchQueue.main.async { window = nsView.window }
