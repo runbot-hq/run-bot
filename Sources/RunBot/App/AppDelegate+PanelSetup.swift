@@ -41,7 +41,10 @@ import SwiftUI
 // replaced by navigate() calls. See NavigationShell.swift for the full
 // architecture and the NavigationShell.swift SIZE REPORTING note.
 //
-// `sizingOptions` is left at default ([]) — nothing reads preferredContentSize.
+// sizingOptions = [] is set explicitly (matches PR #6). This opts out of
+// AppKit's .intrinsicContentSize default (macOS 14+), which would drive
+// popover.contentSize from preferredContentSize independently — a competing
+// path that can override the GeometryReader writes and freeze the popover.
 //
 // ❌ NEVER call popover.show() again on resize.
 // ❌ NEVER replace hostingController.rootView after setup.
@@ -83,7 +86,11 @@ extension AppDelegate: NSPopoverDelegate {
         let finalRoot = AnyView(rootView.environment(shell))
 
         let controller = NSHostingController(rootView: finalRoot)
-        // sizingOptions left at default ([]) — nothing reads preferredContentSize.
+        // sizingOptions = [] — matches runbot-hq/MenuBarKit PR #6 explicitly.
+        // Opts out of AppKit's default (.intrinsicContentSize on macOS 14+)
+        // which would drive popover.contentSize from preferredContentSize
+        // independently, competing with the GeometryReader path.
+        controller.sizingOptions = []
         hostingController = controller
 
         let newPopover = NSPopover()
