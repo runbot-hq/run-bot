@@ -7,7 +7,8 @@ import SwiftUI
 
 // MARK: - AppDelegate + Panel Setup
 //
-// Owns NSPopover construction and subscriptions that drive icon/store updates.
+// Owns NSPopover construction, KVO on preferredContentSize, and
+// subscriptions that drive icon/store updates.
 // Called once from applicationDidFinishLaunching via setupPanel().
 //
 // ❌ NEVER inline this back into AppDelegate.swift.
@@ -24,80 +25,110 @@ import SwiftUI
 // the behavior at show-time; failing to re-assert it caused silent reversion
 // to .transient between sessions (Attempt 8 root cause).
 //
+// .transient was tried (Attempt 2) and failed — AppKit's .transient dismiss
+// fires on ANY outside interaction, including clicks inside NSOpenPanel.
+// .transient does NOT have special awareness of system panels.
+//
 // OUTSIDE-CLICK / APP-SWITCH HIDE (#1195 — what actually works):
 // Both are handled by a manual NSEvent global monitor (outsideClickMonitor)
 // and an NSWorkspace observer (workspaceObserver), both installed by openPanel()
 // and torn down by tearDownOpenState().
 //
+// The key guard in outsideClickMonitor is:
+//
+//   guard !self.hasActiveSheet else { return }   // ← THE FIX
+//
+// NSOpenPanel is attached to the popover window via beginSheetModal(for:),
+// making it appear in popoverWindow.sheets. While any sheet is attached,
+// hasActiveSheet is true and every outside click is ignored — the popover
+// cannot be dismissed by a click that lands inside the NSOpenPanel.
+//
+// popoverShouldClose always returns true — AppKit is never blocked here.
+// All dismiss control goes through the manual monitor.
+//
+// ❌ NEVER use picker.begin { } (free-floating NSOpenPanel). It does NOT
+//    appear in popoverWindow.sheets and the hasActiveSheet guard is blind to it.
+// ❌ NEVER use runModal() for NSOpenPanel. Same reason as above.
+// ✅ ALWAYS use picker.beginSheetModal(for: popoverWindow) so the picker
+//    attaches as a child sheet and hasActiveSheet fires correctly.
+//
 // SHEET HANDLING:
 // SwiftUI .sheet() attaches as a child NSWindow to the popover's backing
-// window. PanelContainerView polls NSWindow.sheets and overlays
-// Color.black.opacity(0.35) when a sheet is present.
+// window. Two problems arise:
 //
-// SIZE NOTE (matches runbot-hq/MenuBarKit PR #6 exactly):
-// Each content view is wrapped with background(GeometryReader) by
-// wrapWithSizeReporter(_:) BEFORE being type-erased to AnyView.
-// The GeometryReader lives INSIDE the AnyView boundary so it fires on
-// every layout pass — including async @Observable state changes — not
-// just on navigate() calls.
-// sizingOptions = [] opts out of AppKit's .intrinsicContentSize default
-// (macOS 14+) which would compete with the GeometryReader path.
+// 1. NO DIM: NSPopoverWindowFrame does not participate in AppKit's standard
+//    modal sheet dimming. Fix: PanelContainerView polls NSWindow.sheets and
+//    overlays Color.black.opacity(0.35) when a sheet is present.
 //
-// ❌ NEVER call popover.show() again on resize.
-// ❌ NEVER replace hostingController.rootView after setup.
-// ❌ NEVER add a GeometryReader to NavigationShellView — it sits outside
-//    the AnyView boundary and misses async state-driven size changes.
+// 2. OUTSIDE-TAP BEHAVIOUR DURING SHEET:
+//    Tapping outside while a sheet is open hides the popover so the user
+//    can interact with other apps, but savedNavState preserves where they
+//    were so re-opening restores context.
+//
+//    Implementation:
+//    - popoverShouldClose always returns true. AppKit is never blocked.
+//    - popoverDidClose saves hasActiveSheet state before state clears.
+//    - openPanel restores via savedNavState.
+//    - Sheet NSWindows are children of the popover window; AppKit removes
+//      them when the popover closes. SwiftUI re-presents on re-open if the
+//      binding is still true. savedNavState = .settings ensures navigation.
+//
+// SIZE NOTE:
+// popover.contentSize is updated (both width AND height) via KVO on
+// NSHostingController.preferredContentSize. Updating contentSize resizes
+// the popover in-place — the arrow stays pinned to the original
+// positioningRect. ❌ NEVER call popover.show() again on resize.
 
-/// Extension responsible for NSPopover construction and async subscriptions.
+/// Extension responsible for NSPopover construction, KVO, and async subscriptions.
 extension AppDelegate: NSPopoverDelegate {
 
     // MARK: Popover construction
 
-    /// Builds the NSPopover, embeds the permanent NavigationShellView root,
-    /// wires async subscriptions.
-    ///
-    /// The initial content view is wrapped with `wrapWithSizeReporter(_:)` so
-    /// its GeometryReader is inside the AnyView boundary from the first frame —
-    /// matching the same wrapping applied by `navigate(to:)` for all subsequent
-    /// content changes.
+    /// Builds the NSPopover, embeds the SwiftUI hosting controller, wires KVO
+    /// and async subscriptions.
     func setupPanel() {
         log("AppDelegate › setupPanel — begin")
-
-        // Wrap initial content with size reporter before storing in the shell.
-        // This matches navigate(to:)'s wrapping so the GeometryReader is always
-        // inside the AnyView boundary from the very first layout pass.
-        let shell = NavigationShell(initial: wrapWithSizeReporter(mainView()))
-        navigationShell = shell
-
-        // NavigationShellView is the permanent NSHostingController root.
-        // It is a pure content-slot view — no GeometryReader, no onSizeChange.
-        // Sizing is owned by the GeometryReader baked into each content value.
-        let shellView = NavigationShellView()
-        let rootView = wrapEnv(shellView)
-        let finalRoot = AnyView(rootView.environment(shell))
-
-        let controller = NSHostingController(rootView: finalRoot)
-        // sizingOptions = [] — matches runbot-hq/MenuBarKit PR #6 explicitly.
-        // Opts out of AppKit's default (.intrinsicContentSize on macOS 14+)
-        // which would drive popover.contentSize from preferredContentSize
-        // independently, competing with the GeometryReader path.
-        controller.sizingOptions = []
+        let controller = NSHostingController(rootView: mainView())
+        controller.sizingOptions = .preferredContentSize
         hostingController = controller
 
         let newPopover = NSPopover()
         newPopover.contentViewController = controller
         newPopover.contentSize = NSSize(width: 480, height: 300)
         newPopover.animates = false
+        // .applicationDefined: popoverShouldClose(_:) is consulted on every
+        // is true, keeping the popover alive when user clicks in NSOpenPanel.
+        // Manual NSEvent monitor + NSWorkspace observer handle hide-on-app-switch.
         newPopover.behavior = .applicationDefined
         newPopover.delegate = self
 
         popover = newPopover
-        log("AppDelegate › setupPanel — popover created, NavigationShell wired")
+        log("AppDelegate › setupPanel — popover created, wiring KVO + subscriptions")
+
+        setupKVO(controller: controller)
         log("AppDelegate › setupPanel — complete")
     }
 
     // MARK: NSPopoverDelegate
 
+    /// Always returns `true` — AppKit is never blocked from closing the popover here.
+    ///
+    /// All dismiss control is handled by the manual `outsideClickMonitor` and
+    /// `workspaceObserver` in `openPanel()`. Those monitors guard against
+    /// NSOpenPanel clicks via `hasActiveSheet` (the panel is attached as a sheet
+    /// via `beginSheetModal`, so `popoverWindow.sheets` is non-empty while it
+    /// is open). There is no need to block AppKit here.
+    ///
+    /// `isFilePickerActive` is intentionally NOT used here. Earlier attempts
+    /// (Attempts 4–6, see `docs/graveyard.md`) tried gating this method on a
+    /// boolean flag, but `beginSheetModal` makes that unnecessary: the sheet
+    /// attachment is structural truth visible via `popoverWindow.sheets`, which
+    /// `hasActiveSheet` reads directly. The flag approach was removed in favour
+    /// of that structural check.
+    ///
+    /// See the OUTSIDE-CLICK / APP-SWITCH HIDE comment block above for the full
+    /// mechanism. See `docs/graveyard.md` for the history of approaches that
+    /// tried to gate this method and why they all failed.
     public func popoverShouldClose(_ popover: NSPopover) -> Bool {
         #if DEBUG
         log("AppDelegate › popoverShouldClose — CALLED behavior=\(popover.behavior.rawValue) panelIsOpen=\(panelIsOpen) caller=\(Thread.callStackSymbols[1])")
@@ -106,6 +137,11 @@ extension AppDelegate: NSPopoverDelegate {
         return true
     }
 
+    /// Syncs internal state after the popover closes for any reason.
+    /// Primary purpose: safety net for OS-initiated closes (e.g. user clicks outside).
+    /// When `closePanel()` or `hidePanel()` drives the close, they call
+    /// `tearDownOpenState()` directly — by the time this fires, `panelIsOpen`
+    /// is already `false` and the guard exits immediately.
     public func popoverDidClose(_ _: Notification) {
         #if DEBUG
         // swiftlint:disable:next line_length
@@ -117,5 +153,20 @@ extension AppDelegate: NSPopoverDelegate {
         }
         log("AppDelegate › popoverDidClose — calling tearDownOpenState (unexpected OS-driven close)")
         tearDownOpenState()
+    }
+
+    // MARK: KVO
+
+    /// Observes `preferredContentSize` and updates both width and height.
+    private func setupKVO(controller: NSHostingController<AnyView>) {
+        log("AppDelegate › setupKVO — attaching preferredContentSize observer")
+        sizeObservation = controller.observe(
+            \.preferredContentSize,
+            options: [.new]
+        ) { [weak self] _, change in
+            guard let size = change.newValue, size.height > 0 else { return }
+            // KVO can fire on a background thread — hop to main before touching UI.
+            Task { @MainActor [weak self] in self?.resizeAndRepositionPanel() }
+        }
     }
 }

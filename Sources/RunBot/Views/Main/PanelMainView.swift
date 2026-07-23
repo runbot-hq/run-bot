@@ -5,27 +5,13 @@ import RunBotCore
 import SwiftUI
 // REGRESSION GUARD -- DO NOT REMOVE - see regression history (ref #52 #54 #57 #375 #376 #377)
 //
-// ARCHITECTURE: NSPopover + GeometryReader in NavigationShellView (fix/#2251)
-// Dynamic height driven by NavigationShellView's background GeometryReader which
-// calls resizeAndRepositionPanel(preferredSize:) directly with SwiftUI-reported size.
-// sizingOptions = [] is set explicitly on NSHostingController — AppKit does NOT
-// independently drive contentSize via preferredContentSize KVO.
+// ARCHITECTURE: NSPopover + sizingOptions=.preferredContentSize
+// Dynamic height AND width driven by KVO on preferredContentSize.
+// AppDelegate updates popover.contentSize (both dimensions) when either changes.
+// Updating contentSize resizes the popover in place -- the arrow stays anchored
+// to the original positioningRect. Only popover.show() jumps; contentSize does not.
 //
-// WIDTH CONTRACT:
-// Root VStack uses .frame(width: 480).fixedSize(horizontal: true, vertical: false).
-//   .frame(width: 480)                            — pins a definite width so
-//     NavigationShellView's GeometryReader always sees 480, not the current
-//     popover width echoed back (which would be a no-op loop).
-//   .fixedSize(horizontal: true, vertical: false) — locks width to 480; does NOT
-//     override the inner ScrollView's maxHeight cap — height is driven by content
-//     and clamped by AppDelegate at 85% visibleFrame.
-// ❌ NEVER use bare .fixedSize() — collapses ScrollView to full intrinsic height.
-// ❌ NEVER use .frame(minWidth:maxWidth:) here — range frames echo back current
-//    popover width, GeometryReader sees no delta, popover stays frozen.
-// ❌ NEVER add .frame(height:) or .fixedSize(horizontal:false,vertical:true) here —
-//    the ScrollView's maxHeight cap is the effective height limit.
-//
-// RULE 1: Root VStack uses .frame(width: 480).fixedSize(horizontal: true, vertical: false)
+// RULE 1: Root VStack uses .frame(minWidth:maxWidth:alignment:)
 // RULE 2: ALL rows use .padding(.horizontal, 12)
 // RULE 3: Job row HStack Spacer() is LOAD-BEARING.
 // RULE 4: RunnerViewModel.reload() uses withAnimation(nil).
@@ -93,7 +79,7 @@ struct PanelMainView: View {
         }
     }
 
-    /// Root body — header, optional error/rate-limit banners, local runner rows, and the scrollable actions section.
+    /// Root body -- header, optional error/rate-limit banners, local runner rows, and the scrollable actions section.
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             PanelHeaderView(
@@ -117,8 +103,7 @@ struct PanelMainView: View {
                 }
             actionsSectionScrollable
         }
-        .frame(width: 480)
-        .fixedSize(horizontal: true, vertical: false)   // lock width; ScrollView drives height
+        .frame(minWidth: 280, maxWidth: 900, alignment: .top)
         .onAppear {
             if panelVisibilityState.isOpen { systemStats.start() }
             startDisplayTickTimer()
@@ -178,6 +163,14 @@ struct PanelMainView: View {
     }
 
     /// Starts the 1-second structured `displayTick` loop. Cancels any existing task first.
+    ///
+    /// Sleep-first: fires 1 s after start, matching the prior `Timer.scheduledTimer` behaviour.
+    /// No open-state gate — RULE 9: displayTick runs always while the view is alive.
+    /// Named "displayTick" for Instruments visibility (RG6).
+    /// `try` (not `try?`) on Task.sleep propagates CancellationError cleanly so the loop
+    /// exits immediately on cancel without executing a spurious post-cancel tick.
+    /// `@MainActor` is explicit so the compiler statically verifies that `displayTickTask`
+    /// (a `@State`-backed property) is always mutated on the main actor.
     @MainActor private func startDisplayTickTimer() {
         stopDisplayTickTimer()
         displayTickTask = Task(name: "displayTick") { @MainActor in
@@ -189,12 +182,18 @@ struct PanelMainView: View {
     }
 
     /// Cancels and nils the `displayTick` task.
+    /// `@MainActor` matches `startDisplayTickTimer()` — both mutate `displayTickTask`.
     @MainActor private func stopDisplayTickTimer() {
         displayTickTask?.cancel()
         displayTickTask = nil
     }
 
     /// Inline error banner shown when `appState.runnerState.fetchError` is non-nil.
+    ///
+    /// Displays a truncated error description. Dismisses automatically on the next
+    /// successful fetch cycle when `applyFetchResult` clears `fetchError`.
+    /// Stale `runners`/`jobs`/`actions` remain visible below the banner so the user
+    /// still sees the last-known state while connectivity is degraded.
     private func fetchErrorBanner(_ error: any Error) -> some View {
         HStack(spacing: 6) {
             Image(systemName: "exclamationmark.triangle.fill").foregroundColor(.red).font(.caption)
@@ -206,8 +205,11 @@ struct PanelMainView: View {
     }
 
     /// Rate-limit warning banner showing a countdown to API reset.
+    /// The label refreshes every second because `displayTick` is threaded through
+    /// `body → actionsSectionContent → ActionRowView(tick:)`. The `withExtendedLifetime`
+    /// call here makes the read intent explicit but does not itself register a new dependency.
     private var rateLimitBanner: some View {
-        withExtendedLifetime(displayTick) {}
+        withExtendedLifetime(displayTick) {} // makes read intent explicit; actual refresh is driven by the tick: param chain in body
         let countdownLabel: String
         if let resetDate = appState.runnerState.rateLimitResetDate {
             let remaining = max(0, resetDate.timeIntervalSinceNow)

@@ -22,23 +22,9 @@ import SwiftUI
 // ❌ NEVER use GeometryReader for the height.
 // ❌ NEVER add idealHeight to the root frame.
 //
-// WIDTH CONTRACT (NSPopover + GeometryReader architecture, fix/#1017 + #2251):
-// Sizing is driven by GeometryReader in NavigationShellView which calls
-// resizeAndRepositionPanel(preferredSize:) directly (see NavigationShell.swift).
-// preferredContentSize / KVO is NOT used — sizingOptions = [] is explicit.
-// GeometryReader reports the size of whatever NavigationShellView's content
-// slot contains. For that to produce a DEFINITE width, this view must pin
-// its width via a fixed .frame(width:) or .fixedSize(horizontal: true, ...).
-// A maxWidth: .infinity frame echoes back whatever width the popover already
-// has — fittingSize loops and no resize fires.
-// SettingsView uses .frame(width: 480).fixedSize(horizontal: true, vertical: false):
-//   horizontal: true  → reports exactly 480pt width to fittingSize
-//   vertical: false   → does NOT override the ScrollView's maxHeight: .infinity
-//                       proposal; AppDelegate's 85% cap remains the effective limit.
-// ❌ NEVER use bare .fixedSize() (both axes) — it collapses ScrollView to full
-//    intrinsic content height, overriding maxHeight: .infinity → broken tiny panel.
-// ❌ NEVER change .frame(width: 480) back to maxWidth: .infinity.
-// ❌ NEVER remove .fixedSize(horizontal: true, vertical: false) — breaks width reporting.
+// WIDTH CONTRACT:
+// .frame(idealWidth: 480) — only idealWidth needed. NSPanel handles bounds.
+// ❌ NEVER remove idealWidth: 480.
 //
 // If you are an agent or human, DO NOT REMOVE THIS COMMENT, YOU ARE NOT ALLOWED
 // UNDER ANY CIRCUMSTANCE. The regression we get when this comment is removed
@@ -379,15 +365,6 @@ struct SettingsView: View {
     /// If you are an agent or human, DO NOT REMOVE THIS COMMENT, YOU ARE NOT ALLOWED
     /// UNDER ANY CIRCUMSTANCE. The regression we get when this comment is removed
     /// is major major major.
-    ///
-    /// WIDTH CONTRACT: .frame(width: 480).fixedSize(horizontal: true, vertical: false)
-    ///   horizontal: true  → reports exactly 480pt to fittingSize / GeometryReader
-    ///   vertical: false   → does NOT override ScrollView's maxHeight: .infinity;
-    ///                       AppDelegate's 85% cap remains the effective height limit.
-    /// ❌ NEVER use bare .fixedSize() — it collapses the ScrollView to full intrinsic
-    ///    content height, overriding maxHeight: .infinity → broken tiny popover.
-    /// ❌ NEVER change .frame(width: 480) to maxWidth: .infinity — breaks width reporting.
-    /// ❌ NEVER remove .fixedSize(horizontal: true, vertical: false) — breaks width.
     private var settingsBody: some View {
         VStack(alignment: .leading, spacing: 0) {
             headerBar
@@ -403,8 +380,7 @@ struct SettingsView: View {
             }
             .frame(maxHeight: .infinity)
         }
-        .frame(width: 480)
-        .fixedSize(horizontal: true, vertical: false)   // lock width; let ScrollView drive height
+        .frame(idealWidth: 480, maxWidth: .infinity)
     }
 
     /// Vertical stack of all settings sections.
