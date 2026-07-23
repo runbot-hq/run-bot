@@ -263,18 +263,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// PopoverController.setupPopover(). Inside the boundary, the GeometryReader
     /// participates in every layout pass including async @Observable state changes.
     ///
+    /// CAPTURE NOTE: `resizeAndRepositionPanel` is captured as a concrete
+    /// @MainActor closure at call-time — NOT as [weak self] inside the
+    /// GeometryReader content closure. A [weak self] capture inside a
+    /// GeometryReader body is evaluated lazily at layout time; by then the
+    /// escaping closure chain through AnyView wrapping can leave self nil,
+    /// silently dropping every resize callback. Capturing the method reference
+    /// directly as a strong closure at wrap-time avoids the nil-self hazard
+    /// while still being safe: the closure is owned by the AnyView stored in
+    /// NavigationShell.content, which is itself owned by AppDelegate.
+    ///
+    /// ❌ NEVER use [weak self] inside the GeometryReader body here.
     /// ❌ NEVER wrap the AnyView itself — the GeometryReader would sit outside the
     ///    boundary, miss async state-driven size changes, and only fire on
     ///    navigate() calls (when the AnyView box itself changes).
     func wrapWithSizeReporter<V: View>(_ view: V) -> AnyView {
-        AnyView(
+        let resize: @MainActor (CGSize) -> Void = { [self] size in
+            resizeAndRepositionPanel(preferredSize: size)
+        }
+        return AnyView(
             view.background(
-                GeometryReader { [weak self] geo in
+                GeometryReader { geo in
                     Color.clear
-                        .onAppear { self?.resizeAndRepositionPanel(preferredSize: geo.size) }
-                        .onChange(of: geo.size) { _, newSize in
-                            self?.resizeAndRepositionPanel(preferredSize: newSize)
-                        }
+                        .onAppear { resize(geo.size) }
+                        .onChange(of: geo.size) { _, newSize in resize(newSize) }
                 }
             )
         )
