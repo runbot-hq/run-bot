@@ -25,8 +25,11 @@ import SwiftUI
 //    preferredEdge: .minY) — anchors to a 1pt sliver at the status item
 //    button's horizontal midpoint (see positioningRect(for:) below and the
 //    ANCHOR RECT note), NOT the full button bounds.
-// 3. Size is driven by KVO on NSHostingController.preferredContentSize.
-//    Both width AND height are updated via popover.contentSize.
+// 3. Size is driven by GeometryReader in PanelContainerView, which calls
+//    resizeAndRepositionPanel(preferredSize:) directly with the SwiftUI-
+//    reported size. KVO on preferredContentSize is NOT used.
+//    See SIZE REPORTING note in PanelContainerView.swift and SIZE NOTE in
+//    AppDelegate+PanelSetup.swift.
 // 4. Width is clamped to [minWidth..maxWidth] from screen bounds.
 // 5. Dismiss: popover.performClose(nil) driven by the global NSEvent monitor
 //    (outside clicks) and NSWorkspace app-switch notification.
@@ -99,18 +102,18 @@ import SwiftUI
 // the fix for the open-time issue below — those are two independent bugs.
 //
 // ⚠️ INSTRUMENTATION + DEGENERATE-BASELINE GUARD:
-// resizeAndRepositionPanel() previously had ZERO logging, so a sidejump that
-// happens WHILE the panel is already open (content grows as data streams in,
-// e.g. workflow rows populating after open) was invisible in log dumps —
-// every prior fix attempt was debugging the open-time anchor path
-// (showPopoverRetryingIfNeeded) because that was the only instrumented one.
-// Every call now logs oldFrame / dw / dh / newOrigin. Additionally, if the
-// `oldFrame` read at the top of the function is degenerate — zero width or
-// height, or origin.x == 0 while the status item's screen visibleFrame does
-// NOT start at x == 0 — the delta shift is skipped and a warning is logged
-// instead of propagating a bad baseline into window.setFrameOrigin(). This
-// does not replace the delta math above; it guards it and makes the next
-// repro observable instead of another blind theory.
+// resizeAndRepositionPanel(preferredSize:) previously had ZERO logging, so a
+// sidejump that happens WHILE the panel is already open (content grows as
+// data streams in, e.g. workflow rows populating after open) was invisible
+// in log dumps — every prior fix attempt was debugging the open-time anchor
+// path (showPopoverRetryingIfNeeded) because that was the only instrumented
+// one. Every call now logs oldFrame / dw / dh / newOrigin. Additionally, if
+// the `oldFrame` read at the top of the function is degenerate — zero width
+// or height, or origin.x == 0 while the status item's screen visibleFrame
+// does NOT start at x == 0 — the delta shift is skipped and a warning is
+// logged instead of propagating a bad baseline into window.setFrameOrigin().
+// This does not replace the delta math above; it guards it and makes the
+// next repro observable instead of another blind theory.
 //
 // AUTOHIDE SIDE-JUMP AT OPEN TIME (separate issue from the above — NOT
 // covered by MenuBarKit PR #6's applyContentSize, which only addresses
@@ -209,9 +212,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// outside-click monitor, and the NSWorkspace app-switch observer.
     /// AppDelegate is reduced to a wiring layer for these concerns (#1374).
     let lifecycleCoordinator = PopoverLifecycleCoordinator()
-    /// KVO observation token for `NSHostingController.preferredContentSize`.
-    /// Drives popover resize without re-calling `popover.show()`.
-    var sizeObservation: NSKeyValueObservation?
     // Regression guard — see ARCHITECTURE.md §panelVisibilityState.
     /// Shared observable that tracks whether the panel is open.
     /// Injected into every SwiftUI view via `wrapEnv(_:)`.
@@ -280,10 +280,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Popover resize
 
-    /// Clamps the popover's `contentSize` to the current screen bounds, then
-    /// corrects the window origin using a DELTA-based shift (never absolute
-    /// button/screen coordinates — see the "LATERAL JUMP PREVENTION" note at
-    /// the top of this file, and runbot-hq/MenuBarKit issue #12).
+    /// Clamps `preferred` to the current screen bounds, then corrects the window
+    /// origin using a DELTA-based shift (never absolute button/screen coordinates
+    /// — see the "LATERAL JUMP PREVENTION" note at the top of this file, and
+    /// runbot-hq/MenuBarKit issue #12 / PR #6).
+    ///
+    /// Called exclusively by `PanelContainerView.onSizeChange` (via the view
+    /// factories in AppDelegate+Navigation.swift). SwiftUI reports its own size
+    /// directly via a GeometryReader; this function never reads
+    /// `preferredContentSize` or any KVO-derived value.
     ///
     /// ⚠️ Every branch of this function is logged (see "INSTRUMENTATION +
     /// DEGENERATE-BASELINE GUARD" note at the top of this file). Do not strip
@@ -291,9 +296,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// mid-session sidejump has actually been closed out — it was invisible
     /// for multiple debugging rounds specifically because this function was
     /// silent.
-    func resizeAndRepositionPanel() {
-        guard panelIsOpen, let popover, let controller = hostingController else { return }
-        let preferred = controller.preferredContentSize
+    func resizeAndRepositionPanel(preferredSize preferred: CGSize) {
+        guard panelIsOpen, let popover else { return }
         guard preferred.height > 0 else { return }
         let newW = min(max(preferred.width > 0 ? preferred.width : Self.minWidth, Self.minWidth), maxWidth)
         let newH = min(max(preferred.height, 60), maxHeight)
@@ -342,14 +346,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Navigation
 
-    /// Swaps the hosting controller's `rootView` to `view` and immediately
-    /// recalculates the popover size. The popover arrow stays pinned.
+    /// Swaps the hosting controller's `rootView` to `view`.
+    /// Size update is driven by the GeometryReader in PanelContainerView firing
+    /// onSizeChange after the rootView swap — do NOT call
+    /// resizeAndRepositionPanel() here, it would race the GeometryReader tick
+    /// and read a stale preferredContentSize for the new view.
     /// ❌ NEVER call this from a SwiftUI view — use callbacks only.
     /// Calling directly from a SwiftUI view creates a retain cycle via the
     /// closure capture and bypasses the actor-safe callback path.
     func navigate(to view: AnyView) {
         hostingController?.rootView = view
-        resizeAndRepositionPanel()
     }
 
     // MARK: - Make key for text input
@@ -525,9 +531,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// popover's initial anchor point moves if the button's width itself shifts
     /// (e.g. mid-autohide-reveal, while neighboring status items are still
     /// resettling), which is a jump source independent of and prior to anything
-    /// `resizeAndRepositionPanel()` does. A 1pt sliver removes that dependency —
-    /// the anchor is a single stable x-coordinate, not a rect whose own width can
-    /// be in flux. See the "ANCHOR RECT" note at the top of this file.
+    /// `resizeAndRepositionPanel(preferredSize:)` does. A 1pt sliver removes that
+    /// dependency — the anchor is a single stable x-coordinate, not a rect whose
+    /// own width can be in flux. See the "ANCHOR RECT" note at the top of this file.
     private func positioningRect(for button: NSStatusBarButton) -> NSRect? {
         let bounds = button.bounds
         guard bounds.width > 0, bounds.height > 0 else {
@@ -590,7 +596,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// monitors.
     private func finishOpenPanel() {
         makePopoverWindowKeyIfPossible()
-        resizeAndRepositionPanel()
+        if let controller = hostingController {
+            let fitting = controller.view.fittingSize
+            if fitting.width > 0, fitting.height > 0 {
+                resizeAndRepositionPanel(preferredSize: fitting)
+            }
+        }
         if let saved = appState.savedNavState, !hasActiveSheet, let restored = validatedView(for: saved) {
             navigate(to: restored)
         }
