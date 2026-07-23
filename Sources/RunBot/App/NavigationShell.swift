@@ -15,43 +15,60 @@ import SwiftUI
 //   The popover stayed locked at whatever size it had before navigation.
 //
 // FIX (matches PopoverController.setupPopover() in runbot-hq/MenuBarKit PR #6):
-//   PR #6 wraps pendingRootView in background(GeometryReader{...}) ONCE at
-//   setupPopover() time — the GeometryReader lives at the NSHostingController
-//   root and is NEVER replaced. Content changes flow through @Observable:
-//   NavigationShell.content is mutated; NavigationShellView re-renders;
-//   the GeometryReader sees the new intrinsic size and fires onChange.
+//   PR #6 wraps pendingRootView with background(GeometryReader{...}) BEFORE
+//   type-erasing into AnyView and handing to NSHostingController. The
+//   GeometryReader lives INSIDE the AnyView boundary and participates in
+//   every layout pass triggered by content state changes.
+//
+//   Run-bot applies the same pattern in navigate(to:) and setupPanel():
+//   each view is wrapped with the GeometryReader before being stored as
+//   AnyView in NavigationShell.content. The GeometryReader is therefore
+//   always inside the type-erased boundary — never outside it.
+//
+// WHY OUTSIDE-BOUNDARY FAILS:
+//   If the GeometryReader wraps shell.content (an AnyView) from OUTSIDE,
+//   NavigationShellView must re-render for the GeometryReader to fire.
+//   But NavigationShellView only re-renders when shell.content itself
+//   changes (i.e. on navigate() calls). @Observable state changes inside
+//   PanelMainView — e.g. workflow rows loading async — do NOT cause
+//   NavigationShellView to re-render. The GeometryReader sees no size
+//   delta and onChange never fires. Popover stays frozen.
 //
 // ID-KEYING — why .id(navigationID) is required:
 //   shell.content is AnyView. When navigate() swaps it, SwiftUI sees
 //   AnyView→AnyView — same static type — and diffs the internals rather
-//   than destroying the subtree. The GeometryReader in the background sees
-//   the SAME proposed size (current window size, unchanged) and .onChange
-//   never fires. Without .id(), the popover stays frozen at whatever size
-//   it had before the navigate() call.
+//   than destroying the subtree. Without .id(), onAppear does not fire
+//   on the new content's GeometryReader and the popover stays frozen at
+//   the previous view's size.
 //   Incrementing navigationID on every navigate() forces SwiftUI to destroy
 //   and recreate the entire child subtree, guaranteeing onAppear fires with
 //   the new content's actual intrinsic size — identical to PR #6's pattern
 //   of .id(appState.route) on the Group switch.
 //
 // ARCHITECTURE:
-//   NavigationShell   — @Observable object, lives on AppDelegate.
-//                       Owns `content: AnyView` + `navigationID: Int`.
+//   NavigationShell     — @Observable object, lives on AppDelegate.
+//                         Owns `content: AnyView` + `navigationID: Int`.
+//                         content already has the GeometryReader baked in
+//                         (added by navigate(to:) / setupPanel() before
+//                         wrapping in AnyView).
 //   NavigationShellView — SwiftUI view, permanent NSHostingController root.
-//                       Reads the slot via @Environment(NavigationShell.self).
-//                       Applies .id(shell.navigationID) on content, then
-//                       wraps it in background(GeometryReader{...}),
-//                       calling onSizeChange on appear and on every change —
-//                       identical to PR #6's applyContentSize wiring.
+//                         Reads the slot via @Environment(NavigationShell.self).
+//                         Applies .id(shell.navigationID) to force
+//                         destroy/recreate on every navigate() call.
+//                         Does NOT own a GeometryReader — sizing is owned
+//                         by the GeometryReader baked into each content view.
 //
 // RELATIONSHIP TO PanelContainerView:
 //   PanelContainerView (dim overlay + sheet detection) is instantiated per
 //   navigate() call and placed INTO the content slot — it is NOT the shell.
-//   The GeometryReader that drives popover sizing lives at the shell level,
-//   ABOVE PanelContainerView, so content swaps never remove it.
+//   The GeometryReader wraps the content view before PanelContainerView,
+//   so it sees the true intrinsic size of the inner content, not the
+//   PanelContainerView chrome.
 //
 // ❌ NEVER replace NavigationShell as hostingController.rootView.
-// ❌ NEVER add a second GeometryReader-based size observer inside this file.
-// ❌ NEVER call resizeAndRepositionPanel() directly from here — use onSizeChange.
+// ❌ NEVER add a GeometryReader to NavigationShellView — it would sit
+//    outside the AnyView boundary and miss async state-driven size changes.
+// ❌ NEVER call resizeAndRepositionPanel() directly from NavigationShellView.
 
 /// @Observable slot holding the currently displayed content.
 ///
@@ -59,10 +76,14 @@ import SwiftUI
 /// writes `content`; `NavigationShellView` reads both. The NSHostingController
 /// root is `NavigationShellView` — it is created once in `setupPanel()` and
 /// never replaced.
+///
+/// Each `content` value already has a `background(GeometryReader)` baked in,
+/// added by `navigate(to:)` / `setupPanel()` before AnyView wrapping.
 @Observable
 @MainActor
 final class NavigationShell {
     /// The currently displayed content. Set by `AppDelegate.navigate(to:)`.
+    /// Always has a GeometryReader baked in — do not add another.
     var content: AnyView
 
     /// Monotonically incrementing counter. Incremented by `navigate(to:)` on
@@ -74,6 +95,8 @@ final class NavigationShell {
     var navigationID: Int = 0
 
     /// - Parameter initial: The first view to display (typically `mainView()`).
+    ///   Must already have the GeometryReader baked in — pass the result of
+    ///   `AppDelegate.wrapWithSizeReporter(_:)`, not a bare view.
     init(initial: AnyView) {
         self.content = initial
     }
@@ -83,37 +106,28 @@ final class NavigationShell {
 
 /// Permanent SwiftUI root hosted by `NSHostingController`.
 ///
-/// Applies `.id(shell.navigationID)` to force a destroy/recreate on every
-/// `navigate()` call, then wraps the content in `background(GeometryReader{...})`
-/// that calls `onSizeChange` on `.onAppear` and `.onChange(of: geo.size)`,
-/// matching `PopoverController.setupPopover()` in runbot-hq/MenuBarKit PR #6.
+/// Reads `shell.content` and applies `.id(shell.navigationID)` to force a
+/// full destroy/recreate on every `navigate()` call — identical to PR #6's
+/// `.id(appState.route)` pattern on the Group switch.
 ///
-/// ❌ NEVER use `.frame(width:height:)` or `.fixedSize()` here — this view
-///    must propose unconstrained space to content so `fittingSize` is meaningful.
+/// Does NOT own a GeometryReader. Each content value stored in
+/// `NavigationShell.content` already has `background(GeometryReader)` baked
+/// in by `navigate(to:)` / `setupPanel()`, so the GeometryReader is always
+/// inside the AnyView boundary where it can observe async state-driven
+/// layout changes.
+///
+/// ❌ NEVER add a GeometryReader here — it would sit outside the AnyView
+///    boundary and only fire on navigate() calls, not on async data loads.
 struct NavigationShellView: View {
     @Environment(NavigationShell.self) private var shell
-
-    /// Forwarded from AppDelegate to resizeAndRepositionPanel(preferredSize:).
-    /// Set once at setup time — captured by the NSHostingController closure.
-    let onSizeChange: (CGSize) -> Void
 
     var body: some View {
         shell.content
             // .id() forces SwiftUI to destroy/recreate the subtree on every
             // navigate() call. Without it, AnyView→AnyView is the same static
-            // type, SwiftUI diffs internals only, and the background
-            // GeometryReader sees no size change — popover stays frozen.
+            // type, SwiftUI diffs internals only, and the GeometryReader baked
+            // into content sees no size change — popover stays frozen.
             // Matches PR #6's .id(appState.route) on the Group switch.
             .id(shell.navigationID)
-            // Matches PR #6: background GeometryReader reports intrinsic size
-            // WITHOUT influencing content layout (a foreground/parent
-            // GeometryReader would propose its own size back to content).
-            .background(
-                GeometryReader { geo in
-                    Color.clear
-                        .onAppear { onSizeChange(geo.size) }
-                        .onChange(of: geo.size) { _, newSize in onSizeChange(newSize) }
-                }
-            )
     }
 }

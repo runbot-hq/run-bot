@@ -25,11 +25,11 @@ import SwiftUI
 //    preferredEdge: .minY) — anchors to a 1pt sliver at the status item
 //    button's horizontal midpoint (see positioningRect(for:) below and the
 //    ANCHOR RECT note), NOT the full button bounds.
-// 3. Size is driven by GeometryReader in NavigationShellView (permanent
-//    NSHostingController root), which calls onSizeChange → 
-//    resizeAndRepositionPanel(preferredSize:) directly with the SwiftUI-
-//    reported size. KVO on preferredContentSize is NOT used.
-//    See NavigationShell.swift for the full SIZE REPORTING architecture.
+// 3. Size is driven by a GeometryReader baked into each content view by
+//    navigate(to:) / setupPanel() via wrapWithSizeReporter(_:). The
+//    GeometryReader lives INSIDE the AnyView boundary so it participates
+//    in every layout pass, including async @Observable state changes.
+//    See NavigationShell.swift for the full architecture.
 // 4. Width is clamped to [minWidth..maxWidth] from screen bounds.
 // 5. Dismiss: popover.performClose(nil) driven by the global NSEvent monitor
 //    (outside clicks) and NSWorkspace app-switch notification.
@@ -186,9 +186,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var hostingController: NSHostingController<AnyView>?
 
     /// Permanent navigation slot. navigate(to:) writes content here.
-    /// NavigationShellView reads it. The GeometryReader that drives popover
-    /// sizing lives in NavigationShellView — above this slot — so it is
-    /// never torn down by content changes. See NavigationShell.swift.
+    /// NavigationShellView reads it. Each content value has a GeometryReader
+    /// baked in by navigate(to:) / setupPanel() — see NavigationShell.swift.
     ///
     /// ❌ NEVER replace hostingController.rootView after setupPanel().
     /// ❌ NEVER create a second NavigationShell.
@@ -255,6 +254,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
     }
 
+    // MARK: - Size reporter wrapping
+
+    /// Wraps a view with a background GeometryReader that drives popover sizing.
+    ///
+    /// Must be called BEFORE type-erasing to AnyView so the GeometryReader lives
+    /// INSIDE the AnyView boundary — matching PR #6's pendingRootView wrapping in
+    /// PopoverController.setupPopover(). Inside the boundary, the GeometryReader
+    /// participates in every layout pass including async @Observable state changes.
+    ///
+    /// ❌ NEVER wrap the AnyView itself — the GeometryReader would sit outside the
+    ///    boundary, miss async state-driven size changes, and only fire on
+    ///    navigate() calls (when the AnyView box itself changes).
+    func wrapWithSizeReporter<V: View>(_ view: V) -> AnyView {
+        AnyView(
+            view.background(
+                GeometryReader { [weak self] geo in
+                    Color.clear
+                        .onAppear { self?.resizeAndRepositionPanel(preferredSize: geo.size) }
+                        .onChange(of: geo.size) { _, newSize in
+                            self?.resizeAndRepositionPanel(preferredSize: newSize)
+                        }
+                }
+            )
+        )
+    }
+
     // MARK: - Popover resize
 
     /// Clamps `preferred` to the current screen bounds, then either records the
@@ -269,9 +294,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// the popover opens at the right dimensions on the very first frame.
     ///
     /// POST-SHOW REPOSITION (see LATERAL JUMP PREVENTION note above):
-    /// Called exclusively by NavigationShellView's GeometryReader onSizeChange.
-    /// SwiftUI reports its own size directly; this function never reads
-    /// `preferredContentSize` or any KVO-derived value.
+    /// Called exclusively by GeometryReaders baked into content by
+    /// wrapWithSizeReporter(_:). SwiftUI reports its own size directly; this
+    /// function never reads `preferredContentSize` or any KVO-derived value.
     ///
     /// ⚠️ Every branch is logged — do not strip logging without first confirming
     /// the mid-session sidejump is closed (was invisible for multiple rounds
@@ -327,18 +352,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Swaps the content slot in the permanent NavigationShell.
     ///
-    /// Increments `navigationShell.navigationID` BEFORE writing the content slot.
-    /// NavigationShellView applies `.id(shell.navigationID)` to force SwiftUI to
-    /// destroy/recreate the child subtree — identical to PR #6's `.id(appState.route)`
-    /// pattern — guaranteeing `onAppear` fires with the new view's intrinsic size.
-    /// Without the ID bump, AnyView→AnyView is the same static type; SwiftUI diffs
-    /// internals only and the GeometryReader sees no size delta → popover stays frozen.
+    /// Wraps `view` with a background GeometryReader via `wrapWithSizeReporter(_:)`
+    /// BEFORE storing as AnyView — matching PR #6's pendingRootView wrapping.
+    /// The GeometryReader is therefore inside the AnyView boundary and fires on
+    /// every layout pass, including async @Observable state changes inside the view.
+    ///
+    /// Increments `navigationShell.navigationID` BEFORE writing content so
+    /// NavigationShellView's `.id(navigationID)` forces a full destroy/recreate,
+    /// guaranteeing `onAppear` fires with the new content's intrinsic size.
     ///
     /// ❌ NEVER set hostingController.rootView here — that tears down the shell.
     /// ❌ NEVER call this from a SwiftUI view — use callbacks only.
     func navigate(to view: AnyView) {
         navigationShell?.navigationID += 1
-        navigationShell?.content = view
+        navigationShell?.content = wrapWithSizeReporter(view)
     }
 
     // MARK: - Make key for text input
@@ -374,7 +401,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panelSheetState.clearRunnerSheet()
         // Reset to main so the next open starts fresh.
         // ❌ Do NOT do this in hidePanel() — it destroys sheet @State.
-        navigationShell?.content = mainView()
+        navigationShell?.content = wrapWithSizeReporter(mainView())
     }
 
     /// Hides the popover on outside-tap or workspace app-switch.

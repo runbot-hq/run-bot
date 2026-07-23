@@ -35,19 +35,18 @@ import SwiftUI
 // Color.black.opacity(0.35) when a sheet is present.
 //
 // SIZE NOTE (matches runbot-hq/MenuBarKit PR #6 exactly):
-// popover.contentSize is driven by NavigationShellView's background
-// GeometryReader — SwiftUI reporting its OWN size, not KVO. The shell is
-// the permanent NSHostingController root; its GeometryReader is never
-// replaced by navigate() calls. See NavigationShell.swift for the full
-// architecture and the NavigationShell.swift SIZE REPORTING note.
-//
-// sizingOptions = [] is set explicitly (matches PR #6). This opts out of
-// AppKit's .intrinsicContentSize default (macOS 14+), which would drive
-// popover.contentSize from preferredContentSize independently — a competing
-// path that can override the GeometryReader writes and freeze the popover.
+// Each content view is wrapped with background(GeometryReader) by
+// wrapWithSizeReporter(_:) BEFORE being type-erased to AnyView.
+// The GeometryReader lives INSIDE the AnyView boundary so it fires on
+// every layout pass — including async @Observable state changes — not
+// just on navigate() calls.
+// sizingOptions = [] opts out of AppKit's .intrinsicContentSize default
+// (macOS 14+) which would compete with the GeometryReader path.
 //
 // ❌ NEVER call popover.show() again on resize.
 // ❌ NEVER replace hostingController.rootView after setup.
+// ❌ NEVER add a GeometryReader to NavigationShellView — it sits outside
+//    the AnyView boundary and misses async state-driven size changes.
 
 /// Extension responsible for NSPopover construction and async subscriptions.
 extension AppDelegate: NSPopoverDelegate {
@@ -55,34 +54,26 @@ extension AppDelegate: NSPopoverDelegate {
     // MARK: Popover construction
 
     /// Builds the NSPopover, embeds the permanent NavigationShellView root,
-    /// wires async subscriptions. Size is driven by NavigationShellView's
-    /// GeometryReader — see SIZE NOTE above.
+    /// wires async subscriptions.
+    ///
+    /// The initial content view is wrapped with `wrapWithSizeReporter(_:)` so
+    /// its GeometryReader is inside the AnyView boundary from the first frame —
+    /// matching the same wrapping applied by `navigate(to:)` for all subsequent
+    /// content changes.
     func setupPanel() {
         log("AppDelegate › setupPanel — begin")
 
-        // Build the initial content (main view) and the permanent shell.
-        let shell = NavigationShell(initial: mainView())
+        // Wrap initial content with size reporter before storing in the shell.
+        // This matches navigate(to:)'s wrapping so the GeometryReader is always
+        // inside the AnyView boundary from the very first layout pass.
+        let shell = NavigationShell(initial: wrapWithSizeReporter(mainView()))
         navigationShell = shell
 
         // NavigationShellView is the permanent NSHostingController root.
-        // It wraps shell.content in background(GeometryReader{...}) so the
-        // GeometryReader always exists at the root level regardless of what
-        // navigate() puts into the content slot.
-        //
-        // wrapEnv is called here so the shell view has the full environment
-        // (panelVisibilityState, appState, overlayGate, suppressHidePanel).
-        // NavigationShell itself is also injected so NavigationShellView can
-        // read the content slot via @Environment.
-        let shellView = NavigationShellView(
-            onSizeChange: { [weak self] size in
-                self?.resizeAndRepositionPanel(preferredSize: size)
-            }
-        )
+        // It is a pure content-slot view — no GeometryReader, no onSizeChange.
+        // Sizing is owned by the GeometryReader baked into each content value.
+        let shellView = NavigationShellView()
         let rootView = wrapEnv(shellView)
-            // Inject NavigationShell so NavigationShellView can read content.
-            // Must be OUTSIDE wrapEnv so it is available to NavigationShellView
-            // before any child views that wrapEnv might itself inject.
-            // AnyView type-erases, so re-wrap with the shell environment.
         let finalRoot = AnyView(rootView.environment(shell))
 
         let controller = NSHostingController(rootView: finalRoot)
