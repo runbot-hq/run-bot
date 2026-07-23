@@ -146,7 +146,6 @@ struct PanelContainerView<Content: View>: View {
                     .transition(.opacity)
             }
         }
-        .background(.clear)  // ← DO NOT REMOVE: ZStack must not contribute any opaque background
         // Animate overlay appearance/disappearance.
         // This only plays on genuine false→true (sheet opens) and true→false
         // (sheet closes) transitions. It does NOT re-play on transient hide/restore
