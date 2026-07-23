@@ -34,7 +34,7 @@ extension EnvironmentValues {
 // MARK: - panelSizeReporter
 
 /// Environment key that carries the popover size-change callback from
-/// NavigationShellView down to PanelContainerView’s GeometryReader.
+/// NavigationShellView down to PanelContainerView's GeometryReader.
 ///
 /// WHY THIS EXISTS — the AnyView boundary problem:
 ///   NavigationShellView holds shell.content as AnyView. Any GeometryReader
@@ -45,7 +45,7 @@ extension EnvironmentValues {
 ///
 ///   The correct measurement point is INSIDE PanelContainerView, where the
 ///   content is typed and .fixedSize(horizontal:true,vertical:false) on
-///   PanelMainView is already applied. PanelContainerView’s existing
+///   PanelMainView is already applied. PanelContainerView's existing
 ///   background(GeometryReader) measures that typed intrinsic size correctly.
 ///
 ///   This key is the bridge: NavigationShellView injects `onSizeChange` into
@@ -58,15 +58,17 @@ extension EnvironmentValues {
 /// Read by `PanelContainerView` via
 ///   `@Environment(\.panelSizeReporter) private var panelSizeReporter`.
 ///
-/// Default is nil so views that don’t need sizing compile without injection.
+/// Default is nil so views that don't need sizing compile without injection.
+/// Closure is `@MainActor @Sendable` so `defaultValue` satisfies Swift's
+/// `#MutableGlobalVariable` concurrency-safety requirement on `static let`.
 private struct PanelSizeReporterKey: EnvironmentKey {
-    static let defaultValue: ((CGSize) -> Void)? = nil
+    static let defaultValue: (@MainActor @Sendable (CGSize) -> Void)? = nil
 }
 
 extension EnvironmentValues {
     /// The popover size-reporter callback. Set by NavigationShellView, consumed
-    /// by PanelContainerView’s GeometryReader. Nil when not injected.
-    var panelSizeReporter: ((CGSize) -> Void)? {
+    /// by PanelContainerView's GeometryReader. Nil when not injected.
+    var panelSizeReporter: (@MainActor @Sendable (CGSize) -> Void)? {
         get { self[PanelSizeReporterKey.self] }
         set { self[PanelSizeReporterKey.self] = newValue }
     }
