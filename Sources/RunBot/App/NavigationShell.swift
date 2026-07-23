@@ -15,11 +15,16 @@ import SwiftUI
 //   The popover stayed locked at whatever size it had before navigation.
 //
 // FIX (matches PopoverController.setupPopover() in runbot-hq/MenuBarKit PR #6):
-//   PR #6 wraps pendingRootView in background(GeometryReader{...}) ONCE at
-//   setupPopover() time — the GeometryReader lives at the NSHostingController
-//   root and is NEVER replaced. Content changes flow through @Observable:
-//   NavigationShell.content is mutated; NavigationShellView re-renders;
-//   the GeometryReader sees the new intrinsic size and fires onChange.
+//   PR #6 wraps pendingRootView in .fixedSize() THEN background(GeometryReader).
+//   .fixedSize() forces SwiftUI to measure the view's intrinsic size regardless
+//   of the proposed space from NSHostingController. The GeometryReader in the
+//   background then sees that intrinsic size and fires onChange whenever content
+//   grows — e.g. when workflow rows load after the panel opens.
+//
+//   WITHOUT .fixedSize(): NSHostingController (sizingOptions=[]) proposes the
+//   current popover.contentSize as available space. The background GeometryReader
+//   sees the proposed size (not intrinsic), so when content grows the proposed
+//   size doesn't change → onChange never fires → popover stays frozen.
 //
 // ID-KEYING — why .id(navigationID) is required:
 //   shell.content is AnyView. When navigate() swaps it, SwiftUI sees
@@ -33,15 +38,32 @@ import SwiftUI
 //   the new content's actual intrinsic size — identical to PR #6's pattern
 //   of .id(appState.route) on the Group switch.
 //
+// MODIFIER ORDER (critical — do not reorder):
+//   shell.content
+//     .id(navigationID)           — destroy/recreate subtree on navigate()
+//     .fixedSize()                — report intrinsic size regardless of proposal
+//     .background(GeometryReader) — measures intrinsic size, fires onChange
+//
+//   .fixedSize() MUST be between .id() and .background().
+//   If placed after .background(), the GeometryReader still sees the proposed
+//   size, not the intrinsic size.
+//
+// SCROLLVIEW SAFETY:
+//   PanelMainView's inner ScrollView uses .frame(maxHeight: screenScrollMaxHeight)
+//   — a concrete pixel value (~80% of screen height). .fixedSize() proposes
+//   unconstrained space to the ScrollView; the maxHeight cap is enforced by
+//   the ScrollView itself and is NOT overridden. The cap holds correctly.
+//
 // ARCHITECTURE:
 //   NavigationShell   — @Observable object, lives on AppDelegate.
 //                       Owns `content: AnyView` + `navigationID: Int`.
 //   NavigationShellView — SwiftUI view, permanent NSHostingController root.
 //                       Reads the slot via @Environment(NavigationShell.self).
-//                       Applies .id(shell.navigationID) on content, then
-//                       wraps it in background(GeometryReader{...}),
-//                       calling onSizeChange on appear and on every change —
-//                       identical to PR #6's applyContentSize wiring.
+//                       Applies .id(navigationID), .fixedSize(), then
+//                       background(GeometryReader{...}) — calling onSizeChange
+//                       on appear and on every change. Identical to PR #6's
+//                       pendingRootView.fixedSize().background(GeometryReader)
+//                       pattern in setupPopover().
 //
 // RELATIONSHIP TO PanelContainerView:
 //   PanelContainerView (dim overlay + sheet detection) is instantiated per
@@ -52,6 +74,9 @@ import SwiftUI
 // ❌ NEVER replace NavigationShell as hostingController.rootView.
 // ❌ NEVER add a second GeometryReader-based size observer inside this file.
 // ❌ NEVER call resizeAndRepositionPanel() directly from here — use onSizeChange.
+// ❌ NEVER remove .fixedSize() — without it the GeometryReader measures the
+//    proposed size (frozen popover.contentSize) not the intrinsic size.
+// ❌ NEVER move .fixedSize() after .background() — order is critical.
 
 /// @Observable slot holding the currently displayed content.
 ///
@@ -83,13 +108,15 @@ final class NavigationShell {
 
 /// Permanent SwiftUI root hosted by `NSHostingController`.
 ///
-/// Applies `.id(shell.navigationID)` to force a destroy/recreate on every
-/// `navigate()` call, then wraps the content in `background(GeometryReader{...})`
-/// that calls `onSizeChange` on `.onAppear` and `.onChange(of: geo.size)`,
-/// matching `PopoverController.setupPopover()` in runbot-hq/MenuBarKit PR #6.
+/// Applies `.id(navigationID)`, `.fixedSize()`, then `background(GeometryReader)`
+/// that calls `onSizeChange` on `.onAppear` and `.onChange(of: geo.size)`.
 ///
-/// ❌ NEVER use `.frame(width:height:)` or `.fixedSize()` here — this view
-///    must propose unconstrained space to content so `fittingSize` is meaningful.
+/// This matches `PopoverController.setupPopover()` in runbot-hq/MenuBarKit PR #6
+/// exactly: `pendingRootView.fixedSize().background(GeometryReader{...})`.
+///
+/// `.fixedSize()` is required so the GeometryReader measures the content's
+/// INTRINSIC size rather than the proposed size from NSHostingController.
+/// See MODIFIER ORDER in the MARK comment above.
 struct NavigationShellView: View {
     @Environment(NavigationShell.self) private var shell
 
@@ -105,9 +132,17 @@ struct NavigationShellView: View {
             // GeometryReader sees no size change — popover stays frozen.
             // Matches PR #6's .id(appState.route) on the Group switch.
             .id(shell.navigationID)
-            // Matches PR #6: background GeometryReader reports intrinsic size
-            // WITHOUT influencing content layout (a foreground/parent
-            // GeometryReader would propose its own size back to content).
+            // .fixedSize() — REQUIRED. Matches PR #6's pattern.
+            // Forces SwiftUI to measure intrinsic size regardless of the space
+            // proposed by NSHostingController (which echoes popover.contentSize
+            // when sizingOptions = []). Without this the GeometryReader sees
+            // the proposed size (frozen after first layout) and onChange never
+            // fires as content grows.
+            // ❌ NEVER remove. ❌ NEVER move after .background().
+            .fixedSize()
+            // background GeometryReader reports intrinsic size WITHOUT
+            // influencing content layout. Fires onSizeChange on appear and
+            // on every subsequent size change (workflow rows loading, etc.).
             .background(
                 GeometryReader { geo in
                     Color.clear
