@@ -12,7 +12,8 @@
 - [Data Model](#data-model)
 - [Concurrency Model](#concurrency-model)
 - [NSPopover Decisions](#nspopover-decisions)
-
+- [Design](#design)
+ 
 # RunBot — UI Architecture Decisions
 
 Regression guards and architectural decisions enforced inline in the source.
@@ -848,3 +849,7 @@ re-presents the sheet automatically because the binding is still `true`.
 ❌ NEVER call popover.performClose() while a sheet is open without first calling
         hidePopoverWindowsPreservingSheets()
 ```
+
+### Design
+- liquid glass: https://gist.github.com/eonist/a8f0d160c7e9e37f634a15c3a33a8109
+
