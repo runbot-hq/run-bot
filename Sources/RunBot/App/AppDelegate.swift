@@ -25,11 +25,11 @@ import SwiftUI
 //    preferredEdge: .minY) — anchors to a 1pt sliver at the status item
 //    button's horizontal midpoint (see positioningRect(for:) below and the
 //    ANCHOR RECT note), NOT the full button bounds.
-// 3. Size is driven by GeometryReader in PanelContainerView, which calls
+// 3. Size is driven by GeometryReader in NavigationShellView (permanent
+//    NSHostingController root), which calls onSizeChange → 
 //    resizeAndRepositionPanel(preferredSize:) directly with the SwiftUI-
 //    reported size. KVO on preferredContentSize is NOT used.
-//    See SIZE REPORTING note in PanelContainerView.swift and SIZE NOTE in
-//    AppDelegate+PanelSetup.swift.
+//    See NavigationShell.swift for the full SIZE REPORTING architecture.
 // 4. Width is clamped to [minWidth..maxWidth] from screen bounds.
 // 5. Dismiss: popover.performClose(nil) driven by the global NSEvent monitor
 //    (outside clicks) and NSWorkspace app-switch notification.
@@ -106,8 +106,6 @@ import SwiftUI
 // or height, or origin.x == 0 while the status item's screen visibleFrame
 // does NOT start at x == 0 — the delta shift is skipped and a warning is
 // logged instead of propagating a bad baseline into window.setFrameOrigin().
-// This does not replace the delta math above; it guards it and makes the
-// next repro observable instead of another blind theory.
 //
 // AUTOHIDE SIDE-JUMP AT OPEN TIME (separate issue from the above — NOT
 // covered by MenuBarKit PR #6's applyContentSize, which only addresses
@@ -149,13 +147,13 @@ import SwiftUI
 //   true, and re-presents the sheet automatically.
 //
 // closePanel() IS different: it is called when the user explicitly closes
-// (e.g. pressing Escape, or navigating back). In that case we DO reset rootView
+// (e.g. pressing Escape, or navigating back). In that case we DO reset content
 // to mainView() so the next open starts fresh at the main view.
 //
 // ❌ NEVER add dismissSheets() to hidePanel() — it destroys sheet @State.
-// ❌ NEVER reset hostingController.rootView inside hidePanel().
+// ❌ NEVER reset navigationShell.content inside hidePanel().
 // ❌ NEVER add a validatedView(for: .settings) navigate() call inside openPanel()
-//    when the current rootView is already SettingsView — it replaces the live
+//    when the current content is already SettingsView — it replaces the live
 //    view with a new struct and resets all @State.
 
 // MARK: - AppDelegate
@@ -180,14 +178,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let appState = AppState()
 
     /// The NSStatusItem anchoring the menu-bar icon and popover.
-    /// App-owned — RunBot manages the dynamic icon observation task and button
-    /// action directly. MBKPopoverController is NOT used in PR-A.
     var statusItem: NSStatusItem?
-    /// The NSPopover that hosts the SwiftUI panel (replaces the old KeyablePanel/NSPanel approach).
+    /// The NSPopover that hosts the SwiftUI panel.
     var popover: NSPopover?
-    /// The SwiftUI hosting controller embedded inside `popover`. Its `rootView` is
-    /// swapped on navigation; the controller itself is never recreated.
+    /// The SwiftUI hosting controller embedded inside `popover`.
+    /// Root is NavigationShellView — NEVER replaced. See NavigationShell.swift.
     var hostingController: NSHostingController<AnyView>?
+
+    /// Permanent navigation slot. navigate(to:) writes content here.
+    /// NavigationShellView reads it. The GeometryReader that drives popover
+    /// sizing lives in NavigationShellView — above this slot — so it is
+    /// never torn down by content changes. See NavigationShell.swift.
+    ///
+    /// ❌ NEVER replace hostingController.rootView after setupPanel().
+    /// ❌ NEVER create a second NavigationShell.
+    var navigationShell: NavigationShell?
 
     /// Gate that tracks whether a sheet or file-picker overlay is active.
     ///
@@ -200,24 +205,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let overlayGate = MBKOverlayGate()
 
     /// Sheet state that must survive transient popover hides.
-    /// Stays on AppDelegate (wiring concern — not domain state). See issue #2040.
     let panelSheetState = PanelSheetState()
     /// Owns `panelIsOpen`, `preservedSheetWindowHide`, the global NSEvent
     /// outside-click monitor, and the NSWorkspace app-switch observer.
-    /// AppDelegate is reduced to a wiring layer for these concerns (#1374).
     let lifecycleCoordinator = PopoverLifecycleCoordinator()
     // Regression guard — see ARCHITECTURE.md §panelVisibilityState.
     /// Shared observable that tracks whether the panel is open.
-    /// Injected into every SwiftUI view via `wrapEnv(_:)`.
     /// ❌ NEVER remove. ❌ NEVER remove from wrapEnv().
     let panelVisibilityState = PanelVisibilityState()
     /// Minimum popover content width.
     static let minWidth: CGFloat = 280
-    /// Forwarded from `lifecycleCoordinator` for read access across AppDelegate extensions.
-    /// Extensions read via this computed var; writes go via `lifecycleCoordinator.setPanelIsOpen(_:)`.
+    /// Forwarded from `lifecycleCoordinator` for read access across extensions.
     var panelIsOpen: Bool { lifecycleCoordinator.panelIsOpen }
-    /// Forwarded from `lifecycleCoordinator` for read access across AppDelegate extensions.
-    /// Extensions read via this computed var; writes go via `lifecycleCoordinator.setPreservedSheetWindowHide(_:)`.
+    /// Forwarded from `lifecycleCoordinator` for read access across extensions.
     var preservedSheetWindowHide: Bool { lifecycleCoordinator.preservedSheetWindowHide }
     /// Maximum popover content width (90% of screen).
     var maxWidth: CGFloat { min(900, statusItemScreen.visibleFrame.width * 0.9) }
@@ -228,21 +228,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem?.button?.window?.screen ?? NSScreen.main ?? NSScreen.screens[0]
     }
 
-    /// Number of `showPopoverRetryingIfNeeded()` retries attempted for the current open.
-    /// Reset to 0 at the start of every `openPanel()` call.
     private var showRetryCount = 0
-    /// Hard cap on retries so a persistently invalid button frame can never hang
-    /// the open path or loop forever — falls back to showing immediately.
     private static let maxShowRetries = 10
-    /// The button frame observed on the PREVIOUS `showPopoverRetryingIfNeeded()`
-    /// tick, used to confirm the frame has settled (identical two ticks in a row)
-    /// rather than trusting a single non-zero sample taken mid-slide-in.
-    /// Reset to nil at the start of every `openPanel()` call.
     private var lastObservedButtonFrame: NSRect?
 
     // MARK: - Sheet guard
 
-    /// Returns true when a SwiftUI sheet is currently presented over the popover.
     var hasActiveSheet: Bool {
         guard let popoverWindow = popover?.contentViewController?.view.window else { return false }
         return !popoverWindow.sheets.isEmpty
@@ -251,22 +242,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Environment injection
 
     /// Wraps a SwiftUI view in the shared environment objects required by the panel.
-    /// Every view produced by a view-factory in AppDelegate+Navigation.swift must
-    /// pass through this helper.
     /// ❌ NEVER remove `panelVisibilityState` from the environment injection here.
-    /// `PanelContainerView` and its dim overlay observe this object;
-    /// removing it causes a runtime crash on sheet dismissal.
     func wrapEnv<V: View>(_ view: V) -> AnyView {
-        // Capture lifecycleCoordinator weakly so the environment closure cannot
-        // extend AppDelegate's lifetime if AppDelegate is ever shortened. In
-        // normal app lifetime AppDelegate is never released, but [weak self]
-        // is the defensive correct pattern for closure captures on classes.
         let suppressHidePanel: @MainActor @Sendable () -> Void = { [weak self] in
             self?.lifecycleCoordinator.suppressHidePanel()
         }
         return AnyView(view
             .environment(panelVisibilityState)
-            .environment(appState)          // top-level domain coordinator (issue #2040)
+            .environment(appState)
             .environment(overlayGate)
             .environment(\.suppressHidePanel, suppressHidePanel)
         )
@@ -279,17 +262,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// — see the "LATERAL JUMP PREVENTION" note at the top of this file, and
     /// runbot-hq/MenuBarKit issue #12 / PR #6).
     ///
-    /// Called exclusively by `PanelContainerView.onSizeChange` (via the view
-    /// factories in AppDelegate+Navigation.swift). SwiftUI reports its own size
-    /// directly via a GeometryReader; this function never reads
+    /// Called exclusively by NavigationShellView's GeometryReader onSizeChange.
+    /// SwiftUI reports its own size directly; this function never reads
     /// `preferredContentSize` or any KVO-derived value.
     ///
-    /// ⚠️ Every branch of this function is logged (see "INSTRUMENTATION +
-    /// DEGENERATE-BASELINE GUARD" note at the top of this file). Do not strip
-    /// the logging in a future cleanup pass without checking whether the
-    /// mid-session sidejump has actually been closed out — it was invisible
-    /// for multiple debugging rounds specifically because this function was
-    /// silent.
+    /// ⚠️ Every branch is logged — do not strip logging without first confirming
+    /// the mid-session sidejump is closed (was invisible for multiple rounds
+    /// because this function was previously silent).
     func resizeAndRepositionPanel(preferredSize preferred: CGSize) {
         guard panelIsOpen, let popover else { return }
         guard preferred.height > 0 else { return }
@@ -303,21 +282,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             popover.contentSize = NSSize(width: newW, height: newH)
             return
         }
-        // Read the frame BEFORE mutating contentSize — AppKit repositions the
-        // window as a side-effect of the contentSize write, so reading after
-        // would give a frame already shifted by AppKit's own bottom-left growth.
         let oldFrame = window.frame
         let dw = newW - currentSize.width
         let dh = newH - currentSize.height
         log("AppDelegate › resizeAndRepositionPanel — oldFrame=\(oldFrame) currentSize=\(currentSize) " +
             "newW=\(newW) newH=\(newH) dw=\(dw) dh=\(dh)")
-        // Degenerate-baseline guard: if oldFrame is zero-sized, or its origin.x
-        // is 0 while the status item's screen does NOT start at x == 0, the
-        // frame we just read is not a trustworthy baseline for the delta shift
-        // (see "INSTRUMENTATION + DEGENERATE-BASELINE GUARD" note above). Skip
-        // the origin correction rather than propagate a bad baseline — the
-        // window still resizes via contentSize below, just without the
-        // (currently unreliable) position correction for this one call.
         let screenVisibleOriginX = statusItemScreen.visibleFrame.origin.x
         let oldFrameLooksDegenerate = oldFrame.width <= 0 || oldFrame.height <= 0
             || (oldFrame.origin.x == 0 && screenVisibleOriginX != 0)
@@ -329,32 +298,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         popover.contentSize = NSSize(width: newW, height: newH)
-        // Shift the EXISTING origin by the delta — never recompute an absolute
-        // target from button/screen coordinates (see doc comment above).
         var newOrigin = oldFrame.origin
-        newOrigin.x -= dw / 2   // grow symmetrically → midX stays fixed
-        newOrigin.y -= dh       // grow downward only → maxY (top/arrow edge) stays fixed
+        newOrigin.x -= dw / 2
+        newOrigin.y -= dh
         log("AppDelegate › resizeAndRepositionPanel — newOrigin=\(newOrigin)")
         window.setFrameOrigin(newOrigin)
     }
 
     // MARK: - Navigation
 
-    /// Swaps the hosting controller's `rootView` to `view`.
-    /// Size update is driven by the GeometryReader in PanelContainerView firing
-    /// onSizeChange after the rootView swap — do NOT call
-    /// resizeAndRepositionPanel() here, it would race the GeometryReader tick
-    /// and read a stale preferredContentSize for the new view.
+    /// Swaps the content slot in the permanent NavigationShell.
+    ///
+    /// NavigationShellView reads the slot and re-renders. The GeometryReader in
+    /// NavigationShellView is NEVER torn down by this call — it always exists at
+    /// the NSHostingController root level. After the content swap, SwiftUI
+    /// re-lays-out the new view inside the same frame proposal, the GeometryReader
+    /// sees the new intrinsic size, and onChange fires →
+    /// resizeAndRepositionPanel(preferredSize:) resizes the popover correctly.
+    ///
+    /// ❌ NEVER set hostingController.rootView here — that tears down the shell.
     /// ❌ NEVER call this from a SwiftUI view — use callbacks only.
-    /// Calling directly from a SwiftUI view creates a retain cycle via the
-    /// closure capture and bypasses the actor-safe callback path.
     func navigate(to view: AnyView) {
-        hostingController?.rootView = view
+        navigationShell?.content = view
     }
 
     // MARK: - Make key for text input
 
-    /// Promotes the app to key so TextFields in the popover receive input.
     func makeKeyForTextInput() {
         NSApp.activate(ignoringOtherApps: true)
     }
@@ -362,32 +331,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Dismiss
 
     /// Shared teardown called by every close/hide path.
-    /// Resets `panelIsOpen` and the visibility state flag.
-    /// Internal (not private) — called cross-file from AppDelegate+PanelSetup.swift.
-    /// ⚠️ Must be called on the main actor. AppDelegate is @MainActor;
-    /// do not call from background threads or completion handlers.
-    /// Does NOT reset `savedNavState` — callers that want a full close (not a hide)
-    /// must nil it out themselves (see `closePanel()`).
-    /// Does NOT reset `panelVisibilityState.isTransientHide` — that flag is cleared
-    /// by `openPanel()` on re-open.
-    /// Note: the `Thread.callStackSymbols` log line below is wrapped in `#if DEBUG`
-    /// and compiles away completely in release builds.
     @MainActor
     func tearDownOpenState() {
 #if DEBUG
         log("AppDelegate › tearDownOpenState — caller=\(Thread.callStackSymbols[1])")
 #endif
-        // Order matters: coordinator clears panelIsOpen first, then SwiftUI state follows.
-        // Both are @MainActor so there is no concurrency gap between the two writes,
-        // but panelIsOpen must be false before panelVisibilityState.isOpen triggers
-        // any onChange observer that reads panelIsOpen.
         lifecycleCoordinator.tearDown()
         panelVisibilityState.isOpen = false
     }
 
     /// Closes the popover explicitly (Escape / back navigation / manual close).
-    /// Resets rootView to main so next open starts fresh.
-    /// ❌ Do NOT call this from outside-tap / workspace-switch — use hidePanel().
+    /// Resets content to main so next open starts fresh.
     func closePanel() {
         log("AppDelegate › closePanel — panelIsOpen=\(panelIsOpen)")
         guard panelIsOpen else {
@@ -399,19 +353,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         tearDownOpenState()
         appState.savedNavState = nil
         panelSheetState.clearRunnerSheet()
-        hostingController?.rootView = mainView()
+        // Reset to main so the next open starts fresh.
+        // ❌ Do NOT do this in hidePanel() — it destroys sheet @State.
+        navigationShell?.content = mainView()
     }
 
     /// Hides the popover on outside-tap or workspace app-switch.
-    ///
-    /// Called directly by `outsideClickMonitor` and `workspaceObserver` (both installed in `openPanel()`).
-    /// Intentionally does NOT call dismissSheets() and does NOT reset rootView.
-    /// The NSHostingController and its SwiftUI @State (including any open sheet
-    /// bindings) remain alive. On re-open, popover.show() reattaches the same
-    /// controller and SwiftUI re-presents the sheet automatically.
-    ///
-    /// ❌ NEVER add dismissSheets() here.
-    /// ❌ NEVER reset hostingController.rootView here.
+    /// ❌ NEVER reset navigationShell.content here — sheet @State must survive.
     func hidePanel() {
 #if DEBUG
         let behavior = popover?.behavior.rawValue ?? -1
@@ -425,12 +373,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         panelSheetState.captureTransientHideState()
-        // ❌ Set isTransientHide = true BEFORE isOpen = false.
-        // PanelContainerView.onChange fires synchronously when isOpen changes.
-        // If isTransientHide is not already true at that point, onChange will
-        // incorrectly clear isSheetActive, causing the dim-overlay animation to
-        // replay on the next restore even though the sheet never closed.
-        // See PanelVisibilityState.isTransientHide for the full lifecycle.
         panelVisibilityState.isTransientHide = true
         if hidePopoverWindowsPreservingSheets() {
             tearDownOpenState()
@@ -477,7 +419,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return true
     }
 
-    /// Makes the lazy NSPopover backing window key immediately after show/restore.
     func makePopoverWindowKeyIfPossible() {
         guard let popoverWindow = popover?.contentViewController?.view.window else { return }
         NSApp.activate(ignoringOtherApps: true)
@@ -486,16 +427,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Toggle
 
-    /// Toggles the popover: opens it if closed, closes it if open.
-    /// Called by the NSStatusItem button action.
     @objc func togglePanel() {
         if panelIsOpen { closePanel() } else { openPanel() }
     }
 
     // MARK: - Open
 
-    /// Shows the popover anchored to the status bar button.
-    /// ⚠️ show() is called ONCE per open. Resize is done via contentSize only.
     func openPanel() {
         guard let button = statusItem?.button, let popover else { return }
         log("AppDelegate › openPanel — LocalRunnerStore pushes state on every cycle, no seed needed")
@@ -516,18 +453,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// Returns a fresh positioningRect derived from the button's CURRENT bounds:
-    /// a 1pt-wide sliver pinned to the button's horizontal midpoint, or `nil` if
-    /// those bounds are degenerate (zero width/height).
-    ///
-    /// Matches `MBKPopoverController.positioningRect(for:)` in runbot-hq/MenuBarKit
-    /// PR #6. Deliberately NOT `button.bounds` — passing the full bounds means the
-    /// popover's initial anchor point moves if the button's width itself shifts
-    /// (e.g. mid-autohide-reveal, while neighboring status items are still
-    /// resettling), which is a jump source independent of and prior to anything
-    /// `resizeAndRepositionPanel(preferredSize:)` does. A 1pt sliver removes that
-    /// dependency — the anchor is a single stable x-coordinate, not a rect whose
-    /// own width can be in flux. See the "ANCHOR RECT" note at the top of this file.
     private func positioningRect(for button: NSStatusBarButton) -> NSRect? {
         let bounds = button.bounds
         guard bounds.width > 0, bounds.height > 0 else {
@@ -537,29 +462,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return NSRect(x: bounds.midX - 0.5, y: bounds.minY, width: 1, height: bounds.height)
     }
 
-    /// Shows `popover` relative to `button`, retrying on the next run-loop turn if the
-    /// button's backing window does not yet have a valid, SETTLED on-screen frame.
-    ///
-    /// AUTOHIDE FIX: with menu bar auto-hide enabled, the click that triggers
-    /// `togglePanel()` is often the SAME click that reveals the menu bar. AppKit may
-    /// not have finished laying out the revealed status item at that instant, so
-    /// `button.window`'s frame can still be zero/off-screen, OR — the case a single
-    /// non-zero sample missed — mid-slide-in with a frame that is non-zero and
-    /// on-screen but NOT YET FINAL. Calling `popover.show()` against that
-    /// transitional geometry anchors the popover at the wrong location; the menu
-    /// bar then finishes revealing, the button's real resting frame shifts, and
-    /// the already-shown popover does not follow — producing a visible sidejump.
-    ///
-    /// Fix: require the frame to be IDENTICAL across two consecutive run-loop
-    /// ticks (settled) before accepting it, not just non-zero/on-screen once.
-    /// Deferred via `DispatchQueue.main.async`, capped at `Self.maxShowRetries`
-    /// attempts, after which it falls back to showing with whatever frame is
-    /// available so the open path can never hang indefinitely.
-    ///
-    /// Also anchors via `positioningRect(for:)` (1pt midX sliver) rather than
-    /// `button.bounds` directly — see the "ANCHOR RECT" note at the top of this
-    /// file. If the bounds are degenerate on a given tick, this is treated the
-    /// same as an unsettled frame and retried.
     private func showPopoverRetryingIfNeeded(button: NSStatusBarButton, popover: NSPopover) {
         let buttonFrame = button.window?.frame ?? .zero
         let frameLooksValid = buttonFrame.width > 0 && buttonFrame.height > 0
@@ -584,10 +486,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         finishOpenPanel()
     }
 
-    /// Completes the open sequence after `popover.show()` (or the preserved-window
-    /// restore path) has run: activates the key window, resizes to fit content,
-    /// restores saved navigation state, and installs the outside-click / app-switch
-    /// monitors.
     private func finishOpenPanel() {
         makePopoverWindowKeyIfPossible()
         if let controller = hostingController {
@@ -604,12 +502,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self.panelSheetState.restoreTransientHideStateIfNeeded()
         }
         lifecycleCoordinator.installMonitors(
-            // hasActiveSheet must also cover the sheet-dismissing window:
-            // suppressHidePanel() sets isSheetDismissing = true for one run-loop
-            // turn while the sheet animates out. Without this OR, an outside-click
-            // Task queued just before Dismiss is tapped would read hasActiveSheet=false
-            // (sheet already detached) and close the popover while it is still
-            // visually animating — making suppressHidePanel() a silent no-op.
             hasActiveSheet: { [weak self] in
                 guard let self else { return false }
                 return self.hasActiveSheet || self.lifecycleCoordinator.isSheetDismissing
