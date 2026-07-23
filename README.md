@@ -33,7 +33,7 @@ One control plane for all your local runner needs. Provision new organization or
 
 #### 🤖 AI-powered actions
 
-Utilize your local AI capabilities in CI. Run AI PR reviews, AI localization, and AI release notes. 
+Utilize your local AI capabilities in CI. Run [AI PR reviews](https://github.com/runbot-hq/local-ai-code-review-action), [AI localization](https://github.com/runbot-hq/translation-framework-action), and [AI release notes](https://github.com/runbot-hq/afm-release-notes-action). 
 
 ---
 
