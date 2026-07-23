@@ -309,16 +309,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Swaps the content slot in the permanent NavigationShell.
     ///
-    /// NavigationShellView reads the slot and re-renders. The GeometryReader in
-    /// NavigationShellView is NEVER torn down by this call — it always exists at
-    /// the NSHostingController root level. After the content swap, SwiftUI
-    /// re-lays-out the new view inside the same frame proposal, the GeometryReader
-    /// sees the new intrinsic size, and onChange fires →
-    /// resizeAndRepositionPanel(preferredSize:) resizes the popover correctly.
+    /// Increments `navigationShell.navigationID` BEFORE writing the content slot.
+    /// NavigationShellView applies `.id(shell.navigationID)` to force SwiftUI to
+    /// destroy/recreate the child subtree — identical to PR #6's `.id(appState.route)`
+    /// pattern — guaranteeing `onAppear` fires with the new view's intrinsic size.
+    /// Without the ID bump, AnyView→AnyView is the same static type; SwiftUI diffs
+    /// internals only and the GeometryReader sees no size delta → popover stays frozen.
     ///
     /// ❌ NEVER set hostingController.rootView here — that tears down the shell.
     /// ❌ NEVER call this from a SwiftUI view — use callbacks only.
     func navigate(to view: AnyView) {
+        navigationShell?.navigationID += 1
         navigationShell?.content = view
     }
 
