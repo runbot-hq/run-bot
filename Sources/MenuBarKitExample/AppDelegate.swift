@@ -8,7 +8,7 @@ import SwiftUI
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
-        print("[AppDelegate] applicationDidFinishLaunching")
+        mbkLog("AppDelegate", "applicationDidFinishLaunching")
         popoverController = MBKPopoverController(
             rootView: RootView()
                 .environment(appState)
@@ -19,18 +19,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             maxWidth: 480,
             maxHeight: 600
         )
-        print("[AppDelegate] popoverController created")
+        mbkLog("AppDelegate", "popoverController created")
         popoverController.setup()
 
         popoverController.onWillShow = { [weak self] in
             guard let self, let snap = lastSession else { return }
-            print("[AppDelegate] onWillShow -- restoring route=\(snap.route)")
+            mbkLog("AppDelegate", "onWillShow -- restoring route=\(snap.route)")
             appState.route = snap.route
         }
 
         popoverController.onDidShow = { [weak self] in
             guard let self, let snap = lastSession else { return }
-            print("[AppDelegate] onDidShow -- restoring isSheetPresented=\(snap.isSheetPresented)")
+            mbkLog("AppDelegate", "onDidShow -- restoring isSheetPresented=\(snap.isSheetPresented)")
             lastSession = AppState.SessionSnapshot(route: snap.route, isSheetPresented: false)
             appState.isSheetPresented = snap.isSheetPresented
         }
@@ -38,7 +38,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         popoverController.onWillClose = { [weak self] wasForced in
             guard let self else { return }
             lastSession = appState.saveSnapshot()
-            print("[AppDelegate] onWillClose wasForced=\(wasForced) -- session saved: route=\(lastSession!.route) sheet=\(lastSession!.isSheetPresented)")
+            mbkLog("AppDelegate", "onWillClose wasForced=\(wasForced) -- session saved: route=\(lastSession!.route) sheet=\(lastSession!.isSheetPresented)")
             if wasForced {
                 // Reset live sheet state so SwiftUI tears down the sheet window
                 // before forceClose() closes the child window and performClose fires.
@@ -46,7 +46,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
-        print("[AppDelegate] setup complete")
+        mbkLog("AppDelegate", "setup complete")
     }
 
     private let appState = AppState()
