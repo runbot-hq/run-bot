@@ -133,12 +133,17 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
     }
 
     private func forceClose() {
-        // Intentional ordering: onWillClose fires first so the host can snapshot
-        // state (e.g. isSheetPresented = false) while the view tree is still live.
-        // child.close() then tears down the window at the AppKit level. SwiftUI
-        // does not need to tear down first — MBK owns the teardown explicitly.
-        // This is safe because child.close() sends windowWillClose/windowDidClose
-        // which releases the window from NSApp.windows and destroys its view tree.
+        // Intentional ordering: onWillClose fires first (wasForced: true) so the
+        // host can snapshot state while the view tree is still live. AppKit child
+        // window teardown follows.
+        //
+        // WHY onWillCloseFired GUARD IS SAFE WITH popoverDidClose:
+        //   forceClose() sets onWillCloseFired = true via fireOnWillClose, then
+        //   calls popover.performClose(nil). That triggers popoverDidClose, which
+        //   also calls fireOnWillClose(wasForced: false). The guard short-circuits
+        //   that second call — onWillClose fires exactly once, with wasForced=true.
+        //   onWillCloseFired is reset to false at the end of popoverDidClose so
+        //   the next open/close cycle starts clean.
         fireOnWillClose(wasForced: true)
         mbkLog("PopoverController", "forceClose -- clearing gate")
         overlayGate.hasActiveOverlay = false
@@ -146,10 +151,10 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
             for child in (pw.childWindows ?? []) {
                 mbkLog("PopoverController", "forceClose -- closing child #\(child.windowNumber)")
                 pw.removeChildWindow(child)
-                // close() instead of orderOut() -- sends windowWillClose/windowDidClose,
-                // which releases the window from NSApp.windows and tears down its
-                // hosted SwiftUI view tree. orderOut() only hides it, leaving a zombie
-                // view tree that receives @Environment state changes and fires duplicate alerts.
+                // close() instead of orderOut() — sends windowWillClose/windowDidClose,
+                // releases the window from NSApp.windows, and tears down its hosted
+                // SwiftUI view tree. orderOut() only hides it, leaving a zombie view
+                // tree that receives @Environment state changes and fires duplicate alerts.
                 child.close()
             }
         } else {
@@ -217,10 +222,28 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
         mbkLog("PopoverController",
                "applyContentSize -- (\(popover.contentSize.width),\(popover.contentSize.height))->(\(clamped.width),\(clamped.height))")
         popover.contentSize = clamped
-        // anchor.x is the chrome midpoint from show-time. window.frame.width is read
-        // AFTER popover.contentSize = clamped, so AppKit has already updated the frame
-        // width synchronously. The subtraction is always against the current width —
-        // no horizontal drift on route switches that change both width and height.
+        // WHY anchorPoint IS NOT STALE:
+        //   anchor.x is window.frame.midX captured at popoverWillShow time — it is
+        //   the horizontal chrome midpoint of the popover window as positioned by
+        //   AppKit relative to the status bar button. That midpoint does not change
+        //   during the popover's lifetime: AppKit only repositions horizontally on
+        //   show(), not on subsequent contentSize changes. So anchor.x is stable
+        //   for the entire open session and safe to reuse here.
+        //
+        // WHY window.frame.width IS READ AFTER contentSize ASSIGNMENT:
+        //   popover.contentSize = clamped above causes AppKit to update
+        //   window.frame.width synchronously before this line executes. Reading
+        //   window.frame.width here therefore reflects the NEW width, not the old
+        //   one. The origin calculation is always against the current frame — no
+        //   horizontal drift on route switches that change both width and height.
+        //
+        // WHY anchorPoint IS NOT CAPTURED TOO EARLY IN popoverWillShow:
+        //   anchorPoint is nil until popoverWillShow fires. The guard above
+        //   (`guard ... let anchor = anchorPoint`) means any applyContentSize call
+        //   that arrives before popoverWillShow (e.g. from GeometryReader onAppear)
+        //   takes the `not shown` branch and only records the size — it never reads
+        //   a stale frame. After popoverWillShow fires, AppKit has already positioned
+        //   the window, so the captured midX is correct.
         let newOrigin = NSPoint(x: anchor.x - window.frame.width / 2, y: anchor.y - window.frame.height)
         window.setFrameOrigin(newOrigin)
         mbkLog("PopoverController", "applyContentSize -- origin set to \(newOrigin)")
@@ -301,9 +324,12 @@ extension MBKPopoverController: NSPopoverDelegate {
             mbkLog("PopoverController", "popoverWillShow -- no hostingWindow yet")
             return
         }
-        // anchorPoint is nil until this fires, so applyContentSize takes the
-        // `not shown` branch (guard let anchor = anchorPoint) on any size event
-        // before this point. No stale frame is ever used as an anchor.
+        // anchorPoint is nil until this delegate fires, so any applyContentSize
+        // call before this point (e.g. GeometryReader onAppear during the same
+        // show cycle) takes the `not shown` guard branch and only records the
+        // size — no stale frame is ever used as an anchor.
+        // window.frame is already positioned by AppKit before this delegate fires,
+        // so midX is the correct horizontal chrome midpoint for this session.
         anchorPoint = NSPoint(x: window.frame.midX, y: window.frame.maxY)
         mbkLog("PopoverController", "popoverWillShow -- anchor=\(anchorPoint!) hostingWindow=#\(window.windowNumber)")
     }
@@ -315,6 +341,9 @@ extension MBKPopoverController: NSPopoverDelegate {
     }
 
     public func popoverDidClose(_ notification: Notification) {
+        // fireOnWillClose is guarded by onWillCloseFired — if forceClose() already
+        // fired it (wasForced: true), this call is a no-op. onWillCloseFired is
+        // reset below so the next open/close cycle starts clean.
         fireOnWillClose(wasForced: false)
         setButtonHighlight(false)
         stopEventMonitor()
