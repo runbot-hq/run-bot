@@ -77,7 +77,8 @@ on:
 # cancelled after "Commit patched Info.plist" but before "Tag and push". In
 # that case the source branch will have a version bump commit with no tag.
 # Recovery:
-#   git revert HEAD --no-edit && git push origin <branch>
+#   git revert <plist-commit-sha> --no-edit && git push origin <branch>
+# Use the exact SHA logged by the "Commit patched Info.plist" step output.
 # then re-run the workflow. See docs/RELEASING.md § Rollback procedure.
 #
 # TAG-NAMESPACE COLLISION RISK (accepted — not an oversight, see below):
