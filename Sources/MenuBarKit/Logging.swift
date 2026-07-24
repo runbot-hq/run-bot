@@ -8,6 +8,14 @@ import Foundation
 /// Set this before calling `MBKPopoverController.setup()`.
 /// Isolated to `@MainActor` because all MBK log call sites are on the main actor.
 ///
+/// - Note: `deinit` log lines in `MBKSheetAnchorTask` bypass this handler and
+///   always go to `print` directly. Swift does not allow calling `@MainActor`-
+///   isolated functions from `deinit`, so `mbkLog` (and therefore this handler)
+///   cannot be reached from that context. If you install a custom handler to
+///   route logs to os_log or a structured logger, be aware that object
+///   deallocation traces from `MBKSheetAnchorTask` will still appear on stdout
+///   regardless of your handler configuration.
+///
 /// Example:
 /// ```swift
 /// mbkLogHandler = { subsystem, message in
