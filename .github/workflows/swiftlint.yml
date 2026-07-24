@@ -10,6 +10,12 @@ jobs:
     name: SwiftLint
     runs-on: macos-latest
     timeout-minutes: 15
+    # Only run on PRs from this repo, not forks. Fork PRs execute arbitrary
+    # code (swiftlint) on our runner — restrict to collaborators only.
+    # push: events (branch=main) are always from this repo and are unaffected.
+    if: |
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name == github.repository
 
     steps:
       - name: Checkout
