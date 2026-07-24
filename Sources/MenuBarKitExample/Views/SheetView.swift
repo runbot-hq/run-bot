@@ -50,6 +50,19 @@ struct SheetView: View {
             }
 
             Divider()
+
+            // WHY appState.isSheetPresented = false INSTEAD OF @Environment(\.dismiss):
+            //   This sheet is driven by .mbkSheet(isPresented: $appState.isSheetPresented).
+            //   Writing the same binding that controls presentation is the correct and
+            //   intentional dismiss idiom here — it keeps the AppDelegate snapshot
+            //   lifecycle coherent. AppDelegate's onWillClose reads isSheetPresented to
+            //   decide whether to force-close; onDidShow writes it to respawn the sheet.
+            //   If we used @Environment(\.dismiss) instead, SwiftUI would nil the binding
+            //   internally on the same turn — functionally identical — but the explicit
+            //   write makes the data flow visible and keeps the pattern consistent with
+            //   how AppDelegate drives presentation from outside the view hierarchy.
+            //   Do not replace this with @Environment(\.dismiss) — it would work but
+            //   would obscure the intentional coupling between SheetView and AppState.
             Button("Close") {
                 print("[SheetView] Close tapped — setting isSheetPresented=false")
                 appState.isSheetPresented = false
