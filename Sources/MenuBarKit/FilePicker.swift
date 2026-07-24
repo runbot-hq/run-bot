@@ -14,6 +14,16 @@
 //   Reading the popover's actual level and adding 1 guarantees the panel
 //   is always on top.
 //
+// WHY panel.makeKeyAndOrderFront AFTER panel.begin:
+//   panel.begin{} presents the panel as a floating window but does NOT
+//   automatically bring it in front of the popover — the nonactivatingPanel
+//   retains key status. makeKeyAndOrderFront(nil) explicitly raises the panel
+//   to key and front so the user sees it immediately. This is intentional and
+//   was verified against the alternative of relying solely on panel.level;
+//   level alone does not transfer key focus on macOS 14+.
+//   NSApp.activate is NOT called here — it would steal app focus from other
+//   apps in menu-bar-only scenarios where the app has no Dock presence.
+//
 // WHY panel.orderOut AFTER COMPLETION:
 //   NSOpenPanel windows accumulate in NSApp.windows without explicit orderOut.
 //
@@ -43,6 +53,8 @@
 //   performClose. One DispatchQueue.main.async hop defers the clear past the
 //   monitor's event delivery. The two hops serve different purposes: the Task
 //   hop enforces actor isolation; the GCD hop defers past AppKit event delivery.
+//   Both flags are cleared atomically inside the GCD hop; completion fires after
+//   both are false.
 
 import AppKit
 
@@ -103,6 +115,10 @@ public func mbkOpenFilePicker(
         }
     }
 
+    // Explicitly raise the panel to key and front after panel.begin.
+    // panel.begin presents the panel floating but the nonactivatingPanel popover
+    // retains key status — makeKeyAndOrderFront transfers focus to the picker.
+    // See file header "WHY panel.makeKeyAndOrderFront" for full rationale.
     panel.makeKeyAndOrderFront(nil)
     mbkLog("FilePicker", "panel.begin returned — panel=#\(panel.windowNumber) level=\(panel.level.rawValue)")
 }

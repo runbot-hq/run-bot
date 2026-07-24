@@ -46,6 +46,14 @@ final class MBKSheetAnchorTask {
                     mbkLog("AnchoredSheet[\(capturedLabel)]", "hop2 — cancelled/deallocated")
                     return
                 }
+                // NOTE: `cancelled` is an @MainActor-isolated property read here
+                // inside a DispatchQueue.main.async closure. This is safe at runtime
+                // because GCD main queue == main thread == MainActor executor, but the
+                // Swift type system does not verify this statically. Under Swift 6
+                // strict concurrency this pattern may require `@MainActor` annotation
+                // on the closure. The TOCTOU window between the guard check and
+                // addChildWindow is acknowledged — cancellation is best-effort once
+                // this hop is already executing.
                 let pw = self.popoverWindow
                 let allWindows = NSApp.windows
                 mbkLog("AnchoredSheet[\(self.label)]", "hop2 — polling \(allWindows.count) windows")
@@ -87,8 +95,12 @@ final class MBKSheetAnchorTask {
 
 public extension View {
     /// Presents an anchored sheet and manages the overlay gate for its lifetime.
+    ///
     /// `MBKOverlayGate` is resolved from the SwiftUI environment — inject it at
-    /// the root view via `.environment(overlayGate)` and no parameter is needed.
+    /// the root view via `.environment(overlayGate)` before using this modifier.
+    ///
+    /// - Warning: Requires `MBKOverlayGate` to be present in the SwiftUI environment.
+    ///   If not injected, SwiftUI will raise a fatal error at runtime.
     func mbkSheet<SheetContent: View>(
         isPresented: Binding<Bool>,
         @ViewBuilder content: @escaping () -> SheetContent
@@ -97,8 +109,12 @@ public extension View {
     }
 
     /// Presents an item-driven anchored sheet and manages the overlay gate for its lifetime.
+    ///
     /// `MBKOverlayGate` is resolved from the SwiftUI environment — inject it at
-    /// the root view via `.environment(overlayGate)` and no parameter is needed.
+    /// the root view via `.environment(overlayGate)` before using this modifier.
+    ///
+    /// - Warning: Requires `MBKOverlayGate` to be present in the SwiftUI environment.
+    ///   If not injected, SwiftUI will raise a fatal error at runtime.
     func mbkSheet<Item: Identifiable & Equatable, SheetContent: View>(
         item: Binding<Item?>,
         @ViewBuilder content: @escaping (Item) -> SheetContent
