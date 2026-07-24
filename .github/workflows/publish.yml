@@ -679,6 +679,10 @@ jobs:
         if: ${{ inputs.dry_run != 'true' }}
         run: |
           set -euo pipefail
+          # INJECTION NOTE: steps.tag.outputs.tag is workflow-internal — computed by
+          # the Compute next tag step and constrained to a semver regex. It is not
+          # user-supplied and cannot contain shell metacharacters. Inline interpolation
+          # here is intentional and safe; see Create GitHub Release for the same pattern.
           TAG="${{ steps.tag.outputs.tag }}"
           # Capture the plist commit SHA explicitly so the tag is guaranteed to
           # point at the patched plist regardless of any concurrent push to the branch.
