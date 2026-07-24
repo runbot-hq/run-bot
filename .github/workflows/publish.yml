@@ -1,5 +1,13 @@
 # Triggered via workflow_dispatch from any branch.
-# Use: gh workflow run publish.yml --ref <branch> --field channel=beta --field dry_run=false
+# Use: gh workflow run publish.yml --ref main \
+#        --field branch=<source-branch> \
+#        --field channel=beta \
+#        --field dry_run=false
+#
+# Note: --ref controls which branch the workflow YAML is read from (always main).
+#       --field branch= controls which branch is actually checked out and built.
+#       To release from a feature branch, keep --ref main and set --field branch=<your-branch>.
+#       To release from main (default), --field branch= can be omitted.
 #
 # Responsibilities:
 #   1. Compute the next semver tag from git history.
@@ -595,10 +603,15 @@ jobs:
 
     steps:
       # ── Checkout (needed by afm-release-notes-action for git tag history) ─────────────
+      # ref: inputs.branch ensures consistency with the publish job and future-proofs
+      # this step against any branch-sensitive work added to the release job.
+      # afm-release-notes-action operates on the tag (fetched from origin), not the
+      # local working tree, so this has no functional effect today.
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 0
+          ref: ${{ inputs.branch }}
 
       # ── Download build artifacts from publish job ──────────────────────────────────────
       - name: Download build artifacts
