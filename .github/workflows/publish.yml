@@ -739,14 +739,22 @@ jobs:
       #     if: ...          ← MUST come before uses:
       #     uses: ...        ← the action reference
       #     with: ...        ← inputs to the action
-      #     continue-on-error: ...
-      #
+      #     continue-on-error: ...\n      #
       # `run:`-based steps do NOT have this restriction — id:/if: work in any
       # order there. This constraint is specific to `uses:` steps.
       - name: Generate AFM release notes
         id: afm_notes
         if: inputs.release_notes == ''
         uses: runbot-hq/afm-release-notes-action@main
+        # @main is intentional and not a policy violation:
+        #   1. runbot-hq/afm-release-notes-action is a first-party action in the
+        #      same org — we control both repos. A breaking change to afm-release-notes-action
+        #      is a deliberate act by the same team, not a supply-chain risk.
+        #   2. continue-on-error: true means a bad afm commit cannot break a release —
+        #      the worst outcome is degrading to GitHub's --generate-notes fallback.
+        #   3. Pinning to a SHA would create friction on every AFM update with zero
+        #      safety gain given (1) and (2). docs/RELEASING.md § Pinned action SHAs
+        #      applies to third-party actions only.
         with:
           tag: ${{ needs.publish.outputs.tag }}
         env:
