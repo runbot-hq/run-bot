@@ -360,11 +360,11 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
                     if hasFilePicker {
                         mbkLog("PopoverController", "event monitor -- file picker active, ignoring outside click")
                     } else {
-                        // Cache panelWindow once here so hasSheetChildWindow and
-                        // forceClose don't each scan NSApp.windows independently.
-                        // hasSheetChildWindow still does its own scan via the
-                        // computed var — this local is passed to forceClose to
-                        // reuse the result of that single scan.
+                        // Capture the Bool result once so the predicate (and its
+                        // mbkLog) fires exactly once per outside-click. forceClose()
+                        // does its own panelWindow scan internally — that scan only
+                        // runs on the taken branch (sheet present) and is not
+                        // duplicated here.
                         let hasSheet = self.hasSheetChildWindow
                         if hasSheet {
                             mbkLog("PopoverController", "event monitor -- sheet overlay, force-closing")
