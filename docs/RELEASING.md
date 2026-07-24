@@ -46,13 +46,13 @@ When using the GitHub Actions UI, leave the "Use workflow from" selector on `mai
 
 The [semver spec §9](https://semver.org/#spec-item-9) gives pre-release versions *lower* precedence than the normal version they annotate:
 
-```
+```text
 v0.7.2-beta.1  <  v0.7.2
 ```
 
 This means a beta tagged against the current stable base would appear *older* than the stable release it follows — UpdateChecker would never offer it as an update. Using `PATCH+1` as the beta base fixes this:
 
-```
+```text
 v0.7.3-beta.1  >  v0.7.2   ✓ beta users are ahead of stable
 ```
 
@@ -75,10 +75,13 @@ The workflow is designed so that partial failures leave the repo in a recoverabl
 ### Plist commit pushed, no tag
 
 ```sh
-# Revert the plist commit on the source branch
+# Revert the plist commit on the source branch.
+# Use the exact SHA from the workflow run's 'Commit patched Info.plist' step
+# output — do NOT use HEAD, as the branch may have advanced since the run.
 git fetch origin <branch>
 git checkout <branch>
-git revert HEAD --no-edit
+git pull --ff-only origin <branch>
+git revert <plist-commit-sha> --no-edit
 git push origin <branch>
 ```
 
@@ -108,8 +111,8 @@ The collision surfaces at `git push origin $TAG` in the `Tag and push` step: one
 ### Recovery
 
 1. Identify which run lost the race (the one whose `Tag and push` step failed).
-2. Re-trigger the workflow from that branch. The tag counter will now advance to `beta.2` (because `beta.1` exists on origin), so the run will compute `v0.7.3-beta.2` and succeed.
-3. No manual tag deletion or branch revert is needed — the plist commit from the failed run used `beta.1` version strings. You may optionally revert it before re-running so the new plist commit carries `beta.2` strings, but this is cosmetic; `CFBundleVersion` (the build number) will still be monotonically increasing.
+2. The losing branch now has a plist commit with version strings for the tag that was never pushed on that branch (e.g. `beta.1`). Before re-running, revert that commit using its exact SHA from the workflow run logs — otherwise the next run will push `beta.2` on top of a stale `beta.1` plist commit, leaving two version-bump commits with no intervening real work.
+3. Re-trigger the workflow from that branch. The tag counter will now advance to `beta.2` (because `beta.1` exists on origin), so the run will compute `v0.7.3-beta.2` and succeed.
 
 ### Why no global serialisation lock
 
@@ -119,7 +122,7 @@ A global `concurrency.group` (without the branch component) would queue all publ
 
 ## Pinned action SHAs
 
-All `uses:` references in `publish.yml` are pinned to full commit SHAs. To update an action:
+Most `uses:` references in `publish.yml` are pinned to full commit SHAs. To update an action:
 
 1. Find the new commit SHA on the action's repository.
 2. Update the `uses:` line in `publish.yml`.

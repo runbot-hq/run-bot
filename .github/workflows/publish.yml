@@ -612,7 +612,7 @@ jobs:
       # Skipped on dry_run — no release job runs in that case anyway.
       - name: Upload build artifacts
         if: ${{ inputs.dry_run != 'true' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4.3.3
         with:
           name: release-assets
           path: |
@@ -641,8 +641,8 @@ jobs:
       # through env: — NOT interpolated inline via ${{ }} — so the runner sets it
       # as a plain environment variable before the shell starts. Inline interpolation
       # would allow a crafted branch name to execute arbitrary shell commands.
-      # BRANCH is additionally validated against ^[A-Za-z0-9._/-]+$ immediately
-      # below, which rejects any value containing shell metacharacters before any
+      # BRANCH is additionally validated via git check-ref-format immediately below,
+      # which rejects any value that is not a valid Git branch name before any
       # git operation runs.
       - name: Commit patched Info.plist
         if: ${{ inputs.dry_run != 'true' }}
@@ -656,15 +656,13 @@ jobs:
             echo "::error::inputs.branch is empty — cannot commit or push to an unnamed branch" >&2
             exit 1
           fi
-          # Validate branch name format. Accepts all real branch names (main,
-          # fix/foo, feature/bar-2, v1.0.x). Rejects shell metacharacters
-          # (backticks, $(), ;, &&, |, whitespace) that could execute commands
-          # if the value somehow reached a non-env: interpolation site in future.
+          # Validate branch name using Git's own ref-format parser so any valid branch
+          # name (including those with @, +, or Unicode used by tools like Renovate) is
+          # accepted, while genuinely invalid refs and shell metacharacters are rejected.
           # This is defence-in-depth: env: routing already prevents injection here,
-          # but the explicit guard also documents the accepted character set and
-          # closes the vector permanently for any future code changes in this step.
-          if [[ ! "$BRANCH" =~ ^[A-Za-z0-9._/-]+$ ]]; then
-            echo "::error::inputs.branch contains invalid characters: '$BRANCH' — only [A-Za-z0-9._/-] allowed" >&2
+          # but the explicit guard closes the vector permanently for future code changes.
+          if ! git check-ref-format --normalize "refs/heads/$BRANCH" > /dev/null 2>&1; then
+            echo "::error::inputs.branch is not a valid Git branch name: '$BRANCH'" >&2
             exit 1
           fi
           git add Resources/Info.plist
@@ -707,24 +705,23 @@ jobs:
 
     steps:
       # ── Checkout (needed by afm-release-notes-action for git tag history) ─────────────
-      # ref: inputs.branch ensures consistency with the publish job and future-proofs
-      # this step against any branch-sensitive work added to the release job.
-      # afm-release-notes-action operates on the tag (fetched from origin), not the
-      # local working tree, so this has no functional effect today.
-      #
-      # INJECTION NOTE: ref: ${{ inputs.branch }} is a with: field on a uses: step.
-      # with: fields are evaluated by the GitHub Actions engine, not by a shell.
-      # The value is passed to actions/checkout as a typed input — it never enters
-      # a bash process and cannot execute shell commands. Safe for user-supplied input.
+      # Uses the pushed tag as the checkout ref, not inputs.branch. By the time the
+      # release job starts, the publish job has already pushed the tag and all
+      # branch-dependent work is complete. Using the tag ref makes the release job
+      # branch-independent: it succeeds even if the source branch was deleted (e.g.
+      # a short-lived feature branch merged and cleaned up) between publish completing
+      # and this job starting. afm-release-notes-action operates on the tag fetched
+      # from origin, not the local working tree, so this change has no functional
+      # effect on release note generation.
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 0
-          ref: ${{ inputs.branch }}
+          ref: ${{ needs.publish.outputs.tag }}
 
       # ── Download build artifacts from publish job ──────────────────────────────────────
       - name: Download build artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@fa0a91b85d4f404e444306234c1edc02d5f8f9a7 # v4.1.8
         with:
           name: release-assets
           path: dist
