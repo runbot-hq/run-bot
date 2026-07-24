@@ -241,34 +241,42 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
         mbkLog("PopoverController",
                "applyContentSize -- (\(popover.contentSize.width),\(popover.contentSize.height))->(\(clamped.width),\(clamped.height))")
         popover.contentSize = clamped
-        // WHY anchorPoint IS NOT STALE:
-        //   anchor.x is window.frame.midX captured at popoverWillShow time — it is
-        //   the horizontal chrome midpoint of the popover window as positioned by
-        //   AppKit relative to the status bar button. That midpoint does not change
-        //   during the popover's lifetime: AppKit only repositions horizontally on
-        //   show(), not on subsequent contentSize changes. So anchor.x is stable
-        //   for the entire open session and safe to reuse here.
+        // WHY anchorPoint IS NOT STALE — READ THIS BEFORE SUGGESTING A CHANGE:
         //
-        //   NOTE: The popover window is anchored to the status bar button and cannot
-        //   be dragged to another display. Any display change that would move the
-        //   button closes the popover (popoverDidClose fires, anchorPoint = nil) and
-        //   a fresh anchor is captured on the next popoverWillShow. There is no
-        //   live-repositioning scenario where anchor.x could go stale.
+        //   anchor.x = window.frame.midX captured at popoverWillShow time.
+        //   AppKit only repositions the popover window horizontally at show() time.
+        //   Subsequent contentSize changes do not move the window horizontally.
+        //   anchor.x is therefore stable for the entire open session.
         //
-        // WHY window.frame.width IS READ AFTER contentSize ASSIGNMENT:
-        //   popover.contentSize = clamped above causes AppKit to update
-        //   window.frame.width synchronously before this line executes. Reading
-        //   window.frame.width here therefore reflects the NEW width, not the old
-        //   one. The origin calculation is always against the current frame — no
-        //   horizontal drift on route switches that change both width and height.
+        //   anchor.y = window.frame.maxY captured at popoverWillShow time.
+        //   AppKit anchors the popover window to the bottom of the menu bar and
+        //   grows it DOWNWARD on height increases. The top edge (maxY) never moves
+        //   — it is flush against the menu bar for the entire session. This means
+        //   anchor.y is invariant: it equals window.frame.maxY at every point
+        //   during the session, not just at capture time.
         //
-        // WHY anchorPoint IS NOT CAPTURED TOO EARLY IN popoverWillShow:
-        //   anchorPoint is nil until popoverWillShow fires. The guard above
-        //   (`guard ... let anchor = anchorPoint`) means any applyContentSize call
-        //   that arrives before popoverWillShow (e.g. from GeometryReader onAppear)
-        //   takes the `not shown` branch and only records the size — it never reads
-        //   a stale frame. After popoverWillShow fires, AppKit has already positioned
-        //   the window, so the captured midX is correct.
+        //   The Y origin formula  anchor.y - window.frame.height  is therefore
+        //   always correct: anchor.y is the fixed ceiling, window.frame.height
+        //   (read AFTER contentSize assignment, so it reflects the new height)
+        //   is the current floor distance. No drift is possible.
+        //
+        //   A reviewer may suggest reading window.frame.maxY live on every resize
+        //   instead of caching it. That would give the SAME value every time
+        //   (because maxY is invariant) but would re-introduce a read of mutable
+        //   AppKit state inside a hot resize path for zero benefit. The cached
+        //   anchor approach is strictly better.
+        //
+        //   Another suggestion may be to drop anchor.y entirely and derive Y from
+        //   the status bar button's screen position on every resize. We tried this
+        //   (see commit history) and reverted: button.convert(bounds, to: nil)
+        //   requires traversing the view hierarchy on every resize and produced
+        //   a subtle race when the button rect was stale during rapid height
+        //   transitions. The captured maxY approach is simpler and correct.
+        //
+        //   NOTE: Display changes that move the status button close the popover
+        //   (popoverDidClose fires, anchorPoint = nil). A fresh anchor is captured
+        //   on the next popoverWillShow. There is no scenario where a stale
+        //   anchor.y survives across a display geometry change.
         let newOrigin = NSPoint(x: anchor.x - window.frame.width / 2, y: anchor.y - window.frame.height)
         window.setFrameOrigin(newOrigin)
         mbkLog("PopoverController", "applyContentSize -- origin set to \(newOrigin)")
