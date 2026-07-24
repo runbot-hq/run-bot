@@ -80,7 +80,7 @@ on:
 #   git revert HEAD --no-edit && git push origin <branch>
 # then re-run the workflow. See docs/RELEASING.md § Rollback procedure.
 #
-# TAG-NAMESPACE COLLISION RISK (accepted):
+# TAG-NAMESPACE COLLISION RISK (accepted — not an oversight, see below):
 # The group key includes inputs.branch so that parallel beta runs from
 # *different* branches do not cancel each other. A side-effect is that two
 # runs from different branches that happen to compute the same next tag
@@ -103,7 +103,7 @@ on:
 # IS dangerous (see env: usage in Commit patched Info.plist and Create
 # GitHub Release steps).
 concurrency:
-  group: publish-${{ inputs.branch }}-${{ inputs.channel }}
+  group: publish-${{ inputs.branch }}-${{ inputs.channel }}  # branch-scoped: parallel betas OK, see collision note above
   cancel-in-progress: true
 
 # contents: write is the minimum permission required for this workflow:
@@ -143,6 +143,14 @@ jobs:
       zip_path: ${{ steps.verify.outputs.zip_path }}
       sig_path: ${{ steps.sign.outputs.sig_path }}
 
+    # STABLE-FROM-ANY-BRANCH (intentional): there is no job-level guard restricting
+    # channel=release to branch=main. This is a deliberate omission — the release
+    # workflow intentionally supports stable releases from feature branches (e.g. a
+    # hotfix branch). workflow_dispatch already requires repo write access; anyone who
+    # can trigger this can push to main directly. The trust boundary is not expanded.
+    # If you want to add a main-only guard for stable releases, add:
+    #   if: ${{ inputs.channel != 'release' || inputs.branch == 'main' }}
+    # at job level. See docs/RELEASING.md § Triggering a release.
     steps:
       # ── Checkout ──────────────────────────────────────────────────────────────────
       # INJECTION NOTE: ref: ${{ inputs.branch }} is a with: field on a uses: step.
