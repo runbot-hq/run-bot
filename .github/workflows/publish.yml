@@ -91,6 +91,8 @@ on:
 # where both runs compute the same tag and one has already pushed it before
 # the other reaches that step. This risk is accepted in preference to a global
 # serialisation lock, which would block all parallel beta runs.
+# Recovery: re-trigger the failed run from the branch that lost the race.
+# See docs/RELEASING.md § Tag-namespace collision recovery.
 #
 # INJECTION NOTE: ${{ inputs.branch }} appears inline here. This is NOT a
 # script-injection risk. concurrency.group is a workflow-level expression
@@ -161,6 +163,16 @@ jobs:
         with:
           fetch-depth: 0   # full history + all tags required for tag computation
           ref: ${{ inputs.branch }}
+
+      # ── Configure git identity ─────────────────────────────────────────────────────
+      # Set once here so Commit patched Info.plist and Tag and push both inherit it.
+      # Previously this was duplicated in each mutating step — identical content, but
+      # duplication means a future edit to one copy can silently diverge from the other.
+      # git config is repo-scoped (not global), so it only affects this workspace.
+      - name: Configure git identity
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
 
       # ── Clear SPM cache ────────────────────────────────────────────────────────────
       # WHY: SPM's source-checkout cache must be cleared to guarantee fresh
@@ -655,8 +667,6 @@ jobs:
             echo "::error::inputs.branch contains invalid characters: '$BRANCH' — only [A-Za-z0-9._/-] allowed" >&2
             exit 1
           fi
-          git config user.name  "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
           git add Resources/Info.plist
           git commit -m "chore: bump version to ${{ steps.tag.outputs.tag }} [skip ci]"
           git fetch origin "$BRANCH"
@@ -669,8 +679,6 @@ jobs:
         run: |
           set -euo pipefail
           TAG="${{ steps.tag.outputs.tag }}"
-          git config user.name  "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
           # Capture the plist commit SHA explicitly so the tag is guaranteed to
           # point at the patched plist regardless of any concurrent push to the branch.
           # CFBundleVersion=N was embedded at this commit; git rev-list at this
@@ -747,7 +755,7 @@ jobs:
       - name: Generate AFM release notes
         id: afm_notes
         if: inputs.release_notes == ''
-        uses: runbot-hq/afm-release-notes-action@main
+        uses: runbot-hq/afm-release-notes-action@c5e5acc2f181ca1d466b9621cb28b012d14e6736 # main@2026-07-18
         with:
           tag: ${{ needs.publish.outputs.tag }}
         env:
@@ -763,8 +771,8 @@ jobs:
       #   2. AFM-generated notes (release_body from afm_notes step)
       #   3. --generate-notes fallback (GitHub auto-generated from commits)
       #
-      # INJECTION SAFETY: All user-supplied and LLM-generated values (BRANCH,
-      # AFM_TITLE, AFM_BODY, MANUAL_NOTES) are passed through env: so the runner
+      # INJECTION SAFETY: All user-supplied and LLM-generated values
+      # (AFM_TITLE, AFM_BODY, MANUAL_NOTES) are passed through env: so the runner
       # sets them as plain environment variables before the shell starts.
       # None of these are interpolated inline via ${{ }} inside the run: body.
       # Inline interpolation would allow a crafted value to execute arbitrary
@@ -773,12 +781,15 @@ jobs:
       # and are safe to interpolate inline.
       #
       # --target $TAG: anchors the release object to the exact plist commit SHA.
-      # The tag is already pushed and pinned to PLIST_SHA in the prior Tag and push
-      # step. Passing the tag ref (not the branch ref) here ensures the GitHub release
-      # UI always displays the correct commit context, even if a concurrent push lands
-      # on the branch between the publish and release jobs. AppUpdater uses the tag
-      # (not this ref) to locate release assets — no functional effect on update
-      # delivery, but correct and race-free for traceability.
+      # The tag is already pushed and pinned to PLIST_SHA in the publish job's
+      # Tag and push step, which runs before this job starts (needs: publish).
+      # Passing the tag ref (not the branch ref) ensures the GitHub release UI
+      # always displays the correct commit context even if a concurrent push
+      # lands on the branch between the publish and release jobs.
+      # FRAGILITY NOTE: if this step is ever moved to run concurrently with or
+      # before Tag and push, --target $TAG will fail because the tag won't exist
+      # yet. The git ls-remote guard below will catch this before gh release create
+      # runs. Do not remove that guard if jobs are reordered.
       #
       # Notes content is written to a temp file to avoid all shell-quoting issues
       # at the `gh release create --notes-file` boundary.
@@ -788,14 +799,23 @@ jobs:
           AFM_TITLE: ${{ steps.afm_notes.outputs.release_title }}
           AFM_BODY:  ${{ steps.afm_notes.outputs.release_body }}
           MANUAL_NOTES: ${{ inputs.release_notes }}
-          BRANCH: ${{ inputs.branch }}
         run: |
           set -euo pipefail
           # TAG and CHANNEL are job outputs (runner-computed, not user input) — safe to inline.
-          # All user-supplied values (BRANCH, MANUAL_NOTES) and LLM outputs (AFM_TITLE,
-          # AFM_BODY) are read from env vars set by the runner above.
+          # All user-supplied values (MANUAL_NOTES) and LLM outputs (AFM_TITLE, AFM_BODY)
+          # are read from env vars set by the runner above.
           TAG="${{ needs.publish.outputs.tag }}"
           CHANNEL="${{ needs.publish.outputs.channel }}"
+
+          # Assert tag is reachable on origin before passing it to --target.
+          # needs: publish guarantees Tag and push ran first, but this guard makes
+          # the dependency explicit and catches any future job-ordering regression
+          # with a clear error rather than a confusing gh cli failure.
+          if ! git ls-remote --tags origin | grep -q "refs/tags/${TAG}$"; then
+            echo "::error::tag ${TAG} is not reachable on origin — Tag and push step may have failed or job ordering changed" >&2
+            exit 1
+          fi
+
           ZIP=$(find dist -name '*.zip' | head -1)
           SIG=$(find dist -name '*.sig' | head -1)
 
