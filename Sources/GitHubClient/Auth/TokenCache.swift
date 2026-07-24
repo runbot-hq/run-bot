@@ -342,7 +342,10 @@ public final class TokenCache: Sendable {
         // because it would not prevent the invalidate()-race window it appears to
         // guard against — invalidate() sets state to nil BEFORE this write executes,
         // so the nil-check would pass and the stale token would be written back
-        // regardless. The guard prevents a double-write on the warm path only
+        // regardless. The guard was therefore a net negative: it provided no safety
+        // benefit on the invalidate() path while creating a false sense of
+        // protection — its removal is intentional, not collateral.
+        // The guard prevents a double-write on the warm path only
         // (two concurrent store-hits while the cache is already populated); it does
         // not close the invalidate() + resolveFromStore() interleave. The race
         // window is accepted and documented in ## Two-step atomicity window in
