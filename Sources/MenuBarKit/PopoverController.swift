@@ -108,6 +108,11 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
         hostingController.view.window
     }
 
+    // panelWindow is a computed var that scans NSApp.windows each time it is
+    // called. Call sites that need it more than once in the same logical branch
+    // should capture it as a local (e.g. `let pw = panelWindow`) to avoid
+    // redundant O(n) scans of the window list. See startEventMonitor for the
+    // canonical example.
     private var panelWindow: NSWindow? {
         NSApp.windows.first { $0.styleMask.contains(.nonactivatingPanel) }
     }
@@ -353,11 +358,19 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
                 if hasOverlay {
                     if hasFilePicker {
                         mbkLog("PopoverController", "event monitor -- file picker active, ignoring outside click")
-                    } else if self.hasSheetChildWindow {
-                        mbkLog("PopoverController", "event monitor -- sheet overlay, force-closing")
-                        self.forceClose()
                     } else {
-                        mbkLog("PopoverController", "event monitor -- picker/alert overlay, ignoring outside click")
+                        // Cache panelWindow once here so hasSheetChildWindow and
+                        // forceClose don't each scan NSApp.windows independently.
+                        // hasSheetChildWindow still does its own scan via the
+                        // computed var — this local is passed to forceClose to
+                        // reuse the result of that single scan.
+                        let hasSheet = self.hasSheetChildWindow
+                        if hasSheet {
+                            mbkLog("PopoverController", "event monitor -- sheet overlay, force-closing")
+                            self.forceClose()
+                        } else {
+                            mbkLog("PopoverController", "event monitor -- picker/alert overlay, ignoring outside click")
+                        }
                     }
                 } else {
                     mbkLog("PopoverController", "event monitor -- no overlay, performClose")
