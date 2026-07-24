@@ -780,16 +780,16 @@ jobs:
       # TAG and CHANNEL come from job outputs (computed values, not user input)
       # and are safe to interpolate inline.
       #
-      # --target $TAG: anchors the release object to the exact plist commit SHA.
-      # The tag is already pushed and pinned to PLIST_SHA in the publish job's
-      # Tag and push step, which runs before this job starts (needs: publish).
-      # Passing the tag ref (not the branch ref) ensures the GitHub release UI
-      # always displays the correct commit context even if a concurrent push
-      # lands on the branch between the publish and release jobs.
-      # FRAGILITY NOTE: if this step is ever moved to run concurrently with or
-      # before Tag and push, --target $TAG will fail because the tag won't exist
-      # yet. The git ls-remote guard below will catch this before gh release create
-      # runs. Do not remove that guard if jobs are reordered.
+      # --target $TAG anchors the release to the exact plist commit SHA, not the
+      # branch tip. This is intentional and race-free: the tag is already pinned
+      # to PLIST_SHA in the Tag and push step (publish job), and needs: publish
+      # guarantees that step completed before this job starts. Using the tag ref
+      # (not the branch ref) means the GitHub release UI always shows the correct
+      # commit even if a concurrent push lands on the branch between jobs.
+      # The git ls-remote guard immediately below is the safety net for this
+      # dependency: if --target $TAG is ever 'subtly fragile' due to job reordering,
+      # the guard will fail loudly HERE rather than producing a confusing gh cli
+      # error. Do not remove the guard if you reorder or parallelize jobs.
       #
       # Notes content is written to a temp file to avoid all shell-quoting issues
       # at the `gh release create --notes-file` boundary.
@@ -807,10 +807,12 @@ jobs:
           TAG="${{ needs.publish.outputs.tag }}"
           CHANNEL="${{ needs.publish.outputs.channel }}"
 
-          # Assert tag is reachable on origin before passing it to --target.
-          # needs: publish guarantees Tag and push ran first, but this guard makes
-          # the dependency explicit and catches any future job-ordering regression
-          # with a clear error rather than a confusing gh cli failure.
+          # Assert tag is reachable on origin before passing it to --target $TAG.
+          # This is the direct safety net for the --target dependency described above:
+          # needs: publish guarantees Tag and push ran first, but if jobs are ever
+          # reordered or run in parallel, this guard will catch the missing tag with
+          # a clear actionable error rather than a confusing gh cli failure.
+          # Do not remove this guard if you reorder jobs.
           if ! git ls-remote --tags origin | grep -q "refs/tags/${TAG}$"; then
             echo "::error::tag ${TAG} is not reachable on origin — Tag and push step may have failed or job ordering changed" >&2
             exit 1
