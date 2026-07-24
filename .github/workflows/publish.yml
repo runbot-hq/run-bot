@@ -714,7 +714,7 @@ jobs:
 
       # ── Download build artifacts from publish job ──────────────────────────────────────
       - name: Download build artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@fa0a91b85d4f404e444306234f1dc44b5bae9b6e # v4.1.8
         with:
           name: release-assets
           path: dist
