@@ -668,6 +668,12 @@ jobs:
             exit 1
           fi
           git add Resources/Info.plist
+          # INJECTION NOTE: steps.tag.outputs.tag is runner-computed (produced by the
+          # Compute next tag step from git history and inputs.channel) — it is NOT
+          # user-supplied input. Inline ${{ }} interpolation of runner-computed values
+          # in commit messages is safe: the value is a semver tag string (vX.Y.Z or
+          # vX.Y.Z-beta.N) with no shell metacharacters. Compare with BRANCH above,
+          # which IS user-supplied and therefore routed through env: instead.
           git commit -m "chore: bump version to ${{ steps.tag.outputs.tag }} [skip ci]"
           git fetch origin "$BRANCH"
           git rebase "origin/$BRANCH"
