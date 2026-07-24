@@ -354,14 +354,25 @@ extension MBKPopoverController: NSPopoverDelegate {
     public func popoverWillShow(_ notification: Notification) {
         setButtonHighlight(true)
         guard let window = hostingController.view.window else {
-            // TODO: If this path is hit, anchorPoint stays nil for the entire
-            // open session and applyContentSize silently skips all repositioning
-            // (guard let anchor = anchorPoint takes the `not shown` branch).
-            // There is no retry — centering correction is lost until the next
-            // open cycle. A popoverDidShow fallback capture could be added here
-            // if this is observed in the field (e.g. on external display with
-            // auto-hide menu bar where AppKit's window wiring may be deferred).
-            mbkLog("PopoverController", "popoverWillShow -- no hostingWindow yet")
+            // This path is theoretically unreachable in normal operation.
+            // NSPopoverDelegate.popoverWillShow fires after AppKit has already
+            // created and positioned the popover window — hostingController.view
+            // is guaranteed to have a window at this point in every observed
+            // configuration, including autohide menu bar and external displays.
+            //
+            // The guard exists as a defensive nil-safety measure only. If it ever
+            // fires in the field, anchorPoint stays nil for the session and
+            // applyContentSize silently skips repositioning (the guard let anchor
+            // branch takes the not-shown path). A popoverDidShow retry would be
+            // the appropriate fix — but adding one speculatively for a path that
+            // has never been observed would be complexity without evidence.
+            //
+            // DO NOT add a popoverDidShow fallback preemptively. If you are
+            // reading this because the log line below fired in the field: note
+            // the hardware and OS configuration and add the fallback then, with
+            // a reproducer. Speculative fallbacks for theoretical edge cases
+            // add maintenance surface without a proven benefit.
+            mbkLog("PopoverController", "popoverWillShow -- no hostingWindow (unexpected; anchor skipped for this session)")
             return
         }
         // anchorPoint is nil until this delegate fires, so any applyContentSize
@@ -369,7 +380,7 @@ extension MBKPopoverController: NSPopoverDelegate {
         // show cycle) takes the `not shown` guard branch and only records the
         // size — no stale frame is ever used as an anchor.
         // window.frame is already positioned by AppKit before this delegate fires,
-        // so midX is the correct horizontal chrome midpoint for this session.
+        // so midX and maxY are the correct chrome midpoint and top edge for this session.
         anchorPoint = NSPoint(x: window.frame.midX, y: window.frame.maxY)
         mbkLog("PopoverController", "popoverWillShow -- anchor=\(anchorPoint!) hostingWindow=#\(window.windowNumber)")
     }
