@@ -34,7 +34,16 @@ on:
   workflow_dispatch:
     inputs:
       branch:
-        description: "Branch to release from (default: main)"
+        # The branch to check out, build, and release from.
+        # Defaults to main for normal stable releases.
+        # Any branch with repo write access can be used — this is intentional:
+        # beta releases from feature branches are a first-class use case.
+        # workflow_dispatch itself requires repo write access, so only
+        # collaborators can trigger this; it is not an open attack surface.
+        # If you want to enforce that stable/release channel can only run
+        # from main, add a job-level if: condition — it is a deliberate
+        # omission here, not an oversight. See docs/RELEASING.md.
+        description: "Branch to release from"
         required: false
         default: "main"
         type: string
@@ -71,8 +80,17 @@ on:
 #   git revert HEAD --no-edit && git push origin <branch>
 # then re-run the workflow. See docs/RELEASING.md § Rollback procedure.
 #
-# The group includes the branch name so parallel beta runs from different
-# branches do not cancel each other.
+# TAG-NAMESPACE COLLISION RISK (accepted):
+# The group key includes inputs.branch so that parallel beta runs from
+# *different* branches do not cancel each other. A side-effect is that two
+# runs from different branches that happen to compute the same next tag
+# (e.g. v0.7.3-beta.1) can race past the non-atomic duplicate-tag guard.
+# The safe failure mode is: one run's `git push origin $TAG` will be rejected
+# by the remote with "already exists" — loud, non-destructive, re-runnable.
+# No silent corruption is possible. The duplicate-tag guard catches the case
+# where both runs compute the same tag and one has already pushed it before
+# the other reaches that step. This risk is accepted in preference to a global
+# serialisation lock, which would block all parallel beta runs.
 #
 # INJECTION NOTE: ${{ inputs.branch }} appears inline here. This is NOT a
 # script-injection risk. concurrency.group is a workflow-level expression
@@ -103,6 +121,14 @@ jobs:
     # Build, sign, plist commit, and tagging all happen here.
     # AFM release notes and gh release create run in the separate `release` job
     # on the self-hosted runner (Apple Intelligence required).
+    #
+    # TRUST MODEL: workflow_dispatch requires repo write access. Any person who
+    # can trigger this workflow can already push to the repo directly. Checking
+    # out an arbitrary branch does not expand the trust boundary — build.sh and
+    # all other scripts are checked into the same repo the dispatcher already
+    # has write access to. This is not an untrusted-code execution scenario.
+    # Do not add a branch allowlist unless the trust model changes (e.g. if
+    # this workflow is ever made triggerable by external contributors).
     runs-on: macos-26
     # Self-hosted runner outage would otherwise queue this job indefinitely.
     # 30 minutes is generous for a build that normally completes in ~3 minutes.
@@ -123,6 +149,13 @@ jobs:
       # it never enters a bash process and cannot execute shell commands. This is
       # safe for user-supplied input. Compare with run: blocks, where inline
       # ${{ inputs.branch }} would be a script-injection risk.
+      #
+      # PRIVILEGE BOUNDARY NOTE: checking out an arbitrary branch does not create
+      # an untrusted-code execution risk here. workflow_dispatch requires repo write
+      # access; build.sh is checked into the same repo the dispatcher already has
+      # write access to. There is no privilege escalation path. If this workflow
+      # were ever made triggerable by external contributors (e.g. pull_request_target),
+      # this assessment would need to be revisited.
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
@@ -596,6 +629,9 @@ jobs:
       # through env: — NOT interpolated inline via ${{ }} — so the runner sets it
       # as a plain environment variable before the shell starts. Inline interpolation
       # would allow a crafted branch name to execute arbitrary shell commands.
+      # BRANCH is additionally validated against ^[A-Za-z0-9._/-]+$ immediately
+      # below, which rejects any value containing shell metacharacters before any
+      # git operation runs.
       - name: Commit patched Info.plist
         if: ${{ inputs.dry_run != 'true' }}
         env:
@@ -606,6 +642,17 @@ jobs:
           # to produce a clear error rather than a cryptic "fatal: '' is not a valid ref".
           if [[ -z "$BRANCH" ]]; then
             echo "::error::inputs.branch is empty — cannot commit or push to an unnamed branch" >&2
+            exit 1
+          fi
+          # Validate branch name format. Accepts all real branch names (main,
+          # fix/foo, feature/bar-2, v1.0.x). Rejects shell metacharacters
+          # (backticks, $(), ;, &&, |, whitespace) that could execute commands
+          # if the value somehow reached a non-env: interpolation site in future.
+          # This is defence-in-depth: env: routing already prevents injection here,
+          # but the explicit guard also documents the accepted character set and
+          # closes the vector permanently for any future code changes in this step.
+          if [[ ! "$BRANCH" =~ ^[A-Za-z0-9._/-]+$ ]]; then
+            echo "::error::inputs.branch contains invalid characters: '$BRANCH' — only [A-Za-z0-9._/-] allowed" >&2
             exit 1
           fi
           git config user.name  "github-actions[bot]"
