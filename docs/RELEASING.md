@@ -98,6 +98,11 @@ git push origin --delete <tag>
 
 The plist commit is already on the branch — the next run will compute the same tag (since no new stable tag exists) and re-create it.
 
+> ⚠️ **Do not skip the tag delete.** If you re-run without deleting the tag
+> first, the duplicate-tag guard will abort the run immediately — no harm done,
+> but the existing plist commit on the branch will permanently show the old
+> version string until manually reverted. Always delete the tag before re-running.
+
 ---
 
 ## Tag-namespace collision recovery
@@ -113,6 +118,12 @@ The collision surfaces at `git push origin $TAG` in the `Tag and push` step: one
 1. Identify which run lost the race (the one whose `Tag and push` step failed).
 2. The losing branch now has a plist commit with version strings for the tag that was never pushed on that branch (e.g. `beta.1`). Before re-running, revert that commit using its exact SHA from the workflow run logs — otherwise the next run will push `beta.2` on top of a stale `beta.1` plist commit, leaving two version-bump commits with no intervening real work.
 3. Re-trigger the workflow from that branch. The tag counter will now advance to `beta.2` (because `beta.1` exists on origin), so the run will compute `v0.7.3-beta.2` and succeed.
+
+> **Edge case:** if the branch had no other changes since the stale plist commit,
+> reverting it produces an identical `Info.plist`. The next run's `git commit`
+> will then fail with `nothing to commit` (caught loudly by `set -euo pipefail`).
+> If this happens, make a trivial content change (e.g. amend the revert message)
+> to give the plist patch a clean base to land on.
 
 ### Why no global serialisation lock
 
