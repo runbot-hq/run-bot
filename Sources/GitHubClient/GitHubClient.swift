@@ -199,18 +199,10 @@ public final class GitHubClient {
             tokenProvider: { await cache.token() },
             logger: logger
         )
-        // ⚠️ NOT a dead assignment — this is load-bearing module wiring.
-        // sharedTransportStorage is the backing var read by currentTransport
-        // (GitHubTransportShims.swift). Every free-function shim in the module
-        // (ghAPI, ghPost, cancelRun, deleteRunnerByID, etc.) resolves its
-        // transport via `currentTransport`, which falls back to
-        // sharedTransportStorage when no @TaskLocal override is in scope.
-        // Without this write, every shim call in a production app would use
-        // the default no-token GitHubTransport() constructed at module load —
-        // all API calls would return 401 until the user re-launches.
-        // Periphery / compiler "assigned but never read" warnings are false
-        // positives here: the value IS read, just indirectly through
-        // currentTransport in a different file (GitHubTransportShims.swift).
+        // NOT a dead assignment — read by free-function shims in GitHubTransportShims.swift.
+        // If sharedTransportStorage is renamed or moved, update the reference there too or
+        // Periphery will flag this as unused again. The cross-file dependency is intentional;
+        // a module-level stored var is the correct seam for the shim pattern used here.
         sharedTransportStorage = transport
         self.oauthService = oauth
         self.transport = transport

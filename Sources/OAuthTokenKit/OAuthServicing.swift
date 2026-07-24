@@ -16,6 +16,14 @@ import Foundation
 /// `AnyObject` constraint is required because the protocol has settable state.
 /// Mutating stored properties requires reference semantics — structs cannot adopt this protocol.
 ///
+/// ## Warning to nonisolated conformers
+/// `OAuthService.envVarIsSet(_:)` calls `getenv()` and relies on `@MainActor`
+/// serialisation for thread safety. A conformer that declares its implementation
+/// `nonisolated` — or drops `@MainActor` from the protocol — silently removes
+/// that guarantee. Swift provides no compile-time enforcement of this assumption
+/// at the protocol boundary. Any new conformer that is not `@MainActor` must
+/// either avoid `getenv()` or provide its own synchronisation for env-var reads.
+///
 /// ## Production usage
 /// ```swift
 /// let oauthService: any OAuthServiceProtocol = OAuthService()
