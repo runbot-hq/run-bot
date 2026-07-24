@@ -560,11 +560,23 @@ jobs:
       # --force-with-lease is intentionally NOT used: GITHUB_TOKEN cannot push
       # workflow file changes even under lease, and the rebase already ensures
       # we are not clobbering concurrent work.
+      #
+      # INJECTION SAFETY: BRANCH is user-supplied (inputs.branch). It is passed
+      # through env: — NOT interpolated inline via ${{ }} — so the runner sets it
+      # as a plain environment variable before the shell starts. Inline interpolation
+      # would allow a crafted branch name to execute arbitrary shell commands.
       - name: Commit patched Info.plist
         if: ${{ inputs.dry_run != 'true' }}
+        env:
+          BRANCH: ${{ inputs.branch }}
         run: |
           set -euo pipefail
-          BRANCH="${{ inputs.branch }}"
+          # BRANCH is user-supplied; guard against empty value before any git operations
+          # to produce a clear error rather than a cryptic "fatal: '' is not a valid ref".
+          if [[ -z "$BRANCH" ]]; then
+            echo "::error::inputs.branch is empty — cannot commit or push to an unnamed branch" >&2
+            exit 1
+          fi
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add Resources/Info.plist
