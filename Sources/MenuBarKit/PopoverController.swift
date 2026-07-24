@@ -152,6 +152,13 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
         //   the next open/close cycle starts clean.
         fireOnWillClose(wasForced: true)
         mbkLog("PopoverController", "forceClose -- clearing gate")
+        // WHY hasActiveOverlay IS CLEARED BEFORE child.close():
+        //   Clearing the gate here allows popoverShouldClose to return true
+        //   when performClose(nil) fires below. If the gate were still true at
+        //   that point, popoverShouldClose would block the close. The narrow
+        //   window where hasActiveOverlay=false but the child is still live is
+        //   intentional — popoverShouldClose firing in that gap is the desired
+        //   outcome, not a hazard.
         overlayGate.hasActiveOverlay = false
         if let pw = panelWindow {
             for child in (pw.childWindows ?? []) {
@@ -241,6 +248,12 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
         //   during the popover's lifetime: AppKit only repositions horizontally on
         //   show(), not on subsequent contentSize changes. So anchor.x is stable
         //   for the entire open session and safe to reuse here.
+        //
+        //   NOTE: The popover window is anchored to the status bar button and cannot
+        //   be dragged to another display. Any display change that would move the
+        //   button closes the popover (popoverDidClose fires, anchorPoint = nil) and
+        //   a fresh anchor is captured on the next popoverWillShow. There is no
+        //   live-repositioning scenario where anchor.x could go stale.
         //
         // WHY window.frame.width IS READ AFTER contentSize ASSIGNMENT:
         //   popover.contentSize = clamped above causes AppKit to update

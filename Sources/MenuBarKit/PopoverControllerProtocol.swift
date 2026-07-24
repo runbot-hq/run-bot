@@ -17,8 +17,11 @@ public protocol MBKPopoverControllerProtocol: AnyObject {
     /// Safe for restoring route and other state with no overlay gate side effects.
     var onWillShow: (() -> Void)? { get set }
 
-    /// Called via `Task { @MainActor }` after `popover.show()`, giving SwiftUI
-    /// one render cycle to settle.
+    /// Called via `Task { @MainActor }` after `popover.show()` — one actor-turn
+    /// hop, not a full CADisplayLink render cycle. In practice `NSHostingController`
+    /// performs its first layout synchronously during `show()`, so the view tree
+    /// has a window by the time this fires. Do not write timing-sensitive code
+    /// that assumes a full SwiftUI render pass has completed.
     /// Use this to restore `isSheetPresented` and any state that arms the overlay gate.
     var onDidShow: (() -> Void)? { get set }
 
@@ -28,5 +31,7 @@ public protocol MBKPopoverControllerProtocol: AnyObject {
     /// tears down the sheet window before the popover closes.
     /// `wasForced` is `false` on a normal user-dismissed close — sheet state is already
     /// gone, no reset needed.
+    /// Note: treat `wasForced` as advisory — see README Known Limitations for the
+    /// fast-dismiss TOCTOU edge case that can produce a spurious `wasForced=true`.
     var onWillClose: ((_ wasForced: Bool) -> Void)? { get set }
 }

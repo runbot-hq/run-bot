@@ -98,7 +98,8 @@ final class MBKSheetAnchorTask {
 
     deinit {
         // mbkLog is @MainActor-isolated and cannot be called from deinit.
-        // #if DEBUG print is the correct pattern here.
+        // print is used directly here — custom mbkLogHandler installations
+        // will NOT receive this message.
 #if DEBUG
         print("[MBK:AnchoredSheet[\(label)]] deinit")
 #endif
@@ -156,6 +157,11 @@ public struct MBKAnchoredSheetModifier<SheetContent: View>: ViewModifier {
     public func body(content: Content) -> some View {
         content
             .sheet(isPresented: $isPresented, content: sheetContent)
+            // NOTE: SwiftUI's .sheet(isPresented:) writes the binding to false on
+            // ANY dismiss path — including Escape key and system-level dismiss —
+            // so this onChange fires and cleans up the gate and anchor task
+            // correctly regardless of how the sheet was dismissed. There is no
+            // separate code path needed for system dismissal.
             .onChange(of: isPresented) { oldValue, newValue in
                 mbkLog("AnchoredSheet[isPresented]", "onChange \(oldValue)→\(newValue) windows=\(NSApp.windows.count) currentGate=\(overlayGate.hasActiveOverlay)")
                 overlayGate.hasActiveOverlay = newValue
@@ -201,6 +207,10 @@ public struct MBKAnchoredSheetItemModifier<Item: Identifiable & Equatable, Sheet
     public func body(content: Content) -> some View {
         content
             .sheet(item: $item, content: sheetContent)
+            // NOTE: SwiftUI's .sheet(item:) nils the binding on ANY dismiss path
+            // — including Escape key and system-level dismiss — so this onChange
+            // fires and cleans up the gate and anchor task correctly in all cases.
+            // There is no separate code path needed for system dismissal.
             .onChange(of: item) { oldValue, newValue in
                 let isPresented = newValue != nil
                 mbkLog("AnchoredSheet[item]", "onChange isPresented=\(isPresented) windows=\(NSApp.windows.count) currentGate=\(overlayGate.hasActiveOverlay)")
