@@ -87,16 +87,21 @@ public extension View {
 
 /// ViewModifier that wraps SwiftUI's `.alert()` and gates `MBKOverlayGate`
 /// (read from environment) for the full alert lifetime.
-public struct MBKAlertModifier<A: View, M: View>: ViewModifier {
-    public let title: String
-    @Binding public var isPresented: Bool
-    public let actions: () -> A
-    public let message: () -> M
+///
+/// This type is internal. Use the `.mbkAlert(...)` methods on `View` instead.
+/// Direct construction is not useful: `MBKAlertModifier` depends on
+/// `@Environment(MBKOverlayGate.self)` and can only function when embedded
+/// in a SwiftUI view hierarchy that has the gate injected.
+struct MBKAlertModifier<A: View, M: View>: ViewModifier {
+    let title: String
+    @Binding var isPresented: Bool
+    let actions: () -> A
+    let message: () -> M
 
     @Environment(MBKOverlayGate.self) private var overlayGate
     @State private var gateWasArmedByConcurrentOverlay = false
 
-    public init(
+    init(
         title: String,
         isPresented: Binding<Bool>,
         @ViewBuilder actions: @escaping () -> A,
@@ -108,7 +113,7 @@ public struct MBKAlertModifier<A: View, M: View>: ViewModifier {
         self.message = message
     }
 
-    public func body(content: Content) -> some View {
+    func body(content: Content) -> some View {
         content
             .alert(title, isPresented: $isPresented, actions: actions, message: message)
             .onChange(of: isPresented) { _, newValue in

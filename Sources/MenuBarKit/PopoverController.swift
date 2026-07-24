@@ -184,6 +184,12 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
     }
 
     private func setupPopover() {
+        // WHY AnyView IS ONLY APPLIED ONCE HERE:
+        //   rootView is already stored as AnyView (erased once in init).
+        //   The GeometryReader wrapper is applied to that AnyView and the result
+        //   passed directly to NSHostingController — no second AnyView(wrapped)
+        //   erasure. Double AnyView wrapping defeats SwiftUI's type-level layout
+        //   hints and causes extra layout passes on every size event.
         let wrapped = rootView
             .background(
                 GeometryReader { geo in
@@ -196,7 +202,7 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
                         }
                 }
             )
-        hostingController = NSHostingController(rootView: AnyView(wrapped))
+        hostingController = NSHostingController(rootView: wrapped)
         hostingController.sizingOptions = []
         popover = NSPopover()
         popover.contentViewController = hostingController
@@ -327,6 +333,13 @@ extension MBKPopoverController: NSPopoverDelegate {
     public func popoverWillShow(_ notification: Notification) {
         setButtonHighlight(true)
         guard let window = hostingController.view.window else {
+            // TODO: If this path is hit, anchorPoint stays nil for the entire
+            // open session and applyContentSize silently skips all repositioning
+            // (guard let anchor = anchorPoint takes the `not shown` branch).
+            // There is no retry — centering correction is lost until the next
+            // open cycle. A popoverDidShow fallback capture could be added here
+            // if this is observed in the field (e.g. on external display with
+            // auto-hide menu bar where AppKit's window wiring may be deferred).
             mbkLog("PopoverController", "popoverWillShow -- no hostingWindow yet")
             return
         }

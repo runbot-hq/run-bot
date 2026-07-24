@@ -54,6 +54,20 @@ final class MBKSheetAnchorTask {
                 // on the closure. The TOCTOU window between the guard check and
                 // addChildWindow is acknowledged — cancellation is best-effort once
                 // this hop is already executing.
+                //
+                // WHY THE TOCTOU RACE IS SAFE (no crash, bounded side effect):
+                //   If cancel() fires after the guard passes, addChildWindow runs
+                //   on a sheet window that SwiftUI is in the process of tearing down.
+                //   addChildWindow(_:ordered:) on an already-closing or already-parented
+                //   window is documented as a no-op on macOS — it does not crash and
+                //   does not double-add the window.
+                //   HOWEVER: the window may remain in pw.childWindows momentarily,
+                //   causing hasSheetChildWindow = true on the very next outside-click
+                //   event. That routes the event monitor to forceClose() instead of
+                //   performClose(), so onWillClose fires with wasForced: true on a
+                //   session that was actually a normal close. Host code that branches
+                //   on wasForced must treat it as advisory rather than authoritative
+                //   — documented in the README under Known Limitations.
                 let pw = self.popoverWindow
                 let allWindows = NSApp.windows
                 mbkLog("AnchoredSheet[\(self.label)]", "hop2 — polling \(allWindows.count) windows")
