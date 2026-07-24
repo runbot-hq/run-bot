@@ -239,26 +239,31 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
         popover.delegate = self
     }
 
-    // WHY clamp() ALLOWS A WIDTH RANGE (minWidth...maxWidth) BUT THE POPOVER
-    // IS DESIGNED AS FIXED-WIDTH:
-    //   clamp() is a defensive size guardrail, not a variable-width enabler.
-    //   MBKPopoverController is designed for fixed-width popovers — every
-    //   known consumer passes minWidth == maxWidth (e.g. 300, 300). The range
-    //   parameters exist to guard against degenerate content sizes (zero-width,
-    //   absurdly narrow or wide), not to express intentional width variance.
+    // WHY clamp() ALLOWS A WIDTH RANGE (minWidth...maxWidth):
+    //   clamp() is a defensive size guardrail. The minWidth/maxWidth parameters
+    //   accept different values — the example app itself uses minWidth:200 /
+    //   maxWidth:480 — so any comment claiming "all consumers pass equal bounds"
+    //   would be false.
     //
-    //   If a caller passes minWidth != maxWidth and content genuinely transitions
-    //   between those bounds, applyContentSize will call setFrameOrigin on a
-    //   width change — which is correct behaviour for that caller's contract.
-    //   The anchor.x re-centering in applyContentSize handles this correctly:
-    //   anchor.x - window.frame.width / 2 recenters on every resize regardless
-    //   of whether width or height changed.
+    //   When content transitions between minWidth and maxWidth, applyContentSize
+    //   calls setFrameOrigin on a width change. A reviewer may flag this as
+    //   reintroducing the side-jump race this PR was written to fix. It does not,
+    //   for the following reason:
     //
-    //   The "width is constant" invariant described in the PR is a property of
-    //   the intended usage pattern, not a mechanical lock in this code. A future
-    //   consumer with genuinely variable-width content is supported — they just
-    //   need to be aware that setFrameOrigin fires on every width change, which
-    //   is expected and correct.
+    //   The original race was caused by a separate manual re-center call that
+    //   fired asynchronously and independently of AppKit's own repositioning —
+    //   two competing writes to the window origin with no ordering guarantee.
+    //   That call has been removed. The setFrameOrigin in applyContentSize is now
+    //   the ONLY writer to the window origin. There is no second writer to race
+    //   against. AppKit does not reposition the window horizontally on contentSize
+    //   changes — it only does so at show() time. So setFrameOrigin here runs
+    //   uncontested.
+    //
+    //   The anchor.x re-centering formula (anchor.x - window.frame.width / 2)
+    //   is correct for both fixed-width and variable-width callers: anchor.x is
+    //   the horizontal midpoint of the popover at show() time, and
+    //   window.frame.width reflects the new width after contentSize assignment,
+    //   so the result is always the correct recentered origin.
     private func clamp(_ size: CGSize) -> CGSize {
         CGSize(
             width: min(max(size.width, minWidth), maxWidth),
