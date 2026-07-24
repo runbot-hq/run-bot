@@ -234,6 +234,26 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
         popover.delegate = self
     }
 
+    // WHY clamp() ALLOWS A WIDTH RANGE (minWidth...maxWidth) BUT THE POPOVER
+    // IS DESIGNED AS FIXED-WIDTH:
+    //   clamp() is a defensive size guardrail, not a variable-width enabler.
+    //   MBKPopoverController is designed for fixed-width popovers — every
+    //   known consumer passes minWidth == maxWidth (e.g. 300, 300). The range
+    //   parameters exist to guard against degenerate content sizes (zero-width,
+    //   absurdly narrow or wide), not to express intentional width variance.
+    //
+    //   If a caller passes minWidth != maxWidth and content genuinely transitions
+    //   between those bounds, applyContentSize will call setFrameOrigin on a
+    //   width change — which is correct behaviour for that caller's contract.
+    //   The anchor.x re-centering in applyContentSize handles this correctly:
+    //   anchor.x - window.frame.width / 2 recenters on every resize regardless
+    //   of whether width or height changed.
+    //
+    //   The "width is constant" invariant described in the PR is a property of
+    //   the intended usage pattern, not a mechanical lock in this code. A future
+    //   consumer with genuinely variable-width content is supported — they just
+    //   need to be aware that setFrameOrigin fires on every width change, which
+    //   is expected and correct.
     private func clamp(_ size: CGSize) -> CGSize {
         CGSize(
             width: min(max(size.width, minWidth), maxWidth),
