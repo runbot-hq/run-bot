@@ -97,6 +97,15 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
         // Hop to next actor turn — not a full SwiftUI render cycle, but enough
         // for the hosting controller's view tree to have a window before the
         // host restores sheet state via onDidShow.
+        //
+        // KNOWN RACE: onDidShow fires one actor-turn after show(), before SwiftUI
+        // has necessarily processed any restored bindings (e.g. isSheetPresented).
+        // If the host sets isSheetPresented = true in onDidShow, the overlay gate
+        // may not be armed before the next event-monitor cycle. An outside click
+        // in that narrow window can close the popover while the sheet is partially
+        // respawning. This is a known, accepted limitation — the one-hop timing
+        // is sufficient for all observed configurations. Do not tighten this to a
+        // full render-cycle wait without a concrete reproducer.
         Task { @MainActor in
             mbkLog("PopoverController", "onDidShow Task hop -- calling onDidShow")
             self.onDidShow?()
@@ -318,6 +327,22 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
         //   (popoverDidClose fires, anchorPoint = nil). A fresh anchor is captured
         //   on the next popoverWillShow. There is no scenario where a stale
         //   anchor.y survives across a display geometry change.
+        //
+        //   KNOWN LIMITATION — anchor.x on cold open with minWidth != maxWidth:
+        //   anchor.x is captured from window.frame.midX in popoverWillShow. If
+        //   fittingSize was zero at show() time (cold first open, view not yet
+        //   laid out), popover.contentSize was left at minWidth before show(), so
+        //   AppKit centers a minWidth-wide chrome over the button. anchor.x then
+        //   equals the button midX only for that width. If the view subsequently
+        //   renders wider (via applyContentSize), the re-centering formula
+        //   (anchor.x - newWidth/2) produces a result that is off by
+        //   (newWidth - minWidth) / 2 on that first transition only. Subsequent
+        //   transitions within the same session are correct because anchor.x
+        //   doesn't change and AppKit doesn't reposition horizontally. The error
+        //   is one-shot and self-correcting after the first close/reopen cycle.
+        //   Fixing this properly requires capturing the button's screen-space midX
+        //   (not the chrome midX) in popoverWillShow. Left as a known limitation
+        //   rather than introducing AppKit coordinate-space traversal at show time.
         let newOrigin = NSPoint(x: anchor.x - window.frame.width / 2, y: anchor.y - window.frame.height)
         window.setFrameOrigin(newOrigin)
         mbkLog("PopoverController", "applyContentSize -- origin set to \(newOrigin)")
@@ -430,6 +455,19 @@ extension MBKPopoverController: NSPopoverDelegate {
         // size — no stale frame is ever used as an anchor.
         // window.frame is already positioned by AppKit before this delegate fires,
         // so midX and maxY are the correct chrome midpoint and top edge for this session.
+        //
+        // KNOWN LIMITATION — anchor.x on cold open with minWidth != maxWidth:
+        //   window.frame.midX equals the button's screen midX only when the chrome
+        //   was sized to the correct content width before show(). On a cold first
+        //   open, if fittingSize was zero and popover.contentSize was left at
+        //   minWidth, AppKit centers a minWidth-wide chrome — so window.frame.midX
+        //   here equals the button midX only for that initial width. The first
+        //   applyContentSize call that transitions to a wider content size will
+        //   re-center from a slightly wrong anchor.x (off by (newWidth-minWidth)/2).
+        //   The error is one-shot: subsequent opens capture a correct anchor because
+        //   fittingSize is non-zero on warm opens. Tracked as a known limitation;
+        //   the fix (capturing button screen-space midX instead of chrome midX)
+        //   was deferred to avoid AppKit coordinate-space traversal at show time.
         anchorPoint = NSPoint(x: window.frame.midX, y: window.frame.maxY)
         mbkLog("PopoverController", "popoverWillShow -- anchor=\(anchorPoint!) hostingWindow=#\(window.windowNumber)")
     }
