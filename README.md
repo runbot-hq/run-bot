@@ -63,3 +63,23 @@ Requires cloning the repo to a local folder first
 git fetch && git checkout main && git pull
 bash build.sh && open dist/RunBot.app
 ```
+
+## Security
+
+For opensource projects. Settings → Actions → General → set "Fork pull request workflows from outside collaborators" to "Require approval for all outside collaborators"
+
+Or do it directly in actions that run on local runners:
+
+> [!WARNING]
+> **Self-hosted runner security:** This action runs on a self-hosted macOS runner.
+> To prevent untrusted code from executing on your runner, add the following `if` condition
+> to every job in every workflow that checks out and runs code:
+>
+> ```yaml
+> if: |
+>   github.event_name != 'pull_request' ||
+>   github.event.pull_request.head.repo.full_name == github.repository
+> ```
+>
+> This ensures workflows silently skip pull requests originating from forks,
+> while internal PRs from your own branches continue to run normally.
