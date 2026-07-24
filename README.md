@@ -27,6 +27,7 @@ A Swift package for the NSPopover + SwiftUI sheet + NSOpenPanel + alert layer of
 |---|---|
 | `OverlayGate.swift` | `MBKOverlayGate` — `@Observable @MainActor` class; `hasActiveOverlay` blocks popover dismiss while any overlay is live; `hasFilePickerOverlay` distinguishes file picker presence so outside clicks are ignored during a pick |
 | `PopoverController.swift` | `MBKPopoverController` — full `NSPopover` + `NSStatusItem` lifecycle; outside-click monitor; workspace app-switch observer; `onWillClose(wasForced:)` callback fires before any teardown on both normal and force-close paths |
+| `PopoverControllerProtocol.swift` | `MBKPopoverControllerProtocol` — `@MainActor` protocol surface for `MBKPopoverController`; type your host reference against this for testability/mocking |
 | `AnchoredSheet.swift` | `.mbkSheet(isPresented:content:)` and `.mbkSheet(item:content:)` — SwiftUI sheet anchored as a child window of the popover so it survives outside-clicks and focus changes |
 | `FilePicker.swift` | `mbkOpenFilePicker(overlayGate:message:completion:)` — `NSOpenPanel` via `panel.begin`, always levels above the popover, gate cleared in completion handler; works from both popover and sheet contexts |
 | `Alert.swift` | `.mbkAlert(_:isPresented:actions:)` and `.mbkAlert(_:isPresented:actions:message:)` — drop-in replacement for `.alert()` that gates `MBKOverlayGate` for the full alert lifetime, including safe handling of alerts presented while a sheet is concurrently open |
@@ -39,7 +40,14 @@ A Swift package for the NSPopover + SwiftUI sheet + NSOpenPanel + alert layer of
 let gate = MBKOverlayGate()
 
 // 2. Create and wire the controller
-let controller = MBKPopoverController(rootView: ContentView(), overlayGate: gate)
+// minWidth/maxWidth/maxHeight are optional; shown here with their defaults.
+let controller = MBKPopoverController(
+    rootView: ContentView().environment(gate),
+    overlayGate: gate,
+    minWidth: 200,
+    maxWidth: 600,
+    maxHeight: 600
+)
 controller.setup() // call from applicationDidFinishLaunching
 
 // 3. Lifecycle callbacks
