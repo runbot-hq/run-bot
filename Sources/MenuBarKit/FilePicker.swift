@@ -44,7 +44,8 @@
 //   NSOpenPanel.begin delivers its completion on the main thread (documented)
 //   but the closure is not @MainActor-isolated by the type system. Wrapping in
 //   Task { @MainActor } provides compiler-enforced actor isolation for all
-//   state mutations that follow, including panel.orderOut and gate clears.
+//   state mutations that follow, including panel.orderOut, gate clears, and
+//   the completion callback.
 //
 // WHY DEFERRED GATE CLEAR (DispatchQueue.main.async INSIDE Task { @MainActor }):
 //   The global mouse-down monitor fires on the same runloop turn that dismisses
@@ -52,9 +53,21 @@
 //   actor turn — lets the monitor see false on that delivery and call
 //   performClose. One DispatchQueue.main.async hop defers the clear past the
 //   monitor's event delivery. The two hops serve different purposes: the Task
-//   hop enforces actor isolation; the GCD hop defers past AppKit event delivery.
-//   Both flags are cleared atomically inside the GCD hop; completion fires after
-//   both are false.
+//   hop enforces actor isolation; the GCD hop defers the gate clear past AppKit
+//   event delivery.
+//
+// WHY completion IS CALLED OUTSIDE THE GCD HOP:
+//   The GCD hop's sole responsibility is deferring the gate flag clears past
+//   the event monitor's run-loop turn. completion is declared @MainActor and
+//   must be called with compiler-enforced actor isolation — which the GCD
+//   closure does not provide (main thread at runtime, but not statically
+//   verified). completion is therefore called in the Task { @MainActor } scope
+//   after the GCD hop has been *queued* (guaranteeing the gate clears are
+//   deferred) but before it has *executed*. This means completion fires with
+//   the gate flags still true on the current run-loop turn — which is correct:
+//   the popover should not close on the same turn as completion. The gate
+//   clears on the next turn via the GCD hop, allowing normal popover-close
+//   behaviour to resume.
 
 import AppKit
 
@@ -98,6 +111,10 @@ public func mbkOpenFilePicker(
             mbkLog("FilePicker", "panel.begin completion — response=\(response.rawValue) gateWasAlreadyArmed=\(gateWasAlreadyArmed)")
             panel.orderOut(nil)
             mbkLog("FilePicker", "panel.orderOut called — window count now=\(NSApp.windows.count)")
+            // Queue the gate clear on the next run-loop turn so the event monitor
+            // (which fires on the same turn as panel dismissal) still sees the gate
+            // armed and does not call performClose prematurely.
+            // See file header "WHY DEFERRED GATE CLEAR" for full rationale.
             DispatchQueue.main.async {
                 overlayGate.hasFilePickerOverlay = false
                 mbkLog("FilePicker", "hasFilePickerOverlay=false")
@@ -107,11 +124,15 @@ public func mbkOpenFilePicker(
                     overlayGate.hasActiveOverlay = false
                     mbkLog("FilePicker", "hasActiveOverlay=false")
                 }
-                let url = response == .OK ? panel.url : nil
-                mbkLog("FilePicker", "calling completion url=\(String(describing: url))")
-                completion(url)
-                mbkLog("FilePicker", "completion done")
             }
+            // completion is called here — in the @MainActor Task scope, after the
+            // GCD hop is queued but before it executes. This restores full
+            // compiler-enforced actor isolation for the callback.
+            // See file header "WHY completion IS CALLED OUTSIDE THE GCD HOP".
+            let url = response == .OK ? panel.url : nil
+            mbkLog("FilePicker", "calling completion url=\(String(describing: url))")
+            completion(url)
+            mbkLog("FilePicker", "completion done")
         }
     }
 
