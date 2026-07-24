@@ -112,13 +112,28 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
         NSApp.windows.first { $0.styleMask.contains(.nonactivatingPanel) }
     }
 
+    // -------------------------------------------------------------------------
+    // DO NOT REFACTOR THIS TO A METHOD (e.g. checkSheetChildWindow()).
+    //
+    // This is a pure Bool predicate — no parameters, no mutation, computes and
+    // returns a single Bool. The Swift "has" prefix is the correct convention
+    // for exactly this shape.
+    //
+    // The mbkLog call inside the getter is INTENTIONAL and DELIBERATE:
+    //   • This property is only ever read from one call site: the event monitor
+    //     decision branch. Logging here gives exact call-site traceability —
+    //     the log fires at the precise moment the decision is made, not before
+    //     or after.
+    //   • In release builds mbkLog is compiled out entirely (@inlinable +
+    //     #if DEBUG). There is zero runtime cost in production.
+    //   • The log is not observable behaviour — it is a debug trace. A method
+    //     name like checkSheetChildWindow() would imply mutation or significant
+    //     work to future callers, which is more misleading than the current name.
+    //
+    // If you are tempted to rename this: don't. The name is correct. The log
+    // is correct. The shape is correct. Leave it.
+    // -------------------------------------------------------------------------
     private var hasSheetChildWindow: Bool {
-        // NOTE: mbkLog inside a computed property getter is intentional.
-        // The log fires at exactly the moment the property is evaluated —
-        // which is always from the event monitor decision branch — giving
-        // precise call-site traceability without a separate log at every
-        // call site. In release builds mbkLog compiles out, so there is
-        // no runtime cost.
         let pw = panelWindow
         let pwChildren = pw?.childWindows ?? []
         let result = !pwChildren.isEmpty
