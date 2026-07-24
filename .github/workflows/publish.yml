@@ -586,9 +586,11 @@ jobs:
       #
       # Rebase on origin/<branch> before pushing so the plist bump commit sits on
       # top of any commits that landed during the run.
-      # --force-with-lease is intentionally NOT used: GITHUB_TOKEN cannot push
-      # workflow file changes even under lease, and the rebase already ensures
-      # we are not clobbering concurrent work.
+      # --force-with-lease is intentionally NOT used. The rebase-before-push already
+      # ensures we are not operating on a stale ref, and omitting lease keeps the
+      # logic uniform across all branch types (main and feature branches alike).
+      # A concurrent push between rebase and push will cause the push to fail fast
+      # with a non-fast-forward error, which is the correct safe failure mode.
       #
       # INJECTION SAFETY: BRANCH is user-supplied (inputs.branch). It is passed
       # through env: — NOT interpolated inline via ${{ }} — so the runner sets it
@@ -723,13 +725,13 @@ jobs:
       # TAG and CHANNEL come from job outputs (computed values, not user input)
       # and are safe to interpolate inline.
       #
-      # --target $BRANCH: sets the commit the GitHub release points to.
-      # For feature branches this means the release targets that branch HEAD.
-      # If the branch is deleted after the release, the release loses its target
-      # commit reference on GitHub. Convention: beta branches used for releases
-      # must not be force-pushed or deleted post-release. AppUpdater uses the tag
-      # (not the branch) to locate the release assets, so deletion does not break
-      # update delivery — it only affects the GitHub UI display.
+      # --target $TAG: anchors the release object to the exact plist commit SHA.
+      # The tag is already pushed and pinned to PLIST_SHA in the prior Tag and push
+      # step. Passing the tag ref (not the branch ref) here ensures the GitHub release
+      # UI always displays the correct commit context, even if a concurrent push lands
+      # on the branch between the publish and release jobs. AppUpdater uses the tag
+      # (not this ref) to locate release assets — no functional effect on update
+      # delivery, but correct and race-free for traceability.
       #
       # Notes content is written to a temp file to avoid all shell-quoting issues
       # at the `gh release create --notes-file` boundary.
@@ -782,10 +784,10 @@ jobs:
           fi
 
           gh release create "$TAG" \
-            --target "$BRANCH" \
+            --target "$TAG" \
             "$ZIP" \
             "$SIG" \
             --title "$TITLE" \
             "${FLAGS[@]}"
 
-          echo "GitHub Release $TAG created (channel: $CHANNEL, target branch: $BRANCH)."
+          echo "GitHub Release $TAG created (channel: $CHANNEL, target: $TAG)."
