@@ -82,20 +82,24 @@ final class MBKSheetAnchorTask {
 // MARK: - View extension
 
 public extension View {
+    /// Presents an anchored sheet and manages the overlay gate for its lifetime.
+    /// `MBKOverlayGate` is resolved from the SwiftUI environment — inject it at
+    /// the root view via `.environment(overlayGate)` and no parameter is needed.
     func mbkSheet<SheetContent: View>(
         isPresented: Binding<Bool>,
-        overlayGate: MBKOverlayGate,
         @ViewBuilder content: @escaping () -> SheetContent
     ) -> some View {
-        modifier(MBKAnchoredSheetModifier(isPresented: isPresented, overlayGate: overlayGate, sheetContent: content))
+        modifier(MBKAnchoredSheetModifier(isPresented: isPresented, sheetContent: content))
     }
 
+    /// Presents an item-driven anchored sheet and manages the overlay gate for its lifetime.
+    /// `MBKOverlayGate` is resolved from the SwiftUI environment — inject it at
+    /// the root view via `.environment(overlayGate)` and no parameter is needed.
     func mbkSheet<Item: Identifiable & Equatable, SheetContent: View>(
         item: Binding<Item?>,
-        overlayGate: MBKOverlayGate,
         @ViewBuilder content: @escaping (Item) -> SheetContent
     ) -> some View {
-        modifier(MBKAnchoredSheetItemModifier(item: item, overlayGate: overlayGate, sheetContent: content))
+        modifier(MBKAnchoredSheetItemModifier(item: item, sheetContent: content))
     }
 }
 
@@ -103,9 +107,17 @@ public extension View {
 
 public struct MBKAnchoredSheetModifier<SheetContent: View>: ViewModifier {
     @Binding public var isPresented: Bool
-    public let overlayGate: MBKOverlayGate
     public let sheetContent: () -> SheetContent
+    @Environment(MBKOverlayGate.self) private var overlayGate
     @State private var anchorTask: MBKSheetAnchorTask?
+
+    public init(
+        isPresented: Binding<Bool>,
+        sheetContent: @escaping () -> SheetContent
+    ) {
+        self._isPresented = isPresented
+        self.sheetContent = sheetContent
+    }
 
     public func body(content: Content) -> some View {
         content
@@ -140,9 +152,17 @@ public struct MBKAnchoredSheetModifier<SheetContent: View>: ViewModifier {
 
 public struct MBKAnchoredSheetItemModifier<Item: Identifiable & Equatable, SheetContent: View>: ViewModifier {
     @Binding public var item: Item?
-    public let overlayGate: MBKOverlayGate
     public let sheetContent: (Item) -> SheetContent
+    @Environment(MBKOverlayGate.self) private var overlayGate
     @State private var anchorTask: MBKSheetAnchorTask?
+
+    public init(
+        item: Binding<Item?>,
+        sheetContent: @escaping (Item) -> SheetContent
+    ) {
+        self._item = item
+        self.sheetContent = sheetContent
+    }
 
     public func body(content: Content) -> some View {
         content

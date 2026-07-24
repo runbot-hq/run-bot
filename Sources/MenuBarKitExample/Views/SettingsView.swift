@@ -31,7 +31,7 @@ struct SettingsView: View {
                 print("[SettingsView] Open sheet tapped — setting isSheetPresented=true")
                 appState.isSheetPresented = true
             }
-            .mbkSheet(isPresented: $appState.isSheetPresented, overlayGate: overlayGate) {
+            .mbkSheet(isPresented: $appState.isSheetPresented) {
                 SheetView()
                     .environment(appState)
                     .environment(overlayGate)
@@ -66,7 +66,7 @@ struct SettingsView: View {
             ) {
                 Button("OK", role: .cancel) {}
             } message: {
-                Text("This is a test error alert shown from the popover view.")
+                Text("This is a test error shown from the popover view.")
             }
 
             Divider()
