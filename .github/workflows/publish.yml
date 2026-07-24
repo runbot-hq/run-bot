@@ -686,11 +686,13 @@ jobs:
           MANUAL_NOTES: ${{ inputs.release_notes }}
         run: |
           set -euo pipefail
-          # TAG/CHANNEL/ZIP/SIG/BRANCH use template interpolation intentionally — these are
-          # trusted runner-controlled or workflow-internal values (computed tag string,
-          # build artifact paths, source branch name), not external or user-supplied content.
-          # They do not carry injection risk. Only LLM-derived values (AFM_TITLE, AFM_BODY)
-          # and raw user text (MANUAL_NOTES) are routed through env: vars above.
+          # TAG, CHANNEL, ZIP, and SIG are trusted runner-controlled or workflow-internal
+          # values (computed tag string, build artifact paths) — they do not carry
+          # injection risk.
+          # BRANCH is user-supplied (inputs.branch) but is safe here because it is
+          # assigned to a shell variable, not interpolated inline via ${{ }}.
+          # Do NOT add ${{ inputs.branch }} inline in this script — that would be a
+          # script-injection vulnerability.
           TAG="${{ needs.publish.outputs.tag }}"
           CHANNEL="${{ needs.publish.outputs.channel }}"
           BRANCH="${{ inputs.branch }}"
