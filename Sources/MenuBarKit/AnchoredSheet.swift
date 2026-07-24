@@ -75,7 +75,11 @@ final class MBKSheetAnchorTask {
     }
 
     deinit {
-        mbkLog("AnchoredSheet[\(label)]", "deinit")
+        // mbkLog is @MainActor-isolated and cannot be called from deinit.
+        // #if DEBUG print is the correct pattern here.
+#if DEBUG
+        print("[MBK:AnchoredSheet[\(label)]] deinit")
+#endif
     }
 }
 
