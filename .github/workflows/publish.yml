@@ -73,10 +73,27 @@ on:
 #
 # The group includes the branch name so parallel beta runs from different
 # branches do not cancel each other.
+#
+# INJECTION NOTE: ${{ inputs.branch }} appears inline here. This is NOT a
+# script-injection risk. concurrency.group is a workflow-level expression
+# field evaluated by the GitHub Actions engine before any runner or shell
+# process starts. The value is used only to compute a string key — it never
+# enters a bash process and cannot execute shell commands. This is in
+# contrast to run: blocks, where inline ${{ }} interpolation of user input
+# IS dangerous (see env: usage in Commit patched Info.plist and Create
+# GitHub Release steps).
 concurrency:
   group: publish-${{ inputs.branch }}-${{ inputs.channel }}
   cancel-in-progress: true
 
+# contents: write is the minimum permission required for this workflow:
+#   - tag push (Tag and push step) requires contents: write
+#   - plist commit push (Commit patched Info.plist step) requires contents: write
+# GitHub Actions only supports permission scoping at job level, not step level.
+# There is no supported mechanism to grant contents: write to specific steps only.
+# Narrowing further (e.g. contents: read) would break the tag push and plist
+# commit push steps. No other permissions (issues, pull-requests, etc.) are
+# granted — this is already as tightly scoped as the Actions permission model allows.
 permissions:
   contents: write
 
@@ -100,6 +117,12 @@ jobs:
 
     steps:
       # ── Checkout ──────────────────────────────────────────────────────────────────
+      # INJECTION NOTE: ref: ${{ inputs.branch }} is a with: field on a uses: step.
+      # with: fields are evaluated by the GitHub Actions engine, not by a shell.
+      # The value is passed to the action (actions/checkout) as a typed input —
+      # it never enters a bash process and cannot execute shell commands. This is
+      # safe for user-supplied input. Compare with run: blocks, where inline
+      # ${{ inputs.branch }} would be a script-injection risk.
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
@@ -625,6 +648,11 @@ jobs:
       # this step against any branch-sensitive work added to the release job.
       # afm-release-notes-action operates on the tag (fetched from origin), not the
       # local working tree, so this has no functional effect today.
+      #
+      # INJECTION NOTE: ref: ${{ inputs.branch }} is a with: field on a uses: step.
+      # with: fields are evaluated by the GitHub Actions engine, not by a shell.
+      # The value is passed to actions/checkout as a typed input — it never enters
+      # a bash process and cannot execute shell commands. Safe for user-supplied input.
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
