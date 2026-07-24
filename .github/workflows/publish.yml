@@ -706,6 +706,11 @@ jobs:
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 0
+          ref: ${{ needs.publish.outputs.tag }}
+          # Checkout the exact released tag, not the default branch.
+          # afm-release-notes-action works tag-to-tag via gh api regardless,
+          # but any future step that reads workspace files must see the released
+          # commit, not main.
 
       # ── Download build artifacts from publish job ──────────────────────────────────────
       - name: Download build artifacts
@@ -739,7 +744,8 @@ jobs:
       #     if: ...          ← MUST come before uses:
       #     uses: ...        ← the action reference
       #     with: ...        ← inputs to the action
-      #     continue-on-error: ...\n      #
+      #     continue-on-error: ...
+      #
       # `run:`-based steps do NOT have this restriction — id:/if: work in any
       # order there. This constraint is specific to `uses:` steps.
       - name: Generate AFM release notes
