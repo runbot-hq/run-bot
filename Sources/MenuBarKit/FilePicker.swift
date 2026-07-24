@@ -68,6 +68,18 @@
 //   the popover should not close on the same turn as completion. The gate
 //   clears on the next turn via the GCD hop, allowing normal popover-close
 //   behaviour to resume.
+//
+// NOT REENTRANT-SAFE:
+//   Do not call mbkOpenFilePicker again from within the completion callback.
+//   When completion fires, hasFilePickerOverlay and hasActiveOverlay are still
+//   true (the GCD gate-clear hop has been queued but not yet executed). A
+//   reentrant call will see gateWasAlreadyArmed=true, so when the second
+//   picker closes it will not clear hasActiveOverlay — leaving the gate
+//   permanently armed for the session. If re-entrancy is required, dispatch
+//   the second call to the next run-loop turn:
+//     completion: { url in
+//         DispatchQueue.main.async { mbkOpenFilePicker(...) }
+//     }
 
 import AppKit
 
