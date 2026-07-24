@@ -113,6 +113,12 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
     }
 
     private var hasSheetChildWindow: Bool {
+        // NOTE: mbkLog inside a computed property getter is intentional.
+        // The log fires at exactly the moment the property is evaluated —
+        // which is always from the event monitor decision branch — giving
+        // precise call-site traceability without a separate log at every
+        // call site. In release builds mbkLog compiles out, so there is
+        // no runtime cost.
         let pw = panelWindow
         let pwChildren = pw?.childWindows ?? []
         let result = !pwChildren.isEmpty

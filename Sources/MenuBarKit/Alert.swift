@@ -45,6 +45,10 @@ public extension View {
 
     /// Presents an alert and manages the overlay gate for its lifetime.
     /// Drop-in replacement for SwiftUI's `.alert(_:isPresented:actions:)`.
+    ///
+    /// - Warning: Requires `MBKOverlayGate` to be present in the SwiftUI environment.
+    ///   If not injected via `.environment(overlayGate)` at the root view,
+    ///   SwiftUI will raise a fatal error at runtime.
     func mbkAlert<A: View>(
         _ title: String,
         isPresented: Binding<Bool>,
@@ -60,6 +64,10 @@ public extension View {
 
     /// Presents an alert with a message and manages the overlay gate for its lifetime.
     /// Drop-in replacement for SwiftUI's `.alert(_:isPresented:actions:message:)`.
+    ///
+    /// - Warning: Requires `MBKOverlayGate` to be present in the SwiftUI environment.
+    ///   If not injected via `.environment(overlayGate)` at the root view,
+    ///   SwiftUI will raise a fatal error at runtime.
     func mbkAlert<A: View, M: View>(
         _ title: String,
         isPresented: Binding<Bool>,
