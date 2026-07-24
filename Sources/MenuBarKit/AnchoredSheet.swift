@@ -140,13 +140,17 @@ public extension View {
 
 // MARK: - isPresented variant
 
-public struct MBKAnchoredSheetModifier<SheetContent: View>: ViewModifier {
-    @Binding public var isPresented: Bool
-    public let sheetContent: () -> SheetContent
+// Internal: consumers route through the public .mbkSheet(isPresented:content:)
+// View extension above. Exposing the modifier struct directly would allow
+// instantiation without the @Environment(MBKOverlayGate.self) dependency
+// being satisfied, which causes a SwiftUI fatal error at runtime.
+struct MBKAnchoredSheetModifier<SheetContent: View>: ViewModifier {
+    @Binding var isPresented: Bool
+    let sheetContent: () -> SheetContent
     @Environment(MBKOverlayGate.self) private var overlayGate
     @State private var anchorTask: MBKSheetAnchorTask?
 
-    public init(
+    init(
         isPresented: Binding<Bool>,
         sheetContent: @escaping () -> SheetContent
     ) {
@@ -154,7 +158,7 @@ public struct MBKAnchoredSheetModifier<SheetContent: View>: ViewModifier {
         self.sheetContent = sheetContent
     }
 
-    public func body(content: Content) -> some View {
+    func body(content: Content) -> some View {
         content
             .sheet(isPresented: $isPresented, content: sheetContent)
             // NOTE: SwiftUI's .sheet(isPresented:) writes the binding to false on
@@ -190,13 +194,15 @@ public struct MBKAnchoredSheetModifier<SheetContent: View>: ViewModifier {
 
 // MARK: - item variant
 
-public struct MBKAnchoredSheetItemModifier<Item: Identifiable & Equatable, SheetContent: View>: ViewModifier {
-    @Binding public var item: Item?
-    public let sheetContent: (Item) -> SheetContent
+// Internal: consumers route through the public .mbkSheet(item:content:)
+// View extension above. Same @Environment fatal-error rationale as above.
+struct MBKAnchoredSheetItemModifier<Item: Identifiable & Equatable, SheetContent: View>: ViewModifier {
+    @Binding var item: Item?
+    let sheetContent: (Item) -> SheetContent
     @Environment(MBKOverlayGate.self) private var overlayGate
     @State private var anchorTask: MBKSheetAnchorTask?
 
-    public init(
+    init(
         item: Binding<Item?>,
         sheetContent: @escaping (Item) -> SheetContent
     ) {
@@ -204,7 +210,7 @@ public struct MBKAnchoredSheetItemModifier<Item: Identifiable & Equatable, Sheet
         self.sheetContent = sheetContent
     }
 
-    public func body(content: Content) -> some View {
+    func body(content: Content) -> some View {
         content
             .sheet(item: $item, content: sheetContent)
             // NOTE: SwiftUI's .sheet(item:) nils the binding on ANY dismiss path
