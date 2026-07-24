@@ -9,6 +9,12 @@
 #       To release from a feature branch, keep --ref main and set --field branch=<your-branch>.
 #       To release from main (default), --field branch= can be omitted.
 #
+# UI note: when triggering via the GitHub Actions UI, the "Use workflow from"
+#       branch selector controls --ref (which YAML is read) and must stay on main.
+#       The source branch is set via the "Branch" input field, not the selector.
+#       Selecting a feature branch in the dropdown will read that branch's publish.yml,
+#       which may not have this feature — always leave the selector on main.
+#
 # Responsibilities:
 #   1. Compute the next semver tag from git history.
 #   2. Duplicate-tag guard.
@@ -680,34 +686,39 @@ jobs:
       #   2. AFM-generated notes (release_body from afm_notes step)
       #   3. --generate-notes fallback (GitHub auto-generated from commits)
       #
-      # INJECTION SAFETY: AFM outputs (release_title, release_body) are LLM-generated
-      # and must NOT be interpolated directly into the shell script via ${{ }}.
-      # They are passed through env: vars instead, which the runner sets before the
-      # shell process starts — no expression expansion occurs inside the bash body.
-      # MANUAL_NOTES from inputs.release_notes is workflow_dispatch user input and
-      # follows the same env: pattern — the protection applies equally regardless of
-      # whether content is LLM-generated or human-entered.
-      # Notes content is written to a temp file to avoid all shell-quoting issues at
-      # the `gh release create --notes-file` boundary (multi-line bodies with quotes,
-      # backticks, or $() would break inline --notes "...").
+      # INJECTION SAFETY: All user-supplied and LLM-generated values (BRANCH,
+      # AFM_TITLE, AFM_BODY, MANUAL_NOTES) are passed through env: so the runner
+      # sets them as plain environment variables before the shell starts.
+      # None of these are interpolated inline via ${{ }} inside the run: body.
+      # Inline interpolation would allow a crafted value to execute arbitrary
+      # shell commands before the shell even sees the script.
+      # TAG and CHANNEL come from job outputs (computed values, not user input)
+      # and are safe to interpolate inline.
+      #
+      # --target $BRANCH: sets the commit the GitHub release points to.
+      # For feature branches this means the release targets that branch HEAD.
+      # If the branch is deleted after the release, the release loses its target
+      # commit reference on GitHub. Convention: beta branches used for releases
+      # must not be force-pushed or deleted post-release. AppUpdater uses the tag
+      # (not the branch) to locate the release assets, so deletion does not break
+      # update delivery — it only affects the GitHub UI display.
+      #
+      # Notes content is written to a temp file to avoid all shell-quoting issues
+      # at the `gh release create --notes-file` boundary.
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           AFM_TITLE: ${{ steps.afm_notes.outputs.release_title }}
-          AFM_BODY: ${{ steps.afm_notes.outputs.release_body }}
+          AFM_BODY:  ${{ steps.afm_notes.outputs.release_body }}
           MANUAL_NOTES: ${{ inputs.release_notes }}
+          BRANCH: ${{ inputs.branch }}
         run: |
           set -euo pipefail
-          # TAG, CHANNEL, ZIP, and SIG are trusted runner-controlled or workflow-internal
-          # values (computed tag string, build artifact paths) — they do not carry
-          # injection risk.
-          # BRANCH is user-supplied (inputs.branch) but is safe here because it is
-          # assigned to a shell variable, not interpolated inline via ${{ }}.
-          # Do NOT add ${{ inputs.branch }} inline in this script — that would be a
-          # script-injection vulnerability.
+          # TAG and CHANNEL are job outputs (runner-computed, not user input) — safe to inline.
+          # All user-supplied values (BRANCH, MANUAL_NOTES) and LLM outputs (AFM_TITLE,
+          # AFM_BODY) are read from env vars set by the runner above.
           TAG="${{ needs.publish.outputs.tag }}"
           CHANNEL="${{ needs.publish.outputs.channel }}"
-          BRANCH="${{ inputs.branch }}"
           ZIP=$(find dist -name '*.zip' | head -1)
           SIG=$(find dist -name '*.sig' | head -1)
 
