@@ -104,10 +104,6 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
         }
     }
 
-    private var hostingWindow: NSWindow? {
-        hostingController.view.window
-    }
-
     // panelWindow is a computed var that scans NSApp.windows each time it is
     // called. Call sites that need it more than once in the same logical branch
     // should capture it as a local (e.g. `let pw = panelWindow`) to avoid
