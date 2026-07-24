@@ -277,7 +277,7 @@ jobs:
 
           # Compute PATCH+1 with rollover (shared by both channels).
           NEW_PATCH=$(( PATCH + 1 ))
-          if (( NEW_PATCH > 9 )); then  # rollover: intentional, see docs/RELEASING.md
+          if (( NEW_PATCH > 9 )); then  # rolls when prior PATCH was 9 (NEW_PATCH=10): intentional, see docs/RELEASING.md
             NEW_PATCH=0
             NEW_MINOR=$(( MINOR + 1 ))
             if (( NEW_MINOR > 9 )); then  # rollover: intentional

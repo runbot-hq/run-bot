@@ -64,7 +64,7 @@ Stable users not receiving beta updates is enforced by the update-channel prefer
 
 ### Rollover
 
-When `PATCH` reaches `9` it rolls over to `0` and `MINOR` increments; when `MINOR` reaches `9` it rolls over to `0` and `MAJOR` increments. This is the project convention — do not change the rollover threshold without updating `publish.yml`.
+When `PATCH` reaches `9` (i.e. `NEW_PATCH` would be `10`), it rolls over to `0` and `MINOR` increments; when `MINOR` reaches `9` it rolls over to `0` and `MAJOR` increments. The rollover condition in `publish.yml` is `> 9` — PATCH 8→9 does not roll, PATCH 9→(0 + MINOR bump) does. This is the project convention — do not change the rollover threshold without updating `publish.yml`.
 
 ---
 
