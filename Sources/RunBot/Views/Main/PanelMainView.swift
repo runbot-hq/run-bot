@@ -6,15 +6,32 @@ import SwiftUI
 // REGRESSION GUARD -- DO NOT REMOVE - see regression history (ref #52 #54 #57 #375 #376 #377)
 //
 // ARCHITECTURE: MBKPopoverController sizing contract (as of #2264)
-// Dynamic height AND width driven by MBKPopoverController's GeometryReader in wrapped().
+// Dynamic height AND fixed-range width driven by MBKPopoverController's GeometryReader in wrapped().
 // sizingOptions = [] disables AppKit's automatic hosting-controller size negotiation.
 // Every pixel of popover size comes from SwiftUI reporting the correct geo.size.
 //
 // SIZING RULES:
-// RULE 1: Root VStack ends with .fixedSize() — both axes. LOAD-BEARING for MBK.
-//         Without this, the view fills whatever contentSize MBK last wrote,
-//         the background GR reports that same size back, and applyContentSize
-//         sees no change — height is frozen at the initial value forever.
+// RULE 1: Root VStack ends with .fixedSize(horizontal: false, vertical: true) + .frame(minWidth:maxWidth:).
+//         LOAD-BEARING for MBK — and for arrow stability (#2268).
+//
+//         WHY NOT .fixedSize() on both axes (previous behaviour):
+//         .fixedSize() on both axes let SwiftUI report a different content width on every
+//         row expand. Each width change fed applyContentSize a new clamped.width, which
+//         changed window.frame.width / 2, which shifted newOrigin.x — the visible arrow
+//         side-jump on row expand (#2268 / #2265 Bug 3).
+//
+//         WHY .fixedSize(horizontal: false, vertical: true) + .frame(minWidth:maxWidth:):
+//         Vertical fixedSize lets the VStack still drive its own natural height, keeping
+//         the MBK GeometryReader contract intact (height changes still propagate).
+//         Horizontal fixedSize is suppressed so the .frame(minWidth:maxWidth:) constraint
+//         takes over: the VStack reports a stable width within the range already used by
+//         MBKPopoverController. With width constant, applyContentSize's newOrigin.x never
+//         changes during height-only resizes — arrow stays centred in all modes.
+//
+//         ❌ NEVER revert to .fixedSize() (both axes) — arrow side-jump regression (#2268).
+//         ❌ NEVER remove .frame(minWidth:maxWidth:) — width becomes unconstrained again.
+//         ❌ NEVER change .fixedSize(horizontal: false, vertical: true) to
+//            .fixedSize(horizontal: true, vertical: true) — same as .fixedSize(), regresses.
 // RULE 2: ALL rows use .padding(.horizontal, 12)
 // RULE 3: Job row HStack Spacer() is LOAD-BEARING.
 // RULE 4: RunnerViewModel.reload() uses withAnimation(nil).
@@ -31,10 +48,13 @@ import SwiftUI
 // RULE 7: RunnerStore self-schedules via its own adaptive timer.
 // RULE 9: displayTick fires every 1 second ALWAYS (no open-state gate).
 //
-// SIDE-JUMP SAFETY:
-//         The GR in RULE 5 only reads geo.size.height. It does not affect width.
-//         Side-jumping is caused by stale anchorPoint.x in MBK's applyContentSize
-//         (see issue #2265 Bug 3) — orthogonal to our vertical GR.
+// SIDE-JUMP SAFETY (#2268):
+//         Arrow side-jump is caused by applyContentSize computing a new newOrigin.x
+//         whenever clamped.width changes. With RULE 1's split fixedSize + frame, the
+//         root VStack always reports the same width to MBK's GeometryReader, so
+//         window.frame.width / 2 is constant and newOrigin.x never shifts during
+//         height-only resizes. The GR in RULE 5 only reads geo.size.height, so it
+//         is orthogonal to this fix and does not cause side-jumping.
 //
 // HEADER STABILITY (RULE 10):
 //         PanelHeaderView has .fixedSize() at the call site. SwiftUI measures it
@@ -163,8 +183,12 @@ struct PanelMainView: View {
                 }
             actionsSectionScrollable
         }
-        // RULE 1: LOAD-BEARING — do not remove or change to fixedSize(horizontal:vertical:).
-        .fixedSize()
+        // RULE 1: LOAD-BEARING — do not revert to .fixedSize() (both axes). See RULE 1 comment.
+        // Vertical fixedSize preserves height-driven MBK sizing contract.
+        // Horizontal fixedSize is off so .frame(minWidth:maxWidth:) pins a stable width,
+        // eliminating arrow side-jump on row expand (#2268).
+        .fixedSize(horizontal: false, vertical: true)
+        .frame(minWidth: AppDelegate.minWidth, maxWidth: AppDelegate.maxWidth)
         // DEBUG: log root VStack total height changes. Remove before merge.
         .background(
             GeometryReader { geo in
