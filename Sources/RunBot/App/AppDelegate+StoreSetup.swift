@@ -2,6 +2,8 @@
 // RunBot
 
 import AppKit
+import MenuBarKit
+import OSLog
 import RunBotCore
 
 /// AppDelegate extension wiring app-lifecycle callbacks to store and service setup.
@@ -30,6 +32,13 @@ extension AppDelegate {
     /// 4. `appState.start(onUpdateStatusIcon:)` — remaining domain startup.
     func applicationDidFinishLaunching(_ _: Notification) {
         log("AppDelegate › applicationDidFinishLaunching — START")
+
+        // Route MBK logs through os_log so `log stream` captures them.
+        // Must be set before setupPanel() creates MBKPopoverController.
+        let mbkLogger = Logger(subsystem: "com.eoncode.run-bot", category: "mbk")
+        mbkLogHandler = { _, message in
+            mbkLogger.debug("\(message, privacy: .public)")
+        }
 
         // ⚠️ MUST be synchronous and before the first await — see ordering rule 1 above.
         LocalRunnerStore.configure(viewModel: appState.runnerState)
