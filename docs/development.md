@@ -315,15 +315,56 @@ To verify the pipeline is healthy before shipping, run a dry run first — see [
 ### Quick reference
 
 ```bash
-# Pre-release (beta)
+# Pre-release (beta) from main
 ./publish.sh -beta
 
-# Stable release
+# Stable release from main
 ./publish.sh
 ```
 
-That is the entire manual workflow. Everything else — tagging, building,
+That is the entire manual workflow for releases from `main`. Everything else — tagging, building,
 zipping, and creating the GitHub Release — is handled by CI automatically.
+
+### Beta from a feature branch
+
+To release a beta directly from a feature branch without merging to `main` first, use
+`workflow_dispatch` instead of `publish.sh`:
+
+```bash
+# Beta from a feature branch
+gh workflow run publish.yml --ref main \
+  --field branch=feature/my-branch \
+  --field channel=beta
+
+# Beta from main (equivalent to ./publish.sh -beta, but via workflow_dispatch)
+gh workflow run publish.yml --ref main \
+  --field branch=main \
+  --field channel=beta
+
+# Dry run from a feature branch
+gh workflow run publish.yml --ref main \
+  --field branch=feature/my-branch \
+  --field channel=beta \
+  --field dry_run=true
+```
+
+**Important:** `--ref` must always be `main` — it controls which copy of `publish.yml` is read.
+`--field branch=` controls which branch is actually checked out and built.
+
+When using the GitHub Actions UI, leave the **Use workflow from** selector on `main` and set the
+source branch via the **Branch** input field — do not change the selector to your feature branch,
+as that would read an older copy of `publish.yml`.
+
+#### Tag-namespace collision
+
+Two concurrent beta runs from different branches that share the same `LATEST_STABLE` base will
+compute the same next tag (e.g. both want `v0.7.3-beta.1`). They run in separate concurrency
+groups so they do not cancel each other. The collision surfaces at `git push origin $TAG`: one
+run succeeds, the other is rejected with `already exists` — loud, non-destructive, re-runnable.
+
+Recovery: identify the losing run, revert its plist commit using the exact SHA from the workflow
+logs, then re-trigger. The tag counter will advance to `beta.2` automatically because `beta.1`
+now exists on origin.
 
 ### How the pipeline works
 
