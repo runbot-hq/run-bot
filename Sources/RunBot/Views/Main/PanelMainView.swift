@@ -11,49 +11,57 @@ import SwiftUI
 // Every pixel of popover size comes from SwiftUI reporting the correct geo.size.
 //
 // SIZING RULES:
-// RULE 1: Root VStack ends with .fixedSize() — both axes.
+// RULE 1: Root VStack ends with .fixedSize() — both axes. LOAD-BEARING for MBK.
+//         Without this, the view fills whatever contentSize MBK last wrote,
+//         the background GR reports that same size back, and applyContentSize
+//         sees no change — height is frozen at the initial value forever.
 // RULE 2: ALL rows use .padding(.horizontal, 12)
 // RULE 3: Job row HStack Spacer() is LOAD-BEARING.
 // RULE 4: RunnerViewModel.reload() uses withAnimation(nil).
-// RULE 5: actionsSection ScrollView uses .frame(height: scrollViewHeight) — a
-//         @State value, NOT maxHeight. This is the core anti-jump contract:
-//
-//         The problem: .frame(maxHeight:) lets the ScrollView grow when content
-//         grows (row expand), propagating through .fixedSize() → MBK → popover
-//         resize → visible jump of the entire panel.
-//
-//         The solution: measure actionsSectionContent's natural height via a
-//         hidden GeometryReader (contentHeightReader). Store it in @State
-//         scrollViewHeight, capped at screenScrollMaxHeight. Only update
-//         scrollViewHeight when the visible ROW COUNT changes — ignore height
-//         changes caused by row expand/collapse (those are internal scroll content).
-//
-//         This gives dynamic panel height (grows with rows) without jump on expand.
-//
+// RULE 5: actionsSectionContent uses .fixedSize(horizontal: false, vertical: true)
+//         so SwiftUI measures its true natural height before the ScrollView clips it.
+//         A GeometryReader in the content background captures that height into
+//         @State scrollViewHeight (capped at screenScrollMaxHeight).
+//         The ScrollView is given .frame(height: scrollViewHeight) — a fixed value,
+//         not maxHeight — so MBK sees exactly min(contentHeight, cap) and sizes
+//         the popover accordingly.
+//         All height changes (row add AND row expand) are applied immediately;
+//         no row-count guard. MBK grows the panel downward on expand.
 // RULE 6: systemStats MUST run only while the panel is open.
 // RULE 7: RunnerStore self-schedules via its own adaptive timer.
 // RULE 9: displayTick fires every 1 second ALWAYS (no open-state gate).
 //
+// SIDE-JUMP SAFETY:
+//         The GR in RULE 5 only reads geo.size.height. It does not affect width.
+//         Side-jumping is caused by stale anchorPoint.x in MBK's applyContentSize
+//         (see issue #2265 Bug 3) — orthogonal to our vertical GR.
+//
 // NSPopover provides its own glass chrome automatically.
 // Do NOT add .background() or NSVisualEffectView at this level.
 struct PanelMainView: View {
+    /// Called when user taps a step row.
     let onStepTap: (ActiveJob, GitHubStep) -> Void
+    /// Called when the user taps the settings gear button.
     let onSelectSettings: () -> Void
+    /// Injected local runner store — used to trigger refresh on appear.
     var localRunnerStore: LocalRunnerStore = .shared
+    /// Panel open/close and transient-hide state from the environment.
     @Environment(PanelVisibilityState.self) private var panelVisibilityState: PanelVisibilityState
+    /// Core runner/job/action/rate-limit state injected from AppDelegate.wrapEnv.
     @Environment(AppState.self) private var appState
+    /// View model for CPU/memory stats displayed in the header.
     @State private var systemStats = SystemStatsViewModel()
+    /// Number of workflow rows currently shown in the actions section.
     @State private var visibleCount: Int = 10
+    /// Increments every second to drive relative-time label refreshes without re-polling.
     @State private var displayTick: Int = 0
+    /// Structured task driving the 1-second `displayTick` loop.
     @State private var displayTickTask: Task<Void, any Error>?
-    /// Stable height fed to the ScrollView .frame(height:).
-    /// Updated only when the visible row count changes, NOT when a row expands.
-    /// Starts at 0; set on first content measurement via contentHeightReader.
+    /// Height of the ScrollView frame, driven by the content GeometryReader (RULE 5).
+    /// Starts at 0 (no constraint) until the first measurement fires on appear.
     @State private var scrollViewHeight: CGFloat = 0
-    /// The row count that produced the current scrollViewHeight.
-    /// Used to detect genuine row-count changes vs. expand-caused height changes.
-    @State private var heightForRowCount: Int = -1
 
+    /// Creates a `PanelMainView`.
     init(
         onStepTap: @escaping (ActiveJob, GitHubStep) -> Void,
         onSelectSettings: @escaping () -> Void
@@ -62,14 +70,12 @@ struct PanelMainView: View {
         self.onSelectSettings = onSelectSettings
     }
 
+    /// Maximum scroll height (80% of visible screen height).
     private var screenScrollMaxHeight: CGFloat {
         (NSScreen.main?.visibleFrame.height ?? 800) * 0.80
     }
 
-    private var visibleRowCount: Int {
-        min(appState.runnerState.actions.count, visibleCount)
-    }
-
+    /// Local runners currently executing a job inside an in-progress workflow group.
     private var activeLocalRunners: [RunnerModel] {
         guard appState.runnerState.actions.contains(where: { $0.groupStatus == .inProgress }) else { return [] }
         let activeNamesFromJobs = Set(
@@ -87,9 +93,7 @@ struct PanelMainView: View {
     }
 
     var body: some View {
-        // DEBUG — jump diagnosis. Remove after fix confirmed.
-        log("【PanelMainView.body】rendered", category: .general)
-        return VStack(alignment: .leading, spacing: 0) {
+        VStack(alignment: .leading, spacing: 0) {
             PanelHeaderView(
                 statsVM: systemStats,
                 onSelectSettings: onSelectSettings
@@ -111,20 +115,8 @@ struct PanelMainView: View {
                 }
             actionsSectionScrollable
         }
-        // RULE 1: .fixedSize() is LOAD-BEARING.
+        // RULE 1: LOAD-BEARING — do not remove or change to fixedSize(horizontal:vertical:).
         .fixedSize()
-        // DEBUG: confirm root VStack no longer changes size on row expand.
-        .background(
-            GeometryReader { geo in
-                Color.clear
-                    .onAppear {
-                        log("【PanelMainView.rootVStack.geo】onAppear size=\(geo.size)", category: .general)
-                    }
-                    .onChange(of: geo.size) { old, new in
-                        log("【PanelMainView.rootVStack.geo】onChange \(old) → \(new)", category: .general)
-                    }
-            }
-        )
         .onAppear {
             if panelVisibilityState.isOpen { systemStats.start() }
             startDisplayTickTimer()
@@ -136,68 +128,49 @@ struct PanelMainView: View {
         .onChange(of: panelVisibilityState.isOpen) { _, open in
             if open { systemStats.start() } else { systemStats.stop() }
         }
+        // Reset the visible row count only when the list shrinks (e.g. a runner is removed),
+        // not on every poll update — avoids snapping the user back mid-scroll.
         .onChange(of: appState.runnerState.actions) { old, new in
             if new.count < old.count { visibleCount = 10 }
         }
     }
 
-    /// The scrollable actions list.
+    // MARK: - Scroll section
+
+    /// Scrollable container for the actions section.
     ///
-    /// The ScrollView is given a FIXED .frame(height: scrollViewHeight) — never maxHeight.
-    /// scrollViewHeight is driven by contentHeightReader below and only updates when
-    /// the visible row count changes, so row expand never triggers a panel resize.
+    /// Mirrors the MBK example app pattern exactly:
+    ///   - actionsSectionContent has .fixedSize(horizontal: false, vertical: true)
+    ///   - A GeometryReader in the content background captures the natural height
+    ///   - ScrollView is given .frame(height: scrollViewHeight) capped at screenScrollMaxHeight
+    ///   - All height changes (row add or row expand) update scrollViewHeight immediately
+    ///   - MBK's applyContentSize grows the popover downward; the header stays fixed
     private var actionsSectionScrollable: some View {
         ScrollView(.vertical, showsIndicators: true) {
             actionsSectionContent
-                // Measure the natural collapsed height of the content.
-                // This overlay is always present so we always have a fresh measurement.
-                // We selectively apply updates in applyContentHeight() below.
+                // RULE 5a: report natural height to the GR below.
+                .fixedSize(horizontal: false, vertical: true)
+                // RULE 5b: capture natural height into scrollViewHeight.
                 .background(
                     GeometryReader { geo in
-                        Color.clear.onAppear {
-                            applyContentHeight(geo.size.height)
-                        }
-                        .onChange(of: geo.size.height) { _, h in
-                            applyContentHeight(h)
-                        }
+                        Color.clear
+                            .onAppear {
+                                scrollViewHeight = min(geo.size.height, screenScrollMaxHeight)
+                            }
+                            .onChange(of: geo.size.height) { _, h in
+                                scrollViewHeight = min(h, screenScrollMaxHeight)
+                            }
                     }
                 )
         }
-        // RULE 5: fixed height driven by @State scrollViewHeight, not maxHeight.
-        // scrollViewHeight is only updated on row count change, not on row expand.
-        .frame(height: scrollViewHeight > 0 ? scrollViewHeight : screenScrollMaxHeight)
-        // DEBUG: confirm scroll frame no longer changes on row expand.
-        .background(
-            GeometryReader { geo in
-                Color.clear
-                    .onAppear {
-                        log("【PanelMainView.scrollView.geo】onAppear size=\(geo.size)", category: .general)
-                    }
-                    .onChange(of: geo.size) { old, new in
-                        log("【PanelMainView.scrollView.geo】onChange \(old) → \(new)", category: .general)
-                    }
-            }
-        )
+        // RULE 5c: pin ScrollView to exactly min(contentHeight, cap).
+        // nil before first measurement so SwiftUI uses natural size on first appear.
+        .frame(height: scrollViewHeight > 0 ? scrollViewHeight : nil)
     }
 
-    /// Updates scrollViewHeight only when the visible row count has changed.
-    ///
-    /// Height changes caused by row expand/collapse are ignored because they
-    /// happen while heightForRowCount == visibleRowCount (the count didn't change).
-    /// This keeps the ScrollView frame stable during expand — no jump.
-    private func applyContentHeight(_ measuredHeight: CGFloat) {
-        let currentCount = visibleRowCount
-        guard currentCount != heightForRowCount else {
-            // Row count unchanged — this is an expand/collapse height change. Ignore.
-            log("【PanelMainView.applyContentHeight】ignored h=\(measuredHeight) count=\(currentCount) (expand/collapse)", category: .general)
-            return
-        }
-        let clamped = min(measuredHeight, screenScrollMaxHeight)
-        log("【PanelMainView.applyContentHeight】apply h=\(clamped) (measured=\(measuredHeight), rowCount \(heightForRowCount)→\(currentCount))", category: .general)
-        scrollViewHeight = clamped
-        heightForRowCount = currentCount
-    }
+    // MARK: - Content
 
+    /// Workflow rows and the load-more button, rendered inside the scroll container.
     private var actionsSectionContent: some View {
         VStack(alignment: .leading, spacing: 0) {
             SectionHeaderLabel(title: "Workflows")
@@ -216,17 +189,20 @@ struct PanelMainView: View {
         .padding(.vertical, 4)
     }
 
+    /// "Load N more workflows" button; hidden when all workflows are already visible.
     @ViewBuilder private var loadMoreButton: some View {
         let nextBatch = min(10, appState.runnerState.actions.count - visibleCount)
         if nextBatch > 0 {
             Button { visibleCount += nextBatch } label: {
-                Text("Load \(nextBatch) more workflows…")
+                Text("Load \(nextBatch) more workflows\u{2026}")
                     .font(.caption).foregroundColor(.secondary)
             }
             .buttonStyle(.plain)
             .padding(.horizontal, 12).padding(.vertical, 6)
         }
     }
+
+    // MARK: - Display tick timer
 
     @MainActor private func startDisplayTickTimer() {
         stopDisplayTickTimer()
@@ -243,10 +219,12 @@ struct PanelMainView: View {
         displayTickTask = nil
     }
 
+    // MARK: - Banners
+
     private func fetchErrorBanner(_ error: any Error) -> some View {
         HStack(spacing: 6) {
             Image(systemName: "exclamationmark.triangle.fill").foregroundColor(.red).font(.caption)
-            Text("Fetch error — \(error.localizedDescription)")
+            Text("Fetch error \u{2014} \(error.localizedDescription)")
                 .font(.caption).foregroundColor(.secondary)
                 .lineLimit(2)
         }
@@ -259,7 +237,7 @@ struct PanelMainView: View {
         if let resetDate = appState.runnerState.rateLimitResetDate {
             let remaining = max(0, resetDate.timeIntervalSinceNow)
             if remaining < 1 {
-                countdownLabel = "resuming…"
+                countdownLabel = "resuming\u{2026}"
             } else if remaining < 60 {
                 countdownLabel = "resets in \(Int(remaining))s"
             } else {
@@ -269,7 +247,7 @@ struct PanelMainView: View {
         } else { countdownLabel = "pausing polls" }
         return HStack(spacing: 6) {
             Image(systemName: "exclamationmark.triangle.fill").foregroundColor(.yellow).font(.caption)
-            Text("GitHub rate limit reached -- \(countdownLabel)").font(.caption).foregroundColor(.secondary)
+            Text("GitHub rate limit reached \u{2014} \(countdownLabel)").font(.caption).foregroundColor(.secondary)
         }
         .padding(.horizontal, 12).padding(.vertical, 4)
     }
