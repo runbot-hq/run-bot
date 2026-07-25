@@ -11,10 +11,28 @@ import SwiftUI
 // Every pixel of popover size comes from SwiftUI reporting the correct geo.size.
 //
 // SIZING RULES:
-// RULE 1: Root VStack ends with .fixedSize() — both axes. LOAD-BEARING for MBK.
-//         Without this, the view fills whatever contentSize MBK last wrote,
-//         the background GR reports that same size back, and applyContentSize
-//         sees no change — height is frozen at the initial value forever.
+// RULE 1: Root VStack uses .frame(minWidth:280, maxWidth:900, alignment:.top)
+//         followed by .fixedSize(horizontal: false, vertical: true).
+//         Width is driven by the popover's committed contentSize — never by
+//         the content's natural width. Only height changes flow back to MBK's
+//         GeometryReader in wrapped() and into applyContentSize.
+//
+//         WHY NOT .fixedSize() (both axes):
+//         .fixedSize() lets SwiftUI report the view's natural width to the GR
+//         on every row expand/collapse. A new width event fires applyContentSize
+//         which calls setFrameOrigin(x: storedAnchor.x - window.frame.width/2).
+//         When width bounces, x shifts → arrow side-jump (issue #2268 / #2265-3).
+//
+//         WHY .frame(minWidth:maxWidth:) + .fixedSize(h:false, v:true):
+//         The frame modifier tells SwiftUI the view fills whatever width MBK
+//         commits (clamped to [280..900]). .fixedSize(vertical:true) still
+//         forces the view to report its natural height so MBK can grow/shrink
+//         the popover vertically. Width stays stable → no horizontal bounce →
+//         no arrow side-jump on row expand in either menubar mode.
+//
+//         ❌ NEVER revert to .fixedSize() alone — arrow side-jump regression.
+//         ❌ NEVER use .fixedSize(horizontal: true, vertical: true) — same.
+//         ❌ NEVER remove — height will be frozen (MBK GR sees no height change).
 // RULE 2: ALL rows use .padding(.horizontal, 12)
 // RULE 3: Job row HStack Spacer() is LOAD-BEARING.
 // RULE 4: RunnerViewModel.reload() uses withAnimation(nil).
@@ -32,9 +50,14 @@ import SwiftUI
 // RULE 9: displayTick fires every 1 second ALWAYS (no open-state gate).
 //
 // SIDE-JUMP SAFETY:
-//         The GR in RULE 5 only reads geo.size.height. It does not affect width.
-//         Side-jumping is caused by stale anchorPoint.x in MBK's applyContentSize
-//         (see issue #2265 Bug 3) — orthogonal to our vertical GR.
+//         RULE 1 ensures only height changes reach MBK's applyContentSize.
+//         Width is always the committed contentSize width — never the natural
+//         content width — so setFrameOrigin arithmetic is stable on row expand.
+//         The isMenuBarHidden guard in MBKPopoverController (fix/arrow-center-drift)
+//         covers the auto-hidden-menubar path: any contentSize write when the
+//         button is off-screen is skipped, preventing the x-origin-collapse
+//         side-jump on menubar re-appear. Both modes are covered without any
+//         run-bot changes beyond RULE 1. See issue #2268 and MBK PR#6.
 //
 // HEADER STABILITY (RULE 10):
 //         PanelHeaderView has .fixedSize() at the call site. SwiftUI measures it
@@ -163,8 +186,10 @@ struct PanelMainView: View {
                 }
             actionsSectionScrollable
         }
-        // RULE 1: LOAD-BEARING — do not remove or change to fixedSize(horizontal:vertical:).
-        .fixedSize()
+        // RULE 1: LOAD-BEARING — do not revert to .fixedSize() alone.
+        // See RULE 1 comment above for full rationale (arrow side-jump prevention).
+        .frame(minWidth: 280, maxWidth: 900, alignment: .top)
+        .fixedSize(horizontal: false, vertical: true)
         // DEBUG: log root VStack total height changes. Remove before merge.
         .background(
             GeometryReader { geo in
