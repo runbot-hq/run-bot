@@ -1,6 +1,11 @@
 // GitHubClient.swift
 // GitHubClient
 internal import EnvTokenKit  // internal: no EnvTokenKit type appears in GitHubClient's public API
+// Note: EnvTokenProviding (also from EnvTokenKit) does surface in TokenCache's
+// public initialisers — but that requirement is handled by TokenCache.swift's own
+// public import EnvTokenKit. Swift's import access is per-file; each file
+// independently satisfies its own compiler requirement. The internal import here
+// is correct and sufficient for this file specifically.
 import Foundation
 // public import OAuthTokenKit: two independent compiler requirements force this above internal:
 // 1. `public let oauthService: any OAuthServiceProtocol` — OAuthServiceProtocol is an OAuthTokenKit

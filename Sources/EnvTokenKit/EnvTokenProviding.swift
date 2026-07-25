@@ -86,6 +86,19 @@ public protocol EnvTokenProviding: Sendable {
     ///   `RunnerPoller` calls it serially, but any conformer or caller that
     ///   invokes `token()` concurrently from multiple tasks should be aware of
     ///   this window. See `EnvTokenProvider.token()` for the full rationale.
+    ///
+    /// - Note: Conformers that allow `.notFound` re-entry (as `EnvTokenProvider` does)
+    ///   must be called from a serialised context. `EnvTokenProvider` is designed for
+    ///   use via a serial `RunnerPoller` actor. Concurrent callers are not supported at
+    ///   the protocol level — see `EnvTokenProvider.token()` `-Warning:` block for the
+    ///   full concurrent-spawn rationale and accepted limitations.
+    ///
+    /// - Note: The caching behaviour described in `EnvTokenProvider`'s doc comment
+    ///   (env-var hits are not cached at the provider level; shell hits are cached via
+    ///   `ShellResolutionOutcome.found`) is specific to the production conformer, not a
+    ///   protocol contract. A conformer may cache env-var hits. The protocol only
+    ///   requires that `token()` return the best available token and that `invalidate()`
+    ///   reset any internal state so the next `token()` call re-resolves from scratch.
     func token() async -> String?
 
     /// Resets all internal state so the next `token()` call re-runs the full
