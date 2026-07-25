@@ -25,6 +25,13 @@ import SwiftUI
 //    dim overlay — without it the Color.black expands to fill available space
 //    and drives the ZStack size, feeding an inflated height to MBK's
 //    GeometryReader in wrapped() and causing the popover to over-size (#2264).
+// ❌ NEVER remove .fixedSize() from the ZStack — without it the ZStack reports
+//    the width SwiftUI offers it (stale contentSize from MBK's last write) rather
+//    than the content's natural width. Width drift → MBK's applyContentSize
+//    computes wrong newOrigin.x → arrow side-jump on nav/row-expand (#2268).
+//    With .fixedSize() the ZStack is size-transparent: it passes the content's
+//    natural size directly to MBK's GeometryReader in wrapped(), matching the
+//    MBK example app's RootView which has no wrapper at all.
 //
 // ── TRANSIENT HIDE / RESTORE ANIMATION INVARIANT ────────────────────────────────────────
 //
@@ -157,6 +164,12 @@ struct PanelContainerView<Content: View>: View {
                     .transition(.opacity)
             }
         }
+        // LOAD-BEARING — do not remove. See ❌ note at top of file.
+        // Makes PanelContainerView size-transparent: the ZStack reports the
+        // content's natural size rather than the offered size, so MBK's
+        // GeometryReader in wrapped() always receives the correct natural width.
+        // Without this, width drifts on nav/row-expand → arrow side-jump (#2268).
+        .fixedSize()
         // Animate overlay appearance/disappearance.
         // This only plays on genuine false→true (sheet opens) and true→false
         // (sheet closes) transitions. It does NOT re-play on transient hide/restore
@@ -206,7 +219,7 @@ struct PanelContainerView<Content: View>: View {
     /// (a `@State`-backed property) is always mutated on the main actor.
     @MainActor private func startPolling() {
         stopPolling()
-// Sleep-FIRST — see "SLEEP-FIRST LOOP ORDER" comment at the top of this file.
+        // Sleep-FIRST — see "SLEEP-FIRST LOOP ORDER" comment at the top of this file.
         // Single atomic guard — do NOT split. See "POLL TASK GUARD SPLIT" comment above.
         // bare `try` — see "CANCELLATION" comment at the top of this file.
         pollTask = Task(name: "sheetPoll") { @MainActor in
