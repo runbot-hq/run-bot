@@ -14,6 +14,7 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
     private let minWidth: CGFloat
     private let maxWidth: CGFloat
     private let maxHeight: CGFloat
+    private let rootView: AnyView
 
     public var onWillShow: (() -> Void)?
     public var onDidShow: (() -> Void)?
@@ -45,8 +46,6 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
         self.maxHeight = maxHeight
         self.rootView = AnyView(rootView)
     }
-
-    private let rootView: AnyView
 
     public func setup() {
         precondition(!isSetUp, "MBKPopoverController.setup() called more than once.")
@@ -408,6 +407,14 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
         mbkLog("PopoverController", "event monitor stopped")
     }
 
+    // deinit is safe to run off the main thread in theory, but in practice
+    // MBKPopoverController is @MainActor-isolated — all retaining references
+    // (AppDelegate, status item target) are held on the main actor, so
+    // deallocation always happens on the main thread. NSWorkspace.notificationCenter
+    // removeObserver and NSEvent.removeMonitor are both documented thread-safe
+    // regardless. nonisolated(unsafe) on the stored observers opts out of
+    // compiler isolation checking for deinit access — the runtime guarantee
+    // above makes this safe.
     deinit {
         if let observer = workspaceObserver {
             NSWorkspace.shared.notificationCenter.removeObserver(observer)
