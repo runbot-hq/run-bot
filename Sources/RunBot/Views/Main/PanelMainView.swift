@@ -51,6 +51,12 @@ import SwiftUI
 //         expect, forcing a re-layout that compresses the header.
 //         ❌ NEVER change this multiplier without also changing AppDelegate.maxHeight.
 //
+// TOTAL PANEL CAP (RULE 12):
+//         screenScrollMaxHeight subtracts the measured headerHeight so that the
+//         full panel (header + divider + scroll) stays within 0.80 * visibleFrame.height.
+//         headerHeight starts at 0 and is updated from the header GeometryReader on
+//         first appear. No fixed pixel values — the header measures its own height.
+//
 // NSPopover provides its own glass chrome automatically.
 // Do NOT add .background() or NSVisualEffectView at this level.
 struct PanelMainView: View {
@@ -75,6 +81,9 @@ struct PanelMainView: View {
     /// Height of the ScrollView frame, driven by the content GeometryReader (RULE 5).
     /// Starts at 0 (no constraint) until the first measurement fires on appear.
     @State private var scrollViewHeight: CGFloat = 0
+    /// Measured natural height of PanelHeaderView. Captured once on appear (RULE 12).
+    /// Used to subtract from the 0.80 cap so the full panel never overflows the screen.
+    @State private var headerHeight: CGFloat = 0
 
     /// Creates a `PanelMainView`.
     init(
@@ -85,12 +94,15 @@ struct PanelMainView: View {
         self.onSelectSettings = onSelectSettings
     }
 
-    /// Maximum scroll height — 80% of visible screen height.
+    /// Maximum height for the scroll section.
+    /// = 0.80 * visibleFrame.height − headerHeight (measured, not fixed).
+    /// This ensures the full panel (header + divider + scroll) stays within the 0.80 cap.
     /// ❌ MUST match AppDelegate.maxHeight multiplier. See RULE 11 / CAP ALIGNMENT.
+    /// ❌ NEVER use fixed pixel values here. headerHeight is content-derived (RULE 12).
     private var screenScrollMaxHeight: CGFloat {
         let visibleHeight = NSScreen.main?.visibleFrame.height ?? 800
-        let cap = visibleHeight * 0.80
-        log("【PanelMainView】screenScrollMaxHeight visibleHeight=\(visibleHeight) cap=\(cap) multiplier=0.80", category: .general)
+        let cap = visibleHeight * 0.80 - headerHeight
+        log("【PanelMainView】screenScrollMaxHeight visibleHeight=\(visibleHeight) headerHeight=\(headerHeight) cap=\(cap) multiplier=0.80", category: .general)
         return cap
     }
 
@@ -119,14 +131,17 @@ struct PanelMainView: View {
             )
             // RULE 10: LOAD-BEARING — do not remove.
             .fixedSize()
-            // DEBUG: log header height changes. Remove before merge.
+            // Capture header's natural height for RULE 12 scroll cap adjustment.
+            // DEBUG: also logs header height changes. Remove debug logs before merge.
             .background(
                 GeometryReader { geo in
                     Color.clear
                         .onAppear {
+                            headerHeight = geo.size.height
                             log("【header.geo】onAppear h=\(geo.size.height)", category: .general)
                         }
                         .onChange(of: geo.size.height) { old, new in
+                            headerHeight = new
                             log("【header.geo】onChange \(old) → \(new)  ← HEADER HEIGHT CHANGED", category: .general)
                         }
                 }
