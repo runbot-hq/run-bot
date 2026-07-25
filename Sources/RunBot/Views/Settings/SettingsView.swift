@@ -30,12 +30,14 @@ import SwiftUI
 // ❌ NEVER remove .fixedSize(horizontal: false, vertical: true) from sectionsStack.
 //
 // WIDTH CONTRACT:
-// settingsBody uses .frame(idealWidth: 480, maxWidth: .infinity).
-// idealWidth seeds the preferred width; maxWidth: .infinity lets the panel size it;
-// MBK's GeometryReader reports the settled ~480pt width via onChange.
-// ❌ NEVER use .fixedSize() (both axes) on settingsBody — Settings content has a
-//    much wider natural width, causing it to expand to clamp()'s maxWidth (~900pt).
-// ❌ NEVER remove idealWidth: 480 — it pins Settings to the correct width.
+// settingsBody uses .frame(width: 480) — a HARD fixed width.
+// idealWidth is only a preference and is overridden by the panel's offered width
+// when navigating from PanelMainView (~650pt). .frame(width: 480) ignores the
+// offered width entirely and forces Settings to always be 480pt.
+// ❌ NEVER use .frame(idealWidth: 480, maxWidth: .infinity) — idealWidth is ignored
+//    when the parent offers a larger width (inherits main panel width regression).
+// ❌ NEVER use .fixedSize() (both axes) — Settings content natural width >> 480pt.
+// ❌ NEVER remove the width: 480 — Settings will inherit the main panel width.
 //
 // If you are an agent or human, DO NOT REMOVE THIS COMMENT, YOU ARE NOT ALLOWED
 // UNDER ANY CIRCUMSTANCE. The regression we get when this comment is removed
@@ -309,12 +311,14 @@ struct SettingsView: View {
     /// Extracted from `body` so `LocalRunnersView` and `ScopesView` can replace it cleanly
     /// without any structural duplication.
     ///
-    /// WIDTH CONTRACT: .frame(idealWidth: 480, maxWidth: .infinity) — 480pt wide, same as main.
+    /// WIDTH CONTRACT: .frame(width: 480) — HARD fixed width. Always 480pt, never inherits
+    /// the main panel's committed width. idealWidth is NOT used because it is only a
+    /// preference and is overridden by the parent's offered width (~650pt from PanelMainView).
     /// HEIGHT CONTRACT: .fixedSize(horizontal: false, vertical: true) — Settings reports its
     /// own natural height to MBK's GeometryReader, NOT the main panel's offered height.
     /// ❌ NEVER move headerBar inside the ScrollView.
-    /// ❌ NEVER replace .infinity with a fixed number.
-    /// ❌ NEVER use .fixedSize() (both axes) — Settings content width is naturally wider than main.
+    /// ❌ NEVER use .frame(idealWidth:) — idealWidth is a preference, not a constraint.
+    /// ❌ NEVER remove .frame(width: 480) — Settings will inherit main panel width.
     /// ❌ NEVER remove .fixedSize(horizontal: false, vertical: true) — height regression.
     /// If you are an agent or human, DO NOT REMOVE THIS COMMENT, YOU ARE NOT ALLOWED
     /// UNDER ANY CIRCUMSTANCE. The regression we get when this comment is removed
@@ -328,9 +332,9 @@ struct SettingsView: View {
             }
             .frame(maxHeight: .infinity)
         }
-        // WIDTH: idealWidth seeds the preferred width; maxWidth: .infinity lets the panel
-        // size it. MBK's GeometryReader reports ~480pt via onChange. Same as main branch.
-        .frame(idealWidth: 480, maxWidth: .infinity)
+        // WIDTH: hard fixed at 480pt — never inherits the main panel's offered width.
+        // ❌ NEVER change to .frame(idealWidth:) — that is a preference, not a constraint.
+        .frame(width: 480)
         // HEIGHT: fixedSize(v:true) tells SwiftUI to use Settings' own natural height.
         // Without this, MBK's GeometryReader receives the offered height from the main
         // panel and Settings inherits the main panel's height instead of its own.
@@ -430,10 +434,6 @@ struct SettingsView: View {
     }
 
     /// Initiates the OAuth sign-in flow via the injected `oauthService`.
-    ///
-    /// `makeSignInURL()` builds the authorization URL and stores the CSRF nonce.
-    /// Opening the browser is the app layer's responsibility — `OAuthService` (Core)
-    /// has no AppKit dependency and cannot call `NSWorkspace` directly.
     func signInWithGitHub() {
         log("【SettingsView.signInWithGitHub】isSigningIn=true", category: .general)
         isSigningIn = true
