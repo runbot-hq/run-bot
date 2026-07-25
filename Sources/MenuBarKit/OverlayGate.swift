@@ -35,7 +35,10 @@ public final class MBKOverlayGate {
         }
     }
 
-    public init() {
-        mbkLog("OverlayGate", "init")
-    }
+    // No mbkLog here — init fires before the host can install a custom
+    // mbkLogHandler (MBKOverlayGate is typically instantiated before setup()).
+    // Both flags start false and never transition at init time, so there is
+    // nothing meaningful to log. The didSet observers on each property capture
+    // every subsequent state change.
+    public init() {}
 }
