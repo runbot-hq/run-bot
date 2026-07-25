@@ -66,9 +66,17 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
     public func setRootView(_ view: AnyView) {
         rootView = view
         guard isSetUp else { return }
-        // Re-wrap with the GeometryReader so size tracking continues.
         hostingController.rootView = wrapped(rootView)
         mbkLog("PopoverController", "setRootView — rootView replaced")
+    }
+
+    // MARK: - Status item image
+
+    /// Updates the status-bar button image.
+    /// The caller is responsible for supplying an appropriately sized, template-mode
+    /// `NSImage`. `MBKPopoverController` does not resize or retemplate the image.
+    public func setStatusItemImage(_ image: NSImage) {
+        statusItem?.button?.image = image
     }
 
     // MARK: - Private setup helpers
@@ -261,31 +269,6 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
         )
     }
 
-    // WHY clamp() ALLOWS A WIDTH RANGE (minWidth...maxWidth):
-    //   clamp() is a defensive size guardrail. The minWidth/maxWidth parameters
-    //   accept different values — the example app itself uses minWidth:200 /
-    //   maxWidth:480 — so any comment claiming "all consumers pass equal bounds"
-    //   would be false.
-    //
-    //   When content transitions between minWidth and maxWidth, applyContentSize
-    //   calls setFrameOrigin on a width change. A reviewer may flag this as
-    //   reintroducing the side-jump race this PR was written to fix. It does not,
-    //   for the following reason:
-    //
-    //   The original race was caused by a separate manual re-center call that
-    //   fired asynchronously and independently of AppKit's own repositioning —
-    //   two competing writes to the window origin with no ordering guarantee.
-    //   That call has been removed. The setFrameOrigin in applyContentSize is now
-    //   the ONLY writer to the window origin. There is no second writer to race
-    //   against. AppKit does not reposition the window horizontally on contentSize
-    //   changes — it only does so at show() time. So setFrameOrigin here runs
-    //   uncontested.
-    //
-    //   The anchor.x re-centering formula (anchor.x - window.frame.width / 2)
-    //   is correct for both fixed-width and variable-width callers: anchor.x is
-    //   the horizontal midpoint of the popover at show() time, and
-    //   window.frame.width reflects the new width after contentSize assignment,
-    //   so the result is always the correct recentered origin.
     private func clamp(_ size: CGSize) -> CGSize {
         CGSize(
             width: min(max(size.width, minWidth), maxWidth),
@@ -375,14 +358,6 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
         mbkLog("PopoverController", "event monitor stopped")
     }
 
-    // deinit is safe to run off the main thread in theory, but in practice
-    // MBKPopoverController is @MainActor-isolated — all retaining references
-    // (AppDelegate, status item target) are held on the main actor, so
-    // deallocation always happens on the main thread. NSWorkspace.notificationCenter
-    // removeObserver and NSEvent.removeMonitor are both documented thread-safe
-    // regardless. nonisolated(unsafe) on the stored observers opts out of
-    // compiler isolation checking for deinit access — the runtime guarantee
-    // above makes this safe.
     deinit {
         if let observer = workspaceObserver {
             NSWorkspace.shared.notificationCenter.removeObserver(observer)
@@ -411,9 +386,6 @@ extension MBKPopoverController: NSPopoverDelegate {
     }
 
     public func popoverDidClose(_ notification: Notification) {
-        // fireOnWillClose is guarded by onWillCloseFired — if forceClose() already
-        // fired it (wasForced: true), this call is a no-op. onWillCloseFired is
-        // reset below so the next open/close cycle starts clean.
         fireOnWillClose(wasForced: false)
         setButtonHighlight(false)
         stopEventMonitor()

@@ -3,7 +3,7 @@
 //
 // Protocol surface for MBKPopoverController.
 
-import Foundation
+import AppKit
 import SwiftUI
 
 /// Protocol surface for `MBKPopoverController`.
@@ -20,6 +20,11 @@ public protocol MBKPopoverControllerProtocol: AnyObject {
     /// without closing and reopening the popover.
     /// ❌ NEVER call from a SwiftUI view — use callbacks only.
     func setRootView(_ view: AnyView)
+
+    /// Updates the status-bar button image.
+    /// The caller is responsible for supplying an appropriately sized, template-mode
+    /// `NSImage`. `MBKPopoverController` does not resize or retemplate the image.
+    func setStatusItemImage(_ image: NSImage)
 
     /// Called in `openPopover()` before `popover.show()`.
     /// Safe for restoring route and other state with no overlay gate side effects.
