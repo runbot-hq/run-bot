@@ -22,14 +22,14 @@ import SwiftUI
 // RULE 2: ALL rows use .padding(.horizontal, 12)
 // RULE 3: Job row HStack Spacer() is LOAD-BEARING.
 // RULE 4: RunnerViewModel.reload() uses withAnimation(nil).
-// RULE 5: actionsSection is wrapped in a ScrollView capped at screenScrollMaxHeight.
+// RULE 5: actionsSection ScrollView uses .frame(height:) — FIXED, not maxHeight.
+//         CRITICAL: maxHeight lets the ScrollView grow when content grows (row expand),
+//         propagating through root .fixedSize() → MBK GeometryReader → popover resize →
+//         entire panel jumps in Y. Fixed height keeps the ScrollView frame stable.
+//         Row expand/collapse is purely internal to the ScrollView. DO NOT change to maxHeight.
 // RULE 6: systemStats MUST run only while the panel is open.
 // RULE 7: RunnerStore self-schedules via its own adaptive timer.
 // RULE 9: displayTick fires every 1 second ALWAYS (no open-state gate).
-// RULE 10: actionsSectionContent MUST NOT have .fixedSize() — it causes the entire
-//          panel to re-anchor (jump) on every row expand because the root .fixedSize()
-//          propagates the content height change all the way up. The ScrollView does not
-//          need it — MBK's GeometryReader reads the settled panel size, not scroll content.
 //
 // NSPopover provides its own glass chrome automatically.
 // Do NOT add .background() or NSVisualEffectView at this level.
@@ -64,8 +64,12 @@ struct PanelMainView: View {
         self.onSelectSettings = onSelectSettings
     }
 
-    /// Maximum scroll height for the actions section (80% of visible screen height).
-    private var screenScrollMaxHeight: CGFloat {
+    /// Fixed height for the scroll area — 80% of visible screen height.
+    ///
+    /// CRITICAL (RULE 5): used as .frame(height:) — NOT .frame(maxHeight:).
+    /// maxHeight allows the ScrollView to grow when content grows (row expand),
+    /// which propagates through root .fixedSize() → MBK GeometryReader → popover resize → jump.
+    private var screenScrollHeight: CGFloat {
         (NSScreen.main?.visibleFrame.height ?? 800) * 0.80
     }
 
@@ -86,9 +90,8 @@ struct PanelMainView: View {
         }
     }
 
-    /// Root body -- header, optional error/rate-limit banners, local runner rows, and the scrollable actions section.
     var body: some View {
-        // DEBUG — jump diagnosis. Remove after fix.
+        // DEBUG — jump diagnosis. Remove after fix confirmed.
         log("【PanelMainView.body】rendered", category: .general)
         return VStack(alignment: .leading, spacing: 0) {
             PanelHeaderView(
@@ -114,7 +117,7 @@ struct PanelMainView: View {
         }
         // .fixedSize() is LOAD-BEARING (RULE 1, #2264).
         .fixedSize()
-        // DEBUG: report every size change that the root VStack reports upward to MBK.
+        // DEBUG: confirm root VStack no longer changes size on row expand.
         .background(
             GeometryReader { geo in
                 Color.clear
@@ -142,13 +145,16 @@ struct PanelMainView: View {
         }
     }
 
-    /// Scrollable container for the actions section, capped at `screenScrollMaxHeight`.
+    /// Scrollable container for the actions section.
+    ///
+    /// .frame(height:) is a FIXED height — NOT .frame(maxHeight:). See RULE 5.
     private var actionsSectionScrollable: some View {
         ScrollView(.vertical, showsIndicators: true) {
             actionsSectionContent
         }
-        .frame(maxHeight: screenScrollMaxHeight)
-        // DEBUG: report every height change of the scroll container itself.
+        // RULE 5: fixed height. DO NOT change to maxHeight.
+        .frame(height: screenScrollHeight)
+        // DEBUG: confirm scroll frame no longer changes on row expand.
         .background(
             GeometryReader { geo in
                 Color.clear
@@ -163,11 +169,6 @@ struct PanelMainView: View {
     }
 
     /// Workflow rows and the load-more button, rendered inside the scroll container.
-    ///
-    /// ❌ NEVER add .fixedSize() or .fixedSize(horizontal: false, vertical: true) here.
-    /// Doing so causes the inner VStack to re-report its natural height to the root
-    /// .fixedSize() on every row expand, which triggers a full panel resize and a
-    /// visible jump of the entire list + metrics bar (RULE 10).
     private var actionsSectionContent: some View {
         VStack(alignment: .leading, spacing: 0) {
             SectionHeaderLabel(title: "Workflows")
@@ -191,7 +192,7 @@ struct PanelMainView: View {
         let nextBatch = min(10, appState.runnerState.actions.count - visibleCount)
         if nextBatch > 0 {
             Button { visibleCount += nextBatch } label: {
-                Text("Load \(nextBatch) more workflows\u{2026}")
+                Text("Load \(nextBatch) more workflows…")
                     .font(.caption).foregroundColor(.secondary)
             }
             .buttonStyle(.plain)
@@ -230,7 +231,7 @@ struct PanelMainView: View {
         if let resetDate = appState.runnerState.rateLimitResetDate {
             let remaining = max(0, resetDate.timeIntervalSinceNow)
             if remaining < 1 {
-                countdownLabel = "resuming\u{2026}"
+                countdownLabel = "resuming…"
             } else if remaining < 60 {
                 countdownLabel = "resets in \(Int(remaining))s"
             } else {
