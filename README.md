@@ -68,7 +68,7 @@ The package is split into three independently-testable library targets and three
 ### Dependency and boundary rules
 
 - `EnvTokenKit` and `OAuthTokenKit` are **peer targets** — neither depends on the other.
-- `GitHubClient` uses `public import OAuthTokenKit` (required because `TokenCache`'s public initialisers name `TokenStore`, and `GitHubClient.oauthService` names `OAuthServiceProtocol`) and `public import EnvTokenKit` in `TokenCache.swift` (required because `TokenCache`'s public initialisers name `EnvTokenProviding`). The `EnvTokenProvider` concrete type is constructed internally and is not part of `GitHubClient`'s public facade; add `EnvTokenKit` as an explicit dependency only when you need to name `EnvTokenProvider` directly.
+- `GitHubClient` uses `public import OAuthTokenKit` in both `GitHubClient.swift` (required because `GitHubClient.oauthService` names `OAuthServiceProtocol`) and `TokenCache.swift` (required because `TokenCache`'s public initialisers name `TokenStore`). `TokenCache.swift` also uses `public import EnvTokenKit` (required because `TokenCache`'s public initialisers name `EnvTokenProviding`). `GitHubClient.swift` uses `internal import EnvTokenKit` — sufficient because no `EnvTokenKit` type appears in that file's public declarations; `EnvTokenProvider` is constructed locally and immediately erased to `any EnvTokenProviding`. Swift import access is per-file; each file independently satisfies its own compiler requirement. Add `EnvTokenKit` as an explicit dependency only when you need to name `EnvTokenProvider` directly in your own code.
 - `GitHubLogger` stays in `GitHubClient/Transport/`. The kits receive a `(@Sendable (String, String) -> Void)?` log closure bridged at wiring time in `GitHubClient.init` — they never import `GitHubLogger` directly.
 - Consuming apps depend **only on `GitHubClient`**. `EnvTokenKit` and `OAuthTokenKit` are transitive; you do not add them as explicit dependencies unless you need to use their types directly.
 
@@ -89,7 +89,7 @@ Add to your `Package.swift`:
 )
 ```
 
-`OAuthTokenKit` is re-exported through `GitHubClient` via `public import` — you get `OAuthServiceProtocol`, `TokenStore`, `GitHubScopes`, and related types without a separate dependency. `EnvTokenKit` is also re-exported through `GitHubClient` via `public import` in `TokenCache.swift`: the `EnvTokenProviding` protocol is part of `GitHubClient`'s public API (it appears in `TokenCache`'s public initialisers). The concrete `EnvTokenProvider` type is not part of `GitHubClient`'s public surface. If you need to name `EnvTokenProvider` directly in your own code, add `EnvTokenKit` as an explicit dependency.
+`OAuthTokenKit` is re-exported through `GitHubClient` via `public import` — you get `OAuthServiceProtocol`, `TokenStore`, `GitHubScopes`, and related types without a separate dependency. `EnvTokenKit` is partially re-exported through `GitHubClient` via `public import EnvTokenKit` in `TokenCache.swift` only: the `EnvTokenProviding` protocol is accessible to consumers because it appears in `TokenCache`'s public initialisers. The concrete `EnvTokenProvider` type is not re-exported and is not part of `GitHubClient`'s public surface. `GitHubClient.swift` itself uses `internal import EnvTokenKit` — `EnvTokenKit` types do not leak from that file. If you need to name `EnvTokenProvider` directly in your own code, add `EnvTokenKit` as an explicit dependency.
 
 ## Usage
 
@@ -271,6 +271,8 @@ let github = GitHubClient(
 See the [GitHub OAuth scopes documentation](https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/scopes-for-oauth-apps) for the full list of available scopes.
 
 ### Checking auth state
+
+> **Note (PR #75 behaviour change):** `isAuthenticated` previously returned `true` for any non-nil Keychain entry, including stored empty strings. It now returns `false` for empty strings — `tokenStore.load().map { !$0.isEmpty } ?? false`. If you have a corrupted Keychain entry (empty string stored), `isAuthenticated` will now correctly return `false`. Update any `MockOAuthService` stubs that returned `""` to represent a signed-in state.
 
 ```swift
 // Keychain-only check (synchronous)
