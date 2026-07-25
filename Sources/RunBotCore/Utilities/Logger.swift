@@ -34,6 +34,9 @@ public enum LogCategory: String, CaseIterable {
     /// OS-level services: Keychain, LoginItem, ProcessRunner,
     /// TerminalLauncher, LogFetcher.
     case services
+    /// Panel / MBK sizing, layout, and navigation diagnostics.
+    /// Temporary — remove after side-jump bug is resolved.
+    case panel
 }
 
 // MARK: - Logger instances
@@ -54,7 +57,7 @@ private let subsystem = "com.eoncode.run-bot"
 /// actor-isolated or explicitly marked `nonisolated(unsafe)`. Even though
 /// `[LogCategory: Logger]` is technically `Sendable` (both `LogCategory` and
 /// `os.Logger` are value/struct types with no mutable state), the Swift 6 checker
-/// emits a `#MutableGlobalVariable` diagnostic for any top-level `let` or `var`
+/// emits a `#MutableGlobalVariable` diagnostic for any mutable global `let` or `var`
 /// whose type does not carry a *public* unconditional `Sendable` conformance visible
 /// at the use site — and the `os` module's `Logger` type does not declare such a
 /// conformance in all SDK versions targeted by this project. `nonisolated(unsafe)`
@@ -68,44 +71,7 @@ nonisolated(unsafe) private let loggers: [LogCategory: Logger] = Dictionary(
 )
 
 /// Returns the `os.Logger` for the given category.
-///
-/// Under normal operation this function always succeeds: `loggers` is built from
-/// `LogCategory.allCases` via `uniqueKeysWithValues`, guaranteeing every case is
-/// present. The `guard` branch is therefore structurally unreachable at runtime.
-///
-/// **Why `preconditionFailure` and not `fatalError`?**
-/// The missing-key path is unreachable by construction — `CaseIterable` synthesis
-/// guarantees `allCases` is exhaustive. Both `preconditionFailure` and `fatalError`
-/// crash in debug builds and in standard `-O` release builds (App Store, TestFlight).
-/// The distinction is narrow: `preconditionFailure` is elided only under `-Ounchecked`,
-/// whereas `fatalError` crashes in all configurations including `-Ounchecked`.
-/// `-Ounchecked` is rarely used in production. The choice of `preconditionFailure`
-/// signals developer intent — "this is a programmer error that is structurally
-/// unreachable" — rather than a recoverable runtime failure. Either would be
-/// acceptable here; `preconditionFailure` is the conventional Swift choice for
-/// invariant violations that should never occur in a correct build.
-///
-/// **Compile-time vs runtime safety:** The exhaustiveness guarantee comes from
-/// `CaseIterable` synthesis — `allCases` always includes every declared case.
-/// This means a new `LogCategory` case added without re-running the app will
-/// surface as a `preconditionFailure` crash at runtime in debug/test, not as
-/// a compile error. The `guard` is a runtime backstop, not a compile-time check.
-///
-/// **Why not a silent fallback `Logger`?**
-/// A fallback would silently allocate a new `os.Logger` on every `log()` call for
-/// the unrecognised category, routing messages to an unnamed or wrong category
-/// with no indication anything is wrong. That failure mode is harder to diagnose
-/// than an immediate crash in development.
-///
-/// **Why not `@inline(__always)`?**
-/// This is a dictionary-lookup wrapper, not a bit-twiddling accessor. The compiler
-/// will inline it when beneficial without being forced to. `@inline(__always)` on
-/// a function containing a dictionary lookup and a `preconditionFailure` branch
-/// would bloat the call-site binary at every `log()` invocation without a
-/// measurable hot-path benefit — `os.Logger.debug` itself is orders of magnitude
-/// more expensive than one dictionary lookup.
 private func resolvedLogger(for category: LogCategory) -> Logger {
-    // allCases guarantees every case is present; a nil result is a programmer error.
     guard let logger = loggers[category] else {
         preconditionFailure("Logger for category '\(category.rawValue)' not found — add a matching case to LogCategory")
     }
@@ -134,14 +100,6 @@ private func resolvedLogger(for category: LogCategory) -> Logger {
 /// making diagnostic output useless in the field. `.public` opts the entire
 /// message out of OS-level redaction.
 ///
-/// **Consequence:** call sites must not embed secrets in log messages. The sole
-/// exception where content IS manually sanitised before reaching `log()` is
-/// `OAuthService.handleCallback`, which logs `scheme://host` only, stripping the
-/// one-time OAuth `code` query parameter. All other call sites (runner names,
-/// repo scopes, error descriptions, token lengths) are intentionally unredacted.
-/// Do not add `privacy: .private` or `.sensitive` overrides at individual call sites
-/// — if a call site needs redaction, sanitise the string before passing it to `log()`.
-///
 /// - Parameters:
 ///   - message:  Human-readable log message.
 ///   - category: Subsystem category for Console.app filtering.
@@ -154,7 +112,6 @@ public func log(
 ) {
     let filename = URL(fileURLWithPath: file)
         .deletingPathExtension().lastPathComponent
-    // privacy: .public — see policy note in the doc comment above.
     resolvedLogger(for: category).debug(
         "\(filename, privacy: .public):\(line, privacy: .public) — \(message, privacy: .public)"
     )

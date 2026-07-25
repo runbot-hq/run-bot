@@ -45,7 +45,7 @@ struct RootPanelView: View {
     let onStepBack: () -> Void
 
     var body: some View {
-        log("【RootPanelView.body】rendered navState=\(navState)", category: .mbk)
+        log("【RootPanelView.body】rendered navState=\(navState)", category: .panel)
         return Group {
             switch appState.savedNavState {
             case .none, .main:
@@ -57,8 +57,8 @@ struct RootPanelView: View {
             }
         }
         .id(navState)
-        .onChange(of: navState) { old, new in
-            log("【RootPanelView】navState \(old) → \(new)", category: .mbk)
+        .onChange(of: navState) { newNav in
+            log("【RootPanelView】navState → \(newNav)", category: .panel)
         }
     }
 
@@ -68,7 +68,7 @@ struct RootPanelView: View {
         PanelContainerView(
             content: PanelMainView(
                 onStepTap: { job, step in
-                    log("【RootPanelView】onStepTap — navigating to stepLog job=\(job.id) step=\(step.number)", category: .mbk)
+                    log("【RootPanelView】onStepTap — navigating to stepLog job=\(job.id) step=\(step.number)", category: .panel)
                     appState.savedNavState = .stepLog(job: job, step: step)
                 },
                 onSelectSettings: onSelectSettings

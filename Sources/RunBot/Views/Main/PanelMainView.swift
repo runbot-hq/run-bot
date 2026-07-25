@@ -96,18 +96,13 @@ struct PanelMainView: View {
     }
 
     /// Returns true when the status item button window is off-screen (menubar hidden).
-    /// Mirrors MBK's isMenuBarHidden logic for logging purposes only.
+    /// Used only for logging — does not affect layout.
     private var isMenuBarHidden: Bool {
-        guard let app = NSRunningApplication.current as? NSRunningApplication else { return false }
-        _ = app
-        // Walk NSApp windows to find the status item button window.
-        // The button window is identified by having no title and being of class NSStatusBarWindow.
         for win in NSApp.windows {
-            let isStatusBar = String(describing: type(of: win)).contains("StatusBar")
-            if isStatusBar {
-                let screenH = win.screen.map { $0.frame.height } ?? -1
-                let winMaxY = win.frame.maxY
-                return screenH < 0 || winMaxY > screenH
+            let typeName = String(describing: type(of: win))
+            if typeName.contains("StatusBar") {
+                let screenH = win.screen?.frame.height ?? -1
+                return screenH < 0 || win.frame.maxY > screenH
             }
         }
         return false
@@ -121,7 +116,7 @@ struct PanelMainView: View {
     private var screenScrollMaxHeight: CGFloat {
         let visibleHeight = NSScreen.main?.visibleFrame.height ?? 800
         let cap = visibleHeight * 0.80 - headerHeight
-        log("【PanelMainView.screenScrollMaxHeight】visibleHeight=\(visibleHeight) headerHeight=\(headerHeight) cap=\(cap) multiplier=0.80 menuBarHidden=\(isMenuBarHidden)", category: .mbk)
+        log("【PanelMainView.screenScrollMaxHeight】visibleHeight=\(visibleHeight) headerHeight=\(headerHeight) cap=\(cap) multiplier=0.80 menuBarHidden=\(isMenuBarHidden)", category: .panel)
         return cap
     }
 
@@ -157,11 +152,12 @@ struct PanelMainView: View {
                         .onAppear {
                             let prev = headerHeight
                             headerHeight = geo.size.height
-                            log("【header.geo】onAppear h=\(geo.size.height) menuBarHidden=\(isMenuBarHidden) (was \(prev))", category: .mbk)
+                            log("【header.geo】onAppear h=\(geo.size.height) menuBarHidden=\(isMenuBarHidden) (was \(prev))", category: .panel)
                         }
-                        .onChange(of: geo.size.height) { old, new in
-                            headerHeight = new
-                            log("【header.geo】onChange \(old) → \(new) menuBarHidden=\(isMenuBarHidden) ← HEADER HEIGHT CHANGED", category: .mbk)
+                        .onChange(of: geo.size.height) { newH in
+                            let prev = headerHeight
+                            headerHeight = newH
+                            log("【header.geo】onChange \(prev) → \(newH) menuBarHidden=\(isMenuBarHidden) ← HEADER HEIGHT CHANGED", category: .panel)
                         }
                 }
             )
@@ -184,35 +180,35 @@ struct PanelMainView: View {
         }
         // RULE 1: LOAD-BEARING — do not remove or change to fixedSize(horizontal:vertical:).
         .fixedSize()
-        // Log root VStack total height changes.
+        // Log root VStack total size changes.
         .background(
             GeometryReader { geo in
                 Color.clear
                     .onAppear {
-                        log("【rootVStack.geo】onAppear size=\(geo.size) menuBarHidden=\(isMenuBarHidden)", category: .mbk)
+                        log("【rootVStack.geo】onAppear size=\(geo.size) menuBarHidden=\(isMenuBarHidden)", category: .panel)
                     }
-                    .onChange(of: geo.size) { old, new in
-                        log("【rootVStack.geo】onChange \(old) → \(new) menuBarHidden=\(isMenuBarHidden)", category: .mbk)
+                    .onChange(of: geo.size) { newSize in
+                        log("【rootVStack.geo】onChange → \(newSize) menuBarHidden=\(isMenuBarHidden)", category: .panel)
                     }
             }
         )
         .onAppear {
-            log("【PanelMainView】onAppear panelOpen=\(panelVisibilityState.isOpen) menuBarHidden=\(isMenuBarHidden)", category: .mbk)
+            log("【PanelMainView】onAppear panelOpen=\(panelVisibilityState.isOpen) menuBarHidden=\(isMenuBarHidden)", category: .panel)
             if panelVisibilityState.isOpen { systemStats.start() }
             startDisplayTickTimer()
         }
         .onDisappear {
-            log("【PanelMainView】onDisappear menuBarHidden=\(isMenuBarHidden)", category: .mbk)
+            log("【PanelMainView】onDisappear menuBarHidden=\(isMenuBarHidden)", category: .panel)
             systemStats.stop()
             stopDisplayTickTimer()
         }
-        .onChange(of: panelVisibilityState.isOpen) { old, open in
-            log("【PanelMainView】panelVisibilityState.isOpen \(old) → \(open) menuBarHidden=\(isMenuBarHidden)", category: .mbk)
-            if open { systemStats.start() } else { systemStats.stop() }
+        .onChange(of: panelVisibilityState.isOpen) { newOpen in
+            log("【PanelMainView】panelVisibilityState.isOpen → \(newOpen) menuBarHidden=\(isMenuBarHidden)", category: .panel)
+            if newOpen { systemStats.start() } else { systemStats.stop() }
         }
-        .onChange(of: appState.runnerState.actions) { old, new in
-            log("【PanelMainView】actions count \(old.count) → \(new.count) menuBarHidden=\(isMenuBarHidden)", category: .mbk)
-            if new.count < old.count { visibleCount = 10 }
+        .onChange(of: appState.runnerState.actions) { newActions in
+            log("【PanelMainView】actions count → \(newActions.count) menuBarHidden=\(isMenuBarHidden)", category: .panel)
+            if newActions.count < visibleCount { visibleCount = 10 }
         }
     }
 
@@ -228,16 +224,16 @@ struct PanelMainView: View {
                             .onAppear {
                                 let cap = screenScrollMaxHeight
                                 let capped = min(geo.size.height, cap)
-                                log("【scrollContent.geo】onAppear raw=\(geo.size.height) cap=\(cap) capped=\(capped) scrollViewHeight=\(scrollViewHeight) menuBarHidden=\(isMenuBarHidden)", category: .mbk)
+                                log("【scrollContent.geo】onAppear raw=\(geo.size.height) cap=\(cap) capped=\(capped) scrollViewHeight=\(scrollViewHeight) menuBarHidden=\(isMenuBarHidden)", category: .panel)
                                 scrollViewHeight = capped
-                                log("【scrollContent.geo】scrollViewHeight SET → \(scrollViewHeight)", category: .mbk)
+                                log("【scrollContent.geo】scrollViewHeight SET → \(scrollViewHeight)", category: .panel)
                             }
-                            .onChange(of: geo.size.height) { old, new in
+                            .onChange(of: geo.size.height) { newH in
                                 let cap = screenScrollMaxHeight
-                                let capped = min(new, cap)
-                                log("【scrollContent.geo】onChange raw \(old) → \(new) cap=\(cap) capped=\(capped) scrollViewHeight was=\(scrollViewHeight) menuBarHidden=\(isMenuBarHidden)", category: .mbk)
+                                let capped = min(newH, cap)
+                                log("【scrollContent.geo】onChange raw → \(newH) cap=\(cap) capped=\(capped) scrollViewHeight was=\(scrollViewHeight) menuBarHidden=\(isMenuBarHidden)", category: .panel)
                                 scrollViewHeight = capped
-                                log("【scrollContent.geo】scrollViewHeight SET → \(scrollViewHeight)", category: .mbk)
+                                log("【scrollContent.geo】scrollViewHeight SET → \(scrollViewHeight)", category: .panel)
                             }
                     }
                 )
@@ -247,10 +243,10 @@ struct PanelMainView: View {
             GeometryReader { geo in
                 Color.clear
                     .onAppear {
-                        log("【scrollView.geo】onAppear h=\(geo.size.height) menuBarHidden=\(isMenuBarHidden)", category: .mbk)
+                        log("【scrollView.geo】onAppear h=\(geo.size.height) menuBarHidden=\(isMenuBarHidden)", category: .panel)
                     }
-                    .onChange(of: geo.size.height) { old, new in
-                        log("【scrollView.geo】onChange \(old) → \(new) menuBarHidden=\(isMenuBarHidden)", category: .mbk)
+                    .onChange(of: geo.size.height) { newH in
+                        log("【scrollView.geo】onChange → \(newH) menuBarHidden=\(isMenuBarHidden)", category: .panel)
                     }
             }
         )
