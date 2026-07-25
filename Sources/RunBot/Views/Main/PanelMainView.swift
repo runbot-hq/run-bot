@@ -44,6 +44,13 @@ import SwiftUI
 //         On macOS 26, GlassEffectContainer can report slightly different preferred
 //         heights under layout pressure — .fixedSize() prevents that entirely.
 //
+// CAP ALIGNMENT (RULE 11):
+//         screenScrollMaxHeight multiplier (0.80) MUST match AppDelegate.maxHeight
+//         multiplier. Both derive from visibleFrame.height. Using different values
+//         creates a gap where MBK clamps the popover at a height SwiftUI didn't
+//         expect, forcing a re-layout that compresses the header.
+//         ❌ NEVER change this multiplier without also changing AppDelegate.maxHeight.
+//
 // NSPopover provides its own glass chrome automatically.
 // Do NOT add .background() or NSVisualEffectView at this level.
 struct PanelMainView: View {
@@ -78,9 +85,13 @@ struct PanelMainView: View {
         self.onSelectSettings = onSelectSettings
     }
 
-    /// Maximum scroll height (80% of visible screen height).
+    /// Maximum scroll height — 80% of visible screen height.
+    /// ❌ MUST match AppDelegate.maxHeight multiplier. See RULE 11 / CAP ALIGNMENT.
     private var screenScrollMaxHeight: CGFloat {
-        (NSScreen.main?.visibleFrame.height ?? 800) * 0.80
+        let visibleHeight = NSScreen.main?.visibleFrame.height ?? 800
+        let cap = visibleHeight * 0.80
+        log("【PanelMainView】screenScrollMaxHeight visibleHeight=\(visibleHeight) cap=\(cap) multiplier=0.80", category: .general)
+        return cap
     }
 
     /// Local runners currently executing a job inside an in-progress workflow group.
@@ -177,13 +188,15 @@ struct PanelMainView: View {
                     GeometryReader { geo in
                         Color.clear
                             .onAppear {
-                                let capped = min(geo.size.height, screenScrollMaxHeight)
-                                log("【scrollContent.geo】onAppear raw=\(geo.size.height) capped=\(capped)", category: .general)
+                                let cap = screenScrollMaxHeight
+                                let capped = min(geo.size.height, cap)
+                                log("【scrollContent.geo】onAppear raw=\(geo.size.height) cap=\(cap) capped=\(capped)", category: .general)
                                 scrollViewHeight = capped
                             }
                             .onChange(of: geo.size.height) { old, new in
-                                let capped = min(new, screenScrollMaxHeight)
-                                log("【scrollContent.geo】onChange raw \(old) → \(new)  scrollViewHeight \(scrollViewHeight) → \(capped)", category: .general)
+                                let cap = screenScrollMaxHeight
+                                let capped = min(new, cap)
+                                log("【scrollContent.geo】onChange raw \(old) → \(new)  cap=\(cap)  scrollViewHeight \(scrollViewHeight) → \(capped)", category: .general)
                                 scrollViewHeight = capped
                             }
                     }
