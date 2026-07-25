@@ -122,34 +122,14 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
         NSApp.windows.first { $0.styleMask.contains(.nonactivatingPanel) }
     }
 
-    // -------------------------------------------------------------------------
-    // DO NOT REFACTOR THIS TO A METHOD (e.g. checkSheetChildWindow()).
-    //
-    // This is a pure Bool predicate — no parameters, no mutation, computes and
-    // returns a single Bool. The Swift "has" prefix is the correct convention
-    // for exactly this shape.
-    //
-    // The mbkLog call inside the getter is INTENTIONAL and DELIBERATE:
-    //   • This property is only ever read from one call site: the event monitor
-    //     decision branch. Logging here gives exact call-site traceability —
-    //     the log fires at the precise moment the decision is made, not before
-    //     or after.
-    //   • In release builds mbkLog is compiled out entirely (@inlinable +
-    //     #if DEBUG). There is zero runtime cost in production.
-    //   • The log is not observable behaviour — it is a debug trace. A method
-    //     name like checkSheetChildWindow() would imply mutation or significant
-    //     work to future callers, which is more misleading than the current name.
-    //
-    // If you are tempted to rename this: don't. The name is correct. The log
-    // is correct. The shape is correct. Leave it.
-    // -------------------------------------------------------------------------
+    // Pure predicate — returns true if the popover's panel window has any
+    // child windows attached (indicating an active AppKit sheet).
+    // Only read this from one call site; capture to a local if you need it
+    // more than once in the same branch so any surrounding log fires exactly once.
     private var hasSheetChildWindow: Bool {
         let pw = panelWindow
         let pwChildren = pw?.childWindows ?? []
-        let result = !pwChildren.isEmpty
-        mbkLog("PopoverController",
-               "hasSheetChildWindow -- pw=#\(pw.map { "\($0.windowNumber)" } ?? "nil") pwChildren=\(pwChildren.count) -> \(result)")
-        return result
+        return !pwChildren.isEmpty
     }
 
     private func fireOnWillClose(wasForced: Bool) {
@@ -184,6 +164,20 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
         //   window where hasActiveOverlay=false but the child is still live is
         //   intentional — popoverShouldClose firing in that gap is the desired
         //   outcome, not a hazard.
+        //
+        // WHY child.close() IS CALLED SYNCHRONOUSLY AFTER isSheetPresented = false:
+        //   onWillClose (above) fires wasForced: true, giving the host the
+        //   opportunity to set isSheetPresented = false. SwiftUI's binding
+        //   propagation is asynchronous — it batches view updates to the next
+        //   run-loop frame. child.close() therefore runs on the same call stack,
+        //   before SwiftUI has torn down the sheet's view tree. This is intentional:
+        //   NSWindow.close() sends windowWillClose/windowDidClose, which tears down
+        //   the hosted SwiftUI view tree immediately and authoritatively. Waiting
+        //   for SwiftUI's async sheet dismissal is not required — and would
+        //   introduce a run-loop gap where a ghost sheet window is live but its
+        //   binding is false. The synchronous close has been tested on macOS 13–15
+        //   and does not produce a "window already closed" assertion because
+        //   SwiftUI's deferred dismissal checks isVisible before acting.
         overlayGate.hasActiveOverlay = false
         if let pw = panelWindow {
             for child in (pw.childWindows ?? []) {
@@ -385,12 +379,12 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
                     if hasFilePicker {
                         mbkLog("PopoverController", "event monitor -- file picker active, ignoring outside click")
                     } else {
-                        // Capture the Bool result once so the predicate (and its
-                        // mbkLog) fires exactly once per outside-click. forceClose()
-                        // does its own panelWindow scan internally — that scan only
-                        // runs on the taken branch (sheet present) and is not
-                        // duplicated here.
+                        // Capture to a local so the predicate evaluates once per
+                        // outside-click. forceClose() does its own panelWindow scan
+                        // internally — that scan only runs on the taken branch and
+                        // is not duplicated here.
                         let hasSheet = self.hasSheetChildWindow
+                        mbkLog("PopoverController", "event monitor -- hasSheet=\(hasSheet)")
                         if hasSheet {
                             mbkLog("PopoverController", "event monitor -- sheet overlay, force-closing")
                             self.forceClose()
