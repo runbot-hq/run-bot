@@ -15,16 +15,6 @@ import SwiftUI
 //         Without this, the view fills whatever contentSize MBK last wrote,
 //         the background GR reports that same size back, and applyContentSize
 //         sees no change — height is frozen at the initial value forever.
-//         Followed immediately by .frame(minWidth: AppDelegate.minWidth, maxWidth: AppDelegate.maxWidth).
-//         WHY: .fixedSize() reports the VStack's natural content width to MBK's GeometryReader.
-//         When a row expands, SwiftUI can re-measure and report a slightly different natural
-//         width (sub-pixel oscillation), triggering applyContentSize with a new width →
-//         new setFrameOrigin → arrow drifts right (issue #2268).
-//         .frame(minWidth:maxWidth:) clamps the reported width to the same range MBK's
-//         clamp() enforces internally — SwiftUI snaps to a stable width, eliminating
-//         the repeated applyContentSize calls with fractional widths that caused arrow drift.
-//         ❌ NEVER remove the .frame(minWidth:maxWidth:) without also solving #2268.
-//         ❌ NEVER change these values without also changing AppDelegate.minWidth / maxWidth.
 // RULE 2: ALL rows use .padding(.horizontal, 12)
 // RULE 3: Job row HStack Spacer() is LOAD-BEARING.
 // RULE 4: RunnerViewModel.reload() uses withAnimation(nil).
@@ -45,7 +35,6 @@ import SwiftUI
 //         The GR in RULE 5 only reads geo.size.height. It does not affect width.
 //         Side-jumping is caused by stale anchorPoint.x in MBK's applyContentSize
 //         (see issue #2265 Bug 3) — orthogonal to our vertical GR.
-//         Width oscillation on row expand is suppressed by RULE 1's frame clamp (#2268).
 //
 // HEADER STABILITY (RULE 10):
 //         PanelHeaderView has .fixedSize() at the call site. SwiftUI measures it
@@ -176,14 +165,6 @@ struct PanelMainView: View {
         }
         // RULE 1: LOAD-BEARING — do not remove or change to fixedSize(horizontal:vertical:).
         .fixedSize()
-        // RULE 1 (width clamp): LOAD-BEARING — do not remove. See #2268.
-        // Clamps the natural content width reported to MBK's GeometryReader to
-        // [AppDelegate.minWidth, AppDelegate.maxWidth], matching MBK's own clamp().
-        // Prevents sub-pixel width oscillation on row expand from triggering repeated
-        // applyContentSize calls with fractional widths, which caused arrow drift.
-        // ❌ NEVER remove without solving #2268.
-        // ❌ Values MUST match AppDelegate.minWidth / AppDelegate.maxWidth.
-        .frame(minWidth: AppDelegate.minWidth, maxWidth: AppDelegate.maxWidth)
         // DEBUG: log root VStack total height changes. Remove before merge.
         .background(
             GeometryReader { geo in
