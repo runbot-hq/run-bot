@@ -45,19 +45,42 @@ struct RootPanelView: View {
     let onStepBack: () -> Void
 
     var body: some View {
-        // DEBUG — jump diagnosis. Remove after fix.
-        log("【RootPanelView.body】rendered navState=\(navState)", category: .general)
+        let ns = navState
+        log("【RootPanelView.body】rendered navState=\(ns) savedNavState=\(appState.savedNavState)", category: .general)
         return Group {
             switch appState.savedNavState {
             case .none, .main:
+                let _ = log("【RootPanelView.body】branch=main", category: .general)
                 mainBranch
             case .settings:
+                let _ = log("【RootPanelView.body】branch=settings", category: .general)
                 settingsBranch
             case .stepLog(let job, let step):
+                let _ = log("【RootPanelView.body】branch=stepLog job=\(job.id) step=\(step.number)", category: .general)
                 stepLogBranch(job: job, step: step)
             }
         }
-        .id(navState)
+        .id(ns)
+        .background(
+            GeometryReader { geo in
+                Color.clear
+                    .onAppear {
+                        log("【RootPanelView.geo】onAppear size=(\(geo.size.width),\(geo.size.height)) navState=\(navState)", category: .general)
+                    }
+                    .onChange(of: geo.size) { old, new in
+                        log("【RootPanelView.geo】onChange (\(old.width),\(old.height)) → (\(new.width),\(new.height)) navState=\(navState)", category: .general)
+                    }
+            }
+        )
+        .onAppear {
+            log("【RootPanelView】onAppear navState=\(navState)", category: .general)
+        }
+        .onDisappear {
+            log("【RootPanelView】onDisappear navState=\(navState)", category: .general)
+        }
+        .onChange(of: appState.savedNavState) { old, new in
+            log("【RootPanelView】savedNavState changed \(old) → \(new) navKey: \(navState)", category: .general)
+        }
     }
 
     // MARK: - Route branches
@@ -66,6 +89,7 @@ struct RootPanelView: View {
         PanelContainerView(
             content: PanelMainView(
                 onStepTap: { job, step in
+                    log("【RootPanelView】onStepTap job=\(job.id) step=\(step.number)", category: .general)
                     appState.savedNavState = .stepLog(job: job, step: step)
                 },
                 onSelectSettings: onSelectSettings

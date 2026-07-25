@@ -24,6 +24,9 @@ struct ActionRowView: View {
     /// Tracks the previous row status to detect in-progress → done transitions.
     @State private var previousStatus: RBStatus?
 
+    // DEBUG: call counter so every GR event is uniquely numbered per row.
+    @State private var geoCallCount = 0
+
     /// Renders the row using the appropriate glass card background for the current OS.
     var body: some View {
         if #available(macOS 26, *) {
@@ -53,15 +56,18 @@ struct ActionRowView: View {
             }
         }
         .frame(maxWidth: .infinity)
-        // DEBUG: report every height change of this row to diagnose the jump.
         .background(
             GeometryReader { geo in
                 Color.clear
                     .onAppear {
-                        log("【ActionRowView.geo】id=\(group.id) onAppear size=\(geo.size)", category: .general)
+                        geoCallCount += 1
+                        let n = geoCallCount
+                        log("【ActionRowView.geo[\(n)]】id=\(group.id) onAppear size=(\(geo.size.width),\(geo.size.height)) expandState=\(String(describing: expandState)) tick=\(tick)", category: .general)
                     }
                     .onChange(of: geo.size) { old, new in
-                        log("【ActionRowView.geo】id=\(group.id) onChange \(old) → \(new)", category: .general)
+                        geoCallCount += 1
+                        let n = geoCallCount
+                        log("【ActionRowView.geo[\(n)]】id=\(group.id) onChange (\(old.width),\(old.height)) → (\(new.width),\(new.height)) expandState=\(String(describing: expandState)) tick=\(tick)  ← ROW SIZE CHANGED", category: .general)
                     }
             }
         )
@@ -75,12 +81,26 @@ struct ActionRowView: View {
         .modifier(RowTapModifier(jobs: group.jobs, expandState: $expandState, rowStatus: rowStatus))
         .padding(.horizontal, RBSpacing.md)
         .padding(.vertical, RBSpacing.xxs)
-        .onAppear { applyInitialExpandState() }
+        .onAppear {
+            log("【ActionRowView】id=\(group.id) onAppear rowStatus=\(rowStatus)", category: .general)
+            applyInitialExpandState()
+        }
+        .onDisappear {
+            log("【ActionRowView】id=\(group.id) onDisappear", category: .general)
+        }
         .onChange(of: expandState) { old, new in
-            // DEBUG — jump diagnosis. Remove after fix.
             log("【ActionRowView.expandState】id=\(group.id) \(String(describing: old)) → \(String(describing: new))", category: .general)
         }
-        .onChange(of: rowStatus) { _, newStatus in handleStatusChange(newStatus) }
+        .onChange(of: rowStatus) { old, newStatus in
+            log("【ActionRowView.rowStatus】id=\(group.id) \(old) → \(newStatus)", category: .general)
+            handleStatusChange(newStatus)
+        }
+        .onChange(of: group) { old, new in
+            log("【ActionRowView.group】id=\(group.id) group mutated — title: '\(old.title)' → '\(new.title)' status: \(old.groupStatus) → \(new.groupStatus) jobCount: \(old.jobs.count) → \(new.jobs.count)", category: .general)
+        }
+        .onChange(of: tick) { old, new in
+            log("【ActionRowView.tick】id=\(group.id) tick \(old) → \(new)", category: .general)
+        }
     }
 
     /// Left-edge accent bar whose colour reflects the current row status.
@@ -101,16 +121,20 @@ struct ActionRowView: View {
     private func applyInitialExpandState() {
         let status = rowStatus
         previousStatus = status
-        expandState = (status == .inProgress) ? false : nil
+        let initial: Bool? = (status == .inProgress) ? false : nil
+        log("【ActionRowView】id=\(group.id) applyInitialExpandState status=\(status) → expandState=\(String(describing: initial))", category: .general)
+        expandState = initial
     }
 
     /// Animates expand state transitions when the row status changes.
     private func handleStatusChange(_ newStatus: RBStatus) {
         let animation: Animation = .easeInOut(duration: 0.15)
         if newStatus == .inProgress && expandState == nil {
+            log("【ActionRowView】id=\(group.id) handleStatusChange: → inProgress, animating expandState nil → false", category: .general)
             withAnimation(animation) { expandState = false }
         }
         if previousStatus == .inProgress && (newStatus == .success || newStatus == .failed) {
+            log("【ActionRowView】id=\(group.id) handleStatusChange: inProgress → \(newStatus), animating expandState → nil", category: .general)
             withAnimation(animation) { expandState = nil }
         }
         previousStatus = newStatus
@@ -169,6 +193,17 @@ struct ActionRowView: View {
         }
         .padding(.trailing, RBSpacing.xs)
         .padding(.vertical, 4)
+        .background(
+            GeometryReader { geo in
+                Color.clear
+                    .onAppear {
+                        log("【ActionRowView.rowContent.geo】id=\(group.id) onAppear size=(\(geo.size.width),\(geo.size.height))", category: .general)
+                    }
+                    .onChange(of: geo.size) { old, new in
+                        log("【ActionRowView.rowContent.geo】id=\(group.id) onChange (\(old.width),\(old.height)) → (\(new.width),\(new.height))  ← ROW CONTENT WIDTH CHANGED", category: .general)
+                    }
+            }
+        )
     }
 
     /// Trailing meta: time-ago · steps/total · elapsed · statusBadge.
@@ -232,7 +267,11 @@ private struct RowTapModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content.onTapGesture {
-            guard !jobs.isEmpty else { return }
+            guard !jobs.isEmpty else {
+                log("【RowTapModifier】tap ignored — no jobs", category: .general)
+                return
+            }
+            let before = expandState
             withAnimation(.easeInOut(duration: 0.15)) {
                 if expandState == true {
                     expandState = (rowStatus == .inProgress) ? false : nil
@@ -240,6 +279,7 @@ private struct RowTapModifier: ViewModifier {
                     expandState = true
                 }
             }
+            log("【RowTapModifier】tapped expandState \(String(describing: before)) → \(String(describing: expandState))", category: .general)
         }
     }
 }
