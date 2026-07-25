@@ -131,7 +131,6 @@ struct PanelLocalRunnerRow: View {
         }
         .padding(.horizontal, RBSpacing.md)
         .padding(.vertical, RBSpacing.xs + 2)
-        .frame(maxWidth: .infinity)
         .background {
             // .glassCard() handles its own #available branch internally.
             // No outer #available check needed here.

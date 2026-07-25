@@ -52,7 +52,6 @@ struct ActionRowView: View {
                 InlineJobRowsView(group: group, tick: tick, fullExpand: fullExpand, onStepTap: onStepTap)
             }
         }
-        .frame(maxWidth: .infinity)
         // DEBUG: report every height change of this row to diagnose the jump.
         .background(
             GeometryReader { geo in
