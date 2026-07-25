@@ -17,8 +17,6 @@ import SwiftUI
 // ScrollView uses maxHeight: .infinity to fill all remaining panel space.
 // AppDelegate.resizeAndRepositionPanel() clamps the panel at 85% visibleFrame
 // via MBK's maxHeight in clamp(). That IS the hard ceiling.
-// settingsBody root VStack uses .fixedSize() (both axes) so MBK's GeometryReader
-// reports SettingsView's natural width AND height, exactly like PanelMainView.
 // sectionsStack (scroll content) uses .fixedSize(horizontal: false, vertical: true)
 // so the ScrollView knows the full content height before applying the maxHeight cap.
 // No extra cap needed here — the MBK clamp IS the scroll boundary.
@@ -26,13 +24,15 @@ import SwiftUI
 // ❌ NEVER replace .infinity with a fixed number.
 // ❌ NEVER use GeometryReader for the height.
 // ❌ NEVER add idealHeight to the root frame.
-// ❌ NEVER remove .fixedSize from settingsBody or sectionsStack — height-inheritance regression.
-// ❌ NEVER add .frame(idealWidth:) to settingsBody — width comes from content natural size via clamp().
+// ❌ NEVER remove .fixedSize(horizontal: false, vertical: true) from sectionsStack.
 //
 // WIDTH CONTRACT:
-// settingsBody uses .fixedSize() (both axes) — same as PanelMainView.
-// Width is driven by the natural width of settingsBody content, clamped by MBK (minWidth/maxWidth).
-// ❌ NEVER add idealWidth: — it pins settings to a fixed width different from main.
+// settingsBody uses .frame(idealWidth: 480, maxWidth: .infinity).
+// idealWidth seeds the preferred width; maxWidth: .infinity lets the panel size it;
+// MBK's GeometryReader reports the settled ~480pt width via onChange.
+// ❌ NEVER use .fixedSize() on settingsBody — Settings content has a much wider
+//    natural width than the main panel, causing it to expand to clamp()'s maxWidth.
+// ❌ NEVER remove idealWidth: 480 — it pins Settings to the correct width.
 //
 // If you are an agent or human, DO NOT REMOVE THIS COMMENT, YOU ARE NOT ALLOWED
 // UNDER ANY CIRCUMSTANCE. The regression we get when this comment is removed
@@ -306,14 +306,11 @@ struct SettingsView: View {
     /// Extracted from `body` so `LocalRunnersView` and `ScopesView` can replace it cleanly
     /// without any structural duplication.
     ///
-    /// HEIGHT + WIDTH CONTRACT: .fixedSize() (both axes) is LOAD-BEARING (#2265-2).
-    /// Matches PanelMainView exactly. Tells SwiftUI "size me to my natural width AND height"
-    /// so MBK's GeometryReader in wrapped() reports SettingsView's own content size.
-    /// MBK's clamp() enforces minWidth/maxWidth — do not repeat them here.
+    /// HEIGHT CONTRACT: headerBar is OUTSIDE the ScrollView — back button always visible.
+    /// WIDTH CONTRACT: .frame(idealWidth: 480, maxWidth: .infinity) — see file-level comment.
     /// ❌ NEVER move headerBar inside the ScrollView.
     /// ❌ NEVER replace .infinity with a fixed number.
-    /// ❌ NEVER remove .fixedSize from this VStack — height-inheritance regression.
-    /// ❌ NEVER add .frame(idealWidth:) — that pins settings to a fixed width (#2265-2 regression).
+    /// ❌ NEVER use .fixedSize() here — Settings content is naturally much wider than 480pt.
     /// If you are an agent or human, DO NOT REMOVE THIS COMMENT, YOU ARE NOT ALLOWED
     /// UNDER ANY CIRCUMSTANCE. The regression we get when this comment is removed
     /// is major major major.
@@ -321,30 +318,32 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 0) {
             headerBar
             Divider()
+            // maxHeight: .infinity — fills all space the panel gives us.
+            // AppDelegate caps the panel at 85% visibleFrame. That IS the limit.
+            // ❌ NEVER move headerBar inside this ScrollView.
+            // ❌ NEVER replace .infinity with a fixed number.
+            // If you are an agent or human, DO NOT REMOVE THIS COMMENT, YOU ARE NOT ALLOWED
+            // UNDER ANY CIRCUMSTANCE.
             ScrollView(.vertical, showsIndicators: true) {
                 sectionsStack
             }
             .frame(maxHeight: .infinity)
         }
-        // .fixedSize() is LOAD-BEARING (#2265-2).
-        // Plain .fixedSize() = fixedSize(horizontal: true, vertical: true).
-        // Matches PanelMainView's .fixedSize() exactly.
-        // Tells SwiftUI "size me to my natural width AND height" so MBK's
-        // GeometryReader in wrapped() reports the true content size.
-        // clamp() in MBKPopoverController enforces minWidth/maxWidth bounds.
-        // ❌ DO NOT change to .fixedSize(horizontal: false, vertical: true).
-        // ❌ DO NOT add .frame(idealWidth:) — pins settings width, breaks symmetry with main.
-        .fixedSize()
+        // WIDTH CONTRACT: idealWidth seeds the preferred width; maxWidth: .infinity lets
+        // the panel size it; MBK's GeometryReader reports the settled ~480pt via onChange.
+        // ❌ NEVER use .fixedSize() here — Settings content is naturally much wider than 480pt,
+        //    causing it to expand to clamp()'s maxWidth (~900pt). regression from #2266.
+        // ❌ NEVER remove idealWidth: 480.
+        .frame(idealWidth: 480, maxWidth: .infinity)
     }
 
     /// Vertical stack of all settings sections.
     ///
     /// Order: Account → Management → General → About
     ///
-    /// .fixedSize(horizontal: false, vertical: true) is LOAD-BEARING (#2265-2).
+    /// .fixedSize(horizontal: false, vertical: true) is LOAD-BEARING.
     /// Forces this VStack to report its natural height to the ScrollView in settingsBody
     /// so it knows the full content height before applying the maxHeight cap.
-    /// Mirrors actionsSectionContent in PanelMainView — same pattern, same reason.
     /// ❌ NEVER remove this — ScrollView will not report correct content height.
     private var sectionsStack: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -363,6 +362,13 @@ struct SettingsView: View {
 
     /// Runs on `.onAppear`: re-syncs auth state from `oauthService` and starts sign-in /
     /// sign-out listeners.
+    ///
+    /// WHY auth state is re-seeded here even though init already seeds it:
+    /// `init` seeds once at construction time. On a hide/show cycle the view is NOT
+    /// reconstructed — the same instance reappears. onAppearAction re-syncs so the
+    /// status light and sign-in button always reflect the live keychain state at the
+    /// moment the panel becomes visible, not the state at first construction.
+    /// This is not redundant — it is a deliberate re-read for the re-appear case.
     private func onAppearAction() { // skipcq: SW-R1002 — reviewed; complexity acceptable for this onAppear setup
         isOAuthAuthenticated = oauthService.isAuthenticated
         isCLIAuthenticated = !oauthService.isAuthenticated && oauthService.hasAnyToken
@@ -412,7 +418,9 @@ struct SettingsView: View {
 
     // MARK: - Helpers
 
-    /// Applies or removes the Login Item entry based on `enabled`.
+    /// Applies or removes the Login Item entry based on `enabled`, then
+    /// syncs `launchAtLogin` to the actual system state via `LoginItem.isEnabled`.
+    /// On success the value is unchanged; on failure the toggle snaps back automatically.
     func applyLaunchAtLogin(_ enabled: Bool) {
         log("【SettingsView.applyLaunchAtLogin】enabled=\(enabled)", category: .general)
         LoginItem.setEnabled(enabled)
@@ -421,6 +429,10 @@ struct SettingsView: View {
     }
 
     /// Initiates the OAuth sign-in flow via the injected `oauthService`.
+    ///
+    /// `makeSignInURL()` builds the authorization URL and stores the CSRF nonce.
+    /// Opening the browser is the app layer's responsibility — `OAuthService` (Core)
+    /// has no AppKit dependency and cannot call `NSWorkspace` directly.
     func signInWithGitHub() {
         log("【SettingsView.signInWithGitHub】isSigningIn=true", category: .general)
         isSigningIn = true
