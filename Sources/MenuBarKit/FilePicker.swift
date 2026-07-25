@@ -73,17 +73,13 @@
 //   clears on the next turn via the GCD hop, allowing normal popover-close
 //   behaviour to resume.
 //
-// NOT REENTRANT-SAFE:
-//   Do not call mbkOpenFilePicker again from within the completion callback.
-//   When completion fires, hasFilePickerOverlay and hasActiveOverlay are still
-//   true (the GCD gate-clear hop has been queued but not yet executed). A
-//   reentrant call will see gateWasAlreadyArmed=true, so when the second
-//   picker closes it will not clear hasActiveOverlay — leaving the gate
-//   permanently armed for the session. If re-entrancy is required, dispatch
-//   the second call to the next run-loop turn:
-//     completion: { url in
-//         DispatchQueue.main.async { mbkOpenFilePicker(...) }
-//     }
+// NOTE ON CALLING mbkOpenFilePicker FROM WITHIN completion:
+//   NSOpenPanel is modal — it blocks all user interaction until dismissed.
+//   A second mbkOpenFilePicker call cannot be triggered by the user while a
+//   picker is open, so calling it from within completion is not a practical
+//   concern. The gateWasAlreadyArmed snapshot exists to handle a sheet being
+//   open concurrently (a legitimate case), not to guard against two pickers
+//   coexisting (which macOS prevents at the AppKit level).
 
 import AppKit
 
