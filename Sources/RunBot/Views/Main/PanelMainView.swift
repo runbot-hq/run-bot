@@ -107,11 +107,19 @@ struct PanelMainView: View {
                 onSelectSettings: onSelectSettings
             )
             // RULE 10: LOAD-BEARING — do not remove.
-            // Locks the header to its natural content-driven height after the first
-            // layout pass. Prevents VStack re-layout (triggered by scrollViewHeight
-            // changes below) from re-negotiating the header height, which would shift
-            // the Divider. Height remains content-driven — no magic number needed.
             .fixedSize()
+            // DEBUG: log header height changes. Remove before merge.
+            .background(
+                GeometryReader { geo in
+                    Color.clear
+                        .onAppear {
+                            log("【header.geo】onAppear h=\(geo.size.height)", category: .general)
+                        }
+                        .onChange(of: geo.size.height) { old, new in
+                            log("【header.geo】onChange \(old) → \(new)  ← HEADER HEIGHT CHANGED", category: .general)
+                        }
+                }
+            )
             .onAppear { systemStats.start() }
             Divider()
             if let error = appState.runnerState.fetchError {
@@ -131,6 +139,18 @@ struct PanelMainView: View {
         }
         // RULE 1: LOAD-BEARING — do not remove or change to fixedSize(horizontal:vertical:).
         .fixedSize()
+        // DEBUG: log root VStack total height changes. Remove before merge.
+        .background(
+            GeometryReader { geo in
+                Color.clear
+                    .onAppear {
+                        log("【rootVStack.geo】onAppear h=\(geo.size.height)", category: .general)
+                    }
+                    .onChange(of: geo.size.height) { old, new in
+                        log("【rootVStack.geo】onChange \(old) → \(new)", category: .general)
+                    }
+            }
+        )
         .onAppear {
             if panelVisibilityState.isOpen { systemStats.start() }
             startDisplayTickTimer()
@@ -142,8 +162,6 @@ struct PanelMainView: View {
         .onChange(of: panelVisibilityState.isOpen) { _, open in
             if open { systemStats.start() } else { systemStats.stop() }
         }
-        // Reset the visible row count only when the list shrinks (e.g. a runner is removed),
-        // not on every poll update — avoids snapping the user back mid-scroll.
         .onChange(of: appState.runnerState.actions) { old, new in
             if new.count < old.count { visibleCount = 10 }
         }
@@ -151,40 +169,43 @@ struct PanelMainView: View {
 
     // MARK: - Scroll section
 
-    /// Scrollable container for the actions section.
-    ///
-    /// Mirrors the MBK example app pattern exactly:
-    ///   - actionsSectionContent has .fixedSize(horizontal: false, vertical: true)
-    ///   - A GeometryReader in the content background captures the natural height
-    ///   - ScrollView is given .frame(height: scrollViewHeight) capped at screenScrollMaxHeight
-    ///   - All height changes (row add or row expand) update scrollViewHeight immediately
-    ///   - MBK's applyContentSize grows the popover downward; the header stays fixed
     private var actionsSectionScrollable: some View {
         ScrollView(.vertical, showsIndicators: true) {
             actionsSectionContent
-                // RULE 5a: report natural height to the GR below.
                 .fixedSize(horizontal: false, vertical: true)
-                // RULE 5b: capture natural height into scrollViewHeight.
                 .background(
                     GeometryReader { geo in
                         Color.clear
                             .onAppear {
-                                scrollViewHeight = min(geo.size.height, screenScrollMaxHeight)
+                                let capped = min(geo.size.height, screenScrollMaxHeight)
+                                log("【scrollContent.geo】onAppear raw=\(geo.size.height) capped=\(capped)", category: .general)
+                                scrollViewHeight = capped
                             }
-                            .onChange(of: geo.size.height) { _, h in
-                                scrollViewHeight = min(h, screenScrollMaxHeight)
+                            .onChange(of: geo.size.height) { old, new in
+                                let capped = min(new, screenScrollMaxHeight)
+                                log("【scrollContent.geo】onChange raw \(old) → \(new)  scrollViewHeight \(scrollViewHeight) → \(capped)", category: .general)
+                                scrollViewHeight = capped
                             }
                     }
                 )
         }
-        // RULE 5c: pin ScrollView to exactly min(contentHeight, cap).
-        // nil before first measurement so SwiftUI uses natural size on first appear.
         .frame(height: scrollViewHeight > 0 ? scrollViewHeight : nil)
+        // DEBUG: log ScrollView frame height changes. Remove before merge.
+        .background(
+            GeometryReader { geo in
+                Color.clear
+                    .onAppear {
+                        log("【scrollView.geo】onAppear h=\(geo.size.height)", category: .general)
+                    }
+                    .onChange(of: geo.size.height) { old, new in
+                        log("【scrollView.geo】onChange \(old) → \(new)", category: .general)
+                    }
+            }
+        )
     }
 
     // MARK: - Content
 
-    /// Workflow rows and the load-more button, rendered inside the scroll container.
     private var actionsSectionContent: some View {
         VStack(alignment: .leading, spacing: 0) {
             SectionHeaderLabel(title: "Workflows")
@@ -203,7 +224,6 @@ struct PanelMainView: View {
         .padding(.vertical, 4)
     }
 
-    /// "Load N more workflows" button; hidden when all workflows are already visible.
     @ViewBuilder private var loadMoreButton: some View {
         let nextBatch = min(10, appState.runnerState.actions.count - visibleCount)
         if nextBatch > 0 {
