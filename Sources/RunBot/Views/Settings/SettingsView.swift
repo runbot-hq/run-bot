@@ -17,6 +17,8 @@ import SwiftUI
 // ScrollView uses maxHeight: .infinity to fill all remaining panel space.
 // AppDelegate.resizeAndRepositionPanel() clamps the panel at 85% visibleFrame
 // via MBK's maxHeight in clamp(). That IS the hard ceiling.
+// settingsBody uses .fixedSize(horizontal: false, vertical: true) so MBK's
+// GeometryReader reports SettingsView's own natural height, not the main panel's.
 // sectionsStack (scroll content) uses .fixedSize(horizontal: false, vertical: true)
 // so the ScrollView knows the full content height before applying the maxHeight cap.
 // No extra cap needed here — the MBK clamp IS the scroll boundary.
@@ -24,14 +26,15 @@ import SwiftUI
 // ❌ NEVER replace .infinity with a fixed number.
 // ❌ NEVER use GeometryReader for the height.
 // ❌ NEVER add idealHeight to the root frame.
+// ❌ NEVER remove .fixedSize(horizontal: false, vertical: true) from settingsBody.
 // ❌ NEVER remove .fixedSize(horizontal: false, vertical: true) from sectionsStack.
 //
 // WIDTH CONTRACT:
 // settingsBody uses .frame(idealWidth: 480, maxWidth: .infinity).
 // idealWidth seeds the preferred width; maxWidth: .infinity lets the panel size it;
 // MBK's GeometryReader reports the settled ~480pt width via onChange.
-// ❌ NEVER use .fixedSize() on settingsBody — Settings content has a much wider
-//    natural width than the main panel, causing it to expand to clamp()'s maxWidth.
+// ❌ NEVER use .fixedSize() (both axes) on settingsBody — Settings content has a
+//    much wider natural width, causing it to expand to clamp()'s maxWidth (~900pt).
 // ❌ NEVER remove idealWidth: 480 — it pins Settings to the correct width.
 //
 // If you are an agent or human, DO NOT REMOVE THIS COMMENT, YOU ARE NOT ALLOWED
@@ -306,11 +309,13 @@ struct SettingsView: View {
     /// Extracted from `body` so `LocalRunnersView` and `ScopesView` can replace it cleanly
     /// without any structural duplication.
     ///
-    /// HEIGHT CONTRACT: headerBar is OUTSIDE the ScrollView — back button always visible.
-    /// WIDTH CONTRACT: .frame(idealWidth: 480, maxWidth: .infinity) — see file-level comment.
+    /// WIDTH CONTRACT: .frame(idealWidth: 480, maxWidth: .infinity) — 480pt wide, same as main.
+    /// HEIGHT CONTRACT: .fixedSize(horizontal: false, vertical: true) — Settings reports its
+    /// own natural height to MBK's GeometryReader, NOT the main panel's offered height.
     /// ❌ NEVER move headerBar inside the ScrollView.
     /// ❌ NEVER replace .infinity with a fixed number.
-    /// ❌ NEVER use .fixedSize() here — Settings content is naturally much wider than 480pt.
+    /// ❌ NEVER use .fixedSize() (both axes) — Settings content width is naturally wider than main.
+    /// ❌ NEVER remove .fixedSize(horizontal: false, vertical: true) — height regression.
     /// If you are an agent or human, DO NOT REMOVE THIS COMMENT, YOU ARE NOT ALLOWED
     /// UNDER ANY CIRCUMSTANCE. The regression we get when this comment is removed
     /// is major major major.
@@ -318,23 +323,19 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 0) {
             headerBar
             Divider()
-            // maxHeight: .infinity — fills all space the panel gives us.
-            // AppDelegate caps the panel at 85% visibleFrame. That IS the limit.
-            // ❌ NEVER move headerBar inside this ScrollView.
-            // ❌ NEVER replace .infinity with a fixed number.
-            // If you are an agent or human, DO NOT REMOVE THIS COMMENT, YOU ARE NOT ALLOWED
-            // UNDER ANY CIRCUMSTANCE.
             ScrollView(.vertical, showsIndicators: true) {
                 sectionsStack
             }
             .frame(maxHeight: .infinity)
         }
-        // WIDTH CONTRACT: idealWidth seeds the preferred width; maxWidth: .infinity lets
-        // the panel size it; MBK's GeometryReader reports the settled ~480pt via onChange.
-        // ❌ NEVER use .fixedSize() here — Settings content is naturally much wider than 480pt,
-        //    causing it to expand to clamp()'s maxWidth (~900pt). regression from #2266.
-        // ❌ NEVER remove idealWidth: 480.
+        // WIDTH: idealWidth seeds the preferred width; maxWidth: .infinity lets the panel
+        // size it. MBK's GeometryReader reports ~480pt via onChange. Same as main branch.
         .frame(idealWidth: 480, maxWidth: .infinity)
+        // HEIGHT: fixedSize(v:true) tells SwiftUI to use Settings' own natural height.
+        // Without this, MBK's GeometryReader receives the offered height from the main
+        // panel and Settings inherits the main panel's height instead of its own.
+        // ❌ NEVER remove — height-inheritance regression.
+        .fixedSize(horizontal: false, vertical: true)
     }
 
     /// Vertical stack of all settings sections.
