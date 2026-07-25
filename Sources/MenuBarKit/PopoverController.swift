@@ -290,10 +290,32 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
         }
         mbkLog("PopoverController",
                "applyContentSize -- (\(popover.contentSize.width),\(popover.contentSize.height))->(\(clamped.width),\(clamped.height))")
-        popover.contentSize = clamped
-        let newOrigin = NSPoint(x: anchor.x - window.frame.width / 2, y: anchor.y - window.frame.height)
-        window.setFrameOrigin(newOrigin)
-        mbkLog("PopoverController", "applyContentSize -- origin set to \(newOrigin)")
+        // WHY NSAnimationContext with duration:0 and allowsImplicitAnimation:false (#2265-1):
+        // popover.animates = false suppresses NSPopover's own show/hide animation, but does NOT
+        // suppress the implicit CoreAnimation layer reposition that AppKit applies when
+        // setFrameOrigin() changes the window's backing layer position mid-runloop.
+        // That implicit animation causes the entire panel content — including the header bar —
+        // to visibly slide for ~100ms whenever content height changes (e.g. a row expands).
+        // Wrapping both contentSize and setFrameOrigin in a single zero-duration
+        // NSAnimationContext block makes the resize atomic and instantaneous.
+        //
+        // WHY BOTH contentSize AND setFrameOrigin ARE INSIDE THE BLOCK:
+        // contentSize triggers NSPopover's internal frame update which also moves the backing
+        // window. If contentSize is set outside the block, AppKit may apply the implicit
+        // animation to the contentSize-driven move before setFrameOrigin corrects it,
+        // producing a two-step visual artifact. Grouping them ensures a single atomic
+        // layout commit with no animation.
+        //
+        // ❌ NEVER remove this NSAnimationContext block — the header-jump regression returns.
+        // ❌ NEVER use allowsImplicitAnimation: true — that re-enables the layer animation.
+        NSAnimationContext.runAnimationGroup { ctx in
+            ctx.duration = 0
+            ctx.allowsImplicitAnimation = false
+            popover.contentSize = clamped
+            let newOrigin = NSPoint(x: anchor.x - window.frame.width / 2, y: anchor.y - window.frame.height)
+            window.setFrameOrigin(newOrigin)
+            mbkLog("PopoverController", "applyContentSize -- origin set to \(newOrigin)")
+        }
     }
 
     private func setupWorkspaceObserver() {
