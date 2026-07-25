@@ -17,9 +17,8 @@ import SwiftUI
 // ScrollView uses maxHeight: .infinity to fill all remaining panel space.
 // AppDelegate.resizeAndRepositionPanel() clamps the panel at 85% visibleFrame
 // via MBK's maxHeight in clamp(). That IS the hard ceiling.
-// settingsBody root VStack uses .fixedSize(horizontal: false, vertical: true)
-// so MBK's GeometryReader reports SettingsView's natural height rather than
-// the main panel's previously committed contentSize.
+// settingsBody root VStack uses .fixedSize() (both axes) so MBK's GeometryReader
+// reports SettingsView's natural width AND height, exactly like PanelMainView.
 // sectionsStack (scroll content) uses .fixedSize(horizontal: false, vertical: true)
 // so the ScrollView knows the full content height before applying the maxHeight cap.
 // No extra cap needed here — the MBK clamp IS the scroll boundary.
@@ -28,10 +27,12 @@ import SwiftUI
 // ❌ NEVER use GeometryReader for the height.
 // ❌ NEVER add idealHeight to the root frame.
 // ❌ NEVER remove .fixedSize from settingsBody or sectionsStack — height-inheritance regression.
+// ❌ NEVER add .frame(idealWidth:) to settingsBody — width comes from content natural size via clamp().
 //
 // WIDTH CONTRACT:
-// .frame(idealWidth: 480) — only idealWidth needed. NSPanel handles bounds.
-// ❌ NEVER remove idealWidth: 480.
+// settingsBody uses .fixedSize() (both axes) — same as PanelMainView.
+// Width is driven by the natural width of settingsBody content, clamped by MBK (minWidth/maxWidth).
+// ❌ NEVER add idealWidth: — it pins settings to a fixed width different from main.
 //
 // If you are an agent or human, DO NOT REMOVE THIS COMMENT, YOU ARE NOT ALLOWED
 // UNDER ANY CIRCUMSTANCE. The regression we get when this comment is removed
@@ -280,83 +281,22 @@ struct SettingsView: View {
         }
         .onAppear(perform: onAppearAction)
         // TASK 1 of 2 — CLI token resolution.
-        // Resolves isCLIAuthenticated via the login-shell fallback for Finder-launched
-        // apps where env vars are absent from the process environment.
-        //
-        // THIS TASK IS INTENTIONALLY INDEPENDENT of task 2 below.
-        // SwiftUI runs multiple .task modifiers concurrently with no ordering guarantee.
-        // Task 2 (update check) reads runnerState from appState by value at call time
-        // and has NO dependency on isCLIAuthenticated or the result of this task.
-        // ❌ Do NOT merge these two tasks to "add ordering" unless checkAndHandle is
-        //    changed to require auth state — if that ever happens, sequence them
-        //    explicitly inside a single .task instead of relying on chaining order.
-        //
-        // isCLIAuthenticated write ordering (pre-existing, not introduced here):
-        // onAppearAction() writes isCLIAuthenticated synchronously from
-        // oauthService.hasAnyToken as a fast-path best-effort seed — it is cheap
-        // and keeps the UI correct for the common case without waiting for the network.
-        // This task then overwrites it once github.token() resolves asynchronously
-        // as the authoritative value (covers Finder-launch env var absence).
-        //
-        // Known gap — rapid open→open cycle:
-        // On a rapid open→open (panel re-shown without onDisappear), onAppearAction()
-        // re-runs and resets isCLIAuthenticated to the sync seed value. However,
-        // SwiftUI does NOT re-fire .task unless view identity changes or the view
-        // fully disappears/reappears — so the async authoritative overwrite does
-        // not run again. isCLIAuthenticated stays at the sync seed on that cycle.
-        // This is pre-existing behaviour; not introduced by this PR. In practice
-        // the sync seed (oauthService.hasAnyToken) is correct for most users and
-        // the gap only affects Finder-launched apps with shell-only env var tokens.
         .task {
-            // Guard: skip if the user is already signed in via OAuth — in that
-            // case neither status text nor the green dot reference `isCLIAuthenticated`.
             guard !isOAuthAuthenticated else { return }
             let token = await appState.github.token()
             isCLIAuthenticated = token != nil
             log("【SettingsView.task1】github.token() resolved — isCLIAuthenticated=\(isCLIAuthenticated)", category: .general)
         }
         // TASK 2 of 2 — Update check (FIX #2223 / #2216).
-        // Fires on every entry path — including cold-open → Settings, where
-        // .onAppear on an NSPanel-hosted root Group is not guaranteed to fire.
-        // SwiftUI owns the task lifetime: starts on appear, cancelled on disappear.
-        //
-        // INTENTIONALLY CONCURRENT with task 1 above — no ordering dependency.
-        // checkAndHandle(state:) receives runnerState by value (computed property
-        // returning appState.runnerState at call time). It does NOT read
-        // isCLIAuthenticated and does NOT depend on task 1 completing first.
-        // If that ever changes, sequence both calls inside a single .task.
-        //
-        // NSPanel teardown assumption (tracked in issue #2231):
-        // .task reliability here depends on the NSPanel host fully deiniting the
-        // SwiftUI view tree on close, which resets task identity so this task
-        // relaunches on the next open. If the panel is ever changed to retain the
-        // view tree across closes (partial teardown), .task and .onAppear would
-        // be equally unreliable for the cold-open path and an .id() modifier to
-        // force identity reset would be required instead. See #2231.
-        //
-        // Entry-path matrix:
-        //   • Cold-open → Settings : .task fires ✅
-        //   • Main → Settings nav  : .task fires ✅
-        //   • Back-nav sub-views   : root Group does not re-appear → no extra check ✅
-        //   • Settings closed mid-check: SwiftUI cancels automatically ✅
-        //
-        // Principle P9: structured concurrency — no manual Task or DispatchQueue.
         .task {
             await autoUpdater.checkAndHandle(state: runnerState)
         }
         .onDisappear {
             log("【SettingsView.onDisappear】cancelling signInTask/signOutTask", category: .general)
-            // Cancel and unconditionally nil the sign-in task — the for-await loop
-            // exits promptly on cancellation (AsyncStream respects task cancellation)
-            // so isSigningIn will never flip back via the stream after this point.
-            // Nilling here ensures a re-opened panel never shows a stale spinner.
             signInTask?.cancel()
             signInTask = nil
             signOutTask?.cancel()
             signOutTask = nil
-            // Reset isSigningIn so a close-during-flow doesn't leave a stale spinner
-            // on the next open. The stream task is already cancelled above, so the
-            // for-await loop will not reset it — we must do it explicitly here.
             isSigningIn = false
         }
     }
@@ -366,14 +306,14 @@ struct SettingsView: View {
     /// Extracted from `body` so `LocalRunnersView` and `ScopesView` can replace it cleanly
     /// without any structural duplication.
     ///
-    /// HEIGHT CONTRACT: headerBar is OUTSIDE the ScrollView — back button always visible.
-    /// .fixedSize(horizontal: false, vertical: true) on this VStack is LOAD-BEARING (#2265-2).
-    /// It tells SwiftUI to size this view to its natural height so MBK's GeometryReader
-    /// in wrapped() reports SettingsView's own content size, not the main panel's
-    /// previously committed contentSize. Without it, Settings opens at the main panel height.
+    /// HEIGHT + WIDTH CONTRACT: .fixedSize() (both axes) is LOAD-BEARING (#2265-2).
+    /// Matches PanelMainView exactly. Tells SwiftUI "size me to my natural width AND height"
+    /// so MBK's GeometryReader in wrapped() reports SettingsView's own content size.
+    /// MBK's clamp() enforces minWidth/maxWidth — do not repeat them here.
     /// ❌ NEVER move headerBar inside the ScrollView.
     /// ❌ NEVER replace .infinity with a fixed number.
     /// ❌ NEVER remove .fixedSize from this VStack — height-inheritance regression.
+    /// ❌ NEVER add .frame(idealWidth:) — that pins settings to a fixed width (#2265-2 regression).
     /// If you are an agent or human, DO NOT REMOVE THIS COMMENT, YOU ARE NOT ALLOWED
     /// UNDER ANY CIRCUMSTANCE. The regression we get when this comment is removed
     /// is major major major.
@@ -381,28 +321,20 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 0) {
             headerBar
             Divider()
-            // maxHeight: .infinity — fills all space up to the natural height of sectionsStack.
-            // The outer VStack's .fixedSize(horizontal: false, vertical: true) (below) makes
-            // SwiftUI ask sectionsStack for its natural height, so .infinity resolves to
-            // sectionsStack's intrinsic height rather than the offered (main panel) height.
-            // AppDelegate caps the panel at 85% visibleFrame via MBK's maxHeight in clamp().
-            // ❌ NEVER move headerBar inside this ScrollView.
-            // ❌ NEVER replace .infinity with a fixed number.
-            // If you are an agent or human, DO NOT REMOVE THIS COMMENT, YOU ARE NOT ALLOWED
-            // UNDER ANY CIRCUMSTANCE.
             ScrollView(.vertical, showsIndicators: true) {
                 sectionsStack
             }
             .frame(maxHeight: .infinity)
         }
-        // .fixedSize(horizontal: false, vertical: true) is LOAD-BEARING (#2265-2).
-        // Tells SwiftUI "size me to my natural height" so MBK's GeometryReader in
-        // wrapped() reports SettingsView's intrinsic height, not the main panel's
-        // committed contentSize. horizontal: false preserves idealWidth: 480 behaviour.
-        // ❌ NEVER remove this — Settings will inherit main panel height.
-        // ❌ NEVER change to .fixedSize() (both axes) — that collapses idealWidth.
-        .fixedSize(horizontal: false, vertical: true)
-        .frame(idealWidth: 480, maxWidth: .infinity)
+        // .fixedSize() is LOAD-BEARING (#2265-2).
+        // Plain .fixedSize() = fixedSize(horizontal: true, vertical: true).
+        // Matches PanelMainView's .fixedSize() exactly.
+        // Tells SwiftUI "size me to my natural width AND height" so MBK's
+        // GeometryReader in wrapped() reports the true content size.
+        // clamp() in MBKPopoverController enforces minWidth/maxWidth bounds.
+        // ❌ DO NOT change to .fixedSize(horizontal: false, vertical: true).
+        // ❌ DO NOT add .frame(idealWidth:) — pins settings width, breaks symmetry with main.
+        .fixedSize()
     }
 
     /// Vertical stack of all settings sections.
@@ -431,32 +363,12 @@ struct SettingsView: View {
 
     /// Runs on `.onAppear`: re-syncs auth state from `oauthService` and starts sign-in /
     /// sign-out listeners.
-    ///
-    /// WHY auth state is re-seeded here even though init already seeds it:
-    /// `init` seeds once at construction time. On a hide/show cycle the view is NOT
-    /// reconstructed — the same instance reappears. onAppearAction re-syncs so the
-    /// status light and sign-in button always reflect the live keychain state at the
-    /// moment the panel becomes visible, not the state at first construction.
-    /// This is not redundant — it is a deliberate re-read for the re-appear case.
-    ///
-    /// Update checking is intentionally NOT done here — it is owned by Task 2 of 2
-    /// in body (.task modifier), which covers both cold-open and navigation paths
-    /// (fix #2223). All tasks are cancelled before reassignment so a rapid open→open
-    /// cycle cannot leak prior stream listeners.
-    ///
-    /// isCLIAuthenticated is written synchronously here as a fast-path seed.
-    /// Task 1 in body overwrites it asynchronously with the authoritative value
-    /// once github.token() resolves. On a rapid open→open cycle, Task 1 does not
-    /// re-fire — see the Task 1 comment in body for the known gap and rationale.
     private func onAppearAction() { // skipcq: SW-R1002 — reviewed; complexity acceptable for this onAppear setup
         isOAuthAuthenticated = oauthService.isAuthenticated
         isCLIAuthenticated = !oauthService.isAuthenticated && oauthService.hasAnyToken
         log("【SettingsView.onAppear】auth=\(oauthService.isAuthenticated) hasToken=\(oauthService.hasAnyToken)", category: .general)
         log("【SettingsView.onAppear】settings=\(ObjectIdentifier(settings)) betaChannel=\(settings.betaChannel)", category: .general)
 
-        // Cancel before reassigning — guards against the rapid open→open case
-        // where the panel is re-shown without an intervening onDisappear, which
-        // would otherwise silently leak the prior task.
         signInTask?.cancel()
         signInTask = Task { @MainActor in
             for await success in oauthService.makeSignInStream() {
@@ -500,9 +412,7 @@ struct SettingsView: View {
 
     // MARK: - Helpers
 
-    /// Applies or removes the Login Item entry based on `enabled`, then
-    /// syncs `launchAtLogin` to the actual system state via `LoginItem.isEnabled`.
-    /// On success the value is unchanged; on failure the toggle snaps back automatically.
+    /// Applies or removes the Login Item entry based on `enabled`.
     func applyLaunchAtLogin(_ enabled: Bool) {
         log("【SettingsView.applyLaunchAtLogin】enabled=\(enabled)", category: .general)
         LoginItem.setEnabled(enabled)
@@ -511,10 +421,6 @@ struct SettingsView: View {
     }
 
     /// Initiates the OAuth sign-in flow via the injected `oauthService`.
-    ///
-    /// `makeSignInURL()` builds the authorization URL and stores the CSRF nonce.
-    /// Opening the browser is the app layer's responsibility — `OAuthService` (Core)
-    /// has no AppKit dependency and cannot call `NSWorkspace` directly.
     func signInWithGitHub() {
         log("【SettingsView.signInWithGitHub】isSigningIn=true", category: .general)
         isSigningIn = true
