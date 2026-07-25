@@ -27,11 +27,11 @@ public var mbkLogHandler: (_ subsystem: String, _ message: String) -> Void = { s
     print("[MBK:\(subsystem)] \(message)")
 }
 
-/// Internal logging entry point. Routes through `mbkLogHandler`.
+/// Logging entry point for MBK and its consumers. Routes through `mbkLogHandler`.
 /// Compiled out entirely in release builds.
 @MainActor
 @inlinable
-func mbkLog(_ subsystem: String, _ message: String) {
+public func mbkLog(_ subsystem: String, _ message: String) {
 #if DEBUG
     mbkLogHandler(subsystem, message)
 #endif
