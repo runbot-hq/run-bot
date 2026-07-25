@@ -55,7 +55,7 @@ controller.onWillShow = {
     // restore route — fires before popover.show()
 }
 controller.onDidShow = {
-    // restore sheet state — fires after one render cycle
+    // restore sheet state — fires after one actor turn
 }
 controller.onWillClose = { wasForced in
     // snapshot everything — fires before any teardown
@@ -92,7 +92,7 @@ mbkOpenFilePicker(overlayGate: gate, message: "Select a directory") { url in
     Text("Please try again.")
 }
 
-// 8. Custom log handler (optional — set before setup())
+// 8. Custom log handler (optional — set before any overlay opens)
 mbkLogHandler = { subsystem, message in
     logger.debug("[MBK:\(subsystem)] \(message)")
 }
