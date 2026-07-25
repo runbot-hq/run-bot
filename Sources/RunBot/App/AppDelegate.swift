@@ -15,10 +15,10 @@ import SwiftUI
 //
 // Run-bot's responsibilities are:
 //   1. Wire onWillShow / onDidShow / onWillClose callbacks.
-//   2. Call setRootView(_:) on navigation (MBK owns the NSPopover shell but
-//      run-bot still controls what's inside it).
-//   3. Maintain panelVisibilityState, panelSheetState, and overlayGate as
+//   2. Maintain panelVisibilityState, panelSheetState, and overlayGate as
 //      injectable environment objects.
+//   3. Navigation is owned by RootPanelView via appState.savedNavState —
+//      no setRootView() calls on navigation paths.
 //
 // HIDE-WITHOUT-CLOSE:
 // The old hidePanel() + hidePopoverWindowsPreservingSheets() path is replaced
@@ -83,15 +83,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
     }
 
-    // MARK: - Navigation
-
-    /// Swaps the popover's root view to `view`.
-    /// MBKPopoverController's GeometryReader picks up the size change automatically.
-    /// ❌ NEVER call this from a SwiftUI view — use callbacks only.
-    func navigate(to view: AnyView) {
-        popoverController?.setRootView(view)
-    }
-
     // MARK: - Make key for text input
 
     /// Promotes the app to key so TextFields in the popover receive input.
@@ -102,13 +93,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Close
 
     /// Closes the popover explicitly (Escape / back navigation / manual close).
-    /// Resets rootView to main so next open starts fresh.
+    /// Clears nav + sheet state — RootPanelView reacts to savedNavState = nil
+    /// and routes to the main branch automatically. No setRootView() needed.
     /// MBKPopoverController drives the actual close via its status-bar button
     /// toggle — this method resets run-bot state ahead of that.
     func closePanel() {
         log("AppDelegate › closePanel")
         appState.savedNavState = nil
         panelSheetState.clearRunnerSheet()
-        popoverController?.setRootView(mainView())
     }
 }

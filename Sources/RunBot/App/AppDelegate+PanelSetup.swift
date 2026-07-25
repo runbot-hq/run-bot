@@ -63,20 +63,14 @@ extension AppDelegate {
         )
 
         // onWillShow — fires before popover.show().
-        // Restore saved nav state so the correct route is active before the
-        // popover becomes visible. Route is now driven purely by
-        // appState.savedNavState — no setRootView() call needed.
-        ctrl.onWillShow = { [weak self] in
-            guard let self else { return }
+        // Nav state is already live in appState.savedNavState.
+        // RootPanelView reads it directly — nothing to do here.
+        ctrl.onWillShow = {
             log("AppDelegate › onWillShow")
-            // Nav state is already live in appState.savedNavState.
-            // RootPanelView reads it directly — nothing to do here.
         }
 
         // onDidShow — fires one actor turn after popover.show().
         // Restore runner sheet state now that the view tree has a window.
-        // restoreTransientHideStateIfNeeded() copies runnerSheetSnapshot →
-        // editingRunner; SwiftUI sees the binding and re-presents the sheet.
         ctrl.onDidShow = { [weak self] in
             guard let self else { return }
             log("AppDelegate › onDidShow")
@@ -86,22 +80,15 @@ extension AppDelegate {
         }
 
         // onWillClose — fires before any teardown on both normal and force-close paths.
-        // wasForced=true: user clicked outside while a sheet was open — snapshot
-        //   editingRunner so onDidShow can respawn the sheet on next open.
-        // wasForced=false: user toggled the icon or pressed Escape — clear state
-        //   so next open starts fresh at main. RootPanelView reacts to
-        //   savedNavState = nil automatically; no setRootView() needed.
         ctrl.onWillClose = { [weak self] wasForced in
             guard let self else { return }
             log("AppDelegate › onWillClose wasForced=\(wasForced)")
             if wasForced {
-                // Snapshot before teardown: editingRunner is still set.
                 panelSheetState.captureTransientHideState()
                 panelVisibilityState.isTransientHide = true
             } else {
                 appState.savedNavState = nil
                 panelSheetState.clearRunnerSheet()
-                // ✅ No setRootView() needed — RootPanelView reacts to nil savedNavState.
             }
             panelVisibilityState.isOpen = false
         }

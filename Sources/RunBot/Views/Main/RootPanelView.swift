@@ -38,7 +38,6 @@ import SwiftUI
 struct RootPanelView: View {
     @Environment(AppState.self) private var appState
     @Environment(PanelVisibilityState.self) private var panelVisibilityState
-    @Environment(PanelSheetStateKey.self) private var panelSheetState
 
     /// Callbacks from AppDelegate used for actions that still require AppKit wiring.
     let onSelectSettings: () -> Void
