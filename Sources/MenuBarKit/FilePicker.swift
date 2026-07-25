@@ -14,13 +14,17 @@
 //   Reading the popover's actual level and adding 1 guarantees the panel
 //   is always on top.
 //
-// WHY panel.makeKeyAndOrderFront AFTER panel.begin:
-//   panel.begin{} presents the panel as a floating window but does NOT
-//   automatically bring it in front of the popover — the nonactivatingPanel
-//   retains key status. makeKeyAndOrderFront(nil) explicitly raises the panel
-//   to key and front so the user sees it immediately. This is intentional and
-//   was verified against the alternative of relying solely on panel.level;
-//   level alone does not transfer key focus on macOS 14+.
+// WHY panel.makeKeyAndOrderFront AFTER panel.begin (AND WHY THE TIMING IS SAFE):
+//   panel.begin{} synchronously adds the panel to the window server and puts
+//   it on screen before returning. The completion block fires later — only
+//   when the user dismisses the panel. makeKeyAndOrderFront(nil) is therefore
+//   called after the panel already has a valid window number and is visible;
+//   there is no run-loop ordering hazard here. The panel is on screen, just
+//   without key focus — because the nonactivatingPanel popover retains key
+//   status after begin returns. makeKeyAndOrderFront transfers key focus to
+//   the picker so the user sees it immediately. This was verified against the
+//   alternative of relying solely on panel.level; level alone does not transfer
+//   key focus on macOS 14+.
 //   NSApp.activate is NOT called here — it would steal app focus from other
 //   apps in menu-bar-only scenarios where the app has no Dock presence.
 //
@@ -148,9 +152,11 @@ public func mbkOpenFilePicker(
         }
     }
 
-    // Explicitly raise the panel to key and front after panel.begin.
-    // panel.begin presents the panel floating but the nonactivatingPanel popover
-    // retains key status — makeKeyAndOrderFront transfers focus to the picker.
+    // panel.begin synchronously places the panel on screen (the completion block
+    // fires only when the user dismisses it, not at begin-return time). The panel
+    // therefore has a valid window number and is already visible here. However
+    // the nonactivatingPanel popover retains key status — makeKeyAndOrderFront
+    // transfers key focus to the picker so the user sees it immediately.
     // See file header "WHY panel.makeKeyAndOrderFront" for full rationale.
     panel.makeKeyAndOrderFront(nil)
     mbkLog("FilePicker", "panel.begin returned — panel=#\(panel.windowNumber) level=\(panel.level.rawValue)")
