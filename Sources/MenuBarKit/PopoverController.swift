@@ -14,7 +14,7 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
     private let minWidth: CGFloat
     private let maxWidth: CGFloat
     private let maxHeight: CGFloat
-    private let rootView: AnyView
+    private var rootView: AnyView
 
     public var onWillShow: (() -> Void)?
     public var onDidShow: (() -> Void)?
@@ -56,6 +56,22 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
         setupWorkspaceObserver()
         mbkLog("PopoverController", "setup complete")
     }
+
+    // MARK: - Root view replacement
+
+    /// Replaces the popover's root view with `view`.
+    /// The GeometryReader size observer picks up the change automatically —
+    /// no need to call `popover.show()` again.
+    /// ❌ NEVER call from a SwiftUI view — use callbacks only.
+    public func setRootView(_ view: AnyView) {
+        rootView = view
+        guard isSetUp else { return }
+        // Re-wrap with the GeometryReader so size tracking continues.
+        hostingController.rootView = wrapped(rootView)
+        mbkLog("PopoverController", "setRootView — rootView replaced")
+    }
+
+    // MARK: - Private setup helpers
 
     private func setupStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -208,6 +224,8 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
         statusItem.button?.isHighlighted = on
     }
 
+    // MARK: - Popover setup
+
     private func setupPopover() {
         // WHY AnyView IS ONLY APPLIED ONCE HERE:
         //   rootView is already stored as AnyView (erased once in init).
@@ -215,7 +233,20 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
         //   passed directly to NSHostingController — no second AnyView(wrapped)
         //   erasure. Double AnyView wrapping defeats SwiftUI's type-level layout
         //   hints and causes extra layout passes on every size event.
-        let wrapped = rootView
+        hostingController = NSHostingController(rootView: wrapped(rootView))
+        hostingController.sizingOptions = []
+        popover = NSPopover()
+        popover.contentViewController = hostingController
+        popover.contentSize = NSSize(width: minWidth, height: 100)
+        popover.animates = false
+        popover.behavior = .applicationDefined
+        popover.delegate = self
+    }
+
+    /// Wraps `view` in the GeometryReader size observer used by `setupPopover`
+    /// and `setRootView`. Extracted so both call sites apply identical wrapping.
+    private func wrapped(_ view: AnyView) -> AnyView {
+        AnyView(view
             .background(
                 GeometryReader { geo in
                     Color.clear
@@ -227,14 +258,7 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
                         }
                 }
             )
-        hostingController = NSHostingController(rootView: wrapped)
-        hostingController.sizingOptions = []
-        popover = NSPopover()
-        popover.contentViewController = hostingController
-        popover.contentSize = NSSize(width: minWidth, height: 100)
-        popover.animates = false
-        popover.behavior = .applicationDefined
-        popover.delegate = self
+        )
     }
 
     // WHY clamp() ALLOWS A WIDTH RANGE (minWidth...maxWidth):
@@ -284,58 +308,6 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
         mbkLog("PopoverController",
                "applyContentSize -- (\(popover.contentSize.width),\(popover.contentSize.height))->(\(clamped.width),\(clamped.height))")
         popover.contentSize = clamped
-        // WHY anchorPoint IS NOT STALE — READ THIS BEFORE SUGGESTING A CHANGE:
-        //
-        //   anchor.x = window.frame.midX captured at popoverWillShow time.
-        //   AppKit only repositions the popover window horizontally at show() time.
-        //   Subsequent contentSize changes do not move the window horizontally.
-        //   anchor.x is therefore stable for the entire open session.
-        //
-        //   anchor.y = window.frame.maxY captured at popoverWillShow time.
-        //   AppKit anchors the popover window to the bottom of the menu bar and
-        //   grows it DOWNWARD on height increases. The top edge (maxY) never moves
-        //   — it is flush against the menu bar for the entire session. This means
-        //   anchor.y is invariant: it equals window.frame.maxY at every point
-        //   during the session, not just at capture time.
-        //
-        //   The Y origin formula  anchor.y - window.frame.height  is therefore
-        //   always correct: anchor.y is the fixed ceiling, window.frame.height
-        //   (read AFTER contentSize assignment, so it reflects the new height)
-        //   is the current floor distance. No drift is possible.
-        //
-        //   A reviewer may suggest reading window.frame.maxY live on every resize
-        //   instead of caching it. That would give the SAME value every time
-        //   (because maxY is invariant) but would re-introduce a read of mutable
-        //   AppKit state inside a hot resize path for zero benefit. The cached
-        //   anchor approach is strictly better.
-        //
-        //   Another suggestion may be to drop anchor.y entirely and derive Y from
-        //   the status bar button's screen position on every resize. We tried this
-        //   (see commit history) and reverted: button.convert(bounds, to: nil)
-        //   requires traversing the view hierarchy on every resize and produced
-        //   a subtle race when the button rect was stale during rapid height
-        //   transitions. The captured maxY approach is simpler and correct.
-        //
-        //   NOTE: Display changes that move the status button close the popover
-        //   (popoverDidClose fires, anchorPoint = nil). A fresh anchor is captured
-        //   on the next popoverWillShow. There is no scenario where a stale
-        //   anchor.y survives across a display geometry change.
-        //
-        //   KNOWN LIMITATION — anchor.x on cold open with minWidth != maxWidth:
-        //   anchor.x is captured from window.frame.midX in popoverWillShow. If
-        //   fittingSize was zero at show() time (cold first open, view not yet
-        //   laid out), popover.contentSize was left at minWidth before show(), so
-        //   AppKit centers a minWidth-wide chrome over the button. anchor.x then
-        //   equals the button midX only for that width. If the view subsequently
-        //   renders wider (via applyContentSize), the re-centering formula
-        //   (anchor.x - newWidth/2) produces a result that is off by
-        //   (newWidth - minWidth) / 2 on that first transition only. Subsequent
-        //   transitions within the same session are correct because anchor.x
-        //   doesn't change and AppKit doesn't reposition horizontally. The error
-        //   is one-shot and self-correcting after the first close/reopen cycle.
-        //   Fixing this properly requires capturing the button's screen-space midX
-        //   (not the chrome midX) in popoverWillShow. Left as a known limitation
-        //   rather than introducing AppKit coordinate-space traversal at show time.
         let newOrigin = NSPoint(x: anchor.x - window.frame.width / 2, y: anchor.y - window.frame.height)
         window.setFrameOrigin(newOrigin)
         mbkLog("PopoverController", "applyContentSize -- origin set to \(newOrigin)")
@@ -378,10 +350,6 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
                     if hasFilePicker {
                         mbkLog("PopoverController", "event monitor -- file picker active, ignoring outside click")
                     } else {
-                        // Capture to a local so the predicate evaluates once per
-                        // outside-click. forceClose() does its own panelWindow scan
-                        // internally — that scan only runs on the taken branch and
-                        // is not duplicated here.
                         let hasSheet = self.hasSheetChildWindow
                         mbkLog("PopoverController", "event monitor -- hasSheet=\(hasSheet)")
                         if hasSheet {
@@ -429,46 +397,9 @@ extension MBKPopoverController: NSPopoverDelegate {
     public func popoverWillShow(_ notification: Notification) {
         setButtonHighlight(true)
         guard let window = hostingController.view.window else {
-            // This path is theoretically unreachable in normal operation.
-            // NSPopoverDelegate.popoverWillShow fires after AppKit has already
-            // created and positioned the popover window — hostingController.view
-            // is guaranteed to have a window at this point in every observed
-            // configuration, including autohide menu bar and external displays.
-            //
-            // The guard exists as a defensive nil-safety measure only. If it ever
-            // fires in the field, anchorPoint stays nil for the session and
-            // applyContentSize silently skips repositioning (the guard let anchor
-            // branch takes the not-shown path). A popoverDidShow retry would be
-            // the appropriate fix — but adding one speculatively for a path that
-            // has never been observed would be complexity without evidence.
-            //
-            // DO NOT add a popoverDidShow fallback preemptively. If you are
-            // reading this because the log line below fired in the field: note
-            // the hardware and OS configuration and add the fallback then, with
-            // a reproducer. Speculative fallbacks for theoretical edge cases
-            // add maintenance surface without a proven benefit.
             mbkLog("PopoverController", "popoverWillShow -- no hostingWindow (unexpected; anchor skipped for this session)")
             return
         }
-        // anchorPoint is nil until this delegate fires, so any applyContentSize
-        // call before this point (e.g. GeometryReader onAppear during the same
-        // show cycle) takes the `not shown` guard branch and only records the
-        // size — no stale frame is ever used as an anchor.
-        // window.frame is already positioned by AppKit before this delegate fires,
-        // so midX and maxY are the correct chrome midpoint and top edge for this session.
-        //
-        // KNOWN LIMITATION — anchor.x on cold open with minWidth != maxWidth:
-        //   window.frame.midX equals the button's screen midX only when the chrome
-        //   was sized to the correct content width before show(). On a cold first
-        //   open, if fittingSize was zero and popover.contentSize was left at
-        //   minWidth, AppKit centers a minWidth-wide chrome — so window.frame.midX
-        //   here equals the button midX only for that initial width. The first
-        //   applyContentSize call that transitions to a wider content size will
-        //   re-center from a slightly wrong anchor.x (off by (newWidth-minWidth)/2).
-        //   The error is one-shot: subsequent opens capture a correct anchor because
-        //   fittingSize is non-zero on warm opens. Tracked as a known limitation;
-        //   the fix (capturing button screen-space midX instead of chrome midX)
-        //   was deferred to avoid AppKit coordinate-space traversal at show time.
         anchorPoint = NSPoint(x: window.frame.midX, y: window.frame.maxY)
         mbkLog("PopoverController", "popoverWillShow -- anchor=\(anchorPoint!) hostingWindow=#\(window.windowNumber)")
     }

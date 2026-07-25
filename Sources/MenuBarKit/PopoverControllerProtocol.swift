@@ -4,6 +4,7 @@
 // Protocol surface for MBKPopoverController.
 
 import Foundation
+import SwiftUI
 
 /// Protocol surface for `MBKPopoverController`.
 @MainActor
@@ -12,6 +13,13 @@ public protocol MBKPopoverControllerProtocol: AnyObject {
     /// Wires the status item, popover, and observers.
     /// Call from `applicationDidFinishLaunching` before any user interaction.
     func setup()
+
+    /// Replaces the popover's root view with `view`.
+    /// MBKPopoverController's GeometryReader picks up the size change automatically.
+    /// Call this whenever you want to navigate to a different top-level view
+    /// without closing and reopening the popover.
+    /// ❌ NEVER call from a SwiftUI view — use callbacks only.
+    func setRootView(_ view: AnyView)
 
     /// Called in `openPopover()` before `popover.show()`.
     /// Safe for restoring route and other state with no overlay gate side effects.
