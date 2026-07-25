@@ -28,8 +28,11 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
     nonisolated(unsafe) private var eventMonitor: Any?
     // Safe: registered and removed exclusively on the main thread via NSWorkspace.notificationCenter.
     nonisolated(unsafe) private var workspaceObserver: NSObjectProtocol?
-    // anchorPoint.x = status button screen midX captured in popoverWillShow.
-    // anchorPoint.y is stored for completeness; applyContentSize uses window.frame.maxY live instead.
+    // anchorPoint.x = status button screen midX, captured in popoverWillShow from the
+    // button's own coordinate space (buttonWindow.frame.origin.x + button.frame.midX).
+    // This is more reliable than window.frame.midX which can be unsettled at the moment
+    // popoverWillShow fires. anchorPoint.y is stored for completeness; applyContentSize
+    // uses window.frame.maxY live instead.
     // nil = popover not yet shown this session; guards the isShown-reposition path.
     private var anchorPoint: NSPoint?
     private var onWillCloseFired = false
@@ -48,16 +51,18 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
         self.maxWidth = maxWidth
         self.maxHeight = maxHeight
         self.rootView = AnyView(rootView)
+        mbkLog("PopoverController", "INIT minWidth=\(minWidth) maxWidth=\(maxWidth) maxHeight=\(maxHeight)")
     }
 
     public func setup() {
         precondition(!isSetUp, "MBKPopoverController.setup() called more than once.")
         isSetUp = true
+        mbkLog("PopoverController", "setup -- begin")
         NSApp.setActivationPolicy(.accessory)
         setupStatusItem()
         setupPopover()
         setupWorkspaceObserver()
-        mbkLog("PopoverController", "setup complete")
+        mbkLog("PopoverController", "setup -- complete")
     }
 
     // MARK: - Root view replacement
@@ -67,10 +72,14 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
     /// no need to call `popover.show()` again.
     /// ❌ NEVER call from a SwiftUI view — use callbacks only.
     public func setRootView(_ view: AnyView) {
+        mbkLog("PopoverController", "setRootView -- replacing rootView")
         rootView = view
-        guard isSetUp else { return }
+        guard isSetUp else {
+            mbkLog("PopoverController", "setRootView -- not set up yet, skipping hostingController update")
+            return
+        }
         hostingController.rootView = wrapped(rootView)
-        mbkLog("PopoverController", "setRootView — rootView replaced")
+        mbkLog("PopoverController", "setRootView -- rootView replaced, hostingController updated")
     }
 
     // MARK: - Status item image
@@ -79,6 +88,7 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
     /// The caller is responsible for supplying an appropriately sized, template-mode
     /// `NSImage`. `MBKPopoverController` does not resize or retemplate the image.
     public func setStatusItemImage(_ image: NSImage) {
+        mbkLog("PopoverController", "setStatusItemImage -- size=\(image.size)")
         statusItem?.button?.image = image
     }
 
@@ -95,82 +105,106 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
     /// screenH < 0 signals a nil screen, which itself means hidden — skip in both cases.
     /// Fix ported from commit 541c20fe (MBK example app, run-bot#2237/#2239).
     private var isMenuBarHidden: Bool {
-        guard let button = statusItem.button else { return false }
-        let buttonScreen = button.window?.screen
+        guard let button = statusItem.button else {
+            mbkLog("PopoverController", "isMenuBarHidden -- no button, returning false")
+            return false
+        }
+        let buttonWindow = button.window
+        let buttonScreen = buttonWindow?.screen
         let screenH = buttonScreen.map { $0.frame.height } ?? -1
-        let buttonY = button.window?.frame.maxY ?? -1
+        let buttonY = buttonWindow?.frame.maxY ?? -1
+        let buttonWinFrame = buttonWindow?.frame ?? .zero
         let hidden = screenH < 0 || buttonY >= screenH
-        mbkLog("PopoverController", "isMenuBarHidden=\(hidden) buttonY=\(buttonY) screenH=\(screenH)")
+        mbkLog("PopoverController",
+               "isMenuBarHidden=\(hidden) buttonY=\(buttonY) screenH=\(screenH) buttonWinFrame=\(buttonWinFrame) screenIsNil=\(buttonScreen == nil)")
         return hidden
     }
 
     // MARK: - Private setup helpers
 
     private func setupStatusItem() {
+        mbkLog("PopoverController", "setupStatusItem -- begin symbolName=\(symbolName)")
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = statusItem.button {
             button.image = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil)
             button.image?.isTemplate = true
             button.action = #selector(togglePopover)
             button.target = self
+            mbkLog("PopoverController", "setupStatusItem -- button frame=\(button.frame) bounds=\(button.bounds)")
+        } else {
+            mbkLog("PopoverController", "setupStatusItem -- WARNING: no button on statusItem")
         }
+        mbkLog("PopoverController", "setupStatusItem -- complete")
     }
 
     @objc private func togglePopover() {
         mbkLog("PopoverController", "togglePopover -- isShown=\(popover.isShown)")
         if popover.isShown {
+            mbkLog("PopoverController", "togglePopover -- calling performClose")
             popover.performClose(nil)
         } else {
+            mbkLog("PopoverController", "togglePopover -- calling openPopover")
             openPopover()
         }
     }
 
     private func openPopover() {
-        guard let button = statusItem.button else { return }
+        mbkLog("PopoverController", "openPopover -- BEGIN")
+        guard let button = statusItem.button else {
+            mbkLog("PopoverController", "openPopover -- ABORT: no statusItem button")
+            return
+        }
+        let buttonFrame = button.frame
+        let buttonBounds = button.bounds
+        let buttonWinFrame = button.window?.frame ?? .zero
+        mbkLog("PopoverController",
+               "openPopover -- button.frame=\(buttonFrame) button.bounds=\(buttonBounds) button.window.frame=\(buttonWinFrame)")
+
         mbkLog("PopoverController", "openPopover -- calling onWillShow")
         onWillShow?()
-        mbkLog("PopoverController", "onWillShow fired")
+        mbkLog("PopoverController", "openPopover -- onWillShow returned")
 
         // Pre-show fittingSize write — seeds contentSize before show() so AppKit
         // places the window at the correct size from the first frame.
         // GUARDED: skip if auto-hide menubar is hidden — writing contentSize
         // against an off-screen button causes the side-jump on open (#2237).
         let fitting = hostingController.view.fittingSize
+        mbkLog("PopoverController", "openPopover -- fittingSize=\(fitting)")
         if fitting.width > 0, fitting.height > 0 {
             if isMenuBarHidden {
-                mbkLog("PopoverController", "openPopover -- menubar hidden, SKIP pre-show contentSize write (\(fitting.width),\(fitting.height))")
+                mbkLog("PopoverController",
+                       "openPopover -- menubar hidden, SKIP pre-show contentSize write fitting=(\(fitting.width),\(fitting.height))")
             } else {
+                let clamped = clamp(fitting)
+                mbkLog("PopoverController",
+                       "openPopover -- pre-show contentSize write: fitting=\(fitting) clamped=\(clamped) currentContentSize=\(popover.contentSize)")
                 NSAnimationContext.runAnimationGroup { ctx in
                     ctx.duration = 0
                     ctx.allowsImplicitAnimation = false
-                    popover.contentSize = clamp(fitting)
+                    popover.contentSize = clamped
                 }
-                mbkLog("PopoverController", "openPopover -- pre-show contentSize written (\(clamp(fitting).width),\(clamp(fitting).height))")
+                mbkLog("PopoverController",
+                       "openPopover -- pre-show contentSize written, popover.contentSize now=\(popover.contentSize)")
             }
+        } else {
+            mbkLog("PopoverController", "openPopover -- skipping pre-show write: fitting degenerate \(fitting)")
         }
 
-        guard let rect = positioningRect(for: button) else { return }
+        guard let rect = positioningRect(for: button) else {
+            mbkLog("PopoverController", "openPopover -- ABORT: positioningRect returned nil")
+            return
+        }
+        mbkLog("PopoverController", "openPopover -- positioningRect=\(rect) calling popover.show")
         popover.show(relativeTo: rect, of: button, preferredEdge: .minY)
         NSApp.activate(ignoringOtherApps: true)
-        mbkLog("PopoverController", "popover shown")
+        mbkLog("PopoverController",
+               "openPopover -- popover.show returned isShown=\(popover.isShown) popover.contentSize=\(popover.contentSize)")
         startEventMonitor()
 
-        // Hop to next actor turn — not a full SwiftUI render cycle, but enough
-        // for the hosting controller's view tree to have a window before the
-        // host restores sheet state via onDidShow.
-        //
-        // KNOWN RACE: onDidShow fires one actor-turn after show(), before SwiftUI
-        // has necessarily processed any restored bindings (e.g. isSheetPresented).
-        // If the host sets isSheetPresented = true in onDidShow, the overlay gate
-        // may not be armed before the next event-monitor cycle. An outside click
-        // in that narrow window can close the popover while the sheet is partially
-        // respawning. This is a known, accepted limitation — the one-hop timing
-        // is sufficient for all observed configurations. Do not tighten this to a
-        // full render-cycle wait without a concrete reproducer.
         Task { @MainActor in
-            mbkLog("PopoverController", "onDidShow Task hop -- calling onDidShow")
+            mbkLog("PopoverController", "openPopover -- onDidShow Task hop BEGIN")
             self.onDidShow?()
-            mbkLog("PopoverController", "onDidShow fired")
+            mbkLog("PopoverController", "openPopover -- onDidShow Task hop END")
         }
     }
 
@@ -190,95 +224,66 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
     private var hasSheetChildWindow: Bool {
         let pw = panelWindow
         let pwChildren = pw?.childWindows ?? []
+        mbkLog("PopoverController",
+               "hasSheetChildWindow -- panelWindow=\(pw?.windowNumber as Any) childCount=\(pwChildren.count)")
         return !pwChildren.isEmpty
     }
 
     private func fireOnWillClose(wasForced: Bool) {
+        mbkLog("PopoverController", "fireOnWillClose -- wasForced=\(wasForced) onWillCloseFired=\(onWillCloseFired)")
         guard !onWillCloseFired else {
-            mbkLog("PopoverController", "onWillClose already fired, skipping")
+            mbkLog("PopoverController", "fireOnWillClose -- already fired, skipping")
             return
         }
         onWillCloseFired = true
-        mbkLog("PopoverController", "calling onWillClose wasForced=\(wasForced)")
+        mbkLog("PopoverController", "fireOnWillClose -- calling onWillClose wasForced=\(wasForced)")
         onWillClose?(wasForced)
-        mbkLog("PopoverController", "onWillClose fired")
+        mbkLog("PopoverController", "fireOnWillClose -- onWillClose returned")
     }
 
     private func forceClose() {
-        // Intentional ordering: onWillClose fires first (wasForced: true) so the
-        // host can snapshot state while the view tree is still live. AppKit child
-        // window teardown follows.
-        //
-        // WHY onWillCloseFired GUARD IS SAFE WITH popoverDidClose:
-        //   forceClose() sets onWillCloseFired = true via fireOnWillClose, then
-        //   calls popover.performClose(nil). That triggers popoverDidClose, which
-        //   also calls fireOnWillClose(wasForced: false). The guard short-circuits
-        //   that second call — onWillClose fires exactly once, with wasForced=true.
-        //   onWillCloseFired is reset to false at the end of popoverDidClose so
-        //   the next open/close cycle starts clean.
+        mbkLog("PopoverController", "forceClose -- BEGIN")
         fireOnWillClose(wasForced: true)
-        mbkLog("PopoverController", "forceClose -- clearing gate")
-        // WHY hasActiveOverlay IS CLEARED BEFORE child.close():
-        //   Clearing the gate here allows popoverShouldClose to return true
-        //   when performClose(nil) fires below. If the gate were still true at
-        //   that point, popoverShouldClose would block the close. The narrow
-        //   window where hasActiveOverlay=false but the child is still live is
-        //   intentional — popoverShouldClose firing in that gap is the desired
-        //   outcome, not a hazard.
-        //
-        // WHY child.close() IS CALLED SYNCHRONOUSLY AFTER isSheetPresented = false:
-        //   onWillClose (above) fires wasForced: true, giving the host the
-        //   opportunity to set isSheetPresented = false. SwiftUI's binding
-        //   propagation is asynchronous — it batches view updates to the next
-        //   run-loop frame. child.close() therefore runs on the same call stack,
-        //   before SwiftUI has torn down the sheet's view tree. This is intentional:
-        //   NSWindow.close() sends windowWillClose/windowDidClose, which tears down
-        //   the hosted SwiftUI view tree immediately and authoritatively. Waiting
-        //   for SwiftUI's async sheet dismissal is not required — and would
-        //   introduce a run-loop gap where a ghost sheet window is live but its
-        //   binding is false. The synchronous close has been tested on macOS 13–15
-        //   and does not produce a "window already closed" assertion because
-        //   SwiftUI's deferred dismissal checks isVisible before acting.
+        mbkLog("PopoverController", "forceClose -- clearing gate hasActiveOverlay was=\(overlayGate.hasActiveOverlay)")
         overlayGate.hasActiveOverlay = false
         if let pw = panelWindow {
-            for child in (pw.childWindows ?? []) {
-                mbkLog("PopoverController", "forceClose -- closing child #\(child.windowNumber)")
+            let children = pw.childWindows ?? []
+            mbkLog("PopoverController", "forceClose -- panelWindow #\(pw.windowNumber) childCount=\(children.count)")
+            for child in children {
+                mbkLog("PopoverController", "forceClose -- removing+closing child #\(child.windowNumber)")
                 pw.removeChildWindow(child)
-                // close() instead of orderOut() — sends windowWillClose/windowDidClose,
-                // releases the window from NSApp.windows, and tears down its hosted
-                // SwiftUI view tree. orderOut() only hides it, leaving a zombie view
-                // tree that receives @Environment state changes and fires duplicate alerts.
                 child.close()
+                mbkLog("PopoverController", "forceClose -- child #\(child.windowNumber) closed")
             }
         } else {
             mbkLog("PopoverController", "forceClose -- no panelWindow found")
         }
         mbkLog("PopoverController", "forceClose -- calling performClose")
         popover.performClose(nil)
+        mbkLog("PopoverController", "forceClose -- performClose returned")
     }
 
     private func positioningRect(for button: NSStatusBarButton) -> NSRect? {
         let bounds = button.bounds
+        mbkLog("PopoverController", "positioningRect -- button.bounds=\(bounds)")
         guard bounds.width > 0, bounds.height > 0 else {
-            mbkLog("PopoverController", "positioningRect -- degenerate bounds \(bounds)")
+            mbkLog("PopoverController", "positioningRect -- degenerate bounds \(bounds), returning nil")
             return nil
         }
-        return NSRect(x: bounds.midX - 0.5, y: bounds.minY, width: 1, height: bounds.height)
+        let rect = NSRect(x: bounds.midX - 0.5, y: bounds.minY, width: 1, height: bounds.height)
+        mbkLog("PopoverController", "positioningRect -- rect=\(rect)")
+        return rect
     }
 
     private func setButtonHighlight(_ on: Bool) {
+        mbkLog("PopoverController", "setButtonHighlight -- \(on)")
         statusItem.button?.isHighlighted = on
     }
 
     // MARK: - Popover setup
 
     private func setupPopover() {
-        // WHY AnyView IS ONLY APPLIED ONCE HERE:
-        //   rootView is already stored as AnyView (erased once in init).
-        //   The GeometryReader wrapper is applied to that AnyView and the result
-        //   passed directly to NSHostingController — no second AnyView(wrapped)
-        //   erasure. Double AnyView wrapping defeats SwiftUI's type-level layout
-        //   hints and causes extra layout passes on every size event.
+        mbkLog("PopoverController", "setupPopover -- BEGIN minWidth=\(minWidth) maxWidth=\(maxWidth) maxHeight=\(maxHeight)")
         hostingController = NSHostingController(rootView: wrapped(rootView))
         hostingController.sizingOptions = []
         popover = NSPopover()
@@ -287,19 +292,26 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
         popover.animates = false
         popover.behavior = .applicationDefined
         popover.delegate = self
+        mbkLog("PopoverController",
+               "setupPopover -- complete popover.contentSize=\(popover.contentSize) animates=\(popover.animates)")
     }
 
     /// Wraps `view` in the GeometryReader size observer used by `setupPopover`
     /// and `setRootView`. Extracted so both call sites apply identical wrapping.
     private func wrapped(_ view: AnyView) -> AnyView {
-        AnyView(view
+        mbkLog("PopoverController", "wrapped -- installing GeometryReader size observer")
+        return AnyView(view
             .background(
                 GeometryReader { geo in
                     Color.clear
-                        .onChange(of: geo.size) { [weak self] _, newSize in
+                        .onChange(of: geo.size) { [weak self] oldSize, newSize in
+                            mbkLog("PopoverController",
+                                   "GR.onChange -- oldSize=\(oldSize) newSize=\(newSize)")
                             self?.applyContentSize(newSize)
                         }
                         .onAppear { [weak self] in
+                            mbkLog("PopoverController",
+                                   "GR.onAppear -- size=\(geo.size)")
                             self?.applyContentSize(geo.size)
                         }
                 }
@@ -308,55 +320,94 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
     }
 
     private func clamp(_ size: CGSize) -> CGSize {
-        CGSize(
+        let clamped = CGSize(
             width: min(max(size.width, minWidth), maxWidth),
             height: min(size.height, maxHeight)
         )
+        mbkLog("PopoverController",
+               "clamp -- in=(\(size.width),\(size.height)) out=(\(clamped.width),\(clamped.height)) minWidth=\(minWidth) maxWidth=\(maxWidth) maxHeight=\(maxHeight)")
+        return clamped
     }
 
     // swiftlint:disable:next function_body_length
     private func applyContentSize(_ preferred: CGSize) {
+        mbkLog("PopoverController",
+               "applyContentSize -- ENTER preferred=(\(preferred.width),\(preferred.height))")
+
         let clamped = clamp(preferred)
-        guard clamped.width > 0, clamped.height > 0 else { return }
-        guard abs(popover.contentSize.width - clamped.width) > 1
-           || abs(popover.contentSize.height - clamped.height) > 1 else { return }
+        mbkLog("PopoverController",
+               "applyContentSize -- clamped=(\(clamped.width),\(clamped.height)) currentContentSize=\(popover.contentSize)")
+
+        guard clamped.width > 0, clamped.height > 0 else {
+            mbkLog("PopoverController", "applyContentSize -- SKIP: clamped degenerate (\(clamped.width),\(clamped.height))")
+            return
+        }
+
+        let widthDelta = abs(popover.contentSize.width - clamped.width)
+        let heightDelta = abs(popover.contentSize.height - clamped.height)
+        mbkLog("PopoverController",
+               "applyContentSize -- widthDelta=\(widthDelta) heightDelta=\(heightDelta) threshold=1")
+
+        guard widthDelta > 1 || heightDelta > 1 else {
+            mbkLog("PopoverController",
+                   "applyContentSize -- SKIP: change below threshold widthDelta=\(widthDelta) heightDelta=\(heightDelta)")
+            return
+        }
 
         // GUARD: skip ALL contentSize writes when the auto-hide menubar is hidden.
-        //
-        // When macOS auto-hide menubar slides off-screen, the status button window
-        // moves above the top edge (buttonY >= screenH) or its screen becomes nil.
-        // Any contentSize write in this state causes AppKit to re-run full anchor
-        // geometry against the off-screen button — collapsing the popover x-origin
-        // to 0 (side-jump / stray arrow visible in both main and settings).
-        //
-        // Skipping is safe: the next GeometryReader onChange fires after the
-        // menubar re-appears with a valid button position and writes normally.
-        // The popover keeps its current (correct) size during the hidden interval.
-        //
-        // This guard applies to BOTH the not-shown path (bare write below) and
-        // the shown+reposition path (NSAnimationContext block below).
-        // Fix ported from commit 541c20fe (example app, run-bot#2237/#2239).
         if isMenuBarHidden {
             mbkLog("PopoverController",
                    "applyContentSize -- SKIP: menubar hidden, would write (\(clamped.width),\(clamped.height))")
             return
         }
 
+        // Capture whether width is actually changing BEFORE the contentSize write.
+        // Used below to decide whether to recompute newOrigin.x or leave X unchanged.
+        //
+        // WHY capture before the write:
+        // We compare against popover.contentSize.width (the old value). After
+        // popover.contentSize = clamped the old value is gone.
+        let widthChanged = widthDelta > 1
+        let heightChanged = heightDelta > 1
+        let oldContentSize = popover.contentSize
+        mbkLog("PopoverController",
+               "applyContentSize -- widthChanged=\(widthChanged) heightChanged=\(heightChanged) oldContentSize=\(oldContentSize)")
+
         guard popover.isShown,
               let window = hostingController.view.window,
               let storedAnchor = anchorPoint else {
-            // Not shown — write without animation suppression needed (no window to slide).
-            // Still wrap in NSAnimationContext for consistency and to prevent any
-            // implicit CoreAnimation transitions on the first appear after hide.
+            mbkLog("PopoverController",
+                   "applyContentSize -- not shown path: isShown=\(popover.isShown) hasWindow=\(hostingController.view.window != nil) hasAnchor=\(anchorPoint != nil)")
             NSAnimationContext.runAnimationGroup { ctx in
                 ctx.duration = 0
                 ctx.allowsImplicitAnimation = false
+                mbkLog("PopoverController",
+                       "applyContentSize -- not-shown WRITE (\(clamped.width),\(clamped.height))")
                 popover.contentSize = clamped
+                mbkLog("PopoverController",
+                       "applyContentSize -- not-shown WRITE done, popover.contentSize=\(popover.contentSize)")
             }
-            mbkLog("PopoverController",
-                   "applyContentSize -- not shown, WRITE (\(clamped.width),\(clamped.height))")
             return
         }
+
+        // === SHOWN PATH ===
+        // Snapshot every frame value we'll use BEFORE the contentSize write.
+        let winFrameBefore = window.frame
+        let liveAnchorY = window.frame.maxY
+        let buttonWinFrame = statusItem.button?.window?.frame ?? .zero
+        let buttonFrame = statusItem.button?.frame ?? .zero
+        let buttonMidXScreen = buttonWinFrame.origin.x + buttonFrame.midX
+
+        mbkLog("PopoverController", "applyContentSize -- SHOWN PATH BEGIN")
+        mbkLog("PopoverController", "applyContentSize -- winFrameBefore=\(winFrameBefore)")
+        mbkLog("PopoverController", "applyContentSize -- liveAnchorY=\(liveAnchorY) (window.frame.maxY)")
+        mbkLog("PopoverController", "applyContentSize -- storedAnchor=\(storedAnchor)")
+        mbkLog("PopoverController",
+               "applyContentSize -- buttonWinFrame=\(buttonWinFrame) buttonFrame=\(buttonFrame) buttonMidXScreen(live)=\(buttonMidXScreen)")
+        mbkLog("PopoverController",
+               "applyContentSize -- storedAnchor.x=\(storedAnchor.x) vs buttonMidXScreen(live)=\(buttonMidXScreen) diff=\(storedAnchor.x - buttonMidXScreen)")
+        mbkLog("PopoverController",
+               "applyContentSize -- clamped.width=\(clamped.width) will be used for X centering (NOT window.frame.width post-write)")
 
         // Popover is shown — write contentSize and immediately re-center the window.
         //
@@ -366,101 +417,151 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
         // NSPopover keeps .minY edge attached to the status button, so
         // window.frame.maxY is always the authoritative anchor Y. Use it live.
         //
-        // WHY read window.frame.width AFTER popover.contentSize = clamped (#2265-1):
-        // AppKit pre-resizes the hosting window (via internal layout) before our
-        // GeometryReader observer fires. By the time applyContentSize runs,
-        // window.frame.width may already reflect the new width. Writing contentSize
-        // inside a zero-duration NSAnimationContext commits synchronously, so
-        // reading window.frame.width after the write gives the final settled value
-        // used for horizontal centering. Reading before is unreliable.
+        // WHY use clamped.width for X centering, NOT window.frame.width (#2268):
+        // window.frame.width after popover.contentSize = clamped may not reflect
+        // the new width synchronously — AppKit may defer the frame update even
+        // inside NSAnimationContext(duration:0). clamped.width IS the width we
+        // just wrote, so it is guaranteed correct. Using window.frame.width
+        // risks computing the origin from the old or intermediate width, producing
+        // the visible horizontal drift / arrow side-jump on width changes.
         //
-        // WHY NSAnimationContext with duration:0 / allowsImplicitAnimation:false:
-        // Without this block, AppKit fires implicit CoreAnimation layer repositions
-        // on both the contentSize write AND the setFrameOrigin call, producing a
-        // visible header/arrow slide on every row expand or route change.
-        // Zero-duration + allowsImplicitAnimation:false suppresses both.
+        // WHY skip newOrigin.x recomputation when width didn't change (#2268):
+        // On a pure height resize (widthChanged == false), touching X at all
+        // risks sub-pixel rounding drift. Leave the window exactly where it is.
         //
-        // ❌ NEVER read window.frame.width before popover.contentSize = clamped.
+        // ❌ NEVER use window.frame.width / 2 for X centering when widthChanged — use clamped.width / 2.
         // ❌ NEVER revert to storedAnchor.y — arrow-jump regression.
         // ❌ NEVER remove the NSAnimationContext block — header-jump regression.
         // ❌ NEVER use allowsImplicitAnimation: true.
-        let liveAnchorY = window.frame.maxY
         NSAnimationContext.runAnimationGroup { ctx in
             ctx.duration = 0
             ctx.allowsImplicitAnimation = false
-            popover.contentSize = clamped
-            // Read frame.width AFTER the contentSize write — now settled.
-            let newOrigin = NSPoint(
-                x: storedAnchor.x - window.frame.width / 2,
-                y: liveAnchorY - window.frame.height
-            )
-            window.setFrameOrigin(newOrigin)
+
             mbkLog("PopoverController",
-                   "applyContentSize -- WRITE (\(clamped.width),\(clamped.height)) liveAnchorY=\(liveAnchorY) w=\(window.frame.width) origin=\(newOrigin)")
+                   "applyContentSize -- NSAnimationContext BEGIN: writing contentSize=(\(clamped.width),\(clamped.height))")
+            popover.contentSize = clamped
+            mbkLog("PopoverController",
+                   "applyContentSize -- NSAnimationContext: contentSize written, popover.contentSize=\(popover.contentSize)")
+
+            // Read window frame AFTER contentSize write for diagnostic comparison.
+            let winFrameAfterWrite = window.frame
+            mbkLog("PopoverController",
+                   "applyContentSize -- NSAnimationContext: winFrameAfterWrite=\(winFrameAfterWrite)")
+            mbkLog("PopoverController",
+                   "applyContentSize -- NSAnimationContext: window.frame.width AFTER write=\(winFrameAfterWrite.width) vs clamped.width=\(clamped.width) diff=\(winFrameAfterWrite.width - clamped.width)")
+            mbkLog("PopoverController",
+                   "applyContentSize -- NSAnimationContext: window.frame.origin.x AFTER write=\(winFrameAfterWrite.origin.x) vs winFrameBefore.origin.x=\(winFrameBefore.origin.x) diff=\(winFrameAfterWrite.origin.x - winFrameBefore.origin.x)")
+
+            let newOriginX: CGFloat
+            if widthChanged {
+                // Width changed — recentre using the stored button anchor and clamped.width.
+                // clamped.width is the authoritative new width — do NOT use window.frame.width
+                // which may not yet reflect the write above (#2268).
+                newOriginX = storedAnchor.x - clamped.width / 2
+                mbkLog("PopoverController",
+                       "applyContentSize -- widthChanged=true: newOriginX = storedAnchor.x(\(storedAnchor.x)) - clamped.width/2(\(clamped.width / 2)) = \(newOriginX)")
+            } else {
+                // Height-only change — keep current X, do not touch horizontal position.
+                newOriginX = winFrameBefore.origin.x
+                mbkLog("PopoverController",
+                       "applyContentSize -- widthChanged=false (height-only): keeping X=\(newOriginX) (winFrameBefore.origin.x)")
+            }
+
+            let newOriginY = liveAnchorY - window.frame.height
+            mbkLog("PopoverController",
+                   "applyContentSize -- newOriginY = liveAnchorY(\(liveAnchorY)) - window.frame.height(\(window.frame.height)) = \(newOriginY)")
+
+            let newOrigin = NSPoint(x: newOriginX, y: newOriginY)
+            mbkLog("PopoverController",
+                   "applyContentSize -- calling setFrameOrigin(\(newOrigin)) prev origin=\(winFrameBefore.origin)")
+            window.setFrameOrigin(newOrigin)
+
+            let winFrameAfterSet = window.frame
+            mbkLog("PopoverController",
+                   "applyContentSize -- NSAnimationContext END: winFrameAfterSet=\(winFrameAfterSet)")
+            mbkLog("PopoverController",
+                   "applyContentSize -- SUMMARY: old=\(winFrameBefore) → new=\(winFrameAfterSet) | storedAnchorX=\(storedAnchor.x) buttonMidXLive=\(buttonMidXScreen) | widthChanged=\(widthChanged) heightChanged=\(heightChanged) | clampedW=\(clamped.width) clampedH=\(clamped.height)")
         }
     }
 
     private func setupWorkspaceObserver() {
+        mbkLog("PopoverController", "setupWorkspaceObserver -- registering")
         workspaceObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didActivateApplicationNotification,
             object: nil,
             queue: nil
         ) { [weak self] notification in
             let activated = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
+            mbkLog("PopoverController",
+                   "workspaceObserver -- didActivateApplication: \(activated?.bundleIdentifier ?? "nil")")
             Task { @MainActor [weak self] in
-                guard let self, self.popover.isShown else { return }
+                guard let self, self.popover.isShown else {
+                    mbkLog("PopoverController", "workspaceObserver -- popover not shown, ignoring")
+                    return
+                }
                 guard activated != NSRunningApplication.current else {
-                    mbkLog("PopoverController", "workspace observer -- self-activation, ignoring")
+                    mbkLog("PopoverController", "workspaceObserver -- self-activation, ignoring")
                     return
                 }
                 guard !overlayGate.hasActiveOverlay else {
-                    mbkLog("PopoverController", "workspace observer -- overlay active, keeping popover open")
+                    mbkLog("PopoverController",
+                           "workspaceObserver -- overlay active (hasActiveOverlay=true), keeping popover open")
                     return
                 }
-                mbkLog("PopoverController", "workspace observer -- other app active, closing")
+                mbkLog("PopoverController",
+                       "workspaceObserver -- other app activated, calling performClose")
                 self.popover.performClose(nil)
             }
         }
+        mbkLog("PopoverController", "setupWorkspaceObserver -- registered")
     }
 
     private func startEventMonitor() {
-        guard eventMonitor == nil else { return }
+        guard eventMonitor == nil else {
+            mbkLog("PopoverController", "startEventMonitor -- already running, skip")
+            return
+        }
         eventMonitor = NSEvent.addGlobalMonitorForEvents(
             matching: [.leftMouseDown, .rightMouseDown]
-        ) { [weak self] _ in
+        ) { [weak self] event in
+            mbkLog("PopoverController",
+                   "eventMonitor -- fired type=\(event.type.rawValue) location=\(event.locationInWindow)")
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 let hasOverlay = self.overlayGate.hasActiveOverlay
                 let hasFilePicker = self.overlayGate.hasFilePickerOverlay
                 mbkLog("PopoverController",
-                       "event monitor fired -- hasActiveOverlay=\(hasOverlay) hasFilePickerOverlay=\(hasFilePicker)")
+                       "eventMonitor -- hasActiveOverlay=\(hasOverlay) hasFilePickerOverlay=\(hasFilePicker)")
                 if hasOverlay {
                     if hasFilePicker {
-                        mbkLog("PopoverController", "event monitor -- file picker active, ignoring outside click")
+                        mbkLog("PopoverController", "eventMonitor -- file picker active, ignoring outside click")
                     } else {
                         let hasSheet = self.hasSheetChildWindow
-                        mbkLog("PopoverController", "event monitor -- hasSheet=\(hasSheet)")
+                        mbkLog("PopoverController", "eventMonitor -- hasSheet=\(hasSheet)")
                         if hasSheet {
-                            mbkLog("PopoverController", "event monitor -- sheet overlay, force-closing")
+                            mbkLog("PopoverController", "eventMonitor -- sheet overlay, calling forceClose")
                             self.forceClose()
                         } else {
-                            mbkLog("PopoverController", "event monitor -- picker/alert overlay, ignoring outside click")
+                            mbkLog("PopoverController", "eventMonitor -- picker/alert overlay, ignoring outside click")
                         }
                     }
                 } else {
-                    mbkLog("PopoverController", "event monitor -- no overlay, performClose")
+                    mbkLog("PopoverController", "eventMonitor -- no overlay, calling performClose")
                     self.popover.performClose(nil)
                 }
             }
         }
-        mbkLog("PopoverController", "event monitor started")
+        mbkLog("PopoverController", "startEventMonitor -- monitor installed")
     }
 
     private func stopEventMonitor() {
-        guard let monitor = eventMonitor else { return }
+        guard let monitor = eventMonitor else {
+            mbkLog("PopoverController", "stopEventMonitor -- no monitor running, skip")
+            return
+        }
         NSEvent.removeMonitor(monitor)
         eventMonitor = nil
-        mbkLog("PopoverController", "event monitor stopped")
+        mbkLog("PopoverController", "stopEventMonitor -- monitor removed")
     }
 
     deinit {
@@ -475,25 +576,60 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
 
 extension MBKPopoverController: NSPopoverDelegate {
     public func popoverWillShow(_ notification: Notification) {
+        mbkLog("PopoverController", "popoverWillShow -- BEGIN")
         setButtonHighlight(true)
         guard let window = hostingController.view.window else {
-            mbkLog("PopoverController", "popoverWillShow -- no hostingWindow (anchor skipped)")
+            mbkLog("PopoverController", "popoverWillShow -- no hostingWindow, anchor skipped")
             return
         }
-        // anchorPoint.x = status button screen midX. Used for x-centering in applyContentSize.
-        // anchorPoint.y stored for reference; applyContentSize uses live window.frame.maxY instead.
-        anchorPoint = NSPoint(x: window.frame.midX, y: window.frame.maxY)
+
+        // Derive anchorPoint.x from the status button's own screen coordinate.
+        //
+        // WHY NOT window.frame.midX:
+        // At the moment popoverWillShow fires, AppKit has just placed the popover
+        // window via show(relativeTo:of:preferredEdge:) but may not have finished
+        // settling the frame. window.frame.midX can therefore be slightly off from
+        // the true center of the status button. Any error here propagates to every
+        // setFrameOrigin call in applyContentSize.
+        //
+        // WHY buttonWindow.frame.origin.x + button.frame.midX:
+        // button.frame is in the button window's coordinate space. Adding the
+        // button window's screen origin gives the button's true screen midX —
+        // the point the NSPopover arrow is anchored to. This value is stable
+        // regardless of when popoverWillShow fires relative to window placement.
+        //
+        // FALLBACK: if button.window is nil for any reason, fall back to
+        // window.frame.midX (previous behaviour) so the popover still appears.
+        let buttonAnchorX: CGFloat
+        if let button = statusItem.button, let buttonWindow = button.window {
+            let buttonWinOriginX = buttonWindow.frame.origin.x
+            let buttonLocalMidX = button.frame.midX
+            buttonAnchorX = buttonWinOriginX + buttonLocalMidX
+            mbkLog("PopoverController",
+                   "popoverWillShow -- anchorX from button: buttonWin.frame=\(buttonWindow.frame) button.frame=\(button.frame) buttonWinOriginX=\(buttonWinOriginX) buttonLocalMidX=\(buttonLocalMidX) anchorX=\(buttonAnchorX)")
+        } else {
+            buttonAnchorX = window.frame.midX
+            mbkLog("PopoverController",
+                   "popoverWillShow -- WARNING: button.window nil, fallback anchorX=window.frame.midX=\(buttonAnchorX)")
+        }
+
+        let winFrame = window.frame
+        anchorPoint = NSPoint(x: buttonAnchorX, y: winFrame.maxY)
         mbkLog("PopoverController",
-               "popoverWillShow -- anchor=\(anchorPoint!) win=\(window.frame) #\(window.windowNumber)")
+               "popoverWillShow -- anchor=\(anchorPoint!) win.frame=\(winFrame) win.frame.midX=\(winFrame.midX) win#\(window.windowNumber)")
+        mbkLog("PopoverController",
+               "popoverWillShow -- anchorX=\(buttonAnchorX) vs window.frame.midX=\(winFrame.midX) diff=\(buttonAnchorX - winFrame.midX)")
     }
 
     public func popoverShouldClose(_ popover: NSPopover) -> Bool {
         let block = overlayGate.hasActiveOverlay
-        mbkLog("PopoverController", "popoverShouldClose -- hasActiveOverlay=\(block) blocked=\(block)")
+        mbkLog("PopoverController",
+               "popoverShouldClose -- hasActiveOverlay=\(block) → returning \(!block)")
         return !block
     }
 
     public func popoverDidClose(_ notification: Notification) {
+        mbkLog("PopoverController", "popoverDidClose -- BEGIN")
         fireOnWillClose(wasForced: false)
         setButtonHighlight(false)
         stopEventMonitor()
@@ -501,6 +637,6 @@ extension MBKPopoverController: NSPopoverDelegate {
         overlayGate.hasActiveOverlay = false
         overlayGate.hasFilePickerOverlay = false
         onWillCloseFired = false
-        mbkLog("PopoverController", "popoverDidClose -- overlay gate reset")
+        mbkLog("PopoverController", "popoverDidClose -- anchor cleared, gate reset, onWillCloseFired reset")
     }
 }
