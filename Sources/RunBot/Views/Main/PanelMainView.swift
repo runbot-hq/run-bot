@@ -12,50 +12,48 @@ import SwiftUI
 //
 // SIZING RULES:
 // RULE 1: Root VStack ends with .fixedSize() — both axes.
-//         This matches the MBK example MainView exactly. It tells SwiftUI
-//         "size me to my natural width AND height" so the GeometryReader in
-//         MBKPopoverController.wrapped() reports the true natural size.
-//         clamp() in MBKPopoverController then enforces minWidth/maxWidth.
-//         DO NOT add .frame(minWidth:maxWidth:) here — it fights the layout engine.
-//         DO NOT use .fixedSize(horizontal: false, vertical: true) — that collapses
-//         the horizontal axis to whatever minimum the hosting controller offers.
 // RULE 2: ALL rows use .padding(.horizontal, 12)
 // RULE 3: Job row HStack Spacer() is LOAD-BEARING.
 // RULE 4: RunnerViewModel.reload() uses withAnimation(nil).
-// RULE 5: actionsSection ScrollView uses .frame(height:) — FIXED, not maxHeight.
-//         CRITICAL: maxHeight lets the ScrollView grow when content grows (row expand),
-//         propagating through root .fixedSize() → MBK GeometryReader → popover resize →
-//         entire panel jumps in Y. Fixed height keeps the ScrollView frame stable.
-//         Row expand/collapse is purely internal to the ScrollView. DO NOT change to maxHeight.
+// RULE 5: actionsSection ScrollView uses .frame(height: scrollViewHeight) — a
+//         @State value, NOT maxHeight. This is the core anti-jump contract:
+//
+//         The problem: .frame(maxHeight:) lets the ScrollView grow when content
+//         grows (row expand), propagating through .fixedSize() → MBK → popover
+//         resize → visible jump of the entire panel.
+//
+//         The solution: measure actionsSectionContent's natural height via a
+//         hidden GeometryReader (contentHeightReader). Store it in @State
+//         scrollViewHeight, capped at screenScrollMaxHeight. Only update
+//         scrollViewHeight when the visible ROW COUNT changes — ignore height
+//         changes caused by row expand/collapse (those are internal scroll content).
+//
+//         This gives dynamic panel height (grows with rows) without jump on expand.
+//
 // RULE 6: systemStats MUST run only while the panel is open.
 // RULE 7: RunnerStore self-schedules via its own adaptive timer.
 // RULE 9: displayTick fires every 1 second ALWAYS (no open-state gate).
 //
 // NSPopover provides its own glass chrome automatically.
 // Do NOT add .background() or NSVisualEffectView at this level.
-/// Root panel view rendered inside the NSPopover.
 struct PanelMainView: View {
-    /// Called when user taps a step row.
     let onStepTap: (ActiveJob, GitHubStep) -> Void
-    /// Called when the user taps the settings gear button.
     let onSelectSettings: () -> Void
-    /// Injected local runner store — used to trigger refresh on appear.
     var localRunnerStore: LocalRunnerStore = .shared
-    /// Panel open/close and transient-hide state from the environment.
     @Environment(PanelVisibilityState.self) private var panelVisibilityState: PanelVisibilityState
-    /// Core runner/job/action/rate-limit state injected from AppDelegate.wrapEnv.
     @Environment(AppState.self) private var appState
-    /// View model for CPU/memory stats displayed in the header.
     @State private var systemStats = SystemStatsViewModel()
-    /// Number of workflow rows currently shown in the actions section.
     @State private var visibleCount: Int = 10
-    /// Increments every second to drive relative-time label refreshes without re-polling.
     @State private var displayTick: Int = 0
-    /// Structured task driving the 1-second `displayTick` loop; managed by `startDisplayTickTimer()`.
-    /// Named "displayTick" for visibility in Instruments (RG6).
     @State private var displayTickTask: Task<Void, any Error>?
+    /// Stable height fed to the ScrollView .frame(height:).
+    /// Updated only when the visible row count changes, NOT when a row expands.
+    /// Starts at 0; set on first content measurement via contentHeightReader.
+    @State private var scrollViewHeight: CGFloat = 0
+    /// The row count that produced the current scrollViewHeight.
+    /// Used to detect genuine row-count changes vs. expand-caused height changes.
+    @State private var heightForRowCount: Int = -1
 
-    /// Creates a `PanelMainView`.
     init(
         onStepTap: @escaping (ActiveJob, GitHubStep) -> Void,
         onSelectSettings: @escaping () -> Void
@@ -64,16 +62,14 @@ struct PanelMainView: View {
         self.onSelectSettings = onSelectSettings
     }
 
-    /// Fixed height for the scroll area — 80% of visible screen height.
-    ///
-    /// CRITICAL (RULE 5): used as .frame(height:) — NOT .frame(maxHeight:).
-    /// maxHeight allows the ScrollView to grow when content grows (row expand),
-    /// which propagates through root .fixedSize() → MBK GeometryReader → popover resize → jump.
-    private var screenScrollHeight: CGFloat {
+    private var screenScrollMaxHeight: CGFloat {
         (NSScreen.main?.visibleFrame.height ?? 800) * 0.80
     }
 
-    /// Local runners currently executing a job inside an in-progress workflow group.
+    private var visibleRowCount: Int {
+        min(appState.runnerState.actions.count, visibleCount)
+    }
+
     private var activeLocalRunners: [RunnerModel] {
         guard appState.runnerState.actions.contains(where: { $0.groupStatus == .inProgress }) else { return [] }
         let activeNamesFromJobs = Set(
@@ -115,7 +111,7 @@ struct PanelMainView: View {
                 }
             actionsSectionScrollable
         }
-        // .fixedSize() is LOAD-BEARING (RULE 1, #2264).
+        // RULE 1: .fixedSize() is LOAD-BEARING.
         .fixedSize()
         // DEBUG: confirm root VStack no longer changes size on row expand.
         .background(
@@ -145,15 +141,31 @@ struct PanelMainView: View {
         }
     }
 
-    /// Scrollable container for the actions section.
+    /// The scrollable actions list.
     ///
-    /// .frame(height:) is a FIXED height — NOT .frame(maxHeight:). See RULE 5.
+    /// The ScrollView is given a FIXED .frame(height: scrollViewHeight) — never maxHeight.
+    /// scrollViewHeight is driven by contentHeightReader below and only updates when
+    /// the visible row count changes, so row expand never triggers a panel resize.
     private var actionsSectionScrollable: some View {
         ScrollView(.vertical, showsIndicators: true) {
             actionsSectionContent
+                // Measure the natural collapsed height of the content.
+                // This overlay is always present so we always have a fresh measurement.
+                // We selectively apply updates in applyContentHeight() below.
+                .background(
+                    GeometryReader { geo in
+                        Color.clear.onAppear {
+                            applyContentHeight(geo.size.height)
+                        }
+                        .onChange(of: geo.size.height) { _, h in
+                            applyContentHeight(h)
+                        }
+                    }
+                )
         }
-        // RULE 5: fixed height. DO NOT change to maxHeight.
-        .frame(height: screenScrollHeight)
+        // RULE 5: fixed height driven by @State scrollViewHeight, not maxHeight.
+        // scrollViewHeight is only updated on row count change, not on row expand.
+        .frame(height: scrollViewHeight > 0 ? scrollViewHeight : screenScrollMaxHeight)
         // DEBUG: confirm scroll frame no longer changes on row expand.
         .background(
             GeometryReader { geo in
@@ -168,7 +180,24 @@ struct PanelMainView: View {
         )
     }
 
-    /// Workflow rows and the load-more button, rendered inside the scroll container.
+    /// Updates scrollViewHeight only when the visible row count has changed.
+    ///
+    /// Height changes caused by row expand/collapse are ignored because they
+    /// happen while heightForRowCount == visibleRowCount (the count didn't change).
+    /// This keeps the ScrollView frame stable during expand — no jump.
+    private func applyContentHeight(_ measuredHeight: CGFloat) {
+        let currentCount = visibleRowCount
+        guard currentCount != heightForRowCount else {
+            // Row count unchanged — this is an expand/collapse height change. Ignore.
+            log("【PanelMainView.applyContentHeight】ignored h=\(measuredHeight) count=\(currentCount) (expand/collapse)", category: .general)
+            return
+        }
+        let clamped = min(measuredHeight, screenScrollMaxHeight)
+        log("【PanelMainView.applyContentHeight】apply h=\(clamped) (measured=\(measuredHeight), rowCount \(heightForRowCount)→\(currentCount))", category: .general)
+        scrollViewHeight = clamped
+        heightForRowCount = currentCount
+    }
+
     private var actionsSectionContent: some View {
         VStack(alignment: .leading, spacing: 0) {
             SectionHeaderLabel(title: "Workflows")
@@ -187,7 +216,6 @@ struct PanelMainView: View {
         .padding(.vertical, 4)
     }
 
-    /// "Load N more workflows" button; hidden when all workflows are already visible.
     @ViewBuilder private var loadMoreButton: some View {
         let nextBatch = min(10, appState.runnerState.actions.count - visibleCount)
         if nextBatch > 0 {
