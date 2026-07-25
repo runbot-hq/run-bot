@@ -42,7 +42,7 @@ on:
         # collaborators can trigger this; it is not an open attack surface.
         # If you want to enforce that stable/release channel can only run
         # from main, add a job-level if: condition — it is a deliberate
-        # omission here, not an oversight. See docs/RELEASING.md.
+        # omission here, not an oversight. See docs/development.md § Releasing.
         description: "Branch to release from"
         required: false
         default: "main"
@@ -79,7 +79,7 @@ on:
 # Recovery:
 #   git revert <plist-commit-sha> --no-edit && git push origin <branch>
 # Use the exact SHA logged by the "Commit patched Info.plist" step output.
-# then re-run the workflow. See docs/RELEASING.md § Rollback procedure.
+# then re-run the workflow. See docs/development.md § Releasing.
 #
 # TAG-NAMESPACE COLLISION RISK (accepted — not an oversight, see below):
 # The group key includes inputs.branch so that parallel beta runs from
@@ -93,7 +93,7 @@ on:
 # the other reaches that step. This risk is accepted in preference to a global
 # serialisation lock, which would block all parallel beta runs.
 # Recovery: re-trigger the failed run from the branch that lost the race.
-# See docs/RELEASING.md § Tag-namespace collision recovery.
+# See docs/development.md § Releasing.
 #
 # INJECTION NOTE: ${{ inputs.branch }} appears inline here. This is NOT a
 # script-injection risk. concurrency.group is a workflow-level expression
@@ -151,7 +151,7 @@ jobs:
     # can trigger this can push to main directly. The trust boundary is not expanded.
     # If you want to add a main-only guard for stable releases, add:
     #   if: ${{ inputs.channel != 'release' || inputs.branch == 'main' }}
-    # at job level. See docs/RELEASING.md § Triggering a release.
+    # at job level. See docs/development.md § Releasing.
     steps:
       # ── Checkout ──────────────────────────────────────────────────────────────────
       # INJECTION NOTE: ref: ${{ inputs.branch }} is a with: field on a uses: step.
@@ -250,7 +250,7 @@ jobs:
       # Rollover logic: when PATCH reaches 9 it rolls over to 0 and MINOR
       # increments; when MINOR reaches 9 it rolls over to 0 and MAJOR
       # increments. Rollover is intentional per the project convention
-      # documented in docs/RELEASING.md.
+      # documented in docs/development.md § Releasing.
       - name: Compute next tag
         id: tag
         run: |
@@ -278,7 +278,7 @@ jobs:
 
           # Compute PATCH+1 with rollover (shared by both channels).
           NEW_PATCH=$(( PATCH + 1 ))
-          if (( NEW_PATCH > 9 )); then  # rolls when prior PATCH was 9 (NEW_PATCH=10): intentional, see docs/RELEASING.md
+          if (( NEW_PATCH > 9 )); then  # rolls when prior PATCH was 9 (NEW_PATCH=10): intentional, see docs/development.md § Releasing
             NEW_PATCH=0
             NEW_MINOR=$(( MINOR + 1 ))
             if (( NEW_MINOR > 9 )); then  # rollover: intentional
@@ -365,7 +365,7 @@ jobs:
       # returns N+1 at that tag. This is intentional — CFBundleVersion only
       # needs to be monotonically increasing. The tag is pinned to PLIST_SHA
       # (the commit where BUILD=N was embedded), which is consistent.
-      # See docs/RELEASING.md § Version scheme for full rationale.
+      # See docs/development.md § Releasing for full rationale.
       - name: Patch Info.plist
         run: |
           set -euo pipefail
@@ -764,8 +764,8 @@ jobs:
         #   2. continue-on-error: true means a bad afm commit cannot break a release —
         #      the worst outcome is degrading to GitHub's --generate-notes fallback.
         #   3. Pinning to a SHA would create friction on every AFM update with zero
-        #      safety gain given (1) and (2). docs/RELEASING.md § Pinned action SHAs
-        #      applies to third-party actions only.
+        #      safety gain given (1) and (2). docs/development.md § Releasing covers
+        #      the pinned SHA policy for third-party actions only.
         with:
           tag: ${{ needs.publish.outputs.tag }}
         env:
