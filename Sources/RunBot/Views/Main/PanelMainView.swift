@@ -36,6 +36,14 @@ import SwiftUI
 //         Side-jumping is caused by stale anchorPoint.x in MBK's applyContentSize
 //         (see issue #2265 Bug 3) — orthogonal to our vertical GR.
 //
+// HEADER STABILITY (RULE 10):
+//         PanelHeaderView has .fixedSize() at the call site. SwiftUI measures it
+//         once at its natural content-driven height and never re-negotiates it
+//         during subsequent VStack re-layouts triggered by scrollViewHeight changes.
+//         The Divider below the header is therefore always at a fixed Y.
+//         On macOS 26, GlassEffectContainer can report slightly different preferred
+//         heights under layout pressure — .fixedSize() prevents that entirely.
+//
 // NSPopover provides its own glass chrome automatically.
 // Do NOT add .background() or NSVisualEffectView at this level.
 struct PanelMainView: View {
@@ -98,6 +106,12 @@ struct PanelMainView: View {
                 statsVM: systemStats,
                 onSelectSettings: onSelectSettings
             )
+            // RULE 10: LOAD-BEARING — do not remove.
+            // Locks the header to its natural content-driven height after the first
+            // layout pass. Prevents VStack re-layout (triggered by scrollViewHeight
+            // changes below) from re-negotiating the header height, which would shift
+            // the Divider. Height remains content-driven — no magic number needed.
+            .fixedSize()
             .onAppear { systemStats.start() }
             Divider()
             if let error = appState.runnerState.fetchError {
