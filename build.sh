@@ -36,6 +36,16 @@ if ! printf '%s\n' "$VERSION" | grep -E -q '^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.
   exit 1
 fi
 
+# ── Resolve dependencies ─────────────────────────────────────────────────────────
+# All deps track a branch (not a tag/revision) — `swift package update` ensures
+# the local Package.resolved is updated to the current branch HEAD before every
+# build. Without this, `swift build` reuses the cached resolved versions and will
+# miss commits pushed to dependency branches since the last update.
+# Safe to run in CI: GitHub Actions runners have no cached Package.resolved so
+# this is a no-op there — `swift build` already resolves fresh from scratch.
+echo "→ Updating dependencies..."
+swift package update
+
 # ── ⚠️  DO NOT CHANGE THE ARCH OR BUILD PATH BELOW ────────────────────────
 # This project targets Apple Silicon (arm64) ONLY.
 # The explicit --arch arm64 flag and the .build/arm64-apple-macosx/release/
