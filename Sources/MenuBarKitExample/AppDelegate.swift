@@ -37,8 +37,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         popoverController.onWillClose = { [weak self] wasForced in
             guard let self else { return }
-            lastSession = appState.saveSnapshot()
-            mbkLog("AppDelegate", "onWillClose wasForced=\(wasForced) -- session saved: route=\(lastSession!.route) sheet=\(lastSession!.isSheetPresented)")
+            let snap = appState.saveSnapshot()
+            lastSession = snap
+            mbkLog("AppDelegate", "onWillClose wasForced=\(wasForced) -- session saved: route=\(snap.route) sheet=\(snap.isSheetPresented)")
             if wasForced {
                 // Reset live sheet state so SwiftUI tears down the sheet window
                 // before forceClose() closes the child window and performClose fires.
