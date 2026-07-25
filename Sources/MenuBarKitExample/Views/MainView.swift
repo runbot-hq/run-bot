@@ -32,13 +32,17 @@ struct MainView: View {
     @State private var visibleCount = 5
 
     var body: some View {
+        #if DEBUG
         let _ = print("[MainView] body evaluated — visibleCount=\(visibleCount)")
+        #endif
         VStack(alignment: .leading, spacing: 0) {
             HStack {
                 Text("Workflows").font(.headline)
                 Spacer()
                 Button("Settings →") {
+                    #if DEBUG
                     print("[MainView] Settings tapped")
+                    #endif
                     appState.route = .settings
                 }
                 .buttonStyle(.plain)
@@ -70,7 +74,9 @@ struct MainView: View {
                     if visibleCount < allItems.count {
                         let nextBatch = min(5, allItems.count - visibleCount)
                         Button("Show \(nextBatch) more…") {
+                            #if DEBUG
                             print("[MainView] Show more tapped — visibleCount \(visibleCount) -> \(visibleCount + nextBatch)")
+                            #endif
                             visibleCount += nextBatch
                         }
                         .buttonStyle(.plain)
@@ -85,8 +91,16 @@ struct MainView: View {
             }
         }
         .fixedSize()
-        .onAppear    { print("[MainView] onAppear visibleCount=\(visibleCount)") }
-        .onDisappear { print("[MainView] onDisappear") }
+        .onAppear    {
+            #if DEBUG
+            print("[MainView] onAppear visibleCount=\(visibleCount)")
+            #endif
+        }
+        .onDisappear {
+            #if DEBUG
+            print("[MainView] onDisappear")
+            #endif
+        }
     }
 
     private func iconColor(_ systemName: String) -> Color {

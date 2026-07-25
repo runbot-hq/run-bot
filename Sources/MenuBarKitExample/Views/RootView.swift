@@ -8,7 +8,9 @@ struct RootView: View {
     @Environment(AppState.self) private var appState
 
     var body: some View {
+        #if DEBUG
         let _ = print("[RootView] body evaluated — route=\(appState.route) isSheetPresented=\(appState.isSheetPresented)")
+        #endif
         Group {
             switch appState.route {
             case .main:     MainView()
@@ -20,14 +22,26 @@ struct RootView: View {
             GeometryReader { geo in
                 Color.clear
                     .onAppear {
+                        #if DEBUG
                         print("[RootView] GeometryReader onAppear size=(\(geo.size.width),\(geo.size.height)) route=\(appState.route)")
+                        #endif
                     }
                     .onChange(of: geo.size) { old, new in
+                        #if DEBUG
                         print("[RootView] size changed (\(old.width),\(old.height)) -> (\(new.width),\(new.height)) route=\(appState.route)")
+                        #endif
                     }
             }
         )
-        .onAppear    { print("[RootView] onAppear  route=\(appState.route) isSheetPresented=\(appState.isSheetPresented)") }
-        .onDisappear { print("[RootView] onDisappear route=\(appState.route) isSheetPresented=\(appState.isSheetPresented)") }
+        .onAppear {
+            #if DEBUG
+            print("[RootView] onAppear  route=\(appState.route) isSheetPresented=\(appState.isSheetPresented)")
+            #endif
+        }
+        .onDisappear {
+            #if DEBUG
+            print("[RootView] onDisappear route=\(appState.route) isSheetPresented=\(appState.isSheetPresented)")
+            #endif
+        }
     }
 }

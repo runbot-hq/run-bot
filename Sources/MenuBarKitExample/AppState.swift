@@ -19,10 +19,18 @@ final class AppState {
         didSet { AppState.log("isSheetPresented", oldValue, isSheetPresented) }
     }
     var pickedURL: URL? {
-        didSet { print("[AppState] pickedURL: \(String(describing: pickedURL))") }
+        didSet {
+            #if DEBUG
+            print("[AppState] pickedURL: \(String(describing: pickedURL))")
+            #endif
+        }
     }
     var sheetPickedURL: URL? {
-        didSet { print("[AppState] sheetPickedURL: \(String(describing: sheetPickedURL))") }
+        didSet {
+            #if DEBUG
+            print("[AppState] sheetPickedURL: \(String(describing: sheetPickedURL))")
+            #endif
+        }
     }
     var showAlert: Bool = false {
         didSet { AppState.log("showAlert", oldValue, showAlert) }
@@ -34,8 +42,10 @@ final class AppState {
     // Static helper — lives outside @Observable macro expansion,
     // so Thread and escaped quotes work without compiler issues.
     private static func log<T>(_ name: String, _ old: T, _ new: T) {
+        #if DEBUG
         let thread = Thread.isMainThread ? "main" : "bg"
         print("[AppState] \(name): \(old) -> \(new) | Thread=\(thread)")
+        #endif
     }
 
     struct SessionSnapshot {
@@ -45,14 +55,20 @@ final class AppState {
 
     func saveSnapshot() -> SessionSnapshot {
         let snap = SessionSnapshot(route: route, isSheetPresented: isSheetPresented)
+        #if DEBUG
         print("[AppState] saveSnapshot — route=\(snap.route) sheet=\(snap.isSheetPresented)")
+        #endif
         return snap
     }
 
     func restoreSnapshot(_ snapshot: SessionSnapshot) {
+        #if DEBUG
         print("[AppState] restoreSnapshot — route=\(snapshot.route) sheet=\(snapshot.isSheetPresented)")
+        #endif
         route = snapshot.route
         isSheetPresented = snapshot.isSheetPresented
+        #if DEBUG
         print("[AppState] restoreSnapshot done")
+        #endif
     }
 }

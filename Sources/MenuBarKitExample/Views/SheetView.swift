@@ -9,7 +9,9 @@ struct SheetView: View {
     @Environment(MBKOverlayGate.self) private var overlayGate
 
     var body: some View {
+        #if DEBUG
         let _ = print("[SheetView] body evaluated — showSheetAlert=\(appState.showSheetAlert) gate=\(overlayGate.hasActiveOverlay)")
+        #endif
         @Bindable var appState = appState
         VStack(alignment: .leading, spacing: 12) {
             Text("Sheet").font(.headline).frame(maxWidth: .infinity, alignment: .center)
@@ -18,9 +20,13 @@ struct SheetView: View {
             // Scenario: file picker launched from inside a sheet
             GroupBox("Pick folder from sheet") {
                 Button("Pick folder") {
+                    #if DEBUG
                     print("[SheetView] Pick folder tapped — gate=\(overlayGate.hasActiveOverlay) isSheetPresented=\(appState.isSheetPresented)")
+                    #endif
                     mbkOpenFilePicker(overlayGate: overlayGate) { url in
+                        #if DEBUG
                         print("[SheetView] mbkOpenFilePicker completion — url=\(String(describing: url)) gate=\(overlayGate.hasActiveOverlay) isSheetPresented=\(appState.isSheetPresented)")
+                        #endif
                         appState.sheetPickedURL = url
                     }
                 }
@@ -37,7 +43,9 @@ struct SheetView: View {
 
             GroupBox("Alert from sheet") {
                 Button("Show error alert") {
+                    #if DEBUG
                     print("[SheetView] Show error alert tapped")
+                    #endif
                     appState.showSheetAlert = true
                 }
                 Text("Alert should appear. Sheet + popover stay alive.")
@@ -64,14 +72,24 @@ struct SheetView: View {
             //   Do not replace this with @Environment(\.dismiss) — it would work but
             //   would obscure the intentional coupling between SheetView and AppState.
             Button("Close") {
+                #if DEBUG
                 print("[SheetView] Close tapped — setting isSheetPresented=false")
+                #endif
                 appState.isSheetPresented = false
             }
             .frame(maxWidth: .infinity, alignment: .center)
         }
         .padding(16)
         .fixedSize()
-        .onAppear    { print("[SheetView] onAppear  gate=\(overlayGate.hasActiveOverlay) isSheetPresented=\(appState.isSheetPresented)") }
-        .onDisappear { print("[SheetView] onDisappear gate=\(overlayGate.hasActiveOverlay) isSheetPresented=\(appState.isSheetPresented)") }
+        .onAppear {
+            #if DEBUG
+            print("[SheetView] onAppear  gate=\(overlayGate.hasActiveOverlay) isSheetPresented=\(appState.isSheetPresented)")
+            #endif
+        }
+        .onDisappear {
+            #if DEBUG
+            print("[SheetView] onDisappear gate=\(overlayGate.hasActiveOverlay) isSheetPresented=\(appState.isSheetPresented)")
+            #endif
+        }
     }
 }
