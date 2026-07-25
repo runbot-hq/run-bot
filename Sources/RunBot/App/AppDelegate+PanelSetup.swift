@@ -18,10 +18,17 @@ import SwiftUI
 
 extension AppDelegate {
 
+    // MARK: - Constants
+
+    /// Minimum popover content width.
+    static let minWidth: CGFloat = 280
+    /// Maximum popover content width.
+    static let maxWidth: CGFloat = 900
+
     // MARK: - Popover construction
 
     /// Builds the MBKPopoverController, calls setup(), and wires the three
-    /// lifecycle callbacks.
+    /// lifecycle callbacks. Called once from applicationDidFinishLaunching.
     func setupPanel() {
         log("AppDelegate › setupPanel — begin")
 
@@ -66,33 +73,18 @@ extension AppDelegate {
             guard let self else { return }
             log("AppDelegate › onWillClose wasForced=\(wasForced)")
             if wasForced {
-                // Snapshot before teardown: the view tree is still live.
                 panelSheetState.captureTransientHideState()
                 panelVisibilityState.isTransientHide = true
             } else {
                 appState.savedNavState = nil
                 panelSheetState.clearRunnerSheet()
-                hostingController?.rootView = mainView()
+                popoverController?.setRootView(mainView())
             }
             panelVisibilityState.isOpen = false
         }
 
         ctrl.setup()
         popoverController = ctrl
-
-        // Obtain the hosting controller reference so navigate(to:) can swap rootView.
-        // MBKPopoverController does not expose hostingController directly — we capture
-        // it from the NSPopover's contentViewController after setup().
-        // setup() installs the hosting controller synchronously so this cast is safe.
-        hostingController = ctrl.popover?.contentViewController as? NSHostingController<AnyView>
-
         log("AppDelegate › setupPanel — MBKPopoverController setup complete")
     }
-
-    // MARK: - Constants
-
-    /// Minimum popover content width.
-    static let minWidth: CGFloat = 280
-    /// Maximum popover content width (90 % of screen, capped at 900).
-    static let maxWidth: CGFloat = 900
 }

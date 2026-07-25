@@ -15,8 +15,8 @@ import SwiftUI
 //
 // Run-bot's responsibilities are:
 //   1. Wire onWillShow / onDidShow / onWillClose callbacks.
-//   2. Swap hostingController.rootView on navigation (MBK owns the NSPopover
-//      shell but run-bot still controls what's inside it).
+//   2. Call setRootView(_:) on navigation (MBK owns the NSPopover shell but
+//      run-bot still controls what's inside it).
 //   3. Maintain panelVisibilityState, panelSheetState, and overlayGate as
 //      injectable environment objects.
 //
@@ -45,13 +45,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - AppState
 
     /// Single coordinator for all domain-level state.
-    /// Replaces the scattered property bag — see issue #2040.
     /// ❌ NEVER access domain sub-objects directly on AppDelegate once they
     ///    have been migrated to AppState. Use `appState.x` instead.
     let appState = AppState()
 
     /// Gate that tracks whether a sheet or file-picker overlay is active.
-    ///
     /// Injected into the SwiftUI view tree via `.environment(overlayGate)` in
     /// `wrapEnv(_:)`. Views use `.mbkSheet(overlayGate:)` and
     /// `mbkOpenFilePicker()` to arm this gate for the overlay lifetime.
@@ -62,32 +60,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Replaced NSPopover + PopoverLifecycleCoordinator + KVO as of #2262.
     var popoverController: MBKPopoverController?
 
-    /// The SwiftUI hosting controller embedded inside the MBKPopoverController
-    /// managed popover. Its `rootView` is swapped on navigation; the controller
-    /// itself is never recreated. Obtained from MBKPopoverController after setup.
-    var hostingController: NSHostingController<AnyView>?
-
     /// Sheet state that must survive transient popover hides.
     /// Stays on AppDelegate (wiring concern — not domain state). See issue #2040.
     let panelSheetState = PanelSheetState()
 
-    // Regression guard — see ARCHITECTURE.md §panelVisibilityState.
     /// Shared observable that tracks whether the panel is open.
     /// Injected into every SwiftUI view via `wrapEnv(_:)`.
     /// ❌ NEVER remove. ❌ NEVER remove from wrapEnv().
     let panelVisibilityState = PanelVisibilityState()
-
-    // MARK: - Sheet guard
-
-    /// Returns true when a SwiftUI sheet is currently presented over the popover.
-    /// Read by onWillClose(wasForced:) to decide whether to snapshot sheet state.
-    var hasActiveSheet: Bool {
-        guard let ctrl = popoverController else { return false }
-        // MBKPopoverController exposes the gate — use overlayGate.hasActiveOverlay
-        // as the structural truth for "a sheet is live" from run-bot's perspective.
-        // overlayGate is armed by .mbkSheet for the full sheet lifetime.
-        return overlayGate.hasActiveOverlay
-    }
 
     // MARK: - Environment injection
 
@@ -105,11 +85,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Navigation
 
-    /// Swaps the hosting controller's `rootView` to `view`.
+    /// Swaps the popover's root view to `view`.
     /// MBKPopoverController's GeometryReader picks up the size change automatically.
     /// ❌ NEVER call this from a SwiftUI view — use callbacks only.
     func navigate(to view: AnyView) {
-        hostingController?.rootView = view
+        popoverController?.setRootView(view)
     }
 
     // MARK: - Make key for text input
@@ -119,23 +99,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.activate(ignoringOtherApps: true)
     }
 
-    // MARK: - Toggle
+    // MARK: - Close
 
     /// Closes the popover explicitly (Escape / back navigation / manual close).
     /// Resets rootView to main so next open starts fresh.
+    /// MBKPopoverController drives the actual close via its status-bar button
+    /// toggle — this method resets run-bot state ahead of that.
     func closePanel() {
         log("AppDelegate › closePanel")
-        // performClose triggers popoverShouldClose → popoverDidClose in MBKPopoverController
-        // which fires onWillClose(wasForced: false) and tears down monitors.
-        // We also clear nav + sheet state so next open starts at main.
         appState.savedNavState = nil
         panelSheetState.clearRunnerSheet()
-        hostingController?.rootView = mainView()
-        // MBKPopoverController.popover is internal — close via its delegate path.
-        // togglePopover is @objc and not exposed; drive close via the status item button:
-        // MBKPopoverController will call performClose when toggled while shown.
-        // Run-bot does not need to call performClose directly — the status-bar button
-        // action handles it. For programmatic close (e.g. Escape key), navigate back
-        // to main first (above) then rely on the user's next toggle.
+        popoverController?.setRootView(mainView())
     }
 }
