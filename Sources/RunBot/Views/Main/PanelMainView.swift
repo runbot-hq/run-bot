@@ -10,9 +10,15 @@ import SwiftUI
 // sizingOptions = [] disables AppKit's automatic hosting-controller size negotiation.
 // Every pixel of popover size comes from SwiftUI reporting the correct geo.size.
 //
-// RULE 1: Root VStack uses .frame(minWidth:maxWidth:) + .fixedSize(h:false, v:true)
-//         .fixedSize tells SwiftUI "take your natural height" so GeometryReader reports
-//         the true content height rather than collapsing on the first layout pass.
+// SIZING RULES:
+// RULE 1: Root VStack ends with .fixedSize() — both axes.
+//         This matches the MBK example MainView exactly. It tells SwiftUI
+//         "size me to my natural width AND height" so the GeometryReader in
+//         MBKPopoverController.wrapped() reports the true natural size.
+//         clamp() in MBKPopoverController then enforces minWidth/maxWidth.
+//         DO NOT add .frame(minWidth:maxWidth:) here — it fights the layout engine.
+//         DO NOT use .fixedSize(horizontal: false, vertical: true) — that collapses
+//         the horizontal axis to whatever minimum the hosting controller offers.
 // RULE 2: ALL rows use .padding(.horizontal, 12)
 // RULE 3: Job row HStack Spacer() is LOAD-BEARING.
 // RULE 4: RunnerViewModel.reload() uses withAnimation(nil).
@@ -60,10 +66,6 @@ struct PanelMainView: View {
     }
 
     /// Local runners currently executing a job inside an in-progress workflow group.
-    ///
-    /// Reads GitHub-side state (`actions`, `jobs`, `runners`) and local runner state
-    /// (`localRunners`) from `runnerState` — the single observable source of truth
-    /// injected via the SwiftUI environment from `AppDelegate.wrapEnv`.
     private var activeLocalRunners: [RunnerModel] {
         guard appState.runnerState.actions.contains(where: { $0.groupStatus == .inProgress }) else { return [] }
         let activeNamesFromJobs = Set(
@@ -104,12 +106,15 @@ struct PanelMainView: View {
                 }
             actionsSectionScrollable
         }
-        // .fixedSize(horizontal: false, vertical: true) is LOAD-BEARING (RULE 1, #2264).
-        // It tells SwiftUI "take your natural height" so MBK's GeometryReader in wrapped()
-        // reports the true content height rather than collapsing on the first layout pass.
-        // Do NOT remove or replace with .frame(alignment: .top).
-        .fixedSize(horizontal: false, vertical: true)
-        .frame(minWidth: 280, maxWidth: 900)
+        // .fixedSize() is LOAD-BEARING (RULE 1, #2264).
+        // Plain .fixedSize() = fixedSize(horizontal: true, vertical: true).
+        // Matches the MBK example MainView exactly.
+        // Tells SwiftUI "size me to my natural width AND height" so MBK's
+        // GeometryReader in wrapped() reports the true content size.
+        // clamp() in MBKPopoverController enforces minWidth/maxWidth bounds.
+        // ❌ DO NOT add .frame(minWidth:maxWidth:) here.
+        // ❌ DO NOT use .fixedSize(horizontal: false, vertical: true).
+        .fixedSize()
         .onAppear {
             if panelVisibilityState.isOpen { systemStats.start() }
             startDisplayTickTimer()
@@ -121,8 +126,6 @@ struct PanelMainView: View {
         .onChange(of: panelVisibilityState.isOpen) { _, open in
             if open { systemStats.start() } else { systemStats.stop() }
         }
-        // Reset the visible row count only when the list shrinks (e.g. a runner is removed),
-        // not on every poll update — avoids snapping the user back mid-scroll.
         .onChange(of: appState.runnerState.actions) { old, new in
             if new.count < old.count { visibleCount = 10 }
         }
@@ -153,10 +156,8 @@ struct PanelMainView: View {
             }
         }
         // .fixedSize(horizontal: false, vertical: true) is LOAD-BEARING (#2264).
-        // Forces the VStack to report its natural height to the parent ScrollView
-        // so the ScrollView knows the full content height before applying the
-        // maxHeight cap in actionsSectionScrollable. Without this, the ScrollView
-        // may collapse to the minimum on the first layout pass.
+        // Forces the inner VStack to report its natural height to the ScrollView
+        // so it knows the full content height before applying the maxHeight cap.
         .fixedSize(horizontal: false, vertical: true)
         .padding(.vertical, 4)
     }
@@ -174,15 +175,6 @@ struct PanelMainView: View {
         }
     }
 
-    /// Starts the 1-second structured `displayTick` loop. Cancels any existing task first.
-    ///
-    /// Sleep-first: fires 1 s after start, matching the prior `Timer.scheduledTimer` behaviour.
-    /// No open-state gate — RULE 9: displayTick runs always while the view is alive.
-    /// Named "displayTick" for Instruments visibility (RG6).
-    /// `try` (not `try?`) on Task.sleep propagates CancellationError cleanly so the loop
-    /// exits immediately on cancel without executing a spurious post-cancel tick.
-    /// `@MainActor` is explicit so the compiler statically verifies that `displayTickTask`
-    /// (a `@State`-backed property) is always mutated on the main actor.
     @MainActor private func startDisplayTickTimer() {
         stopDisplayTickTimer()
         displayTickTask = Task(name: "displayTick") { @MainActor in
@@ -193,35 +185,23 @@ struct PanelMainView: View {
         }
     }
 
-    /// Cancels and nils the `displayTick` task.
-    /// `@MainActor` matches `startDisplayTickTimer()` — both mutate `displayTickTask`.
     @MainActor private func stopDisplayTickTimer() {
         displayTickTask?.cancel()
         displayTickTask = nil
     }
 
-    /// Inline error banner shown when `appState.runnerState.fetchError` is non-nil.
-    ///
-    /// Displays a truncated error description. Dismisses automatically on the next
-    /// successful fetch cycle when `applyFetchResult` clears `fetchError`.
-    /// Stale `runners`/`jobs`/`actions` remain visible below the banner so the user
-    /// still sees the last-known state while connectivity is degraded.
     private func fetchErrorBanner(_ error: any Error) -> some View {
         HStack(spacing: 6) {
             Image(systemName: "exclamationmark.triangle.fill").foregroundColor(.red).font(.caption)
-            Text("Fetch error — \(error.localizedDescription)")
+            Text("Fetch error \u2014 \(error.localizedDescription)")
                 .font(.caption).foregroundColor(.secondary)
                 .lineLimit(2)
         }
         .padding(.horizontal, 12).padding(.vertical, 4)
     }
 
-    /// Rate-limit warning banner showing a countdown to API reset.
-    /// The label refreshes every second because `displayTick` is threaded through
-    /// `body → actionsSectionContent → ActionRowView(tick:)`. The `withExtendedLifetime`
-    /// call here makes the read intent explicit but does not itself register a new dependency.
     private var rateLimitBanner: some View {
-        withExtendedLifetime(displayTick) {} // makes read intent explicit; actual refresh is driven by the tick: param chain in body
+        withExtendedLifetime(displayTick) {}
         let countdownLabel: String
         if let resetDate = appState.runnerState.rateLimitResetDate {
             let remaining = max(0, resetDate.timeIntervalSinceNow)
