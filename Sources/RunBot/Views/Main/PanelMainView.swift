@@ -5,13 +5,14 @@ import RunBotCore
 import SwiftUI
 // REGRESSION GUARD -- DO NOT REMOVE - see regression history (ref #52 #54 #57 #375 #376 #377)
 //
-// ARCHITECTURE: NSPopover + sizingOptions=.preferredContentSize
-// Dynamic height AND width driven by KVO on preferredContentSize.
-// AppDelegate updates popover.contentSize (both dimensions) when either changes.
-// Updating contentSize resizes the popover in place -- the arrow stays anchored
-// to the original positioningRect. Only popover.show() jumps; contentSize does not.
+// ARCHITECTURE: MBKPopoverController sizing contract (as of #2264)
+// Dynamic height AND width driven by MBKPopoverController's GeometryReader in wrapped().
+// sizingOptions = [] disables AppKit's automatic hosting-controller size negotiation.
+// Every pixel of popover size comes from SwiftUI reporting the correct geo.size.
 //
-// RULE 1: Root VStack uses .frame(minWidth:maxWidth:alignment:)
+// RULE 1: Root VStack uses .frame(minWidth:maxWidth:) + .fixedSize(h:false, v:true)
+//         .fixedSize tells SwiftUI "take your natural height" so GeometryReader reports
+//         the true content height rather than collapsing on the first layout pass.
 // RULE 2: ALL rows use .padding(.horizontal, 12)
 // RULE 3: Job row HStack Spacer() is LOAD-BEARING.
 // RULE 4: RunnerViewModel.reload() uses withAnimation(nil).
@@ -103,7 +104,12 @@ struct PanelMainView: View {
                 }
             actionsSectionScrollable
         }
-        .frame(minWidth: 280, maxWidth: 900, alignment: .top)
+        // .fixedSize(horizontal: false, vertical: true) is LOAD-BEARING (RULE 1, #2264).
+        // It tells SwiftUI "take your natural height" so MBK's GeometryReader in wrapped()
+        // reports the true content height rather than collapsing on the first layout pass.
+        // Do NOT remove or replace with .frame(alignment: .top).
+        .fixedSize(horizontal: false, vertical: true)
+        .frame(minWidth: 280, maxWidth: 900)
         .onAppear {
             if panelVisibilityState.isOpen { systemStats.start() }
             startDisplayTickTimer()
@@ -146,6 +152,12 @@ struct PanelMainView: View {
                 loadMoreButton
             }
         }
+        // .fixedSize(horizontal: false, vertical: true) is LOAD-BEARING (#2264).
+        // Forces the VStack to report its natural height to the parent ScrollView
+        // so the ScrollView knows the full content height before applying the
+        // maxHeight cap in actionsSectionScrollable. Without this, the ScrollView
+        // may collapse to the minimum on the first layout pass.
+        .fixedSize(horizontal: false, vertical: true)
         .padding(.vertical, 4)
     }
 
