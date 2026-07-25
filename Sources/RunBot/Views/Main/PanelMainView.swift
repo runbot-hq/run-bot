@@ -1,5 +1,6 @@
 // PanelMainView.swift
 // RunBot
+import AppKit
 import GitHubClient
 import RunBotCore
 import SwiftUI
@@ -94,6 +95,24 @@ struct PanelMainView: View {
         self.onSelectSettings = onSelectSettings
     }
 
+    /// Returns true when the status item button window is off-screen (menubar hidden).
+    /// Mirrors MBK's isMenuBarHidden logic for logging purposes only.
+    private var isMenuBarHidden: Bool {
+        guard let app = NSRunningApplication.current as? NSRunningApplication else { return false }
+        _ = app
+        // Walk NSApp windows to find the status item button window.
+        // The button window is identified by having no title and being of class NSStatusBarWindow.
+        for win in NSApp.windows {
+            let isStatusBar = String(describing: type(of: win)).contains("StatusBar")
+            if isStatusBar {
+                let screenH = win.screen.map { $0.frame.height } ?? -1
+                let winMaxY = win.frame.maxY
+                return screenH < 0 || winMaxY > screenH
+            }
+        }
+        return false
+    }
+
     /// Maximum height for the scroll section.
     /// = 0.80 * visibleFrame.height − headerHeight (measured, not fixed).
     /// This ensures the full panel (header + divider + scroll) stays within the 0.80 cap.
@@ -102,7 +121,7 @@ struct PanelMainView: View {
     private var screenScrollMaxHeight: CGFloat {
         let visibleHeight = NSScreen.main?.visibleFrame.height ?? 800
         let cap = visibleHeight * 0.80 - headerHeight
-        log("【PanelMainView】screenScrollMaxHeight visibleHeight=\(visibleHeight) headerHeight=\(headerHeight) cap=\(cap) multiplier=0.80", category: .general)
+        log("【PanelMainView.screenScrollMaxHeight】visibleHeight=\(visibleHeight) headerHeight=\(headerHeight) cap=\(cap) multiplier=0.80 menuBarHidden=\(isMenuBarHidden)", category: .mbk)
         return cap
     }
 
@@ -132,17 +151,17 @@ struct PanelMainView: View {
             // RULE 10: LOAD-BEARING — do not remove.
             .fixedSize()
             // Capture header's natural height for RULE 12 scroll cap adjustment.
-            // DEBUG: also logs header height changes. Remove debug logs before merge.
             .background(
                 GeometryReader { geo in
                     Color.clear
                         .onAppear {
+                            let prev = headerHeight
                             headerHeight = geo.size.height
-                            log("【header.geo】onAppear h=\(geo.size.height)", category: .general)
+                            log("【header.geo】onAppear h=\(geo.size.height) menuBarHidden=\(isMenuBarHidden) (was \(prev))", category: .mbk)
                         }
                         .onChange(of: geo.size.height) { old, new in
                             headerHeight = new
-                            log("【header.geo】onChange \(old) → \(new)  ← HEADER HEIGHT CHANGED", category: .general)
+                            log("【header.geo】onChange \(old) → \(new) menuBarHidden=\(isMenuBarHidden) ← HEADER HEIGHT CHANGED", category: .mbk)
                         }
                 }
             )
@@ -165,30 +184,34 @@ struct PanelMainView: View {
         }
         // RULE 1: LOAD-BEARING — do not remove or change to fixedSize(horizontal:vertical:).
         .fixedSize()
-        // DEBUG: log root VStack total height changes. Remove before merge.
+        // Log root VStack total height changes.
         .background(
             GeometryReader { geo in
                 Color.clear
                     .onAppear {
-                        log("【rootVStack.geo】onAppear h=\(geo.size.height)", category: .general)
+                        log("【rootVStack.geo】onAppear size=\(geo.size) menuBarHidden=\(isMenuBarHidden)", category: .mbk)
                     }
-                    .onChange(of: geo.size.height) { old, new in
-                        log("【rootVStack.geo】onChange \(old) → \(new)", category: .general)
+                    .onChange(of: geo.size) { old, new in
+                        log("【rootVStack.geo】onChange \(old) → \(new) menuBarHidden=\(isMenuBarHidden)", category: .mbk)
                     }
             }
         )
         .onAppear {
+            log("【PanelMainView】onAppear panelOpen=\(panelVisibilityState.isOpen) menuBarHidden=\(isMenuBarHidden)", category: .mbk)
             if panelVisibilityState.isOpen { systemStats.start() }
             startDisplayTickTimer()
         }
         .onDisappear {
+            log("【PanelMainView】onDisappear menuBarHidden=\(isMenuBarHidden)", category: .mbk)
             systemStats.stop()
             stopDisplayTickTimer()
         }
-        .onChange(of: panelVisibilityState.isOpen) { _, open in
+        .onChange(of: panelVisibilityState.isOpen) { old, open in
+            log("【PanelMainView】panelVisibilityState.isOpen \(old) → \(open) menuBarHidden=\(isMenuBarHidden)", category: .mbk)
             if open { systemStats.start() } else { systemStats.stop() }
         }
         .onChange(of: appState.runnerState.actions) { old, new in
+            log("【PanelMainView】actions count \(old.count) → \(new.count) menuBarHidden=\(isMenuBarHidden)", category: .mbk)
             if new.count < old.count { visibleCount = 10 }
         }
     }
@@ -205,28 +228,29 @@ struct PanelMainView: View {
                             .onAppear {
                                 let cap = screenScrollMaxHeight
                                 let capped = min(geo.size.height, cap)
-                                log("【scrollContent.geo】onAppear raw=\(geo.size.height) cap=\(cap) capped=\(capped)", category: .general)
+                                log("【scrollContent.geo】onAppear raw=\(geo.size.height) cap=\(cap) capped=\(capped) scrollViewHeight=\(scrollViewHeight) menuBarHidden=\(isMenuBarHidden)", category: .mbk)
                                 scrollViewHeight = capped
+                                log("【scrollContent.geo】scrollViewHeight SET → \(scrollViewHeight)", category: .mbk)
                             }
                             .onChange(of: geo.size.height) { old, new in
                                 let cap = screenScrollMaxHeight
                                 let capped = min(new, cap)
-                                log("【scrollContent.geo】onChange raw \(old) → \(new)  cap=\(cap)  scrollViewHeight \(scrollViewHeight) → \(capped)", category: .general)
+                                log("【scrollContent.geo】onChange raw \(old) → \(new) cap=\(cap) capped=\(capped) scrollViewHeight was=\(scrollViewHeight) menuBarHidden=\(isMenuBarHidden)", category: .mbk)
                                 scrollViewHeight = capped
+                                log("【scrollContent.geo】scrollViewHeight SET → \(scrollViewHeight)", category: .mbk)
                             }
                     }
                 )
         }
         .frame(height: scrollViewHeight > 0 ? scrollViewHeight : nil)
-        // DEBUG: log ScrollView frame height changes. Remove before merge.
         .background(
             GeometryReader { geo in
                 Color.clear
                     .onAppear {
-                        log("【scrollView.geo】onAppear h=\(geo.size.height)", category: .general)
+                        log("【scrollView.geo】onAppear h=\(geo.size.height) menuBarHidden=\(isMenuBarHidden)", category: .mbk)
                     }
                     .onChange(of: geo.size.height) { old, new in
-                        log("【scrollView.geo】onChange \(old) → \(new)", category: .general)
+                        log("【scrollView.geo】onChange \(old) → \(new) menuBarHidden=\(isMenuBarHidden)", category: .mbk)
                     }
             }
         )

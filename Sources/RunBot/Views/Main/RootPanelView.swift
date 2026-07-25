@@ -45,8 +45,7 @@ struct RootPanelView: View {
     let onStepBack: () -> Void
 
     var body: some View {
-        // DEBUG — jump diagnosis. Remove after fix.
-        log("【RootPanelView.body】rendered navState=\(navState)", category: .general)
+        log("【RootPanelView.body】rendered navState=\(navState)", category: .mbk)
         return Group {
             switch appState.savedNavState {
             case .none, .main:
@@ -58,6 +57,9 @@ struct RootPanelView: View {
             }
         }
         .id(navState)
+        .onChange(of: navState) { old, new in
+            log("【RootPanelView】navState \(old) → \(new)", category: .mbk)
+        }
     }
 
     // MARK: - Route branches
@@ -66,6 +68,7 @@ struct RootPanelView: View {
         PanelContainerView(
             content: PanelMainView(
                 onStepTap: { job, step in
+                    log("【RootPanelView】onStepTap — navigating to stepLog job=\(job.id) step=\(step.number)", category: .mbk)
                     appState.savedNavState = .stepLog(job: job, step: step)
                 },
                 onSelectSettings: onSelectSettings
