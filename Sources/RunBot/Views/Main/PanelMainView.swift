@@ -95,6 +95,10 @@ struct PanelMainView: View {
     }
 
     /// Maximum height for the scroll section.
+    /// = 0.80 * visibleFrame.height − headerHeight (measured, not fixed).
+    /// This ensures the full panel (header + divider + scroll) stays within the 0.80 cap.
+    /// ❌ MUST match AppDelegate.maxHeight multiplier. See RULE 11 / CAP ALIGNMENT.
+    /// ❌ NEVER use fixed pixel values here. headerHeight is content-derived (RULE 12).
     private var screenScrollMaxHeight: CGFloat {
         let visibleHeight = NSScreen.main?.visibleFrame.height ?? 800
         let cap = visibleHeight * 0.80 - headerHeight
@@ -120,93 +124,72 @@ struct PanelMainView: View {
     }
 
     var body: some View {
-        log("【PanelMainView.body】rendered scrollViewHeight=\(scrollViewHeight) headerHeight=\(headerHeight) visibleCount=\(visibleCount) actionsCount=\(appState.runnerState.actions.count) displayTick=\(displayTick)", category: .general)
-        return VStack(alignment: .leading, spacing: 0) {
+        VStack(alignment: .leading, spacing: 0) {
             PanelHeaderView(
                 statsVM: systemStats,
                 onSelectSettings: onSelectSettings
             )
             // RULE 10: LOAD-BEARING — do not remove.
             .fixedSize()
+            // Capture header's natural height for RULE 12 scroll cap adjustment.
+            // DEBUG: also logs header height changes. Remove debug logs before merge.
             .background(
                 GeometryReader { geo in
                     Color.clear
                         .onAppear {
-                            log("【header.geo】onAppear size=(\(geo.size.width),\(geo.size.height))", category: .general)
                             headerHeight = geo.size.height
+                            log("【header.geo】onAppear h=\(geo.size.height)", category: .general)
                         }
-                        .onChange(of: geo.size) { old, new in
-                            log("【header.geo】onChange (\(old.width),\(old.height)) → (\(new.width),\(new.height))  ← HEADER SIZE CHANGED", category: .general)
-                            headerHeight = new.height
+                        .onChange(of: geo.size.height) { old, new in
+                            headerHeight = new
+                            log("【header.geo】onChange \(old) → \(new)  ← HEADER HEIGHT CHANGED", category: .general)
                         }
                 }
             )
             .onAppear { systemStats.start() }
             Divider()
             if let error = appState.runnerState.fetchError {
-                let _ = log("【PanelMainView.body】fetchErrorBanner shown: \(error)", category: .general)
                 fetchErrorBanner(error)
                 Divider()
             }
-            if appState.runnerState.isRateLimited {
-                let _ = log("【PanelMainView.body】rateLimitBanner shown", category: .general)
-                rateLimitBanner
-                Divider()
-            }
+            if appState.runnerState.isRateLimited { rateLimitBanner; Divider() }
             if !activeLocalRunners.isEmpty {
-                let _ = log("【PanelMainView.body】localRunners shown count=\(activeLocalRunners.count)", category: .general)
                 SectionHeaderLabel(title: "Local Runners")
                 PanelLocalRunnerRow(runners: activeLocalRunners)
             }
             Color.clear.frame(width: 0, height: 0)
                 .onAppear {
-                    log("【PanelMainView】localRunnerStore refresh triggered", category: .general)
                     Task { await localRunnerStore.refresh() }
                 }
             actionsSectionScrollable
         }
         // RULE 1: LOAD-BEARING — do not remove or change to fixedSize(horizontal:vertical:).
         .fixedSize()
+        // DEBUG: log root VStack total height changes. Remove before merge.
         .background(
             GeometryReader { geo in
                 Color.clear
                     .onAppear {
-                        log("【rootVStack.geo】onAppear size=(\(geo.size.width),\(geo.size.height))", category: .general)
+                        log("【rootVStack.geo】onAppear h=\(geo.size.height)", category: .general)
                     }
-                    .onChange(of: geo.size) { old, new in
-                        log("【rootVStack.geo】onChange (\(old.width),\(old.height)) → (\(new.width),\(new.height))  ← ROOT SIZE CHANGED", category: .general)
+                    .onChange(of: geo.size.height) { old, new in
+                        log("【rootVStack.geo】onChange \(old) → \(new)", category: .general)
                     }
             }
         )
         .onAppear {
-            log("【PanelMainView】onAppear isOpen=\(panelVisibilityState.isOpen)", category: .general)
             if panelVisibilityState.isOpen { systemStats.start() }
             startDisplayTickTimer()
         }
         .onDisappear {
-            log("【PanelMainView】onDisappear", category: .general)
             systemStats.stop()
             stopDisplayTickTimer()
         }
-        .onChange(of: panelVisibilityState.isOpen) { old, open in
-            log("【PanelMainView】panelVisibilityState.isOpen \(old) → \(open)", category: .general)
+        .onChange(of: panelVisibilityState.isOpen) { _, open in
             if open { systemStats.start() } else { systemStats.stop() }
         }
         .onChange(of: appState.runnerState.actions) { old, new in
-            log("【PanelMainView】actions changed count \(old.count) → \(new.count)", category: .general)
             if new.count < old.count { visibleCount = 10 }
-        }
-        .onChange(of: scrollViewHeight) { old, new in
-            log("【PanelMainView】scrollViewHeight \(old) → \(new)  ← SCROLL HEIGHT STATE CHANGED", category: .general)
-        }
-        .onChange(of: headerHeight) { old, new in
-            log("【PanelMainView】headerHeight \(old) → \(new)", category: .general)
-        }
-        .onChange(of: visibleCount) { old, new in
-            log("【PanelMainView】visibleCount \(old) → \(new)", category: .general)
-        }
-        .onChange(of: displayTick) { _, new in
-            log("【PanelMainView】displayTick → \(new) scrollViewHeight=\(scrollViewHeight)", category: .general)
         }
     }
 
@@ -222,27 +205,28 @@ struct PanelMainView: View {
                             .onAppear {
                                 let cap = screenScrollMaxHeight
                                 let capped = min(geo.size.height, cap)
-                                log("【scrollContent.geo】onAppear size=(\(geo.size.width),\(geo.size.height)) cap=\(cap) cappedH=\(capped) scrollViewHeight=\(scrollViewHeight)", category: .general)
+                                log("【scrollContent.geo】onAppear raw=\(geo.size.height) cap=\(cap) capped=\(capped)", category: .general)
                                 scrollViewHeight = capped
                             }
-                            .onChange(of: geo.size) { old, new in
+                            .onChange(of: geo.size.height) { old, new in
                                 let cap = screenScrollMaxHeight
-                                let capped = min(new.height, cap)
-                                log("【scrollContent.geo】onChange (\(old.width),\(old.height)) → (\(new.width),\(new.height)) cap=\(cap) cappedH=\(capped) scrollViewHeight \(scrollViewHeight) → \(capped)  ← SCROLL CONTENT SIZE CHANGED", category: .general)
+                                let capped = min(new, cap)
+                                log("【scrollContent.geo】onChange raw \(old) → \(new)  cap=\(cap)  scrollViewHeight \(scrollViewHeight) → \(capped)", category: .general)
                                 scrollViewHeight = capped
                             }
                     }
                 )
         }
         .frame(height: scrollViewHeight > 0 ? scrollViewHeight : nil)
+        // DEBUG: log ScrollView frame height changes. Remove before merge.
         .background(
             GeometryReader { geo in
                 Color.clear
                     .onAppear {
-                        log("【scrollView.geo】onAppear size=(\(geo.size.width),\(geo.size.height))", category: .general)
+                        log("【scrollView.geo】onAppear h=\(geo.size.height)", category: .general)
                     }
-                    .onChange(of: geo.size) { old, new in
-                        log("【scrollView.geo】onChange (\(old.width),\(old.height)) → (\(new.width),\(new.height))", category: .general)
+                    .onChange(of: geo.size.height) { old, new in
+                        log("【scrollView.geo】onChange \(old) → \(new)", category: .general)
                     }
             }
         )
@@ -254,13 +238,11 @@ struct PanelMainView: View {
         VStack(alignment: .leading, spacing: 0) {
             SectionHeaderLabel(title: "Workflows")
             if appState.runnerState.actions.isEmpty {
-                let _ = log("【PanelMainView】actionsSectionContent: empty", category: .general)
                 Text("No recent workflows")
                     .font(.caption).foregroundColor(.secondary)
                     .padding(.horizontal, 12).padding(.vertical, 8)
             } else {
                 let visible = Array(appState.runnerState.actions.prefix(visibleCount))
-                let _ = log("【PanelMainView】actionsSectionContent: rendering \(visible.count) rows (total=\(appState.runnerState.actions.count) visibleCount=\(visibleCount))", category: .general)
                 ForEach(visible) { group in
                     ActionRowView(group: group, tick: displayTick, onStepTap: onStepTap)
                 }
@@ -286,7 +268,6 @@ struct PanelMainView: View {
 
     @MainActor private func startDisplayTickTimer() {
         stopDisplayTickTimer()
-        log("【PanelMainView】displayTick timer started", category: .general)
         displayTickTask = Task(name: "displayTick") { @MainActor in
             while !Task.isCancelled {
                 try await Task.sleep(for: .seconds(1))
@@ -296,9 +277,6 @@ struct PanelMainView: View {
     }
 
     @MainActor private func stopDisplayTickTimer() {
-        if displayTickTask != nil {
-            log("【PanelMainView】displayTick timer stopped", category: .general)
-        }
         displayTickTask?.cancel()
         displayTickTask = nil
     }

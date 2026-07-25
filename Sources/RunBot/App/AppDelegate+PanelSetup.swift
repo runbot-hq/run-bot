@@ -52,15 +52,6 @@ extension AppDelegate {
     func setupPanel() {
         log("AppDelegate › setupPanel — begin")
 
-        // Route all MBK mbkLog() calls through RunBot's os_log so they appear
-        // in `log stream --predicate 'subsystem == "com.eoncode.run-bot"'`.
-        // Must be set before ctrl.setup() — setup() fires the first mbkLog calls.
-        // The handler captures RunBot's `log` function which routes to os_log.
-        mbkLogHandler = { _, message in
-            log("[MBK] \(message)")
-        }
-        log("AppDelegate › setupPanel — mbkLogHandler wired to os_log")
-
         // maxHeight MUST match PanelMainView.screenScrollMaxHeight multiplier (0.80).
         // See CAP ALIGNMENT note above. Do NOT change this to a different multiplier
         // without also changing screenScrollMaxHeight in PanelMainView.
