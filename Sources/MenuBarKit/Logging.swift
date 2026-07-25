@@ -3,8 +3,8 @@
 
 import Foundation
 
-/// The active log handler. Defaults to `print`. Replace to route MBK logs
-/// to your own logger (os_log, structured logger, etc.).
+/// The active log handler. Defaults to `print` in debug builds, no-op in release.
+/// Replace to route MBK logs to your own logger (os_log, structured logger, etc.).
 /// Set this before calling `MBKPopoverController.setup()`.
 /// Isolated to `@MainActor` because all MBK log call sites are on the main actor.
 ///
@@ -24,15 +24,17 @@ import Foundation
 /// ```
 @MainActor
 public var mbkLogHandler: (_ subsystem: String, _ message: String) -> Void = { subsystem, message in
+#if DEBUG
     print("[MBK:\(subsystem)] \(message)")
+#endif
 }
 
 /// Logging entry point for MBK and its consumers. Routes through `mbkLogHandler`.
-/// Compiled out entirely in release builds.
+/// The default handler is a no-op in release builds unless overridden by the host app
+/// (e.g. to route to os_log). Call sites are always compiled in — override
+/// `mbkLogHandler` before `setup()` to capture logs in release.
 @MainActor
 @inlinable
 public func mbkLog(_ subsystem: String, _ message: String) {
-#if DEBUG
     mbkLogHandler(subsystem, message)
-#endif
 }
