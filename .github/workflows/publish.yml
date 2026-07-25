@@ -88,6 +88,12 @@ on:
 # (e.g. v0.7.3-beta.1) can race past the non-atomic duplicate-tag guard.
 # The safe failure mode is: one run's `git push origin $TAG` will be rejected
 # by the remote with "already exists" — loud, non-destructive, re-runnable.
+# NOTE: by the time Tag and push fails, the losing run's plist commit has
+# already landed on its source branch (Commit patched Info.plist succeeded).
+# Recovery therefore requires TWO steps, not one:
+#   1. Revert the plist commit: git revert <plist-commit-sha> --no-edit && git push origin <branch>
+#   2. Re-trigger the workflow from that branch.
+# The plist-commit SHA is logged by the "Commit patched Info.plist" step output.
 # No silent corruption is possible. The duplicate-tag guard catches the case
 # where both runs compute the same tag and one has already pushed it before
 # the other reaches that step. This risk is accepted in preference to a global
@@ -256,6 +262,10 @@ jobs:
         run: |
           set -euo pipefail
 
+          # inputs.channel is a choice type constrained to "beta" | "release" by the Actions
+          # engine at dispatch time — it cannot be a free-form string without a schema change.
+          # Inline interpolation here is intentional and safe; compare with BRANCH in
+          # "Commit patched Info.plist" which uses env: because it IS a free-form string input.
           CHANNEL="${{ inputs.channel }}"
 
           # Latest stable tag (ignore beta/rc tags)
@@ -670,6 +680,9 @@ jobs:
             exit 1
           fi
           git add Resources/Info.plist
+          # INJECTION NOTE: steps.tag.outputs.tag is workflow-internal — computed by
+          # Compute next tag and constrained to a semver pattern. Not user-supplied.
+          # Inline interpolation here is intentional and safe (same pattern as Tag and push).
           git commit -m "chore: bump version to ${{ steps.tag.outputs.tag }} [skip ci]"
           git fetch origin "$BRANCH"
           git rebase "origin/$BRANCH"
