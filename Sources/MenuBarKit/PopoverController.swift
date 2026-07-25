@@ -28,6 +28,10 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
     nonisolated(unsafe) private var eventMonitor: Any?
     // Safe: registered and removed exclusively on the main thread via NSWorkspace.notificationCenter.
     nonisolated(unsafe) private var workspaceObserver: NSObjectProtocol?
+    // anchorPoint stores the X midpoint of the status button captured in popoverWillShow.
+    // Y is intentionally NOT used from this snapshot in applyContentSize — see applyContentSize
+    // comment below for why the live window.frame.maxY is used instead.
+    // nil means the popover has not been shown yet this session (guards the isShown path).
     private var anchorPoint: NSPoint?
     private var onWillCloseFired = false
 
@@ -283,38 +287,53 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
            || abs(popover.contentSize.height - clamped.height) > 1 else { return }
         guard popover.isShown,
               let window = hostingController.view.window,
-              let anchor = anchorPoint else {
+              let storedAnchor = anchorPoint else {
             popover.contentSize = clamped
             mbkLog("PopoverController", "applyContentSize -- not shown, recorded (\(clamped.width),\(clamped.height))")
             return
         }
         mbkLog("PopoverController",
                "applyContentSize -- (\(popover.contentSize.width),\(popover.contentSize.height))->(\(clamped.width),\(clamped.height))")
-        // WHY NSAnimationContext with duration:0 and allowsImplicitAnimation:false (#2265-1):
-        // popover.animates = false suppresses NSPopover's own show/hide animation, but does NOT
-        // suppress the implicit CoreAnimation layer reposition that AppKit applies when
-        // setFrameOrigin() changes the window's backing layer position mid-runloop.
-        // That implicit animation causes the entire panel content — including the header bar —
-        // to visibly slide for ~100ms whenever content height changes (e.g. a row expands).
-        // Wrapping both contentSize and setFrameOrigin in a single zero-duration
-        // NSAnimationContext block makes the resize atomic and instantaneous.
+        // WHY we use window.frame.maxY instead of storedAnchor.y (#2265-3):
         //
-        // WHY BOTH contentSize AND setFrameOrigin ARE INSIDE THE BLOCK:
-        // contentSize triggers NSPopover's internal frame update which also moves the backing
-        // window. If contentSize is set outside the block, AppKit may apply the implicit
-        // animation to the contentSize-driven move before setFrameOrigin corrects it,
-        // producing a two-step visual artifact. Grouping them ensures a single atomic
-        // layout commit with no animation.
+        // storedAnchor.y is captured once in popoverWillShow as window.frame.maxY
+        // at open time. It is correct at that moment, but becomes stale whenever
+        // the window height changes between open and this call — e.g.:
+        //   • A workflow row expands (height increases, origin moves down by delta,
+        //     maxY stays fixed at the status-button underside).
+        //   • Settings → back: window height shrinks; origin moves up; maxY fixed.
+        //   • Auto-hide menubar: status item briefly moves; storedAnchor.y is from
+        //     the pre-hide position.
         //
-        // ❌ NEVER remove this NSAnimationContext block — the header-jump regression returns.
-        // ❌ NEVER use allowsImplicitAnimation: true — that re-enables the layer animation.
+        // In all cases the live window.frame.maxY is the authoritative anchor Y:
+        // NSPopover always keeps the .minY preferred edge attached to the status
+        // button, so the window top is always at the underside of the button,
+        // regardless of prior height changes. Using it prevents the stale-anchor
+        // drift that manifests as the arrow jumping sideways on back-navigation.
+        //
+        // storedAnchor.x is still used for horizontal centering — it reflects the
+        // status button's X midpoint which does not change while the popover is open.
+        //
+        // WHY NSAnimationContext with duration:0 / allowsImplicitAnimation:false (#2265-1):
+        // See the Bug 1 comment in the previous commit. Both contentSize and
+        // setFrameOrigin must be inside the same zero-duration block to prevent
+        // AppKit's implicit CoreAnimation layer reposition from producing a visible
+        // slide. This block is kept here for the same reason.
+        //
+        // ❌ NEVER revert to storedAnchor.y for the Y component — arrow-jump regression.
+        // ❌ NEVER remove the NSAnimationContext block — header-jump regression.
+        // ❌ NEVER use allowsImplicitAnimation: true.
+        let liveAnchorY = window.frame.maxY
         NSAnimationContext.runAnimationGroup { ctx in
             ctx.duration = 0
             ctx.allowsImplicitAnimation = false
             popover.contentSize = clamped
-            let newOrigin = NSPoint(x: anchor.x - window.frame.width / 2, y: anchor.y - window.frame.height)
+            let newOrigin = NSPoint(
+                x: storedAnchor.x - window.frame.width / 2,
+                y: liveAnchorY - window.frame.height
+            )
             window.setFrameOrigin(newOrigin)
-            mbkLog("PopoverController", "applyContentSize -- origin set to \(newOrigin)")
+            mbkLog("PopoverController", "applyContentSize -- liveAnchorY=\(liveAnchorY) origin=\(newOrigin)")
         }
     }
 
@@ -397,6 +416,9 @@ extension MBKPopoverController: NSPopoverDelegate {
             mbkLog("PopoverController", "popoverWillShow -- no hostingWindow (unexpected; anchor skipped for this session)")
             return
         }
+        // anchorPoint captures the status button X midpoint at open time.
+        // Y is stored here for completeness but applyContentSize uses the live
+        // window.frame.maxY instead — see the applyContentSize comment for why.
         anchorPoint = NSPoint(x: window.frame.midX, y: window.frame.maxY)
         mbkLog("PopoverController", "popoverWillShow -- anchor=\(anchorPoint!) hostingWindow=#\(window.windowNumber)")
     }
