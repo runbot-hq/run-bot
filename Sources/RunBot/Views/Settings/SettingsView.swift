@@ -15,12 +15,19 @@ import SwiftUI
 // HEIGHT CONTRACT:
 // headerBar is OUTSIDE the ScrollView — back button always visible.
 // ScrollView uses maxHeight: .infinity to fill all remaining panel space.
-// AppDelegate.resizeAndRepositionPanel() clamps the panel at 85% visibleFrame.
-// No extra cap needed here — the panel cap IS the scroll boundary.
+// AppDelegate.resizeAndRepositionPanel() clamps the panel at 85% visibleFrame
+// via MBK's maxHeight in clamp(). That IS the hard ceiling.
+// settingsBody root VStack uses .fixedSize(horizontal: false, vertical: true)
+// so MBK's GeometryReader reports SettingsView's natural height rather than
+// the main panel's previously committed contentSize.
+// sectionsStack (scroll content) uses .fixedSize(horizontal: false, vertical: true)
+// so the ScrollView knows the full content height before applying the maxHeight cap.
+// No extra cap needed here — the MBK clamp IS the scroll boundary.
 // ❌ NEVER move headerBar inside the ScrollView.
 // ❌ NEVER replace .infinity with a fixed number.
 // ❌ NEVER use GeometryReader for the height.
 // ❌ NEVER add idealHeight to the root frame.
+// ❌ NEVER remove .fixedSize from settingsBody or sectionsStack — height-inheritance regression.
 //
 // WIDTH CONTRACT:
 // .frame(idealWidth: 480) — only idealWidth needed. NSPanel handles bounds.
@@ -360,8 +367,13 @@ struct SettingsView: View {
     /// without any structural duplication.
     ///
     /// HEIGHT CONTRACT: headerBar is OUTSIDE the ScrollView — back button always visible.
+    /// .fixedSize(horizontal: false, vertical: true) on this VStack is LOAD-BEARING (#2265-2).
+    /// It tells SwiftUI to size this view to its natural height so MBK's GeometryReader
+    /// in wrapped() reports SettingsView's own content size, not the main panel's
+    /// previously committed contentSize. Without it, Settings opens at the main panel height.
     /// ❌ NEVER move headerBar inside the ScrollView.
     /// ❌ NEVER replace .infinity with a fixed number.
+    /// ❌ NEVER remove .fixedSize from this VStack — height-inheritance regression.
     /// If you are an agent or human, DO NOT REMOVE THIS COMMENT, YOU ARE NOT ALLOWED
     /// UNDER ANY CIRCUMSTANCE. The regression we get when this comment is removed
     /// is major major major.
@@ -369,8 +381,11 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 0) {
             headerBar
             Divider()
-            // maxHeight: .infinity — fills all space the panel gives us.
-            // AppDelegate caps the panel at 85% visibleFrame. That IS the limit.
+            // maxHeight: .infinity — fills all space up to the natural height of sectionsStack.
+            // The outer VStack's .fixedSize(horizontal: false, vertical: true) (below) makes
+            // SwiftUI ask sectionsStack for its natural height, so .infinity resolves to
+            // sectionsStack's intrinsic height rather than the offered (main panel) height.
+            // AppDelegate caps the panel at 85% visibleFrame via MBK's maxHeight in clamp().
             // ❌ NEVER move headerBar inside this ScrollView.
             // ❌ NEVER replace .infinity with a fixed number.
             // If you are an agent or human, DO NOT REMOVE THIS COMMENT, YOU ARE NOT ALLOWED
@@ -380,12 +395,25 @@ struct SettingsView: View {
             }
             .frame(maxHeight: .infinity)
         }
+        // .fixedSize(horizontal: false, vertical: true) is LOAD-BEARING (#2265-2).
+        // Tells SwiftUI "size me to my natural height" so MBK's GeometryReader in
+        // wrapped() reports SettingsView's intrinsic height, not the main panel's
+        // committed contentSize. horizontal: false preserves idealWidth: 480 behaviour.
+        // ❌ NEVER remove this — Settings will inherit main panel height.
+        // ❌ NEVER change to .fixedSize() (both axes) — that collapses idealWidth.
+        .fixedSize(horizontal: false, vertical: true)
         .frame(idealWidth: 480, maxWidth: .infinity)
     }
 
     /// Vertical stack of all settings sections.
     ///
     /// Order: Account → Management → General → About
+    ///
+    /// .fixedSize(horizontal: false, vertical: true) is LOAD-BEARING (#2265-2).
+    /// Forces this VStack to report its natural height to the ScrollView in settingsBody
+    /// so it knows the full content height before applying the maxHeight cap.
+    /// Mirrors actionsSectionContent in PanelMainView — same pattern, same reason.
+    /// ❌ NEVER remove this — ScrollView will not report correct content height.
     private var sectionsStack: some View {
         VStack(alignment: .leading, spacing: 0) {
             accountSection
@@ -396,6 +424,8 @@ struct SettingsView: View {
             Divider()
             aboutSection
         }
+        // LOAD-BEARING — see sectionsStack doc comment above.
+        .fixedSize(horizontal: false, vertical: true)
         .padding(.bottom, 16)
     }
 
