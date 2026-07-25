@@ -45,9 +45,9 @@ struct RootPanelView: View {
     let onStepBack: () -> Void
 
     var body: some View {
-        // .id(navState) is load-bearing — see ARCHITECTURE comment above.
-        // Changing or removing it will break MBK's GeometryReader remount.
-        Group {
+        // DEBUG — jump diagnosis. Remove after fix.
+        log("【RootPanelView.body】rendered navState=\(navState)", category: .general)
+        return Group {
             switch appState.savedNavState {
             case .none, .main:
                 mainBranch
@@ -62,8 +62,6 @@ struct RootPanelView: View {
 
     // MARK: - Route branches
 
-    /// The main panel — runners + actions list.
-    /// PanelContainerView is applied here (owns the dim overlay for sheets).
     @ViewBuilder private var mainBranch: some View {
         PanelContainerView(
             content: PanelMainView(
@@ -75,8 +73,6 @@ struct RootPanelView: View {
         )
     }
 
-    /// The settings view.
-    /// PanelContainerView applied here too — settings presents sheets.
     @ViewBuilder private var settingsBranch: some View {
         PanelContainerView(
             content: SettingsView(
@@ -86,9 +82,6 @@ struct RootPanelView: View {
         )
     }
 
-    /// The step log view for a specific job + step.
-    /// ❌ NO PanelContainerView — StepLogView has no sheets and a double-wrap
-    ///    causes the gray/black flash regression.
     @ViewBuilder private func stepLogBranch(job: ActiveJob, step: GitHubStep) -> some View {
         StepLogView(
             job: job,
@@ -99,8 +92,6 @@ struct RootPanelView: View {
 
     // MARK: - Route identity key
 
-    /// A stable string key derived from the current nav state, used as the `.id()`
-    /// value to force SwiftUI to remount the routed subtree on every route change.
     private var navState: String {
         switch appState.savedNavState {
         case .none, .main:                      return "main"

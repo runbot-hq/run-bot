@@ -88,7 +88,9 @@ struct PanelMainView: View {
 
     /// Root body -- header, optional error/rate-limit banners, local runner rows, and the scrollable actions section.
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        // DEBUG — jump diagnosis. Remove after fix.
+        log("【PanelMainView.body】rendered", category: .general)
+        return VStack(alignment: .leading, spacing: 0) {
             PanelHeaderView(
                 statsVM: systemStats,
                 onSelectSettings: onSelectSettings
@@ -111,14 +113,19 @@ struct PanelMainView: View {
             actionsSectionScrollable
         }
         // .fixedSize() is LOAD-BEARING (RULE 1, #2264).
-        // Plain .fixedSize() = fixedSize(horizontal: true, vertical: true).
-        // Matches the MBK example MainView exactly.
-        // Tells SwiftUI "size me to my natural width AND height" so MBK's
-        // GeometryReader in wrapped() reports the true content size.
-        // clamp() in MBKPopoverController enforces minWidth/maxWidth bounds.
-        // ❌ DO NOT add .frame(minWidth:maxWidth:) here.
-        // ❌ DO NOT use .fixedSize(horizontal: false, vertical: true).
         .fixedSize()
+        // DEBUG: report every size change that the root VStack reports upward to MBK.
+        .background(
+            GeometryReader { geo in
+                Color.clear
+                    .onAppear {
+                        log("【PanelMainView.rootVStack.geo】onAppear size=\(geo.size)", category: .general)
+                    }
+                    .onChange(of: geo.size) { old, new in
+                        log("【PanelMainView.rootVStack.geo】onChange \(old) → \(new)", category: .general)
+                    }
+            }
+        )
         .onAppear {
             if panelVisibilityState.isOpen { systemStats.start() }
             startDisplayTickTimer()
@@ -141,6 +148,18 @@ struct PanelMainView: View {
             actionsSectionContent
         }
         .frame(maxHeight: screenScrollMaxHeight)
+        // DEBUG: report every height change of the scroll container itself.
+        .background(
+            GeometryReader { geo in
+                Color.clear
+                    .onAppear {
+                        log("【PanelMainView.scrollView.geo】onAppear size=\(geo.size)", category: .general)
+                    }
+                    .onChange(of: geo.size) { old, new in
+                        log("【PanelMainView.scrollView.geo】onChange \(old) → \(new)", category: .general)
+                    }
+            }
+        )
     }
 
     /// Workflow rows and the load-more button, rendered inside the scroll container.
