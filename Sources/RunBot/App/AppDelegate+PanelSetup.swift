@@ -13,6 +13,11 @@ import SwiftUI
 // PopoverLifecycleCoordinator.installMonitors() have been removed —
 // MBKPopoverController owns all of that now.
 //
+// As of #2264 the root view is RootPanelView — a single persistent view that
+// owns all route switching via Group { switch }.id(route). This replaces the
+// setRootView() AnyView-swap pattern so MBK's GeometryReader always fires
+// fresh on every route change.
+//
 // SHEET RESPAWN MODEL:
 // PanelSheetState tracks editingRunner (the runner whose detail sheet is open).
 // On force-close (wasForced=true), captureTransientHideState() snapshots
@@ -39,24 +44,33 @@ extension AppDelegate {
     func setupPanel() {
         log("AppDelegate › setupPanel — begin")
 
+        // maxHeight: cap at 85 % of visible screen height, consistent with the
+        // screenScrollMaxHeight cap inside PanelMainView's ScrollView.
+        // Prevents the popover from growing off-screen on small or split displays.
+        let maxHeight = (NSScreen.main?.visibleFrame.height ?? 900) * 0.85
+
         let ctrl = MBKPopoverController(
-            rootView: mainView(),
+            rootView: wrapEnv(RootPanelView(
+                onSelectSettings: { [weak self] in self?.navigateToSettings() },
+                onBack:           { [weak self] in self?.navigateBack() },
+                onStepBack:       { [weak self] in self?.navigateBack() }
+            )),
             overlayGate: overlayGate,
             symbolName: "menubar.rectangle",
             minWidth: AppDelegate.minWidth,
-            maxWidth: AppDelegate.maxWidth
+            maxWidth: AppDelegate.maxWidth,
+            maxHeight: maxHeight
         )
 
         // onWillShow — fires before popover.show().
-        // Restore saved nav state so the correct view is in place before the
-        // popover becomes visible. Sheet state is NOT restored here — it needs
-        // one render cycle first (see onDidShow).
+        // Restore saved nav state so the correct route is active before the
+        // popover becomes visible. Route is now driven purely by
+        // appState.savedNavState — no setRootView() call needed.
         ctrl.onWillShow = { [weak self] in
             guard let self else { return }
             log("AppDelegate › onWillShow")
-            if let saved = appState.savedNavState, let view = validatedView(for: saved) {
-                navigate(to: view)
-            }
+            // Nav state is already live in appState.savedNavState.
+            // RootPanelView reads it directly — nothing to do here.
         }
 
         // onDidShow — fires one actor turn after popover.show().
@@ -75,7 +89,8 @@ extension AppDelegate {
         // wasForced=true: user clicked outside while a sheet was open — snapshot
         //   editingRunner so onDidShow can respawn the sheet on next open.
         // wasForced=false: user toggled the icon or pressed Escape — clear state
-        //   so next open starts fresh at main.
+        //   so next open starts fresh at main. RootPanelView reacts to
+        //   savedNavState = nil automatically; no setRootView() needed.
         ctrl.onWillClose = { [weak self] wasForced in
             guard let self else { return }
             log("AppDelegate › onWillClose wasForced=\(wasForced)")
@@ -86,7 +101,7 @@ extension AppDelegate {
             } else {
                 appState.savedNavState = nil
                 panelSheetState.clearRunnerSheet()
-                popoverController?.setRootView(mainView())
+                // ✅ No setRootView() needed — RootPanelView reacts to nil savedNavState.
             }
             panelVisibilityState.isOpen = false
         }
