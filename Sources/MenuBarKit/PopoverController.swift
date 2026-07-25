@@ -28,10 +28,9 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
     nonisolated(unsafe) private var eventMonitor: Any?
     // Safe: registered and removed exclusively on the main thread via NSWorkspace.notificationCenter.
     nonisolated(unsafe) private var workspaceObserver: NSObjectProtocol?
-    // anchorPoint stores the X midpoint of the status button captured in popoverWillShow.
-    // Y is intentionally NOT used from this snapshot in applyContentSize — see applyContentSize
-    // comment below for why the live window.frame.maxY is used instead.
-    // nil means the popover has not been shown yet this session (guards the isShown path).
+    // anchorPoint.x = status button screen midX captured in popoverWillShow.
+    // anchorPoint.y is stored for completeness; applyContentSize uses window.frame.maxY live instead.
+    // nil = popover not yet shown this session; guards the isShown-reposition path.
     private var anchorPoint: NSPoint?
     private var onWillCloseFired = false
 
@@ -83,6 +82,28 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
         statusItem?.button?.image = image
     }
 
+    // MARK: - Auto-hide menubar guard
+
+    /// Returns true when the macOS auto-hide menubar is currently hidden (slid off-screen).
+    ///
+    /// When hidden, the status item button window slides above the top edge of the screen:
+    /// button.window?.frame.maxY >= screen.frame.height, or the button's screen drops to nil.
+    /// ANY contentSize write in this state causes AppKit to re-run full anchor geometry
+    /// against the off-screen button position, collapsing the popover x-origin to 0 — the
+    /// side-jump / stray arrow. Guard ALL contentSize writes with this predicate.
+    ///
+    /// screenH < 0 signals a nil screen, which itself means hidden — skip in both cases.
+    /// Fix ported from commit 541c20fe (MBK example app, run-bot#2237/#2239).
+    private var isMenuBarHidden: Bool {
+        guard let button = statusItem.button else { return false }
+        let buttonScreen = button.window?.screen
+        let screenH = buttonScreen.map { $0.frame.height } ?? -1
+        let buttonY = button.window?.frame.maxY ?? -1
+        let hidden = screenH < 0 || buttonY >= screenH
+        mbkLog("PopoverController", "isMenuBarHidden=\(hidden) buttonY=\(buttonY) screenH=\(screenH)")
+        return hidden
+    }
+
     // MARK: - Private setup helpers
 
     private func setupStatusItem() {
@@ -110,9 +131,22 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
         onWillShow?()
         mbkLog("PopoverController", "onWillShow fired")
 
+        // Pre-show fittingSize write — seeds contentSize before show() so AppKit
+        // places the window at the correct size from the first frame.
+        // GUARDED: skip if auto-hide menubar is hidden — writing contentSize
+        // against an off-screen button causes the side-jump on open (#2237).
         let fitting = hostingController.view.fittingSize
         if fitting.width > 0, fitting.height > 0 {
-            popover.contentSize = clamp(fitting)
+            if isMenuBarHidden {
+                mbkLog("PopoverController", "openPopover -- menubar hidden, SKIP pre-show contentSize write (\(fitting.width),\(fitting.height))")
+            } else {
+                NSAnimationContext.runAnimationGroup { ctx in
+                    ctx.duration = 0
+                    ctx.allowsImplicitAnimation = false
+                    popover.contentSize = clamp(fitting)
+                }
+                mbkLog("PopoverController", "openPopover -- pre-show contentSize written (\(clamp(fitting).width),\(clamp(fitting).height))")
+            }
         }
 
         guard let rect = positioningRect(for: button) else { return }
@@ -280,47 +314,74 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
         )
     }
 
+    // swiftlint:disable:next function_body_length
     private func applyContentSize(_ preferred: CGSize) {
         let clamped = clamp(preferred)
         guard clamped.width > 0, clamped.height > 0 else { return }
         guard abs(popover.contentSize.width - clamped.width) > 1
            || abs(popover.contentSize.height - clamped.height) > 1 else { return }
+
+        // GUARD: skip ALL contentSize writes when the auto-hide menubar is hidden.
+        //
+        // When macOS auto-hide menubar slides off-screen, the status button window
+        // moves above the top edge (buttonY >= screenH) or its screen becomes nil.
+        // Any contentSize write in this state causes AppKit to re-run full anchor
+        // geometry against the off-screen button — collapsing the popover x-origin
+        // to 0 (side-jump / stray arrow visible in both main and settings).
+        //
+        // Skipping is safe: the next GeometryReader onChange fires after the
+        // menubar re-appears with a valid button position and writes normally.
+        // The popover keeps its current (correct) size during the hidden interval.
+        //
+        // This guard applies to BOTH the not-shown path (bare write below) and
+        // the shown+reposition path (NSAnimationContext block below).
+        // Fix ported from commit 541c20fe (example app, run-bot#2237/#2239).
+        if isMenuBarHidden {
+            mbkLog("PopoverController",
+                   "applyContentSize -- SKIP: menubar hidden, would write (\(clamped.width),\(clamped.height))")
+            return
+        }
+
         guard popover.isShown,
               let window = hostingController.view.window,
               let storedAnchor = anchorPoint else {
-            popover.contentSize = clamped
-            mbkLog("PopoverController", "applyContentSize -- not shown, recorded (\(clamped.width),\(clamped.height))")
+            // Not shown — write without animation suppression needed (no window to slide).
+            // Still wrap in NSAnimationContext for consistency and to prevent any
+            // implicit CoreAnimation transitions on the first appear after hide.
+            NSAnimationContext.runAnimationGroup { ctx in
+                ctx.duration = 0
+                ctx.allowsImplicitAnimation = false
+                popover.contentSize = clamped
+            }
+            mbkLog("PopoverController",
+                   "applyContentSize -- not shown, WRITE (\(clamped.width),\(clamped.height))")
             return
         }
-        mbkLog("PopoverController",
-               "applyContentSize -- (\(popover.contentSize.width),\(popover.contentSize.height))->(\(clamped.width),\(clamped.height))")
-        // WHY we use window.frame.maxY instead of storedAnchor.y (#2265-3):
+
+        // Popover is shown — write contentSize and immediately re-center the window.
         //
-        // storedAnchor.y is captured once in popoverWillShow as window.frame.maxY
-        // at open time. It is correct at that moment, but becomes stale whenever
-        // the window height changes between open and this call — e.g.:
-        //   • A workflow row expands (height increases, origin moves down by delta,
-        //     maxY stays fixed at the status-button underside).
-        //   • Settings → back: window height shrinks; origin moves up; maxY fixed.
-        //   • Auto-hide menubar: status item briefly moves; storedAnchor.y is from
-        //     the pre-hide position.
+        // WHY liveAnchorY = window.frame.maxY (#2265-3):
+        // storedAnchor.y is captured once in popoverWillShow. It drifts from the
+        // live window.frame.maxY whenever height changes (row expand, nav change).
+        // NSPopover keeps .minY edge attached to the status button, so
+        // window.frame.maxY is always the authoritative anchor Y. Use it live.
         //
-        // In all cases the live window.frame.maxY is the authoritative anchor Y:
-        // NSPopover always keeps the .minY preferred edge attached to the status
-        // button, so the window top is always at the underside of the button,
-        // regardless of prior height changes. Using it prevents the stale-anchor
-        // drift that manifests as the arrow jumping sideways on back-navigation.
+        // WHY read window.frame.width AFTER popover.contentSize = clamped (#2265-1):
+        // AppKit pre-resizes the hosting window (via internal layout) before our
+        // GeometryReader observer fires. By the time applyContentSize runs,
+        // window.frame.width may already reflect the new width. Writing contentSize
+        // inside a zero-duration NSAnimationContext commits synchronously, so
+        // reading window.frame.width after the write gives the final settled value
+        // used for horizontal centering. Reading before is unreliable.
         //
-        // storedAnchor.x is still used for horizontal centering — it reflects the
-        // status button's X midpoint which does not change while the popover is open.
+        // WHY NSAnimationContext with duration:0 / allowsImplicitAnimation:false:
+        // Without this block, AppKit fires implicit CoreAnimation layer repositions
+        // on both the contentSize write AND the setFrameOrigin call, producing a
+        // visible header/arrow slide on every row expand or route change.
+        // Zero-duration + allowsImplicitAnimation:false suppresses both.
         //
-        // WHY NSAnimationContext with duration:0 / allowsImplicitAnimation:false (#2265-1):
-        // See the Bug 1 comment in the previous commit. Both contentSize and
-        // setFrameOrigin must be inside the same zero-duration block to prevent
-        // AppKit's implicit CoreAnimation layer reposition from producing a visible
-        // slide. This block is kept here for the same reason.
-        //
-        // ❌ NEVER revert to storedAnchor.y for the Y component — arrow-jump regression.
+        // ❌ NEVER read window.frame.width before popover.contentSize = clamped.
+        // ❌ NEVER revert to storedAnchor.y — arrow-jump regression.
         // ❌ NEVER remove the NSAnimationContext block — header-jump regression.
         // ❌ NEVER use allowsImplicitAnimation: true.
         let liveAnchorY = window.frame.maxY
@@ -328,12 +389,14 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
             ctx.duration = 0
             ctx.allowsImplicitAnimation = false
             popover.contentSize = clamped
+            // Read frame.width AFTER the contentSize write — now settled.
             let newOrigin = NSPoint(
                 x: storedAnchor.x - window.frame.width / 2,
                 y: liveAnchorY - window.frame.height
             )
             window.setFrameOrigin(newOrigin)
-            mbkLog("PopoverController", "applyContentSize -- liveAnchorY=\(liveAnchorY) origin=\(newOrigin)")
+            mbkLog("PopoverController",
+                   "applyContentSize -- WRITE (\(clamped.width),\(clamped.height)) liveAnchorY=\(liveAnchorY) w=\(window.frame.width) origin=\(newOrigin)")
         }
     }
 
@@ -369,7 +432,8 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
                 guard let self else { return }
                 let hasOverlay = self.overlayGate.hasActiveOverlay
                 let hasFilePicker = self.overlayGate.hasFilePickerOverlay
-                mbkLog("PopoverController", "event monitor fired -- hasActiveOverlay=\(hasOverlay) hasFilePickerOverlay=\(hasFilePicker)")
+                mbkLog("PopoverController",
+                       "event monitor fired -- hasActiveOverlay=\(hasOverlay) hasFilePickerOverlay=\(hasFilePicker)")
                 if hasOverlay {
                     if hasFilePicker {
                         mbkLog("PopoverController", "event monitor -- file picker active, ignoring outside click")
@@ -413,14 +477,14 @@ extension MBKPopoverController: NSPopoverDelegate {
     public func popoverWillShow(_ notification: Notification) {
         setButtonHighlight(true)
         guard let window = hostingController.view.window else {
-            mbkLog("PopoverController", "popoverWillShow -- no hostingWindow (unexpected; anchor skipped for this session)")
+            mbkLog("PopoverController", "popoverWillShow -- no hostingWindow (anchor skipped)")
             return
         }
-        // anchorPoint captures the status button X midpoint at open time.
-        // Y is stored here for completeness but applyContentSize uses the live
-        // window.frame.maxY instead — see the applyContentSize comment for why.
+        // anchorPoint.x = status button screen midX. Used for x-centering in applyContentSize.
+        // anchorPoint.y stored for reference; applyContentSize uses live window.frame.maxY instead.
         anchorPoint = NSPoint(x: window.frame.midX, y: window.frame.maxY)
-        mbkLog("PopoverController", "popoverWillShow -- anchor=\(anchorPoint!) hostingWindow=#\(window.windowNumber)")
+        mbkLog("PopoverController",
+               "popoverWillShow -- anchor=\(anchorPoint!) win=\(window.frame) #\(window.windowNumber)")
     }
 
     public func popoverShouldClose(_ popover: NSPopover) -> Bool {
@@ -437,6 +501,6 @@ extension MBKPopoverController: NSPopoverDelegate {
         overlayGate.hasActiveOverlay = false
         overlayGate.hasFilePickerOverlay = false
         onWillCloseFired = false
-        mbkLog("PopoverController", "overlay gate reset on close")
+        mbkLog("PopoverController", "popoverDidClose -- overlay gate reset")
     }
 }
