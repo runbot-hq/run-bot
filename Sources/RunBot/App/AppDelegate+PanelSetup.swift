@@ -13,6 +13,13 @@ import SwiftUI
 // PopoverLifecycleCoordinator.installMonitors() have been removed —
 // MBKPopoverController owns all of that now.
 //
+// SHEET RESPAWN MODEL:
+// PanelSheetState tracks editingRunner (the runner whose detail sheet is open).
+// On force-close (wasForced=true), captureTransientHideState() snapshots
+// editingRunner into runnerSheetSnapshot. On next open, onDidShow calls
+// restoreTransientHideStateIfNeeded() which copies the snapshot back to
+// editingRunner — SwiftUI sees the binding and re-presents the sheet.
+//
 // ❌ NEVER inline this back into AppDelegate.swift.
 // ❌ NEVER call setupPanel() more than once.
 
@@ -53,26 +60,27 @@ extension AppDelegate {
         }
 
         // onDidShow — fires one actor turn after popover.show().
-        // Restore sheet state now that the view tree has a window.
+        // Restore runner sheet state now that the view tree has a window.
+        // restoreTransientHideStateIfNeeded() copies runnerSheetSnapshot →
+        // editingRunner; SwiftUI sees the binding and re-presents the sheet.
         ctrl.onDidShow = { [weak self] in
             guard let self else { return }
             log("AppDelegate › onDidShow")
-            if panelSheetState.wasSheetOpen {
-                panelSheetState.isSheetPresented = true
-            }
+            panelSheetState.restoreTransientHideStateIfNeeded()
             panelVisibilityState.isOpen = true
             panelVisibilityState.isTransientHide = false
         }
 
         // onWillClose — fires before any teardown on both normal and force-close paths.
         // wasForced=true: user clicked outside while a sheet was open — snapshot
-        //   nav and sheet state so onDidShow can respawn them on next open.
+        //   editingRunner so onDidShow can respawn the sheet on next open.
         // wasForced=false: user toggled the icon or pressed Escape — clear state
         //   so next open starts fresh at main.
         ctrl.onWillClose = { [weak self] wasForced in
             guard let self else { return }
             log("AppDelegate › onWillClose wasForced=\(wasForced)")
             if wasForced {
+                // Snapshot before teardown: editingRunner is still set.
                 panelSheetState.captureTransientHideState()
                 panelVisibilityState.isTransientHide = true
             } else {
