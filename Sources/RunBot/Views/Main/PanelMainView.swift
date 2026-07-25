@@ -26,6 +26,10 @@ import SwiftUI
 // RULE 6: systemStats MUST run only while the panel is open.
 // RULE 7: RunnerStore self-schedules via its own adaptive timer.
 // RULE 9: displayTick fires every 1 second ALWAYS (no open-state gate).
+// RULE 10: actionsSectionContent MUST NOT have .fixedSize() — it causes the entire
+//          panel to re-anchor (jump) on every row expand because the root .fixedSize()
+//          propagates the content height change all the way up. The ScrollView does not
+//          need it — MBK's GeometryReader reads the settled panel size, not scroll content.
 //
 // NSPopover provides its own glass chrome automatically.
 // Do NOT add .background() or NSVisualEffectView at this level.
@@ -140,6 +144,11 @@ struct PanelMainView: View {
     }
 
     /// Workflow rows and the load-more button, rendered inside the scroll container.
+    ///
+    /// ❌ NEVER add .fixedSize() or .fixedSize(horizontal: false, vertical: true) here.
+    /// Doing so causes the inner VStack to re-report its natural height to the root
+    /// .fixedSize() on every row expand, which triggers a full panel resize and a
+    /// visible jump of the entire list + metrics bar (RULE 10).
     private var actionsSectionContent: some View {
         VStack(alignment: .leading, spacing: 0) {
             SectionHeaderLabel(title: "Workflows")
@@ -155,10 +164,6 @@ struct PanelMainView: View {
                 loadMoreButton
             }
         }
-        // .fixedSize(horizontal: false, vertical: true) is LOAD-BEARING (#2264).
-        // Forces the inner VStack to report its natural height to the ScrollView
-        // so it knows the full content height before applying the maxHeight cap.
-        .fixedSize(horizontal: false, vertical: true)
         .padding(.vertical, 4)
     }
 
