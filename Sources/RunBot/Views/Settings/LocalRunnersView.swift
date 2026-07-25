@@ -85,9 +85,9 @@ struct LocalRunnersView: View {
         .frame(idealWidth: 480, maxWidth: .infinity)
         .onAppear { Task { await localRunnerStore.refresh() } }
         .onChange(of: appState.runnerState.isLocalScanning) { _, newVal in if !newVal { hasLoadedOnce = true } }
-        .mbkSheet(isPresented: $showAddRunnerSheet, overlayGate: overlayGate) { addRunnerSheet() }
+        .mbkSheet(isPresented: $showAddRunnerSheet) { addRunnerSheet() }
         .modifier(removalAlertModifier)
-        .mbkSheet(item: $editingRunner, overlayGate: overlayGate) { runner in
+        .mbkSheet(item: $editingRunner) { runner in
             runnerEditingSheet(runner: runner)
         }
     }
@@ -326,7 +326,7 @@ struct LocalRunnersView: View {
 
     /// Builds the `RunnerDetailSheet` with commit/cancel wiring.
     ///
-    /// `overlayGate.hasActiveOverlay` is kept armed by `.mbkSheet(item:overlayGate:)` for
+    /// `overlayGate.hasActiveOverlay` is kept armed by `.mbkSheet(item:)` for
     /// the full sheet lifetime, including the brief window between `editingRunner = nil`
     /// and the sheet NSWindow detaching. The old `suppressHidePanel()` call is therefore
     /// not needed here — the gate covers the dismiss window structurally.
