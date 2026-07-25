@@ -193,7 +193,7 @@ struct PanelMainView: View {
     private func fetchErrorBanner(_ error: any Error) -> some View {
         HStack(spacing: 6) {
             Image(systemName: "exclamationmark.triangle.fill").foregroundColor(.red).font(.caption)
-            Text("Fetch error \u2014 \(error.localizedDescription)")
+            Text("Fetch error — \(error.localizedDescription)")
                 .font(.caption).foregroundColor(.secondary)
                 .lineLimit(2)
         }
