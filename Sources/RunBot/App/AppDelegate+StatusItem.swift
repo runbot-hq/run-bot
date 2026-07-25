@@ -5,29 +5,19 @@ import RunBotCore
 
 // MARK: - AppDelegate + Status Item
 //
-// Owns NSStatusItem creation, menu-bar icon updates, and the menuBarImage
-// helper that maps AggregateStatus to the correct SF Symbol.
-// Called once from applicationDidFinishLaunching via setupStatusItem().
+// As of #2262, NSStatusItem creation and toggle wiring are owned by
+// MBKPopoverController.setup(). This file now owns only icon-update logic
+// and the menuBarImage helper that maps AggregateStatus to the correct image.
+//
+// updateStatusIcon() is passed as a callback to appState.start() so AppState
+// never imports AppKit or holds a reference to AppDelegate.
 //
 // ❌ NEVER inline this back into AppDelegate.swift.
-// ❌ NEVER call setupStatusItem() more than once.
 
-/// Extension owning NSStatusItem creation, icon updates, and the `menuBarImage` helper.
+/// Extension owning icon updates and the `menuBarImage` helper.
 extension AppDelegate {
 
-    // MARK: Status item setup
-
-    /// Creates the NSStatusItem, sets the initial icon, and wires the toggle action.
-    func setupStatusItem() {
-        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        if let button = statusItem?.button {
-            button.image = menuBarImage(for: .allOffline)
-            button.action = #selector(togglePanel)
-            button.target = self
-        }
-    }
-
-    // MARK: Icon updates
+    // MARK: - Icon updates
 
     /// Updates the menu-bar icon to reflect the current aggregate runner status.
     /// ❌ NEVER filter by !isDimmed only — dimmed groups can still have in-progress jobs.
@@ -36,13 +26,11 @@ extension AppDelegate {
     /// If you are an agent or human, DO NOT REMOVE THIS COMMENT, YOU ARE NOT ALLOWED
     /// UNDER ANY CIRCUMSTANCE.
     func updateStatusIcon() {
-        // `aggregateStatus` is derived from `runnerState.runners` which `RunnerPoller`
-        // pushes to `RunnerState` via `MainActor.run` after every fetch cycle.
         let status = AggregateStatus(runners: appState.runnerState.runners)
-        statusItem?.button?.image = menuBarImage(for: status)
+        popoverController?.statusItem?.button?.image = menuBarImage(for: status)
     }
 
-    // MARK: Image helper
+    // MARK: - Image helper
 
     /// Returns the menu-bar icon for the given aggregate status.
     ///
@@ -52,9 +40,6 @@ extension AppDelegate {
     ///
     /// Falls back to the SF Symbol chain when the asset is missing, preserving
     /// the original triple-fallback behaviour for safety.
-    ///
-    /// - Note: `status` is used only by the SF Symbol fallback chain (step 2).
-    ///   `StatusBarIcon` is a static brand image and is status-agnostic.
     ///
     /// Fallback chain:
     /// 1. `Self.statusBarIcon` — bundled robot-face asset (template image),
@@ -73,9 +58,7 @@ extension AppDelegate {
             ?? NSImage()
     }
 
-    /// Logical (point) size the icon renders at in the menu bar, regardless
-    /// of which @Nx pixel representation AppKit picks for the display. 18pt
-    /// is the standard macOS menu bar icon convention.
+    /// Logical (point) size the icon renders at in the menu bar.
     private static let statusBarIconPointSize = NSSize(width: 18, height: 18)
 
     /// Cached `StatusBarIcon` image, loaded from `Bundle.main` exactly once.
@@ -103,7 +86,7 @@ extension AppDelegate {
     /// are now loose files, so Bundle.main.path(forResource:ofType:) finds
     /// them directly by filename. The @Nx suffix is handled manually below
     /// so AppKit gets all three representations and picks the sharpest one
-    /// for the current display — the same behaviour a compiled catalog gives.
+    /// for the current display.
     ///
     /// Do NOT revert to Bundle.module. Do NOT use NSImage(named:).
     /// Do NOT reintroduce resources: [.process("Resources")] in Package.swift
@@ -111,29 +94,21 @@ extension AppDelegate {
     private static let statusBarIcon: NSImage? = {
         let combinedIcon = NSImage(size: statusBarIconPointSize)
         var loadedAny = false
-
         for scale in [1, 2, 3] {
             let filename = scale == 1 ? "StatusBarIcon" : "StatusBarIcon@\(scale)x"
-            // Bundle.main.path(forResource:ofType:) finds loose files in
-            // Contents/Resources/ — exactly where build.sh places the PNGs.
-            // No inDirectory: needed — the PNGs are at the Contents/Resources/ root.
             guard let path = Bundle.main.path(forResource: filename, ofType: "png"),
                   let data = NSData(contentsOfFile: path),
-                  let rep = NSBitmapImageRep(data: data as Data) else {
-                continue
-            }
+                  let rep = NSBitmapImageRep(data: data as Data) else { continue }
             rep.size = statusBarIconPointSize
             combinedIcon.addRepresentation(rep)
             loadedAny = true
         }
-
         guard loadedAny else {
             #if DEBUG
             assertionFailure("StatusBarIcon PNGs missing from Contents/Resources — check build.sh (see issue #2139)")
             #endif
             return nil
         }
-
         combinedIcon.isTemplate = true
         return combinedIcon
     }()
