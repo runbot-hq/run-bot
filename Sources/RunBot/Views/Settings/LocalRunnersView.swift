@@ -360,6 +360,9 @@ struct LocalRunnersView: View {
                     )
                     let result = await useCase.execute(runner: runner, draft: draft, original: original)
                     await MainActor.run {
+                        // isCommitting = false is UNCONDITIONAL — it precedes the switch
+                        // and therefore resets on both .success and .failure paths.
+                        // Do not move it inside a case branch.
                         isCommitting = false
                         switch result {
                         case .success:

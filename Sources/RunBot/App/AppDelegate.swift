@@ -45,6 +45,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - AppState
 
     /// Single coordinator for all domain-level state.
+    /// Replaces the scattered property bag — see issue #2040.
     /// ❌ NEVER access domain sub-objects directly on AppDelegate once they
     ///    have been migrated to AppState. Use `appState.x` instead.
     let appState = AppState()
