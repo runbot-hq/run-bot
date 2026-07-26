@@ -97,13 +97,22 @@ extension MBKPopoverController {
             // ❌ DO NOT use window.frame.origin.x — it was computed for a specific
             // width and is wrong for any other width. Always derive X from btnMidX.
             let newX = btnMidX - newW / 2
-            // Y-FLOOR: last-resort clamp so the panel never rises above the visible
-            // screen area under any edge case. ❌ DO NOT REMOVE.
+            // Y-FLOOR: last-resort safety clamp so the panel never rises above the
+            // visible screen area under any edge case (e.g. external display removed
+            // mid-session, Dock moved to a different edge).
+            //
+            // visibleFrame.minY on macOS is typically 0 (Dock at bottom) or the Dock
+            // height (Dock at bottom, not auto-hiding). The ?? 0 fallback for a nil
+            // screen is the most conservative value — it prevents the panel from
+            // going off the top of a screen we can't measure. This floor fires only
+            // when fixedY is genuinely below visibleFloor; under normal operation
+            // newY == fixedY on every call.
+            // ❌ DO NOT REMOVE — this is a last-resort guard, not dead code.
             let visibleFloor = window.screen?.visibleFrame.minY ?? 0
             let newY = max(fixedY, visibleFloor)
             if newY != fixedY {
                 mbkLog("PopoverController",
-                       "applyContentSize -- hidden Y floored fixedY=\(fixedY) \u{2192} \(newY) visibleFloor=\(visibleFloor)")
+                       "applyContentSize -- hidden Y floored fixedY=\(fixedY) → \(newY) visibleFloor=\(visibleFloor)")
             }
             let newFrame = NSRect(x: newX, y: newY, width: newW, height: newH)
             window.setFrame(newFrame, display: true)
@@ -115,9 +124,9 @@ extension MBKPopoverController {
             //
             // NOTE: show() re-triggers popoverWillShow (and all NSPopoverDelegate
             // methods). setButtonHighlight(true) and isShownSentinel = true are
-            // idempotent no-ops on a second call within the same session. If
-            // delegate logic is ever added that must not fire twice per open,
-            // this call site must be audited first.
+            // idempotent no-ops on a second call within the same session. The chrome
+            // snapshot in popoverWillShow is guarded by hiddenChromeW == nil and
+            // skips silently on re-anchor calls — see PopoverController+Delegate.swift.
             //
             // GUARDED: skip the show() reanchor while the opening sequence is in
             // flight (isOpening == true). The onDidShow Task issues the first
