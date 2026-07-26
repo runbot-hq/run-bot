@@ -55,7 +55,7 @@ final class MBKSheetAnchorTask {
                 return
             }
             mbkLog("AnchoredSheet[\(self.label)]", "hop1 complete — queuing hop2")
-            #warning("GCD hop in MBKSheetAnchorTask.start() — see issue #21 for Swift 6 migration path")
+            // TODO: GCD hop in MBKSheetAnchorTask.start() — see issue #21 for Swift 6 migration path
             DispatchQueue.main.async { [weak self] in
                 guard let self, !self.cancelled else {
                     mbkLog("AnchoredSheet[\(capturedLabel)]", "hop2 — cancelled/deallocated")
