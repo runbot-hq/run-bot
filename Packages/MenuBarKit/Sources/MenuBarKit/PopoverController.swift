@@ -158,17 +158,28 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
     /// Button center X in screen coordinates, snapshotted once in `popoverWillShow`.
     /// `nil` outside an open session (cleared in `popoverDidClose`).
     var hiddenButtonMidX: CGFloat?
-    /// Window origin Y (bottom edge, AppKit flipped coords) snapshotted once in
-    /// `popoverWillShow`. Used as a fixed constant for all Path 3 `setFrame` calls
-    /// so the panel top edge stays pinned under the button for the entire session.
+    /// Top edge of the popover window (AppKit flipped coords: maxY of window.frame)
+    /// snapshotted once in `popoverWillShow` against AppKit's freshly-positioned stub
+    /// window. Used as the fixed anchor for all Path 3 `setFrame` calls so the panel
+    /// top edge stays pinned just below the button for the entire session, regardless
+    /// of how tall the panel grows.
+    ///
+    /// WHY TOP EDGE AND NOT BOTTOM (origin.y):
+    /// The window is snapshotted when contentSize is still the stub (minWidth, 100).
+    /// At that point the window is ~126pt tall (100 content + 26 chrome). As SwiftUI
+    /// measures the real content and Path 3 grows the window to e.g. 540pt, using
+    /// origin.y as the anchor would keep the BOTTOM edge fixed and push the TOP edge
+    /// upward off-screen. Using maxY keeps the TOP edge fixed and grows the window
+    /// downward, which is the correct macOS popover behaviour.
+    ///
     /// Populated on every first open (visible or hidden mode); read only by Path 3
     /// (hidden mode). `nil` outside an open session (cleared in `popoverDidClose`).
     /// ⚠️ ASSUMPTION: if the menubar hides while the popover is open without a
-    /// close/reopen cycle, this value reflects the visible-mode window Y and Path 3
-    /// will position the panel at the wrong Y. The `visibleFloor` clamp is the only
-    /// guard. A close/reopen re-snapshots correctly.
+    /// close/reopen cycle, this value reflects the visible-mode window top edge and
+    /// Path 3 will position the panel at the wrong Y. The `visibleFloor` clamp is
+    /// the only guard. A close/reopen re-snapshots correctly.
     /// ❌ NEVER recompute from window.frame mid-session — that drifts.
-    var hiddenWindowY: CGFloat?
+    var hiddenWindowTopY: CGFloat?
 
     // MARK: - Init
 

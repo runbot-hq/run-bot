@@ -17,7 +17,7 @@ extension MBKPopoverController {
     /// (2) shown, menubar visible — write `contentSize`, re-anchor via `show()` on width
     /// change so AppKit re-derives the arrow position atomically; (3) shown, menubar
     /// hidden — `NSPopover.contentSize` is ignored by AppKit for window positioning,
-    /// so drive `window.setFrame` directly using chrome deltas and fixed Y snapshotted
+    /// so drive `window.setFrame` directly using chrome deltas and fixed top-Y snapshotted
     /// once in `popoverWillShow`.
     func applyContentSize(_ preferred: CGSize) {
         let clamped = clamp(preferred)
@@ -69,22 +69,22 @@ extension MBKPopoverController {
             // Path 3: hidden mode — AppKit ignores NSPopover.contentSize for window
             // positioning, but SwiftUI's hosting controller still reads it for layout.
             //
-            // Chrome deltas (hiddenChromeW/H), hiddenButtonMidX, and hiddenWindowY
+            // Chrome deltas (hiddenChromeW/H), hiddenButtonMidX, and hiddenWindowTopY
             // are snapshotted ONCE in popoverWillShow against AppKit's freshly-
-            // positioned window. They are constant for the entire session:
+            // positioned stub window. They are constant for the entire session:
             //   - Chrome never changes between views (same NSPopover window).
             //   - buttonMidX never changes (button doesn't move).
-            //   - windowY is the fixed bottom edge: the panel top stays pinned under
-            //     the button; only height grows downward. Never recompute from
-            //     window.frame — that drifts across multiple setFrame calls.
+            //   - windowTopY is the fixed TOP edge: the panel top stays pinned under
+            //     the button; the panel grows downward as content height increases.
+            //     Never recompute from window.frame — that drifts across setFrame calls.
             //
             // ❌ NEVER re-snapshot here. window.frame at this point is whatever WE
             //    last wrote via setFrame, not AppKit's frame.
-            // ❌ NEVER invalidate hiddenChromeW/H/windowY mid-session.
+            // ❌ NEVER invalidate hiddenChromeW/H/windowTopY mid-session.
             guard let chromeW = hiddenChromeW,
                   let chromeH = hiddenChromeH,
                   let btnMidX = hiddenButtonMidX,
-                  let fixedY  = hiddenWindowY else {
+                  let topY    = hiddenWindowTopY else {
                 mbkLog("PopoverController",
                        "applyContentSize -- menubar hidden, no chrome snapshot yet, SKIP (\(clamped.width),\(clamped.height))")
                 return
@@ -97,6 +97,12 @@ extension MBKPopoverController {
             // ❌ DO NOT use window.frame.origin.x — it was computed for a specific
             // width and is wrong for any other width. Always derive X from btnMidX.
             let newX = btnMidX - newW / 2
+            // Derive bottom-left origin Y by subtracting the new frame height from
+            // the fixed top edge. This pins the TOP of the panel just below the button
+            // and grows the panel downward as content grows — correct macOS behaviour.
+            // Using topY directly as origin.y would pin the BOTTOM edge and push the
+            // top off-screen as the panel grows. ❌ NEVER use topY as origin.y.
+            let newY = topY - newH
             // Y-FLOOR: last-resort safety clamp so the panel never rises above the
             // visible screen area under any edge case (e.g. external display removed
             // mid-session, Dock moved to a different edge).
@@ -105,19 +111,19 @@ extension MBKPopoverController {
             // height (Dock at bottom, not auto-hiding). The ?? 0 fallback for a nil
             // screen is the most conservative safe value — it prevents the panel from
             // going off the top of a screen we cannot measure. This floor fires only
-            // when fixedY is genuinely below visibleFloor; under normal operation
-            // newY == fixedY on every call.
+            // when newY is genuinely below visibleFloor; under normal operation
+            // newY correctly tracks the panel bottom edge.
             // ❌ DO NOT REMOVE — this is a last-resort guard, not dead code.
             let visibleFloor = window.screen?.visibleFrame.minY ?? 0
-            let newY = max(fixedY, visibleFloor)
-            if newY != fixedY {
+            let clampedY = max(newY, visibleFloor)
+            if clampedY != newY {
                 mbkLog("PopoverController",
-                       "applyContentSize -- hidden Y floored fixedY=\(fixedY) \u{2192} \(newY) visibleFloor=\(visibleFloor)")
+                       "applyContentSize -- hidden Y floored newY=\(newY) \u{2192} \(clampedY) visibleFloor=\(visibleFloor)")
             }
-            let newFrame = NSRect(x: newX, y: newY, width: newW, height: newH)
+            let newFrame = NSRect(x: newX, y: clampedY, width: newW, height: newH)
             window.setFrame(newFrame, display: true)
             mbkLog("PopoverController",
-                   "applyContentSize -- menubar hidden, DIRECT FRAME (\(clamped.width),\(clamped.height)) btnMidX=\(btnMidX) frame=\(newFrame)")
+                   "applyContentSize -- menubar hidden, DIRECT FRAME (\(clamped.width),\(clamped.height)) btnMidX=\(btnMidX) topY=\(topY) frame=\(newFrame)")
         } else {
             // Path 2: menubar visible — write contentSize then re-anchor via show()
             // on width change so AppKit re-derives arrow position atomically.

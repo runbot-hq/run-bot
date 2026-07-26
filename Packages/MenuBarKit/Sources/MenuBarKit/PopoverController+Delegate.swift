@@ -13,7 +13,7 @@ import AppKit
 extension MBKPopoverController: NSPopoverDelegate {
     /// Highlights the status-bar button, arms `isShownSentinel`, and snapshots
     /// hidden-mode chrome deltas (`hiddenChromeW/H`, `hiddenButtonMidX`,
-    /// `hiddenWindowY`) once per open/close cycle.
+    /// `hiddenWindowTopY`) once per open/close cycle.
     ///
     /// `isShownSentinel` is set before the window-availability check so that a
     /// nil `hostingController.view.window` does not prevent it from being armed.
@@ -30,7 +30,7 @@ extension MBKPopoverController: NSPopoverDelegate {
         // window.frame reflects either our own prior setFrame (hidden mode) or
         // AppKit's post-contentSize-write position (visible mode) — neither is the
         // clean AppKit-positioned frame from the initial open. Re-snapshotting there
-        // would corrupt hiddenChromeW/H/windowY for the rest of the session.
+        // would corrupt hiddenChromeW/H/windowTopY for the rest of the session.
         //
         // hiddenChromeW is nil only after popoverDidClose (or before first open).
         // The guard ensures we snapshot exactly once per open/close cycle, against
@@ -55,6 +55,15 @@ extension MBKPopoverController: NSPopoverDelegate {
         // Chrome is a constant property of the NSPopover window decoration —
         // independent of which contentSize value triggered the frame sizing.
         // The stub reset does not affect the correctness of the delta.
+        //
+        // WHY hiddenWindowTopY = window.frame.maxY (NOT origin.y):
+        // The window is stub-sized at snapshot time (~126pt tall: 100 content +
+        // 26 chrome). Path 3 grows the window as SwiftUI measures real content.
+        // If we stored origin.y (bottom edge), the bottom would stay fixed and the
+        // top would rise off-screen as the panel grows. Storing maxY (top edge)
+        // lets Path 3 derive newOriginY = topY - newHeight, pinning the top edge
+        // just below the button and growing the panel downward. ❌ NEVER change
+        // this to window.frame.origin.y.
         guard hiddenChromeW == nil,
               let window = hostingController.view.window,
               let button = statusItem.button,
@@ -71,10 +80,10 @@ extension MBKPopoverController: NSPopoverDelegate {
         hiddenChromeW    = window.frame.width  - popover.contentSize.width
         hiddenChromeH    = window.frame.height - popover.contentSize.height
         hiddenButtonMidX = buttonWin.frame.minX + button.frame.midX
-        hiddenWindowY    = window.frame.origin.y
+        hiddenWindowTopY = window.frame.maxY
         mbkLog("PopoverController",
                "popoverWillShow -- isShownSentinel=true chromeW=\(hiddenChromeW!) chromeH=\(hiddenChromeH!)" +
-               " btnMidX=\(hiddenButtonMidX!) windowY=\(hiddenWindowY!) win=\(window.frame)" +
+               " btnMidX=\(hiddenButtonMidX!) windowTopY=\(hiddenWindowTopY!) win=\(window.frame)" +
                " #\(window.windowNumber)")
     }
 
@@ -103,7 +112,7 @@ extension MBKPopoverController: NSPopoverDelegate {
         hiddenChromeW = nil
         hiddenChromeH = nil
         hiddenButtonMidX = nil
-        hiddenWindowY = nil
+        hiddenWindowTopY = nil
         overlayGate.hasActiveOverlay = false
         overlayGate.hasFilePickerOverlay = false
         onWillCloseFired = false
