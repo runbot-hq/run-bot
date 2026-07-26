@@ -65,9 +65,19 @@ extension AppDelegate {
             // this point — it was called synchronously above (see ordering rule 1 in the
             // ## Startup ordering doc-comment). AppState.start() documents this precondition
             // on its own doc-comment. Do not move or wrap the configure() call without
-            // reading AppState.start()’s ⚠️ Precondition note first.
+            // reading AppState.start()'s ⚠️ Precondition note first.
             // `updateStatusIcon` is an AppDelegate method (AppKit concern) passed
             // as a callback so AppState never imports AppKit or holds AppDelegate.
+            //
+            // Startup ordering safety: appState.start() wires sign-out and status-icon
+            // observation tasks at Step 3 (startObservations), BEFORE any await.
+            // refreshAsync (Step 4) is the first suspension point; store.start() (Step 5)
+            // follows. By the time this Task's outer continuation resumes here,
+            // setupPanel() has already completed above.
+            // statusIconTask and signOutTask are registered before the first
+            // applyFetchResult write because startObservations() runs before
+            // store.start(), and store.start() does not write until its first
+            // fetch cycle completes.
             await appState.start(onUpdateStatusIcon: { [weak self] in
                 self?.updateStatusIcon()
             })

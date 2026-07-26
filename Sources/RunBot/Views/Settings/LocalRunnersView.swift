@@ -90,8 +90,15 @@ struct LocalRunnersView: View {
         .frame(idealWidth: 480)
         .onAppear { Task { await localRunnerStore.refresh() } }
         .onChange(of: appState.runnerState.isLocalScanning) { _, newVal in if !newVal { hasLoadedOnce = true } }
+        // Use mbkSheet so MBKOverlayGate.hasActiveOverlay is managed automatically.
+        // The outside-click monitor reads overlayGate.hasActiveOverlay and ignores
+        // clicks while the sheet is live — no manual mbkSetOverlay() calls needed.
         .mbkSheet(isPresented: $showAddRunnerSheet) { addRunnerSheet() }
         .modifier(removalAlertModifier)
+        // #1262: .sheet(item:) attaches RunnerDetailSheet as a child sheet of
+        // NSPopoverWindowFrame so it escapes the parent view bounds.
+        // mbkSheet(item:) manages hasActiveOverlay and window anchoring
+        // automatically — no manual mbkSetOverlay() calls needed here (#2044).
         .mbkSheet(item: $editingRunner) { runner in
             runnerEditingSheet(runner: runner)
         }
