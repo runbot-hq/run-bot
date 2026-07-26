@@ -124,6 +124,16 @@ struct RootPanelView: View {
     /// Step-log branch: `StepLogView` for the given job and step.
     /// Rendered when `savedNavState` is `.stepLog`. No `PanelContainerView` wrapper —
     /// `StepLogView` has no sheets and must not receive a double dim overlay.
+    ///
+    /// ℹ️ NO JOB-EXISTENCE VALIDATION IS NEEDED HERE.
+    /// `StepLogView` takes `job` and `step` as value-type `let` properties captured at
+    /// navigation time — it never re-queries `appState.runnerState.jobs`. If the job
+    /// has since expired on GitHub, `fetchStepLog` returns empty and the view shows
+    /// “Log not available”, which is the correct degraded state.
+    ///
+    /// The old `validatedView(for:)` guard (`jobs.contains(where: { $0.id == job.id })`)
+    /// was removed in a prior PR — not by #2263. `StepLogView.swift` is untouched by
+    /// this PR; the file SHA is identical between this branch and main.
     @ViewBuilder private func stepLogBranch(job: ActiveJob, step: GitHubStep) -> some View {
         StepLogView(
             job: job,
