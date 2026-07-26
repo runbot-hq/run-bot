@@ -63,7 +63,8 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
     // MARK: - Configuration
 
     /// Overlay gate — read in `popoverShouldClose` and reset in `popoverDidClose`.
-    private let overlayGate: MBKOverlayGate
+    /// `fileprivate` so `PopoverController+Delegate.swift` can access it.
+    fileprivate let overlayGate: MBKOverlayGate
     /// SF Symbol name for the status-bar icon.
     private let symbolName: String
     /// Minimum allowed popover content width.
@@ -89,7 +90,8 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
     /// The managed `NSPopover`. Assigned in `setup()`.
     private var popover: NSPopover!
     /// Hosts the root SwiftUI view. Assigned in `setup()`.
-    private var hostingController: NSHostingController<AnyView>!
+    /// `fileprivate` so `PopoverController+Delegate.swift` can access it.
+    fileprivate var hostingController: NSHostingController<AnyView>!
     /// Guards against calling `setup()` more than once.
     private var isSetUp = false
     /// Global mouse-down event monitor token. `nonisolated(unsafe)` — see file header.
@@ -101,7 +103,8 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
     /// `nil` while closed. Set in `popoverWillShow`, cleared in `popoverDidClose`.
     /// Carries no positional value — frame writes derive Y from
     /// `window.frame.origin.y` directly.
-    private var isShownSentinel: Bool?
+    /// `fileprivate` so `PopoverController+Delegate.swift` can access it.
+    fileprivate var isShownSentinel: Bool?
 
     /// Button center X in screen coordinates from the last visible-mode open.
     /// Used for the post-show X correction when opening while the menubar is hidden.
@@ -109,17 +112,21 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
     private var lastKnownAnchorX: CGFloat?
 
     /// Prevents `onWillClose` from firing more than once per open/close cycle.
-    private var onWillCloseFired = false
+    /// `fileprivate` so `PopoverController+Delegate.swift` can access it.
+    fileprivate var onWillCloseFired = false
 
     /// Chrome width delta (window frame width − content width) snapshotted in
     /// hidden mode on the first `applyContentSize` call. `nil` outside a session.
-    private var hiddenChromeW: CGFloat?
+    /// `fileprivate` so `PopoverController+Delegate.swift` can access it.
+    fileprivate var hiddenChromeW: CGFloat?
     /// Chrome height delta (window frame height − content height) snapshotted in
     /// hidden mode. `nil` outside a session.
-    private var hiddenChromeH: CGFloat?
+    /// `fileprivate` so `PopoverController+Delegate.swift` can access it.
+    fileprivate var hiddenChromeH: CGFloat?
     /// Button center X in screen coordinates for the hidden-mode session.
     /// `nil` outside a hidden-mode session.
-    private var hiddenButtonMidX: CGFloat?
+    /// `fileprivate` so `PopoverController+Delegate.swift` can access it.
+    fileprivate var hiddenButtonMidX: CGFloat?
 
     // MARK: - Init
 
@@ -308,7 +315,8 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
     }
 
     /// Fires `onWillClose` exactly once per session, guarded by `onWillCloseFired`.
-    private func fireOnWillClose(wasForced: Bool) {
+    /// `fileprivate` so `PopoverController+Delegate.swift` can access it.
+    fileprivate func fireOnWillClose(wasForced: Bool) {
         guard !onWillCloseFired else {
             mbkLog("PopoverController", "onWillClose already fired, skipping")
             return
@@ -387,7 +395,8 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
     }
 
     /// Sets the status-bar button's highlighted state.
-    private func setButtonHighlight(_ on: Bool) {
+    /// `fileprivate` so `PopoverController+Delegate.swift` can access it.
+    fileprivate func setButtonHighlight(_ on: Bool) {
         statusItem.button?.isHighlighted = on
     }
 
@@ -606,7 +615,8 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
     }
 
     /// Removes the global mouse-down event monitor installed by `startEventMonitor()`.
-    private func stopEventMonitor() {
+    /// `fileprivate` so `PopoverController+Delegate.swift` can access it.
+    fileprivate func stopEventMonitor() {
         guard let monitor = eventMonitor else { return }
         NSEvent.removeMonitor(monitor)
         eventMonitor = nil
