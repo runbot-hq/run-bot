@@ -56,6 +56,14 @@ struct RootPanelView: View {
     /// Called when the user taps Back from the settings route.
     let onBack: () -> Void
     /// Called when the user taps Back from the step-log route.
+    ///
+    /// Intentionally a separate callback from `onBack` even though both currently
+    /// resolve to `navigateBack()` at the `AppDelegate` call site. The split is
+    /// semantic: step-log back and settings back are distinct navigation events that
+    /// may diverge in the future (e.g. step-log back may need to clear transient
+    /// fetch state or emit a different analytics event). Collapsing them to a single
+    /// property would make that future divergence a breaking API change.
+    /// ❌ NEVER merge this into `onBack` without first confirming no divergence is planned.
     let onStepBack: () -> Void
 
     /// Switches between route branches; `.id(navState)` forces remount on every change.
