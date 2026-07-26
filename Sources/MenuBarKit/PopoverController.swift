@@ -328,6 +328,14 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
     /// This path is therefore structurally unreachable while `hasFilePickerOverlay`
     /// is true. `popoverDidClose` is the authoritative reset point for all gate
     /// flags and always fires after `performClose()`.
+    ///
+    /// ORDERING SAFETY — why performClose rejection is structurally impossible here:
+    ///   forceClose() clears `overlayGate.hasActiveOverlay = false` BEFORE calling
+    ///   `performClose(nil)`. Therefore `popoverShouldClose` will return `true` when
+    ///   AppKit consults it, and the close will proceed. The `onWillCloseFired` guard
+    ///   in `fireOnWillClose` is the sole protection against a double-fire if this
+    ///   ordering is ever disturbed — do not reorder the gate clear and performClose
+    ///   call without also reviewing that guard.
     private func forceClose() {
         fireOnWillClose(wasForced: true)
         mbkLog("PopoverController", "forceClose -- clearing gate")
@@ -509,6 +517,12 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
         } else {
             // Path 2: menubar visible — write contentSize then re-anchor via show()
             // on width change so AppKit re-derives arrow position atomically.
+            //
+            // NOTE: show() re-triggers popoverWillShow (and all NSPopoverDelegate
+            // methods). setButtonHighlight(true) and isShownSentinel = true are
+            // idempotent no-ops on a second call within the same session. If
+            // delegate logic is ever added that must not fire twice per open,
+            // this call site must be audited first.
             popover.contentSize = clamped
             if widthChanged {
                 guard let button = statusItem.button,
