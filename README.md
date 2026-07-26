@@ -63,27 +63,30 @@ Requires cloning the repo to a local folder first
 git fetch && git checkout main && git pull
 bash build.sh && open dist/RunBot.app
 ```
+
 ## Security
 
 > [!WARNING]
 > **CI/CD Security**
 >
-> 1. **Fork PR attacks (public repos + self-hosted runners)** — any workflow
->    triggered by `pull_request` on a self-hosted runner must include a fork
->    guard, otherwise anyone can open a PR from a fork and execute code on
->    your machine:
+> 1. **Fork PR attacks** — GitHub blocks workflows from first-time outside
+>    contributors by default, requiring maintainer approval before CI runs.
+>    For self-hosted runners, harden this further by requiring approval for
+>    all outside collaborators, and add a fork guard to every workflow:
 >    ```yaml
 >    if: |
 >      github.event_name != 'pull_request' ||
 >      github.event.pull_request.head.repo.full_name == github.repository
 >    ```
 >
-> 2. **Trust your actions** — every `uses:` action runs arbitrary code in your
->    job with access to your secrets and `GITHUB_TOKEN`. Only use actions you
->    trust, including anything they call downstream.
+> 2. **Audit your actions** — every `uses:` action runs arbitrary code with
+>    access to your secrets and `GITHUB_TOKEN`. Only use actions you trust,
+>    including anything they call downstream. This applies equally to
+>    self-hosted and cloud runners.
 >
-> 3. **Pin third-party actions to a SHA** — version tags can be silently
->    force-pushed to malicious code. A SHA is immutable.
+> 3. **Pin actions to a SHA** — version tags can be silently force-pushed to
+>    malicious code. A SHA is immutable. This applies equally to self-hosted
+>    and cloud runners.
 >    ```yaml
 >    # ❌ uses: some-org/action@v1
 >    # ✅ uses: some-org/action@abc123def456...
