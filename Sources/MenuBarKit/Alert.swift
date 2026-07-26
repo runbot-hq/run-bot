@@ -44,7 +44,7 @@ import SwiftUI
 public extension View {
 
     /// Presents an alert and manages the overlay gate for its lifetime.
-    /// Drop-in replacement for SwiftUI's `.alert(_:isPresented:actions:)`.
+    /// Drop-in replacement for SwiftUI’s `.alert(_:isPresented:actions:)`.
     ///
     /// - Warning: Requires `MBKOverlayGate` to be present in the SwiftUI environment.
     ///   If not injected via `.environment(overlayGate)` at the root view,
@@ -63,7 +63,7 @@ public extension View {
     }
 
     /// Presents an alert with a message and manages the overlay gate for its lifetime.
-    /// Drop-in replacement for SwiftUI's `.alert(_:isPresented:actions:message:)`.
+    /// Drop-in replacement for SwiftUI’s `.alert(_:isPresented:actions:message:)`.
     ///
     /// - Warning: Requires `MBKOverlayGate` to be present in the SwiftUI environment.
     ///   If not injected via `.environment(overlayGate)` at the root view,
@@ -85,7 +85,7 @@ public extension View {
 
 // MARK: - Modifier
 
-/// ViewModifier that wraps SwiftUI's `.alert()` and gates `MBKOverlayGate`
+/// ViewModifier that wraps SwiftUI’s `.alert()` and gates `MBKOverlayGate`
 /// (read from environment) for the full alert lifetime.
 ///
 /// This type is internal. Use the `.mbkAlert(...)` methods on `View` instead.
@@ -93,14 +93,30 @@ public extension View {
 /// `@Environment(MBKOverlayGate.self)` and can only function when embedded
 /// in a SwiftUI view hierarchy that has the gate injected.
 struct MBKAlertModifier<A: View, M: View>: ViewModifier {
+    /// The alert title string.
     let title: String
+    /// Binding that controls whether the alert is currently presented.
     @Binding var isPresented: Bool
+    /// Alert action buttons.
     let actions: () -> A
+    /// Optional secondary message view shown below the title.
     let message: () -> M
 
+    /// The gate that blocks popover dismiss while the alert is live.
+    /// Resolved from the SwiftUI environment — must be injected at the root view.
     @Environment(MBKOverlayGate.self) private var overlayGate
+    /// Tracks whether the gate was already armed by a concurrent overlay
+    /// (e.g. a sheet) when this alert appeared.
+    /// If `true` on dismiss, the gate belongs to the concurrent overlay
+    /// and must not be cleared here.
     @State private var gateWasArmedByConcurrentOverlay = false
 
+    /// Creates the modifier.
+    /// - Parameters:
+    ///   - title: The alert title string.
+    ///   - isPresented: Binding that controls presentation.
+    ///   - actions: Alert action buttons.
+    ///   - message: Secondary message view shown below the title.
     init(
         title: String,
         isPresented: Binding<Bool>,
@@ -113,15 +129,21 @@ struct MBKAlertModifier<A: View, M: View>: ViewModifier {
         self.message = message
     }
 
+    /// Applies the alert and gate-management logic.
     func body(content: Content) -> some View {
         content
             .alert(title, isPresented: $isPresented, actions: actions, message: message)
             .onChange(of: isPresented) { _, newValue in
                 if newValue {
+                    // Record whether the gate was already armed so the dismiss
+                    // path knows whether to clear it.
                     gateWasArmedByConcurrentOverlay = overlayGate.hasActiveOverlay
                     overlayGate.hasActiveOverlay = true
                     mbkLog("Alert", "appeared — gate armed (concurrent=\(gateWasArmedByConcurrentOverlay))")
                 } else {
+                    // Only clear the gate if we were the ones who armed it.
+                    // If a concurrent sheet was live when the alert appeared,
+                    // the gate belongs to the sheet — do not clear.
                     if !gateWasArmedByConcurrentOverlay {
                         overlayGate.hasActiveOverlay = false
                         mbkLog("Alert", "dismissed — gate cleared")
