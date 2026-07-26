@@ -150,19 +150,20 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
     var onWillCloseFired = false
 
     /// Chrome width delta (window frame width − content width) for hidden-mode sizing.
-    /// Snapshotted once in `popoverWillShow`. `nil` outside a session.
+    /// Snapshotted once in `popoverWillShow`. `nil` outside an open session (cleared in `popoverDidClose`).
     var hiddenChromeW: CGFloat?
     /// Chrome height delta (window frame height − content height) for hidden-mode sizing.
-    /// Snapshotted once in `popoverWillShow`. `nil` outside a session.
+    /// Snapshotted once in `popoverWillShow`. `nil` outside an open session (cleared in `popoverDidClose`).
     var hiddenChromeH: CGFloat?
-    /// Button center X in screen coordinates for the hidden-mode session.
-    /// Snapshotted once in `popoverWillShow`. `nil` outside a hidden-mode session.
+    /// Button center X in screen coordinates, snapshotted once in `popoverWillShow`.
+    /// `nil` outside an open session (cleared in `popoverDidClose`).
     var hiddenButtonMidX: CGFloat?
     /// Window origin Y (bottom edge, AppKit flipped coords) snapshotted once in
     /// `popoverWillShow`. Used as a fixed constant for all Path 3 `setFrame` calls
     /// so the panel top edge stays pinned under the button for the entire session.
+    /// Populated on every first open (visible or hidden mode); read only by Path 3
+    /// (hidden mode). `nil` outside an open session (cleared in `popoverDidClose`).
     /// ❌ NEVER recompute from window.frame mid-session — that drifts.
-    /// `nil` outside a hidden-mode session.
     var hiddenWindowY: CGFloat?
 
     // MARK: - Init

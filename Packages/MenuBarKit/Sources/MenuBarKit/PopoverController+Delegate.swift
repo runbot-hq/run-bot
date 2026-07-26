@@ -93,6 +93,12 @@ extension MBKPopoverController: NSPopoverDelegate {
         setButtonHighlight(false)
         stopEventMonitor()
         isShownSentinel = nil
+        // DEFENSIVE: isOpening is lowered in the onDidShow Task before any close
+        // can occur, so this reset is structurally unreachable under normal flow.
+        // Kept as a safety net against any future path (e.g. show() failing silently,
+        // or a MBK change that skips onDidShow) where isOpening could be left dirty.
+        // ❌ NEVER remove on the grounds that it is "unreachable" — that reasoning
+        //    is load-bearing on the current open/close ordering remaining stable.
         isOpening = false
         hiddenChromeW = nil
         hiddenChromeH = nil
