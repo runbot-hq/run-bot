@@ -36,6 +36,14 @@ public protocol MBKPopoverControllerProtocol: AnyObject {
     /// has a window by the time this fires. Do not write timing-sensitive code
     /// that assumes a full SwiftUI render pass has completed.
     /// Use this to restore `isSheetPresented` and any state that arms the overlay gate.
+    ///
+    /// ⚠️ OVERLAY GATE TIMING: if you set a property here that drives `.mbkSheet`
+    /// (e.g. `isSheetPresented = true`), the overlay gate (`hasActiveOverlay`) is NOT
+    /// armed immediately. `MBKAnchoredSheetModifier.onChange` fires on the *next*
+    /// SwiftUI render pass — one additional hop after this callback. An outside click
+    /// that arrives in that gap will see `hasActiveOverlay = false` and call
+    /// `performClose` instead of `forceClose`. Treat `onDidShow` state restoration as
+    /// best-effort for instant-dismiss scenarios immediately after open.
     var onDidShow: (() -> Void)? { get set }
 
     /// Called before any teardown whenever the popover closes.

@@ -322,6 +322,13 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
 
     /// Closes all child windows of the panel and calls `popover.performClose`.
     /// Used when an outside click arrives while a non-file-picker sheet is active.
+    ///
+    /// NOTE: `hasFilePickerOverlay` is intentionally NOT cleared here.
+    /// The event monitor only reaches `forceClose()` when `hasFilePickerOverlay` is
+    /// false — the `if hasFilePicker` branch fires first and returns early.
+    /// This path is therefore structurally unreachable while `hasFilePickerOverlay`
+    /// is true. `popoverDidClose` is the authoritative reset point for all gate
+    /// flags and always fires after `performClose()`.
     private func forceClose() {
         fireOnWillClose(wasForced: true)
         mbkLog("PopoverController", "forceClose -- clearing gate")
@@ -610,6 +617,11 @@ extension MBKPopoverController: NSPopoverDelegate {
         setButtonHighlight(false)
         stopEventMonitor()
         // Reset all per-session state so the next open starts clean.
+        // NOTE: this is the authoritative reset point for ALL gate flags, including
+        // hasFilePickerOverlay. forceClose() only clears hasActiveOverlay because
+        // it is structurally unreachable while hasFilePickerOverlay is true —
+        // the event monitor's hasFilePicker branch returns early before forceClose.
+        // Both flags are always cleared here regardless of which close path fired.
         anchorY = nil
         hiddenChromeW = nil
         hiddenChromeH = nil
