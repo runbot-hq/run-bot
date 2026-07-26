@@ -28,23 +28,19 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
     nonisolated(unsafe) private var workspaceObserver: NSObjectProtocol?
     // Captured once in popoverWillShow.
     // anchorPoint.y = window.frame.maxY — the fixed top-edge used by applyContentSize.
-    // anchorPoint.x is retained for diagnostics only; NOT used for repositioning.
+    // anchorPoint.x is retained for diagnostics only.
     // nil until first show; cleared on popoverDidClose.
     private var anchorPoint: NSPoint?
     private var onWillCloseFired = false
 
-    /// The screen-space horizontal centre of the status item button, captured on
-    /// every successful WRITE+REPOSITION while the menubar is visible.
-    /// Used in the hidden-mode WRITE+RESTORE path to recompute x correctly after
-    /// a width change: x = lastKnownButtonMidX - window.frame.width / 2.
-    /// Storing midX (not the full origin) means the formula stays correct even
-    /// when contentSize.width changes between the last visible write and the
-    /// hidden-mode restore. Cleared on popoverDidClose.
-    private var lastKnownButtonMidX: CGFloat?
-
-    /// Buffered content size when the popover closed while the menubar was hidden.
-    /// Flushed in popoverWillShow so AppKit uses the correct size on next open.
+    /// Content size buffered while the menubar is hidden.
+    /// Flushed either when the menubar reappears (menubarPollTimer fires)
+    /// or in popoverWillShow if the popover was closed while hidden.
     private var pendingContentSize: CGSize?
+
+    /// Timer that polls isMenuBarHidden at 0.1s intervals while the popover
+    /// is shown and a pendingContentSize is waiting. Invalidated on flush or close.
+    nonisolated(unsafe) private var menubarPollTimer: Timer?
 
     public init<Content: View>(
         rootView: Content,
@@ -90,9 +86,7 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
     // MARK: - Auto-hide menubar guard
 
     /// Returns true when the macOS auto-hide menubar is currently hidden (slid off-screen).
-    ///
-    /// WHY > and not >=:
-    /// buttonY == screenH is the normal resting position (flush with screen top).
+    /// WHY > and not >=: buttonY == screenH is the normal resting position.
     /// Only buttonY > screenH means the menubar has slid off-screen.
     /// screenH < 0 signals a nil screen — treat as hidden.
     private var isMenuBarHidden: Bool {
@@ -103,6 +97,58 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
         let hidden = screenH < 0 || buttonY > screenH
         mbkLog("PopoverController", "isMenuBarHidden=\(hidden) buttonY=\(buttonY) screenH=\(screenH)")
         return hidden
+    }
+
+    // MARK: - Menubar poll timer
+
+    private func startMenubarPollTimer() {
+        guard menubarPollTimer == nil else { return }
+        let timer = Timer(timeInterval: 0.1, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.menubarPollTick()
+            }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        menubarPollTimer = timer
+        mbkLog("PopoverController", "menubarPollTimer started")
+    }
+
+    private func stopMenubarPollTimer() {
+        menubarPollTimer?.invalidate()
+        menubarPollTimer = nil
+        mbkLog("PopoverController", "menubarPollTimer stopped")
+    }
+
+    private func menubarPollTick() {
+        guard popover.isShown,
+              let pending = pendingContentSize,
+              let window = hostingController.view.window,
+              let anchor = anchorPoint else {
+            stopMenubarPollTimer()
+            return
+        }
+        // Still hidden — keep waiting.
+        guard let button = statusItem.button,
+              let buttonWin = button.window else {
+            stopMenubarPollTimer()
+            return
+        }
+        let screenH = buttonWin.screen.map { $0.frame.height } ?? -1
+        let buttonY = buttonWin.frame.maxY
+        guard screenH >= 0, buttonY <= screenH else { return }
+
+        // Menubar is back — flush the pending size.
+        stopMenubarPollTimer()
+        pendingContentSize = nil
+        popover.contentSize = pending
+        let buttonMidX = buttonWin.frame.minX + button.frame.midX
+        let newOrigin = NSPoint(
+            x: buttonMidX - window.frame.width / 2,
+            y: anchor.y - window.frame.height
+        )
+        window.setFrameOrigin(newOrigin)
+        mbkLog("PopoverController",
+               "menubarPollTick -- FLUSH+REPOSITION (\(pending.width),\(pending.height)) buttonMidX=\(buttonMidX) origin=\(newOrigin)")
     }
 
     // MARK: - Private setup helpers
@@ -256,32 +302,25 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
         }
 
         if isMenuBarHidden {
-            // Write the size so the popover resizes to match content.
-            // Then immediately restore position using lastKnownButtonMidX so the
-            // arrow stays centred over the button regardless of width changes.
-            //
-            // WHY buttonMidX not raw origin.x:
-            //   origin.x was computed for the previous window width. If width changes
-            //   (e.g. 642 → 480) the old x no longer centres the window — the arrow
-            //   drifts to the right corner. Recomputing from buttonMidX each time
-            //   gives the correct x for the new width, same formula as the visible path.
-            popover.contentSize = clamped
-            if let midX = lastKnownButtonMidX {
-                let restoredOrigin = NSPoint(
-                    x: midX - window.frame.width / 2,
-                    y: anchor.y - window.frame.height
-                )
-                window.setFrameOrigin(restoredOrigin)
-                mbkLog("PopoverController",
-                       "applyContentSize -- menubar hidden, WRITE+RESTORE (\(clamped.width),\(clamped.height)) buttonMidX=\(midX) origin=\(restoredOrigin)")
-            } else {
-                mbkLog("PopoverController",
-                       "applyContentSize -- menubar hidden, WRITE (\(clamped.width),\(clamped.height)) no lastKnownButtonMidX yet")
-            }
+            // Buffer the size. Writing contentSize while the button is off-screen
+            // causes AppKit to bake the arrow position against the off-screen button
+            // before we can correct it with setFrameOrigin — arrow ends up top-right.
+            // Instead we defer the write until the menubar reappears (poll timer),
+            // at which point we do a normal write+reposition with the button on-screen.
+            pendingContentSize = clamped
+            startMenubarPollTimer()
+            mbkLog("PopoverController",
+                   "applyContentSize -- menubar hidden, BUFFERED (\(clamped.width),\(clamped.height))")
             return
         }
 
         // Menubar visible — normal path.
+        // Stop any running poll timer since we're writing live.
+        if menubarPollTimer != nil {
+            stopMenubarPollTimer()
+            pendingContentSize = nil
+        }
+
         popover.contentSize = clamped
 
         guard let button = statusItem.button,
@@ -296,7 +335,6 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
             y: anchor.y - window.frame.height
         )
         window.setFrameOrigin(newOrigin)
-        lastKnownButtonMidX = buttonMidX
         mbkLog("PopoverController",
                "applyContentSize -- WRITE+REPOSITION (\(clamped.width),\(clamped.height)) buttonMidX=\(buttonMidX) w=\(window.frame.width) origin=\(newOrigin)")
     }
@@ -371,6 +409,7 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
         if let monitor = eventMonitor {
             NSEvent.removeMonitor(monitor)
         }
+        menubarPollTimer?.invalidate()
     }
 }
 
@@ -382,6 +421,7 @@ extension MBKPopoverController: NSPopoverDelegate {
             return
         }
 
+        // Flush any size buffered while closed+hidden.
         if let pending = pendingContentSize {
             popover.contentSize = pending
             mbkLog("PopoverController", "popoverWillShow -- flushed pendingContentSize (\(pending.width),\(pending.height))")
@@ -403,8 +443,8 @@ extension MBKPopoverController: NSPopoverDelegate {
         fireOnWillClose(wasForced: false)
         setButtonHighlight(false)
         stopEventMonitor()
+        stopMenubarPollTimer()
         anchorPoint = nil
-        lastKnownButtonMidX = nil
         pendingContentSize = nil
         overlayGate.hasActiveOverlay = false
         overlayGate.hasFilePickerOverlay = false
