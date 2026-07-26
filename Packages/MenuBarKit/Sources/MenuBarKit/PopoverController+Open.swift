@@ -50,8 +50,8 @@ extension MBKPopoverController {
     }
 
     /// Shows the popover anchored to the status-bar button.
-    /// Handles pre-show `contentSize` seeding, `onWillShow`/`onDidShow` callbacks,
-    /// and post-show X correction for the hidden-menubar case.
+    /// Handles `onWillShow`/`onDidShow` callbacks and post-show X correction
+    /// for the hidden-menubar case.
     func openPopover() {
         guard let button = statusItem.button else { return }
         mbkLog("PopoverController", "openPopover -- calling onWillShow")
@@ -98,20 +98,11 @@ extension MBKPopoverController {
             mbkLog("PopoverController", "openPopover -- lastKnownAnchorX updated to \(anchorX)")
         }
 
-        // Pre-show fittingSize write — seeds contentSize before show().
-        // GUARDED: skip when menubar hidden — writing against off-screen button
-        // causes AppKit to place the window at a bad X on open.
-        let fitting = hostingController.view.fittingSize
-        if fitting.width > 0, fitting.height > 0 {
-            if menuBarHidden {
-                mbkLog("PopoverController", "openPopover -- menubar hidden, SKIP pre-show contentSize write (\(fitting.width),\(fitting.height))")
-            } else {
-                popover.contentSize = clamp(fitting)
-                mbkLog("PopoverController", "openPopover -- pre-show contentSize written (\(clamp(fitting).width),\(clamp(fitting).height))")
-            }
-        }
-
         guard let rect = positioningRect(for: button) else { return }
+        // Raise isOpening before show() so any applyContentSize calls that fire
+        // between now and the onDidShow Task are suppressed. The onDidShow Task
+        // lowers it after committing the authoritative geometry.
+        isOpening = true
         popover.show(relativeTo: rect, of: button, preferredEdge: .minY)
         NSApp.activate(ignoringOtherApps: true)
         mbkLog("PopoverController", "popover shown")
@@ -137,6 +128,10 @@ extension MBKPopoverController {
 
         Task { @MainActor in
             mbkLog("PopoverController", "onDidShow Task hop -- calling onDidShow")
+            // Lower isOpening before onDidShow fires so that any applyContentSize
+            // call triggered by onDidShow (e.g. WRITE+REANCHOR from PanelMainView's
+            // geometry pass) proceeds normally and commits the correct geometry.
+            self.isOpening = false
             self.onDidShow?()
             mbkLog("PopoverController", "onDidShow fired")
         }
@@ -171,48 +166,11 @@ extension MBKPopoverController {
     }
 
     /// Closes all child windows of the panel and calls `popover.performClose`.
-    /// Used when an outside click arrives while a non-file-picker sheet is active.
-    ///
-    /// NOTE: `hasFilePickerOverlay` is intentionally NOT cleared here.
-    /// The event monitor only reaches `forceClose()` when `hasFilePickerOverlay` is
-    /// false — the `if hasFilePicker` branch fires first and returns early.
-    /// This path is therefore structurally unreachable while `hasFilePickerOverlay`
-    /// is true. `popoverDidClose` is the authoritative reset point for all gate
-    /// flags and always fires after `performClose()`.
-    ///
-    /// ORDERING SAFETY — why performClose rejection is structurally impossible here:
-    ///   forceClose() clears `overlayGate.hasActiveOverlay = false` BEFORE calling
-    ///   `performClose(nil)`. Therefore `popoverShouldClose` will return `true` when
-    ///   AppKit consults it, and the close will proceed. The `onWillCloseFired` guard
-    ///   in `fireOnWillClose` is the sole protection against a double-fire if this
-    ///   ordering is ever disturbed — do not reorder the gate clear and performClose
-    ///   call without also reviewing that guard.
     func forceClose() {
         fireOnWillClose(wasForced: true)
         mbkLog("PopoverController", "forceClose -- clearing gate")
         overlayGate.hasActiveOverlay = false
         if let pw = panelWindow {
-            // WHY WE DO NOT GUARD child ITERATION WITH child.isVisible:
-            //   The TOCTOU race in MBKSheetAnchorTask (see AnchoredSheet.swift Known
-            //   Limitations) can leave a dangling entry in pw.childWindows after the
-            //   sheet has already been dismissed. A reviewer may be tempted to add
-            //   `guard child.isVisible else { continue }` to skip it.
-            //
-            //   Do NOT do this. The reasons:
-            //   1. `isVisible` returns `true` on a window that is animating out — the
-            //      real sheet and a ghost entry are indistinguishable by `isVisible`
-            //      alone at the moment forceClose fires.
-            //   2. If the real sheet window happens to be `isVisible == false` (already
-            //      hidden by SwiftUI before forceClose is called), skipping it would
-            //      leave it attached as a child — the popover would fail to close or
-            //      the orphaned window would leak.
-            //   3. `addChildWindow(_:ordered:)` and `removeChildWindow(_:)` on an
-            //      already-closing window are no-ops on macOS, so iterating and
-            //      closing all children unconditionally is always safe.
-            //   The correct fix for the ghost-entry problem, if it ever causes an
-            //   observable issue, is to track the sheet NSWindow reference directly
-            //   in MBKSheetAnchorTask and expose it for targeted removal — not to use
-            //   `isVisible` as a heuristic discriminator here.
             for child in (pw.childWindows ?? []) {
                 mbkLog("PopoverController", "forceClose -- closing child #\(child.windowNumber)")
                 pw.removeChildWindow(child)

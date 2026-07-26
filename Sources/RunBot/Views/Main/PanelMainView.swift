@@ -126,7 +126,8 @@ struct PanelMainView: View {
     @State private var displayTickTask: Task<Void, any Error>?
     /// Height of the ScrollView frame, driven by the content GeometryReader (RULE 5).
     /// Starts at 0 (no constraint) until the first measurement fires on appear.
-    /// Reset to 0 whenever willShowToken changes — see onChange(of: panelVisibilityState.willShowToken).
+    /// Reset to 0 in the isOpen → false branch so it's cleared while closed,
+    /// before the next open triggers a fresh unconstrained measurement.
     @State private var scrollViewHeight: CGFloat = 0
     /// Measured natural height of PanelHeaderView. Captured once on appear (RULE 12).
     /// Used to subtract from the cap so the full panel never overflows the screen.
@@ -337,7 +338,25 @@ struct PanelMainView: View {
             #if DEBUG
             log("【PanelMainView】panelVisibilityState.isOpen → \(newOpen) menuBarHidden=\(isMenuBarHidden)", category: .panel)
             #endif
-            if newOpen { systemStats.start() } else { systemStats.stop() }
+            if newOpen {
+                // scrollViewHeight was already reset to 0 in the close branch below,
+                // so the > 0 ? ... : nil guard in actionsSectionScrollable handles the
+                // first layout pass unconstrained. Do NOT reset here — resetting at
+                // open time causes a mid-session re-layout that churns the reported
+                // width through MBKPopoverController, triggering spurious
+                // WRITE+REANCHOR calls that jump the header. See #2279.
+                systemStats.start()
+            } else {
+                // Reset scrollViewHeight at close time, while the popover is closed
+                // and no layout passes are active. This clears any stale value written
+                // during a dismissed-window layout pass (settings→main remount inside
+                // onWillClose teardown) before the next open, not during it.
+                // The > 0 ? ... : nil guard in actionsSectionScrollable removes the
+                // frame constraint for the first unconstrained pass on next open,
+                // letting the content GR re-measure and write the correct value. See #2279.
+                scrollViewHeight = 0
+                systemStats.stop()
+            }
         }
         // Reset the visible row count only when the list shrinks (e.g. a runner is removed),
         // not on every poll update — avoids snapping the user back mid-scroll.
