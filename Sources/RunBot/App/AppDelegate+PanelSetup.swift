@@ -125,8 +125,8 @@ extension AppDelegate {
         // onWillClose — fires before any teardown on both normal and force-close paths.
         // wasForced=true: user clicked outside while a sheet was open — snapshot
         //   nav and sheet state so onDidShow can respawn them on next open.
-        // wasForced=false: user toggled the icon or pressed Escape — clear state
-        //   so next open starts fresh at main.
+        // wasForced=false: user toggled the icon or pressed Escape — delegate to
+        //   closePanel() which is the canonical normal-close state-reset path.
         //
         // ⚠️ KNOWN LIMITATION — isTransientHide state leak:
         // When wasForced=true, panelVisibilityState.isTransientHide is set to true here
@@ -148,8 +148,7 @@ extension AppDelegate {
                 panelSheetState.captureTransientHideState()
                 panelVisibilityState.isTransientHide = true
             } else {
-                appState.savedNavState = nil
-                panelSheetState.clearRunnerSheet()
+                closePanel()
             }
             panelVisibilityState.isOpen = false
         }
