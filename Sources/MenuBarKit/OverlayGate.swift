@@ -14,39 +14,21 @@
 //      MBKAnchoredSheet, mbkOpenFilePicker, and mbkAlert manage it automatically.
 //
 // WHY A SEPARATE OBJECT (not a Bool on the host's AppState):
-//   The gate is MenuBarKit's concern, not the host app's. The host app should
-//   not need to know about it at all — MBKAnchoredSheet, MBKFilePicker, and
-//   MBKAlertModifier manage it automatically. The host's AppState can observe
-//   it if needed, but does not own it.
+//   The gate is MenuBarKit's concern, not the host app's.
 //
 // WHY A SINGLE BOOL (not a reference-counted integer):
 //   In normal usage only one overlay (sheet OR file picker) can be live at a
-//   time over the popover — a sheet blocks navigation and a file picker
-//   attaches to the same window, so they cannot both be open simultaneously
-//   through the supported API surface. A single bool is therefore sufficient.
-//
-//   The one exception is an alert presented while a sheet is open: alerts are
-//   system modals that AppKit manages independently of the gate. MBKAlertModifier
-//   handles this carefully — it records whether the gate was already armed at
-//   alert-appear time, and only clears it on dismiss if no concurrent overlay
-//   was live. See Alert.swift for full rationale.
-//
+//   time. The one exception is an alert presented while a sheet is open —
+//   see Alert.swift for how MBKAlertModifier handles that case safely.
 //   If a future use-case genuinely requires concurrent overlays beyond this,
-//   replace the Bool with an Int and use increment/decrement rather than
-//   set/clear.
+//   replace the Bool with an Int and use increment/decrement.
 //
 // WHY hasActiveOverlay IS public internal(set) var:
-//   All write sites (MBKAnchoredSheet, mbkOpenFilePicker, MBKAlertModifier) live
-//   inside the MenuBarKit module. internal(set) scopes the setter to the module,
-//   which is exactly the right boundary: host apps get a read-only public view,
-//   and all managed write sites within MenuBarKit can mutate it freely.
-//
-//   NOTE: private(set) was used briefly but is wrong here — private(set)
-//   scopes the setter to the declaring type's body (and same-file extensions
-//   only), not to the module. That would make the write sites in
-//   AnchoredSheet.swift, FilePicker.swift, and Alert.swift compile errors.
-//   internal(set) is the correct Swift access modifier for module-scoped
-//   write access.
+//   All write sites live inside the MenuBarKit module. internal(set) scopes
+//   the setter to the module — host apps get a read-only public view.
+//   NOTE: private(set) would be wrong here — it scopes the setter to the
+//   declaring type only, making write sites in AnchoredSheet.swift,
+//   FilePicker.swift, and Alert.swift compile errors.
 
 import Foundation
 import Observation
@@ -55,30 +37,36 @@ import Observation
 /// Managed automatically by `MBKAnchoredSheet`, `mbkOpenFilePicker`, and `mbkAlert`;
 /// read by `MBKPopoverController.popoverShouldClose` to block dismiss.
 ///
-/// ❌ Host apps must not write `hasActiveOverlay` directly in production.
-/// Use `mbkSheet`, `mbkOpenFilePicker`, and `mbkAlert`.
+/// ❌ Host apps must not write `hasActiveOverlay` or `hasFilePickerOverlay` directly.
+/// Use `.mbkSheet`, `mbkOpenFilePicker`, and `.mbkAlert` instead.
 @Observable
 @MainActor
 public final class MBKOverlayGate {
     /// `true` while any sheet, file picker, or alert is live over the popover.
     /// Managed automatically by `MBKAnchoredSheet`, `mbkOpenFilePicker`, and `MBKAlertModifier`.
     /// Read by `MBKPopoverController.popoverShouldClose`.
-    /// Setter is `internal(set)` — only `MenuBarKit` write sites may mutate this.
-    public internal(set) var hasActiveOverlay: Bool = false
-
-    /// Creates a new gate with no active overlay.
-    public init() {}
-
-    /// ⚠️ Deprecated — use `.mbkAlert()` modifier instead.
-    ///
-    /// Spike-only escape hatch retained for source compatibility while
-    /// call sites migrate to `mbkAlert`. Will be removed once all callers
-    /// are updated.
-    ///
-    /// Direct mutation does not compose safely with concurrent overlays;
-    /// `MBKAlertModifier` handles the concurrent-sheet case correctly.
-    @available(*, deprecated, renamed: "mbkAlert", message: "Use the .mbkAlert() ViewModifier instead of mbkSetOverlay(). See Alert.swift.")
-    public func mbkSetOverlay(_ active: Bool) {
-        hasActiveOverlay = active
+    /// Setter is `internal(set)` — only MenuBarKit write sites may mutate this.
+    public internal(set) var hasActiveOverlay: Bool = false {
+        didSet {
+            mbkLog("OverlayGate", "hasActiveOverlay: \(oldValue) → \(self.hasActiveOverlay)")
+        }
     }
+
+    /// `true` specifically when a file picker panel is open.
+    /// Used by `MBKPopoverController`'s event monitor to distinguish an outside
+    /// click aimed at the picker from a genuine dismiss gesture, even when a
+    /// sheet child window is simultaneously present.
+    /// Setter is `internal(set)` — only `mbkOpenFilePicker` may mutate this.
+    public internal(set) var hasFilePickerOverlay: Bool = false {
+        didSet {
+            mbkLog("OverlayGate", "hasFilePickerOverlay: \(oldValue) → \(self.hasFilePickerOverlay)")
+        }
+    }
+
+    /// Creates a new gate with all overlays inactive.
+    ///
+    /// No `mbkLog` here — `init` fires before the host can install a custom
+    /// `mbkLogHandler`. Both flags start `false`; the `didSet` observers capture
+    /// every subsequent state change.
+    public init() {}
 }

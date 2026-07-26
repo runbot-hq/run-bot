@@ -1,39 +1,57 @@
 // AppDelegate.swift
 // MenuBarKitExample
-//
-// Thin consumer of MenuBarKit. Owns only:
-//   - AppState (app-specific data)
-//   - MBKOverlayGate (passed into MenuBarKit)
-//   - MBKPopoverController (configured with root view + gate)
-//
-// Nothing about popover lifecycle, monitors, or window management lives here.
 
 import AppKit
 import MenuBarKit
 import SwiftUI
 
-/// Application delegate. Creates the shared `AppState` and `MBKOverlayGate`,
-/// then hands them to `MBKPopoverController` for the full menu-bar lifecycle.
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    /// Wires the popover controller on launch.
     func applicationDidFinishLaunching(_ notification: Notification) {
+        mbkLog("AppDelegate", "applicationDidFinishLaunching")
         popoverController = MBKPopoverController(
             rootView: RootView()
                 .environment(appState)
                 .environment(overlayGate),
             overlayGate: overlayGate,
-            symbolName: "flask.fill"
+            symbolName: "flask.fill",
+            minWidth: 200,
+            maxWidth: 480,
+            maxHeight: 600
         )
+        mbkLog("AppDelegate", "popoverController created")
         popoverController.setup()
+
+        popoverController.onWillShow = { [weak self] in
+            guard let self, let snap = lastSession else { return }
+            mbkLog("AppDelegate", "onWillShow -- restoring route=\(snap.route)")
+            appState.route = snap.route
+        }
+
+        popoverController.onDidShow = { [weak self] in
+            guard let self, let snap = lastSession else { return }
+            mbkLog("AppDelegate", "onDidShow -- restoring isSheetPresented=\(snap.isSheetPresented)")
+            lastSession = AppState.SessionSnapshot(route: snap.route, isSheetPresented: false)
+            appState.isSheetPresented = snap.isSheetPresented
+        }
+
+        popoverController.onWillClose = { [weak self] wasForced in
+            guard let self else { return }
+            let snap = appState.saveSnapshot()
+            lastSession = snap
+            mbkLog("AppDelegate", "onWillClose wasForced=\(wasForced) -- session saved: route=\(snap.route) sheet=\(snap.isSheetPresented)")
+            if wasForced {
+                // Reset live sheet state so SwiftUI tears down the sheet window
+                // before forceClose() closes the child window and performClose fires.
+                appState.isSheetPresented = false
+            }
+        }
+
+        mbkLog("AppDelegate", "setup complete")
     }
 
-    // MARK: - Private
-
-    /// App-specific observable state passed into views via SwiftUI environment.
     private let appState = AppState()
-    /// Shared overlay gate — MenuBarKit reads and writes this; the example never touches it directly.
     private let overlayGate = MBKOverlayGate()
-    /// The MenuBarKit controller that owns NSPopover, NSStatusItem, and all observers.
     private var popoverController: MBKPopoverController!
+    private var lastSession: AppState.SessionSnapshot?
 }

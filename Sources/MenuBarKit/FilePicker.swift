@@ -1,141 +1,133 @@
 // FilePicker.swift
 // MenuBarKit
 //
-// Presents NSOpenPanel anchored to the correct window (popover or sheet child)
-// via beginSheetModal, and manages overlayGate.hasActiveOverlay for the
-// duration of the panel's lifetime.
+// WHY panel.begin{} INSTEAD OF beginSheetModal:
+//   beginSheetModal attaches NSOpenPanel as an AppKit sheet to the popover
+//   hosting window. SwiftUI writes true back into any live .sheet(isPresented:)
+//   binding on that window — corrupting isSheetPresented state.
 //
-// WHY beginSheetModal INSTEAD OF runModal:
-//   NSOpenPanel.runModal() blocks the main thread and ignores the popover.
-//   beginSheetModal attaches the panel as a sheet to a specific window,
-//   keeping it visually anchored.
+// WHY panel.level = popoverWindow.level + 1, NOT addChildWindow:
+//   addChildWindow causes two problems:
+//   1. Clicking outside the app boundary dismisses the child panel.
+//   2. hasSheetChildWindow counts childWindows and triggers forceClose.
+//   .floating (level 3) is below the popover's nonactivatingPanel level.
+//   Reading the popover's actual level and adding 1 guarantees the panel
+//   is always on top.
 //
-// WHY hasActiveOverlay IS SET BEFORE beginSheetModal:
-//   popoverShouldClose can fire at any point, including during the brief window
-//   between when we decide to open the panel and when beginSheetModal returns.
-//   Setting the gate before the call ensures the dismiss gate is armed for the
-//   entire panel lifetime with no race.
+// WHY panel.makeKeyAndOrderFront AFTER panel.begin (AND WHY THE TIMING IS SAFE):
+//   panel.begin{} synchronously adds the panel to the window server and puts
+//   it on screen before returning. The completion block fires later — only
+//   when the user dismisses the panel. makeKeyAndOrderFront(nil) is therefore
+//   called after the panel already has a valid window number and is visible;
+//   there is no run-loop ordering hazard here. The panel is on screen, just
+//   without key focus — because the nonactivatingPanel popover retains key
+//   status after begin returns. makeKeyAndOrderFront transfers key focus to
+//   the picker so the user sees it immediately. This was verified against the
+//   alternative of relying solely on panel.level; level alone does not transfer
+//   key focus on macOS 14+.
+//   NSApp.activate is NOT called here — it would steal app focus from other
+//   apps in menu-bar-only scenarios where the app has no Dock presence.
 //
-//   If beginSheetModal itself fails silently (rare edge case), the gate stays
-//   true for the session. This is safe: MBKPopoverController.popoverDidClose
-//   resets the gate unconditionally as a safety net, so the worst outcome is
-//   that dismiss is blocked until the user closes and reopens the popover.
+// WHY panel.orderOut AFTER COMPLETION:
+//   NSOpenPanel windows accumulate in NSApp.windows without explicit orderOut.
 //
-// WINDOW RESOLUTION:
-//   - .popover context: the nonactivatingPanel window (the popover's own window).
-//   - .sheet context: the visible child window that MBKAnchoredSheet attached
-//     via addChildWindow. Falls back to the popover window if not found, with
-//     a runtime WARNING log. See SILENT FALLBACK NOTE below.
+// WHY gateWasAlreadyArmed / CONCURRENT OVERLAY SAFETY:
+//   If called while a sheet is already open (gate=true), we must not clear
+//   the gate on completion — the sheet is still holding it. We snapshot
+//   the gate state before opening and only clear if we were the ones who
+//   armed it. Mirrors the pattern in MBKAlertModifier.
 //
-// SILENT FALLBACK NOTE (.sheet case):
-//   If the sheet child window is not yet attached when mbkOpenFilePicker is
-//   called (e.g. fast-tap sequence before MBKAnchoredSheet has completed its
-//   two-hop anchor), the .sheet case falls back to the popover window. In the
-//   spike this is acceptable — the picker still opens, just not sheet-anchored.
-//   In the main app this is a silent UX degradation the user may notice.
+// WHY hasFilePickerOverlay:
+//   When a picker is open inside a sheet, the sheet child window is already
+//   attached to the popover. The event monitor sees hwChildren=1 and calls
+//   forceClose on every outside click — including clicks inside the picker.
+//   hasFilePickerOverlay lets the monitor know a picker is active and skip
+//   forceClose even when a sheet child is present.
 //
-//   TODO (migration PR): decide explicitly between two strategies and document
-//   the choice in the PR description:
-//     A. Silent fallback (current): log WARNING, open on popover, continue.
-//        Acceptable if fast-tap is rare and the degraded UX is tolerable.
-//     B. Abort: log WARNING, skip opening, return nil to completion.
-//        Safer — no picker opens in a degraded state, caller can retry.
-//   Leaning toward B (abort) to avoid silent UX degradation, but the call
-//   site in LocalRunnersView must handle the nil completion gracefully.
+// WHY Task { @MainActor } WRAPPING panel.begin COMPLETION:
+//   NSOpenPanel.begin delivers its completion on the main thread (documented)
+//   but the closure is not @MainActor-isolated by the type system. Wrapping in
+//   Task { @MainActor } provides compiler-enforced actor isolation for all
+//   state mutations that follow, including panel.orderOut, gate clears, and
+//   the completion callback.
 //
-// beginSheetModal COMPLETION — WHY Task { @MainActor }:
-//   NSOpenPanel.beginSheetModal delivers its completion on the main thread, but
-//   this guarantee is informal (not expressed in the Swift type system). The
-//   completion mutates overlayGate.hasActiveOverlay (@MainActor-isolated) and
-//   calls back into caller-supplied code that may also touch actor-isolated state.
-//   Wrapping in Task { @MainActor } makes the actor hop explicit and
-//   compiler-enforced, rather than relying on AppKit's undocumented delivery
-//   guarantee. This is the correct Swift 6 pattern.
+// WHY DEFERRED GATE CLEAR (DispatchQueue.main.async INSIDE Task { @MainActor }):
+//   The global mouse-down monitor fires on the same runloop turn that dismisses
+//   the panel. Clearing hasActiveOverlay synchronously — or even at the next
+//   actor turn — lets the monitor see false on that delivery and call
+//   performClose. One DispatchQueue.main.async hop defers the clear past the
+//   monitor's event delivery. The two hops serve different purposes: the Task
+//   hop enforces actor isolation; the GCD hop defers the gate clear past AppKit
+//   event delivery.
 //
-// sheetChildWindow PREDICATE — WHY it is intentionally weak:
-//   The predicate `childWindows?.first(where: { $0.isVisible })` selects the
-//   first visible child window. This is correct for the spike because
-//   MBKPopoverController has at most one child window at any time.
+// WHY completion IS CALLED OUTSIDE THE GCD HOP:
+//   The GCD hop's sole responsibility is deferring the gate flag clears past
+//   the event monitor's run-loop turn. completion is declared @MainActor and
+//   must be called with compiler-enforced actor isolation — which the GCD
+//   closure does not provide (main thread at runtime, but not statically
+//   verified). completion is therefore called in the Task { @MainActor } scope
+//   after the GCD hop has been *queued* (guaranteeing the gate clears are
+//   deferred) but before it has *executed*. This means completion fires with
+//   the gate flags still true on the current run-loop turn — which is correct:
+//   the popover should not close on the same turn as completion. The gate
+//   clears on the next turn via the GCD hop, allowing normal popover-close
+//   behaviour to resume.
 //
-//   It is intentionally NOT strengthened to match by styleMask or window class
-//   for two reasons:
-//
-//   1. NSOpenPanel borderless-window race: NSOpenPanel presented via
-//      beginSheetModal also creates a borderless window. During a
-//      close-then-immediately-reopen sequence, an NSOpenPanel window could be
-//      borderless+key at the moment the predicate fires — a stronger borderless
-//      match would hit it instead of the sheet window. Using isVisible on the
-//      childWindows list (not NSApp.windows) scopes the search to windows
-//      already parented to the popover, which the NSOpenPanel window is not
-//      at that point in its lifecycle.
-//
-//   2. NSHostingController<AnyView> was tried as a stronger discriminator and
-//      does not match SwiftUI's internal sheet window — see AnchoredSheet.swift
-//      SHEET WINDOW DISCRIMINATOR for the full history.
-//
-//   TODO (migration PR): When porting to the main app, strengthen this predicate
-//   further — the main app may have multiple visible child windows simultaneously
-//   (e.g. during sheet + NSOpenPanel overlap). Use the same discriminator
-//   settled on for AnchoredSheet.anchorSheetWindow() so both lookups stay in sync.
+// NOTE ON CALLING mbkOpenFilePicker FROM WITHIN completion:
+//   NSOpenPanel is modal — it blocks all user interaction until dismissed.
+//   A second mbkOpenFilePicker call cannot be triggered by the user while a
+//   picker is open, so calling it from within completion is not a practical
+//   concern. The gateWasAlreadyArmed snapshot exists to handle a sheet being
+//   open concurrently (a legitimate case), not to guard against two pickers
+//   coexisting (which macOS prevents at the AppKit level).
 
 import AppKit
 
-/// Specifies which window context the file picker should attach to.
-public enum MBKPickerTarget {
-    /// Attach the picker to the popover window directly.
-    case popover
-    /// Attach the picker to the sheet child window (falls back to popover if absent).
-    case sheet
-}
-
-/// Opens a directory picker anchored to the appropriate window.
-/// The completion closure is called on the main actor with the selected URL,
-/// or nil if the user cancelled.
+/// Presents a directory-selection `NSOpenPanel` anchored above the popover,
+/// with automatic overlay-gate management.
+///
+/// The panel floats one window level above the popover's `nonactivatingPanel`
+/// window so it is always visible. Key focus is transferred via
+/// `makeKeyAndOrderFront` after the panel is shown (level alone does not
+/// transfer key focus on macOS 14+).
+///
+/// The overlay gate is armed for the full lifetime of the panel and cleared on
+/// the next run-loop turn after the panel is dismissed, preventing a spurious
+/// outside-click dismiss. See the file header for full design rationale.
+///
+/// - Note: Unlike `.mbkSheet` and `.mbkAlert`, this function requires an
+///   explicit `overlayGate:` parameter. It is a free function with no SwiftUI
+///   view hierarchy context, so it cannot resolve `MBKOverlayGate` from
+///   `@Environment`. Pass the same gate instance you injected via
+///   `.environment(overlayGate)` at your root view.
 ///
 /// - Parameters:
-///   - target: Whether to anchor the picker to the popover or the sheet child window.
-///   - overlayGate: The shared overlay gate; set to `true` while the picker is open.
-///   - message: Optional descriptive message shown in the panel header.
-///     Pass `nil` to use the system default.
-///   - completion: Called on the main actor with the selected `URL`, or `nil` if cancelled.
+///   - overlayGate: The gate owned by the enclosing `MBKPopoverController`.
+///   - message: Optional message shown inside the panel above the file list.
+///   - completion: Called on the `@MainActor` with the chosen `URL`, or `nil`
+///     if the user cancelled. Called on the same run-loop turn as panel dismissal,
+///     before the gate is cleared — safe to present follow-up UI immediately.
 @MainActor
 public func mbkOpenFilePicker(
-    target: MBKPickerTarget,
     overlayGate: MBKOverlayGate,
     message: String? = nil,
     completion: @escaping @MainActor (URL?) -> Void
 ) {
-    let label = target == .popover ? "popover" : "sheet"
+    mbkLog("FilePicker", "mbkOpenFilePicker called — overlayGate.hasActiveOverlay=\(overlayGate.hasActiveOverlay) hasFilePickerOverlay=\(overlayGate.hasFilePickerOverlay)")
+    mbkLog("FilePicker", "window count=\(NSApp.windows.count)")
+    for w in NSApp.windows {
+        let title = w.title.isEmpty ? "<empty>" : w.title
+        mbkLog("FilePicker", "  window #\(w.windowNumber) styleMask=\(w.styleMask.rawValue) isKey=\(w.isKeyWindow) title=\(title)")
+    }
 
-    let popoverWindow = NSApp.windows.first(where: {
+    let gateWasAlreadyArmed = overlayGate.hasActiveOverlay
+    mbkLog("FilePicker", "gateWasAlreadyArmed=\(gateWasAlreadyArmed)")
+
+    let popoverWindow = NSApp.windows.first {
         $0.styleMask.contains(.nonactivatingPanel)
-    })
-    // Intentionally weak predicate — see sheetChildWindow PREDICATE in the
-    // file header before attempting to strengthen this.
-    let sheetChildWindow = popoverWindow?.childWindows?.first(where: { $0.isVisible })
-
-    let window: NSWindow?
-    switch target {
-    case .popover:
-        window = popoverWindow
-    case .sheet:
-        if let child = sheetChildWindow {
-            window = child
-        } else {
-            // Sheet child window not yet attached — see SILENT FALLBACK NOTE in
-            // the file header. Logs a WARNING so this path is visible at runtime.
-            // TODO (migration PR): consider aborting (return nil) instead of
-            // falling back, to avoid silent UX degradation.
-            mbkLog("FilePicker", "[sheet] WARNING: no child window found, falling back to popover window")
-            window = popoverWindow
-        }
     }
-
-    guard let window else {
-        mbkLog("FilePicker", "[\(label)] no window found, aborting")
-        // Gate is NOT set yet at this point — early exit is clean, no reset needed.
-        return
-    }
+    let popoverLevel = popoverWindow?.level ?? .floating
+    mbkLog("FilePicker", "popoverWindow=#\(popoverWindow?.windowNumber ?? -1) level=\(popoverLevel.rawValue)")
 
     let panel = NSOpenPanel()
     panel.canChooseFiles = false
@@ -143,18 +135,49 @@ public func mbkOpenFilePicker(
     panel.allowsMultipleSelection = false
     panel.prompt = "Select"
     if let message { panel.message = message }
+    panel.level = NSWindow.Level(rawValue: popoverLevel.rawValue + 1)
+    mbkLog("FilePicker", "panel created — level=\(panel.level.rawValue)")
 
-    // Arm the dismiss gate before opening — see WHY hasActiveOverlay IS SET
-    // BEFORE beginSheetModal in the file header.
     overlayGate.hasActiveOverlay = true
-    mbkLog("FilePicker", "[\(label)] hasActiveOverlay=true")
+    overlayGate.hasFilePickerOverlay = true
+    mbkLog("FilePicker", "hasActiveOverlay=true hasFilePickerOverlay=true — calling panel.begin")
 
-    panel.beginSheetModal(for: window) { response in
-        // Explicit @MainActor hop — see beginSheetModal COMPLETION in the file header.
+    panel.begin { response in
         Task { @MainActor in
-            overlayGate.hasActiveOverlay = false
-            mbkLog("FilePicker", "[\(label)] hasActiveOverlay=false")
-            completion(response == .OK ? panel.url : nil)
+            mbkLog("FilePicker", "panel.begin completion — response=\(response.rawValue) gateWasAlreadyArmed=\(gateWasAlreadyArmed)")
+            panel.orderOut(nil)
+            mbkLog("FilePicker", "panel.orderOut called — window count now=\(NSApp.windows.count)")
+            // Queue the gate clear on the next run-loop turn so the event monitor
+            // (which fires on the same turn as panel dismissal) still sees the gate
+            // armed and does not call performClose prematurely.
+            // See file header “WHY DEFERRED GATE CLEAR” for full rationale.
+            DispatchQueue.main.async {
+                overlayGate.hasFilePickerOverlay = false
+                mbkLog("FilePicker", "hasFilePickerOverlay=false")
+                if gateWasAlreadyArmed {
+                    mbkLog("FilePicker", "gate was already armed by concurrent overlay — preserving hasActiveOverlay=true")
+                } else {
+                    overlayGate.hasActiveOverlay = false
+                    mbkLog("FilePicker", "hasActiveOverlay=false")
+                }
+            }
+            // completion is called here — in the @MainActor Task scope, after the
+            // GCD hop is queued but before it executes. This restores full
+            // compiler-enforced actor isolation for the callback.
+            // See file header “WHY completion IS CALLED OUTSIDE THE GCD HOP”.
+            let url = response == .OK ? panel.url : nil
+            mbkLog("FilePicker", "calling completion url=\(String(describing: url))")
+            completion(url)
+            mbkLog("FilePicker", "completion done")
         }
     }
+
+    // panel.begin synchronously places the panel on screen (the completion block
+    // fires only when the user dismisses it, not at begin-return time). The panel
+    // therefore has a valid window number and is already visible here. However
+    // the nonactivatingPanel popover retains key status — makeKeyAndOrderFront
+    // transfers key focus to the picker so the user sees it immediately.
+    // See file header “WHY panel.makeKeyAndOrderFront” for full rationale.
+    panel.makeKeyAndOrderFront(nil)
+    mbkLog("FilePicker", "panel.begin returned — panel=#\(panel.windowNumber) level=\(panel.level.rawValue)")
 }

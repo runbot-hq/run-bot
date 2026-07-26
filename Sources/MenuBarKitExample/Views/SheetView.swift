@@ -1,49 +1,32 @@
 // SheetView.swift
 // MenuBarKitExample
-//
-// Scenario 2 continued — file picker from inside the sheet.
-// "Pick folder (sheet)" calls mbkOpenFilePicker(target: .sheet), which
-// attaches NSOpenPanel to the child window AnchoredSheet wired up.
-//
-// Scenario 3 — alert from inside the sheet.
-// "Show error alert" sets AppState.showSheetAlert = true.
-// .alert is attached to the GroupBox — AppKit handles sheet-level alerts
-// independently of the overlay gate, so no gate management is needed here.
 
 import MenuBarKit
 import SwiftUI
 
-/// Sheet content view that exercises the file picker and alert from inside a child window.
 struct SheetView: View {
-    /// App state injected from the environment.
     @Environment(AppState.self) private var appState
-    /// Overlay gate injected from the environment.
-    // TODO(#2): remove overlayGate once MBK modifiers resolve it from @Environment internally.
     @Environment(MBKOverlayGate.self) private var overlayGate
-    /// SwiftUI dismiss action.
-    @Environment(\.dismiss) private var dismiss
 
-    /// The root view hierarchy for the sheet.
     var body: some View {
+        #if DEBUG
+        let _ = print("[SheetView] body evaluated — showSheetAlert=\(appState.showSheetAlert) gate=\(overlayGate.hasActiveOverlay)")
+        #endif
         @Bindable var appState = appState
-        VStack(spacing: 16) {
-            Text("Sheet").font(.headline)
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Sheet").font(.headline).frame(maxWidth: .infinity, alignment: .center)
+            Divider()
 
-            GroupBox("Alert from sheet") {
-                Button("Show error alert") { appState.showSheetAlert = true }
-                Text("Alert should appear. Sheet + popover stay alive.")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-            .alert("Simulated Error", isPresented: $appState.showSheetAlert) {
-                Button("OK", role: .cancel) {}
-            } message: {
-                Text("This is a test error alert shown from inside a sheet.")
-            }
-
-            // TODO(#2): overlayGate: parameter removed when MBK resolves gate via @Environment.
-            GroupBox("File picker from sheet") {
-                Button("Pick folder (sheet)") {
-                    mbkOpenFilePicker(target: .sheet, overlayGate: overlayGate) { url in
+            // Scenario: file picker launched from inside a sheet
+            GroupBox("Pick folder from sheet") {
+                Button("Pick folder") {
+                    #if DEBUG
+                    print("[SheetView] Pick folder tapped — gate=\(overlayGate.hasActiveOverlay) isSheetPresented=\(appState.isSheetPresented)")
+                    #endif
+                    mbkOpenFilePicker(overlayGate: overlayGate) { url in
+                        #if DEBUG
+                        print("[SheetView] mbkOpenFilePicker completion — url=\(String(describing: url)) gate=\(overlayGate.hasActiveOverlay) isSheetPresented=\(appState.isSheetPresented)")
+                        #endif
                         appState.sheetPickedURL = url
                     }
                 }
@@ -52,13 +35,61 @@ struct SheetView: View {
                         .font(.system(size: 11, design: .monospaced))
                         .lineLimit(1).truncationMode(.middle)
                 }
+                Text("Picker opens. Sheet + popover stay alive after dismiss.")
+                    .font(.caption).foregroundStyle(.secondary)
             }
 
-            Button("Dismiss") { dismiss() }
-                .buttonStyle(.borderedProminent)
-                .keyboardShortcut(.cancelAction)
+            Divider()
+
+            GroupBox("Alert from sheet") {
+                Button("Show error alert") {
+                    #if DEBUG
+                    print("[SheetView] Show error alert tapped")
+                    #endif
+                    appState.showSheetAlert = true
+                }
+                Text("Alert should appear. Sheet + popover stay alive.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            .mbkAlert("Simulated Error", isPresented: $appState.showSheetAlert) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text("This is a test error message.")
+            }
+
+            Divider()
+
+            // WHY appState.isSheetPresented = false INSTEAD OF @Environment(\.dismiss):
+            //   This sheet is driven by .mbkSheet(isPresented: $appState.isSheetPresented).
+            //   Writing the same binding that controls presentation is the correct and
+            //   intentional dismiss idiom here — it keeps the AppDelegate snapshot
+            //   lifecycle coherent. AppDelegate's onWillClose reads isSheetPresented to
+            //   decide whether to force-close; onDidShow writes it to respawn the sheet.
+            //   If we used @Environment(\.dismiss) instead, SwiftUI would nil the binding
+            //   internally on the same turn — functionally identical — but the explicit
+            //   write makes the data flow visible and keeps the pattern consistent with
+            //   how AppDelegate drives presentation from outside the view hierarchy.
+            //   Do not replace this with @Environment(\.dismiss) — it would work but
+            //   would obscure the intentional coupling between SheetView and AppState.
+            Button("Close") {
+                #if DEBUG
+                print("[SheetView] Close tapped — setting isSheetPresented=false")
+                #endif
+                appState.isSheetPresented = false
+            }
+            .frame(maxWidth: .infinity, alignment: .center)
         }
-        .padding(24)
-        .frame(minWidth: 280)
+        .padding(16)
+        .fixedSize()
+        .onAppear {
+            #if DEBUG
+            print("[SheetView] onAppear  gate=\(overlayGate.hasActiveOverlay) isSheetPresented=\(appState.isSheetPresented)")
+            #endif
+        }
+        .onDisappear {
+            #if DEBUG
+            print("[SheetView] onDisappear gate=\(overlayGate.hasActiveOverlay) isSheetPresented=\(appState.isSheetPresented)")
+            #endif
+        }
     }
 }

@@ -1,44 +1,74 @@
 // AppState.swift
 // MenuBarKitExample
-//
-// App-specific state only. No popover lifecycle, no overlay gate —
-// those live in MenuBarKit.
-//
-//   route           — which top-level view is visible.
-//   pickedPath      — result from file picker opened in SettingsView.
-//   sheetPickedPath — result from file picker opened inside SheetView.
-//   showAlert       — drives the .mbkAlert modifier in SettingsView (popover level).
-//   showSheetAlert  — drives the .alert modifier in SheetView (sheet level).
 
 import Foundation
 import Observation
 
-/// Navigation destinations for the example app's root view switcher.
 enum Route: Equatable {
-    /// The main landing view.
     case main
-    /// The settings view that exercises sheet and file picker scenarios.
     case settings
 }
 
-/// Example app state. Owns only navigation and file-picker results.
 @Observable
 @MainActor
 final class AppState {
-    /// Currently displayed route.
     var route: Route = .main {
-        didSet { print("[AppState] route: \(oldValue) → \(self.route)") }
+        didSet { AppState.log("route", oldValue, route) }
     }
-    /// URL selected by the file picker opened from SettingsView (popover context). nil until first pick.
-    var pickedURL: URL?
-    /// URL selected by the file picker opened from SheetView (sheet context). nil until first pick.
-    var sheetPickedURL: URL?
-    /// Controls the error alert presented from SettingsView (popover level).
+    var isSheetPresented: Bool = false {
+        didSet { AppState.log("isSheetPresented", oldValue, isSheetPresented) }
+    }
+    var pickedURL: URL? {
+        didSet {
+            #if DEBUG
+            print("[AppState] pickedURL: \(String(describing: pickedURL))")
+            #endif
+        }
+    }
+    var sheetPickedURL: URL? {
+        didSet {
+            #if DEBUG
+            print("[AppState] sheetPickedURL: \(String(describing: sheetPickedURL))")
+            #endif
+        }
+    }
     var showAlert: Bool = false {
-        didSet { print("[AppState] showAlert: \(oldValue) → \(self.showAlert)") }
+        didSet { AppState.log("showAlert", oldValue, showAlert) }
     }
-    /// Controls the error alert presented from inside SheetView.
     var showSheetAlert: Bool = false {
-        didSet { print("[AppState] showSheetAlert: \(oldValue) → \(self.showSheetAlert)") }
+        didSet { AppState.log("showSheetAlert", oldValue, showSheetAlert) }
+    }
+
+    // Static helper — lives outside @Observable macro expansion,
+    // so Thread and escaped quotes work without compiler issues.
+    private static func log<T>(_ name: String, _ old: T, _ new: T) {
+        #if DEBUG
+        let thread = Thread.isMainThread ? "main" : "bg"
+        print("[AppState] \(name): \(old) -> \(new) | Thread=\(thread)")
+        #endif
+    }
+
+    struct SessionSnapshot {
+        var route: Route
+        var isSheetPresented: Bool
+    }
+
+    func saveSnapshot() -> SessionSnapshot {
+        let snap = SessionSnapshot(route: route, isSheetPresented: isSheetPresented)
+        #if DEBUG
+        print("[AppState] saveSnapshot — route=\(snap.route) sheet=\(snap.isSheetPresented)")
+        #endif
+        return snap
+    }
+
+    func restoreSnapshot(_ snapshot: SessionSnapshot) {
+        #if DEBUG
+        print("[AppState] restoreSnapshot — route=\(snapshot.route) sheet=\(snapshot.isSheetPresented)")
+        #endif
+        route = snapshot.route
+        isSheetPresented = snapshot.isSheetPresented
+        #if DEBUG
+        print("[AppState] restoreSnapshot done")
+        #endif
     }
 }

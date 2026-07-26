@@ -1,19 +1,51 @@
 // RootView.swift
 // MenuBarKitExample
 
+import MenuBarKit
 import SwiftUI
 
-/// Root container that switches between `MainView` and `SettingsView`
-/// based on `AppState.route`.
 struct RootView: View {
-    /// App state injected from the environment.
     @Environment(AppState.self) private var appState
 
-    /// Renders `MainView` or `SettingsView` depending on the current route.
     var body: some View {
-        switch appState.route {
-        case .main:     MainView()
-        case .settings: SettingsView()
+        #if DEBUG
+        let _ = print("[RootView] body evaluated — route=\(appState.route) isSheetPresented=\(appState.isSheetPresented)")
+        #endif
+        Group {
+            switch appState.route {
+            case .main:     MainView()
+            case .settings: SettingsView()
+            }
+        }
+        .id(appState.route)
+        .background(
+            // DEBUG SCAFFOLDING — intentionally kept until popover sizing behaviour
+            // is fully battle-tested across route transitions and hidden-menubar opens.
+            // This GeometryReader is read-only (print only, no contentSize writes) and
+            // does not conflict with PopoverController.wrapped()'s authoritative observer.
+            GeometryReader { geo in
+                Color.clear
+                    .onAppear {
+                        #if DEBUG
+                        print("[RootView] GeometryReader onAppear size=(\(geo.size.width),\(geo.size.height)) route=\(appState.route)")
+                        #endif
+                    }
+                    .onChange(of: geo.size) { old, new in
+                        #if DEBUG
+                        print("[RootView] size changed (\(old.width),\(old.height)) -> (\(new.width),\(new.height)) route=\(appState.route)")
+                        #endif
+                    }
+            }
+        )
+        .onAppear {
+            #if DEBUG
+            print("[RootView] onAppear  route=\(appState.route) isSheetPresented=\(appState.isSheetPresented)")
+            #endif
+        }
+        .onDisappear {
+            #if DEBUG
+            print("[RootView] onDisappear route=\(appState.route) isSheetPresented=\(appState.isSheetPresented)")
+            #endif
         }
     }
 }
