@@ -16,9 +16,8 @@ extension MBKPopoverController {
     /// Three paths: (1) not shown — write `contentSize` so it opens at the right size;
     /// (2) shown, menubar visible — write `contentSize`, re-anchor via `show()` on width
     /// change so AppKit re-derives the arrow position atomically; (3) shown, menubar
-    /// hidden — `NSPopover.contentSize` is ignored by AppKit for rendering, but we write
-    /// it anyway as a local source-of-truth for chrome delta math, then drive
-    /// `window.setFrame` directly using those deltas and `buttonMidX`.
+    /// hidden — `NSPopover.contentSize` is ignored by AppKit, so drive `window.setFrame`
+    /// directly using snapshotted chrome deltas and `buttonMidX`.
     func applyContentSize(_ preferred: CGSize) {
         let clamped = clamp(preferred)
         guard clamped.width > 0, clamped.height > 0 else { return }
@@ -66,61 +65,64 @@ extension MBKPopoverController {
         let widthChanged = abs(clamped.width - oldWidth) > 1
 
         if isMenuBarHidden {
-            // Path 3: hidden mode — NSPopover ignores contentSize for rendering here,
-            // but we write it first as a local source-of-truth so chrome delta math
-            // is always computed against the current view's size.
+            // Path 3: hidden mode — NSPopover ignores setContentSize here.
             //
-            // Without this write, popover.contentSize holds the previous view's size
-            // (e.g. settings 480×551) when the next view (main 585×350) calls in.
-            // chromeW = window.frame.width - popover.contentSize.width would then use
-            // the settings window frame against the stale settings contentSize,
-            // producing wrong deltas and wrong window frames.
-            popover.contentSize = clamped
-
-            guard let button = statusItem.button,
-                  let buttonWin = button.window else {
+            // Chrome deltas and buttonMidX are snapshotted once per hidden session.
+            // On a view switch (size delta > 20pt in either dimension) the chrome
+            // snapshot is invalidated so it re-fires against the new view's
+            // window.frame. buttonMidX is preserved — the button hasn't moved.
+            //
+            // ❌ Do NOT write popover.contentSize before computing chrome deltas —
+            // that makes window.frame stale relative to contentSize and breaks Y.
+            // ❌ Do NOT re-snapshot on every call — window.frame is only valid at
+            // the moment after the previous setFrame, not on every layout pass.
+            // ❌ Do NOT use a hiddenWindowTop snapshot — it is taken from whichever
+            // view fires first and will be wrong for subsequent views.
+            // The Y formula window.frame.origin.y + (window.frame.height - newH)
+            // is correct at (re-)snapshot time because window.frame is fresh.
+            let viewSwitched = hiddenChromeW != nil && (
+                abs(clamped.width  - popover.contentSize.width)  > 20 ||
+                abs(clamped.height - popover.contentSize.height) > 20
+            )
+            if viewSwitched {
+                hiddenChromeW = nil
+                hiddenChromeH = nil
                 mbkLog("PopoverController",
-                       "applyContentSize -- menubar hidden, no button/window, SKIP (\(clamped.width),\(clamped.height))")
+                       "applyContentSize -- hidden view switch detected, invalidating chrome snapshot")
+            }
+
+            if hiddenChromeW == nil,
+               let button = statusItem.button,
+               let buttonWin = button.window {
+                hiddenChromeW = window.frame.width  - popover.contentSize.width
+                hiddenChromeH = window.frame.height - popover.contentSize.height
+                hiddenButtonMidX = buttonWin.frame.minX + button.frame.midX
+                mbkLog("PopoverController",
+                       "applyContentSize -- hidden snapshot chromeW=\(hiddenChromeW!) chromeH=\(hiddenChromeH!) buttonMidX=\(hiddenButtonMidX!)")
+            }
+            guard let chromeW = hiddenChromeW,
+                  let chromeH = hiddenChromeH,
+                  let btnMidX = hiddenButtonMidX else {
+                mbkLog("PopoverController",
+                       "applyContentSize -- menubar hidden, no chrome snapshot yet, SKIP (\(clamped.width),\(clamped.height))")
                 return
             }
-
-            // Snapshot the window top edge once per hidden session.
-            // The top edge (origin.y + height) is the stable Y anchor — it is the
-            // underside of the menubar button and does not move as content size changes.
-            // Using window.frame.origin.y + (window.frame.height - newH) on every call
-            // is wrong: after writing contentSize above, window.frame still reflects
-            // the *previous* setFrame result, so the bottom edge drifts on every
-            // view switch and Y jumps unpredictably.
-            if hiddenWindowTop == nil {
-                hiddenWindowTop = window.frame.origin.y + window.frame.height
-                mbkLog("PopoverController",
-                       "applyContentSize -- hidden snapshot windowTop=\(hiddenWindowTop!)")
-            }
-            guard let windowTop = hiddenWindowTop else { return }
-
-            // Chrome deltas: constant decoration thickness. Re-computed every call
-            // against the just-written contentSize so they're always correct on
-            // view switches.
-            let chromeW = window.frame.width - popover.contentSize.width
-            let chromeH = window.frame.height - popover.contentSize.height
-            let btnMidX = buttonWin.frame.minX + button.frame.midX
-            hiddenChromeW = chromeW
-            hiddenChromeH = chromeH
-            hiddenButtonMidX = btnMidX
-
-            let newW = clamped.width + chromeW
+            let newW = clamped.width  + chromeW
             let newH = clamped.height + chromeH
             // ❌ DO NOT use window.frame.origin.x as a fixed left edge here —
             // it was computed for a specific width and is wrong for any other width.
             // Always derive originX from btnMidX so main and settings (which have
             // different widths) both land centred under the status item.
             let newX = btnMidX - newW / 2
-            // Anchor from the stable top edge downward — immune to prior setFrame results.
-            let newY = windowTop - newH
+            // Anchor from current bottom edge upward — self-contained.
+            // window.frame is valid here: either this is the initial snapshot call
+            // (window.frame set by AppKit at show time) or the view-switch re-snapshot
+            // (window.frame set by our previous setFrame for the prior view).
+            let newY = window.frame.origin.y + (window.frame.height - newH)
             let newFrame = NSRect(x: newX, y: newY, width: newW, height: newH)
             window.setFrame(newFrame, display: true)
             mbkLog("PopoverController",
-                   "applyContentSize -- menubar hidden, DIRECT FRAME (\(clamped.width),\(clamped.height)) btnMidX=\(btnMidX) windowTop=\(windowTop) frame=\(newFrame)")
+                   "applyContentSize -- menubar hidden, DIRECT FRAME (\(clamped.width),\(clamped.height)) btnMidX=\(btnMidX) frame=\(newFrame)")
         } else {
             // Path 2: menubar visible — write contentSize then re-anchor via show()
             // on width change so AppKit re-derives arrow position atomically.
