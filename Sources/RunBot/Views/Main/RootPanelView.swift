@@ -76,6 +76,9 @@ struct RootPanelView: View {
         .id(navState)
         // ⚠️ Temporary — remove after side-jump bug (#2265) is resolved.
         // Logs every nav-state transition for MBK sizing diagnostics.
+        // category: .panel is already #if DEBUG gated at the call site above;
+        // this onChange is intentionally ungated so the transition itself is
+        // always visible in debug logs during the investigation window.
         .onChange(of: navState) { _, newNav in
             #if DEBUG
             log("【RootPanelView】navState → \(newNav)", category: .panel)
@@ -85,7 +88,6 @@ struct RootPanelView: View {
 
     // MARK: - Route branches
 
-    /// Main panel branch: `PanelContainerView` wrapping `PanelMainView`.
     @ViewBuilder private var mainBranch: some View {
         PanelContainerView(
             content: PanelMainView(
@@ -100,7 +102,6 @@ struct RootPanelView: View {
         )
     }
 
-    /// Settings branch: `PanelContainerView` wrapping `SettingsView`.
     @ViewBuilder private var settingsBranch: some View {
         PanelContainerView(
             content: SettingsView(
@@ -110,7 +111,6 @@ struct RootPanelView: View {
         )
     }
 
-    /// Step-log branch: `StepLogView` without a `PanelContainerView` wrapper.
     @ViewBuilder private func stepLogBranch(job: ActiveJob, step: GitHubStep) -> some View {
         StepLogView(
             job: job,
