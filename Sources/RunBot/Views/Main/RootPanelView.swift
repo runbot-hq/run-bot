@@ -129,7 +129,7 @@ struct RootPanelView: View {
     /// `StepLogView` takes `job` and `step` as value-type `let` properties captured at
     /// navigation time — it never re-queries `appState.runnerState.jobs`. If the job
     /// has since expired on GitHub, `fetchStepLog` returns empty and the view shows
-    /// “Log not available”, which is the correct degraded state.
+    /// "Log not available", which is the correct degraded state.
     ///
     /// The old `validatedView(for:)` guard (`jobs.contains(where: { $0.id == job.id })`)
     /// was removed in a prior PR — not by #2263. `StepLogView.swift` is untouched by
@@ -145,6 +145,28 @@ struct RootPanelView: View {
     // MARK: - Route identity key
 
     /// String identity key for `.id(navState)`, unique per distinct route.
+    ///
+    /// WHY A STRING KEY INSTEAD OF `.id(appState.savedNavState)`:
+    /// The obvious alternative — passing `savedNavState` directly to `.id()` — requires
+    /// `NavState: Hashable`. That in turn requires `ActiveJob: Hashable` and
+    /// `GitHubStep: Hashable`, the latter living in the `GitHubClient` package. Adding
+    /// `Hashable` conformance across two packages for the sole purpose of satisfying a
+    /// SwiftUI identity modifier is not a justified cross-package change. The string
+    /// switch here is the correct pragmatic choice; it is fully equivalent for SwiftUI's
+    /// identity purposes and stays entirely within this file.
+    /// ❌ NEVER replace this with `.id(appState.savedNavState)` unless `NavState`,
+    ///    `ActiveJob`, and `GitHubStep` have all been made `Hashable` intentionally.
+    ///
+    /// WHY step.number IS THE CORRECT IDENTITY FOR THE stepLog CASE:
+    /// `step.number` is the step's ordinal position within the job (1, 2, 3…) as
+    /// returned by the GitHub Jobs REST API. The GitHub API does NOT expose a
+    /// per-step `id` field — `number` is the only stable identifier the API provides
+    /// for a step. It is unique per job by API contract: two steps in the same job
+    /// cannot share a `number`. Combined with `job.id`, the key
+    /// `"stepLog-\(job.id)-\(step.number)"` is globally unique across all navigable
+    /// step-log routes. There is no more stable identifier to use.
+    /// ❌ NEVER replace `step.number` with a hypothetical `step.id` — no such field
+    ///    exists in the GitHub Jobs API response or in `GitHubStep`.
     private var navState: String {
         switch appState.savedNavState {
         case .none, .main:                      return "main"
