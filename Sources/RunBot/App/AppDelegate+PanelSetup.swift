@@ -62,8 +62,8 @@ extension AppDelegate {
         let ctrl = MBKPopoverController(
             rootView: wrapEnv(RootPanelView(
                 onSelectSettings: { [weak self] in self?.navigateToSettings() },
-                onBack:           { [weak self] in self?.navigateBack() },
-                onStepBack:       { [weak self] in self?.navigateBack() }
+                onBack: { [weak self] in self?.navigateBack() },
+                onStepBack: { [weak self] in self?.navigateBack() }
             )),
             overlayGate: overlayGate,
             symbolName: "menubar.rectangle",
