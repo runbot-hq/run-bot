@@ -299,7 +299,18 @@ struct PanelMainView: View {
             #if DEBUG
             log("【PanelMainView】panelVisibilityState.isOpen → \(newOpen) menuBarHidden=\(isMenuBarHidden)", category: .panel)
             #endif
-            if newOpen { systemStats.start() } else { systemStats.stop() }
+            if newOpen {
+                // Reset scrollViewHeight on every open so a stale value written
+                // during a dismissed-window layout pass (settings→main remount
+                // inside onWillClose teardown) does not survive into the next open.
+                // The existing > 0 ? ... : nil guard in actionsSectionScrollable
+                // removes the frame constraint for one layout pass, letting the
+                // content GR re-measure and write the correct value. See #2279.
+                scrollViewHeight = 0
+                systemStats.start()
+            } else {
+                systemStats.stop()
+            }
         }
         // Reset the visible row count only when the list shrinks (e.g. a runner is removed),
         // not on every poll update — avoids snapping the user back mid-scroll.
