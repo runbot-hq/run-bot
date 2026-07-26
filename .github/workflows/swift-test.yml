@@ -52,5 +52,13 @@ jobs:
         run: |
           rm -rf ~/Library/Caches/org.swift.swiftpm
 
-      - name: Run tests
+      - name: Run tests (RunBot)
+        run: swift test
+
+      - name: Run tests (GitHubClient)
+        working-directory: Packages/GitHubClient
+        run: swift test
+
+      - name: Run tests (MenuBarKit)
+        working-directory: Packages/MenuBarKit
         run: swift test
