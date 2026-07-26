@@ -115,20 +115,28 @@ extension AppDelegate {
         )
 
         // onWillShow — fires synchronously at the top of MBK's openPopover(),
-        // before hostingController.view.fittingSize is read and before popover.show().
+        // before isOpening is raised and before popover.show().
         //
         // WHY willShowToken is bumped here (not in onDidShow):
         // PanelMainView reacts to willShowToken by resetting scrollViewHeight = 0.
-        // This reset must happen BEFORE MBK reads fittingSize — if it fires after,
-        // the stale scrollViewHeight is already baked into the contentSize seed and
-        // the panel opens at the wrong height, growing in steps as the content GR
-        // re-measures. onWillShow is the only callback that fires before fittingSize.
+        // This reset must happen BEFORE the first post-show geometry pass fires —
+        // if scrollViewHeight is still non-zero when SwiftUI lays out after show(),
+        // the stale height is baked into the first contentSize measurement and the
+        // panel opens at the wrong height, growing in steps as the content GR
+        // re-measures.
+        //
+        // NOTE: as of #2289 the pre-show fittingSize read was removed from openPopover().
+        // The timing constraint is therefore no longer about seeding scrollViewHeight
+        // before a fittingSize read — it is about ensuring scrollViewHeight = 0 is
+        // committed before the first post-show SwiftUI geometry pass, which fires
+        // synchronously inside popover.show(). onWillShow (before show()) is the
+        // correct place to trigger this reset.
         //
         // WHY NOT reset scrollViewHeight = 0 in onDidShow or onChange(of: isOpen):
-        // Both of those fire after popover.show() has returned. By then, MBK has
-        // already called fittingSize (which sees the stale scrollViewHeight) and
-        // passed that size to popover.contentSize. The panel is already visible at
-        // the wrong height; the subsequent reset causes a visible grow animation.
+        // Both of those fire after popover.show() has returned. By then, SwiftUI has
+        // already completed its first geometry pass inside show() and committed the
+        // first contentSize. The panel is already visible at the wrong height;
+        // the subsequent reset causes a visible grow animation.
         //
         // See issue #2278 for full root-cause analysis.
         ctrl.onWillShow = { [weak self] in
