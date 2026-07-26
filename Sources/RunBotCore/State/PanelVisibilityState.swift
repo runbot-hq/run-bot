@@ -108,36 +108,25 @@ public final class PanelVisibilityState {
     /// ❌ NEVER call more than once per open.
     public var onHeightReady: ((CGFloat) -> Void)?
 
-    /// Monotonically incremented (wrapping) by AppDelegate in `onWillShow`,
-    /// synchronously before MBK calls `popover.show()`.
+    /// Monotonically incremented by AppDelegate in `onWillShow`, synchronously
+    /// before MBK calls `hostingController.view.fittingSize` and `popover.show()`.
     ///
     /// PURPOSE — allow PanelMainView to reset `scrollViewHeight = 0` at the
-    /// earliest possible moment, before any SwiftUI layout pass fires after show().
-    /// Without this, a stale scrollViewHeight from the previous session is visible
-    /// to the first layout pass and the panel opens at the wrong height.
+    /// earliest possible moment, before MBK seeds `contentSize` from the SwiftUI
+    /// view's `fittingSize`. Without this, the stale scrollViewHeight is baked into
+    /// the pre-show contentSize and the panel opens at the wrong height, growing in
+    /// steps as the content GR re-measures on subsequent layout passes.
     ///
     /// WHY A TOKEN AND NOT A BOOL:
-    /// A bool would need to be reset after consumption — creating a window where
-    /// a missed reset causes a silent no-op on the next open. A monotonic Int is
-    /// self-cleaning: each increment is a unique event, and SwiftUI's
-    /// `onChange(of:)` fires on every distinct value. No reset path needed.
-    ///
-    /// WHY onChange(of: willShowToken) WORKS WITHOUT @Published:
-    /// This class uses the Swift Observation framework (@Observable macro), NOT
-    /// ObservableObject/@Published. @Observable synthesises an _$observationRegistrar
-    /// and wraps every stored `var` with get/set accessors that register reads as
-    /// dependencies during SwiftUI body evaluation. `onChange(of: willShowToken)`
-    /// registers a dependency on this property during the last body pass, and SwiftUI
-    /// re-evaluates and fires the closure on every mutation — identical behaviour to
-    /// @Published but without the explicit annotation. Do NOT add @Published here;
-    /// it is not compatible with @Observable and is unnecessary.
+    /// A bool would need to be reset after consumption. A monotonic Int is
+    /// self-cleaning — each increment is a unique event, and SwiftUI's
+    /// `onChange(of:)` fires on every distinct value. No reset path, no
+    /// risk of missing an event if two opens happen in rapid succession.
     ///
     /// SET BY:   AppDelegate in `onWillShow` (before MBK calls show()).
     /// READ BY:  PanelMainView.onChange(of: panelVisibilityState.willShowToken).
     /// ❌ NEVER set this outside onWillShow.
     /// ❌ NEVER read this outside PanelMainView (or its direct sub-views if needed).
-    /// ❌ Do NOT replace with a Bool — see WHY A TOKEN above.
-    /// ❌ Do NOT add @Published — incompatible with @Observable, unnecessary.
     public var willShowToken: Int = 0
 
     /// Creates a new `PanelVisibilityState` with all flags in their initial off state.

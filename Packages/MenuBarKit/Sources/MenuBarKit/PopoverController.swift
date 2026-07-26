@@ -76,11 +76,17 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
     // MARK: - Configuration
 
     /// Overlay gate — read in `popoverShouldClose` and reset in `popoverDidClose`.
+    /// `internal` (default) so extension files can access it.
     let overlayGate: MBKOverlayGate
+    /// SF Symbol name for the status-bar icon.
     private let symbolName: String
+    /// Minimum allowed popover content width.
     let minWidth: CGFloat
+    /// Maximum allowed popover content width.
     let maxWidth: CGFloat
+    /// Maximum allowed popover content height.
     let maxHeight: CGFloat
+    /// The current root SwiftUI view, wrapped in `AnyView`.
     var rootView: AnyView
 
     /// Called just before the popover is shown. Use this to refresh content.
@@ -91,82 +97,69 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
     /// `wasForced` is `true` when closed programmatically (e.g. forceClose via sheet).
     public var onWillClose: ((_ wasForced: Bool) -> Void)?
 
+    /// The status-bar item that owns the trigger button.
+    /// Assigned in `setup()` — see IMPLICIT-UNWRAPPED OPTIONALS in the file header.
     var statusItem: NSStatusItem!
+    /// The managed `NSPopover`. Assigned in `setup()`.
     var popover: NSPopover!
+    /// Hosts the root SwiftUI view. Assigned in `setup()`.
+    /// `internal` (default) so extension files can access it.
     var hostingController: NSHostingController<AnyView>!
+    /// Guards against calling `setup()` more than once.
     private var isSetUp = false
+    /// Global mouse-down event monitor token. `nonisolated(unsafe)` — see file header.
     nonisolated(unsafe) var eventMonitor: Any?
+    /// Workspace app-switch observer token. `nonisolated(unsafe)` — see file header.
     nonisolated(unsafe) var workspaceObserver: NSObjectProtocol?
 
     /// Shown-sentinel for `applyContentSize`: `true` while the popover is open,
     /// `nil` while closed. Set in `popoverWillShow`, cleared in `popoverDidClose`.
+    /// Carries no positional value — frame writes derive Y from
+    /// `window.frame.origin.y` directly.
+    /// `internal` (default) so extension files can access it.
     var isShownSentinel: Bool?
 
-    /// Opening-sentinel: raised just before `popover.show()` in `openPopover()`,
-    /// lowered at the top of the `onDidShow` Task (after a runloop hop), and reset
-    /// to `false` in `popoverDidClose` as a safety net.
-    ///
-    /// While `true`, Path 1 (not-shown) writes and Path 2 width-change reanchors
-    /// in `applyContentSize` are suppressed — the `onDidShow` Task issues the
-    /// authoritative WRITE+REANCHOR after the popover is fully positioned.
-    ///
-    /// THREAD SAFETY — no lock needed:
-    /// `MBKPopoverController` is `@MainActor`. Every read and write of `isOpening`
-    /// is in a `@MainActor` context: the raise in `openPopover()`, the lower in
-    /// `Task { @MainActor in }`, the checks in `applyContentSize`, and the reset in
-    /// `popoverDidClose`. Swift 6 strict concurrency enforces this at compile time —
-    /// a cross-actor write would be a compile error, not a runtime race.
-    ///
-    /// RELATIONSHIP WITH popoverWillShow:
-    /// `isOpening` is already `true` when `popoverWillShow` fires on first open
-    /// (it is raised before `popover.show()`, and `popoverWillShow` is called
-    /// synchronously inside `show()`). The chrome snapshot in `popoverWillShow` does
-    /// NOT check `isOpening` — the `hiddenChromeW == nil` guard is the correct
-    /// discriminator between first-open and mid-session re-anchor calls. Do NOT
-    /// replace that guard with an `isOpening` check: `isOpening` can be `true`
-    /// during re-anchor show() calls if the Task hop hasn't landed yet.
+    /// Opening-sentinel for `applyContentSize`: raised just before `popover.show()`
+    /// in `openPopover()` and lowered at the top of the `onDidShow` Task.
+    /// While true, Path 1 (not-shown) writes and Path 2 width-change reanchors
+    /// are suppressed. Reset to `false` in `popoverDidClose` as a safety net.
     var isOpening = false
 
+    /// Button center X in screen coordinates from the last visible-mode open.
+    /// Used for the post-show X correction when opening while the menubar is hidden.
+    /// `nil` until first visible-mode open.
     var lastKnownAnchorX: CGFloat?
+
+    /// Prevents `onWillClose` from firing more than once per open/close cycle.
+    /// `internal` (default) so extension files can access it.
     var onWillCloseFired = false
 
     /// Chrome width delta (window frame width − content width) for hidden-mode sizing.
-    /// Snapshotted once in `popoverWillShow` against AppKit's freshly-positioned frame.
-    /// `nil` outside a session (cleared in `popoverDidClose`).
-    ///
-    /// ALSO USED AS SESSION DISCRIMINATOR in `popoverWillShow`: `nil` means first open
-    /// (snapshot runs); non-nil means re-anchor call (snapshot skipped). This is the
-    /// correct sentinel — `isOpening` is NOT a reliable discriminator here because it
-    /// may still be `true` during a re-anchor show() before the Task hop clears it.
+    /// Snapshotted once in `popoverWillShow`. `nil` outside a session.
     var hiddenChromeW: CGFloat?
     /// Chrome height delta (window frame height − content height) for hidden-mode sizing.
     /// Snapshotted once in `popoverWillShow`. `nil` outside a session.
     var hiddenChromeH: CGFloat?
     /// Button center X in screen coordinates for the hidden-mode session.
-    /// Snapshotted once in `popoverWillShow`. `nil` outside a session.
+    /// Snapshotted once in `popoverWillShow`. `nil` outside a hidden-mode session.
     var hiddenButtonMidX: CGFloat?
     /// Window origin Y (bottom edge, AppKit flipped coords) snapshotted once in
     /// `popoverWillShow`. Used as a fixed constant for all Path 3 `setFrame` calls
     /// so the panel top edge stays pinned under the button for the entire session.
-    ///
-    /// WHY FIXED AND NOT RECOMPUTED:
-    /// The panel top must stay pinned under the menubar button; only height grows
-    /// downward. If Y were recomputed from `window.frame.origin.y` on each call,
-    /// any delta between our last `setFrame` and AppKit's internal state (compositor
-    /// lag, rounding) would accumulate across height changes, drifting the top edge.
-    /// Snapshotting once against AppKit's own frame eliminates drift entirely.
-    ///
-    /// WHY NOT window.frame.origin.y + (window.frame.height - newH) EACH TIME:
-    /// That formula is algebraically equivalent when `window.frame` is perfectly
-    /// consistent with our last write, but fragile: any compositor lag between
-    /// `setFrame` and the next read introduces cumulative error. `hiddenWindowY`
-    /// has zero drift — it never changes after the snapshot.
-    ///
-    /// `nil` outside a hidden-mode session (cleared in `popoverDidClose`).
+    /// ❌ NEVER recompute from window.frame mid-session — that drifts.
+    /// `nil` outside a hidden-mode session.
     var hiddenWindowY: CGFloat?
 
     // MARK: - Init
 
+    /// Creates the controller with a root SwiftUI view and shared overlay gate.
+    /// - Parameters:
+    ///   - rootView: The root view displayed inside the popover.
+    ///   - overlayGate: Shared gate; blocks dismiss while a sheet or picker is live.
+    ///   - symbolName: SF Symbol name for the status-bar icon. Defaults to `"menubar.rectangle"`.
+    ///   - minWidth: Minimum popover content width (default 200).
+    ///   - maxWidth: Maximum popover content width (default 600).
+    ///   - maxHeight: Maximum popover content height (default 600).
     public init<Content: View>(
         rootView: Content,
         overlayGate: MBKOverlayGate,
@@ -185,6 +178,15 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
 
     // MARK: - Setup
 
+    /// Wires the status item, popover, and observers.
+    ///
+    /// **Must be called from `applicationDidFinishLaunching`** before any user
+    /// interaction is possible. Assigns the three IUO properties (`statusItem`,
+    /// `popover`, `hostingController`). Any call to `togglePopover()` before
+    /// `setup()` completes will crash on the `!` unwrap — intentional; surfaces
+    /// ordering errors immediately.
+    ///
+    /// ❌ NEVER call `setup()` more than once. A `precondition` guards this at runtime.
     public func setup() {
         precondition(!isSetUp, "MBKPopoverController.setup() called more than once.")
         isSetUp = true
@@ -197,6 +199,8 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
 
     // MARK: - Root view replacement
 
+    /// Replaces the popover's root view at runtime.
+    /// Safe to call before or after `setup()`.
     public func setRootView(_ view: AnyView) {
         rootView = view
         guard isSetUp else { return }
@@ -206,12 +210,14 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
 
     // MARK: - Status item image
 
+    /// Replaces the status-bar button image.
     public func setStatusItemImage(_ image: NSImage) {
         statusItem?.button?.image = image
     }
 
     // MARK: - Status item setup
 
+    /// Creates and configures the `NSStatusItem` and its button.
     func setupStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = statusItem.button {
@@ -224,6 +230,7 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
 
     // MARK: - Deallocation
 
+    // See deinit TEARDOWN in the file header for thread-safety rationale.
     deinit {
         if let observer = workspaceObserver {
             NSWorkspace.shared.notificationCenter.removeObserver(observer)
