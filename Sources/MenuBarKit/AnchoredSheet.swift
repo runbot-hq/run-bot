@@ -15,11 +15,10 @@ import SwiftUI
 @MainActor
 func mbkWaitAndAnchorSheetWindow(
     popoverWindow: NSWindow,
-    overlayGate: MBKOverlayGate,
     label: String
 ) -> MBKSheetAnchorTask {
     mbkLog("AnchoredSheet[\(label)]", "mbkWaitAndAnchorSheetWindow called — pw=#\(popoverWindow.windowNumber)")
-    let task = MBKSheetAnchorTask(popoverWindow: popoverWindow, overlayGate: overlayGate, label: label)
+    let task = MBKSheetAnchorTask(popoverWindow: popoverWindow, label: label)
     task.start()
     return task
 }
@@ -34,19 +33,15 @@ func mbkWaitAndAnchorSheetWindow(
 final class MBKSheetAnchorTask {
     /// The popover's backing window; the sheet window will be added as its child.
     private let popoverWindow: NSWindow
-    /// The gate to check before writing — not currently used in the anchor path
-    /// but held for potential future gate-guarded anchoring.
-    private let overlayGate: MBKOverlayGate
     /// Debug label used in log output to identify which sheet this task belongs to.
     private let label: String
     /// Set to `true` by `cancel()`. Checked at the start of each hop.
     private var cancelled = false
 
     /// Creates the task. Does not start the async work — call `start()` explicitly.
-    init(popoverWindow: NSWindow, overlayGate: MBKOverlayGate, label: String) {
+    init(popoverWindow: NSWindow, label: String) {
         mbkLog("AnchoredSheet[\(label)]", "MBKSheetAnchorTask.init pw=#\(popoverWindow.windowNumber)")
         self.popoverWindow = popoverWindow
-        self.overlayGate = overlayGate
         self.label = label
     }
 
@@ -213,7 +208,6 @@ struct MBKAnchoredSheetModifier<SheetContent: View>: ViewModifier {
                     mbkLog("AnchoredSheet[isPresented]", "onChange — popoverWindow #\(popoverWindow.windowNumber), gate=true, starting task")
                     anchorTask = mbkWaitAndAnchorSheetWindow(
                         popoverWindow: popoverWindow,
-                        overlayGate: overlayGate,
                         label: "isPresented"
                     )
                 } else {
@@ -275,7 +269,6 @@ struct MBKAnchoredSheetItemModifier<Item: Identifiable & Equatable, SheetContent
                     mbkLog("AnchoredSheet[item]", "onChange — popoverWindow #\(popoverWindow.windowNumber), gate=true, starting task")
                     anchorTask = mbkWaitAndAnchorSheetWindow(
                         popoverWindow: popoverWindow,
-                        overlayGate: overlayGate,
                         label: "item"
                     )
                 } else {

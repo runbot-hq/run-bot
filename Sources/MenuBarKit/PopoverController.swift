@@ -97,12 +97,11 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
     /// Workspace app-switch observer token. `nonisolated(unsafe)` — see file header.
     nonisolated(unsafe) private var workspaceObserver: NSObjectProtocol?
 
-    /// `window.frame.maxY` captured once in `popoverWillShow`.
-    /// Used only as a shown-sentinel in `applyContentSize` (`anchorY != nil` means
-    /// the popover is currently shown). Not read as a positional value — frame writes
-    /// derive Y from `window.frame.origin.y` directly.
-    /// `nil` while the popover is closed.
-    private var anchorY: CGFloat?
+    /// Shown-sentinel for `applyContentSize`: `true` while the popover is open,
+    /// `nil` while closed. Set in `popoverWillShow`, cleared in `popoverDidClose`.
+    /// Carries no positional value — frame writes derive Y from
+    /// `window.frame.origin.y` directly.
+    private var isShownSentinel: Bool?
 
     /// Button center X in screen coordinates from the last visible-mode open.
     /// Used for the post-show X correction when opening while the menubar is hidden.
@@ -425,7 +424,7 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
 
         guard popover.isShown,
               let window = hostingController.view.window,
-              anchorY != nil else {    // anchorY != nil is the shown-sentinel; its value is not used here
+              isShownSentinel != nil else {
             // Path 1: not shown.
             //
             // GUARDED: skip when menubar is hidden. Post-close SwiftUI size
@@ -474,7 +473,7 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
             // Always derive originX from btnMidX so main and settings (which have
             // different widths) both land centred under the status item.
             let newX = btnMidX - newW / 2  // re-centre on the status item for every write
-            // Anchor from current bottom edge upward — self-contained, no anchorY needed.
+            // Anchor from current bottom edge upward — self-contained, no isShownSentinel needed.
             let newY = window.frame.origin.y + (window.frame.height - newH)
             let newFrame = NSRect(x: newX, y: newY, width: newW, height: newH)
             window.setFrame(newFrame, display: true)
@@ -590,17 +589,17 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
 
 /// `NSPopoverDelegate` conformance — show/close lifecycle and dismiss gating.
 extension MBKPopoverController: NSPopoverDelegate {
-    /// Highlights the status-bar button and sets `anchorY` as the shown-sentinel for
-    /// `applyContentSize`. The value itself is not used for frame positioning.
+    /// Highlights the status-bar button and sets `isShownSentinel` to signal
+    /// `applyContentSize` that the popover is open.
     public func popoverWillShow(_ notification: Notification) {
         setButtonHighlight(true)
         guard let window = hostingController.view.window else {
-            mbkLog("PopoverController", "popoverWillShow -- no hostingWindow (anchorY skipped)")
+            mbkLog("PopoverController", "popoverWillShow -- no hostingWindow (isShownSentinel skipped)")
             return
         }
-        anchorY = window.frame.maxY
+        isShownSentinel = true
         mbkLog("PopoverController",
-               "popoverWillShow -- anchorY=\(anchorY!) win=\(window.frame) #\(window.windowNumber)")
+               "popoverWillShow -- isShownSentinel=true win=\(window.frame) #\(window.windowNumber)")
     }
 
     /// Blocks the popover from closing while any overlay (sheet or file picker) is active.
@@ -622,7 +621,7 @@ extension MBKPopoverController: NSPopoverDelegate {
         // it is structurally unreachable while hasFilePickerOverlay is true —
         // the event monitor's hasFilePicker branch returns early before forceClose.
         // Both flags are always cleared here regardless of which close path fired.
-        anchorY = nil
+        isShownSentinel = nil
         hiddenChromeW = nil
         hiddenChromeH = nil
         hiddenButtonMidX = nil
