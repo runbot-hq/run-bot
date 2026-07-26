@@ -123,9 +123,17 @@ public final class PanelVisibilityState {
     /// `onChange(of:)` fires on every distinct value. No reset path, no
     /// risk of missing an event if two opens happen in rapid succession.
     ///
-    /// SET BY:   AppDelegate in `onWillShow` (before MBK calls show()).
+    /// WRAPPING CONTRACT:
+    /// Always increment with `&+=` (wrapping add), never plain `+=`.
+    /// Swift traps on integer overflow in debug builds — a plain `+= 1` at
+    /// Int.max will crash. `&+= 1` wraps to Int.min, which is still a distinct
+    /// value, so onChange(of:) fires correctly. The token semantics (unique
+    /// event per open) are preserved across the wrap.
+    ///
+    /// SET BY:   AppDelegate in `onWillShow` (before MBK calls show()), using `&+= 1`.
     /// READ BY:  PanelMainView.onChange(of: panelVisibilityState.willShowToken).
     /// ❌ NEVER set this outside onWillShow.
+    /// ❌ NEVER use `+= 1` — use `&+= 1` to avoid a debug-build trap at Int.max.
     /// ❌ NEVER read this outside PanelMainView (or its direct sub-views if needed).
     public var willShowToken: Int = 0
 
