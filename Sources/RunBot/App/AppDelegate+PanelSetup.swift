@@ -114,20 +114,28 @@ extension AppDelegate {
             maxHeight: maxHeight
         )
 
-        // onWillShow is intentionally empty / commented out.
+        // onWillShow — fires synchronously at the top of MBK's openPopover(),
+        // before hostingController.view.fittingSize is read and before popover.show().
         //
-        // WHY nav state does not need to be restored here:
-        // appState.savedNavState is persistent @Observable state — it is never cleared
-        // on open, only on explicit back-navigation or onWillClose(wasForced: false).
-        // RootPanelView reads it directly and reactively; by the time onWillShow fires
-        // the SwiftUI tree is already rendering the correct route. There is nothing to do.
+        // WHY willShowToken is bumped here (not in onDidShow):
+        // PanelMainView reacts to willShowToken by resetting scrollViewHeight = 0.
+        // This reset must happen BEFORE MBK reads fittingSize — if it fires after,
+        // the stale scrollViewHeight is already baked into the contentSize seed and
+        // the panel opens at the wrong height, growing in steps as the content GR
+        // re-measures. onWillShow is the only callback that fires before fittingSize.
         //
-        // Other candidates considered for this callback (auth token pre-flight, stale-job
-        // guard restoration) were deferred — see the commented-out block below for context.
-        // Do not remove; restore and expand once onWillShow responsibilities are decided.
-        // ctrl.onWillShow = {
-        //     log("AppDelegate › onWillShow")
-        // }
+        // WHY NOT reset scrollViewHeight = 0 in onDidShow or onChange(of: isOpen):
+        // Both of those fire after popover.show() has returned. By then, MBK has
+        // already called fittingSize (which sees the stale scrollViewHeight) and
+        // passed that size to popover.contentSize. The panel is already visible at
+        // the wrong height; the subsequent reset causes a visible grow animation.
+        //
+        // See issue #2278 follow-up for full root-cause analysis.
+        ctrl.onWillShow = { [weak self] in
+            guard let self else { return }
+            log("AppDelegate › onWillShow — bumping willShowToken")
+            panelVisibilityState.willShowToken &+= 1
+        }
 
         // onDidShow — fires one actor turn after popover.show().
         // Restore runner sheet state now that the view tree has a window.

@@ -58,6 +58,39 @@ extension MBKPopoverController {
         onWillShow?()
         mbkLog("PopoverController", "onWillShow fired")
 
+        // Reset contentSize to the minimum before reading fittingSize.
+        //
+        // WHY THIS IS NECESSARY:
+        // fittingSize triggers a synchronous AppKit layout pass into SwiftUI.
+        // Any @State mutations enqueued by onWillShow (e.g. scrollViewHeight = 0)
+        // are not committed until the next runloop cycle — they are invisible to
+        // this synchronous pass. Without the reset, fittingSize sees the stale
+        // SwiftUI state from the previous session (e.g. scrollViewHeight = 350)
+        // and reports the old height. That stale value is then written to
+        // popover.contentSize as the pre-show seed, so the popover opens at the
+        // wrong size and grows in a visible step once the real layout fires.
+        //
+        // The reset forces the layout pass to treat the view as starting from a
+        // small size. The ScrollView's .frame(height: scrollViewHeight > 0 ? ... : nil)
+        // guard in PanelMainView returns nil when scrollViewHeight is 0, so SwiftUI
+        // measures the content unconstrained on the next pass — the grow-from-header
+        // step is eliminated because the popover is never seeded with a stale height.
+        //
+        // TWO-OPEN-CYCLE BUG (open 2 from log):
+        // On the second open, applyContentSize's 1pt dead-band guard
+        //   (abs(old.height - new.height) > 1)
+        // was suppressing the pre-show contentSize write when the post-close
+        // SwiftUI flush happened to write back exactly the same value. The reset
+        // clears that dead-band unconditionally, ensuring the first
+        // applyContentSize after open always fires.
+        //
+        // ❌ DO NOT REMOVE this reset.
+        // ❌ DO NOT move it after the fittingSize read.
+        // ❌ DO NOT replace it with a flag or @State write — @State mutations
+        //    are asynchronous and will not be visible to fittingSize.
+        popover.contentSize = NSSize(width: minWidth, height: 100)
+        mbkLog("PopoverController", "openPopover -- contentSize reset to (\(minWidth), 100) before fittingSize")
+
         let menuBarHidden = isMenuBarHidden
 
         if !menuBarHidden, let anchorX = buttonScreenMidX {
