@@ -83,10 +83,20 @@ import SwiftUI
 // NSApp.windows ITERATION IN isMenuBarHidden:
 //         isMenuBarHidden iterates NSApp.windows to find the status-bar button window.
 //         This is O(n) and involves AppKit synchronisation, but it is called only
-//         from logging paths that are compiled away in release builds (#if DEBUG).
-//         It MUST NOT be called from any non-debug layout or rendering path.
+//         from log() statements inside #if DEBUG guards and is compiled away entirely
+//         in release builds. It MUST NOT be called from any non-debug layout or
+//         rendering path.
+//         ⚠️ TEMPORARY — remove after side-jump bug (#2265) is resolved.
 //         ❌ NEVER call isMenuBarHidden from body, screenScrollMaxHeight, or any
-//            computed var that participates in layout outside a #if DEBUG guard.
+//            computed var outside a #if DEBUG guard.
+//
+// NOTE ON LOGGING:
+//         log() calls in this file use LogCategory.panel. They are intentionally
+//         inside #if DEBUG guards — they capture geometry behaviour during the
+//         side-jump investigation (#2265) and will be removed wholesale when that
+//         issue is resolved. Do NOT remove them individually before then; removing
+//         one log in isolation makes it harder to reconstruct the full sizing trace.
+//         Remove all .panel logs in this file together when closing #2265.
 //
 // NSPopover provides its own glass chrome automatically.
 // Do NOT add .background() or NSVisualEffectView at this level.
@@ -130,10 +140,14 @@ struct PanelMainView: View {
 
     /// Returns true when the status item button window is off-screen (menubar hidden).
     ///
-    /// ⚠️ DEBUG-ONLY — used exclusively inside #if DEBUG logging blocks.
-    /// NSApp.windows iteration is O(n) with AppKit synchronisation. This property
-    /// MUST NOT be called from any layout path (body, screenScrollMaxHeight, computed
-    /// vars) outside a #if DEBUG guard. See NSApp.windows ITERATION note in the file header.
+    /// ⚠️ TEMPORARY — remove after side-jump bug (#2265) is resolved.
+    /// ⚠️ DEBUG-ONLY — called exclusively from #if DEBUG log() blocks.
+    /// Iterates NSApp.windows (O(n), AppKit-synchronised) to locate the status-bar
+    /// button window. This cost is acceptable only because every call site is guarded
+    /// by #if DEBUG and compiled away in release builds.
+    /// ❌ NEVER call this from body, screenScrollMaxHeight, or any layout path
+    ///    outside a #if DEBUG guard — it will add AppKit synchronisation to every
+    ///    layout pass and cause measurable frame drops.
     private var isMenuBarHidden: Bool {
         for win in NSApp.windows {
             let typeName = String(describing: type(of: win))

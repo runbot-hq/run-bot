@@ -69,6 +69,17 @@ extension AppDelegate {
         // maxHeight MUST match PanelMainView.screenScrollMaxHeight multiplier (0.80).
         // See CAP ALIGNMENT note above. Do NOT change this to a different multiplier
         // without also changing screenScrollMaxHeight in PanelMainView.
+        //
+        // maxHeight is intentionally computed once at launch, not per-open.
+        // MBKPopoverController takes this as a constructor cap and does not re-read it.
+        // On display reconfiguration (connect/disconnect external monitor) this value
+        // becomes stale until next launch. This is an accepted limitation: the status-bar
+        // popover is not expected to survive display topology changes gracefully.
+        // screenScrollMaxHeight in PanelMainView reads NSScreen.main live on every call
+        // and will always be current for the SwiftUI side — the MBK cap is the only
+        // stale value after a display change.
+        // TODO: if MBK ever exposes a setMaxHeight() API, wire it to
+        // NSApplicationDelegate.applicationDidChangeScreenParameters(_:).
         let visibleHeight = NSScreen.main?.visibleFrame.height ?? 900
         let maxHeight = visibleHeight * 0.80
         log("AppDelegate › setupPanel — visibleHeight=\(visibleHeight) maxHeight=\(maxHeight) multiplier=0.80")
@@ -86,12 +97,17 @@ extension AppDelegate {
             maxHeight: maxHeight
         )
 
-        // ⚠️ onWillShow commented out — solution not yet settled.
-        // Candidates for this callback: auth token pre-flight, nav state validation,
-        // stale-job guard restoration. Do not remove; restore and expand once
-        // onWillShow responsibilities are decided.
-        // Nav state is already live in appState.savedNavState; RootPanelView reads
-        // it reactively — nothing needs to happen here for the current nav model.
+        // onWillShow is intentionally empty / commented out.
+        //
+        // WHY nav state does not need to be restored here:
+        // appState.savedNavState is persistent @Observable state — it is never cleared
+        // on open, only on explicit back-navigation or onWillClose(wasForced: false).
+        // RootPanelView reads it directly and reactively; by the time onWillShow fires
+        // the SwiftUI tree is already rendering the correct route. There is nothing to do.
+        //
+        // Other candidates considered for this callback (auth token pre-flight, stale-job
+        // guard restoration) were deferred — see the commented-out block below for context.
+        // Do not remove; restore and expand once onWillShow responsibilities are decided.
         // ctrl.onWillShow = {
         //     log("AppDelegate › onWillShow")
         // }

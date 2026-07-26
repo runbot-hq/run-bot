@@ -95,18 +95,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Close
 
-    /// Resets run-bot nav + sheet state ahead of the popover closing.
+    /// Resets run-bot state ahead of a close driven externally by MBKPopoverController.
     ///
-    /// ⚠️ THIS METHOD INTENTIONALLY DOES NOT CLOSE THE POPOVER.
-    /// macOS status-bar apps do not imperatively close their popover — they hide it.
-    /// MBKPopoverController owns the entire close/hide lifecycle and drives the actual
-    /// dismiss via its status-bar button toggle and onWillClose callback.
-    /// Calling popoverController?.close() here would fight MBK's state machine and
-    /// risk double-close or missed onWillClose callbacks.
+    /// ⚠️ THIS METHOD INTENTIONALLY DOES NOT DISMISS THE POPOVER.
+    /// MBKPopoverController owns all close paths (status-bar toggle, click-outside,
+    /// Escape). This method is called by MBK’s onWillClose to reset run-bot state
+    /// BEFORE MBK completes its own teardown. Adding a popoverController?.close() call
+    /// here would re-enter MBK’s state machine mid-teardown and cause double-close or
+    /// missed onWillClose callbacks.
     ///
-    /// All call sites (back navigation, Escape key) mutate savedNavState = nil, which
-    /// RootPanelView observes to route back to main. The popover itself is dismissed
-    /// exclusively by MBK — never by run-bot code.
+    /// CALL SITE AUDIT (keep current):
+    ///   • AppDelegate+PanelSetup onWillClose(wasForced: false) — the only caller.
+    ///   • navigateBack() does NOT call this — back-nav changes route, not close state.
+    ///   • No keyboard shortcut or Escape handler routes through this method.
+    /// If you add a call site that expects the popover to visually close, wire
+    /// popoverController?.close() there directly instead of routing through here.
     ///
     /// ❌ NEVER add popoverController?.close() here.
     /// ❌ NEVER add popover?.performClose(nil) here.
