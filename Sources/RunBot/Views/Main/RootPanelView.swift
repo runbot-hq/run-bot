@@ -83,14 +83,13 @@ struct RootPanelView: View {
         .id(navState)
         // ⚠️ Temporary — remove after side-jump bug (#2265) is resolved.
         // Logs every nav-state transition for MBK sizing diagnostics.
-        // category: .panel is already #if DEBUG gated at the call site above;
-        // this onChange is intentionally ungated so the transition itself is
-        // always visible in debug logs during the investigation window.
+        // Entire modifier is #if DEBUG-gated: the closure body is a no-op in release
+        // and the observer itself should not be registered in production builds.
+        #if DEBUG
         .onChange(of: navState) { _, newNav in
-            #if DEBUG
             log("【RootPanelView】navState → \(newNav)", category: .panel)
-            #endif
         }
+        #endif
     }
 
     // MARK: - Route branches

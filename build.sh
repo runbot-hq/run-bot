@@ -42,16 +42,16 @@ fi
 # build. Without this, `swift build` reuses the cached resolved versions and will
 # miss commits pushed to dependency branches since the last update.
 #
-# ⚠️ NON-DETERMINISM NOTE: While MenuBarKit is pinned to fix/arrow-center-drift
-# (see Package.swift), running `swift package update` in CI means each run
-# resolves to whatever HEAD that branch points to at execution time. Two CI
-# runs against the same commit SHA can produce different binaries if a new
-# commit lands on fix/arrow-center-drift between runs. This is an accepted
-# and intentional trade-off for this PR only — fix/arrow-center-drift is a
-# short-lived pin that exists solely until that branch merges into MenuBarKit
-# main. Once merged, Package.swift will be reverted to branch: "main" and this
-# non-determinism disappears. Tracked in #2275 — do not remove that issue
-# until Package.swift is back on main.
+# ⚠️ NON-DETERMINISM NOTE: `swift package update` resolves ALL three branch-tracked
+# deps (MenuBarKit, AppUpdater, GitHubClient) to their live branch HEAD at execution
+# time — not just MenuBarKit. Two CI runs against the same run-bot commit SHA can
+# produce different binaries if any commit lands on any of those branches between
+# runs. This is an accepted and intentional trade-off for this PR:
+# • MenuBarKit is temporarily pinned to fix/arrow-center-drift (see Package.swift).
+#   Once that branch merges into MBK main, Package.swift reverts to branch: "main".
+#   Tracked in #2275 — do not remove that issue until Package.swift is back on main.
+# • AppUpdater and GitHubClient are internal repos; the non-determinism risk is low
+#   but exists. Both will continue to track main after this PR merges.
 echo "→ Updating dependencies..."
 swift package update
 

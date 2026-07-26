@@ -128,6 +128,14 @@ extension AppDelegate {
         // wasForced=false: user toggled the icon or pressed Escape — delegate to
         //   closePanel() which is the canonical normal-close state-reset path.
         //
+        // ⚠️ ORDERING INVARIANT (load-bearing — do not reorder):
+        // On the wasForced=true path, isTransientHide MUST be set to true BEFORE
+        // isOpen is set to false. PanelContainerView.onChange(of: panelVisibilityState.isOpen)
+        // fires synchronously when isOpen changes; if isTransientHide is not already true
+        // at that point, the dim-overlay animation replays incorrectly on the next restore.
+        // The current ordering (captureTransientHideState → isTransientHide = true →
+        // [end of if-block] → isOpen = false) preserves this invariant.
+        //
         // ⚠️ KNOWN LIMITATION — isTransientHide state leak:
         // When wasForced=true, panelVisibilityState.isTransientHide is set to true here
         // and is only cleared in onDidShow. If the user force-closes (clicks outside
