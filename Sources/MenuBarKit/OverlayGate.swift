@@ -13,8 +13,8 @@
 //   3. The host app does not need to touch hasActiveOverlay directly —
 //      MBKAnchoredSheet, mbkOpenFilePicker, and mbkAlert manage it automatically.
 //
-// WHY A SEPARATE OBJECT (not a Bool on the host’s AppState):
-//   The gate is MenuBarKit’s concern, not the host app’s.
+// WHY A SEPARATE OBJECT (not a Bool on the host's AppState):
+//   The gate is MenuBarKit's concern, not the host app's.
 //
 // WHY A SINGLE BOOL (not a reference-counted integer):
 //   In normal usage only one overlay (sheet OR file picker) can be live at a
@@ -53,7 +53,7 @@ public final class MBKOverlayGate {
     }
 
     /// `true` specifically when a file picker panel is open.
-    /// Used by `MBKPopoverController`’s event monitor to distinguish an outside
+    /// Used by `MBKPopoverController`'s event monitor to distinguish an outside
     /// click aimed at the picker from a genuine dismiss gesture, even when a
     /// sheet child window is simultaneously present.
     /// Setter is `internal(set)` — only `mbkOpenFilePicker` may mutate this.
@@ -63,9 +63,10 @@ public final class MBKOverlayGate {
         }
     }
 
-    /// Creates a new gate with no active overlay.
-    // No mbkLog here — init fires before the host can install a custom
-    // mbkLogHandler. Both flags start false and the didSet observers capture
-    // every subsequent state change.
+    /// Creates a new gate with all overlays inactive.
+    ///
+    /// No `mbkLog` here — `init` fires before the host can install a custom
+    /// `mbkLogHandler`. Both flags start `false`; the `didSet` observers capture
+    /// every subsequent state change.
     public init() {}
 }

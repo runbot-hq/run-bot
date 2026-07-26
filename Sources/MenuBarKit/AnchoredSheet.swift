@@ -6,7 +6,7 @@ import SwiftUI
 
 // MARK: - Anchor task
 
-/// Spawns a two-hop async task that waits for the sheet’s `NSWindow` to appear
+/// Spawns a two-hop async task that waits for the sheet's `NSWindow` to appear
 /// in `NSApp.windows`, then attaches it as a child of the popover window so
 /// outside-click detection works correctly.
 ///
@@ -28,11 +28,11 @@ func mbkWaitAndAnchorSheetWindow(
 ///
 /// `start()` queues a `Task { @MainActor }` hop followed by a
 /// `DispatchQueue.main.async` hop. The double-hop gives AppKit time to add the
-/// sheet’s `NSWindow` to `NSApp.windows` before we search for it.
+/// sheet's `NSWindow` to `NSApp.windows` before we search for it.
 /// Call `cancel()` if the sheet is dismissed before the anchor completes.
 @MainActor
 final class MBKSheetAnchorTask {
-    /// The popover’s backing window; the sheet window will be added as its child.
+    /// The popover's backing window; the sheet window will be added as its child.
     private let popoverWindow: NSWindow
     /// The gate to check before writing — not currently used in the anchor path
     /// but held for potential future gate-guarded anchoring.
@@ -93,7 +93,9 @@ final class MBKSheetAnchorTask {
                     let title = w.title.isEmpty ? "<empty>" : w.title
                     mbkLog(
                         "AnchoredSheet[\(self.label)]",
-                        "  candidate #\(w.windowNumber) styleMask=\(w.styleMask.rawValue) isKey=\(w.isKeyWindow) borderless=\(w.styleMask == .borderless) inSheets=\(pw.sheets.contains(w)) title=\(title)"
+                        "  candidate #\(w.windowNumber) styleMask=\(w.styleMask.rawValue)" +
+                        " isKey=\(w.isKeyWindow) borderless=\(w.styleMask == .borderless)" +
+                        " inSheets=\(pw.sheets.contains(w)) title=\(title)"
                     )
                 }
                 guard let sheetWindow = allWindows.first(where: {
@@ -180,7 +182,7 @@ struct MBKAnchoredSheetModifier<SheetContent: View>: ViewModifier {
     /// Creates the modifier.
     /// - Parameters:
     ///   - isPresented: Binding that controls presentation.
-    ///   - sheetContent: Factory closure that produces the sheet’s content view.
+    ///   - sheetContent: Factory closure that produces the sheet's content view.
     init(
         isPresented: Binding<Bool>,
         sheetContent: @escaping () -> SheetContent
@@ -193,7 +195,7 @@ struct MBKAnchoredSheetModifier<SheetContent: View>: ViewModifier {
     func body(content: Content) -> some View {
         content
             .sheet(isPresented: $isPresented, content: sheetContent)
-            // NOTE: SwiftUI’s .sheet(isPresented:) writes the binding to false on
+            // NOTE: SwiftUI's .sheet(isPresented:) writes the binding to false on
             // ANY dismiss path — including Escape key and system-level dismiss —
             // so this onChange fires and cleans up the gate and anchor task
             // correctly regardless of how the sheet was dismissed.
@@ -242,7 +244,7 @@ struct MBKAnchoredSheetItemModifier<Item: Identifiable & Equatable, SheetContent
     /// Creates the modifier.
     /// - Parameters:
     ///   - item: Binding to the item that drives presentation.
-    ///   - sheetContent: Factory closure that produces the sheet’s content view.
+    ///   - sheetContent: Factory closure that produces the sheet's content view.
     init(
         item: Binding<Item?>,
         sheetContent: @escaping (Item) -> SheetContent
@@ -255,7 +257,7 @@ struct MBKAnchoredSheetItemModifier<Item: Identifiable & Equatable, SheetContent
     func body(content: Content) -> some View {
         content
             .sheet(item: $item, content: sheetContent)
-            // NOTE: SwiftUI’s .sheet(item:) nils the binding on ANY dismiss path
+            // NOTE: SwiftUI's .sheet(item:) nils the binding on ANY dismiss path
             // — including Escape key and system-level dismiss — so this onChange
             // fires and cleans up the gate and anchor task correctly in all cases.
             .onChange(of: item) { _, newValue in
