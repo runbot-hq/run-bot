@@ -462,7 +462,11 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
             }
             let newW = clamped.width + chromeW
             let newH = clamped.height + chromeH
-            let newX = btnMidX - newW / 2
+            // ❌ DO NOT use window.frame.origin.x as a fixed left edge here —
+            // it was computed for a specific width and is wrong for any other width.
+            // Always derive originX from btnMidX so main and settings (which have
+            // different widths) both land centred under the status item.
+            let newX = btnMidX - newW / 2  // re-centre on the status item for every write
             // Anchor from current bottom edge upward — self-contained, no anchorY needed.
             let newY = window.frame.origin.y + (window.frame.height - newH)
             let newFrame = NSRect(x: newX, y: newY, width: newW, height: newH)
