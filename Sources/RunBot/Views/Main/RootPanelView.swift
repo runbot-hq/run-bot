@@ -60,6 +60,13 @@ struct RootPanelView: View {
 
     /// Switches between route branches; `.id(navState)` forces remount on every change.
     var body: some View {
+        // ⚠️ LOGGING POLICY: This render log fires on every recompose, not just route
+        // transitions. It is intentionally kept until MBK sizing behaviour is confirmed
+        // stable — we need full recompose visibility to diagnose spurious re-renders and
+        // GeometryReader interaction during the fix/arrow-center-drift testing window.
+        // onChange(of: navState) below covers route transitions only; this line covers
+        // everything. Do NOT remove until #2265 is resolved and route-switching under
+        // MBKPopoverController has been verified in production builds.
         #if DEBUG
         log("【RootPanelView.body】rendered navState=\(navState)", category: .panel)
         #endif
