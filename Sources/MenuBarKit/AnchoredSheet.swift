@@ -6,6 +6,12 @@ import SwiftUI
 
 // MARK: - Anchor task
 
+/// Spawns a two-hop async task that waits for the sheet’s `NSWindow` to appear
+/// in `NSApp.windows`, then attaches it as a child of the popover window so
+/// outside-click detection works correctly.
+///
+/// Returns the running `MBKSheetAnchorTask` so the caller can cancel it if the
+/// sheet is dismissed before the window is found.
 @MainActor
 func mbkWaitAndAnchorSheetWindow(
     popoverWindow: NSWindow,
@@ -18,13 +24,25 @@ func mbkWaitAndAnchorSheetWindow(
     return task
 }
 
+/// Manages the two-hop window-search-and-anchor sequence for a SwiftUI sheet.
+///
+/// `start()` queues a `Task { @MainActor }` hop followed by a
+/// `DispatchQueue.main.async` hop. The double-hop gives AppKit time to add the
+/// sheet’s `NSWindow` to `NSApp.windows` before we search for it.
+/// Call `cancel()` if the sheet is dismissed before the anchor completes.
 @MainActor
 final class MBKSheetAnchorTask {
+    /// The popover’s backing window; the sheet window will be added as its child.
     private let popoverWindow: NSWindow
+    /// The gate to check before writing — not currently used in the anchor path
+    /// but held for potential future gate-guarded anchoring.
     private let overlayGate: MBKOverlayGate
+    /// Debug label used in log output to identify which sheet this task belongs to.
     private let label: String
+    /// Set to `true` by `cancel()`. Checked at the start of each hop.
     private var cancelled = false
 
+    /// Creates the task. Does not start the async work — call `start()` explicitly.
     init(popoverWindow: NSWindow, overlayGate: MBKOverlayGate, label: String) {
         mbkLog("AnchoredSheet[\(label)]", "MBKSheetAnchorTask.init pw=#\(popoverWindow.windowNumber)")
         self.popoverWindow = popoverWindow
@@ -32,6 +50,7 @@ final class MBKSheetAnchorTask {
         self.label = label
     }
 
+    /// Begins the two-hop async search for the sheet window.
     func start() {
         mbkLog("AnchoredSheet[\(label)]", "start — hop1 Task queued")
         let capturedLabel = label
@@ -66,15 +85,16 @@ final class MBKSheetAnchorTask {
                 //   event. That routes the event monitor to forceClose() instead of
                 //   performClose(), so onWillClose fires with wasForced: true on a
                 //   session that was actually a normal close. Host code that branches
-                //   on wasForced must treat it as advisory rather than authoritative
-                //   — documented in the README under Known Limitations.
+                //   on wasForced must treat it as advisory rather than authoritative.
                 let pw = self.popoverWindow
                 let allWindows = NSApp.windows
                 mbkLog("AnchoredSheet[\(self.label)]", "hop2 — polling \(allWindows.count) windows")
                 for w in allWindows where w !== pw {
                     let title = w.title.isEmpty ? "<empty>" : w.title
-                    mbkLog("AnchoredSheet[\(self.label)]",
-                           "  candidate #\(w.windowNumber) styleMask=\(w.styleMask.rawValue) isKey=\(w.isKeyWindow) borderless=\(w.styleMask == .borderless) inSheets=\(pw.sheets.contains(w)) title=\(title)")
+                    mbkLog(
+                        "AnchoredSheet[\(self.label)]",
+                        "  candidate #\(w.windowNumber) styleMask=\(w.styleMask.rawValue) isKey=\(w.isKeyWindow) borderless=\(w.styleMask == .borderless) inSheets=\(pw.sheets.contains(w)) title=\(title)"
+                    )
                 }
                 guard let sheetWindow = allWindows.first(where: {
                     $0 !== pw &&
@@ -91,6 +111,7 @@ final class MBKSheetAnchorTask {
         }
     }
 
+    /// Cancels the pending anchor search. Safe to call multiple times.
     func cancel() {
         mbkLog("AnchoredSheet[\(label)]", "cancel called — cancelled was \(cancelled)")
         cancelled = true
@@ -144,12 +165,22 @@ public extension View {
 // View extension above. Exposing the modifier struct directly would allow
 // instantiation without the @Environment(MBKOverlayGate.self) dependency
 // being satisfied, which causes a SwiftUI fatal error at runtime.
+/// `ViewModifier` backing `.mbkSheet(isPresented:content:)`.
+/// Internal — use the `View.mbkSheet(isPresented:content:)` extension instead.
 struct MBKAnchoredSheetModifier<SheetContent: View>: ViewModifier {
+    /// Binding that controls whether the sheet is currently presented.
     @Binding var isPresented: Bool
+    /// The sheet content factory.
     let sheetContent: () -> SheetContent
+    /// The gate that blocks popover dismiss while the sheet is live.
     @Environment(MBKOverlayGate.self) private var overlayGate
+    /// The running anchor task, held so it can be cancelled on dismiss.
     @State private var anchorTask: MBKSheetAnchorTask?
 
+    /// Creates the modifier.
+    /// - Parameters:
+    ///   - isPresented: Binding that controls presentation.
+    ///   - sheetContent: Factory closure that produces the sheet’s content view.
     init(
         isPresented: Binding<Bool>,
         sheetContent: @escaping () -> SheetContent
@@ -158,14 +189,14 @@ struct MBKAnchoredSheetModifier<SheetContent: View>: ViewModifier {
         self.sheetContent = sheetContent
     }
 
+    /// Applies the sheet and gate-management logic.
     func body(content: Content) -> some View {
         content
             .sheet(isPresented: $isPresented, content: sheetContent)
-            // NOTE: SwiftUI's .sheet(isPresented:) writes the binding to false on
+            // NOTE: SwiftUI’s .sheet(isPresented:) writes the binding to false on
             // ANY dismiss path — including Escape key and system-level dismiss —
             // so this onChange fires and cleans up the gate and anchor task
-            // correctly regardless of how the sheet was dismissed. There is no
-            // separate code path needed for system dismissal.
+            // correctly regardless of how the sheet was dismissed.
             .onChange(of: isPresented) { oldValue, newValue in
                 mbkLog("AnchoredSheet[isPresented]", "onChange \(oldValue)→\(newValue) windows=\(NSApp.windows.count) currentGate=\(overlayGate.hasActiveOverlay)")
                 overlayGate.hasActiveOverlay = newValue
@@ -196,12 +227,22 @@ struct MBKAnchoredSheetModifier<SheetContent: View>: ViewModifier {
 
 // Internal: consumers route through the public .mbkSheet(item:content:)
 // View extension above. Same @Environment fatal-error rationale as above.
+/// `ViewModifier` backing `.mbkSheet(item:content:)`.
+/// Internal — use the `View.mbkSheet(item:content:)` extension instead.
 struct MBKAnchoredSheetItemModifier<Item: Identifiable & Equatable, SheetContent: View>: ViewModifier {
+    /// Binding to the item that drives sheet presentation; `nil` when dismissed.
     @Binding var item: Item?
+    /// The sheet content factory, called with the current non-nil item.
     let sheetContent: (Item) -> SheetContent
+    /// The gate that blocks popover dismiss while the sheet is live.
     @Environment(MBKOverlayGate.self) private var overlayGate
+    /// The running anchor task, held so it can be cancelled on dismiss.
     @State private var anchorTask: MBKSheetAnchorTask?
 
+    /// Creates the modifier.
+    /// - Parameters:
+    ///   - item: Binding to the item that drives presentation.
+    ///   - sheetContent: Factory closure that produces the sheet’s content view.
     init(
         item: Binding<Item?>,
         sheetContent: @escaping (Item) -> SheetContent
@@ -210,13 +251,13 @@ struct MBKAnchoredSheetItemModifier<Item: Identifiable & Equatable, SheetContent
         self.sheetContent = sheetContent
     }
 
+    /// Applies the item-driven sheet and gate-management logic.
     func body(content: Content) -> some View {
         content
             .sheet(item: $item, content: sheetContent)
-            // NOTE: SwiftUI's .sheet(item:) nils the binding on ANY dismiss path
+            // NOTE: SwiftUI’s .sheet(item:) nils the binding on ANY dismiss path
             // — including Escape key and system-level dismiss — so this onChange
             // fires and cleans up the gate and anchor task correctly in all cases.
-            // There is no separate code path needed for system dismissal.
             .onChange(of: item) { _, newValue in
                 let isPresented = newValue != nil
                 mbkLog("AnchoredSheet[item]", "onChange isPresented=\(isPresented) windows=\(NSApp.windows.count) currentGate=\(overlayGate.hasActiveOverlay)")
