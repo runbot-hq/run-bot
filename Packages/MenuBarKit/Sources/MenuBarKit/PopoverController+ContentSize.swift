@@ -35,12 +35,24 @@ extension MBKPopoverController {
               isShownSentinel != nil else {
             // Path 1: not shown (or sentinel not yet set).
             //
-            // GUARDED: skip when menubar is hidden. Post-close SwiftUI size
-            // callbacks while hidden poison contentSize — AppKit uses the
-            // stale value to anchor the next open against the off-screen button.
-            if isMenuBarHidden {
+            // Always write contentSize, even when the menubar is hidden.
+            // Writing contentSize while closed is safe regardless of menubar state —
+            // AppKit does not act on it until the next show(). The earlier guard here
+            // was intended to prevent bad-X positioning, but that risk applies only to
+            // show()/reanchor calls, which Path 1 never makes. Skipping the write left
+            // popover.contentSize stale (settings-view size) after a hidden-close, so
+            // the next open briefly showed the main view at the settings size. See #2279.
+            //
+            // GUARDED: skip while the opening sequence is in flight (isOpening == true).
+            // Between openPopover() calling popover.show() and the onDidShow Task
+            // lowering isOpening, SwiftUI layout passes fire Path 1 with a stale
+            // width from the previous session. Writing that stale value here makes
+            // the popover briefly visible at the wrong size before onDidShow issues
+            // the authoritative WRITE+REANCHOR. Suppressing the write is safe because
+            // the correct geometry is committed by that WRITE+REANCHOR call anyway.
+            if isOpening {
                 mbkLog("PopoverController",
-                       "applyContentSize -- not shown, menubar hidden, SKIP WRITE (\(clamped.width),\(clamped.height))")
+                       "applyContentSize -- not shown, opening in flight, SKIP WRITE (\(clamped.width),\(clamped.height))")
                 return
             }
             popover.contentSize = clamped
@@ -96,12 +108,24 @@ extension MBKPopoverController {
             // idempotent no-ops on a second call within the same session. If
             // delegate logic is ever added that must not fire twice per open,
             // this call site must be audited first.
+            //
+            // GUARDED: skip the show() reanchor while the opening sequence is in
+            // flight (isOpening == true). The onDidShow Task issues the first
+            // authoritative WRITE+REANCHOR which already positions the window
+            // correctly; a second show() call before isOpening is cleared causes
+            // the popover window to reposition and produces the one-time header
+            // jump visible on first row tap after open.
             popover.contentSize = clamped
             if widthChanged {
                 guard let button = statusItem.button,
                       let rect = positioningRect(for: button) else {
                     mbkLog("PopoverController",
                            "applyContentSize -- WRITE only, button unavailable for re-anchor (\(clamped.width),\(clamped.height))")
+                    return
+                }
+                if isOpening {
+                    mbkLog("PopoverController",
+                           "applyContentSize -- WRITE only, opening in flight, skip reanchor (\(clamped.width),\(clamped.height))")
                     return
                 }
                 if let anchorX = buttonScreenMidX { lastKnownAnchorX = anchorX }
