@@ -218,9 +218,10 @@ struct PanelMainView: View {
             log("【PanelMainView】panelVisibilityState.isOpen → \(newOpen) menuBarHidden=\(isMenuBarHidden)", category: .panel)
             if newOpen { systemStats.start() } else { systemStats.stop() }
         }
-        .onChange(of: appState.runnerState.actions) { newActions in
-            log("【PanelMainView】actions count → \(newActions.count) menuBarHidden=\(isMenuBarHidden)", category: .panel)
-            if newActions.count < visibleCount { visibleCount = 10 }
+        // Reset the visible row count only when the list shrinks (e.g. a runner is removed),
+        // not on every poll update — avoids snapping the user back mid-scroll.
+        .onChange(of: appState.runnerState.actions) { old, new in
+            if new.count < old.count { visibleCount = 10 }
         }
     }
 
