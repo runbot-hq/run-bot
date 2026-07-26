@@ -32,6 +32,7 @@ extension MBKPopoverController: NSPopoverDelegate {
         hiddenChromeW = nil
         hiddenChromeH = nil
         hiddenButtonMidX = nil
+        hiddenWindowY = nil
         overlayGate.hasActiveOverlay = false
         overlayGate.hasFilePickerOverlay = false
         onWillCloseFired = false

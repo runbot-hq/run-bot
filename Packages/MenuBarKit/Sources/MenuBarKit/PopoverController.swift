@@ -129,16 +129,18 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
     var onWillCloseFired = false
 
     /// Chrome width delta (window frame width − content width) for hidden-mode sizing.
-    /// Snapshotted on first Path 3 call per session; invalidated on view switch.
-    /// `nil` outside a hidden-mode session.
+    /// Snapshotted once on first Path 3 call per session. `nil` outside a session.
     var hiddenChromeW: CGFloat?
     /// Chrome height delta (window frame height − content height) for hidden-mode sizing.
-    /// Snapshotted on first Path 3 call per session; invalidated on view switch.
-    /// `nil` outside a hidden-mode session.
+    /// Snapshotted once on first Path 3 call per session. `nil` outside a session.
     var hiddenChromeH: CGFloat?
     /// Button center X in screen coordinates for the hidden-mode session.
-    /// Preserved across view switches (button doesn't move). `nil` outside a session.
+    /// Snapshotted once on first Path 3 call per session. `nil` outside a session.
     var hiddenButtonMidX: CGFloat?
+    /// Window origin Y (bottom edge in AppKit flipped coordinates) snapshotted once
+    /// on first Path 3 call per session. Never modified after that — Y must not move.
+    /// `nil` outside a hidden-mode session.
+    var hiddenWindowY: CGFloat?
 
     // MARK: - Init
 

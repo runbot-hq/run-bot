@@ -70,28 +70,29 @@ extension MBKPopoverController {
             // layout. Write contentSize first so SwiftUI lays out at the correct width,
             // then drive window.setFrame directly using snapshotted chrome deltas.
             //
-            // Chrome deltas (hiddenChromeW/H) are AppKit window decoration constants.
-            // They are identical regardless of which view is showing (observed: 26×26
-            // in every session). Snapshot once on first entry, never invalidate.
+            // Chrome deltas and window Y are snapshotted once on the first Path 3 call
+            // per session (when hiddenChromeW == nil). Never invalidated or recalculated.
             //
-            // ❌ Do NOT invalidate/re-snapshot on view switches — chrome deltas are
-            // constant and re-snapshotting produces garbage because window.frame and
-            // popover.contentSize would be out of sync at that moment.
+            // ❌ NEVER recalculate newY from window.frame — it moves the top edge of the
+            //    popover on every height change, pinning the window to the screen edge.
+            //    Y is snapshotted once (hiddenWindowY) and held constant for the session.
             // ❌ Do NOT write popover.contentSize before computing the snapshot —
-            // the delta math reads both window.frame and popover.contentSize and
-            // they must be consistent (both reflecting the same prior setFrame call).
+            //    the delta math reads both window.frame and popover.contentSize and
+            //    they must be consistent (both reflecting the same prior state).
             if hiddenChromeW == nil,
                let button = statusItem.button,
                let buttonWin = button.window {
-                hiddenChromeW = window.frame.width  - popover.contentSize.width
-                hiddenChromeH = window.frame.height - popover.contentSize.height
+                hiddenChromeW    = window.frame.width  - popover.contentSize.width
+                hiddenChromeH    = window.frame.height - popover.contentSize.height
                 hiddenButtonMidX = buttonWin.frame.minX + button.frame.midX
+                hiddenWindowY    = window.frame.origin.y
                 mbkLog("PopoverController",
-                       "applyContentSize -- hidden snapshot chromeW=\(hiddenChromeW!) chromeH=\(hiddenChromeH!) buttonMidX=\(hiddenButtonMidX!)")
+                       "applyContentSize -- hidden snapshot chromeW=\(hiddenChromeW!) chromeH=\(hiddenChromeH!) buttonMidX=\(hiddenButtonMidX!) windowY=\(hiddenWindowY!)")
             }
             guard let chromeW = hiddenChromeW,
                   let chromeH = hiddenChromeH,
-                  let btnMidX = hiddenButtonMidX else {
+                  let btnMidX = hiddenButtonMidX,
+                  let fixedY  = hiddenWindowY else {
                 mbkLog("PopoverController",
                        "applyContentSize -- menubar hidden, no chrome snapshot yet, SKIP (\(clamped.width),\(clamped.height))")
                 return
@@ -102,15 +103,11 @@ extension MBKPopoverController {
             popover.contentSize = clamped
             let newW = clamped.width  + chromeW
             let newH = clamped.height + chromeH
-            // ❌ DO NOT use window.frame.origin.x as a fixed left edge — it was
-            // computed for a specific width and is wrong for any other width.
-            // Always derive originX from btnMidX so all views land centred under
-            // the status item regardless of their width.
+            // ❌ DO NOT use window.frame.origin.x — it was computed for a specific
+            // width and is wrong for any other width. Derive X from btnMidX always.
             let newX = btnMidX - newW / 2
-            // Derive Y from the live window.frame bottom edge so it is always
-            // correct regardless of which view is showing or what size it is.
-            let newY = window.frame.origin.y + (window.frame.height - newH)
-            let newFrame = NSRect(x: newX, y: newY, width: newW, height: newH)
+            // Y is the snapshotted bottom edge — never recalculated.
+            let newFrame = NSRect(x: newX, y: fixedY, width: newW, height: newH)
             window.setFrame(newFrame, display: true)
             mbkLog("PopoverController",
                    "applyContentSize -- menubar hidden, DIRECT FRAME (\(clamped.width),\(clamped.height)) btnMidX=\(btnMidX) frame=\(newFrame)")
