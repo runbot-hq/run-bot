@@ -88,6 +88,8 @@ struct RootPanelView: View {
 
     // MARK: - Route branches
 
+    /// Main panel branch: `PanelContainerView` wrapping `PanelMainView`.
+    /// Rendered when `savedNavState` is `.none` or `.main`.
     @ViewBuilder private var mainBranch: some View {
         PanelContainerView(
             content: PanelMainView(
@@ -102,6 +104,8 @@ struct RootPanelView: View {
         )
     }
 
+    /// Settings branch: `PanelContainerView` wrapping `SettingsView`.
+    /// Rendered when `savedNavState` is `.settings`.
     @ViewBuilder private var settingsBranch: some View {
         PanelContainerView(
             content: SettingsView(
@@ -111,6 +115,9 @@ struct RootPanelView: View {
         )
     }
 
+    /// Step-log branch: `StepLogView` for the given job and step.
+    /// Rendered when `savedNavState` is `.stepLog`. No `PanelContainerView` wrapper —
+    /// `StepLogView` has no sheets and must not receive a double dim overlay.
     @ViewBuilder private func stepLogBranch(job: ActiveJob, step: GitHubStep) -> some View {
         StepLogView(
             job: job,
