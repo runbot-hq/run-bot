@@ -76,99 +76,53 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
     // MARK: - Configuration
 
     /// Overlay gate — read in `popoverShouldClose` and reset in `popoverDidClose`.
-    /// `internal` (default) so extension files can access it.
     let overlayGate: MBKOverlayGate
-    /// SF Symbol name for the status-bar icon.
     private let symbolName: String
-    /// Minimum allowed popover content width.
     let minWidth: CGFloat
-    /// Maximum allowed popover content width.
     let maxWidth: CGFloat
-    /// Maximum allowed popover content height.
     let maxHeight: CGFloat
-    /// The current root SwiftUI view, wrapped in `AnyView`.
     var rootView: AnyView
 
-    /// Called just before the popover is shown. Use this to refresh content.
     public var onWillShow: (() -> Void)?
-    /// Called after the popover is shown and `NSApp.activate` has been called.
     public var onDidShow: (() -> Void)?
-    /// Called when the popover is about to close.
-    /// `wasForced` is `true` when closed programmatically (e.g. forceClose via sheet).
     public var onWillClose: ((_ wasForced: Bool) -> Void)?
 
-    /// The status-bar item that owns the trigger button.
-    /// Assigned in `setup()` — see IMPLICIT-UNWRAPPED OPTIONALS in the file header.
     var statusItem: NSStatusItem!
-    /// The managed `NSPopover`. Assigned in `setup()`.
     var popover: NSPopover!
-    /// Hosts the root SwiftUI view. Assigned in `setup()`.
-    /// `internal` (default) so extension files can access it.
     var hostingController: NSHostingController<AnyView>!
-    /// Guards against calling `setup()` more than once.
     private var isSetUp = false
-    /// Global mouse-down event monitor token. `nonisolated(unsafe)` — see file header.
     nonisolated(unsafe) var eventMonitor: Any?
-    /// Workspace app-switch observer token. `nonisolated(unsafe)` — see file header.
     nonisolated(unsafe) var workspaceObserver: NSObjectProtocol?
 
-    /// Shown-sentinel for `applyContentSize`: `true` while the popover is open,
-    /// `nil` while closed. Set in `popoverWillShow`, cleared in `popoverDidClose`.
-    /// Carries no positional value — frame writes derive Y from
-    /// `window.frame.origin.y` directly.
-    /// `internal` (default) so extension files can access it.
+    /// Shown-sentinel: `true` while popover is open, `nil` while closed.
     var isShownSentinel: Bool?
 
-    /// Opening-sentinel for `applyContentSize`: raised in `openPopover()` just before
-    /// `popover.show()` is called, lowered at the top of the `onDidShow` Task.
-    /// While true, Path 1 and Path 2 in `applyContentSize` suppress writes so that
-    /// any SwiftUI layout passes that fire between `show()` and `onDidShow` cannot
-    /// write stale geometry before the authoritative first-pass fires.
-    /// `internal` (default) so extension files can access it.
+    /// Opening-sentinel: raised just before `popover.show()`, lowered in `onDidShow` Task.
     var isOpening = false
 
-    /// Closing-sentinel for `applyContentSize`: raised inside `fireOnWillClose()`
-    /// before `onWillClose?()` fires, lowered in `popoverDidClose`.
-    /// While true, Path 2 (shown, width changed) skips both the `contentSize` write
-    /// and the `show()` reanchor — the popover is about to disappear and any
-    /// SwiftUI layout pass reporting a stale width from the previous view (e.g.
-    /// settings width written back while PanelMainView remounts during teardown)
-    /// must not poison contentSize for the next open.
-    /// `internal` (default) so extension files can access it.
+    /// Closing-sentinel: raised in `fireOnWillClose()`, lowered in `popoverDidClose`.
     var isClosing = false
 
-    /// Button center X in screen coordinates from the last visible-mode open.
-    /// Used for the post-show X correction when opening while the menubar is hidden.
-    /// `nil` until first visible-mode open.
+    /// Button center X from last visible-mode open. `nil` until first visible open.
     var lastKnownAnchorX: CGFloat?
 
-    /// Prevents `onWillClose` from firing more than once per open/close cycle.
-    /// `internal` (default) so extension files can access it.
+    /// Prevents `onWillClose` firing more than once per cycle.
     var onWillCloseFired = false
 
-    /// Chrome width delta (window frame width − content width) snapshotted in
-    /// hidden mode on the first `applyContentSize` call. `nil` outside a session.
-    /// `internal` (default) so extension files can access it.
+    /// Chrome width delta snapshotted at first Path 3 call. `nil` outside a session.
     var hiddenChromeW: CGFloat?
-    /// Chrome height delta (window frame height − content height) snapshotted in
-    /// hidden mode. `nil` outside a session.
-    /// `internal` (default) so extension files can access it.
+    /// Chrome height delta snapshotted at first Path 3 call. `nil` outside a session.
     var hiddenChromeH: CGFloat?
-    /// Button center X in screen coordinates for the hidden-mode session.
-    /// `nil` outside a hidden-mode session.
-    /// `internal` (default) so extension files can access it.
+    /// Button center X for the current hidden-mode session. `nil` outside a session.
     var hiddenButtonMidX: CGFloat?
+    /// Last content width actually committed to the window via `setFrame` in hidden
+    /// mode. Used by Guard 3 to detect stale departing-view GR fires that would
+    /// widen the window back to main dimensions after settings has been framed.
+    /// `nil` outside a hidden-mode session.
+    var hiddenLastSetWidth: CGFloat?
 
     // MARK: - Init
 
-    /// Creates the controller with a root SwiftUI view and shared overlay gate.
-    /// - Parameters:
-    ///   - rootView: The root view displayed inside the popover.
-    ///   - overlayGate: Shared gate; blocks dismiss while a sheet or picker is live.
-    ///   - symbolName: SF Symbol name for the status-bar icon. Defaults to `"menubar.rectangle"`.
-    ///   - minWidth: Minimum popover content width (default 200).
-    ///   - maxWidth: Maximum popover content width (default 600).
-    ///   - maxHeight: Maximum popover content height (default 600).
     public init<Content: View>(
         rootView: Content,
         overlayGate: MBKOverlayGate,
@@ -187,15 +141,6 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
 
     // MARK: - Setup
 
-    /// Wires the status item, popover, and observers.
-    ///
-    /// **Must be called from `applicationDidFinishLaunching`** before any user
-    /// interaction is possible. Assigns the three IUO properties (`statusItem`,
-    /// `popover`, `hostingController`). Any call to `togglePopover()` before
-    /// `setup()` completes will crash on the `!` unwrap — intentional; surfaces
-    /// ordering errors immediately.
-    ///
-    /// ❌ NEVER call `setup()` more than once. A `precondition` guards this at runtime.
     public func setup() {
         precondition(!isSetUp, "MBKPopoverController.setup() called more than once.")
         isSetUp = true
@@ -206,10 +151,6 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
         mbkLog("PopoverController", "setup complete")
     }
 
-    // MARK: - Root view replacement
-
-    /// Replaces the popover's root view at runtime.
-    /// Safe to call before or after `setup()`.
     public func setRootView(_ view: AnyView) {
         rootView = view
         guard isSetUp else { return }
@@ -217,16 +158,10 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
         mbkLog("PopoverController", "setRootView — rootView replaced")
     }
 
-    // MARK: - Status item image
-
-    /// Replaces the status-bar button image.
     public func setStatusItemImage(_ image: NSImage) {
         statusItem?.button?.image = image
     }
 
-    // MARK: - Status item setup
-
-    /// Creates and configures the `NSStatusItem` and its button.
     func setupStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = statusItem.button {
@@ -237,9 +172,6 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
         }
     }
 
-    // MARK: - Deallocation
-
-    // See deinit TEARDOWN in the file header for thread-safety rationale.
     deinit {
         if let observer = workspaceObserver {
             NSWorkspace.shared.notificationCenter.removeObserver(observer)
