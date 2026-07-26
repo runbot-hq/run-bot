@@ -58,6 +58,36 @@ import SwiftUI
 //         headerHeight starts at 0 and is updated from the header GeometryReader on
 //         first appear. No fixed pixel values — the header measures its own height.
 //
+// MULTIPLE GEOMETRYREADERS — WHY THIS IS INTENTIONAL AND NOT REDUNDANT:
+//         There are three distinct GRs in this file: one on the header, one on
+//         actionsSectionContent, and one on the ScrollView frame. Each measures
+//         a different thing:
+//           • Header GR → headerHeight (used to tighten the scroll cap, RULE 12)
+//           • Content GR → scrollViewHeight (the full natural content height, RULE 5)
+//           • ScrollView GR → debug logging only (does not write any state)
+//         Merging them would conflate header height with scroll content height and
+//         break the RULE 12 cap calculation. Each GR is in a .background() so it
+//         does not participate in layout and cannot influence the size it is measuring.
+//         ❌ NEVER merge these three GeometryReaders into one.
+//         ❌ NEVER move a GR out of .background() — it will influence its own measurement.
+//
+// WHY .frame(height: scrollViewHeight > 0 ? scrollViewHeight : nil) NOT maxHeight:
+//         Using .frame(maxHeight:) gives SwiftUI permission to make the ScrollView
+//         any height up to the cap. MBK's GeometryReader then reports that offered
+//         height rather than the content's actual height, and the popover over-sizes.
+//         Using a fixed .frame(height:) forces the ScrollView to report exactly what
+//         we measured. The `> 0 ? ... : nil` guard keeps the constraint absent on the
+//         first layout pass (before the content GR has fired) so SwiftUI can perform
+//         the initial measurement unconstrained.
+//
+// NSApp.windows ITERATION IN isMenuBarHidden:
+//         isMenuBarHidden iterates NSApp.windows to find the status-bar button window.
+//         This is O(n) and involves AppKit synchronisation, but it is called only
+//         from logging paths that are compiled away in release builds (#if DEBUG).
+//         It MUST NOT be called from any non-debug layout or rendering path.
+//         ❌ NEVER call isMenuBarHidden from body, screenScrollMaxHeight, or any
+//            computed var that participates in layout outside a #if DEBUG guard.
+//
 // NSPopover provides its own glass chrome automatically.
 // Do NOT add .background() or NSVisualEffectView at this level.
 
@@ -99,7 +129,11 @@ struct PanelMainView: View {
     }
 
     /// Returns true when the status item button window is off-screen (menubar hidden).
-    /// Used only for logging — does not affect layout.
+    ///
+    /// ⚠️ DEBUG-ONLY — used exclusively inside #if DEBUG logging blocks.
+    /// NSApp.windows iteration is O(n) with AppKit synchronisation. This property
+    /// MUST NOT be called from any layout path (body, screenScrollMaxHeight, computed
+    /// vars) outside a #if DEBUG guard. See NSApp.windows ITERATION note in the file header.
     private var isMenuBarHidden: Bool {
         for win in NSApp.windows {
             let typeName = String(describing: type(of: win))
@@ -116,14 +150,17 @@ struct PanelMainView: View {
     /// This ensures the full panel (header + divider + scroll) stays within the 0.80 cap.
     /// ❌ MUST match AppDelegate.maxHeight multiplier. See RULE 11 / CAP ALIGNMENT.
     /// ❌ NEVER use fixed pixel values here. headerHeight is content-derived (RULE 12).
+    /// ❌ NEVER call isMenuBarHidden here outside #if DEBUG — it iterates NSApp.windows.
     private var screenScrollMaxHeight: CGFloat {
         let visibleHeight = NSScreen.main?.visibleFrame.height ?? 800
         let cap = visibleHeight * 0.80 - headerHeight
+        #if DEBUG
         log(
             "【PanelMainView.screenScrollMaxHeight】" +
             "visibleHeight=\(visibleHeight) headerHeight=\(headerHeight) cap=\(cap) multiplier=0.80 menuBarHidden=\(isMenuBarHidden)",
             category: .panel
         )
+        #endif
         return cap
     }
 
@@ -156,20 +193,34 @@ struct PanelMainView: View {
                 onSelectSettings: onSelectSettings
             )
             // RULE 10: LOAD-BEARING — do not remove.
+            // .fixedSize() prevents GlassEffectContainer from reporting fluctuating
+            // heights under layout pressure on macOS 26 (see HEADER STABILITY above).
             .fixedSize()
-            // Capture header's natural height for RULE 12 scroll cap adjustment.
+            // Header GeometryReader (RULE 12).
+            // Lives in .background() so it measures without influencing layout.
+            // Writes headerHeight once on appear; updates only if the header truly changes.
+            // See MULTIPLE GEOMETRYREADERS in the file header for why this is separate
+            // from the content and scroll GRs below.
             .background(
                 GeometryReader { geo in
                     Color.clear
                         .onAppear {
+                            #if DEBUG
                             let prev = headerHeight
+                            #endif
                             headerHeight = geo.size.height
+                            #if DEBUG
                             log("【header.geo】onAppear h=\(geo.size.height) menuBarHidden=\(isMenuBarHidden) (was \(prev))", category: .panel)
+                            #endif
                         }
                         .onChange(of: geo.size.height) { _, newH in
+                            #if DEBUG
                             let prev = headerHeight
+                            #endif
                             headerHeight = newH
+                            #if DEBUG
                             log("【header.geo】onChange \(prev) → \(newH) menuBarHidden=\(isMenuBarHidden) ← HEADER HEIGHT CHANGED", category: .panel)
+                            #endif
                         }
                 }
             )
@@ -184,6 +235,8 @@ struct PanelMainView: View {
                 SectionHeaderLabel(title: "Local Runners")
                 PanelLocalRunnerRow(runners: activeLocalRunners)
             }
+            // Color.clear trigger for localRunnerStore.refresh() on appear.
+            // Zero-size so it has no visual presence or layout impact.
             Color.clear.frame(width: 0, height: 0)
                 .onAppear {
                     Task { await localRunnerStore.refresh() }
@@ -191,37 +244,52 @@ struct PanelMainView: View {
             actionsSectionScrollable
         }
         // RULE 1: LOAD-BEARING — do not remove or change to fixedSize(horizontal:vertical:).
+        // See RULE 1 in the file header for the full explanation of why both axes are needed.
         .fixedSize()
-        // Log root VStack total size changes.
+        // Root VStack GeometryReader — debug logging only, writes no state.
+        // Lives in .background() so it cannot influence the size it measures.
+        // See MULTIPLE GEOMETRYREADERS in the file header.
         .background(
             GeometryReader { geo in
                 Color.clear
                     .onAppear {
+                        #if DEBUG
                         log("【rootVStack.geo】onAppear size=\(geo.size) menuBarHidden=\(isMenuBarHidden)", category: .panel)
+                        #endif
                     }
                     .onChange(of: geo.size) { _, newSize in
+                        #if DEBUG
                         log("【rootVStack.geo】onChange → \(newSize) menuBarHidden=\(isMenuBarHidden)", category: .panel)
+                        #endif
                     }
             }
         )
         .onAppear {
+            #if DEBUG
             log("【PanelMainView】onAppear panelOpen=\(panelVisibilityState.isOpen) menuBarHidden=\(isMenuBarHidden)", category: .panel)
+            #endif
             if panelVisibilityState.isOpen { systemStats.start() }
             startDisplayTickTimer()
         }
         .onDisappear {
+            #if DEBUG
             log("【PanelMainView】onDisappear menuBarHidden=\(isMenuBarHidden)", category: .panel)
+            #endif
             systemStats.stop()
             stopDisplayTickTimer()
         }
         .onChange(of: panelVisibilityState.isOpen) { _, newOpen in
+            #if DEBUG
             log("【PanelMainView】panelVisibilityState.isOpen → \(newOpen) menuBarHidden=\(isMenuBarHidden)", category: .panel)
+            #endif
             if newOpen { systemStats.start() } else { systemStats.stop() }
         }
         // Reset the visible row count only when the list shrinks (e.g. a runner is removed),
         // not on every poll update — avoids snapping the user back mid-scroll.
         .onChange(of: appState.runnerState.actions) { _, newActions in
+            #if DEBUG
             log("【PanelMainView】actions count → \(newActions.count) menuBarHidden=\(isMenuBarHidden)", category: .panel)
+            #endif
             if newActions.count < visibleCount { visibleCount = 10 }
         }
     }
@@ -231,47 +299,72 @@ struct PanelMainView: View {
     /// Scrollable container for the actions section.
     /// Height is driven by a content GeometryReader into `scrollViewHeight`,
     /// capped at `screenScrollMaxHeight` (see RULE 5).
+    ///
+    /// WHY .frame(height: scrollViewHeight > 0 ? scrollViewHeight : nil):
+    /// See WHY .frame(height:) NOT maxHeight in the file header. The `> 0` guard
+    /// keeps the constraint absent on the first layout pass so SwiftUI can measure
+    /// the content unconstrained before we lock in the height.
     private var actionsSectionScrollable: some View {
         ScrollView(.vertical, showsIndicators: true) {
             actionsSectionContent
+                // RULE 5: LOAD-BEARING — forces natural height measurement before ScrollView clips.
                 .fixedSize(horizontal: false, vertical: true)
+                // Content GeometryReader (RULE 5).
+                // Writes scrollViewHeight. Lives in .background() so it measures
+                // without influencing the content height it is capturing.
+                // See MULTIPLE GEOMETRYREADERS in the file header.
                 .background(
                     GeometryReader { geo in
                         Color.clear
                             .onAppear {
                                 let cap = screenScrollMaxHeight
                                 let capped = min(geo.size.height, cap)
+                                #if DEBUG
                                 log(
                                     "【scrollContent.geo】onAppear raw=\(geo.size.height) cap=\(cap)" +
                                     " capped=\(capped) scrollViewHeight=\(scrollViewHeight) menuBarHidden=\(isMenuBarHidden)",
                                     category: .panel
                                 )
+                                #endif
                                 scrollViewHeight = capped
+                                #if DEBUG
                                 log("【scrollContent.geo】scrollViewHeight SET → \(scrollViewHeight)", category: .panel)
+                                #endif
                             }
                             .onChange(of: geo.size.height) { _, newH in
                                 let cap = screenScrollMaxHeight
                                 let capped = min(newH, cap)
+                                #if DEBUG
                                 log(
                                     "【scrollContent.geo】onChange raw → \(newH) cap=\(cap)" +
                                     " capped=\(capped) scrollViewHeight was=\(scrollViewHeight) menuBarHidden=\(isMenuBarHidden)",
                                     category: .panel
                                 )
+                                #endif
                                 scrollViewHeight = capped
+                                #if DEBUG
                                 log("【scrollContent.geo】scrollViewHeight SET → \(scrollViewHeight)", category: .panel)
+                                #endif
                             }
                     }
                 )
         }
+        // See WHY .frame(height:) NOT maxHeight in the file header.
         .frame(height: scrollViewHeight > 0 ? scrollViewHeight : nil)
+        // ScrollView GeometryReader — debug logging only, writes no state.
+        // See MULTIPLE GEOMETRYREADERS in the file header.
         .background(
             GeometryReader { geo in
                 Color.clear
                     .onAppear {
+                        #if DEBUG
                         log("【scrollView.geo】onAppear h=\(geo.size.height) menuBarHidden=\(isMenuBarHidden)", category: .panel)
+                        #endif
                     }
                     .onChange(of: geo.size.height) { _, newH in
+                        #if DEBUG
                         log("【scrollView.geo】onChange → \(newH) menuBarHidden=\(isMenuBarHidden)", category: .panel)
+                        #endif
                     }
             }
         )
@@ -358,11 +451,17 @@ struct PanelMainView: View {
     }
 
     /// Rate-limit warning banner showing a countdown to API reset.
-    /// The label refreshes every second because `displayTick` is threaded through
-    /// `body → actionsSectionContent → ActionRowView(tick:)`. The `withExtendedLifetime`
-    /// call here makes the read intent explicit but does not itself register a new dependency.
+    ///
+    /// WHY withExtendedLifetime(displayTick):
+    /// `displayTick` must be read inside `body` to register a SwiftUI dependency so the
+    /// banner label refreshes every second. However, `rateLimitBanner` is a computed var
+    /// called from body — not body itself — so the compiler cannot see the read directly.
+    /// `withExtendedLifetime` is a zero-cost call that makes the dependency explicit to both
+    /// the compiler and future readers without changing runtime behaviour. The actual per-second
+    /// refresh is driven by the `tick:` parameter chain: body → actionsSectionContent →
+    /// ActionRowView(tick:). This call is intentional and not dead code.
     private var rateLimitBanner: some View {
-        withExtendedLifetime(displayTick) {} // makes read intent explicit; actual refresh is driven by the tick: param chain in body
+        withExtendedLifetime(displayTick) {}
         let countdownLabel: String
         if let resetDate = appState.runnerState.rateLimitResetDate {
             let remaining = max(0, resetDate.timeIntervalSinceNow)
