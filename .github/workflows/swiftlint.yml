@@ -28,5 +28,13 @@ jobs:
       - name: Install SwiftLint
         run: brew install swiftlint
 
-      - name: Run SwiftLint
+      - name: Run SwiftLint (RunBot)
+        run: swiftlint lint --strict --reporter github-actions-logging
+
+      - name: Run SwiftLint (GitHubClient)
+        working-directory: Packages/GitHubClient
+        run: swiftlint lint --strict --reporter github-actions-logging
+
+      - name: Run SwiftLint (MenuBarKit)
+        working-directory: Packages/MenuBarKit
         run: swiftlint lint --strict --reporter github-actions-logging

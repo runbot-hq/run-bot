@@ -1,0 +1,12 @@
+# .periphery.yml
+# Periphery dead-code scanner configuration.
+#
+# retain_public:
+#   Treat all public/open declarations as used — MenuBarKit exposes a public
+#   API surface consumed by host apps. Without this, Periphery would flag every
+#   public symbol as unused when scanning the library alone.
+
+retain_public: true
+
+targets:
+  - MenuBarKit
