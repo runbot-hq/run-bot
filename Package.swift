@@ -54,6 +54,7 @@ let package = Package(
                 .product(name: "MenuBarKit", package: "MenuBarKit"),
             ],
             path: "Sources/RunBot",
+            exclude: ["Resources/Assets.xcassets"],
             // ⚠️ AI AGENT: resources: [.process("Resources")] has been intentionally
             // REMOVED. Do NOT add it back without reading issue #2139 and #2136 first.
             //
