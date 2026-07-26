@@ -88,8 +88,8 @@ extension MBKPopoverController {
             // area (under the macOS notch island). After computing newY, we floor
             // it to visibleFrame.minY so the panel can never rise above the
             // menubar/notch regardless of snapshot timing.
-            let prevW = hiddenChromeW.map { popover.contentSize.width } ?? clamped.width
-            let prevH = hiddenChromeH.map { popover.contentSize.height } ?? clamped.height
+            let prevW = hiddenChromeW != nil ? popover.contentSize.width  : clamped.width
+            let prevH = hiddenChromeH != nil ? popover.contentSize.height : clamped.height
             let viewSwitched = hiddenChromeW != nil && (
                 abs(clamped.width  - prevW) > 20 ||
                 abs(clamped.height - prevH) > 20
@@ -136,7 +136,7 @@ extension MBKPopoverController {
             let newY = max(rawY, visibleFloor)
             if newY != rawY {
                 mbkLog("PopoverController",
-                       "applyContentSize -- hidden Y floored rawY=\(rawY) → \(newY) visibleFloor=\(visibleFloor)")
+                       "applyContentSize -- hidden Y floored rawY=\(rawY) \u{2192} \(newY) visibleFloor=\(visibleFloor)")
             }
             let newFrame = NSRect(x: newX, y: newY, width: newW, height: newH)
             window.setFrame(newFrame, display: true)
