@@ -327,12 +327,14 @@ struct PanelMainView: View {
         // contentSize seed — too late to prevent the wrong-size flash.
         //
         // TIMING PROOF: onWillShow?() is called at the top of openPopover(), before
-        // isOpening = true and before popover.show(). SwiftUI processes @Observable
-        // mutations synchronously on the main actor — by the time onWillShow returns,
-        // all onChange(of:) observers for willShowToken have already fired and
-        // scrollViewHeight == 0. Only then does openPopover() call popover.show(),
-        // which triggers hostingController.view.fittingSize. The reset therefore
-        // always precedes the fittingSize read. If onWillShow is ever made async
+        // isOpening = true and before popover.show(). In current SwiftUI/macOS versions,
+        // @Observable mutations on the main actor cause onChange(of:) observers to fire
+        // synchronously before the mutation call returns — by the time onWillShow returns,
+        // scrollViewHeight == 0. This timing is an observed implementation detail of
+        // SwiftUI's observation registrar, not a documented public API contract; it may
+        // change under future Swift concurrency or OS updates. The close-time reset in
+        // onChange(of: isOpen) below acts as a secondary safety net for any open path
+        // where this timing assumption does not hold. If onWillShow is ever made async
         // or moved after show(), this guarantee breaks — audit this site.
         //
         // See PanelVisibilityState.willShowToken for full contract.
@@ -356,13 +358,19 @@ struct PanelMainView: View {
                 // WRITE+REANCHOR calls that jump the header. See #2279.
                 systemStats.start()
             } else {
-                // Reset scrollViewHeight at close time, while the popover is closed
-                // and no layout passes are active. This clears any stale value written
-                // during a dismissed-window layout pass (settings→main remount inside
-                // onWillClose teardown) before the next open, not during it.
-                // The > 0 ? ... : nil guard in actionsSectionScrollable removes the
-                // frame constraint for the first unconstrained pass on next open,
-                // letting the content GR re-measure and write the correct value. See #2279.
+                // DEFENSE-IN-DEPTH: reset scrollViewHeight at close time while the popover
+                // is closed and no layout passes are active.
+                //
+                // PRIMARY reset path: onChange(of: willShowToken) above fires synchronously
+                // in onWillShow before MBK reads fittingSize — that is the authoritative reset.
+                //
+                // This close-time reset is a fallback for open paths that bypass onWillShow
+                // (e.g. a future programmatic open that does not call the MBK delegate chain).
+                // It also clears any stale value written during a dismissed-window layout pass
+                // (settings→main remount inside onWillClose teardown) before the next open.
+                // The > 0 ? ... : nil guard in actionsSectionScrollable removes the frame
+                // constraint for the first unconstrained pass on next open, letting the
+                // content GR re-measure and write the correct value. See #2279.
                 scrollViewHeight = 0
                 systemStats.stop()
             }

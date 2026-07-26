@@ -132,6 +132,14 @@ extension MBKPopoverController {
             // call triggered by onDidShow (e.g. WRITE+REANCHOR from PanelMainView's
             // geometry pass) proceeds normally and commits the correct geometry.
             self.isOpening = false
+            // GUARD: the user may dismiss the popover before this Task hop lands
+            // (e.g. instant click-to-close after open). popoverDidClose has already
+            // fired and cleared isShownSentinel. Calling onDidShow against a closed
+            // popover is unsafe for consumers that assume a live window — bail here.
+            guard self.popover.isShown else {
+                mbkLog("PopoverController", "onDidShow Task hop -- popover already closed, skipping onDidShow")
+                return
+            }
             self.onDidShow?()
             mbkLog("PopoverController", "onDidShow fired")
         }
