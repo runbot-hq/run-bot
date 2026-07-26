@@ -53,6 +53,13 @@ extension MBKPopoverController {
     /// Handles `isOpening` suppression, `onWillShow`/`onDidShow` callbacks,
     /// and post-show X correction for the hidden-menubar case.
     func openPopover() {
+        // Defensive reset: if a prior open attempt ran popover.show() but AppKit
+        // silently rejected it (no popoverWillShow, no onDidShow, no popoverDidClose),
+        // isOpening would be left permanently true. Resetting here ensures a clean
+        // slate regardless of what happened in the previous cycle. The popoverDidClose
+        // safety net covers the normal close path; this covers the degenerate no-show path.
+        isOpening = false
+
         guard let button = statusItem.button else { return }
         mbkLog("PopoverController", "openPopover -- calling onWillShow")
         onWillShow?()

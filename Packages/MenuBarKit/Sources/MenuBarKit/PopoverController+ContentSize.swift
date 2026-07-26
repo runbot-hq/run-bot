@@ -73,6 +73,19 @@ extension MBKPopoverController {
             // Chrome deltas, button X, and window top edge are snapshotted once in
             // popoverWillShow per session. Never invalidated or recalculated.
             //
+            // KNOWN LIMITATION — mid-session menubar hide:
+            // hiddenWindowY (and all chrome snapshot values) are captured in
+            // popoverWillShow, which fires before any of our setFrame calls.
+            // If the popover is already open in visible-menubar mode and the user
+            // enables auto-hide mid-session, isMenuBarHidden will flip true and
+            // Path 3 will activate using a hiddenWindowY that was snapshotted from
+            // a window position that may have since been moved by Path 2 reanchors.
+            // This is accepted risk: fixing it properly would require observing
+            // NSApplicationDidChangeScreenParametersNotification and re-snapshotting
+            // on menubar-hide transitions, which adds complexity disproportionate to
+            // the frequency of the scenario. In practice, the popover is almost always
+            // closed before the user toggles auto-hide.
+            //
             // ❌ NEVER recalculate Y from window.frame — it moves on every setFrame call.
             //    hiddenWindowY is the snapshotted TOP EDGE (maxY), held constant for the
             //    session. origin.y is derived per-call as hiddenWindowY - windowHeight so
