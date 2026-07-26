@@ -114,17 +114,12 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
 
     /// Shown-sentinel for `applyContentSize`: `true` while the popover is open,
     /// `nil` while closed. Set in `popoverWillShow`, cleared in `popoverDidClose`.
-    /// Carries no positional value — frame writes derive Y from
-    /// `window.frame.origin.y` directly.
-    /// `internal` (default) so extension files can access it.
     var isShownSentinel: Bool?
 
     /// Opening-sentinel for `applyContentSize`: raised just before `popover.show()`
     /// in `openPopover()` and lowered at the top of the `onDidShow` Task.
-    /// While `true`, Path 1 (not-shown) writes and Path 2 width-change reanchors
-    /// are suppressed to prevent stale-geometry writes during the opening transition.
-    /// Reset to `false` in `popoverDidClose` as a safety net.
-    /// `internal` (default) so extension files can access it.
+    /// While true, Path 1 (not-shown) writes and Path 2 width-change reanchors
+    /// are suppressed. Reset to `false` in `popoverDidClose` as a safety net.
     var isOpening = false
 
     /// Button center X in screen coordinates from the last visible-mode open.
@@ -136,23 +131,18 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
     /// `internal` (default) so extension files can access it.
     var onWillCloseFired = false
 
-    /// Chrome width delta (window frame width − content width) snapshotted in
-    /// hidden mode on the first `applyContentSize` call. `nil` outside a session.
-    /// `internal` (default) so extension files can access it.
+    /// Chrome width delta (window frame width − content width) for hidden-mode sizing.
+    /// Snapshotted once in `popoverWillShow` per session. `nil` outside a session.
     var hiddenChromeW: CGFloat?
-    /// Chrome height delta (window frame height − content height) snapshotted in
-    /// hidden mode. `nil` outside a session.
-    /// `internal` (default) so extension files can access it.
+    /// Chrome height delta (window frame height − content height) for hidden-mode sizing.
+    /// Snapshotted once in `popoverWillShow` per session. `nil` outside a session.
     var hiddenChromeH: CGFloat?
     /// Button center X in screen coordinates for the hidden-mode session.
-    /// `nil` outside a hidden-mode session.
-    /// `internal` (default) so extension files can access it.
+    /// Snapshotted once in `popoverWillShow` per session. `nil` outside a session.
     var hiddenButtonMidX: CGFloat?
     /// Window origin Y (bottom edge in AppKit flipped coordinates) snapshotted once
-    /// on the first Path 3 `applyContentSize` call per session.
-    /// Held constant for the session — Y must not move on height changes.
+    /// in `popoverWillShow` per session. Never modified after that — Y must not move.
     /// `nil` outside a hidden-mode session.
-    /// `internal` (default) so extension files can access it.
     var hiddenWindowY: CGFloat?
 
     // MARK: - Init
@@ -186,12 +176,7 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
     /// Wires the status item, popover, and observers.
     ///
     /// **Must be called from `applicationDidFinishLaunching`** before any user
-    /// interaction is possible. Assigns the three IUO properties (`statusItem`,
-    /// `popover`, `hostingController`). Any call to `togglePopover()` before
-    /// `setup()` completes will crash on the `!` unwrap — intentional; surfaces
-    /// ordering errors immediately.
-    ///
-    /// ❌ NEVER call `setup()` more than once. A `precondition` guards this at runtime.
+    /// interaction is possible. A `precondition` guards against calling it more than once.
     public func setup() {
         precondition(!isSetUp, "MBKPopoverController.setup() called more than once.")
         isSetUp = true
