@@ -35,6 +35,19 @@ import SwiftUI
 // forcing SwiftUI to re-layout inside a smaller frame and compressing
 // the header. Both caps derive from the same visibleFrame.height — keep
 // them in sync.
+//
+// SCREEN CAP — WHY NSScreen.main AT LAUNCH IS INTENTIONAL:
+// maxHeight is read once from NSScreen.main?.visibleFrame at setupPanel() time
+// and passed as a construction parameter to MBKPopoverController. This is the
+// designed contract: MBKPopoverController receives a fixed cap at init and uses
+// it to clamp the popover height on every open via its internal applyContentSize
+// logic. The cap is a hard ceiling that prevents the popover from growing beyond
+// the visible screen area — it is NOT a dynamic real-time measurement.
+// Single-display setups (the overwhelming majority of RunBot users) are
+// unaffected. Multi-monitor divergence after launch is an accepted limitation
+// for this lifecycle model; the app must be relaunched to pick up a new screen.
+// ❌ NEVER move this read inside onWillShow or onDidShow — MBKPopoverController
+//    requires the cap at construction time, not per-open.
 
 /// Extension owning `MBKPopoverController` construction and lifecycle-callback wiring.
 extension AppDelegate {

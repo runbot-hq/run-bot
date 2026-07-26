@@ -95,11 +95,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Close
 
-    /// Closes the popover explicitly (Escape / back navigation / manual close).
-    /// Clears nav + sheet state — RootPanelView reacts to savedNavState = nil
-    /// and routes to the main branch automatically. No setRootView() needed.
-    /// MBKPopoverController drives the actual close via its status-bar button
-    /// toggle — this method resets run-bot state ahead of that.
+    /// Resets run-bot nav + sheet state ahead of the popover closing.
+    ///
+    /// ⚠️ THIS METHOD INTENTIONALLY DOES NOT CLOSE THE POPOVER.
+    /// macOS status-bar apps do not imperatively close their popover — they hide it.
+    /// MBKPopoverController owns the entire close/hide lifecycle and drives the actual
+    /// dismiss via its status-bar button toggle and onWillClose callback.
+    /// Calling popoverController?.close() here would fight MBK's state machine and
+    /// risk double-close or missed onWillClose callbacks.
+    ///
+    /// All call sites (back navigation, Escape key) mutate savedNavState = nil, which
+    /// RootPanelView observes to route back to main. The popover itself is dismissed
+    /// exclusively by MBK — never by run-bot code.
+    ///
+    /// ❌ NEVER add popoverController?.close() here.
+    /// ❌ NEVER add popover?.performClose(nil) here.
     func closePanel() {
         log("AppDelegate › closePanel")
         appState.savedNavState = nil
