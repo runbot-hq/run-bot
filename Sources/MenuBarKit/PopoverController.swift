@@ -402,25 +402,14 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
     }
 
     // MARK: - applyContentSize
-    //
-    // Central sizing method. Called by the GeometryReader wrapper whenever SwiftUI
-    // reports a new preferred size. Three execution paths:
-    //
-    // 1. Popover not shown — write contentSize into NSPopover so it opens at the
-    //    right size. GUARDED: skip when menubar is hidden — post-close SwiftUI size
-    //    callbacks while hidden poison contentSize with a stale value that AppKit
-    //    uses to anchor the next open against the off-screen button.
-    //
-    // 2. Popover shown, menubar visible — write contentSize through NSPopover
-    //    (works normally). On width change, re-anchor via popover.show() so AppKit
-    //    re-derives the arrow position atomically. Height-only changes use a
-    //    write-only path (AppKit repositions vertically without a race).
-    //
-    // 3. Popover shown, menubar hidden — NSPopover.contentSize is silently ignored.
-    //    Snapshot chrome + buttonMidX on first entry, then drive window.setFrame
-    //    directly on every call. Y origin anchors from the current window bottom
-    //    edge upward (self-contained, no anchorY dependency).
 
+    /// Applies a SwiftUI-reported preferred size to the popover or its backing window.
+    ///
+    /// Three paths: (1) not shown — write `contentSize` so it opens at the right size;
+    /// (2) shown, menubar visible — write `contentSize`, re-anchor via `show()` on width
+    /// change so AppKit re-derives the arrow position atomically; (3) shown, menubar
+    /// hidden — `NSPopover.contentSize` is ignored by AppKit, so drive `window.setFrame`
+    /// directly using snapshotted chrome deltas and `buttonMidX`.
     private func applyContentSize(_ preferred: CGSize) {
         let clamped = clamp(preferred)
         guard clamped.width > 0, clamped.height > 0 else { return }

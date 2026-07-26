@@ -191,7 +191,7 @@ struct MBKAnchoredSheetModifier<SheetContent: View>: ViewModifier {
         self.sheetContent = sheetContent
     }
 
-    /// Applies the sheet and gate-management logic.
+    /// Applies the sheet and gate-management logic to `content`.
     func body(content: Content) -> some View {
         content
             .sheet(isPresented: $isPresented, content: sheetContent)
@@ -253,7 +253,7 @@ struct MBKAnchoredSheetItemModifier<Item: Identifiable & Equatable, SheetContent
         self.sheetContent = sheetContent
     }
 
-    /// Applies the item-driven sheet and gate-management logic.
+    /// Applies the item-driven sheet and gate-management logic to `content`.
     func body(content: Content) -> some View {
         content
             .sheet(item: $item, content: sheetContent)
