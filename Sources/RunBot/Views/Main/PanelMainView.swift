@@ -61,8 +61,7 @@ import SwiftUI
 // NSPopover provides its own glass chrome automatically.
 // Do NOT add .background() or NSVisualEffectView at this level.
 
-/// Main content view for the popover panel.
-/// Owns the header, workflow scroll list, system stats, and display-tick timer.
+/// Root panel view rendered inside the NSPopover.
 struct PanelMainView: View {
     /// Called when user taps a step row.
     let onStepTap: (ActiveJob, GitHubStep) -> Void
@@ -80,7 +79,8 @@ struct PanelMainView: View {
     @State private var visibleCount: Int = 10
     /// Increments every second to drive relative-time label refreshes without re-polling.
     @State private var displayTick: Int = 0
-    /// Structured task driving the 1-second `displayTick` loop.
+    /// Structured task driving the 1-second `displayTick` loop; managed by `startDisplayTickTimer()`.
+    /// Named "displayTick" for visibility in Instruments (RG6).
     @State private var displayTickTask: Task<Void, any Error>?
     /// Height of the ScrollView frame, driven by the content GeometryReader (RULE 5).
     /// Starts at 0 (no constraint) until the first measurement fires on appear.
@@ -128,6 +128,10 @@ struct PanelMainView: View {
     }
 
     /// Local runners currently executing a job inside an in-progress workflow group.
+    ///
+    /// Reads GitHub-side state (`actions`, `jobs`, `runners`) and local runner state
+    /// (`localRunners`) from `runnerState` — the single observable source of truth
+    /// injected via the SwiftUI environment from `AppDelegate.wrapEnv`.
     private var activeLocalRunners: [RunnerModel] {
         guard appState.runnerState.actions.contains(where: { $0.groupStatus == .inProgress }) else { return [] }
         let activeNamesFromJobs = Set(
@@ -144,7 +148,7 @@ struct PanelMainView: View {
         }
     }
 
-    /// Root VStack: header + divider + optional banners + scroll section.
+    /// Root body -- header, optional error/rate-limit banners, local runner rows, and the scrollable actions section.
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             PanelHeaderView(
@@ -222,7 +226,7 @@ struct PanelMainView: View {
 
     // MARK: - Scroll section
 
-    /// ScrollView wrapper with a height frame driven by `scrollViewHeight` (RULE 5).
+    /// Scrollable container for the actions section, capped at `screenScrollMaxHeight`.
     private var actionsSectionScrollable: some View {
         ScrollView(.vertical, showsIndicators: true) {
             actionsSectionContent
@@ -271,7 +275,7 @@ struct PanelMainView: View {
 
     // MARK: - Content
 
-    /// VStack of workflow `ActionRowView`s with section header and load-more button.
+    /// Workflow rows and the load-more button, rendered inside the scroll container.
     private var actionsSectionContent: some View {
         VStack(alignment: .leading, spacing: 0) {
             SectionHeaderLabel(title: "Workflows")
@@ -290,7 +294,7 @@ struct PanelMainView: View {
         .padding(.vertical, 4)
     }
 
-    /// Button that appends the next batch of workflow rows when more exist.
+    /// "Load N more workflows" button; hidden when all workflows are already visible.
     @ViewBuilder private var loadMoreButton: some View {
         let nextBatch = min(10, appState.runnerState.actions.count - visibleCount)
         if nextBatch > 0 {
@@ -305,7 +309,15 @@ struct PanelMainView: View {
 
     // MARK: - Display tick timer
 
-    /// Starts the 1-second display-tick loop that drives relative-time label refreshes.
+    /// Starts the 1-second structured `displayTick` loop. Cancels any existing task first.
+    ///
+    /// Sleep-first: fires 1 s after start, matching the prior `Timer.scheduledTimer` behaviour.
+    /// No open-state gate — RULE 9: displayTick runs always while the view is alive.
+    /// Named "displayTick" for Instruments visibility (RG6).
+    /// `try` (not `try?`) on Task.sleep propagates CancellationError cleanly so the loop
+    /// exits immediately on cancel without executing a spurious post-cancel tick.
+    /// `@MainActor` is explicit so the compiler statically verifies that `displayTickTask`
+    /// (a `@State`-backed property) is always mutated on the main actor.
     @MainActor private func startDisplayTickTimer() {
         stopDisplayTickTimer()
         displayTickTask = Task(name: "displayTick") { @MainActor in
@@ -316,7 +328,8 @@ struct PanelMainView: View {
         }
     }
 
-    /// Cancels the display-tick loop.
+    /// Cancels and nils the `displayTick` task.
+    /// `@MainActor` matches `startDisplayTickTimer()` — both mutate `displayTickTask`.
     @MainActor private func stopDisplayTickTimer() {
         displayTickTask?.cancel()
         displayTickTask = nil
@@ -324,7 +337,12 @@ struct PanelMainView: View {
 
     // MARK: - Banners
 
-    /// Renders a red-triangle fetch-error banner above the workflow list.
+    /// Inline error banner shown when `appState.runnerState.fetchError` is non-nil.
+    ///
+    /// Displays a truncated error description. Dismisses automatically on the next
+    /// successful fetch cycle when `applyFetchResult` clears `fetchError`.
+    /// Stale `runners`/`jobs`/`actions` remain visible below the banner so the user
+    /// still sees the last-known state while connectivity is degraded.
     private func fetchErrorBanner(_ error: any Error) -> some View {
         HStack(spacing: 6) {
             Image(systemName: "exclamationmark.triangle.fill").foregroundColor(.red).font(.caption)
@@ -335,9 +353,12 @@ struct PanelMainView: View {
         .padding(.horizontal, 12).padding(.vertical, 4)
     }
 
-    /// Renders a yellow-triangle rate-limit banner with a live countdown.
+    /// Rate-limit warning banner showing a countdown to API reset.
+    /// The label refreshes every second because `displayTick` is threaded through
+    /// `body → actionsSectionContent → ActionRowView(tick:)`. The `withExtendedLifetime`
+    /// call here makes the read intent explicit but does not itself register a new dependency.
     private var rateLimitBanner: some View {
-        withExtendedLifetime(displayTick) {}
+        withExtendedLifetime(displayTick) {} // makes read intent explicit; actual refresh is driven by the tick: param chain in body
         let countdownLabel: String
         if let resetDate = appState.runnerState.rateLimitResetDate {
             let remaining = max(0, resetDate.timeIntervalSinceNow)
@@ -352,7 +373,7 @@ struct PanelMainView: View {
         } else { countdownLabel = "pausing polls" }
         return HStack(spacing: 6) {
             Image(systemName: "exclamationmark.triangle.fill").foregroundColor(.yellow).font(.caption)
-            Text("GitHub rate limit reached — \(countdownLabel)").font(.caption).foregroundColor(.secondary)
+            Text("GitHub rate limit reached -- \(countdownLabel)").font(.caption).foregroundColor(.secondary)
         }
         .padding(.horizontal, 12).padding(.vertical, 4)
     }
