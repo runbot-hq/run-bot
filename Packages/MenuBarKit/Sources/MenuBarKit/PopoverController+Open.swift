@@ -85,6 +85,10 @@ extension MBKPopoverController {
         // is not compensating for async onChange timing; it is purely a dead-band
         // breaker. See PanelMainView's TIMING PROOF comment for the full argument.
         //
+        // TODO: migrate to a formally supported pre-show hook if Apple ever provides
+        // one — the synchronous onChange firing is an observed implementation detail,
+        // not a documented API contract. See TIMING PROOF in PanelMainView.swift.
+        //
         // ❌ DO NOT REMOVE this reset.
         // ❌ DO NOT replace it with a flag or @State write — @State mutations
         //    are asynchronous and will not be synchronously visible before show().
@@ -102,6 +106,15 @@ extension MBKPopoverController {
         // Raise isOpening before show() so any applyContentSize calls that fire
         // between now and the onDidShow Task are suppressed. The onDidShow Task
         // lowers it after committing the authoritative geometry.
+        //
+        // RAPID DOUBLE-OPEN SAFETY — why we do NOT guard { if isOpening { return } }:
+        // If the user opens → instantly closes → instantly reopens, popoverDidClose
+        // resets isOpening = false before the second openPopover() call. So isOpening
+        // is already false on re-entry and such a guard would be a no-op. The real
+        // protection is the `guard self.popover.isShown` in the onDidShow Task: if
+        // cycle 1's Task hop lands after cycle 2 has already closed, it bails without
+        // calling onDidShow. Cycle 2's own Task then lands with isShown == true and
+        // fires onDidShow normally. No stub-height lock-out is possible.
         isOpening = true
         popover.show(relativeTo: rect, of: button, preferredEdge: .minY)
         NSApp.activate(ignoringOtherApps: true)

@@ -163,6 +163,10 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
     /// so the panel top edge stays pinned under the button for the entire session.
     /// Populated on every first open (visible or hidden mode); read only by Path 3
     /// (hidden mode). `nil` outside an open session (cleared in `popoverDidClose`).
+    /// ⚠️ ASSUMPTION: if the menubar hides while the popover is open without a
+    /// close/reopen cycle, this value reflects the visible-mode window Y and Path 3
+    /// will position the panel at the wrong Y. The `visibleFloor` clamp is the only
+    /// guard. A close/reopen re-snapshots correctly.
     /// ❌ NEVER recompute from window.frame mid-session — that drifts.
     var hiddenWindowY: CGFloat?
 

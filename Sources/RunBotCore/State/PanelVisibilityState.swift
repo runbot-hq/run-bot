@@ -108,8 +108,10 @@ public final class PanelVisibilityState {
     /// ❌ NEVER call more than once per open.
     public var onHeightReady: ((CGFloat) -> Void)?
 
-    /// Monotonically incremented by AppDelegate in `onWillShow`, synchronously
-    /// before MBK calls `hostingController.view.fittingSize` and `popover.show()`.
+    /// Incremented on every open (`&+=` wraps at `Int.max` back to `Int.min`;
+    /// `onChange` fires on any distinct value so the wrap is safe — not a bug).
+    /// Set by AppDelegate in `onWillShow`, synchronously before MBK calls
+    /// `hostingController.view.fittingSize` and `popover.show()`.
     ///
     /// PURPOSE — allow PanelMainView to reset `scrollViewHeight = 0` at the
     /// earliest possible moment, before MBK seeds `contentSize` from the SwiftUI
