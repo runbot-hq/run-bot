@@ -9,5 +9,5 @@
 // import only GitHubClient and get OAuthTokenKit + EnvTokenKit symbols
 // transitively.
 
-@_exported import OAuthTokenKit
 @_exported import EnvTokenKit
+@_exported import OAuthTokenKit
