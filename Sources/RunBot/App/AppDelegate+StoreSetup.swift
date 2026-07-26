@@ -12,6 +12,7 @@ extension AppDelegate {
     // MARK: - App lifecycle
 
     /// Sets activation policy during UI tests so XCTest can see windows.
+    /// - Parameter _: The notification (unused).
     func applicationWillFinishLaunching(_ _: Notification) {
         guard ProcessInfo.processInfo.environment["UI_TESTING"] != nil else { return }
         NSApp.setActivationPolicy(.regular)
@@ -30,6 +31,7 @@ extension AppDelegate {
     /// 3. `setupPanel()` — creates MBKPopoverController (which internally creates
     ///    NSStatusItem + NSPopover). UI wiring only, no domain calls.
     /// 4. `appState.start(onUpdateStatusIcon:)` — remaining domain startup.
+    /// - Parameter _: The notification (unused).
     func applicationDidFinishLaunching(_ _: Notification) {
         log("AppDelegate › applicationDidFinishLaunching — START")
 
@@ -41,6 +43,9 @@ extension AppDelegate {
         }
 
         // ⚠️ MUST be synchronous and before the first await — see ordering rule 1 above.
+        // Fixes issue #1741: any indirect LocalRunnerStore.shared access during the
+        // refreshDisplayNames() suspension window would hit the fatalError guard
+        // if configure() had not already been called.
         LocalRunnerStore.configure(viewModel: appState.runnerState)
         log("AppDelegate › applicationDidFinishLaunching — LocalRunnerStore configured")
 
@@ -48,12 +53,21 @@ extension AppDelegate {
         log("AppDelegate › applicationDidFinishLaunching — startup task for \(knownScopes.count) scopes")
 
         Task {
+            // Hydrate display names before any UI or domain work. (#1538)
             await ScopeStore.shared.refreshDisplayNames()
 
             // setupPanel() creates MBKPopoverController which calls setup() internally,
             // creating NSStatusItem + NSPopover. No separate setupStatusItem() call needed.
             setupPanel()
 
+            // Domain startup — fully owned by AppState.
+            // ⚠️ Precondition for appState.start(): configure() MUST have been called before
+            // this point — it was called synchronously above (see ordering rule 1 in the
+            // ## Startup ordering doc-comment). AppState.start() documents this precondition
+            // on its own doc-comment. Do not move or wrap the configure() call without
+            // reading AppState.start()’s ⚠️ Precondition note first.
+            // `updateStatusIcon` is an AppDelegate method (AppKit concern) passed
+            // as a callback so AppState never imports AppKit or holds AppDelegate.
             await appState.start(onUpdateStatusIcon: { [weak self] in
                 self?.updateStatusIcon()
             })
