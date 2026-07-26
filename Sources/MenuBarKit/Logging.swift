@@ -34,7 +34,6 @@ public var mbkLogHandler: (_ subsystem: String, _ message: String) -> Void = { s
 /// (e.g. to route to os_log). Call sites are always compiled in — override
 /// `mbkLogHandler` before `setup()` to capture logs in release.
 @MainActor
-@inlinable
 public func mbkLog(_ subsystem: String, _ message: String) {
     mbkLogHandler(subsystem, message)
 }

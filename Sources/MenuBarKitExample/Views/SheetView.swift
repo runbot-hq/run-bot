@@ -51,7 +51,7 @@ struct SheetView: View {
                 Text("Alert should appear. Sheet + popover stay alive.")
                     .font(.caption).foregroundStyle(.secondary)
             }
-            .alert("Simulated Error", isPresented: $appState.showSheetAlert) {
+            .mbkAlert("Simulated Error", isPresented: $appState.showSheetAlert) {
                 Button("OK", role: .cancel) {}
             } message: {
                 Text("This is a test error message.")
