@@ -65,7 +65,10 @@ extension MBKPopoverController {
         let widthChanged = abs(clamped.width - oldWidth) > 1
 
         if isMenuBarHidden {
-            // Path 3: hidden mode — NSPopover ignores setContentSize here.
+            // Path 3: hidden mode — NSPopover ignores setContentSize for window sizing,
+            // but SwiftUI's hosting controller still reads contentSize to constrain its
+            // layout. Write contentSize first so SwiftUI lays out at the correct width,
+            // then drive window.setFrame directly using snapshotted chrome deltas.
             //
             // Chrome deltas (hiddenChromeW/H) are AppKit window decoration constants.
             // They are identical regardless of which view is showing (observed: 26×26
@@ -73,7 +76,7 @@ extension MBKPopoverController {
             //
             // ❌ Do NOT invalidate/re-snapshot on view switches — chrome deltas are
             // constant and re-snapshotting produces garbage because window.frame and
-            // popover.contentSize are out of sync at the moment of re-snapshot.
+            // popover.contentSize would be out of sync at that moment.
             // ❌ Do NOT write popover.contentSize before computing the snapshot —
             // the delta math reads both window.frame and popover.contentSize and
             // they must be consistent (both reflecting the same prior setFrame call).
@@ -93,6 +96,10 @@ extension MBKPopoverController {
                        "applyContentSize -- menubar hidden, no chrome snapshot yet, SKIP (\(clamped.width),\(clamped.height))")
                 return
             }
+            // Write contentSize so SwiftUI constrains its layout to the correct size.
+            // AppKit ignores this for window positioning in hidden mode, but the
+            // hosting controller uses it for view layout.
+            popover.contentSize = clamped
             let newW = clamped.width  + chromeW
             let newH = clamped.height + chromeH
             // ❌ DO NOT use window.frame.origin.x as a fixed left edge — it was
