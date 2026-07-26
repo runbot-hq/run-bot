@@ -69,15 +69,18 @@ extension MBKPopoverController {
             //
             // Chrome deltas and buttonMidX are snapshotted once per hidden session.
             // On a view switch (size delta > 20pt in either dimension) the chrome
-            // snapshot is invalidated so it re-fires against the new view's
-            // window.frame. buttonMidX is preserved — the button hasn't moved.
+            // snapshot is invalidated and we return immediately — the re-snapshot
+            // fires on the NEXT call, by which point window.frame has been updated
+            // by our previous setFrame and popover.contentSize still reflects the
+            // previous view's size. Both are consistent so chrome deltas are correct.
             //
+            // ❌ Do NOT re-snapshot on the same call as the invalidation — window.frame
+            // hasn't been updated yet, so chromeH = window.frame.height - popover.contentSize.height
+            // produces garbage (e.g. chromeH=190 instead of 26).
             // ❌ Do NOT write popover.contentSize before computing chrome deltas —
-            // that makes window.frame stale relative to contentSize and breaks Y.
-            // ❌ Do NOT re-snapshot on every call — window.frame is only valid at
-            // the moment after the previous setFrame, not on every layout pass.
-            // ❌ Do NOT use a hiddenWindowTop snapshot — it is taken from whichever
-            // view fires first and will be wrong for subsequent views.
+            // that makes the delta math inconsistent with window.frame.
+            // ❌ Do NOT re-snapshot on every call — window.frame is only valid
+            // immediately after a setFrame, not on every layout pass.
             // The Y formula window.frame.origin.y + (window.frame.height - newH)
             // is correct at (re-)snapshot time because window.frame is fresh.
             let viewSwitched = hiddenChromeW != nil && (
@@ -88,7 +91,8 @@ extension MBKPopoverController {
                 hiddenChromeW = nil
                 hiddenChromeH = nil
                 mbkLog("PopoverController",
-                       "applyContentSize -- hidden view switch detected, invalidating chrome snapshot")
+                       "applyContentSize -- hidden view switch, invalidating chrome, SKIP (\(clamped.width),\(clamped.height))")
+                return
             }
 
             if hiddenChromeW == nil,
