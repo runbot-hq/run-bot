@@ -44,16 +44,9 @@ Installs via Terminal.app directly from GitHub releases. Updates arrive automati
 ```bash
 curl -fsSL https://runbot-hq.github.io/install.sh | bash
 ```
-
----
-
-## External Dependencies
-
-- **[AppUpdater](https://github.com/runbot-hq/AppUpdater)** — Auto-update for GitHub Releases with Ed25519 signature verification.
-- **[GitHubClient](https://github.com/runbot-hq/GitHubClient)** — GitHub REST client with layered token resolution and rate-limit handling.
-- **[MenuBarKit](https://github.com/runbot-hq/MenuBarKit)** — Menu bar plumbing for `NSPopover` lifecycle and anchored SwiftUI sheets.
-
 --- 
+
+[AppUpdater](https://github.com/runbot-hq/AppUpdater) is used to distribute updates via GitHub Releases with Ed25519 signature verification
 
 ## Test a branch
 
