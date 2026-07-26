@@ -17,7 +17,7 @@ extension MBKPopoverController {
     /// (2) shown, menubar visible — write `contentSize`, re-anchor via `show()` on width
     /// change so AppKit re-derives the arrow position atomically; (3) shown, menubar
     /// hidden — `NSPopover.contentSize` is ignored by AppKit, so drive `window.setFrame`
-    /// directly using snapshotted chrome deltas and `buttonMidX`.
+    /// directly using chrome deltas snapshotted once in `popoverWillShow`.
     func applyContentSize(_ preferred: CGSize) {
         let clamped = clamp(preferred)
         guard clamped.width > 0, clamped.height > 0 else { return }
@@ -67,49 +67,16 @@ extension MBKPopoverController {
         if isMenuBarHidden {
             // Path 3: hidden mode — NSPopover ignores setContentSize here.
             //
-            // Chrome deltas and buttonMidX are snapshotted once per hidden session.
-            // On a view switch (size delta > 20pt in either dimension vs the PREVIOUS
-            // content size, not popover.contentSize which may be stale) the chrome
-            // snapshot is invalidated so it re-fires against the new view's
-            // window.frame. buttonMidX is preserved — the button hasn't moved.
+            // Chrome deltas (hiddenChromeW/H) and hiddenButtonMidX are snapshotted
+            // ONCE in popoverWillShow against AppKit's freshly-positioned window.
+            // They are constant for the entire session:
+            //   - Chrome size never changes between views (same NSPopover window).
+            //   - buttonMidX never changes (button doesn't move).
             //
-            // ❌ Do NOT write popover.contentSize before computing chrome deltas —
-            // that makes window.frame stale relative to contentSize and breaks Y.
-            // ❌ Do NOT re-snapshot on every call — window.frame is only valid at
-            // the moment after the previous setFrame, not on every layout pass.
-            // ❌ Do NOT use a hiddenWindowTop snapshot — it is taken from whichever
-            // view fires first and will be wrong for subsequent views.
-            // The Y formula window.frame.origin.y + (window.frame.height - newH)
-            // is correct at (re-)snapshot time because window.frame is fresh.
-            //
-            // Y-FLOOR SAFETY:
-            // A bad re-snapshot (stale window.frame after a prior setFrame) can
-            // produce a negative chromeH, pushing newY above the visible screen
-            // area (under the macOS notch island). After computing newY, we floor
-            // it to visibleFrame.minY so the panel can never rise above the
-            // menubar/notch regardless of snapshot timing.
-            let prevW = hiddenChromeW != nil ? popover.contentSize.width  : clamped.width
-            let prevH = hiddenChromeH != nil ? popover.contentSize.height : clamped.height
-            let viewSwitched = hiddenChromeW != nil && (
-                abs(clamped.width  - prevW) > 20 ||
-                abs(clamped.height - prevH) > 20
-            )
-            if viewSwitched {
-                hiddenChromeW = nil
-                hiddenChromeH = nil
-                mbkLog("PopoverController",
-                       "applyContentSize -- hidden view switch detected, invalidating chrome snapshot")
-            }
-
-            if hiddenChromeW == nil,
-               let button = statusItem.button,
-               let buttonWin = button.window {
-                hiddenChromeW = window.frame.width  - popover.contentSize.width
-                hiddenChromeH = window.frame.height - popover.contentSize.height
-                hiddenButtonMidX = buttonWin.frame.minX + button.frame.midX
-                mbkLog("PopoverController",
-                       "applyContentSize -- hidden snapshot chromeW=\(hiddenChromeW!) chromeH=\(hiddenChromeH!) buttonMidX=\(hiddenButtonMidX!)")
-            }
+            // ❌ NEVER re-snapshot here. window.frame at this point reflects our own
+            //    prior setFrame call, not AppKit's frame — chrome deltas derived from
+            //    it will be wrong and produce negative values / bad positions.
+            // ❌ NEVER invalidate hiddenChromeW/H mid-session for view switches.
             guard let chromeW = hiddenChromeW,
                   let chromeH = hiddenChromeH,
                   let btnMidX = hiddenButtonMidX else {
@@ -124,14 +91,13 @@ extension MBKPopoverController {
             // Always derive originX from btnMidX so main and settings (which have
             // different widths) both land centred under the status item.
             let newX = btnMidX - newW / 2
-            // Anchor from current bottom edge upward — self-contained.
-            // window.frame is valid here: either this is the initial snapshot call
-            // (window.frame set by AppKit at show time) or the view-switch re-snapshot
-            // (window.frame set by our previous setFrame for the prior view).
+            // Anchor from current bottom edge upward.
+            // window.frame.origin.y is the bottom of the current window; adding
+            // (window.frame.height - newH) keeps the bottom edge fixed as height changes.
             let rawY = window.frame.origin.y + (window.frame.height - newH)
-            // Y-FLOOR: clamp so the panel top never rises above the visible screen area.
-            // A bad re-snapshot (negative chromeH) would push rawY above visibleFrame.minY
-            // and place the window under the macOS notch island. ❌ DO NOT REMOVE.
+            // Y-FLOOR: clamp so the panel never rises above the visible screen area.
+            // Protects against any edge case where rawY overshoots (e.g. first open
+            // while transitioning). ❌ DO NOT REMOVE.
             let visibleFloor = window.screen?.visibleFrame.minY ?? 0
             let newY = max(rawY, visibleFloor)
             if newY != rawY {
