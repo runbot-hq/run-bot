@@ -226,7 +226,9 @@ struct PanelMainView: View {
 
     // MARK: - Scroll section
 
-    /// Scrollable container for the actions section, capped at `screenScrollMaxHeight`.
+    /// Scrollable container for the actions section.
+    /// Height is driven by a content GeometryReader into `scrollViewHeight`,
+    /// capped at `screenScrollMaxHeight` (see RULE 5).
     private var actionsSectionScrollable: some View {
         ScrollView(.vertical, showsIndicators: true) {
             actionsSectionContent
