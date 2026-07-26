@@ -110,6 +110,7 @@ final class MBKSheetAnchorTask {
     }
 
     /// Cancels the pending anchor search. Safe to call multiple times.
+    /// Best-effort — has no effect if hop2 has already begun executing.
     func cancel() {
         mbkLog("AnchoredSheet[\(label)]", "cancel called — cancelled was \(cancelled)")
         cancelled = true
