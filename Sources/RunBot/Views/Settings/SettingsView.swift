@@ -286,22 +286,83 @@ struct SettingsView: View {
         }
         .onAppear(perform: onAppearAction)
         // TASK 1 of 2 — CLI token resolution.
+        // Resolves isCLIAuthenticated via the login-shell fallback for Finder-launched
+        // apps where env vars are absent from the process environment.
+        //
+        // THIS TASK IS INTENTIONALLY INDEPENDENT of task 2 below.
+        // SwiftUI runs multiple .task modifiers concurrently with no ordering guarantee.
+        // Task 2 (update check) reads runnerState from appState by value at call time
+        // and has NO dependency on isCLIAuthenticated or the result of this task.
+        // ❌ Do NOT merge these two tasks to "add ordering" unless checkAndHandle is
+        //    changed to require auth state — if that ever changes, sequence them
+        //    explicitly inside a single .task instead of relying on chaining order.
+        //
+        // isCLIAuthenticated write ordering (pre-existing, not introduced here):
+        // onAppearAction() writes isCLIAuthenticated synchronously from
+        // oauthService.hasAnyToken as a fast-path best-effort seed — it is cheap
+        // and keeps the UI correct for the common case without waiting for the network.
+        // This task then overwrites it once github.token() resolves asynchronously
+        // as the authoritative value (covers Finder-launch env var absence).
+        //
+        // Known gap — rapid open→open cycle:
+        // On a rapid open→open (panel re-shown without onDisappear), onAppearAction()
+        // re-runs and resets isCLIAuthenticated to the sync seed value. However,
+        // SwiftUI does NOT re-fire .task unless view identity changes or the view
+        // fully disappears/reappears — so the async authoritative overwrite does
+        // not run again. isCLIAuthenticated stays at the sync seed on that cycle.
+        // This is pre-existing behaviour; not introduced by this PR. In practice
+        // the sync seed (oauthService.hasAnyToken) is correct for most users and
+        // the gap only affects Finder-launched apps with shell-only env var tokens.
         .task {
+            // Guard: skip if the user is already signed in via OAuth — in that
+            // case neither status text nor the green dot reference `isCLIAuthenticated`.
             guard !isOAuthAuthenticated else { return }
             let token = await appState.github.token()
             isCLIAuthenticated = token != nil
             log("【SettingsView.task1】github.token() resolved — isCLIAuthenticated=\(isCLIAuthenticated)", category: .general)
         }
         // TASK 2 of 2 — Update check (FIX #2223 / #2216).
+        // Fires on every entry path — including cold-open → Settings, where
+        // .onAppear on an NSPanel-hosted root Group is not guaranteed to fire.
+        // SwiftUI owns the task lifetime: starts on appear, cancelled on disappear.
+        //
+        // INTENTIONALLY CONCURRENT with task 1 above — no ordering dependency.
+        // checkAndHandle(state:) receives runnerState by value (computed property
+        // returning appState.runnerState at call time). It does NOT read
+        // isCLIAuthenticated and does NOT depend on task 1 completing first.
+        // If that ever changes, sequence both calls inside a single .task.
+        //
+        // NSPanel teardown assumption (tracked in issue #2231):
+        // .task reliability here depends on the NSPanel host fully deiniting the
+        // SwiftUI view tree on close, which resets task identity so this task
+        // relaunches on the next open. If the panel is ever changed to retain the
+        // view tree across closes (partial teardown), .task and .onAppear would
+        // be equally unreliable for the cold-open path and an .id() modifier to
+        // force identity reset would be required instead. See #2231.
+        //
+        // Entry-path matrix:
+        //   • Cold-open → Settings : .task fires ✅
+        //   • Main → Settings nav  : .task fires ✅
+        //   • Back-nav sub-views   : root Group does not re-appear → no extra check ✅
+        //   • Settings closed mid-check: SwiftUI cancels automatically ✅
+        //
+        // Principle P9: structured concurrency — no manual Task or DispatchQueue.
         .task {
             await autoUpdater.checkAndHandle(state: runnerState)
         }
         .onDisappear {
             log("【SettingsView.onDisappear】cancelling signInTask/signOutTask", category: .general)
+            // Cancel and unconditionally nil the sign-in task — the for-await loop
+            // exits promptly on cancellation (AsyncStream respects task cancellation)
+            // so isSigningIn will never flip back via the stream after this point.
+            // Nilling here ensures a re-opened panel never shows a stale spinner.
             signInTask?.cancel()
             signInTask = nil
             signOutTask?.cancel()
             signOutTask = nil
+            // Reset isSigningIn so a close-during-flow doesn't leave a stale spinner
+            // on the next open. The stream task is already cancelled above, so the
+            // for-await loop will not reset it — we must do it explicitly here.
             isSigningIn = false
         }
     }
@@ -374,12 +435,25 @@ struct SettingsView: View {
     /// status light and sign-in button always reflect the live keychain state at the
     /// moment the panel becomes visible, not the state at first construction.
     /// This is not redundant — it is a deliberate re-read for the re-appear case.
+    ///
+    /// Update checking is intentionally NOT done here — it is owned by Task 2 of 2
+    /// in body (.task modifier), which covers both cold-open and navigation paths
+    /// (fix #2223). All tasks are cancelled before reassignment so a rapid open→open
+    /// cycle cannot leak prior stream listeners.
+    ///
+    /// isCLIAuthenticated is written synchronously here as a fast-path seed.
+    /// Task 1 in body overwrites it asynchronously with the authoritative value
+    /// once github.token() resolves. On a rapid open→open cycle, Task 1 does not
+    /// re-fire — see the Task 1 comment in body for the known gap and rationale.
     private func onAppearAction() { // skipcq: SW-R1002 — reviewed; complexity acceptable for this onAppear setup
         isOAuthAuthenticated = oauthService.isAuthenticated
         isCLIAuthenticated = !oauthService.isAuthenticated && oauthService.hasAnyToken
         log("【SettingsView.onAppear】auth=\(oauthService.isAuthenticated) hasToken=\(oauthService.hasAnyToken)", category: .general)
         log("【SettingsView.onAppear】settings=\(ObjectIdentifier(settings)) betaChannel=\(settings.betaChannel)", category: .general)
 
+        // Cancel before reassigning — guards against the rapid open→open case
+        // where the panel is re-shown without an intervening onDisappear, which
+        // would otherwise silently leak the prior task.
         signInTask?.cancel()
         signInTask = Task { @MainActor in
             for await success in oauthService.makeSignInStream() {
@@ -434,6 +508,10 @@ struct SettingsView: View {
     }
 
     /// Initiates the OAuth sign-in flow via the injected `oauthService`.
+    ///
+    /// `makeSignInURL()` builds the authorization URL and stores the CSRF nonce.
+    /// Opening the browser is the app layer's responsibility — `OAuthService` (Core)
+    /// has no AppKit dependency and cannot call `NSWorkspace` directly.
     func signInWithGitHub() {
         log("【SettingsView.signInWithGitHub】isSigningIn=true", category: .general)
         isSigningIn = true
