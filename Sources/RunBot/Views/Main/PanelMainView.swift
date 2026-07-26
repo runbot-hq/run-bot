@@ -46,15 +46,17 @@ import SwiftUI
 //         heights under layout pressure — .fixedSize() prevents that entirely.
 //
 // CAP ALIGNMENT (RULE 11):
-//         screenScrollMaxHeight multiplier (0.80) MUST match AppDelegate.maxHeight
-//         multiplier. Both derive from visibleFrame.height. Using different values
-//         creates a gap where MBK clamps the popover at a height SwiftUI didn't
-//         expect, forcing a re-layout that compresses the header.
-//         ❌ NEVER change this multiplier without also changing AppDelegate.maxHeight.
+//         screenScrollMaxHeight multiplier MUST match AppDelegate.panelHeightMultiplier.
+//         Both derive from visibleFrame.height. Using different values creates a gap
+//         where MBK clamps the popover at a height SwiftUI didn't expect, forcing a
+//         re-layout that compresses the header.
+//         ❌ NEVER inline the multiplier value here — always reference
+//            AppDelegate.panelHeightMultiplier.
 //
 // TOTAL PANEL CAP (RULE 12):
 //         screenScrollMaxHeight subtracts the measured headerHeight so that the
-//         full panel (header + divider + scroll) stays within 0.80 * visibleFrame.height.
+//         full panel (header + divider + scroll) stays within
+//         AppDelegate.panelHeightMultiplier * visibleFrame.height.
 //         headerHeight starts at 0 and is updated from the header GeometryReader on
 //         first appear. No fixed pixel values — the header measures its own height.
 //
@@ -126,7 +128,7 @@ struct PanelMainView: View {
     /// Starts at 0 (no constraint) until the first measurement fires on appear.
     @State private var scrollViewHeight: CGFloat = 0
     /// Measured natural height of PanelHeaderView. Captured once on appear (RULE 12).
-    /// Used to subtract from the 0.80 cap so the full panel never overflows the screen.
+    /// Used to subtract from the cap so the full panel never overflows the screen.
     @State private var headerHeight: CGFloat = 0
 
     /// Creates a `PanelMainView`.
@@ -160,18 +162,19 @@ struct PanelMainView: View {
     }
 
     /// Maximum height for the scroll section.
-    /// = 0.80 * visibleFrame.height − headerHeight (measured, not fixed).
-    /// This ensures the full panel (header + divider + scroll) stays within the 0.80 cap.
-    /// ❌ MUST match AppDelegate.maxHeight multiplier. See RULE 11 / CAP ALIGNMENT.
+    /// = `AppDelegate.panelHeightMultiplier` × visibleFrame.height − headerHeight.
+    /// This ensures the full panel (header + divider + scroll) stays within the cap.
+    /// ❌ MUST use AppDelegate.panelHeightMultiplier — never inline the value here.
+    ///    See RULE 11 / CAP ALIGNMENT in the file header.
     /// ❌ NEVER use fixed pixel values here. headerHeight is content-derived (RULE 12).
     /// ❌ NEVER call isMenuBarHidden here outside #if DEBUG — it iterates NSApp.windows.
     private var screenScrollMaxHeight: CGFloat {
         let visibleHeight = NSScreen.main?.visibleFrame.height ?? 800
-        let cap = visibleHeight * 0.80 - headerHeight
+        let cap = visibleHeight * AppDelegate.panelHeightMultiplier - headerHeight
         #if DEBUG
         log(
             "【PanelMainView.screenScrollMaxHeight】" +
-            "visibleHeight=\(visibleHeight) headerHeight=\(headerHeight) cap=\(cap) multiplier=0.80 menuBarHidden=\(isMenuBarHidden)",
+            "visibleHeight=\(visibleHeight) headerHeight=\(headerHeight) cap=\(cap) multiplier=\(AppDelegate.panelHeightMultiplier) menuBarHidden=\(isMenuBarHidden)",
             category: .panel
         )
         #endif

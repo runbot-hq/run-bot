@@ -30,11 +30,12 @@ import SwiftUI
 //
 // CAP ALIGNMENT (ref header-shrink investigation):
 // maxHeight and PanelMainView.screenScrollMaxHeight MUST use the same
-// multiplier (0.80). Using different multipliers creates a gap between
-// what SwiftUI reports as preferredContentSize and what MBK allows,
-// forcing SwiftUI to re-layout inside a smaller frame and compressing
-// the header. Both caps derive from the same visibleFrame.height — keep
-// them in sync.
+// multiplier (AppDelegate.panelHeightMultiplier). Using different multipliers
+// creates a gap between what SwiftUI reports as preferredContentSize and what
+// MBK allows, forcing SwiftUI to re-layout inside a smaller frame and
+// compressing the header. Both caps derive from the same visibleFrame.height —
+// keep them in sync. The shared constant AppDelegate.panelHeightMultiplier is
+// the single source of truth; do not inline the value at either call site.
 //
 // SCREEN CAP — WHY NSScreen.main AT LAUNCH IS INTENTIONAL:
 // maxHeight is read once from NSScreen.main?.visibleFrame at setupPanel() time
@@ -66,6 +67,18 @@ extension AppDelegate {
     static let minWidth: CGFloat = 280
     /// Maximum popover content width.
     static let maxWidth: CGFloat = 900
+    /// Fraction of the visible screen height used as the panel height cap.
+    ///
+    /// Applied in two places that must stay in sync:
+    /// - `setupPanel()` — computes `maxHeight` passed to `MBKPopoverController` at init.
+    /// - `PanelMainView.screenScrollMaxHeight` — computes the SwiftUI scroll cap on every call.
+    ///
+    /// Both derive from `NSScreen.main?.visibleFrame.height`. Using different values at the
+    /// two sites creates a gap: MBK clamps the popover at a height SwiftUI didn't expect,
+    /// forcing a re-layout that compresses the header (see CAP ALIGNMENT in file header).
+    /// ❌ NEVER inline this value at either call site — always reference this constant.
+    /// ❌ NEVER change this value without verifying both sites behave correctly.
+    static let panelHeightMultiplier: CGFloat = 0.80
 
     // MARK: - Popover construction
 
@@ -74,9 +87,9 @@ extension AppDelegate {
     func setupPanel() {
         log("AppDelegate › setupPanel — begin")
 
-        // maxHeight MUST match PanelMainView.screenScrollMaxHeight multiplier (0.80).
-        // See CAP ALIGNMENT note above. Do NOT change this to a different multiplier
-        // without also changing screenScrollMaxHeight in PanelMainView.
+        // maxHeight MUST match PanelMainView.screenScrollMaxHeight multiplier.
+        // See CAP ALIGNMENT note above. Both sites reference AppDelegate.panelHeightMultiplier —
+        // do not inline the value here or in screenScrollMaxHeight.
         //
         // maxHeight is intentionally computed once at launch, not per-open.
         // MBKPopoverController takes this as a constructor cap and does not re-read it.
@@ -85,8 +98,8 @@ extension AppDelegate {
         // and will always be current for the SwiftUI side — the MBK cap is the only
         // value read once at launch, and that is intentional.
         let visibleHeight = NSScreen.main?.visibleFrame.height ?? 900
-        let maxHeight = visibleHeight * 0.80
-        log("AppDelegate › setupPanel — visibleHeight=\(visibleHeight) maxHeight=\(maxHeight) multiplier=0.80")
+        let maxHeight = visibleHeight * AppDelegate.panelHeightMultiplier
+        log("AppDelegate › setupPanel — visibleHeight=\(visibleHeight) maxHeight=\(maxHeight) multiplier=\(AppDelegate.panelHeightMultiplier)")
 
         let ctrl = MBKPopoverController(
             rootView: wrapEnv(RootPanelView(
