@@ -60,6 +60,9 @@ import SwiftUI
 //
 // NSPopover provides its own glass chrome automatically.
 // Do NOT add .background() or NSVisualEffectView at this level.
+
+/// Main content view for the popover panel.
+/// Owns the header, workflow scroll list, system stats, and display-tick timer.
 struct PanelMainView: View {
     /// Called when user taps a step row.
     let onStepTap: (ActiveJob, GitHubStep) -> Void
@@ -116,7 +119,11 @@ struct PanelMainView: View {
     private var screenScrollMaxHeight: CGFloat {
         let visibleHeight = NSScreen.main?.visibleFrame.height ?? 800
         let cap = visibleHeight * 0.80 - headerHeight
-        log("【PanelMainView.screenScrollMaxHeight】visibleHeight=\(visibleHeight) headerHeight=\(headerHeight) cap=\(cap) multiplier=0.80 menuBarHidden=\(isMenuBarHidden)", category: .panel)
+        log(
+            "【PanelMainView.screenScrollMaxHeight】" +
+            "visibleHeight=\(visibleHeight) headerHeight=\(headerHeight) cap=\(cap) multiplier=0.80 menuBarHidden=\(isMenuBarHidden)",
+            category: .panel
+        )
         return cap
     }
 
@@ -137,6 +144,7 @@ struct PanelMainView: View {
         }
     }
 
+    /// Root VStack: header + divider + optional banners + scroll section.
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             PanelHeaderView(
@@ -214,6 +222,7 @@ struct PanelMainView: View {
 
     // MARK: - Scroll section
 
+    /// ScrollView wrapper with a height frame driven by `scrollViewHeight` (RULE 5).
     private var actionsSectionScrollable: some View {
         ScrollView(.vertical, showsIndicators: true) {
             actionsSectionContent
@@ -224,14 +233,22 @@ struct PanelMainView: View {
                             .onAppear {
                                 let cap = screenScrollMaxHeight
                                 let capped = min(geo.size.height, cap)
-                                log("【scrollContent.geo】onAppear raw=\(geo.size.height) cap=\(cap) capped=\(capped) scrollViewHeight=\(scrollViewHeight) menuBarHidden=\(isMenuBarHidden)", category: .panel)
+                                log(
+                                    "【scrollContent.geo】onAppear raw=\(geo.size.height) cap=\(cap)" +
+                                    " capped=\(capped) scrollViewHeight=\(scrollViewHeight) menuBarHidden=\(isMenuBarHidden)",
+                                    category: .panel
+                                )
                                 scrollViewHeight = capped
                                 log("【scrollContent.geo】scrollViewHeight SET → \(scrollViewHeight)", category: .panel)
                             }
                             .onChange(of: geo.size.height) { newH in
                                 let cap = screenScrollMaxHeight
                                 let capped = min(newH, cap)
-                                log("【scrollContent.geo】onChange raw → \(newH) cap=\(cap) capped=\(capped) scrollViewHeight was=\(scrollViewHeight) menuBarHidden=\(isMenuBarHidden)", category: .panel)
+                                log(
+                                    "【scrollContent.geo】onChange raw → \(newH) cap=\(cap)" +
+                                    " capped=\(capped) scrollViewHeight was=\(scrollViewHeight) menuBarHidden=\(isMenuBarHidden)",
+                                    category: .panel
+                                )
                                 scrollViewHeight = capped
                                 log("【scrollContent.geo】scrollViewHeight SET → \(scrollViewHeight)", category: .panel)
                             }
@@ -254,6 +271,7 @@ struct PanelMainView: View {
 
     // MARK: - Content
 
+    /// VStack of workflow `ActionRowView`s with section header and load-more button.
     private var actionsSectionContent: some View {
         VStack(alignment: .leading, spacing: 0) {
             SectionHeaderLabel(title: "Workflows")
@@ -272,6 +290,7 @@ struct PanelMainView: View {
         .padding(.vertical, 4)
     }
 
+    /// Button that appends the next batch of workflow rows when more exist.
     @ViewBuilder private var loadMoreButton: some View {
         let nextBatch = min(10, appState.runnerState.actions.count - visibleCount)
         if nextBatch > 0 {
@@ -286,6 +305,7 @@ struct PanelMainView: View {
 
     // MARK: - Display tick timer
 
+    /// Starts the 1-second display-tick loop that drives relative-time label refreshes.
     @MainActor private func startDisplayTickTimer() {
         stopDisplayTickTimer()
         displayTickTask = Task(name: "displayTick") { @MainActor in
@@ -296,6 +316,7 @@ struct PanelMainView: View {
         }
     }
 
+    /// Cancels the display-tick loop.
     @MainActor private func stopDisplayTickTimer() {
         displayTickTask?.cancel()
         displayTickTask = nil
@@ -303,16 +324,18 @@ struct PanelMainView: View {
 
     // MARK: - Banners
 
+    /// Renders a red-triangle fetch-error banner above the workflow list.
     private func fetchErrorBanner(_ error: any Error) -> some View {
         HStack(spacing: 6) {
             Image(systemName: "exclamationmark.triangle.fill").foregroundColor(.red).font(.caption)
-            Text("Fetch error \u{2014} \(error.localizedDescription)")
+            Text("Fetch error — \(error.localizedDescription)")
                 .font(.caption).foregroundColor(.secondary)
                 .lineLimit(2)
         }
         .padding(.horizontal, 12).padding(.vertical, 4)
     }
 
+    /// Renders a yellow-triangle rate-limit banner with a live countdown.
     private var rateLimitBanner: some View {
         withExtendedLifetime(displayTick) {}
         let countdownLabel: String
@@ -329,7 +352,7 @@ struct PanelMainView: View {
         } else { countdownLabel = "pausing polls" }
         return HStack(spacing: 6) {
             Image(systemName: "exclamationmark.triangle.fill").foregroundColor(.yellow).font(.caption)
-            Text("GitHub rate limit reached \u{2014} \(countdownLabel)").font(.caption).foregroundColor(.secondary)
+            Text("GitHub rate limit reached — \(countdownLabel)").font(.caption).foregroundColor(.secondary)
         }
         .padding(.horizontal, 12).padding(.vertical, 4)
     }

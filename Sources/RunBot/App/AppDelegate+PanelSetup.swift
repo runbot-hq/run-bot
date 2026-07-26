@@ -36,6 +36,7 @@ import SwiftUI
 // the header. Both caps derive from the same visibleFrame.height — keep
 // them in sync.
 
+/// Extension owning `MBKPopoverController` construction and lifecycle-callback wiring.
 extension AppDelegate {
 
     // MARK: - Constants

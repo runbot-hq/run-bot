@@ -35,15 +35,22 @@ import SwiftUI
 // ❌ NEVER add .frame(maxWidth: .infinity, maxHeight: .infinity) here.
 // ❌ NEVER remove the .id(navState) modifier.
 
+/// Single persistent root view passed to `MBKPopoverController`.
+/// Owns all panel route switching via `Group { switch }.id(navState)`.
 struct RootPanelView: View {
+    /// Core runner/job/action/rate-limit state, injected via `wrapEnv`.
     @Environment(AppState.self) private var appState
+    /// Panel open/close and transient-hide state, injected via `wrapEnv`.
     @Environment(PanelVisibilityState.self) private var panelVisibilityState
 
-    /// Callbacks from AppDelegate used for actions that still require AppKit wiring.
+    /// Called when the user taps the settings gear. Requires AppKit wiring (key promotion).
     let onSelectSettings: () -> Void
+    /// Called when the user taps Back from the settings route.
     let onBack: () -> Void
+    /// Called when the user taps Back from the step-log route.
     let onStepBack: () -> Void
 
+    /// Switches between route branches; `.id(navState)` forces remount on every change.
     var body: some View {
         log("【RootPanelView.body】rendered navState=\(navState)", category: .panel)
         return Group {
@@ -64,6 +71,7 @@ struct RootPanelView: View {
 
     // MARK: - Route branches
 
+    /// Main panel branch: `PanelContainerView` wrapping `PanelMainView`.
     @ViewBuilder private var mainBranch: some View {
         PanelContainerView(
             content: PanelMainView(
@@ -76,6 +84,7 @@ struct RootPanelView: View {
         )
     }
 
+    /// Settings branch: `PanelContainerView` wrapping `SettingsView`.
     @ViewBuilder private var settingsBranch: some View {
         PanelContainerView(
             content: SettingsView(
@@ -85,6 +94,7 @@ struct RootPanelView: View {
         )
     }
 
+    /// Step-log branch: `StepLogView` without a `PanelContainerView` wrapper.
     @ViewBuilder private func stepLogBranch(job: ActiveJob, step: GitHubStep) -> some View {
         StepLogView(
             job: job,
@@ -95,6 +105,7 @@ struct RootPanelView: View {
 
     // MARK: - Route identity key
 
+    /// String identity key for `.id(navState)`, unique per distinct route.
     private var navState: String {
         switch appState.savedNavState {
         case .none, .main:                      return "main"
