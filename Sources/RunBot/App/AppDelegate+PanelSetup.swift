@@ -15,7 +15,7 @@ import SwiftUI
 //
 // As of #2264 the root view is RootPanelView — a single persistent view that
 // owns all route switching via Group { switch }.id(route). This replaces the
-// setRootView() AnyView-swap pattern so MBK’s GeometryReader always fires
+// setRootView() AnyView-swap pattern so MBK's GeometryReader always fires
 // fresh on every route change.
 //
 // SHEET RESPAWN MODEL:
@@ -73,12 +73,15 @@ extension AppDelegate {
             maxHeight: maxHeight
         )
 
-        // onWillShow — fires before popover.show().
-        // Nav state is already live in appState.savedNavState.
-        // RootPanelView reads it directly — nothing to do here.
-        ctrl.onWillShow = {
-            log("AppDelegate › onWillShow")
-        }
+        // ⚠️ onWillShow commented out — solution not yet settled.
+        // Candidates for this callback: auth token pre-flight, nav state validation,
+        // stale-job guard restoration. Do not remove; restore and expand once
+        // onWillShow responsibilities are decided.
+        // Nav state is already live in appState.savedNavState; RootPanelView reads
+        // it reactively — nothing needs to happen here for the current nav model.
+        // ctrl.onWillShow = {
+        //     log("AppDelegate › onWillShow")
+        // }
 
         // onDidShow — fires one actor turn after popover.show().
         // Restore runner sheet state now that the view tree has a window.

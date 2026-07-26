@@ -166,7 +166,7 @@ struct PanelMainView: View {
                             headerHeight = geo.size.height
                             log("【header.geo】onAppear h=\(geo.size.height) menuBarHidden=\(isMenuBarHidden) (was \(prev))", category: .panel)
                         }
-                        .onChange(of: geo.size.height) { newH in
+                        .onChange(of: geo.size.height) { _, newH in
                             let prev = headerHeight
                             headerHeight = newH
                             log("【header.geo】onChange \(prev) → \(newH) menuBarHidden=\(isMenuBarHidden) ← HEADER HEIGHT CHANGED", category: .panel)
@@ -199,7 +199,7 @@ struct PanelMainView: View {
                     .onAppear {
                         log("【rootVStack.geo】onAppear size=\(geo.size) menuBarHidden=\(isMenuBarHidden)", category: .panel)
                     }
-                    .onChange(of: geo.size) { newSize in
+                    .onChange(of: geo.size) { _, newSize in
                         log("【rootVStack.geo】onChange → \(newSize) menuBarHidden=\(isMenuBarHidden)", category: .panel)
                     }
             }
@@ -214,13 +214,13 @@ struct PanelMainView: View {
             systemStats.stop()
             stopDisplayTickTimer()
         }
-        .onChange(of: panelVisibilityState.isOpen) { newOpen in
+        .onChange(of: panelVisibilityState.isOpen) { _, newOpen in
             log("【PanelMainView】panelVisibilityState.isOpen → \(newOpen) menuBarHidden=\(isMenuBarHidden)", category: .panel)
             if newOpen { systemStats.start() } else { systemStats.stop() }
         }
         // Reset the visible row count only when the list shrinks (e.g. a runner is removed),
         // not on every poll update — avoids snapping the user back mid-scroll.
-        .onChange(of: appState.runnerState.actions) { newActions in
+        .onChange(of: appState.runnerState.actions) { _, newActions in
             log("【PanelMainView】actions count → \(newActions.count) menuBarHidden=\(isMenuBarHidden)", category: .panel)
             if newActions.count < visibleCount { visibleCount = 10 }
         }
@@ -249,7 +249,7 @@ struct PanelMainView: View {
                                 scrollViewHeight = capped
                                 log("【scrollContent.geo】scrollViewHeight SET → \(scrollViewHeight)", category: .panel)
                             }
-                            .onChange(of: geo.size.height) { newH in
+                            .onChange(of: geo.size.height) { _, newH in
                                 let cap = screenScrollMaxHeight
                                 let capped = min(newH, cap)
                                 log(
@@ -270,7 +270,7 @@ struct PanelMainView: View {
                     .onAppear {
                         log("【scrollView.geo】onAppear h=\(geo.size.height) menuBarHidden=\(isMenuBarHidden)", category: .panel)
                     }
-                    .onChange(of: geo.size.height) { newH in
+                    .onChange(of: geo.size.height) { _, newH in
                         log("【scrollView.geo】onChange → \(newH) menuBarHidden=\(isMenuBarHidden)", category: .panel)
                     }
             }
