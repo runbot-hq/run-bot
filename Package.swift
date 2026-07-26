@@ -21,10 +21,10 @@ let package = Package(
         .package(url: "https://github.com/runbot-hq/AppUpdater", branch: "main"),
         // Tracks main — resolves to HEAD on every CI run. Do not pin to a revision.
         .package(url: "https://github.com/runbot-hq/GitHubClient", branch: "main"),
-        // Temporarily tracking arrow-cener-drift-3 for arrow side-jump fix iteration.
+        // Temporarily tracking arrow-center-drift-3 for arrow side-jump fix iteration.
         // See issue #2268. Switch back to branch: "main" once the fix is merged into MBK.
         // Source lives at https://github.com/runbot-hq/MenuBarKit
-        .package(url: "https://github.com/runbot-hq/MenuBarKit", branch: "arrow-cener-drift-3"),
+        .package(url: "https://github.com/runbot-hq/MenuBarKit", branch: "arrow-center-drift-3"),
     ],
     targets: [
         .target(
