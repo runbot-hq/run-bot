@@ -98,8 +98,10 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
     nonisolated(unsafe) private var workspaceObserver: NSObjectProtocol?
 
     /// `window.frame.maxY` captured once in `popoverWillShow`.
-    /// Y is stable — AppKit pins the popover bottom to the button on height changes.
-    /// `nil` until first show.
+    /// Used only as a shown-sentinel in `applyContentSize` (`anchorY != nil` means
+    /// the popover is currently shown). Not read as a positional value — frame writes
+    /// derive Y from `window.frame.origin.y` directly.
+    /// `nil` while the popover is closed.
     private var anchorY: CGFloat?
 
     /// Button center X in screen coordinates from the last visible-mode open.
@@ -270,7 +272,7 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
         mbkLog("PopoverController", "popover shown")
 
         // Post-show reposition when menubar is hidden.
-        // AppKit places the window using the off-screen button — bad X.
+        // AppKit anchors the window using the button's stale off-screen position — bad X.
         // Override immediately with lastKnownAnchorX before the user sees it.
         if menuBarHidden,
            let liveAnchorX = lastKnownAnchorX,
@@ -427,7 +429,7 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
 
         guard popover.isShown,
               let window = hostingController.view.window,
-              anchorY != nil else {
+              anchorY != nil else {    // anchorY != nil is the shown-sentinel; its value is not used here
             // Path 1: not shown.
             //
             // GUARDED: skip when menubar is hidden. Post-close SwiftUI size
@@ -588,7 +590,8 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
 
 /// `NSPopoverDelegate` conformance — show/close lifecycle and dismiss gating.
 extension MBKPopoverController: NSPopoverDelegate {
-    /// Highlights the status-bar button and snapshots `anchorY` for the session.
+    /// Highlights the status-bar button and sets `anchorY` as the shown-sentinel for
+    /// `applyContentSize`. The value itself is not used for frame positioning.
     public func popoverWillShow(_ notification: Notification) {
         setButtonHighlight(true)
         guard let window = hostingController.view.window else {
