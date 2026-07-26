@@ -39,14 +39,14 @@ Utilize your local AI capabilities in CI. Run [AI PR reviews](https://github.com
 
 ## Install
 
-Installs via Terminal.app directly from GitHub releases. Updates arrive automatically with Ed25519 signature, ensuring secure delivery.
+Installs via Terminal.app directly from GitHub releases. Updates arrive automatically with Ed25519 signature via [AppUpdater](https://github.com/runbot-hq/AppUpdater), ensuring secure delivery when installing and future updates.
 
 ```bash
 curl -fsSL https://runbot-hq.github.io/install.sh | bash
 ```
 --- 
 
-[AppUpdater](https://github.com/runbot-hq/AppUpdater) is used to distribute updates via GitHub Releases with Ed25519 signature verification
+ is used to distribute updates via GitHub Releases with Ed25519 signature verification
 
 ## Test a branch
 
