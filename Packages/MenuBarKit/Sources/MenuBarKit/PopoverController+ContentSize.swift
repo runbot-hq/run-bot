@@ -16,8 +16,9 @@ extension MBKPopoverController {
     /// Three paths: (1) not shown — write `contentSize` so it opens at the right size;
     /// (2) shown, menubar visible — write `contentSize`, re-anchor via `show()` on width
     /// change so AppKit re-derives the arrow position atomically; (3) shown, menubar
-    /// hidden — `NSPopover.contentSize` is ignored by AppKit, so drive `window.setFrame`
-    /// directly using chrome deltas snapshotted once in `popoverWillShow`.
+    /// hidden — `NSPopover.contentSize` is ignored by AppKit for window positioning,
+    /// so drive `window.setFrame` directly using chrome deltas and fixed Y snapshotted
+    /// once in `popoverWillShow`.
     func applyContentSize(_ preferred: CGSize) {
         let clamped = clamp(preferred)
         guard clamped.width > 0, clamped.height > 0 else { return }
@@ -65,44 +66,44 @@ extension MBKPopoverController {
         let widthChanged = abs(clamped.width - oldWidth) > 1
 
         if isMenuBarHidden {
-            // Path 3: hidden mode — NSPopover ignores setContentSize here.
+            // Path 3: hidden mode — AppKit ignores NSPopover.contentSize for window
+            // positioning, but SwiftUI's hosting controller still reads it for layout.
             //
-            // Chrome deltas (hiddenChromeW/H) and hiddenButtonMidX are snapshotted
-            // ONCE in popoverWillShow against AppKit's freshly-positioned window.
-            // They are constant for the entire session:
-            //   - Chrome size never changes between views (same NSPopover window).
+            // Chrome deltas (hiddenChromeW/H), hiddenButtonMidX, and hiddenWindowY
+            // are snapshotted ONCE in popoverWillShow against AppKit's freshly-
+            // positioned window. They are constant for the entire session:
+            //   - Chrome never changes between views (same NSPopover window).
             //   - buttonMidX never changes (button doesn't move).
+            //   - windowY is the fixed bottom edge: the panel top stays pinned under
+            //     the button; only height grows downward. Never recompute from
+            //     window.frame — that drifts across multiple setFrame calls.
             //
-            // ❌ NEVER re-snapshot here. window.frame at this point reflects our own
-            //    prior setFrame call, not AppKit's frame — chrome deltas derived from
-            //    it will be wrong and produce negative values / bad positions.
-            // ❌ NEVER invalidate hiddenChromeW/H mid-session for view switches.
+            // ❌ NEVER re-snapshot here. window.frame at this point is whatever WE
+            //    last wrote via setFrame, not AppKit's frame.
+            // ❌ NEVER invalidate hiddenChromeW/H/windowY mid-session.
             guard let chromeW = hiddenChromeW,
                   let chromeH = hiddenChromeH,
-                  let btnMidX = hiddenButtonMidX else {
+                  let btnMidX = hiddenButtonMidX,
+                  let fixedY  = hiddenWindowY else {
                 mbkLog("PopoverController",
                        "applyContentSize -- menubar hidden, no chrome snapshot yet, SKIP (\(clamped.width),\(clamped.height))")
                 return
             }
+            // Write contentSize so SwiftUI's hosting controller lays out at the
+            // correct size. AppKit ignores this for window positioning in hidden mode.
+            popover.contentSize = clamped
             let newW = clamped.width  + chromeW
             let newH = clamped.height + chromeH
-            // ❌ DO NOT use window.frame.origin.x as a fixed left edge here —
-            // it was computed for a specific width and is wrong for any other width.
-            // Always derive originX from btnMidX so main and settings (which have
-            // different widths) both land centred under the status item.
+            // ❌ DO NOT use window.frame.origin.x — it was computed for a specific
+            // width and is wrong for any other width. Always derive X from btnMidX.
             let newX = btnMidX - newW / 2
-            // Anchor from current bottom edge upward.
-            // window.frame.origin.y is the bottom of the current window; adding
-            // (window.frame.height - newH) keeps the bottom edge fixed as height changes.
-            let rawY = window.frame.origin.y + (window.frame.height - newH)
-            // Y-FLOOR: clamp so the panel never rises above the visible screen area.
-            // Protects against any edge case where rawY overshoots (e.g. first open
-            // while transitioning). ❌ DO NOT REMOVE.
+            // Y-FLOOR: last-resort clamp so the panel never rises above the visible
+            // screen area under any edge case. ❌ DO NOT REMOVE.
             let visibleFloor = window.screen?.visibleFrame.minY ?? 0
-            let newY = max(rawY, visibleFloor)
-            if newY != rawY {
+            let newY = max(fixedY, visibleFloor)
+            if newY != fixedY {
                 mbkLog("PopoverController",
-                       "applyContentSize -- hidden Y floored rawY=\(rawY) \u{2192} \(newY) visibleFloor=\(visibleFloor)")
+                       "applyContentSize -- hidden Y floored fixedY=\(fixedY) \u{2192} \(newY) visibleFloor=\(visibleFloor)")
             }
             let newFrame = NSRect(x: newX, y: newY, width: newW, height: newH)
             window.setFrame(newFrame, display: true)

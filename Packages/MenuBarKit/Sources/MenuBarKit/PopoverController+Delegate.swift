@@ -9,22 +9,25 @@ extension MBKPopoverController: NSPopoverDelegate {
     public func popoverWillShow(_ notification: Notification) {
         setButtonHighlight(true)
         isShownSentinel = true
-        // Snapshot chrome deltas and buttonMidX here — the ONLY valid moment.
+        // Snapshot chrome deltas, buttonMidX, and windowY here — the ONLY valid moment.
         // window.frame is set by AppKit at show time; this is the only call where
-        // we can derive true chrome size. applyContentSize must NOT re-snapshot
-        // because by then window.frame reflects our own prior setFrame, not AppKit's.
+        // we can derive true chrome size and the correct fixed Y anchor.
+        // applyContentSize must NOT re-snapshot because by then window.frame reflects
+        // our own prior setFrame, not AppKit's.
         // Chrome is constant across view switches (NSPopover window chrome never
-        // changes); buttonMidX is constant (button doesn't move).
+        // changes); buttonMidX and windowY are constant (button doesn't move, top
+        // edge of panel stays pinned under the button for the whole session).
         // ❌ NEVER move this snapshot to applyContentSize.
-        // ❌ NEVER invalidate hiddenChromeW/H mid-session.
+        // ❌ NEVER invalidate or recompute hiddenChromeW/H/windowY mid-session.
         if let window = hostingController.view.window,
            let button = statusItem.button,
            let buttonWin = button.window {
-            hiddenChromeW = window.frame.width  - popover.contentSize.width
-            hiddenChromeH = window.frame.height - popover.contentSize.height
+            hiddenChromeW   = window.frame.width  - popover.contentSize.width
+            hiddenChromeH   = window.frame.height - popover.contentSize.height
             hiddenButtonMidX = buttonWin.frame.minX + button.frame.midX
+            hiddenWindowY   = window.frame.origin.y
             mbkLog("PopoverController",
-                   "popoverWillShow -- isShownSentinel=true chromeW=\(hiddenChromeW!) chromeH=\(hiddenChromeH!) btnMidX=\(hiddenButtonMidX!) win=\(window.frame) #\(window.windowNumber)")
+                   "popoverWillShow -- isShownSentinel=true chromeW=\(hiddenChromeW!) chromeH=\(hiddenChromeH!) btnMidX=\(hiddenButtonMidX!) windowY=\(hiddenWindowY!) win=\(window.frame) #\(window.windowNumber)")
         } else {
             mbkLog("PopoverController", "popoverWillShow -- isShownSentinel=true (no hostingWindow yet, chrome not snapshotted)")
         }
@@ -45,6 +48,7 @@ extension MBKPopoverController: NSPopoverDelegate {
         hiddenChromeW = nil
         hiddenChromeH = nil
         hiddenButtonMidX = nil
+        hiddenWindowY = nil
         overlayGate.hasActiveOverlay = false
         overlayGate.hasFilePickerOverlay = false
         onWillCloseFired = false

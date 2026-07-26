@@ -76,17 +76,11 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
     // MARK: - Configuration
 
     /// Overlay gate — read in `popoverShouldClose` and reset in `popoverDidClose`.
-    /// `internal` (default) so extension files can access it.
     let overlayGate: MBKOverlayGate
-    /// SF Symbol name for the status-bar icon.
     private let symbolName: String
-    /// Minimum allowed popover content width.
     let minWidth: CGFloat
-    /// Maximum allowed popover content width.
     let maxWidth: CGFloat
-    /// Maximum allowed popover content height.
     let maxHeight: CGFloat
-    /// The current root SwiftUI view, wrapped in `AnyView`.
     var rootView: AnyView
 
     /// Called just before the popover is shown. Use this to refresh content.
@@ -97,19 +91,11 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
     /// `wasForced` is `true` when closed programmatically (e.g. forceClose via sheet).
     public var onWillClose: ((_ wasForced: Bool) -> Void)?
 
-    /// The status-bar item that owns the trigger button.
-    /// Assigned in `setup()` — see IMPLICIT-UNWRAPPED OPTIONALS in the file header.
     var statusItem: NSStatusItem!
-    /// The managed `NSPopover`. Assigned in `setup()`.
     var popover: NSPopover!
-    /// Hosts the root SwiftUI view. Assigned in `setup()`.
-    /// `internal` (default) so extension files can access it.
     var hostingController: NSHostingController<AnyView>!
-    /// Guards against calling `setup()` more than once.
     private var isSetUp = false
-    /// Global mouse-down event monitor token. `nonisolated(unsafe)` — see file header.
     nonisolated(unsafe) var eventMonitor: Any?
-    /// Workspace app-switch observer token. `nonisolated(unsafe)` — see file header.
     nonisolated(unsafe) var workspaceObserver: NSObjectProtocol?
 
     /// Shown-sentinel for `applyContentSize`: `true` while the popover is open,
@@ -122,27 +108,27 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
     /// are suppressed. Reset to `false` in `popoverDidClose` as a safety net.
     var isOpening = false
 
-    /// Button center X in screen coordinates from the last visible-mode open.
     var lastKnownAnchorX: CGFloat?
-
-    /// Prevents `onWillClose` from firing more than once per open/close cycle.
     var onWillCloseFired = false
 
     /// Chrome width delta (window frame width − content width) for hidden-mode sizing.
-    /// Snapshotted on first Path 3 call per session; invalidated on view switch.
-    /// `nil` outside a hidden-mode session.
+    /// Snapshotted once in `popoverWillShow`. `nil` outside a session.
     var hiddenChromeW: CGFloat?
     /// Chrome height delta (window frame height − content height) for hidden-mode sizing.
-    /// Snapshotted on first Path 3 call per session; invalidated on view switch.
-    /// `nil` outside a hidden-mode session.
+    /// Snapshotted once in `popoverWillShow`. `nil` outside a session.
     var hiddenChromeH: CGFloat?
     /// Button center X in screen coordinates for the hidden-mode session.
-    /// Preserved across view switches (button doesn't move). `nil` outside a session.
+    /// Snapshotted once in `popoverWillShow`. `nil` outside a session.
     var hiddenButtonMidX: CGFloat?
+    /// Window origin Y (bottom edge, AppKit flipped coords) snapshotted once in
+    /// `popoverWillShow`. Used as a fixed constant for all Path 3 `setFrame` calls
+    /// so the panel top edge stays pinned under the button for the entire session.
+    /// ❌ NEVER recompute from window.frame mid-session — that drifts.
+    /// `nil` outside a hidden-mode session.
+    var hiddenWindowY: CGFloat?
 
     // MARK: - Init
 
-    /// Creates the controller with a root SwiftUI view and shared overlay gate.
     public init<Content: View>(
         rootView: Content,
         overlayGate: MBKOverlayGate,
