@@ -67,32 +67,33 @@ extension MBKPopoverController {
         if isMenuBarHidden {
             // Path 3: hidden mode — NSPopover ignores setContentSize here.
             //
-            // Snapshot chrome deltas and buttonMidX once per hidden session so
-            // every frame write re-centers correctly regardless of which view
-            // is active or how many times width changes.
-            if hiddenChromeW == nil,
-               let button = statusItem.button,
-               let buttonWin = button.window {
-                hiddenChromeW = window.frame.width - popover.contentSize.width
-                hiddenChromeH = window.frame.height - popover.contentSize.height
-                hiddenButtonMidX = buttonWin.frame.minX + button.frame.midX
+            // Re-snapshot chrome deltas and buttonMidX on every call.
+            // The one-shot (hiddenChromeW == nil) guard caused stale chrome metrics
+            // when the view switched (e.g. main → settings) while hidden: the
+            // snapshot taken from the main view's frame was used to size the settings
+            // window, producing settings stuck at main-view dimensions. Chrome deltas
+            // (window.frame − popover.contentSize) are a constant of the window
+            // decoration — re-computing on every call is harmless and always correct.
+            guard let button = statusItem.button,
+                  let buttonWin = button.window else {
                 mbkLog("PopoverController",
-                       "applyContentSize -- hidden snapshot chromeW=\(hiddenChromeW!) chromeH=\(hiddenChromeH!) buttonMidX=\(hiddenButtonMidX!)")
-            }
-            guard let chromeW = hiddenChromeW,
-                  let chromeH = hiddenChromeH,
-                  let btnMidX = hiddenButtonMidX else {
-                mbkLog("PopoverController",
-                       "applyContentSize -- menubar hidden, no chrome snapshot yet, SKIP (\(clamped.width),\(clamped.height))")
+                       "applyContentSize -- menubar hidden, no button/window, SKIP (\(clamped.width),\(clamped.height))")
                 return
             }
+            let chromeW = window.frame.width - popover.contentSize.width
+            let chromeH = window.frame.height - popover.contentSize.height
+            let btnMidX = buttonWin.frame.minX + button.frame.midX
+            // Keep stored properties in sync so popoverDidClose reset remains a clean no-op.
+            hiddenChromeW = chromeW
+            hiddenChromeH = chromeH
+            hiddenButtonMidX = btnMidX
             let newW = clamped.width + chromeW
             let newH = clamped.height + chromeH
             // ❌ DO NOT use window.frame.origin.x as a fixed left edge here —
             // it was computed for a specific width and is wrong for any other width.
             // Always derive originX from btnMidX so main and settings (which have
             // different widths) both land centred under the status item.
-            let newX = btnMidX - newW / 2  // re-centre on the status item for every write
+            let newX = btnMidX - newW / 2
             // Anchor from current bottom edge upward — self-contained, no isShownSentinel needed.
             let newY = window.frame.origin.y + (window.frame.height - newH)
             let newFrame = NSRect(x: newX, y: newY, width: newW, height: newH)
