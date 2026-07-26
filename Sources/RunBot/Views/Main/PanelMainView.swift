@@ -207,7 +207,14 @@ struct PanelMainView: View {
                 onSelectSettings: onSelectSettings
             )
             // RULE 10: LOAD-BEARING — do not remove.
+            // .fixedSize() prevents GlassEffectContainer from reporting fluctuating
+            // heights under layout pressure on macOS 26 (see HEADER STABILITY above).
             .fixedSize()
+            // Header GeometryReader (RULE 12).
+            // Lives in .background() so it measures without influencing layout.
+            // Writes headerHeight once on appear; updates only if the header truly changes.
+            // See MULTIPLE GEOMETRYREADERS in the file header for why this is separate
+            // from the content and scroll GRs below.
             .background(
                 GeometryReader { geo in
                     Color.clear
@@ -242,6 +249,8 @@ struct PanelMainView: View {
                 SectionHeaderLabel(title: "Local Runners")
                 PanelLocalRunnerRow(runners: activeLocalRunners)
             }
+            // Color.clear trigger for localRunnerStore.refresh() on appear.
+            // Zero-size so it has no visual presence or layout impact.
             Color.clear.frame(width: 0, height: 0)
                 .onAppear {
                     Task { await localRunnerStore.refresh() }
@@ -249,7 +258,11 @@ struct PanelMainView: View {
             actionsSectionScrollable
         }
         // RULE 1: LOAD-BEARING — do not remove or change to fixedSize(horizontal:vertical:).
+        // See RULE 1 in the file header for the full explanation of why both axes are needed.
         .fixedSize()
+        // Root VStack GeometryReader — debug logging only, writes no state.
+        // Lives in .background() so it cannot influence the size it measures.
+        // See MULTIPLE GEOMETRYREADERS in the file header.
         .background(
             GeometryReader { geo in
                 Color.clear
@@ -297,10 +310,23 @@ struct PanelMainView: View {
 
     // MARK: - Scroll section
 
+    /// Scrollable container for the actions section.
+    /// Height is driven by a content GeometryReader into `scrollViewHeight`,
+    /// capped at `screenScrollMaxHeight` (see RULE 5).
+    ///
+    /// WHY .frame(height: scrollViewHeight > 0 ? scrollViewHeight : nil):
+    /// See WHY .frame(height:) NOT maxHeight in the file header. The `> 0` guard
+    /// keeps the constraint absent on the first layout pass so SwiftUI can measure
+    /// the content unconstrained before we lock in the height.
     private var actionsSectionScrollable: some View {
         ScrollView(.vertical, showsIndicators: true) {
             actionsSectionContent
+                // RULE 5: LOAD-BEARING — forces natural height measurement before ScrollView clips.
                 .fixedSize(horizontal: false, vertical: true)
+                // Content GeometryReader (RULE 5).
+                // Writes scrollViewHeight. Lives in .background() so it measures
+                // without influencing the content height it is capturing.
+                // See MULTIPLE GEOMETRYREADERS in the file header.
                 .background(
                     GeometryReader { geo in
                         Color.clear
@@ -337,7 +363,10 @@ struct PanelMainView: View {
                     }
                 )
         }
+        // See WHY .frame(height:) NOT maxHeight in the file header.
         .frame(height: scrollViewHeight > 0 ? scrollViewHeight : nil)
+        // ScrollView GeometryReader — debug logging only, writes no state.
+        // See MULTIPLE GEOMETRYREADERS in the file header.
         .background(
             GeometryReader { geo in
                 Color.clear
@@ -357,6 +386,7 @@ struct PanelMainView: View {
 
     // MARK: - Content
 
+    /// Workflow rows and the load-more button, rendered inside the scroll container.
     private var actionsSectionContent: some View {
         VStack(alignment: .leading, spacing: 0) {
             SectionHeaderLabel(title: "Workflows")
@@ -375,6 +405,7 @@ struct PanelMainView: View {
         .padding(.vertical, 4)
     }
 
+    /// "Load N more workflows" button; hidden when all workflows are already visible.
     @ViewBuilder private var loadMoreButton: some View {
         let nextBatch = min(10, appState.runnerState.actions.count - visibleCount)
         if nextBatch > 0 {
@@ -389,6 +420,15 @@ struct PanelMainView: View {
 
     // MARK: - Display tick timer
 
+    /// Starts the 1-second structured `displayTick` loop. Cancels any existing task first.
+    ///
+    /// Sleep-first: fires 1 s after start, matching the prior `Timer.scheduledTimer` behaviour.
+    /// No open-state gate — RULE 9: displayTick runs always while the view is alive.
+    /// Named "displayTick" for Instruments visibility (RG6).
+    /// `try` (not `try?`) on Task.sleep propagates CancellationError cleanly so the loop
+    /// exits immediately on cancel without executing a spurious post-cancel tick.
+    /// `@MainActor` is explicit so the compiler statically verifies that `displayTickTask`
+    /// (a `@State`-backed property) is always mutated on the main actor.
     @MainActor private func startDisplayTickTimer() {
         stopDisplayTickTimer()
         displayTickTask = Task(name: "displayTick") { @MainActor in
@@ -399,6 +439,8 @@ struct PanelMainView: View {
         }
     }
 
+    /// Cancels and nils the `displayTick` task.
+    /// `@MainActor` matches `startDisplayTickTimer()` — both mutate `displayTickTask`.
     @MainActor private func stopDisplayTickTimer() {
         displayTickTask?.cancel()
         displayTickTask = nil
@@ -406,6 +448,12 @@ struct PanelMainView: View {
 
     // MARK: - Banners
 
+    /// Inline error banner shown when `appState.runnerState.fetchError` is non-nil.
+    ///
+    /// Displays a truncated error description. Dismisses automatically on the next
+    /// successful fetch cycle when `applyFetchResult` clears `fetchError`.
+    /// Stale `runners`/`jobs`/`actions` remain visible below the banner so the user
+    /// still sees the last-known state while connectivity is degraded.
     private func fetchErrorBanner(_ error: any Error) -> some View {
         HStack(spacing: 6) {
             Image(systemName: "exclamationmark.triangle.fill").foregroundColor(.red).font(.caption)
@@ -416,6 +464,16 @@ struct PanelMainView: View {
         .padding(.horizontal, 12).padding(.vertical, 4)
     }
 
+    /// Rate-limit warning banner showing a countdown to API reset.
+    ///
+    /// WHY withExtendedLifetime(displayTick):
+    /// `displayTick` must be read inside `body` to register a SwiftUI dependency so the
+    /// banner label refreshes every second. However, `rateLimitBanner` is a computed var
+    /// called from body — not body itself — so the compiler cannot see the read directly.
+    /// `withExtendedLifetime` is a zero-cost call that makes the dependency explicit to both
+    /// the compiler and future readers without changing runtime behaviour. The actual per-second
+    /// refresh is driven by the `tick:` parameter chain: body → actionsSectionContent →
+    /// ActionRowView(tick:). This call is intentional and not dead code.
     private var rateLimitBanner: some View {
         withExtendedLifetime(displayTick) {}
         let countdownLabel: String

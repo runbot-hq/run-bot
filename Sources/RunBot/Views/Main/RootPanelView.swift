@@ -40,10 +40,15 @@ import SwiftUI
 struct RootPanelView: View {
     /// Core runner/job/action/rate-limit state, injected via `wrapEnv`.
     @Environment(AppState.self) private var appState
-    /// Panel open/close and transient-hide state, injected via `wrapEnv`.
-    /// Not read directly at this level — retained so SwiftUI propagates it
-    /// through the environment chain to PanelMainView and PanelContainerView.
-    /// Do not remove.
+
+    /// Pass-through environment injection for PanelContainerView.
+    ///
+    /// RootPanelView does not read panelVisibilityState directly, but it MUST
+    /// declare this property so the value is present in the environment subtree.
+    /// PanelContainerView (rendered inside mainBranch and settingsBranch) reads
+    /// it via its own @Environment lookup to drive the dim overlay.
+    /// ❌ NEVER remove this property.
+    /// ❌ NEVER remove PanelVisibilityState from wrapEnv() in AppDelegate.
     @Environment(PanelVisibilityState.self) private var panelVisibilityState
 
     /// Called when the user taps the settings gear. Requires AppKit wiring (key promotion).
@@ -70,6 +75,7 @@ struct RootPanelView: View {
         }
         .id(navState)
         // ⚠️ Temporary — remove after side-jump bug (#2265) is resolved.
+        // Logs every nav-state transition for MBK sizing diagnostics.
         .onChange(of: navState) { _, newNav in
             #if DEBUG
             log("【RootPanelView】navState → \(newNav)", category: .panel)
@@ -79,6 +85,7 @@ struct RootPanelView: View {
 
     // MARK: - Route branches
 
+    /// Main panel branch: `PanelContainerView` wrapping `PanelMainView`.
     @ViewBuilder private var mainBranch: some View {
         PanelContainerView(
             content: PanelMainView(
@@ -93,6 +100,7 @@ struct RootPanelView: View {
         )
     }
 
+    /// Settings branch: `PanelContainerView` wrapping `SettingsView`.
     @ViewBuilder private var settingsBranch: some View {
         PanelContainerView(
             content: SettingsView(
@@ -102,6 +110,7 @@ struct RootPanelView: View {
         )
     }
 
+    /// Step-log branch: `StepLogView` without a `PanelContainerView` wrapper.
     @ViewBuilder private func stepLogBranch(job: ActiveJob, step: GitHubStep) -> some View {
         StepLogView(
             job: job,
