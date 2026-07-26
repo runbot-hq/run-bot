@@ -67,38 +67,28 @@ extension MBKPopoverController {
         onWillShow?()
         mbkLog("PopoverController", "onWillShow fired")
 
-        // Reset contentSize to the minimum before reading fittingSize.
+        // Reset contentSize to the minimum stub before show().
         //
         // WHY THIS IS NECESSARY:
-        // fittingSize triggers a synchronous AppKit layout pass into SwiftUI.
-        // Any @State mutations enqueued by onWillShow (e.g. scrollViewHeight = 0)
-        // are not committed until the next runloop cycle — they are invisible to
-        // this synchronous pass. Without the reset, fittingSize sees the stale
-        // SwiftUI state from the previous session (e.g. scrollViewHeight = 350)
-        // and reports the old height. That stale value is then written to
-        // popover.contentSize as the pre-show seed, so the popover opens at the
-        // wrong size and grows in a visible step once the real layout fires.
+        // onWillShow bumps willShowToken, which SwiftUI's onChange resets
+        // scrollViewHeight = 0 on the next runloop cycle — not synchronously.
+        // Any applyContentSize calls that fire between here and popover.show()
+        // see the stale scrollViewHeight from the previous session. The reset
+        // ensures those calls see a neutral starting state so the popover is
+        // never pre-seeded with a stale height.
         //
-        // The reset forces the layout pass to treat the view as starting from a
-        // small size. The ScrollView's .frame(height: scrollViewHeight > 0 ? ... : nil)
-        // guard in PanelMainView returns nil when scrollViewHeight is 0, so SwiftUI
-        // measures the content unconstrained on the next pass — the grow-from-header
-        // step is eliminated because the popover is never seeded with a stale height.
-        //
-        // TWO-OPEN-CYCLE BUG (open 2 from log):
+        // TWO-OPEN-CYCLE BUG (dead-band):
         // On the second open, applyContentSize's 1pt dead-band guard
         //   (abs(old.height - new.height) > 1)
-        // was suppressing the pre-show contentSize write when the post-close
-        // SwiftUI flush happened to write back exactly the same value. The reset
-        // clears that dead-band unconditionally, ensuring the first
-        // applyContentSize after open always fires.
+        // was suppressing writes when the post-close SwiftUI flush happened to
+        // write back exactly the same value. The reset clears that dead-band
+        // unconditionally, ensuring the first applyContentSize after open fires.
         //
         // ❌ DO NOT REMOVE this reset.
-        // ❌ DO NOT move it after the fittingSize read.
         // ❌ DO NOT replace it with a flag or @State write — @State mutations
-        //    are asynchronous and will not be visible to fittingSize.
+        //    are asynchronous and will not be synchronously visible before show().
         popover.contentSize = NSSize(width: minWidth, height: 100)
-        mbkLog("PopoverController", "openPopover -- contentSize reset to (\(minWidth), 100) before fittingSize")
+        mbkLog("PopoverController", "openPopover -- contentSize reset to (\(minWidth), 100)")
 
         let menuBarHidden = isMenuBarHidden
 
@@ -162,7 +152,6 @@ extension MBKPopoverController {
     // MARK: - Close helpers
 
     /// Fires `onWillClose` exactly once per session, guarded by `onWillCloseFired`.
-    /// `internal` (default) so `PopoverController+Delegate.swift` can access it.
     func fireOnWillClose(wasForced: Bool) {
         guard !onWillCloseFired else {
             mbkLog("PopoverController", "onWillClose already fired, skipping")
@@ -244,7 +233,6 @@ extension MBKPopoverController {
     }
 
     /// Sets the status-bar button's highlighted state.
-    /// `internal` (default) so `PopoverController+Delegate.swift` can access it.
     func setButtonHighlight(_ on: Bool) {
         statusItem.button?.isHighlighted = on
     }
