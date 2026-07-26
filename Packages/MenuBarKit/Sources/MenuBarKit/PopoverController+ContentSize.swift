@@ -42,19 +42,15 @@ extension MBKPopoverController {
             //
             // Snapshot chrome deltas once per hidden session.
             //
-            // ❌ DO NOT use popover.contentSize as the content reference here.
-            // Post-close Path 1 writes race to update popover.contentSize before
-            // the hidden session begins (e.g. the post-close GR fires 636.5x372
-            // after a session that displayed 642.5x707). When the menubar then
-            // hides and the first Path 3 call arrives, the window is still
-            // physically sized for the last visible content (frame 668.5x733)
-            // but popover.contentSize is already 636.5x372. This produces:
-            //   chromeH = 733 - 372 = 361  (correct value is 733 - 707 = 26)
-            // Every subsequent DIRECT FRAME call is then off by 335pt in height.
-            //
-            // Fix: use hostingController.view.frame.size — the actual rendered
-            // size of the SwiftUI content view inside the window at snapshot time,
-            // completely independent of what popover.contentSize holds.
+            // IMPORTANT: use hostingController.view.frame.size, NOT popover.contentSize.
+            // Post-close Path 1 writes race to update popover.contentSize before the
+            // hidden session begins. By the time the first Path 3 call arrives, the
+            // window frame still reflects the last visible content size, but
+            // popover.contentSize has already been overwritten by post-close GR fires.
+            // Using popover.contentSize produces a wildly wrong chromeH delta
+            // (e.g. 733 - 372 = 361 instead of the correct 733 - 707 = 26).
+            // hostingController.view.frame.size is the actual rendered size of the
+            // SwiftUI content view inside the window and is not affected by the race.
             if hiddenChromeW == nil,
                let button = statusItem.button,
                let buttonWin = button.window {
@@ -95,7 +91,7 @@ extension MBKPopoverController {
                 // settings navigation.
                 if clamped.width < oldWidth - 1 && !isOpening {
                     mbkLog("PopoverController",
-                           "applyContentSize -- width narrowed mid-session (\(oldWidth) \u2192 \(clamped.width)), SKIP entirely, stale departing-view GR discarded")
+                           "applyContentSize -- width narrowed mid-session (\(oldWidth) -> \(clamped.width)), SKIP entirely, stale departing-view GR discarded")
                     return
                 }
                 popover.contentSize = clamped
