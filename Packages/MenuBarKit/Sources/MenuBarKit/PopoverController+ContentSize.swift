@@ -73,9 +73,8 @@ extension MBKPopoverController {
             // Without this write, popover.contentSize holds the previous view's size
             // (e.g. settings 480×551) when the next view (main 585×350) calls in.
             // chromeW = window.frame.width - popover.contentSize.width would then use
-            // the settings window frame (~506px) against the stale settings contentSize
-            // (480px), yielding chromeW≈26 only by coincidence on the first call and
-            // completely wrong values thereafter — producing the wrong window frame.
+            // the settings window frame against the stale settings contentSize,
+            // producing wrong deltas and wrong window frames.
             popover.contentSize = clamped
 
             guard let button = statusItem.button,
@@ -84,14 +83,31 @@ extension MBKPopoverController {
                        "applyContentSize -- menubar hidden, no button/window, SKIP (\(clamped.width),\(clamped.height))")
                 return
             }
+
+            // Snapshot the window top edge once per hidden session.
+            // The top edge (origin.y + height) is the stable Y anchor — it is the
+            // underside of the menubar button and does not move as content size changes.
+            // Using window.frame.origin.y + (window.frame.height - newH) on every call
+            // is wrong: after writing contentSize above, window.frame still reflects
+            // the *previous* setFrame result, so the bottom edge drifts on every
+            // view switch and Y jumps unpredictably.
+            if hiddenWindowTop == nil {
+                hiddenWindowTop = window.frame.origin.y + window.frame.height
+                mbkLog("PopoverController",
+                       "applyContentSize -- hidden snapshot windowTop=\(hiddenWindowTop!)")
+            }
+            guard let windowTop = hiddenWindowTop else { return }
+
             // Chrome deltas: constant decoration thickness. Re-computed every call
-            // so they always reflect the just-written contentSize baseline.
+            // against the just-written contentSize so they're always correct on
+            // view switches.
             let chromeW = window.frame.width - popover.contentSize.width
             let chromeH = window.frame.height - popover.contentSize.height
             let btnMidX = buttonWin.frame.minX + button.frame.midX
             hiddenChromeW = chromeW
             hiddenChromeH = chromeH
             hiddenButtonMidX = btnMidX
+
             let newW = clamped.width + chromeW
             let newH = clamped.height + chromeH
             // ❌ DO NOT use window.frame.origin.x as a fixed left edge here —
@@ -99,12 +115,12 @@ extension MBKPopoverController {
             // Always derive originX from btnMidX so main and settings (which have
             // different widths) both land centred under the status item.
             let newX = btnMidX - newW / 2
-            // Anchor from current bottom edge upward — self-contained, no isShownSentinel needed.
-            let newY = window.frame.origin.y + (window.frame.height - newH)
+            // Anchor from the stable top edge downward — immune to prior setFrame results.
+            let newY = windowTop - newH
             let newFrame = NSRect(x: newX, y: newY, width: newW, height: newH)
             window.setFrame(newFrame, display: true)
             mbkLog("PopoverController",
-                   "applyContentSize -- menubar hidden, DIRECT FRAME (\(clamped.width),\(clamped.height)) btnMidX=\(btnMidX) frame=\(newFrame)")
+                   "applyContentSize -- menubar hidden, DIRECT FRAME (\(clamped.width),\(clamped.height)) btnMidX=\(btnMidX) windowTop=\(windowTop) frame=\(newFrame)")
         } else {
             // Path 2: menubar visible — write contentSize then re-anchor via show()
             // on width change so AppKit re-derives arrow position atomically.

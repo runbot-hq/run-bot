@@ -137,18 +137,23 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
     /// `internal` (default) so extension files can access it.
     var onWillCloseFired = false
 
-    /// Chrome width delta (window frame width − content width) snapshotted in
-    /// hidden mode on the first `applyContentSize` call. `nil` outside a session.
-    /// `internal` (default) so extension files can access it.
+    /// Chrome width delta (window frame width − content width) for hidden-mode sizing.
+    /// Stored for reference / popoverDidClose reset; recomputed on every Path 3 call.
+    /// `nil` outside a hidden-mode session.
     var hiddenChromeW: CGFloat?
-    /// Chrome height delta (window frame height − content height) snapshotted in
-    /// hidden mode. `nil` outside a session.
-    /// `internal` (default) so extension files can access it.
+    /// Chrome height delta (window frame height − content height) for hidden-mode sizing.
+    /// Stored for reference / popoverDidClose reset; recomputed on every Path 3 call.
+    /// `nil` outside a hidden-mode session.
     var hiddenChromeH: CGFloat?
     /// Button center X in screen coordinates for the hidden-mode session.
-    /// `nil` outside a hidden-mode session.
-    /// `internal` (default) so extension files can access it.
+    /// Recomputed on every Path 3 call. `nil` outside a hidden-mode session.
     var hiddenButtonMidX: CGFloat?
+    /// The top edge of the popover window (origin.y + height) snapshotted on the
+    /// first Path 3 call of a hidden session. Used as the stable Y anchor for all
+    /// subsequent `setFrame` calls in the same session — the top edge is the
+    /// underside of the menubar button and does not change as content size changes.
+    /// `nil` outside a hidden-mode session. Reset in `popoverDidClose`.
+    var hiddenWindowTop: CGFloat?
 
     // MARK: - Init
 
