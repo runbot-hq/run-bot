@@ -126,6 +126,11 @@ struct PanelMainView: View {
     @State private var displayTickTask: Task<Void, any Error>?
     /// Height of the ScrollView frame, driven by the content GeometryReader (RULE 5).
     /// Starts at 0 (no constraint) until the first measurement fires on appear.
+    /// Reset to 0 in the close branch of the `panelVisibilityState.isOpen` observer
+    /// so the next open always starts with an unconstrained first layout pass.
+    /// ❌ NEVER reset at open time — that removes the constraint mid-session and
+    ///    causes SwiftUI to re-measure with stale offered geometry from the dismissed
+    ///    settings window, propagating a wrong width through applyContentSize (#2280).
     @State private var scrollViewHeight: CGFloat = 0
     /// Measured natural height of PanelHeaderView. Captured once on appear (RULE 12).
     /// Used to subtract from the cap so the full panel never overflows the screen.
@@ -299,7 +304,18 @@ struct PanelMainView: View {
             #if DEBUG
             log("【PanelMainView】panelVisibilityState.isOpen → \(newOpen) menuBarHidden=\(isMenuBarHidden)", category: .panel)
             #endif
-            if newOpen { systemStats.start() } else { systemStats.stop() }
+            if newOpen {
+                systemStats.start()
+            } else {
+                // Reset scrollViewHeight while closed so the next open starts with an
+                // unconstrained first layout pass and measures fresh main-view geometry.
+                // ❌ NEVER move this reset to the open branch — resetting while the popover
+                //    is visible removes the scroll frame constraint mid-session, causing
+                //    SwiftUI to re-measure with stale offered geometry from the dismissed
+                //    settings window and propagate the wrong width through applyContentSize.
+                scrollViewHeight = 0
+                systemStats.stop()
+            }
         }
         // Reset the visible row count only when the list shrinks (e.g. a runner is removed),
         // not on every poll update — avoids snapping the user back mid-scroll.

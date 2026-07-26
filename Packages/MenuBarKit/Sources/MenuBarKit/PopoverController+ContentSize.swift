@@ -35,14 +35,13 @@ extension MBKPopoverController {
               isShownSentinel != nil else {
             // Path 1: not shown (or sentinel not yet set).
             //
-            // GUARDED: skip when menubar is hidden. Post-close SwiftUI size
-            // callbacks while hidden poison contentSize — AppKit uses the
-            // stale value to anchor the next open against the off-screen button.
-            if isMenuBarHidden {
-                mbkLog("PopoverController",
-                       "applyContentSize -- not shown, menubar hidden, SKIP WRITE (\(clamped.width),\(clamped.height))")
-                return
-            }
+            // NOTE: the isMenuBarHidden guard that previously existed here has been
+            // removed. Writing contentSize while the popover is closed is always inert
+            // — AppKit ignores the value until the next show() call. The concern that
+            // motivated the guard ("poisons the X anchor") only applies to show() calls,
+            // not to plain contentSize writes. Blocking these writes caused contentSize
+            // to retain the stale settings-view size through the hidden period, so the
+            // next open flashed at the wrong dimensions (root cause 1 of #2280).
             popover.contentSize = clamped
             mbkLog("PopoverController",
                    "applyContentSize -- not shown, WRITE (\(clamped.width),\(clamped.height))")

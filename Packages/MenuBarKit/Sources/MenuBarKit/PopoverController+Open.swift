@@ -133,6 +133,9 @@ extension MBKPopoverController {
     // MARK: - Close helpers
 
     /// Fires `onWillClose` exactly once per session, guarded by `onWillCloseFired`.
+    /// Raises `isClosing` before `onWillClose?()` fires so that any `applyContentSize`
+    /// Path 2 calls triggered by the host app's close handler (e.g. nav-state reset →
+    /// SwiftUI remount → GR layout pass with stale settings geometry) are suppressed.
     /// `internal` (default) so `PopoverController+Delegate.swift` can access it.
     func fireOnWillClose(wasForced: Bool) {
         guard !onWillCloseFired else {
@@ -140,6 +143,7 @@ extension MBKPopoverController {
             return
         }
         onWillCloseFired = true
+        isClosing = true
         mbkLog("PopoverController", "calling onWillClose wasForced=\(wasForced)")
         onWillClose?(wasForced)
         mbkLog("PopoverController", "onWillClose fired")
