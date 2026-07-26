@@ -16,8 +16,9 @@ extension MBKPopoverController {
     /// Three paths: (1) not shown — write `contentSize` so it opens at the right size;
     /// (2) shown, menubar visible — write `contentSize`, re-anchor via `show()` on width
     /// change so AppKit re-derives the arrow position atomically; (3) shown, menubar
-    /// hidden — `NSPopover.contentSize` is ignored by AppKit, so drive `window.setFrame`
-    /// directly using snapshotted chrome deltas and `buttonMidX`.
+    /// hidden — `NSPopover.contentSize` is ignored by AppKit for rendering, but we write
+    /// it anyway as a local source-of-truth for chrome delta math, then drive
+    /// `window.setFrame` directly using those deltas and `buttonMidX`.
     func applyContentSize(_ preferred: CGSize) {
         let clamped = clamp(preferred)
         guard clamped.width > 0, clamped.height > 0 else { return }
@@ -65,25 +66,29 @@ extension MBKPopoverController {
         let widthChanged = abs(clamped.width - oldWidth) > 1
 
         if isMenuBarHidden {
-            // Path 3: hidden mode — NSPopover ignores setContentSize here.
+            // Path 3: hidden mode — NSPopover ignores contentSize for rendering here,
+            // but we write it first as a local source-of-truth so chrome delta math
+            // is always computed against the current view's size.
             //
-            // Re-snapshot chrome deltas and buttonMidX on every call.
-            // The one-shot (hiddenChromeW == nil) guard caused stale chrome metrics
-            // when the view switched (e.g. main → settings) while hidden: the
-            // snapshot taken from the main view's frame was used to size the settings
-            // window, producing settings stuck at main-view dimensions. Chrome deltas
-            // (window.frame − popover.contentSize) are a constant of the window
-            // decoration — re-computing on every call is harmless and always correct.
+            // Without this write, popover.contentSize holds the previous view's size
+            // (e.g. settings 480×551) when the next view (main 585×350) calls in.
+            // chromeW = window.frame.width - popover.contentSize.width would then use
+            // the settings window frame (~506px) against the stale settings contentSize
+            // (480px), yielding chromeW≈26 only by coincidence on the first call and
+            // completely wrong values thereafter — producing the wrong window frame.
+            popover.contentSize = clamped
+
             guard let button = statusItem.button,
                   let buttonWin = button.window else {
                 mbkLog("PopoverController",
                        "applyContentSize -- menubar hidden, no button/window, SKIP (\(clamped.width),\(clamped.height))")
                 return
             }
+            // Chrome deltas: constant decoration thickness. Re-computed every call
+            // so they always reflect the just-written contentSize baseline.
             let chromeW = window.frame.width - popover.contentSize.width
             let chromeH = window.frame.height - popover.contentSize.height
             let btnMidX = buttonWin.frame.minX + button.frame.midX
-            // Keep stored properties in sync so popoverDidClose reset remains a clean no-op.
             hiddenChromeW = chromeW
             hiddenChromeH = chromeH
             hiddenButtonMidX = btnMidX
