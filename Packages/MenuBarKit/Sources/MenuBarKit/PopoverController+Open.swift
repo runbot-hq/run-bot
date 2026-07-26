@@ -79,6 +79,10 @@ extension MBKPopoverController {
         }
 
         guard let rect = positioningRect(for: button) else { return }
+        // Raise isOpening before show() so any applyContentSize calls that fire
+        // between now and the onDidShow Task are suppressed. The onDidShow Task
+        // lowers it after committing the authoritative geometry.
+        isOpening = true
         popover.show(relativeTo: rect, of: button, preferredEdge: .minY)
         NSApp.activate(ignoringOtherApps: true)
         mbkLog("PopoverController", "popover shown")
@@ -104,6 +108,10 @@ extension MBKPopoverController {
 
         Task { @MainActor in
             mbkLog("PopoverController", "onDidShow Task hop -- calling onDidShow")
+            // Lower isOpening before onDidShow fires so that any applyContentSize
+            // call triggered by onDidShow (e.g. WRITE+REANCHOR from PanelMainView's
+            // geometry pass) proceeds normally and commits the correct geometry.
+            self.isOpening = false
             self.onDidShow?()
             mbkLog("PopoverController", "onDidShow fired")
         }

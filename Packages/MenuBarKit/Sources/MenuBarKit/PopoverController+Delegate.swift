@@ -52,6 +52,7 @@ extension MBKPopoverController: NSPopoverDelegate {
         // the event monitor's hasFilePicker branch returns early before forceClose.
         // Both flags are always cleared here regardless of which close path fired.
         isShownSentinel = nil
+        isOpening = false
         hiddenChromeW = nil
         hiddenChromeH = nil
         hiddenButtonMidX = nil
