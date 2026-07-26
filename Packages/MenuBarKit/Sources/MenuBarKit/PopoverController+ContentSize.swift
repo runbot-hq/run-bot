@@ -101,48 +101,45 @@ extension MBKPopoverController {
             // onWillClose?() fires, so any SwiftUI layout pass triggered by the
             // host app's close handler (e.g. nav-state reset → RootPanelView .id()
             // flip → PanelMainView remount → GR onAppear with settings-sized frame)
-            // is suppressed here. Writing a stale width to contentSize and calling
-            // show() while the popover is tearing down poisons the next open's
-            // geometry (main opens at settings width). The popover is about to
-            // disappear; no contentSize write or reanchor is needed.
+            // is suppressed here.
             if isClosing {
                 mbkLog("PopoverController",
                        "applyContentSize -- closing in flight, SKIP WRITE+REANCHOR (\(clamped.width),\(clamped.height))")
                 return
             }
-            popover.contentSize = clamped
             if widthChanged {
-                // GUARDED (2): suppress show() reanchor when the incoming width is
-                // narrower than the current contentSize width.
+                // GUARDED (2): discard the entire call when the width narrows
+                // mid-session and we are not in the opening sequence.
                 //
-                // WHY: during main → settings → main navigation the departing settings
-                // view's GeometryReader fires one last size report (480×551) AFTER the
-                // main view has remounted into the .id()-flipped RootPanelView tree.
-                // At this point isClosing=false and isOpening=false — no existing guard
-                // catches it. The 480-wide report goes through and triggers a show()
-                // reanchor; AppKit resizes the live window to settings dimensions.
-                // When the menubar subsequently hides, hiddenChromeW/H is snapshotted
-                // from that poisoned window, corrupting every DIRECT FRAME write for
-                // the rest of the hidden session (root cause of the wrong-size-in-
-                // hidden-mode bug observed after the #2280 fix landed).
+                // WHY — the departing-view GR problem:
+                // During main → settings → main navigation the settings view's
+                // GeometryReader fires one last 480×551 report AFTER the main view
+                // has remounted into the .id()-flipped RootPanelView tree.
+                // isClosing=false, isOpening=false — no other guard catches it.
                 //
-                // A width decrease mid-session (new < old by more than 1pt, which is
-                // already guaranteed by the widthChanged guard above) while the popover
-                // is fully open and not opening/closing is structurally only possible
-                // from a departing view's final GR fire — the live view's width never
-                // shrinks during normal in-session navigation (main only widens as more
-                // runners/jobs load; settings is always narrower than main).
+                // Previous iteration wrote contentSize=480 here before returning,
+                // reasoning the value "must not stay frozen". That write caused a
+                // secondary failure: when the user later navigated to settings in
+                // hidden mode, the settings GR fired 480×551 again, but contentSize
+                // was already 480 (from the stale write), so the top-level dedup
+                // guard (abs > 1) passed on height but Path 3's DIRECT FRAME wrote
+                // against a chrome snapshot that was taken from a main-width window —
+                // producing the correct numeric frame. Yet in practice the settings
+                // GR never appeared in the hidden-mode log at all, meaning SwiftUI
+                // did not re-fire the GR after the contentSize pollution.
                 //
-                // Action: write contentSize (already done above — the value must not
-                // stay frozen at the old width in case the arriving view happens to
-                // match it) but skip show(). The arriving main-view GR fires
-                // immediately after and performs the authoritative reanchor to the
-                // correct width.
+                // The correct fix is to SKIP ENTIRELY — no contentSize write, no
+                // reanchor. contentSize stays at the authoritative main-view width
+                // (642.5). When the user genuinely navigates to settings (visible or
+                // hidden), the settings GR fires fresh against contentSize=642.5,
+                // the dedup passes cleanly, and Path 2 or Path 3 writes the correct
+                // 480×551 with no collision.
                 if clamped.width < oldWidth - 1 && !isOpening {
                     mbkLog("PopoverController",
-                           "applyContentSize -- width narrowed mid-session (\(oldWidth) → \(clamped.width)), WRITE only, stale departing-view GR suppressed")
+                           "applyContentSize -- width narrowed mid-session (\(oldWidth) → \(clamped.width)), SKIP entirely, stale departing-view GR discarded")
                     return
                 }
+                popover.contentSize = clamped
                 guard let button = statusItem.button,
                       let rect = positioningRect(for: button) else {
                     mbkLog("PopoverController",
@@ -154,6 +151,7 @@ extension MBKPopoverController {
                 mbkLog("PopoverController",
                        "applyContentSize -- WRITE+REANCHOR via show() (\(clamped.width),\(clamped.height))")
             } else {
+                popover.contentSize = clamped
                 mbkLog("PopoverController",
                        "applyContentSize -- WRITE only, height-only change (\(clamped.width),\(clamped.height))")
             }
