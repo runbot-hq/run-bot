@@ -67,36 +67,16 @@ extension MBKPopoverController {
         if isMenuBarHidden {
             // Path 3: hidden mode — NSPopover ignores setContentSize here.
             //
-            // Chrome deltas and buttonMidX are snapshotted once per hidden session
-            // (first call after show). They are constant for the lifetime of the session
-            // — AppKit window chrome does not change between views.
+            // Chrome deltas (hiddenChromeW/H) are AppKit window decoration constants.
+            // They are identical regardless of which view is showing (observed: 26×26
+            // in every session). Snapshot once on first entry, never invalidate.
             //
-            // A view switch (main↔settings) is detected by WIDTH change only (> 20pt).
-            // Height growth within the same view (e.g. rows loading, row expand) must
-            // never trigger invalidation — it is normal content reflow and the frame
-            // write must proceed. Using height delta here caused the metric bar to
-            // scroll off the top when many rows loaded (621→760). See #2279.
-            //
-            // On a view switch: invalidate and return immediately. The re-snapshot fires
-            // on the NEXT call, by which point window.frame has been updated by our
-            // previous setFrame and popover.contentSize still reflects the previous
-            // view's size — both consistent, so chrome deltas are correct.
-            //
-            // ❌ Do NOT re-snapshot on the same call as the invalidation — window.frame
-            // hasn't been updated yet relative to the new content size.
-            // ❌ Do NOT write popover.contentSize before computing chrome deltas.
-            // ❌ Do NOT re-snapshot on every call — window.frame is only valid
-            // immediately after a setFrame, not on every layout pass.
-            let viewSwitched = hiddenChromeW != nil &&
-                abs(clamped.width - popover.contentSize.width) > 20
-            if viewSwitched {
-                hiddenChromeW = nil
-                hiddenChromeH = nil
-                mbkLog("PopoverController",
-                       "applyContentSize -- hidden view switch, invalidating chrome, SKIP (\(clamped.width),\(clamped.height))")
-                return
-            }
-
+            // ❌ Do NOT invalidate/re-snapshot on view switches — chrome deltas are
+            // constant and re-snapshotting produces garbage because window.frame and
+            // popover.contentSize are out of sync at the moment of re-snapshot.
+            // ❌ Do NOT write popover.contentSize before computing the snapshot —
+            // the delta math reads both window.frame and popover.contentSize and
+            // they must be consistent (both reflecting the same prior setFrame call).
             if hiddenChromeW == nil,
                let button = statusItem.button,
                let buttonWin = button.window {
@@ -115,12 +95,13 @@ extension MBKPopoverController {
             }
             let newW = clamped.width  + chromeW
             let newH = clamped.height + chromeH
-            // ❌ DO NOT use window.frame.origin.x as a fixed left edge here —
-            // it was computed for a specific width and is wrong for any other width.
-            // Always derive originX from btnMidX so main and settings (which have
-            // different widths) both land centred under the status item.
+            // ❌ DO NOT use window.frame.origin.x as a fixed left edge — it was
+            // computed for a specific width and is wrong for any other width.
+            // Always derive originX from btnMidX so all views land centred under
+            // the status item regardless of their width.
             let newX = btnMidX - newW / 2
-            // Anchor from current bottom edge upward — self-contained.
+            // Derive Y from the live window.frame bottom edge so it is always
+            // correct regardless of which view is showing or what size it is.
             let newY = window.frame.origin.y + (window.frame.height - newH)
             let newFrame = NSRect(x: newX, y: newY, width: newW, height: newH)
             window.setFrame(newFrame, display: true)
