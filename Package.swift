@@ -19,8 +19,10 @@ let package = Package(
     dependencies: [
         // Tracks main — resolves to HEAD on every CI run. Do not pin to a revision.
         .package(url: "https://github.com/runbot-hq/AppUpdater", branch: "main"),
-        // Tracks main — resolves to HEAD on every CI run. Do not pin to a revision.
-        .package(url: "https://github.com/runbot-hq/GitHubClient", branch: "main"),
+        // Temporary: pinned to feature/env-token-kit for beta validation of GitHubClient PR #75
+        // (feat: extract EnvTokenKit and OAuthTokenKit into independent kit targets).
+        // Revert to branch: "main" once PR #75 is merged. Tracked in run-bot issue #2260.
+        .package(url: "https://github.com/runbot-hq/GitHubClient", branch: "feature/env-token-kit"),
         // Tracks main — resolves to HEAD on every CI run. Do not pin to a revision.
         .package(url: "https://github.com/runbot-hq/MenuBarKit", branch: "main"),
     ],
