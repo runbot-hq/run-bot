@@ -119,6 +119,14 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
     /// `internal` (default) so extension files can access it.
     var isShownSentinel: Bool?
 
+    /// Opening-sentinel for `applyContentSize`: raised in `openPopover()` just before
+    /// `popover.show()` is called, lowered at the top of the `onDidShow` Task.
+    /// While true, Path 1 and Path 2 in `applyContentSize` suppress writes so that
+    /// any SwiftUI layout passes that fire between `show()` and `onDidShow` cannot
+    /// write stale geometry before the authoritative first-pass fires.
+    /// `internal` (default) so extension files can access it.
+    var isOpening = false
+
     /// Closing-sentinel for `applyContentSize`: raised inside `fireOnWillClose()`
     /// before `onWillClose?()` fires, lowered in `popoverDidClose`.
     /// While true, Path 2 (shown, width changed) skips both the `contentSize` write
