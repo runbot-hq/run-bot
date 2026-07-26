@@ -69,20 +69,21 @@ extension MBKPopoverController {
 
         // Reset contentSize to the minimum stub before show().
         //
-        // WHY THIS IS NECESSARY:
-        // onWillShow bumps willShowToken, which SwiftUI's onChange resets
-        // scrollViewHeight = 0 on the next runloop cycle — not synchronously.
-        // Any applyContentSize calls that fire between here and popover.show()
-        // see the stale scrollViewHeight from the previous session. The reset
-        // ensures those calls see a neutral starting state so the popover is
-        // never pre-seeded with a stale height.
-        //
-        // TWO-OPEN-CYCLE BUG (dead-band):
-        // On the second open, applyContentSize's 1pt dead-band guard
+        // WHY THIS IS NECESSARY — dead-band on the second open cycle:
+        // applyContentSize's 1pt dead-band guard
         //   (abs(old.height - new.height) > 1)
-        // was suppressing writes when the post-close SwiftUI flush happened to
-        // write back exactly the same value. The reset clears that dead-band
-        // unconditionally, ensuring the first applyContentSize after open fires.
+        // suppresses writes when the post-close SwiftUI flush happens to write back
+        // exactly the same height that was set on the previous open. Without this
+        // reset, that first applyContentSize after show() is a no-op and the popover
+        // opens at a stale height. Resetting to (minWidth, 100) ensures the dead-band
+        // is always cleared unconditionally before the first authoritative write fires.
+        //
+        // NOTE: scrollViewHeight = 0 is already guaranteed by the time this line runs.
+        // onWillShow() bumps willShowToken synchronously on the main actor; SwiftUI
+        // fires all onChange(of: willShowToken) observers in the same run-loop turn
+        // before onWillShow() returns — not on a subsequent cycle. The stub reset here
+        // is not compensating for async onChange timing; it is purely a dead-band
+        // breaker. See PanelMainView's TIMING PROOF comment for the full argument.
         //
         // ❌ DO NOT REMOVE this reset.
         // ❌ DO NOT replace it with a flag or @State write — @State mutations
