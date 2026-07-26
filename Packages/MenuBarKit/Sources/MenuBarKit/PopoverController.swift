@@ -140,8 +140,12 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
     /// Button center X in screen coordinates for the hidden-mode session.
     /// Snapshotted once in `popoverWillShow` per session. `nil` outside a session.
     var hiddenButtonMidX: CGFloat?
-    /// Window origin Y (bottom edge in AppKit flipped coordinates) snapshotted once
-    /// in `popoverWillShow` per session. Never modified after that — Y must not move.
+    /// Window top edge (`frame.maxY`) snapshotted once in `popoverWillShow` per session.
+    /// Used in Path 3 to pin the top of the popover window at a fixed Y regardless of
+    /// height changes: `origin.y = hiddenWindowY - windowHeight`.
+    /// Snapshotting `maxY` (not `origin.y`) is critical — the window is small at
+    /// snapshot time and grows later; anchoring to the top edge keeps the popover
+    /// visually pinned just below the status bar across all height values.
     /// `nil` outside a hidden-mode session.
     var hiddenWindowY: CGFloat?
 

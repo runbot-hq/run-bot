@@ -70,19 +70,21 @@ extension MBKPopoverController {
             // layout. Write contentSize first so SwiftUI lays out at the correct width,
             // then drive window.setFrame directly using snapshotted chrome deltas.
             //
-            // Chrome deltas, button X, and window Y are snapshotted once in
+            // Chrome deltas, button X, and window top edge are snapshotted once in
             // popoverWillShow per session. Never invalidated or recalculated.
             //
-            // ❌ NEVER recalculate newY from window.frame — it moves the top edge of the
-            //    popover on every height change, pinning the window to the screen edge.
-            //    Y is snapshotted once (hiddenWindowY) and held constant for the session.
+            // ❌ NEVER recalculate Y from window.frame — it moves on every setFrame call.
+            //    hiddenWindowY is the snapshotted TOP EDGE (maxY), held constant for the
+            //    session. origin.y is derived per-call as hiddenWindowY - windowHeight so
+            //    the top of the popover stays pinned just below the status bar regardless
+            //    of how tall the content grows.
             // ❌ Do NOT write popover.contentSize before computing the snapshot —
             //    the delta math reads both window.frame and popover.contentSize and
             //    they must be consistent (both reflecting the same prior state).
             guard let chromeW = hiddenChromeW,
                   let chromeH = hiddenChromeH,
                   let btnMidX = hiddenButtonMidX,
-                  let fixedY  = hiddenWindowY else {
+                  let topEdge = hiddenWindowY else {
                 mbkLog("PopoverController",
                        "applyContentSize -- menubar hidden, no chrome snapshot yet, SKIP (\(clamped.width),\(clamped.height))")
                 return
@@ -96,8 +98,11 @@ extension MBKPopoverController {
             // ❌ DO NOT use window.frame.origin.x — it was computed for a specific
             // width and is wrong for any other width. Derive X from btnMidX always.
             let newX = btnMidX - newW / 2
-            // Y is the snapshotted bottom edge — never recalculated.
-            let newFrame = NSRect(x: newX, y: fixedY, width: newW, height: newH)
+            // Y is derived from the snapshotted top edge so the top of the popover
+            // stays pinned just below the status bar on every height change.
+            // origin.y = topEdge - windowHeight (AppKit uses bottom-left origin).
+            let newY = topEdge - newH
+            let newFrame = NSRect(x: newX, y: newY, width: newW, height: newH)
             window.setFrame(newFrame, display: true)
             mbkLog("PopoverController",
                    "applyContentSize -- menubar hidden, DIRECT FRAME (\(clamped.width),\(clamped.height)) btnMidX=\(btnMidX) frame=\(newFrame)")

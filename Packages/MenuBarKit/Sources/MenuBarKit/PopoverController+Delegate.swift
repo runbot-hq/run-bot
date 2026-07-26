@@ -17,8 +17,18 @@ extension MBKPopoverController: NSPopoverDelegate {
     /// own prior `setFrame`, not AppKit's. Chrome is constant across view switches;
     /// `buttonMidX` and `windowY` are constant for the session.
     ///
+    /// WHY `frame.maxY` AND NOT `frame.origin.y`:
+    /// The popover window is small at snapshot time (initial contentSize, before SwiftUI
+    /// has completed its first geometry pass). Snapshotting `origin.y` would capture the
+    /// bottom edge of a small window — when Path 3 later reuses that Y for a much taller
+    /// window, `origin.y` is too high and the popover appears near the top of the screen.
+    /// Snapshotting `maxY` (the top edge) keeps the top of the popover pinned just below
+    /// the status bar regardless of how tall the window grows. Path 3 derives `origin.y`
+    /// as `hiddenWindowY - windowHeight` on every size change.
+    ///
     /// ❌ NEVER move this snapshot to `applyContentSize`.
     /// ❌ NEVER invalidate `hiddenChromeW`/`H`/`windowY` mid-session.
+    /// ❌ NEVER snapshot `frame.origin.y` here — use `frame.maxY`.
     public func popoverWillShow(_ notification: Notification) {
         setButtonHighlight(true)
         isShownSentinel = true
@@ -28,11 +38,11 @@ extension MBKPopoverController: NSPopoverDelegate {
             hiddenChromeW    = window.frame.width  - popover.contentSize.width
             hiddenChromeH    = window.frame.height - popover.contentSize.height
             hiddenButtonMidX = buttonWin.frame.minX + button.frame.midX
-            hiddenWindowY    = window.frame.origin.y
+            hiddenWindowY    = window.frame.maxY
             mbkLog("PopoverController",
                    "popoverWillShow -- isShownSentinel=true" +
                    " chromeW=\(hiddenChromeW!) chromeH=\(hiddenChromeH!)" +
-                   " btnMidX=\(hiddenButtonMidX!) windowY=\(hiddenWindowY!)" +
+                   " btnMidX=\(hiddenButtonMidX!) windowMaxY=\(hiddenWindowY!)" +
                    " win=\(window.frame) #\(window.windowNumber)")
         } else {
             mbkLog("PopoverController",
