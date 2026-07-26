@@ -2,6 +2,8 @@
 // RunBot
 
 import AppKit
+import MenuBarKit
+import OSLog
 import RunBotCore
 
 /// AppDelegate extension wiring app-lifecycle callbacks to store and service setup.
@@ -17,8 +19,8 @@ extension AppDelegate {
         NSApp.activate(ignoringOtherApps: true)
     }
 
-    /// Entry point after launch. Builds the status-bar item and NSPopover panel,
-    /// then delegates the full domain startup sequence to `appState.start()`.
+    /// Entry point after launch. Builds the panel, then delegates the full domain
+    /// startup sequence to `appState.start()`.
     ///
     /// ## Startup ordering
     /// 1. `LocalRunnerStore.configure(viewModel:)` — MUST be the very first call,
@@ -26,14 +28,19 @@ extension AppDelegate {
     ///    a suspension point that reaches `LocalRunnerStore.shared` before configure
     ///    runs will hit a `fatalError`. Fix for issue #1741 — do not move this down.
     /// 2. Hydrate `ScopeEntry.displayName` from persisted prefs.
-    /// 3. `setupStatusItem()` / `setupPanel()` — UI wiring only, no domain calls.
-    /// 4. `appState.start(onUpdateStatusIcon:)` — remaining domain startup:
-    ///    observations (sign-out + status-icon tasks, Step 3 — before any await) →
-    ///    `refreshAsync` → `store.start` → poll loop → update check → background scheduler.
-    ///
+    /// 3. `setupPanel()` — creates MBKPopoverController (which internally creates
+    ///    NSStatusItem + NSPopover). UI wiring only, no domain calls.
+    /// 4. `appState.start(onUpdateStatusIcon:)` — remaining domain startup.
     /// - Parameter _: The notification (unused).
     func applicationDidFinishLaunching(_ _: Notification) {
         log("AppDelegate › applicationDidFinishLaunching — START")
+
+        // Route MBK logs through os_log so `log stream` captures them.
+        // Must be set before setupPanel() creates MBKPopoverController.
+        let mbkLogger = Logger(subsystem: "com.eoncode.run-bot", category: "mbk")
+        mbkLogHandler = { _, message in
+            mbkLogger.debug("\(message, privacy: .public)")
+        }
 
         // ⚠️ MUST be synchronous and before the first await — see ordering rule 1 above.
         // Fixes issue #1741: any indirect LocalRunnerStore.shared access during the
@@ -49,8 +56,8 @@ extension AppDelegate {
             // Hydrate display names before any UI or domain work. (#1538)
             await ScopeStore.shared.refreshDisplayNames()
 
-            // UI wiring — no domain calls here.
-            setupStatusItem()
+            // setupPanel() creates MBKPopoverController which calls setup() internally,
+            // creating NSStatusItem + NSPopover. No separate setupStatusItem() call needed.
             setupPanel()
 
             // Domain startup — fully owned by AppState.
@@ -66,7 +73,7 @@ extension AppDelegate {
             // observation tasks at Step 3 (startObservations), BEFORE any await.
             // refreshAsync (Step 4) is the first suspension point; store.start() (Step 5)
             // follows. By the time this Task's outer continuation resumes here,
-            // setupStatusItem() and setupPanel() have already completed above.
+            // setupPanel() has already completed above.
             // statusIconTask and signOutTask are registered before the first
             // applyFetchResult write because startObservations() runs before
             // store.start(), and store.start() does not write until its first

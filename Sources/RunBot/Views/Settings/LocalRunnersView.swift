@@ -39,9 +39,10 @@ struct LocalRunnersView: View {
     /// Core runner state — localRunners and isLocalScanning are read from here.
     @Environment(AppState.self) private var appState
     /// Gate that tracks whether any overlay is live; managed by `mbkSheet` automatically.
+    /// Arms the outside-click monitor for the full sheet lifetime, including the brief
+    /// window between editingRunner = nil and the sheet NSWindow detaching — making
+    /// the old suppressHidePanel() call redundant.
     @Environment(MBKOverlayGate.self) private var overlayGate: MBKOverlayGate
-    /// Suppresses outside-click / app-switch hide for one scheduler turn on intentional dismiss.
-    @Environment(\.suppressHidePanel) private var suppressHidePanel
 
     // MARK: - Local UI state
 
@@ -81,20 +82,24 @@ struct LocalRunnersView: View {
             }
             .frame(maxHeight: .infinity)
         }
-        .frame(idealWidth: 480, maxWidth: .infinity)
+        // idealWidth drives MBKPopoverController's preferred width.
+        // ❌ NEVER use maxWidth: .infinity here — under MBKPopoverController,
+        // SwiftUI reports its natural size to the GeometryReader, and .infinity
+        // causes the popover to expand to maxWidth (900 pt). The popover's
+        // maxWidth clamp is the correct upper bound; let it do the clamping.
+        .frame(idealWidth: 480)
         .onAppear { Task { await localRunnerStore.refresh() } }
         .onChange(of: appState.runnerState.isLocalScanning) { _, newVal in if !newVal { hasLoadedOnce = true } }
         // Use mbkSheet so MBKOverlayGate.hasActiveOverlay is managed automatically.
-        // The outside-click monitor reads overlayGate.hasActiveOverlay (ORed into the
-        // hasActiveSheet closure in AppDelegate.openPanel) and ignores clicks while
-        // the sheet is live.
-        .mbkSheet(isPresented: $showAddRunnerSheet, overlayGate: overlayGate) { addRunnerSheet() }
+        // The outside-click monitor reads overlayGate.hasActiveOverlay and ignores
+        // clicks while the sheet is live — no manual mbkSetOverlay() calls needed.
+        .mbkSheet(isPresented: $showAddRunnerSheet) { addRunnerSheet() }
         .modifier(removalAlertModifier)
         // #1262: .sheet(item:) attaches RunnerDetailSheet as a child sheet of
         // NSPopoverWindowFrame so it escapes the parent view bounds.
-        // mbkSheet(item:overlayGate:) manages hasActiveOverlay and window anchoring
+        // mbkSheet(item:) manages hasActiveOverlay and window anchoring
         // automatically — no manual mbkSetOverlay() calls needed here (#2044).
-        .mbkSheet(item: $editingRunner, overlayGate: overlayGate) { runner in
+        .mbkSheet(item: $editingRunner) { runner in
             runnerEditingSheet(runner: runner)
         }
     }
@@ -333,10 +338,10 @@ struct LocalRunnersView: View {
 
     /// Builds the `RunnerDetailSheet` with commit/cancel wiring.
     ///
-    /// `suppressHidePanel()` is called immediately before `editingRunner = nil`
-    /// on both the success and cancel paths so the outside-click monitor does not
-    /// race the sheet-detach animation and close the popover.
-    /// See `PopoverLifecycleCoordinator.suppressHidePanel()` for the full contract.
+    /// `overlayGate.hasActiveOverlay` is kept armed by `.mbkSheet(item:)` for
+    /// the full sheet lifetime, including the brief window between `editingRunner = nil`
+    /// and the sheet NSWindow detaching. The old `suppressHidePanel()` call is therefore
+    /// not needed here — the gate covers the dismiss window structurally.
     @ViewBuilder
     private func runnerEditingSheet(runner: RunnerModel) -> some View {
         RunnerDetailSheet(
@@ -369,10 +374,6 @@ struct LocalRunnersView: View {
                         switch result {
                         case .success:
                             Task { await localRunnerStore.refresh() }
-                            // suppressHidePanel() BEFORE editingRunner = nil so the
-                            // outside-click monitor sees isSheetDismissing=true while
-                            // the sheet NSWindow is animating out.
-                            suppressHidePanel()
                             editingRunner = nil
                         case .failure(let msgs):
                             commitError = msgs.joined(separator: "\n")
@@ -382,9 +383,6 @@ struct LocalRunnersView: View {
             },
             onCancel: {
                 commitError = nil
-                // suppressHidePanel() BEFORE editingRunner = nil — same timing contract
-                // as the onCommit success path above.
-                suppressHidePanel()
                 editingRunner = nil
             }
         )

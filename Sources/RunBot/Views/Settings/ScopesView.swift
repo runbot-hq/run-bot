@@ -69,7 +69,7 @@ struct ScopesView: View {
     /// with no correctness benefit.
     ///
     /// NO suppressHidePanel() ON THE SET PATH — INTENTIONAL:
-    /// `mbkSheet(isPresented:overlayGate:)` manages `overlayGate.hasActiveOverlay`
+    /// `mbkSheet(isPresented:)` manages `overlayGate.hasActiveOverlay`
     /// automatically for the full sheet lifetime. `suppressHidePanel()` is not needed
     /// here because the gate is managed by `MBKAnchoredSheetModifier`, not manually.
     /// Adding `suppressHidePanel()` in the set path would paper over the wrong layer.
@@ -104,9 +104,14 @@ struct ScopesView: View {
             }
             .frame(maxHeight: .infinity)
         }
-        .frame(idealWidth: 480, maxWidth: .infinity)
+        // idealWidth drives MBKPopoverController's preferred width.
+        // ❌ NEVER use maxWidth: .infinity here — under MBKPopoverController,
+        // SwiftUI reports its natural size to the GeometryReader, and .infinity
+        // causes the popover to expand to maxWidth (900 pt). The popover's
+        // maxWidth clamp is the correct upper bound; let it do the clamping.
+        .frame(idealWidth: 480)
         // Use mbkSheet so MBKOverlayGate.hasActiveOverlay is set/cleared automatically.
-        .mbkSheet(isPresented: $showAddScopeSheet, overlayGate: overlayGate) {
+        .mbkSheet(isPresented: $showAddScopeSheet) {
             AddScopeSheet(isPresented: $showAddScopeSheet, oauthService: oauthService)
         }
         // Sheet is presented only once both entry and preferences snapshot are ready.
@@ -114,7 +119,7 @@ struct ScopesView: View {
         // mbkSheet(isPresented:) can manage the overlay gate. (#1538)
         // Two distinct Binding instances (here and in ScopeEditSheet(isPresented:))
         // are intentional and safe — see isScopeEditSheetPresented doc comment.
-        .mbkSheet(isPresented: isScopeEditSheetPresented, overlayGate: overlayGate) {
+        .mbkSheet(isPresented: isScopeEditSheetPresented) {
             if let entry = selectedScopeEntry, let prefs = selectedScopePreferences {
                 // #992: ScopeEditSheet replaces the old nav drill-down.
                 // #1538: preferences snapshot passed in so init stays synchronous.

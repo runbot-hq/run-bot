@@ -399,6 +399,13 @@ struct InlineJobRowsView: View {
                         .id("\(job.id)-\(tickSnapshot)")
                     }
                 }
+                // .fixedSize(horizontal: false, vertical: true) is LOAD-BEARING (#2264).
+                // Forces the VStack to report its full natural height to the parent
+                // ScrollView in PanelMainView so the popover grows when a row expands.
+                // Without this, the ScrollView under-reports content height on expansion
+                // and the popover does not resize to accommodate the new job cards.
+                // ❌ NEVER remove this modifier.
+                .fixedSize(horizontal: false, vertical: true)
                 .padding(.leading, RBSpacing.md)
                 .padding(.trailing, RBSpacing.xs)
                 .padding(.bottom, RBSpacing.xs)

@@ -34,6 +34,9 @@ public enum LogCategory: String, CaseIterable {
     /// OS-level services: Keychain, LoginItem, ProcessRunner,
     /// TerminalLauncher, LogFetcher.
     case services
+    /// Panel / MBK sizing, layout, and navigation diagnostics.
+    /// Temporary — remove after side-jump bug is resolved.
+    case panel
 }
 
 // MARK: - Logger instances
@@ -54,7 +57,7 @@ private let subsystem = "com.eoncode.run-bot"
 /// actor-isolated or explicitly marked `nonisolated(unsafe)`. Even though
 /// `[LogCategory: Logger]` is technically `Sendable` (both `LogCategory` and
 /// `os.Logger` are value/struct types with no mutable state), the Swift 6 checker
-/// emits a `#MutableGlobalVariable` diagnostic for any top-level `let` or `var`
+/// emits a `#MutableGlobalVariable` diagnostic for any mutable global `let` or `var`
 /// whose type does not carry a *public* unconditional `Sendable` conformance visible
 /// at the use site — and the `os` module's `Logger` type does not declare such a
 /// conformance in all SDK versions targeted by this project. `nonisolated(unsafe)`

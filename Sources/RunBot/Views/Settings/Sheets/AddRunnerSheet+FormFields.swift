@@ -286,17 +286,13 @@ extension AddRunnerSheet {
 
     // MARK: - Actions (Add pre-existing)
 
-    /// Opens a directory picker anchored to the sheet child window via `mbkOpenFilePicker`.
+    /// Opens a directory picker via `mbkOpenFilePicker`.
     ///
-    /// `mbkOpenFilePicker(target: .sheet, ...)` resolves the correct NSWindow internally
-    /// (sheet child window when available, popover window as fallback) and arms
-    /// `overlayGate.hasActiveOverlay` before opening so the outside-click monitor is
-    /// blocked for the full lifetime of the panel. This replaces the previous
-    /// `WindowGrabber` + `NSOpenPanel.beginSheetModal` approach (#2041, step 4).
+    /// `mbkOpenFilePicker` arms `overlayGate.hasActiveOverlay` before opening so the
+    /// outside-click monitor is blocked for the full lifetime of the panel.
     func pickExistingFolder() {
-        log("AddRunnerSheet › pickExistingFolder — opening via mbkOpenFilePicker(target: .sheet)")
+        log("AddRunnerSheet › pickExistingFolder — opening via mbkOpenFilePicker")
         mbkOpenFilePicker(
-            target: .sheet,
             overlayGate: overlayGate,
             message: "Select the runner install folder (must contain a .runner file)"
         ) { url in

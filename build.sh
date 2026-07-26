@@ -36,13 +36,32 @@ if ! printf '%s\n' "$VERSION" | grep -E -q '^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.
   exit 1
 fi
 
-# ── ⚠️  DO NOT CHANGE THE ARCH OR BUILD PATH BELOW ────────────────────────
+# ── Resolve dependencies ─────────────────────────────────────────────────────
+# All deps track a branch (not a tag/revision) — `swift package update` ensures
+# the local Package.resolved is updated to the current branch HEAD before every
+# build. Without this, `swift build` reuses the cached resolved versions and will
+# miss commits pushed to dependency branches since the last update.
+#
+# ⚠️ NON-DETERMINISM NOTE: `swift package update` resolves ALL three branch-tracked
+# deps (MenuBarKit, AppUpdater, GitHubClient) to their live branch HEAD at execution
+# time — not just MenuBarKit. Two CI runs against the same run-bot commit SHA can
+# produce different binaries if any commit lands on any of those branches between
+# runs. This is an accepted and intentional trade-off for this PR:
+# • MenuBarKit is temporarily pinned to fix/arrow-center-drift (see Package.swift).
+#   Once that branch merges into MBK main, Package.swift reverts to branch: "main".
+#   Tracked in #2275 — do not remove that issue until Package.swift is back on main.
+# • AppUpdater and GitHubClient are internal repos; the non-determinism risk is low
+#   but exists. Both will continue to track main after this PR merges.
+echo "→ Updating dependencies..."
+swift package update
+
+# ── ⚠️  DO NOT CHANGE THE ARCH OR BUILD PATH BELOW ────────────────────────────
 # This project targets Apple Silicon (arm64) ONLY.
 # The explicit --arch arm64 flag and the .build/arm64-apple-macosx/release/
 # output path are INTENTIONAL. The previous arch-neutral path
 # (.build/apple/Products/Release/) caused stale build artefacts that led to
 # hours of wasted debugging. Do not revert to the generic path.
-# ───────────────────────────────────────────────────────────────────────────
+# ────────────────────────────────────────────────────────────────────────
 echo "→ Compiling arm64 binary..."
 swift build -c release --arch arm64
 
@@ -62,7 +81,7 @@ cp ".build/arm64-apple-macosx/release/$APP_NAME" \
 cp "Resources/Info.plist" \
    "$OUT_DIR/$APP_NAME.app/Contents/"
 
-# ── App Icon ─────────────────────────────────────────────────────────────────
+# ── App Icon ───────────────────────────────────────────────────────────────────────────
 # AppIcon.icns is the macOS app icon (Finder, Dock, About screen).
 # It is generated from wb.png via `magick` + `iconutil` and committed to
 # Resources/ as a pre-built binary. swift build does not run actool so
@@ -86,7 +105,7 @@ if [[ ! -f "$OUT_DIR/$APP_NAME.app/Contents/Resources/AppIcon.icns" ]]; then
   exit 1
 fi
 
-# ── StatusBarIcon PNGs ───────────────────────────────────────────────────────
+# ── StatusBarIcon PNGs ─────────────────────────────────────────────────────────────────────────
 # PNGs are shipped as loose files directly in Contents/Resources/.
 # They are loaded via Bundle.main in AppDelegate+StatusItem.swift, which
 # correctly resolves to Contents/Resources/ for a packaged .app.
@@ -124,7 +143,7 @@ for f in StatusBarIcon.png StatusBarIcon@2x.png StatusBarIcon@3x.png; do
   fi
 done
 
-# ── Signing ──────────────────────────────────────────────────────────────────
+# ── Signing ────────────────────────────────────────────────────────────────────────────
 # codesign --sign - (ad-hoc identity) is used for both local dev builds and
 # CI builds. publish.yml calls `bash build.sh` with CI=true and does not
 # perform a separate Developer ID codesign step — the CI signing step is an
@@ -143,7 +162,7 @@ done
 echo "→ Ad-hoc signing..."
 codesign --force --sign - "$OUT_DIR/$APP_NAME.app"
 
-# ── Zipping ──────────────────────────────────────────────────────────────────
+# ── Zipping ──────────────────────────────────────────────────────────────────────────────
 # ditto is used instead of zip/tar intentionally:
 # • ditto preserves macOS extended attributes, symlinks, and resource forks
 #   that standard `zip` and `tar` silently strip.
@@ -165,7 +184,7 @@ echo "$VERSION" > "$OUT_DIR/version.txt"
 
 echo "✓ Done — dist/RunBot.zip is ready"
 
-# ── Launch via `open` (not direct binary) ────────────────────────────────────
+# ── Launch via `open` (not direct binary) ────────────────────────────────────────────
 # IMPORTANT: The OAuth callback URL scheme (runbot://) is registered with
 # macOS Launch Services only when the .app bundle is launched via `open` or
 # Finder. Running the binary directly (./dist/RunBot.app/Contents/MacOS/RunBot)
@@ -174,7 +193,7 @@ echo "✓ Done — dist/RunBot.zip is ready"
 #
 # Always use `open dist/RunBot.app` for development — this script does it
 # automatically. The pkill ensures a clean restart without a stale process.
-# ─────────────────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────────
 # Only kill/relaunch the running app when building locally, not in CI.
 if [[ -z "${CI:-}" ]]; then
     echo "→ Restarting app via open (registers runbot:// URL scheme)..."

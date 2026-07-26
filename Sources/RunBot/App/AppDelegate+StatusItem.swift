@@ -5,29 +5,19 @@ import RunBotCore
 
 // MARK: - AppDelegate + Status Item
 //
-// Owns NSStatusItem creation, menu-bar icon updates, and the menuBarImage
-// helper that maps AggregateStatus to the correct SF Symbol.
-// Called once from applicationDidFinishLaunching via setupStatusItem().
+// As of #2262, NSStatusItem creation and toggle wiring are owned by
+// MBKPopoverController.setup(). This file owns only icon-update logic
+// and the menuBarImage helper that maps AggregateStatus to the correct image.
+//
+// updateStatusIcon() is passed as a callback to appState.start() so AppState
+// never imports AppKit or holds a reference to AppDelegate.
 //
 // ❌ NEVER inline this back into AppDelegate.swift.
-// ❌ NEVER call setupStatusItem() more than once.
 
-/// Extension owning NSStatusItem creation, icon updates, and the `menuBarImage` helper.
+/// Extension owning icon updates and the `menuBarImage` helper.
 extension AppDelegate {
 
-    // MARK: Status item setup
-
-    /// Creates the NSStatusItem, sets the initial icon, and wires the toggle action.
-    func setupStatusItem() {
-        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        if let button = statusItem?.button {
-            button.image = menuBarImage(for: .allOffline)
-            button.action = #selector(togglePanel)
-            button.target = self
-        }
-    }
-
-    // MARK: Icon updates
+    // MARK: - Icon updates
 
     /// Updates the menu-bar icon to reflect the current aggregate runner status.
     /// ❌ NEVER filter by !isDimmed only — dimmed groups can still have in-progress jobs.
@@ -39,10 +29,10 @@ extension AppDelegate {
         // `aggregateStatus` is derived from `runnerState.runners` which `RunnerPoller`
         // pushes to `RunnerState` via `MainActor.run` after every fetch cycle.
         let status = AggregateStatus(runners: appState.runnerState.runners)
-        statusItem?.button?.image = menuBarImage(for: status)
+        popoverController?.setStatusItemImage(menuBarImage(for: status))
     }
 
-    // MARK: Image helper
+    // MARK: - Image helper
 
     /// Returns the menu-bar icon for the given aggregate status.
     ///
