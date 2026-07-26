@@ -1,0 +1,23 @@
+name: Swift Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    name: Swift Test
+    runs-on: macos-26
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Run tests
+        env:
+          # Fake token injected so OAuthTokenKitTests/OAuthServiceAuthStateTests.hasAnyTokenFromEnvVar
+          # always exercises the env-var branch (hasAnyToken == true path).
+          # This is NOT a real credential — it is a test fixture value only.
+          GH_TOKEN: test-ci-token
+        run: swift test

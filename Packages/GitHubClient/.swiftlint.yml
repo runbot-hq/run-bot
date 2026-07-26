@@ -1,0 +1,93 @@
+# SwiftLint configuration for GitHubClient
+# https://github.com/realm/SwiftLint
+
+included:
+  - Sources
+
+excluded:
+  - .build
+  - Package.swift
+  - Tests
+
+# ── Opt-in rules ──────────────────────────────────────────────────────────────
+opt_in_rules:
+  - closure_spacing
+  - explicit_init
+  - sorted_imports
+  - vertical_whitespace_closing_braces
+  - collection_alignment
+  - contains_over_filter_count
+  - contains_over_filter_is_empty
+  - empty_collection_literal
+  - first_where
+  - missing_docs
+  - file_header
+
+# ── Rule configuration ────────────────────────────────────────────────────────
+nesting:
+  type_level:
+    warning: 2
+  function_level:
+    warning: 3
+
+identifier_name:
+  min_length: 2
+  excluded:
+    - id
+    - x
+    - y
+    - w
+    - h
+    - i
+    - j
+    - k
+    - n
+
+missing_docs:
+  # All access levels are intentionally included — every declaration must be
+  # documented regardless of visibility. This is stricter than the SwiftLint
+  # default (which only warns on open/public). The rationale: internal and
+  # private types/members are just as likely to be misunderstood by future
+  # maintainers as public ones, and doc comments serve as inline spec.
+  #
+  # Consequence: private struct members (e.g. CodingKeys, stored let properties)
+  # that don't benefit from prose docs must be suppressed individually with:
+  #   // swiftlint:disable:next missing_docs
+  # This is intentional and not noise — the suppression is load-bearing.
+  warning: [open, public, internal, private, fileprivate]
+  excludes_extensions: false
+  excludes_inherited_types: false
+
+file_header:
+  required_pattern: "^// [\\w+]+\\.swift\\n// GitHubClient"
+
+# ── Disabled rules ────────────────────────────────────────────────────────────
+disabled_rules:
+  - todo
+  - trailing_comma
+  - vertical_whitespace_opening_braces
+  - multiple_closures_with_trailing_closure
+
+line_length:
+  warning: 200
+  error: 240
+
+file_length:
+  warning: 620
+  error: 800
+
+cyclomatic_complexity:
+  warning: 17
+  error: 30
+
+function_body_length:
+  warning: 90
+  error: 150
+
+type_body_length:
+  warning: 400
+  error: 600
+
+function_parameter_count:
+  warning: 6
+  error: 8
