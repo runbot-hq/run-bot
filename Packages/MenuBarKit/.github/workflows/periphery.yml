@@ -1,0 +1,21 @@
+name: Periphery Dead Code Scan
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  periphery:
+    name: Periphery
+    runs-on: macos-26
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Install Periphery
+        run: brew install peripheryapp/periphery/periphery
+
+      - name: Run Periphery scan
+        run: periphery scan
