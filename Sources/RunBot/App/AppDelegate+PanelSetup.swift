@@ -127,6 +127,20 @@ extension AppDelegate {
         //   nav and sheet state so onDidShow can respawn them on next open.
         // wasForced=false: user toggled the icon or pressed Escape — clear state
         //   so next open starts fresh at main.
+        //
+        // ⚠️ KNOWN LIMITATION — isTransientHide state leak:
+        // When wasForced=true, panelVisibilityState.isTransientHide is set to true here
+        // and is only cleared in onDidShow. If the user force-closes (clicks outside
+        // while a sheet is open) and then NEVER reopens the panel, isTransientHide
+        // remains true. On a subsequent normal open after a cold relaunch this is
+        // harmless (the app relaunches with fresh state). Within the same session,
+        // onDidShow always fires on the next open and clears the flag — so the leak
+        // window is: force-close → quit without reopening → (no consequence, app exits).
+        // The only risky path would be if MBK fired onWillClose(wasForced:true) without
+        // a subsequent onDidShow within the same session, which would require MBK to
+        // suppress its own open callback — not a documented MBK behaviour.
+        // Pre-existing: the old PopoverLifecycleCoordinator had the same contract
+        // (preservedSheetWindowHide was cleared by openPanel(), not by a separate guard).
         ctrl.onWillClose = { [weak self] wasForced in
             guard let self else { return }
             log("AppDelegate › onWillClose wasForced=\(wasForced)")

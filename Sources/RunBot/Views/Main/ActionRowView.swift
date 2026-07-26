@@ -56,6 +56,7 @@ struct ActionRowView: View {
         // ⚠️ DO NOT REMOVE — sizing diagnostic for ActionRowView width/height investigation.
         // Kept commented out intentionally. Re-enable when testing sizing optimisations
         // to observe how row expand/collapse affects the size MBK reports for the panel.
+        // Remove together with LogCategory.panel when closing #2275.
         // .background(
         //     GeometryReader { geo in
         //         Color.clear
@@ -81,6 +82,7 @@ struct ActionRowView: View {
         // ⚠️ DO NOT REMOVE — expandState change logger for sizing investigation.
         // Kept commented out intentionally. Re-enable when testing how row expand/collapse
         // affects panel width reported to MBKPopoverController.
+        // Remove together with LogCategory.panel when closing #2275.
         // .onChange(of: expandState) { old, new in
         //     log("【ActionRowView.expandState】id=\(group.id) \(String(describing: old)) → \(String(describing: new))", category: .general)
         // }
@@ -182,12 +184,11 @@ struct ActionRowView: View {
             Text(group.title)
                 .font(.system(size: 12))
                 .foregroundColor(group.isDimmed ? .secondary : .primary)
-                .lineLimit(1)                                                          // step 1: configure truncation
-                .truncationMode(.tail)                                                 // step 1: configure truncation
-                .frame(maxWidth: RBMetrics.actionRowTitleMaxWidth, alignment: .leading) // step 2: cap width, triggers ellipsis
-                .help(group.title)                                                     // step 3: tooltip on capped view (always-on by design)
-                .layoutPriority(1)                                                     // step 4: priority on the frame, not raw Text
-            // Branch — plain text, hidden when nil (#1194)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(maxWidth: RBMetrics.actionRowTitleMaxWidth, alignment: .leading)
+                .help(group.title)
+                .layoutPriority(1)
             if let branch = group.headBranch {
                 Text(branch)
                     .font(RBFont.mono)
@@ -214,17 +215,12 @@ struct ActionRowView: View {
     /// statusBadge is wrapped in its own standalone GlassEffectContainer — scoped to badge only.
     /// ⚠️ Do NOT expand this container to the row or rowContainer (#957).
     @ViewBuilder private func metaTrailing(tick tickSnapshot: Int) -> some View {
-        // Use createdAt as fallback so time-ago is visible before firstJobStartedAt populates.
-        // If both are nil (e.g. corrupted API response), the label is intentionally omitted — not a bug.
         if let start = group.firstJobStartedAt ?? group.createdAt {
             Text(RelativeTimeFormatter.string(from: start))
                 .font(RBFont.mono)
                 .foregroundColor(.secondary)
                 .lineLimit(1)
                 .fixedSize(horizontal: true, vertical: false)
-                // Gate tick binding to .inProgress only — mirrors the elapsed label below.
-                // For non-inProgress rows the start date is static; group.id is a stable
-                // sentinel so SwiftUI does not redraw this label on every poll tick.
                 .id(group.groupStatus == .inProgress ? "\(tickSnapshot)" : group.id)
         }
         if !group.jobs.isEmpty {
@@ -234,18 +230,6 @@ struct ActionRowView: View {
                 .lineLimit(1)
                 .fixedSize(horizontal: true, vertical: false)
         }
-        // Show elapsed for all statuses. Completed rows display a static final duration;
-        // active rows tick live. Only bind tickSnapshot when in-progress to avoid
-        // unnecessary redraws on completed/queued rows.
-        //
-        // Condition reads: show elapsed UNLESS the row is still in .loading AND no job has
-        // started yet. That is the only state where group.elapsed would be a meaningless
-        // "time since workflow was created" with no job context.
-        // Equivalent form: suppress when (.loading AND firstJobStartedAt == nil).
-        //
-        // group.elapsed always returns a non-empty string for every state where
-        // showElapsed == true: inProgress/queued use firstJobStartedAt ?? createdAt → now,
-        // and completed uses firstJobStartedAt → lastJobCompletedAt. No empty-Text risk.
         let showElapsed = group.groupStatus != .loading || group.firstJobStartedAt != nil
         if showElapsed {
             Text(group.elapsed)
@@ -253,13 +237,6 @@ struct ActionRowView: View {
                 .foregroundColor(.secondary)
                 .lineLimit(1)
                 .fixedSize(horizontal: true, vertical: false)
-                // Both .id() arms produce String. Collision between "\(tickSnapshot)" and
-                // group.id is not possible in practice: group.id is derived from the maximum
-                // GitHub run ID (a large integer, e.g. "12893741234"), while tickSnapshot is a
-                // small monotonic counter that resets with the app. The value spaces do not
-                // overlap. Note: .queued elapsed reflects the value at last poll, not
-                // per-second — this is intentional. Per-second ticking on a queued run
-                // would be misleading.
                 .id(group.groupStatus == .inProgress ? "\(tickSnapshot)" : group.id)
         }
         if #available(macOS 26, *) {
@@ -281,7 +258,6 @@ struct ActionRowView: View {
             case .success: StatusBadge(status: .success, text: "SUCCESS")
             case .failure, .timedOut, .actionRequired, .startupFailure:
                 StatusBadge(status: .failed, text: "FAILED")
-            // TODO: promote .cancelled and .skipped to dedicated RBStatus cases when available.
             case .cancelled: StatusBadge(status: .unknown, text: "CANCELLED")
             case .skipped: StatusBadge(status: .unknown, text: "SKIPPED")
             case .neutral, .stale, .unknown, nil: StatusBadge(status: .unknown, text: "DONE")
@@ -293,14 +269,10 @@ struct ActionRowView: View {
 // MARK: - RowTapModifier
 /// Animation is always `.easeInOut(duration: 0.15)` — do NOT add `.bouncy` (#957).
 private struct RowTapModifier: ViewModifier {
-    /// The jobs for this row; tap is a no-op when empty.
     let jobs: [ActiveJob]
-    /// Drives the expand/collapse state of the parent row.
     @Binding var expandState: Bool?
-    /// Current row status, used to decide the post-collapse state.
     let rowStatus: RBStatus
 
-    /// Attaches the tap gesture that toggles expand state with a 0.15 s ease-in-out animation.
     func body(content: Content) -> some View {
         content.onTapGesture {
             guard !jobs.isEmpty else { return }

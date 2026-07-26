@@ -40,7 +40,15 @@ import SwiftUI
 struct RootPanelView: View {
     /// Core runner/job/action/rate-limit state, injected via `wrapEnv`.
     @Environment(AppState.self) private var appState
-    /// Panel open/close and transient-hide state, injected via `wrapEnv`.
+
+    /// Pass-through environment injection for PanelContainerView.
+    ///
+    /// RootPanelView does not read panelVisibilityState directly, but it MUST
+    /// declare this property so the value is present in the environment subtree.
+    /// PanelContainerView (rendered inside mainBranch and settingsBranch) reads
+    /// it via its own @Environment lookup to drive the dim overlay.
+    /// ❌ NEVER remove this property.
+    /// ❌ NEVER remove PanelVisibilityState from wrapEnv() in AppDelegate.
     @Environment(PanelVisibilityState.self) private var panelVisibilityState
 
     /// Called when the user taps the settings gear. Requires AppKit wiring (key promotion).
@@ -68,9 +76,6 @@ struct RootPanelView: View {
         .id(navState)
         // ⚠️ Temporary — remove after side-jump bug (#2265) is resolved.
         // Logs every nav-state transition for MBK sizing diagnostics.
-        // category: .panel is already #if DEBUG gated at the call site above;
-        // this onChange is intentionally ungated so the transition itself is
-        // always visible in debug logs during the investigation window.
         .onChange(of: navState) { _, newNav in
             #if DEBUG
             log("【RootPanelView】navState → \(newNav)", category: .panel)
