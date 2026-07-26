@@ -76,6 +76,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Every view produced by a view-factory in AppDelegate+Navigation.swift must
     /// pass through this helper.
     /// ❌ NEVER remove `panelVisibilityState` from the environment injection here.
+    /// `PanelContainerView` and its dim overlay observe this object;
+    /// removing it causes a runtime crash on sheet dismissal.
     func wrapEnv<V: View>(_ view: V) -> AnyView {
         AnyView(view
             .environment(panelVisibilityState)
