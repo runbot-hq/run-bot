@@ -89,6 +89,38 @@ extension MBKPopoverController {
                        "applyContentSize -- menubar hidden, no chrome snapshot yet, SKIP (\(clamped.width),\(clamped.height))")
                 return
             }
+            // HIDDEN-MODE ARROW RE-ANCHOR (one-shot, first Path 3 call only):
+            // When the popover opened in visible mode and the menubar subsequently
+            // hid, AppKit's arrow placement was computed for the visible-mode window
+            // position. Path 3's setFrame moves the window without AppKit's popover
+            // positioning logic, so the baked-in arrow offset may no longer align
+            // with the window edge after the frame shift — causing the arrow to
+            // appear clipped or displaced.
+            //
+            // Issuing show() here forces AppKit to recompute arrow placement for the
+            // current button/window geometry before we write the authoritative frame.
+            // After this single re-anchor, hiddenModeAnchored = true suppresses
+            // subsequent show() calls in Path 3 for the rest of the session.
+            //
+            // hiddenModeAnchored is already true when the popover opened while the
+            // menubar was already hidden (set in popoverWillShow) — in that case
+            // openPopover()'s own show() already anchored the arrow correctly and
+            // this block is skipped entirely.
+            //
+            // NOTE: show() re-triggers popoverWillShow. The hiddenChromeW == nil
+            // snapshot guard in popoverWillShow skips re-snapshotting on this call
+            // (hiddenChromeW is already set). isShownSentinel = true is idempotent.
+            // ❌ DO NOT remove this block or merge it with the Path 2 re-anchor logic —
+            //    Path 2 never fires in hidden mode; this is the only re-anchor path
+            //    for the visible→hidden mid-session transition.
+            if !hiddenModeAnchored,
+               let button = statusItem.button,
+               let rect = positioningRect(for: button) {
+                hiddenModeAnchored = true
+                popover.show(relativeTo: rect, of: button, preferredEdge: .minY)
+                mbkLog("PopoverController",
+                       "applyContentSize -- hidden mode, one-shot arrow re-anchor show() (\(clamped.width),\(clamped.height))")
+            }
             // Write contentSize so SwiftUI's hosting controller lays out at the
             // correct size. AppKit ignores this for window positioning in hidden mode.
             popover.contentSize = clamped

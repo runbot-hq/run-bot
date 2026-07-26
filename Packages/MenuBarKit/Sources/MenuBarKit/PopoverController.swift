@@ -181,6 +181,35 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
     /// ❌ NEVER recompute from window.frame mid-session — that drifts.
     var hiddenWindowTopY: CGFloat?
 
+    /// Guards the one-shot hidden-mode arrow re-anchor in Path 3 of `applyContentSize`.
+    ///
+    /// PURPOSE:
+    /// When the popover opens in visible mode and the menubar subsequently hides
+    /// mid-session, AppKit's arrow placement geometry was computed against the
+    /// visible-mode window position. Path 3 then drives the window via `setFrame`
+    /// directly, bypassing AppKit's popover positioning logic. The arrow is still
+    /// rendered at the offset AppKit baked in during the last `show()` call —
+    /// which may no longer align with the window's new position after `setFrame`
+    /// shifts it, causing the arrow to appear clipped or at the wrong edge.
+    ///
+    /// On the FIRST Path 3 `setFrame` call of a session, `applyContentSize` issues
+    /// a `popover.show()` re-anchor BEFORE writing the frame. This forces AppKit to
+    /// recompute arrow placement for the current button/window geometry. After that
+    /// single re-anchor, `hiddenModeAnchored` is set to `true` and subsequent Path 3
+    /// calls skip the `show()` and go straight to `setFrame`.
+    ///
+    /// WHEN ALREADY TRUE AT OPEN TIME:
+    /// If the popover is opened while the menubar is already hidden, `openPopover()`
+    /// already called `show()` which positioned the arrow correctly. In that case
+    /// `popoverWillShow` sets `hiddenModeAnchored = true` immediately (detected via
+    /// `isMenuBarHidden`) so Path 3 never issues a redundant re-anchor.
+    ///
+    /// RESET: `popoverDidClose` resets this to `false` so the next session starts clean.
+    /// ❌ NEVER set this to `true` outside `popoverWillShow` (hidden-open path) or
+    ///    the Path 3 re-anchor block in `applyContentSize`.
+    /// ❌ NEVER skip resetting to `false` in `popoverDidClose`.
+    var hiddenModeAnchored = false
+
     // MARK: - Init
 
     /// Creates the controller with a root SwiftUI view and shared overlay gate.

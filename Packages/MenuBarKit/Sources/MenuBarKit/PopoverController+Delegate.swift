@@ -81,6 +81,14 @@ extension MBKPopoverController: NSPopoverDelegate {
         hiddenChromeH    = window.frame.height - popover.contentSize.height
         hiddenButtonMidX = buttonWin.frame.minX + button.frame.midX
         hiddenWindowTopY = window.frame.maxY
+        // If the menubar is already hidden at open time, openPopover()'s show() call
+        // has already anchored the arrow correctly. Mark hiddenModeAnchored = true so
+        // Path 3 never issues a redundant re-anchor show() on the first setFrame call.
+        if isMenuBarHidden {
+            hiddenModeAnchored = true
+            mbkLog("PopoverController",
+                   "popoverWillShow -- menubar hidden at open, hiddenModeAnchored=true")
+        }
         mbkLog("PopoverController",
                "popoverWillShow -- isShownSentinel=true chromeW=\(hiddenChromeW!) chromeH=\(hiddenChromeH!)" +
                " btnMidX=\(hiddenButtonMidX!) windowTopY=\(hiddenWindowTopY!) win=\(window.frame)" +
@@ -113,6 +121,7 @@ extension MBKPopoverController: NSPopoverDelegate {
         hiddenChromeH = nil
         hiddenButtonMidX = nil
         hiddenWindowTopY = nil
+        hiddenModeAnchored = false
         overlayGate.hasActiveOverlay = false
         overlayGate.hasFilePickerOverlay = false
         onWillCloseFired = false
