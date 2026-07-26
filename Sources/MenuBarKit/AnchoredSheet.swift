@@ -131,6 +131,7 @@ final class MBKSheetAnchorTask {
 
 // MARK: - View extension
 
+/// SwiftUI `View` helpers for presenting anchored sheets via `MBKAnchoredSheetModifier`.
 public extension View {
     /// Presents an anchored sheet and manages the overlay gate for its lifetime.
     ///
