@@ -299,7 +299,25 @@ struct PanelMainView: View {
             #if DEBUG
             log("【PanelMainView】panelVisibilityState.isOpen → \(newOpen) menuBarHidden=\(isMenuBarHidden)", category: .panel)
             #endif
-            if newOpen { systemStats.start() } else { systemStats.stop() }
+            if newOpen {
+                // scrollViewHeight was already reset to 0 in the close branch below,
+                // so the > 0 ? ... : nil guard in actionsSectionScrollable handles the
+                // first layout pass unconstrained. Do NOT reset here — resetting at
+                // open time causes a mid-session re-layout that churns the reported
+                // width through MBKPopoverController, triggering spurious
+                // WRITE+REANCHOR calls that jump the header. See #2279.
+                systemStats.start()
+            } else {
+                // Reset scrollViewHeight at close time, while the popover is closed
+                // and no layout passes are active. This clears any stale value written
+                // during a dismissed-window layout pass (settings→main remount inside
+                // onWillClose teardown) before the next open, not during it.
+                // The > 0 ? ... : nil guard in actionsSectionScrollable removes the
+                // frame constraint for the first unconstrained pass on next open,
+                // letting the content GR re-measure and write the correct value. See #2279.
+                scrollViewHeight = 0
+                systemStats.stop()
+            }
         }
         // Reset the visible row count only when the list shrinks (e.g. a runner is removed),
         // not on every poll update — avoids snapping the user back mid-scroll.
