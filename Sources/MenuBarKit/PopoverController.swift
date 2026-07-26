@@ -333,6 +333,27 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
         mbkLog("PopoverController", "forceClose -- clearing gate")
         overlayGate.hasActiveOverlay = false
         if let pw = panelWindow {
+            // WHY WE DO NOT GUARD child ITERATION WITH child.isVisible:
+            //   The TOCTOU race in MBKSheetAnchorTask (see AnchoredSheet.swift Known
+            //   Limitations) can leave a dangling entry in pw.childWindows after the
+            //   sheet has already been dismissed. A reviewer may be tempted to add
+            //   `guard child.isVisible else { continue }` to skip it.
+            //
+            //   Do NOT do this. The reasons:
+            //   1. `isVisible` returns `true` on a window that is animating out — the
+            //      real sheet and a ghost entry are indistinguishable by `isVisible`
+            //      alone at the moment forceClose fires.
+            //   2. If the real sheet window happens to be `isVisible == false` (already
+            //      hidden by SwiftUI before forceClose is called), skipping it would
+            //      leave it attached as a child — the popover would fail to close or
+            //      the orphaned window would leak.
+            //   3. `addChildWindow(_:ordered:)` and `removeChildWindow(_:)` on an
+            //      already-closing window are no-ops on macOS, so iterating and
+            //      closing all children unconditionally is always safe.
+            //   The correct fix for the ghost-entry problem, if it ever causes an
+            //   observable issue, is to track the sheet NSWindow reference directly
+            //   in MBKSheetAnchorTask and expose it for targeted removal — not to use
+            //   `isVisible` as a heuristic discriminator here.
             for child in (pw.childWindows ?? []) {
                 mbkLog("PopoverController", "forceClose -- closing child #\(child.windowNumber)")
                 pw.removeChildWindow(child)
@@ -422,10 +443,16 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
         guard abs(popover.contentSize.width - clamped.width) > 1
            || abs(popover.contentSize.height - clamped.height) > 1 else { return }
 
+        // isShownSentinel is set unconditionally in popoverWillShow (before show()
+        // returns) and cleared in popoverDidClose. If the popover is shown but the
+        // sentinel is still nil, the window was not yet available at popoverWillShow
+        // time — an extremely unlikely race on macOS 13+, but handled safely by
+        // falling through to Path 1 (contentSize write only), which is always safe.
+        // Path 1 also fires for normal pre-open size callbacks.
         guard popover.isShown,
               let window = hostingController.view.window,
               isShownSentinel != nil else {
-            // Path 1: not shown.
+            // Path 1: not shown (or sentinel not yet set).
             //
             // GUARDED: skip when menubar is hidden. Post-close SwiftUI size
             // callbacks while hidden poison contentSize — AppKit uses the
@@ -589,17 +616,25 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
 
 /// `NSPopoverDelegate` conformance — show/close lifecycle and dismiss gating.
 extension MBKPopoverController: NSPopoverDelegate {
-    /// Highlights the status-bar button and sets `isShownSentinel` to signal
-    /// `applyContentSize` that the popover is open.
+    /// Highlights the status-bar button and sets `isShownSentinel` unconditionally
+    /// to signal `applyContentSize` that the popover is open.
+    ///
+    /// `isShownSentinel` is set before the window check so that a nil
+    /// `hostingController.view.window` — theoretically possible if SwiftUI hasn't
+    /// yet attached its view, not observed in practice on macOS 13+ — does not
+    /// prevent the sentinel from being armed. Without the sentinel, `applyContentSize`
+    /// would fall through to Path 1 for the entire session, writing `contentSize`
+    /// instead of driving the window frame directly — a silent correctness failure
+    /// in the hidden-menubar path.
     public func popoverWillShow(_ notification: Notification) {
         setButtonHighlight(true)
-        guard let window = hostingController.view.window else {
-            mbkLog("PopoverController", "popoverWillShow -- no hostingWindow (isShownSentinel skipped)")
-            return
-        }
         isShownSentinel = true
-        mbkLog("PopoverController",
-               "popoverWillShow -- isShownSentinel=true win=\(window.frame) #\(window.windowNumber)")
+        if let window = hostingController.view.window {
+            mbkLog("PopoverController",
+                   "popoverWillShow -- isShownSentinel=true win=\(window.frame) #\(window.windowNumber)")
+        } else {
+            mbkLog("PopoverController", "popoverWillShow -- isShownSentinel=true (no hostingWindow yet)")
+        }
     }
 
     /// Blocks the popover from closing while any overlay (sheet or file picker) is active.
