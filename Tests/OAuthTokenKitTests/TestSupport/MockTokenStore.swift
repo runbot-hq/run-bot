@@ -1,8 +1,7 @@
 // MockTokenStore.swift
-// GitHubClientTests
-// In-memory `TokenStore` double for exercising `TokenCache` without touching the keychain.
+// OAuthTokenKitTests
+// In-memory `TokenStore` double for exercising OAuthService tests without touching the keychain.
 import Foundation
-import GitHubClient
 import OAuthTokenKit
 import Synchronization
 
@@ -15,6 +14,10 @@ import Synchronization
 /// provides the necessary thread safety, so this type works correctly from
 /// any actor context — including `@MainActor`-isolated test suites such as
 /// `OAuthServiceScopesTests` and `OAuthServiceRedirectURITests`.
+///
+/// This copy is owned by `OAuthTokenKitTests` and may diverge from the copy
+/// in `GitHubClientTests/TestSupport/` as each target's needs evolve.
+/// The two copies are intentionally independent — do not attempt to share or sync them.
 final class MockTokenStore: TokenStore {
     private let storage: Mutex<String?>
 

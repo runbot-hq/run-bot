@@ -5,7 +5,6 @@ import Foundation
 
 // MARK: - GitHubTransport: protocol conformance
 
-// Conformance to GitHubTransportProtocol — all public API surface.
 /// `GitHubTransport` conformance to `GitHubTransportProtocol`.
 ///
 /// All public API methods (`apiAsync`, `apiPaginated`, `raw`, `post`, `put`,

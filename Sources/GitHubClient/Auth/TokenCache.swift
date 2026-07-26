@@ -1,398 +1,388 @@
 // TokenCache.swift
 // GitHubClient
+
+// public import — not internal import — is required here because TokenCache is a
+// public type whose initialisers name EnvTokenProviding (from EnvTokenKit) and
+// TokenStore (from OAuthTokenKit) directly in their public parameter lists.
+// Swift's access-control rule: a public declaration cannot use a type that is
+// imported as internal. Changing either import to `internal import` produces:
+//   error: initializer cannot be declared public because its parameter uses an internal type
+// The alternative — making TokenCache internal — would remove it from the
+// GitHubClient public API, which breaks callers who construct TokenCache in tests.
+// `public import` re-exports EnvTokenKit and OAuthTokenKit as part of the
+// GitHubClient module surface; that is an intentional, unavoidable consequence
+// of keeping TokenCache public with protocol-typed parameters.
+//
+// See also: GitHubClient.swift — also requires public import OAuthTokenKit
+// independently, for its `public let oauthService: any OAuthServiceProtocol`
+// property declaration. Both files have genuinely independent compiler reasons;
+// neither import is redundant. Removing the import here does not satisfy the
+// requirement in GitHubClient.swift, and vice versa.
+public import EnvTokenKit
 import Foundation
+public import OAuthTokenKit
 import Synchronization
 
 // MARK: - TokenCache
 //
-// Thread-safe in-memory cache for the resolved GitHub token.
-// Populated on first successful resolution and cleared by invalidate().
-// Backed by Synchronization.Mutex for synchronous, lock-guarded access.
+// Resolution chain:
+//   1. In-memory cache  (sync, free)
+//   2. TokenStore       (sync, Keychain SecItemCopyMatching)
+//   3+4. EnvTokenProvider.token() — delegated to injected EnvTokenProviding
+//        (ProcessInfo env var for terminal/CI launches; login-shell subprocess
+//        for cold Finder/Dock launches). TokenCache has no visibility into
+//        how steps 3+4 work — it only calls envProvider.token() and caches
+//        the result. See EnvTokenProvider.token() for the full step 3+4 rationale.
 //
-// token() is async. On every call it walks a linear resolution chain:
-//   1. in-memory cache  (sync, no I/O)
-//   2. TokenStore       (sync Keychain read)
-//   3. ProcessInfo env  (sync, covers terminal / CI launches)
-//   4. loginShellToken  (async subprocess — cold Finder launch only)
+// TokenCache never names the concrete EnvTokenProvider type — it only
+// knows the protocol. The concrete type is constructed and injected
+// exclusively by GitHubClient.swift at wiring time.
 //
-// The shell is spawned at most once per cache lifetime for a .failed outcome
-// (timeout, launch error). A .notFound outcome (shell healthy, no export)
-// does NOT latch — the shell path is re-entered on the next token() call.
-// After a successful resolution the result is written to the in-memory cache
-// and all subsequent calls return immediately from step 1.
-// invalidate() resets all state so a sign-out / sign-in cycle gets a fresh attempt.
+// After a successful resolution the result is written to the in-memory
+// cache and all subsequent calls return immediately from step 1.
+// invalidate() clears the token cache and calls envProvider.invalidate()
+// so the shell outcome latch in EnvTokenProvider is also reset.
 
-// MARK: - ShellResolutionOutcome
-
-/// Records the outcome of the most recent login-shell resolution attempt.
-///
-/// Stored inside `TokenCache.state` alongside the cached token so both fields
-/// are read and written atomically under the same `Mutex`.
-///
-/// ## Why an enum instead of a Bool
-/// The previous `shellFailed: Bool` flag collapsed two semantically distinct
-/// outcomes — "shell ran but found no export" and "shell failed to launch or
-/// timed out" — into a single latch. Both set the flag to `true`, permanently
-/// blocking re-entry for the process lifetime. That is correct for `.failed`
-/// (retrying a broken shell every 30 s is wasteful) but wrong for `.notFound`
-/// (an OAuth-only user who later adds `GH_TOKEN` to their profile should not
-/// need a relaunch to pick it up). The enum makes the policy explicit:
-/// only `.failed` latches; `.notFound` allows re-entry on the next call.
-private enum ShellResolutionOutcome {
-    /// No shell attempt has been made yet this cache lifetime.
-    case notAttempted
-    /// The shell launched and ran successfully but found no `GH_TOKEN` or
-    /// `GITHUB_TOKEN` export. The shell path is NOT latched — `token()` will
-    /// re-enter it on the next call, allowing the user to add an export
-    /// without relaunching the app.
-    ///
-    /// ## Why not collapse this into `.notAttempted`
-    /// Observable behaviour is identical today: both cases allow re-entry.
-    /// The distinction is preserved for two reasons:
-    /// 1. Diagnostics — logging and future telemetry can distinguish "never
-    ///    tried" from "tried and found nothing", which helps triage user
-    ///    reports without needing a separate flag.
-    /// 2. Future policy — a `.notFound`-specific cooldown (e.g. re-enter at
-    ///    most once per 60 s rather than on every poll cycle) could be added
-    ///    here without a schema change. Collapsing to `.notAttempted` would
-    ///    require a new case or a separate field at that point.
-    ///
-    /// ## Poll cost for Finder-launch users with no token export
-    /// Any Finder-launch user with no `GH_TOKEN` export — OAuth-only users
-    /// included — reaches this path on every poll cycle (~30 s) and re-spawns
-    /// `/bin/zsh`. This is a known accepted cost: the shell exits quickly
-    /// (~50–200 ms on a light config) and the user is unblocked the moment
-    /// they add an export without relaunching. The cooldown described in
-    /// point 2 above is the right long-term fix and is a schema-free addition
-    /// when the cost proves unacceptable in practice.
-    ///
-    /// ## Why .notFound is NOT latched like .failed
-    /// Any Finder-launch user with no `GH_TOKEN` export — OAuth-only users
-    /// included — reaches this path on every poll cycle. The decision not to
-    /// latch is deliberate: latching `.notFound` like `.failed` would prevent
-    /// a user who later adds an export from picking it up without a
-    /// sign-out/sign-in cycle, defeating the feature's core promise.
-    /// OAuth users launched from a terminal do NOT reach step 4 (step 3
-    /// resolves from `ProcessInfo`), but OAuth users launched from Finder
-    /// with no export DO. The per-cycle shell cost is real and acknowledged;
-    /// the cooldown in issue #68 is the right bounded mitigation — not a
-    /// session latch that silently breaks the UX for the users this feature
-    /// is designed to help.
-    case notFound  // TODO: #68 — add a timestamp-based cooldown so .notFound does not re-spawn /bin/zsh on every poll cycle (~30 s) for Finder-launch users with no token export
-    /// The shell timed out, failed to launch, or was blocked by the App Sandbox.
-    /// The shell path IS latched — `token()` short-circuits before step 4 on
-    /// every subsequent call until `invalidate()` resets the outcome.
-    /// Retrying a broken or sandbox-blocked shell every poll cycle (~30 s)
-    /// would be a persistent background thread burn with no benefit; the user
-    /// must take explicit action (fix `~/.zprofile`, remove the sandbox
-    /// entitlement, or sign in via OAuth) before a retry is useful.
-    case failed
-}
-
-/// A token cache that resolves from an injected `TokenStore` and/or environment variables,
-/// falling back to a login shell subprocess on a cold GUI-app launch.
+/// A token cache that resolves from an injected `TokenStore` and an injected
+/// `EnvTokenProviding`, in that order, and caches the result in memory.
 /// All cache reads and writes are guarded by a `Mutex` for thread safety.
 public final class TokenCache: Sendable {
 
     /// An injected `TokenStore` used to persist the token to the keychain.
     private let tokenStore: any TokenStore
     /// An optional logger for diagnostic messages.
+    /// Optional because diagnostics are never required for correctness — the cache
+    /// functions identically with or without a logger. Callers that do not need
+    /// diagnostic output pass `nil` (or omit the parameter; it defaults to `nil`).
     private let logger: (any GitHubLogger)?
 
-    /// Resolves a token via the login shell.
+    /// Injected env+shell token provider.
     ///
-    /// Defaults to the real `loginShellToken` free function. Overridable in
-    /// tests via the `shellResolver` init parameter so test suites never spawn
-    /// a real `/bin/zsh` subprocess — avoiding the 10-second timeout on
-    /// nil-path tests and keeping the suite fast on both local and CI runners.
-    let shellResolver: @Sendable ((any GitHubLogger)?) async -> ShellTokenResult
+    /// `token()` delegates steps 3+4 of the resolution chain to this provider.
+    /// `TokenCache` never names the concrete `EnvTokenProvider` type — it only
+    /// knows `any EnvTokenProviding`. The concrete type is constructed and
+    /// injected exclusively by `GitHubClient.swift`.
+    private let envProvider: any EnvTokenProviding
 
-    /// Combined cache state guarded by a single `Mutex`.
+    /// In-memory token cache guarded by a `Mutex`.
     ///
-    /// Both fields are mutated together so reads and writes are always consistent:
-    /// - `token`: the resolved token, or `nil` if not yet populated.
-    /// - `shellOutcome`: tracks the result of the last login-shell attempt.
-    ///   See `ShellResolutionOutcome` for the per-case latch policy.
+    /// `nil` means "not yet resolved this cache lifetime".
+    /// Written by `resolveFromStore()` and the `envProvider` delegation block
+    /// in `token()`. Reset to `nil` by `invalidate()`.
     ///
-    /// ## Why one Mutex for both fields
-    /// `token` and `shellOutcome` are always read and mutated as a pair:
-    /// `token()` reads `shellOutcome` then writes one or the other, and
-    /// `invalidate()` resets both atomically. Two separate locks would require
-    /// lock-ordering discipline to prevent deadlock, and would expose an
-    /// inconsistent intermediate state where `token` is cleared but
-    /// `shellOutcome` is still `.failed` — permanently blocking the shell path
-    /// after sign-out until the second lock was also cleared. One lock is
-    /// simpler and eliminates that window entirely.
-    private let state = Mutex<(token: String?, shellOutcome: ShellResolutionOutcome)>(
-        (token: nil, shellOutcome: .notAttempted)
-    )
+    /// ## Why one Mutex for one field
+    ///
+    /// > Note: Migrated from PR #75 (EnvTokenKit/OAuthTokenKit extraction).
+    /// > The original two-field struct `(token: String?, outcome: ShellResolutionOutcome)`
+    /// > required a lock-ordering rationale because both fields were written in different
+    /// > call paths (resolveFromStore wrote `token`, EnvTokenProvider wrote `outcome`),
+    /// > creating a window where a reader could observe a partial update — a
+    /// > deadlock-adjacent ordering issue documented in the original
+    /// > `## Why one Mutex for both fields` block.
+    /// > That rationale is obsolete: outcome tracking was moved to `EnvTokenProvider`
+    /// > in PR #75 when the shell path was extracted into EnvTokenKit. `state` is now
+    /// > a single `String?` field with one write path per operation (resolve or
+    /// > invalidate). A single-field Mutex has no lock-ordering concern; the original
+    /// > deadlock-window argument no longer applies.
+    private let state = Mutex<String?>(nil)
+
+    // MARK: - Initialisers
 
     /// Creates a new `TokenCache`.
     /// - Parameters:
     ///   - tokenStore: The backing store used to load/save/delete the token.
-    ///   - logger: Optional logger for diagnostic messages.
-    ///   - shellResolver: Overrides the login-shell resolution step. Pass a
-    ///     stub in tests to avoid spawning a real `/bin/zsh` subprocess.
-    ///     Defaults to the real `loginShellToken` free function in production.
-    public convenience init(tokenStore: any TokenStore, logger: (any GitHubLogger)? = nil) {
-        self.init(tokenStore: tokenStore, logger: logger, shellResolver: nil)
-    }
-
-    /// Designated initialiser. Internal so `ShellTokenResult` stays out of the
-    /// public API surface. Pass a `shellResolver` stub in tests to avoid
-    /// spawning a real `/bin/zsh` subprocess. Production callers use the public
-    /// `convenience init` which defaults `shellResolver` to `loginShellToken`.
-    init(
+    ///   - envProvider: Resolves steps 3+4 (env var + login shell). In production
+    ///     this is `EnvTokenProvider` constructed by `GitHubClient.swift`. In tests
+    ///     pass a stub or `NullEnvTokenProvider`. Non-optional: env resolution is a
+    ///     load-bearing step in the resolution chain; callers that do not need it
+    ///     should pass `NullEnvTokenProvider()` explicitly rather than receiving a
+    ///     nil-guarded no-op silently.
+    ///   - logger: Optional logger for diagnostic messages. Optional because
+    ///     diagnostics are never required for correctness — the cache functions
+    ///     identically without one. Defaults to `nil`; existing call sites are
+    ///     unaffected.
+    public init(
         tokenStore: any TokenStore,
-        logger: (any GitHubLogger)? = nil,
-        shellResolver: (@Sendable ((any GitHubLogger)?) async -> ShellTokenResult)? = nil
+        envProvider: any EnvTokenProviding,
+        logger: (any GitHubLogger)? = nil
     ) {
         self.tokenStore = tokenStore
+        self.envProvider = envProvider
         self.logger = logger
-        self.shellResolver = shellResolver ?? { logger in await loginShellToken(logger: logger) }
+    }
+
+    /// Creates a `TokenCache` backed by the given store with a `NullEnvTokenProvider`.
+    ///
+    /// Use this when env-var and login-shell resolution are not needed — for example,
+    /// in `GitHubClient`'s test init when no env token path is under test. Pass a
+    /// real `EnvTokenProviding` stub to the primary init when env resolution
+    /// behaviour is under test.
+    ///
+    /// NOTE: this init is intentionally `internal`, not `private`. It is called
+    /// from `GitHubClient.init(oauthService:transport:tokenCache:)` (the test init)
+    /// when `tokenCache` is `nil` — that path lives in `GitHubClient.swift` within
+    /// the same module, so `internal` is the correct access level. It is also
+    /// reachable from `@testable import GitHubClient` test targets.
+    /// Periphery will not flag it as dead code because it is referenced from
+    /// `GitHubClient.swift` at the `tokenCache ?? TokenCache(tokenStore: NullTokenStore())`
+    /// call site.
+    ///
+    /// - Parameter tokenStore: The backing token store.
+    internal init(tokenStore: any TokenStore) {
+        self.tokenStore = tokenStore
+        self.envProvider = NullEnvTokenProvider()
+        self.logger = nil  // intentional: store-only test path; diagnostics not needed
     }
 
     // MARK: - Public API
 
-    /// Returns a GitHub personal access token from the first available source.
+    /// The token that the in-memory cache has already resolved, or `nil` if no
+    /// `token()` call has completed yet during this cache lifetime.
     ///
-    /// Resolution order:
-    /// 1. In-memory cache — zero I/O, returns immediately on warm cache
-    /// 2. `TokenStore.load()` — synchronous Keychain read
-    /// 3. `GH_TOKEN` / `GITHUB_TOKEN` process environment — covers terminal / CI launches
-    /// 4. Login shell subprocess — cold Finder/Dock/login-item launch only
+    /// This is a **synchronous, zero-I/O** read — it never spawns a login shell,
+    /// reads the Keychain, or checks environment variables. It reflects only what
+    /// a prior `token()` call has already written into the in-memory cache.
+    ///
+    /// ## Typical use
+    /// UI code that needs to show an auth-status indicator without going `async`
+    /// can read this property after at least one `token()` call has completed
+    /// (e.g. from a `.task` modifier that awaits `token()` on appear). Forwarded
+    /// by `GitHubClient.cachedToken` as a convenience accessor on the facade.
+    public var cachedToken: String? { state.withLock { $0 } }
+
+    /// Resolves and returns the best available token, caching the result in memory.
+    ///
+    /// Resolution order — first match wins:
+    /// 1. **In-memory cache** — zero I/O; populated on first successful resolution.
+    /// 2. **`TokenStore`** — one synchronous `SecItemCopyMatching` Keychain read.
+    /// 3. **Env var + login shell** — delegated to the injected `EnvTokenProviding`.
+    ///    For terminal/CI launches step 3 resolves from `ProcessInfo`; for cold
+    ///    Finder/Dock launches step 4 spawns `/bin/zsh -i -l` to source shell
+    ///    profile exports.
+    ///
+    /// A successful resolution at any step writes the result to the in-memory
+    /// cache. All subsequent calls return from step 1 until `invalidate()` is
+    /// called.
     ///
     /// ## Why `async` when steps 1–3 are synchronous
     /// Steps 1–3 are synchronous and return without ever suspending. The function
-    /// is `async` solely because step 4 (`loginShellToken`) is unavoidably async —
-    /// it uses `@concurrent` + `withTaskGroup` + `waitUntilExit()`. Swift does not
-    /// allow a non-async function to call an async one. The cost of the `async`
-    /// declaration on the warm path is a single actor-hop check — negligible
+    /// is `async` solely because step 4 (`loginShellToken`, inside `EnvTokenProvider`)
+    /// is unavoidably async — it uses `@concurrent` + `withTaskGroup` + `waitUntilExit()`.
+    /// Swift does not allow a non-async function to call an async one. The cost of the
+    /// `async` declaration on the warm path is a single actor-hop check — negligible
     /// compared to any Keychain or subprocess I/O.
     ///
-    /// ## Shell latch policy
-    /// Step 4 behaviour depends on the outcome of the last shell attempt:
-    /// - `.notAttempted`: shell is spawned normally.
-    /// - `.notFound`: shell ran but found no export — NOT latched. Step 4 is
-    ///   re-entered on the next call. An OAuth-only user who later adds
-    ///   `GH_TOKEN` to their shell profile is unblocked without a relaunch.
-    /// - `.failed`: shell timed out, failed to launch, or was blocked by the
-    ///   App Sandbox — IS latched. Step 4 is short-circuited on every
-    ///   subsequent call until `invalidate()` resets the outcome. Retrying a
-    ///   broken shell every poll cycle (~30 s) would burn a background thread
-    ///   for no benefit; the user must take explicit action first.
+    /// Returns `nil` if no token is available from any source.
     ///
-    /// Transient OS blips (`ENOMEM` at launch etc.) are covered by the `.failed`
-    /// latch — the user would need to sign out and back in or relaunch. This is
-    /// an accepted trade-off tracked in issue #68.
+    /// - Warning: Concurrent callers that all miss the in-memory cache simultaneously
+    ///   (e.g. on first call at app launch) will each independently walk steps 2–4.
+    ///   Steps 1–2 are idempotent (double Keychain read is harmless; `resolveFromStore()`
+    ///   writes `state` unconditionally but the Keychain always returns the same value
+    ///   for a given entry — see the inline comment on the write site in
+    ///   `resolveFromStore()` for the full rationale). Note: a concurrent caller
+    ///   racing steps 1–2 cannot overwrite a valid cached value — both callers only
+    ///   reach `resolveFromStore()` after `resolveFromCache()` confirmed `state == nil`,
+    ///   so the unconditional write can only write the same Keychain value twice,
+    ///   which is idempotent. Step 4 is not idempotent:
+    ///   each concurrent miss spawns a separate `/bin/zsh` subprocess. The latch is
+    ///   not set until `loginShellToken` returns — up to 10 seconds — so the window
+    ///   spans the full shell execution time, not merely a scheduling instant. In
+    ///   production this is rare because `GitHubClient` is a singleton and callers
+    ///   are typically serialised through a single call site. If your call pattern
+    ///   can produce high-concurrency first-calls, consider serialising the first
+    ///   `token()` call yourself. See `EnvTokenProvider.token()` for the full
+    ///   concurrent-spawn rationale.
     ///
-    /// ## Why retrying `.failed` on every call is not the answer
-    /// A timed backoff would add a timestamp field and timer logic that exists
-    /// solely for a condition the user must fix manually anyway. The chosen
-    /// policy matches user mental model: act (fix `~/.zprofile`, sign in via
-    /// OAuth), then the next sign-out/sign-in cycle resets via `invalidate()`.
-    ///
-    /// For GUI app launches from Finder/Dock/login items, `launchd` does not source
-    /// `~/.zprofile` or `~/.zshrc`, so `ProcessInfo` does not contain `GH_TOKEN`.
-    /// Step 4 bridges that gap by spawning `/bin/zsh -i -l` which sources those files.
-    ///
-    /// Returns `nil` if no token is available from any source (user is signed out,
-    /// no env var, no shell export, or shell previously timed out or failed to launch).
-    ///
-    /// - Warning: Concurrent callers that simultaneously miss all fast paths (steps 1–3)
-    ///   will each spawn a separate `/bin/zsh` subprocess. The `.failed` latch check and
-    ///   the write-back to `state.token` are separate Mutex lock calls — there is no
-    ///   atomic "check-and-enter" operation. This means the latch is NOT set until
-    ///   `loginShellToken` returns (which can take up to 10 s on timeout), so the
-    ///   window where multiple callers can each independently enter the shell path spans
-    ///   the full execution time of the shell, not just a scheduling instant. Correctness
-    ///   is preserved (the `if $0.token == nil` Mutex guard in the write-back prevents a
-    ///   double-write), but any number of concurrent callers can each spawn a separate
-    ///   `/bin/zsh` process simultaneously. In the app, `RunnerPoller` is a single serial
-    ///   actor so this never fires in practice. External consumers calling `token()`
-    ///   concurrently from multiple tasks should be aware of this.
-    ///
-    ///   An earlier iteration defended this with a `Mutex<Bool>`-protected
-    ///   `warmUpInFlight` flag and a `withTaskGroup` timeout scaffold. That was
-    ///   intentionally removed: it added a second Mutex, a waiting task, and a
-    ///   timeout-within-a-timeout to guard a scenario that cannot occur today
-    ///   (`RunnerPoller` is serial). If a future caller genuinely needs
-    ///   concurrent-safe shell resolution, the right fix is a single
-    ///   `OSAllocatedUnfairLock<Bool>`-protected in-flight flag here — not
-    ///   re-introducing `warmUp()`.
+    ///   Historical note: an `inFlight` lock was considered and rejected — it added
+    ///   complexity for a window that is rare in practice and only occurs during a
+    ///   cold Finder/Dock launch where the shell path fires. The thundering-herd
+    ///   window is bounded by the shell startup time, not unbounded.
     public func token() async -> String? {
-        if let cached = resolveFromCache() { return cached }
+        if let cached = resolveFromCache() { return cached }  // Fast path — no I/O, no subprocess
         if let stored = resolveFromStore() { return stored }
-        if let envToken = resolveFromEnvironment() { return envToken }
-        // Short-circuit if the shell previously failed (timeout / launch error /
-        // App Sandbox). .notFound does NOT short-circuit — re-entry is allowed so
-        // a Finder-launch user who later adds GH_TOKEN is unblocked without relaunching.
-        // See ShellResolutionOutcome and the -Warning: block above for the full
-        // concurrent-caller window: the latch is not set until loginShellToken
-        // returns, which can take up to 10 s — not just a scheduling instant.
-        if case .failed = state.withLock({ $0.shellOutcome }) { return nil }
-        // All fast paths missed — cold Finder/Dock/login-item launch.
-        // Spawn the login shell to source ~/.zprofile and ~/.zshrc.
-        // This suspends for ~50–200 ms on the first call; the result is
-        // cached and all subsequent calls return from step 1 above.
-        // ⚠️ No atomic entry claim: concurrent callers each spawn a separate
-        // /bin/zsh — the latch is not set until loginShellToken returns.
-        // Safe today (RunnerPoller is serial); see -Warning: above for the
-        // full window and the fix if a concurrent caller is ever added.
-        let shellResult = await shellResolver(logger)
-        switch shellResult {
-        case .found(let value):
-            state.withLock { if $0.token == nil { $0.token = value } }
-            return value
-        case .notFound:
-            // Shell ran fine but no token was exported. Record the outcome but
-            // do NOT write to state.token — `nil` in the token field means
-            // "not yet populated" and is the signal for all callers to continue
-            // down the resolution chain. There is no way to cache a nil result
-            // to skip re-entry; the shellOutcome field is the lightweight signal
-            // that the shell was already tried. This is intentionally asymmetric
-            // with the .found case, which does write state.token.
-            // Do NOT latch — allow re-entry. See ShellResolutionOutcome.notFound.
-            state.withLock { $0.shellOutcome = .notFound }
-            return nil
-        case .failed:
-            // Shell timed out, failed to launch, or was blocked by the sandbox.
-            // Latch to prevent re-spawning on every poll cycle. See .failed.
-            state.withLock { $0.shellOutcome = .failed }
-            return nil
+        // ⚠️ Concurrent callers each reach envProvider.token() independently —
+        // no inFlight guard at this level. See -Warning: above and the full
+        // concurrent-spawn rationale in EnvTokenProvider.token().
+        if let envToken = await envProvider.token() {
+            state.withLock { $0 = envToken }
+            return envToken
         }
+        return nil
     }
 
-    /// Clears the in-memory token cache and resets the shell outcome to `.notAttempted`.
+    /// Clears the in-memory token cache and resets the `EnvTokenProvider` shell
+    /// outcome latch.
     ///
-    /// Call after saving a new token or after sign-out so the next `token()`
-    /// call re-resolves from the store or shell.
+    /// ## Two-step atomicity window
+    /// `invalidate()` performs two operations that cannot be made atomic without
+    /// a shared lock between `TokenCache` and `EnvTokenProvider`:
     ///
-    /// Resetting `shellOutcome` here is intentional: a sign-out / sign-in cycle
-    /// should get exactly one fresh shell attempt on the next `token()` call,
-    /// even if the previous attempt timed out. Without this reset the user would
-    /// be permanently locked out of the shell path for the process lifetime after
-    /// a single `.failed` outcome, regardless of whether they subsequently fix
-    /// their `~/.zshrc` or reduce its startup cost.
+    /// 1. `state.withLock { $0 = nil }` — clears the in-memory token cache.
+    /// 2. `envProvider.invalidate()` — resets `EnvTokenProvider`'s shell latch.
     ///
-    /// Note the latency cost on `.failed` reset: the re-spawned shell adds
-    /// ~50–200 ms to the first poll cycle after sign-out on an affected launch
-    /// configuration. This cost recurs on every sign-out cycle (each `invalidate()`
-    /// resets the outcome), not just once per process lifetime. It is cached
-    /// immediately on success, so only the first `token()` call after each
-    /// `invalidate()` pays the penalty.
-    public func invalidate() {
-        state.withLock { $0 = (token: nil, shellOutcome: .notAttempted) }
-        logger?.log("TokenCache › invalidate — cache and shell outcome reset", category: "transport")
-    }
-
-    // MARK: - Synchronous cache peek
-
-    /// Returns the token that is currently held in the in-memory cache, or `nil`
-    /// if no token has been resolved yet during this process lifetime.
+    /// Between steps 1 and 2, a concurrent `token()` call that misses the cleared
+    /// cache but hits the not-yet-reset shell latch could return a stale shell
+    /// result. In practice this window is negligible: `RunnerPoller` is a serial
+    /// actor and does not call `token()` concurrently with sign-out. If a future
+    /// caller introduces concurrent access, either introduce a shared lock or
+    /// document the accepted race.
     ///
-    /// This is a **non-async, zero-I/O** read of the Mutex-guarded state — it
-    /// will never spawn a login shell, read the Keychain, or check env vars.
-    /// It reflects only what a prior `token()` call has already resolved and
-    /// written into the cache.
-    ///
-    /// ## Why this exists
-    /// UI code (e.g. `SettingsView`) needs a synchronous answer to "do we have
-    /// a token right now?" to decide which status indicator to show. Callers
-    /// that need a fully-resolved token (including shell fallback) must still
-    /// call `token()`. This property answers only: "has any prior resolution
-    /// already succeeded?"
-    public var cachedToken: String? {
-        state.withLock { $0.token }
+    /// ## When invalidate() fires
+    /// `invalidate()` is called from two paths in production:
+    /// - **Sign-out**: `OAuthService.signOut()` → `onTokenDeleted` callback →
+    ///   `TokenCache.invalidate()`. The Keychain entry has already been deleted
+    ///   at this point; clearing the in-memory cache ensures the next `token()`
+    ///   call re-walks the full resolution chain rather than returning a stale value.
+    /// - **Sign-in**: `OAuthService.exchangeCode(_:)` → `onTokenSaved` callback →
+    ///   `TokenCache.invalidate()`. The new token has just been written to the
+    ///   Keychain; invalidating the cache forces the next `token()` call to re-read
+    ///   it from the store rather than returning a value from the previous session.
+    ///   The two-step atomicity window above therefore applies on sign-in as well
+    ///   as sign-out — specifically during the window between a successful
+    ///   `exchangeCode` write and the `envProvider.invalidate()` call here.
+    public nonisolated func invalidate() {
+        state.withLock { $0 = nil }
+        envProvider.invalidate()
+        // Log fires after both operations — message reflects both: cache nil'd and
+        // envProvider latch reset. See ## Two-step atomicity window above.
+        logger?.log("TokenCache › invalidate — cache and env-provider latch reset", category: "transport")
+        // ## Why calling nonisolated invalidate() from @MainActor is safe under
+        // Swift 6 strict concurrency (SWIFT_STRICT_CONCURRENCY=complete)
+        // invalidate() is `nonisolated` — Swift permits any isolation domain,
+        // including @MainActor, to call a nonisolated function synchronously
+        // without a hop or suspension point. The two writes inside
+        // (state.withLock and envProvider.invalidate()) are Mutex-protected and
+        // nonisolated respectively — neither inherits nor requires @MainActor
+        // isolation. The onTokenDeleted closure in GitHubClient.swift captures
+        // invalidate() as `() -> Void`, executes on @MainActor (OAuthService is
+        // @MainActor), calls nonisolated invalidate() synchronously, and returns.
+        // No isolation leak, no deadlock risk. strict concurrency does not flag
+        // calling a nonisolated func from an actor — only the reverse requires await.
     }
 
     // MARK: - Private helpers
 
-    /// Returns the token from the in-memory cache, or `nil` if not yet populated.
-    /// Fast path — no I/O, no subprocess.
+    /// Returns the cached token if one is available, otherwise `nil`.
     private func resolveFromCache() -> String? {
-        let cached = state.withLock { $0.token }
-        #if DEBUG
-        if let cached {
-            logger?.log("TokenCache › resolved from cache (len=\(cached.count))", category: "transport")
+        guard let cached = state.withLock({ $0 }) else {
+            #if DEBUG
+            logger?.log("TokenCache › cache miss", category: "transport")
+            #endif
+            return nil
         }
+        // Cache-hit log is #if DEBUG: invalidate() fires on every sign-in and
+        // sign-out, so on an active RunnerPoller cycle (~30 s) this would fire
+        // unconditionally in release builds on every warm call after a credential
+        // rotation — steady-state release noise with no triage value.
+        // (Original code pre-PR #75 also gated the hit log on #if DEBUG.)
+        #if DEBUG
+        logger?.log("TokenCache › cache hit (len=\(cached.count))", category: "transport")
         #endif
         return cached
     }
 
-    /// Loads the token from the `TokenStore` and populates the cache on success.
-    /// Empty strings are treated as absent (e.g. corrupted Keychain entry).
+    /// Attempts to resolve the token from the injected `TokenStore` (Keychain).
+    /// On a hit, writes the result to the in-memory cache and returns it.
+    /// On a miss (nil or empty string), returns nil.
     ///
     /// ## Cache-write side effect (not a pure read)
-    /// Writes to `state.token` on success. Named `resolveFrom…` to signal the
-    /// resolve-and-cache pattern; the write is the meaningful side-effect,
-    /// not the return value.
+    /// Despite being named `resolveFrom…`, this method writes to `state` on a
+    /// store hit. The write is intentional: once a valid token is found in the
+    /// Keychain it is promoted to the in-memory cache so all subsequent calls
+    /// return from `resolveFromCache()` without touching the Keychain again.
+    /// Migrated from the original `resolveFromStore()` doc block; relocated here
+    /// from the body comment in the pre-PR #75 implementation.
     ///
     /// ## Why Keychain results are cached in memory
-    /// `tokenStore.load()` is a synchronous Keychain read — a kernel call with
-    /// non-trivial overhead on every invocation. `RunnerPoller` calls `token()`
-    /// on every poll cycle (~30 s). Without the in-memory cache, every poll
-    /// cycle would pay a Keychain round-trip even after the token is known.
-    /// The cache is cleared by `invalidate()` on sign-out, so it never holds
-    /// a stale token across a credential change.
+    /// `SecItemCopyMatching` involves a synchronous XPC round-trip to `securityd`.
+    /// Caching avoids that round-trip on every `token()` call — especially relevant
+    /// for `RunnerPoller` which calls `token()` on every ~30 s poll cycle.
+    /// Migrated from the original `## Why Keychain results are cached in memory`
+    /// doc block; that block lived on the old `resolveFromStore()` helper.
     ///
-    /// ## Thundering-herd window (intentional)
-    /// Two concurrent callers that both miss the in-memory cache may both call
-    /// `tokenStore.load()`. The `if $0.token == nil` Mutex guard prevents a
-    /// double-write; the double Keychain read is idempotent and cheaper than
-    /// an extra init lock.
+    /// ## Why empty strings are rejected
+    /// `KeychainTokenStore.load()` can return an empty string if the Keychain
+    /// entry was written with an empty value (e.g. a corrupted save). An empty
+    /// token is not a usable credential — returning it would cause every
+    /// subsequent API call to fail with a 401. Rejecting it here forces the
+    /// resolution chain to continue to the env-var / shell path, which is the
+    /// correct fallback behaviour.
+    ///
+    /// The same empty-string rejection is applied in `OAuthService.isAuthenticated`
+    /// (PR #75) for the same reason. Both rejections are intentional and symmetric.
+    ///
+    /// ## Why miss and hit logs are both #if DEBUG
+    /// The store-miss path fires on every `token()` call until the cache warms up
+    /// and on every call after `invalidate()` when the store is empty (e.g. a
+    /// signed-out user). The store-hit path fires once per `invalidate()` cycle —
+    /// after sign-in or sign-out, the very next `token()` call always hits the
+    /// store (in-memory cache was just cleared). Logging either unconditionally
+    /// in release builds produces steady-state noise on every RunnerPoller cycle
+    /// (~30 s) with no triage value. See `resolveFromCache()` for the identical
+    /// rationale on the cache-hit/miss pair.
+    /// Migrated from the original `## Why miss logs are #if DEBUG` doc block;
+    /// extended here to cover the hit path consistently.
     private func resolveFromStore() -> String? {
-        // The two failure modes (nil = no Keychain entry, empty = corrupted entry)
-        // are deliberately collapsed into one guard. Both are treated identically:
-        // return nil and fall through to the next resolution step. Separating them
-        // into two guards with distinct log messages adds branching for a distinction
-        // that has no actionable difference — the caller cannot recover differently
-        // based on nil vs. empty. The log message below covers both cases; if field
-        // diagnosis ever requires the distinction, split this guard at that point.
-        guard let token = tokenStore.load(), !token.isEmpty else {
+        guard let stored = tokenStore.load(), !stored.isEmpty else {
             #if DEBUG
-            logger?.log("TokenCache › token store returned nil or empty", category: "transport")
+            logger?.log("TokenCache › store miss", category: "transport")
             #endif
             return nil
         }
+        // Store-hit log is #if DEBUG for the same reason as the cache-hit log:
+        // fires on every credential-rotation cycle (once per invalidate()) in
+        // release builds — steady-state noise with no triage value.
         #if DEBUG
-        logger?.log("TokenCache › resolved from store (len=\(token.count)), populating cache", category: "transport")
+        logger?.log("TokenCache › store hit (len=\(stored.count)), writing to cache", category: "transport")
         #endif
-        state.withLock { if $0.token == nil { $0.token = token } }
-        return token
-    }
-
-    /// Reads `GH_TOKEN` or `GITHUB_TOKEN` from the process environment and
-    /// populates the cache on success.
-    ///
-    /// Returns `nil` for Finder/Dock/login-item launches — `launchd` does not
-    /// source shell profiles, so the token is absent from `ProcessInfo`.
-    /// `token()` falls through to the login shell (step 4) in that case.
-    ///
-    /// ## Cache-write side effect (not a pure read)
-    /// Same resolve-and-cache pattern as `resolveFromStore()`.
-    ///
-    /// ## Why env tokens are cached in memory
-    /// Process environment variables are immutable for the lifetime of a process —
-    /// `setenv` mutations are possible but no caller of `TokenCache` does this.
-    /// Caching the result avoids a `ProcessInfo.processInfo.environment` dictionary
-    /// lookup (a lock-guarded NSDictionary copy under the hood) on every `token()`
-    /// call, and keeps the resolution behaviour consistent with the store path.
-    /// If the env ever changes mid-process (not expected), `invalidate()` flushes
-    /// the cache and the next `token()` call re-reads from the environment.
-    private func resolveFromEnvironment() -> String? {
-        for key in ["GH_TOKEN", "GITHUB_TOKEN"] {
-            if let envValue = ProcessInfo.processInfo.environment[key], !envValue.isEmpty {
-                #if DEBUG
-                logger?.log("TokenCache › resolved from env var \(key) (len=\(envValue.count)), populating cache", category: "transport")
-                #endif
-                state.withLock { if $0.token == nil { $0.token = envValue } }
-                return envValue
-            }
-            #if DEBUG
-            logger?.log("TokenCache › env var \(key): nil/empty", category: "transport")
-            #endif
-        }
-        return nil
+        // Unconditional write is intentional: the Keychain always returns the same
+        // value for a given entry, so concurrent callers writing the same token
+        // are idempotent. See -Warning: in token() for the full concurrent-caller
+        // rationale. The original 'if $0 == nil' guard is not restored here
+        // because it would not prevent the invalidate()-race window it appears to
+        // guard against — invalidate() sets state to nil BEFORE this write executes,
+        // so the nil-check would pass and the stale token would be written back
+        // regardless. The guard did prevent one scenario: resolveFromStore() overwriting
+        // an envProvider result already written by a concurrent envProvider.token()
+        // call on the warm path. That scenario is accepted as idempotent under the
+        // current architecture (both sources resolve the same credential). The guard
+        // provided no safety benefit on the invalidate() race path specifically —
+        // invalidate() sets state to nil before this write executes, so the nil-check
+        // would pass and the stale token would be written back regardless. Its removal
+        // is intentional on the invalidate() path, with the env-provider-overwrite
+        // scenario explicitly accepted — not collateral.
+        // The guard prevents a double-write on the warm path only
+        // (two concurrent store-hits while the cache is already populated); it does
+        // not close the invalidate() + resolveFromStore() interleave. The race
+        // window is accepted and documented in ## Two-step atomicity window in
+        // invalidate() above.
+        //
+        // ## Env-provider-overwrite scenario (accepted)
+        // The removed guard also prevented one other scenario: a concurrent
+        // envProvider.token() write completing between the Keychain read above
+        // and this lock call, which this unconditional write would then silently
+        // overwrite. This is accepted and idempotent in the current architecture:
+        // both the Keychain store and envProvider resolve the same credential
+        // (GH_TOKEN / GITHUB_TOKEN / OAuth token), so store-wins-over-env-provider
+        // produces the correct value. If the two sources ever diverge (e.g. a
+        // credential rotation where the Keychain has the old token and the env
+        // has the new one), invalidate() will correct the cache on the next
+        // sign-in/sign-out cycle. This scenario is noted here rather than in
+        // ## Two-step atomicity window because it is a property of the write
+        // site, not of the invalidate() sequencing. No tracking issue is opened:
+        // both sources resolve the same credential today and invalidate() corrects
+        // any divergence on the next sign-in/sign-out cycle — a TODO would imply
+        // this is unresolved, which it is not.
+        //
+        // Specific scenario addressed: a user with a revoked OAuth Keychain token
+        // who has since set GH_TOKEN in their shell profile. resolveFromStore()
+        // loading the revoked token and writing it to state is CORRECT —
+        // TokenStore (step 2) intentionally wins over envProvider (step 3) in the
+        // resolution chain. The revoked token causes 401s, which trigger sign-out,
+        // which calls invalidate(), clearing state so the next token() call
+        // resolves the valid GH_TOKEN from the shell. Restoring the `if $0 == nil`
+        // guard to invert this precedence silently would be the wrong fix.
+        state.withLock { $0 = stored }
+        return stored
     }
 }

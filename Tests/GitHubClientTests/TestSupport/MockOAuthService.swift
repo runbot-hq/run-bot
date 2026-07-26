@@ -6,6 +6,7 @@
 // public mutation helpers (triggerSignIn, triggerSignOut).
 
 import Foundation
+import OAuthTokenKit
 @testable import GitHubClient
 
 // MARK: - MockOAuthService

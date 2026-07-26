@@ -32,6 +32,13 @@ public struct GitHubTransport: GitHubTransportProtocol {
   public let decoder: JSONDecoder
 
   /// JSON encoder — stateless after `init`, safe for concurrent reads.
+  ///
+  /// ⚠️ **Do not mutate the returned instance.** `JSONEncoder` is a reference type;
+  /// mutating its properties after this transport has been initialised will corrupt
+  /// concurrent encodes. Configure before passing to init and never touch it again.
+  /// Kept `internal` (not `public`) because no caller outside this module needs to
+  /// read the encoder directly; encoding is done internally by `post`, `put`, and
+  /// `patchRunnerLabels`.
   internal let encoder: JSONEncoder
 
   /// URL session used for all network requests. Defaults to `URLSession.shared`.
@@ -116,6 +123,19 @@ public struct GitHubTransport: GitHubTransportProtocol {
   /// Resolves the token (async — may spawn a login shell on cold Finder launch),
   /// builds a signed `URLRequest`, performs the `URLSession` round-trip, and maps
   /// the HTTP response to an `ExecuteResult`.
+  ///
+  /// - Parameters:
+  ///   - endpoint: A fully-qualified URL string or a GitHub REST API path fragment
+  ///     (resolved via `resolveURL(_:)`).
+  ///   - timeout: Request timeout in seconds.
+  ///   - logTag: A short prefix used in every log line emitted by this call
+  ///     (e.g. `"apiAsync"`, `"post"`).
+  ///   - useRawAccept: When `true`, sends `application/octet-stream` as the
+  ///     `Accept` header instead of the default GitHub JSON media type.
+  ///     Used by `raw(_:timeout:)` for endpoints that 302-redirect to S3.
+  ///   - configure: An optional closure applied to the base `URLRequest` before
+  ///     it is sent — used to set `httpMethod`, `httpBody`, etc.
+  /// - Returns: An `ExecuteResult` describing the outcome of the round-trip.
   @concurrent
   func execute(
     _ endpoint: String,
@@ -223,7 +243,12 @@ public struct GitHubTransport: GitHubTransportProtocol {
 
 // MARK: - Shared execution core
 
-/// The result of a single URLSession round-trip through `execute`.
+/// The result of a single `URLSession` round-trip through `execute(_:timeout:logTag:useRawAccept:configure:)`.
+///
+/// Returned by the internal `execute` method and pattern-matched by every public
+/// transport method (`apiAsync`, `post`, `delete`, etc.) to map HTTP outcomes to
+/// their respective return types. Keeping this type `internal` prevents leaking
+/// transport-layer concerns into callers outside the module.
 internal enum ExecuteResult {
   /// A 2xx response with body, status code, and optional `Link` header.
   case success(Data, statusCode: Int, linkHeader: String?)

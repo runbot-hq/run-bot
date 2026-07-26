@@ -1,9 +1,9 @@
 // OAuthServiceRedirectURITests.swift
-// GitHubClientTests
+// OAuthTokenKitTests
 
 import Testing
 import Foundation
-@testable import GitHubClient
+@testable import OAuthTokenKit
 
 // MARK: - OAuthServiceRedirectURITests
 

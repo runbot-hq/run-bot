@@ -5,8 +5,8 @@
 
 /// Typed constants for GitHub OAuth scope strings.
 ///
-/// Use these when constructing a `GitHubClient` with custom scopes to avoid
-/// typos and improve call-site discoverability:
+/// Use these when constructing an `OAuthService` or `GitHubClient` with custom
+/// scopes to avoid typos and improve call-site discoverability:
 ///
 /// ```swift
 /// let client = GitHubClient(

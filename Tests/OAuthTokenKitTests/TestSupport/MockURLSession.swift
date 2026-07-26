@@ -1,8 +1,8 @@
 // MockURLSession.swift
-// GitHubClientTests
+// OAuthTokenKitTests
 // Lightweight URLSessionProtocol conformer for intercepting token-exchange network calls in tests.
 import Foundation
-import GitHubClient
+import OAuthTokenKit
 
 // MARK: - MockURLSession
 

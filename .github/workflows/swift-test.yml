@@ -16,7 +16,7 @@ jobs:
 
       - name: Run tests
         env:
-          # Fake token injected so OAuthServiceAuthStateTests.hasAnyTokenFromEnvVar
+          # Fake token injected so OAuthTokenKitTests/OAuthServiceAuthStateTests.hasAnyTokenFromEnvVar
           # always exercises the env-var branch (hasAnyToken == true path).
           # This is NOT a real credential — it is a test fixture value only.
           GH_TOKEN: test-ci-token

@@ -1,5 +1,8 @@
-// TokenCacheLoginShell.swift
-// GitHubClient
+// EnvTokenProviderLoginShell.swift
+// GitHubClient  — intentional: SwiftLint's file_header rule expects the product
+//                 module name (GitHubClient), not the Swift package target name
+//                 (EnvTokenKit). Changing this to // EnvTokenKit breaks CI lint.
+//                 Do not change.
 import Foundation
 import Synchronization
 
@@ -8,7 +11,20 @@ import Synchronization
 /// The result of a login-shell token resolution attempt.
 ///
 /// Returned by `loginShellToken` and consumed by `token()` to set
-/// `ShellResolutionOutcome` in the cache state.
+/// `ShellResolutionOutcome` in the provider state.
+///
+/// ## Access level: internal
+/// `ShellTokenResult` is `internal` because it is part of the `shellResolver`
+/// closure seam on `EnvTokenProvider`'s internal test init. It is reachable
+/// from `EnvTokenKitTests` via `@testable import EnvTokenKit`.
+///
+/// If you are consuming `EnvTokenKit` from an external test target that cannot
+/// use `@testable` (e.g. a separate package that lists `EnvTokenKit` as a
+/// dependency), you cannot construct a `shellResolver` stub — use the public
+/// `EnvTokenProvider.init(log:)` convenience init instead, which defaults to
+/// the real login-shell path. For full shell-seam control from an external
+/// target, copy `StubShellResolver` from `EnvTokenKitTests/TestSupport/` or
+/// file a request to promote `ShellTokenResult` to `public`.
 enum ShellTokenResult {
     /// The shell ran and found an exported token.
     case found(String)
@@ -53,7 +69,7 @@ private let shellTokenSentinel = "GH_TOKEN_VALUE:"
 /// which a `nonisolated` method on a `final class` does technically satisfy —
 /// but a free function makes the isolation boundary explicit at the call site
 /// and avoids capturing `self` across a concurrency boundary, keeping the
-/// `Sendable` conformance of `TokenCache` clean without auditing which
+/// `Sendable` conformance of `EnvTokenProvider` clean without auditing which
 /// `self` members are accessed.
 ///
 /// ## -i flag (intentional)
@@ -168,7 +184,7 @@ private let shellTokenSentinel = "GH_TOKEN_VALUE:"
 /// - Returns: A `ShellTokenResult` discriminating between a found token,
 ///   a healthy shell with no export, and a launch/timeout failure.
 @concurrent
-func loginShellToken(logger: (any GitHubLogger)?) async -> ShellTokenResult {
+func loginShellToken(log: (@Sendable (String, String) -> Void)?) async -> ShellTokenResult {
     let box = ProcessBox()
     return await withTaskGroup(of: ShellTokenResult.self) { group in
         // Subprocess arm — spawn, drain stdout, wait, read.
@@ -221,10 +237,10 @@ func loginShellToken(logger: (any GitHubLogger)?) async -> ShellTokenResult {
                 try process.run()
                 launched = true
             } catch {
-                logger?.log(
-                    "TokenCache › login shell failed to launch: \(error). "
+                log?(
+                    "EnvTokenProvider › login shell failed to launch: \(error). "
                     + "Check that /bin/zsh is present and executable.",
-                    category: "transport"
+                    "transport"
                 )
                 // The defer above clears box.state so the timeout arm skips
                 // terminate() cleanly. Caller sets shellOutcome = .failed on .failed return.
@@ -275,17 +291,17 @@ func loginShellToken(logger: (any GitHubLogger)?) async -> ShellTokenResult {
                 // Return .notFound (not .failed) so the caller does NOT latch the
                 // shell path: the user can add an export and have it picked up
                 // on the next token() call without relaunching the app.
-                logger?.log(
-                    "TokenCache › login shell ran successfully but found no token export. "
+                log?(
+                    "EnvTokenProvider › login shell ran successfully but found no token export. "
                     + "This is normal for OAuth-only users. "
                     + "To use a PAT on Finder/Dock launches, export GH_TOKEN or GITHUB_TOKEN "
                     + "in ~/.zprofile or ~/.zshrc.",
-                    category: "transport"
+                    "transport"
                 )
                 return .notFound
             }
             #if DEBUG
-            logger?.log("TokenCache › resolved from login shell (len=\(trimmed.count))", category: "transport")
+            log?("EnvTokenProvider › resolved from login shell (len=\(trimmed.count))", "transport")
             #endif
             return .found(trimmed)
         }
@@ -300,12 +316,12 @@ func loginShellToken(logger: (any GitHubLogger)?) async -> ShellTokenResult {
                 // implicit group teardown — it is never collected and has no effect.
                 return .failed
             }
-            logger?.log(
-                "TokenCache › login shell timed out after 10 s — terminating. "
+            log?(
+                "EnvTokenProvider › login shell timed out after 10 s — terminating. "
                 + "If your ~/.zshrc has expensive startup hooks (oh-my-zsh, nvm, compinit, etc.), "
                 + "consider moving the GH_TOKEN export to ~/.zprofile instead, "
                 + "which is sourced without -i and avoids the full interactive init.",
-                category: "transport"
+                "transport"
             )
             box.state.withLock { $0 }?.terminate()
             return .failed

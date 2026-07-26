@@ -21,19 +21,17 @@ import Security
 /// ## Thread safety
 /// `SecItem*` calls are serialised by the Security framework at the OS level
 /// and are safe to call concurrently from multiple threads without additional
-/// locking. All stored properties are immutable (`let`), and `GitHubLogger`
-/// requires `Sendable` conformance, so `KeychainTokenStore` satisfies `Sendable`
-/// without any `@unchecked` escape hatch (P4).
+/// locking. All stored properties are immutable (`let`), so `KeychainTokenStore`
+/// satisfies `Sendable` without any `@unchecked` escape hatch (P4).
 ///
 /// ## Usage
 /// Pass an instance at `OAuthService` / `TokenCache` init time:
 /// ```swift
 /// let store = KeychainTokenStore(
 ///     service: "com.example.myapp",
-///     account: "github-token",
-///     logger: MyLogger()
+///     account: "github-token"
 /// )
-/// let tokenCache = TokenCache(tokenStore: store, logger: MyLogger())
+/// let tokenCache = TokenCache(tokenStore: store, envProvider: myProvider)
 /// ```
 public final class KeychainTokenStore: TokenStore, Sendable {
 
@@ -41,18 +39,19 @@ public final class KeychainTokenStore: TokenStore, Sendable {
     private let service: String
     /// The keychain account name (e.g. `"github-token"`).
     private let account: String
-    /// Optional logger for diagnostic and error messages.
-    private let logger: (any GitHubLogger)?
+    /// Optional log closure for diagnostic and error messages.
+    private let log: (@Sendable (String, String) -> Void)?
 
     /// Creates a new `KeychainTokenStore`.
     /// - Parameters:
     ///   - service: The keychain service name (e.g. bundle identifier).
     ///   - account: The keychain account name (e.g. `"github-token"`).
-    ///   - logger: Optional logger for diagnostic messages.
-    public init(service: String, account: String, logger: (any GitHubLogger)? = nil) {
+    ///   - log: Optional log closure `(message, category)` for diagnostic messages.
+    ///     Bridged from `GitHubLogger` by `GitHubClient.swift` at wiring time.
+    public init(service: String, account: String, log: (@Sendable (String, String) -> Void)? = nil) {
         self.service = service
         self.account = account
-        self.logger = logger
+        self.log = log
     }
 
     // MARK: - Private helpers
@@ -80,7 +79,12 @@ public final class KeychainTokenStore: TokenStore, Sendable {
     /// hot-path auth check — `load()` is called on every `isAuthenticated` evaluation
     /// and logging every miss would produce extreme noise in normal operation.
     /// Failures here degrade gracefully to a signed-out state, which is the safe
-    /// fallback. `save()` and `delete()` log their non-success statuses explicitly
+    /// fallback. The most common non-success status in production is
+    /// `errSecInteractionNotAllowed` (device locked) — returning `nil` here causes
+    /// `isAuthenticated` to return `false`, and the UI recovers automatically on the
+    /// next unlock without any intervention. This is an expected, handled condition,
+    /// not an actionable error; no logging is added here and no tracking issue is
+    /// opened. `save()` and `delete()` log their non-success statuses explicitly
     /// because they are called infrequently and failures there are always actionable.
     ///
     /// - Note: `SecItemCopyMatching` is OS-serialised by the Security framework.
@@ -134,19 +138,19 @@ public final class KeychainTokenStore: TokenStore, Sendable {
                 // Concurrent writer race — retry the update.
                 let retryStatus = SecItemUpdate(baseQuery() as CFDictionary, attributes as CFDictionary)
                 if retryStatus == errSecSuccess { return true }
-                logger?.log(
+                log?(
                     "KeychainTokenStore › save: retry update failed (\(retryStatus))",
-                    category: "auth")
+                    "auth")
                 return false
             }
-            logger?.log(
+            log?(
                 "KeychainTokenStore › save: SecItemAdd failed (\(addStatus))",
-                category: "auth")
+                "auth")
             return false
         }
-        logger?.log(
+        log?(
             "KeychainTokenStore › save: SecItemUpdate failed (\(updateStatus))",
-            category: "auth")
+            "auth")
         return false
     }
 
@@ -159,9 +163,9 @@ public final class KeychainTokenStore: TokenStore, Sendable {
     public nonisolated func delete() -> Bool {
         let status = SecItemDelete(baseQuery() as CFDictionary)
         if status == errSecSuccess || status == errSecItemNotFound { return true }
-        logger?.log(
+        log?(
             "KeychainTokenStore › delete: SecItemDelete failed (\(status))",
-            category: "auth")
+            "auth")
         return false
     }
 }

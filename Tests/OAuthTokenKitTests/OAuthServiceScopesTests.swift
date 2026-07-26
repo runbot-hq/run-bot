@@ -1,9 +1,9 @@
 // OAuthServiceScopesTests.swift
-// GitHubClientTests
+// OAuthTokenKitTests
 
 import Testing
 import Foundation
-@testable import GitHubClient
+@testable import OAuthTokenKit
 
 // MARK: - OAuthServiceScopesTests
 
@@ -68,9 +68,9 @@ struct OAuthServiceScopesTests {
     ///
     /// To validate this guard, use one of:
     /// - A dedicated subprocess test (spawn a child process, assert non-zero exit).
-    /// - An XCTest target with `XCTAssertPreconditionFailure` (e.g. via PointFree’s
+    /// - An XCTest target with `XCTAssertPreconditionFailure` (e.g. via PointFree's
     ///   `XCTestDynamicOverlay` or a custom signal handler).
     ///
     /// The guard itself is documented and visible at:
-    /// `Sources/GitHubClient/Auth/OAuthService.swift` — `OAuthService.init`.
+    /// `Sources/OAuthTokenKit/OAuthService.swift` — `OAuthService.init`.
 }

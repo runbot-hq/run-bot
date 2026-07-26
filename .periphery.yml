@@ -2,11 +2,14 @@
 # Periphery dead-code scanner configuration.
 #
 # retain_public:
-#   Treat all public/open declarations as used — GitHubClient exposes a public
-#   API surface consumed by host apps. Without this, Periphery would flag every
-#   public symbol as unused when scanning the library alone.
+#   Treat all public/open declarations as used — GitHubClient, EnvTokenKit,
+#   and OAuthTokenKit all expose public API surfaces consumed by host apps.
+#   Without this, Periphery would flag every public symbol as unused when
+#   scanning the libraries alone.
 
 retain_public: true
 
 targets:
+  - EnvTokenKit
+  - OAuthTokenKit
   - GitHubClient
