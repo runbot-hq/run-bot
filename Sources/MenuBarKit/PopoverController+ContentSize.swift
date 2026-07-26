@@ -6,6 +6,7 @@
 
 import AppKit
 
+/// SwiftUI-reported content size application for `MBKPopoverController`.
 extension MBKPopoverController {
 
     // MARK: - applyContentSize

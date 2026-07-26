@@ -6,6 +6,7 @@
 
 import AppKit
 
+/// Workspace app-switch observer and outside-click event monitor for `MBKPopoverController`.
 extension MBKPopoverController {
 
     // MARK: - Workspace observer

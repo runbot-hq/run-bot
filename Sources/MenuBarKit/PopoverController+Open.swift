@@ -7,6 +7,7 @@
 import AppKit
 import SwiftUI
 
+/// Open/close logic, positioning, highlight, and popover/view setup for `MBKPopoverController`.
 extension MBKPopoverController {
 
     // MARK: - Auto-hide menubar guard
