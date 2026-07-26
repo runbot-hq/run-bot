@@ -53,20 +53,20 @@ struct ActionRowView: View {
             }
         }
         .frame(maxWidth: .infinity)
-        #if DEBUG
-        // Debug: report every height change of this row to diagnose layout jumps.
-        .background(
-            GeometryReader { geo in
-                Color.clear
-                    .onAppear {
-                        log("【ActionRowView.geo】id=\(group.id) onAppear size=\(geo.size)", category: .general)
-                    }
-                    .onChange(of: geo.size) { old, new in
-                        log("【ActionRowView.geo】id=\(group.id) onChange \(old) → \(new)", category: .general)
-                    }
-            }
-        )
-        #endif
+        // ⚠️ DO NOT REMOVE — sizing diagnostic for ActionRowView width/height investigation.
+        // Kept commented out intentionally. Re-enable when testing sizing optimisations
+        // to observe how row expand/collapse affects the size MBK reports for the panel.
+        // .background(
+        //     GeometryReader { geo in
+        //         Color.clear
+        //             .onAppear {
+        //                 log("【ActionRowView.geo】id=\(group.id) onAppear size=\(geo.size)", category: .general)
+        //             }
+        //             .onChange(of: geo.size) { old, new in
+        //                 log("【ActionRowView.geo】id=\(group.id) onChange \(old) → \(new)", category: .general)
+        //             }
+        //     }
+        // )
         .background {
             ZStack { background() }
                 .clipShape(RoundedRectangle(cornerRadius: RBRadius.card, style: .continuous))
@@ -78,11 +78,12 @@ struct ActionRowView: View {
         .padding(.horizontal, RBSpacing.md)
         .padding(.vertical, RBSpacing.xxs)
         .onAppear { applyInitialExpandState() }
-        #if DEBUG
-        .onChange(of: expandState) { old, new in
-            log("【ActionRowView.expandState】id=\(group.id) \(String(describing: old)) → \(String(describing: new))", category: .general)
-        }
-        #endif
+        // ⚠️ DO NOT REMOVE — expandState change logger for sizing investigation.
+        // Kept commented out intentionally. Re-enable when testing how row expand/collapse
+        // affects panel width reported to MBKPopoverController.
+        // .onChange(of: expandState) { old, new in
+        //     log("【ActionRowView.expandState】id=\(group.id) \(String(describing: old)) → \(String(describing: new))", category: .general)
+        // }
         .onChange(of: rowStatus) { _, newStatus in handleStatusChange(newStatus) }
     }
 
