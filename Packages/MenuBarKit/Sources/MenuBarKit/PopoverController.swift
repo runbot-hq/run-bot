@@ -119,14 +119,15 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
     /// `internal` (default) so extension files can access it.
     var isShownSentinel: Bool?
 
-    /// Opening-sentinel for `applyContentSize`: raised just before `popover.show()`
-    /// in `openPopover()` and lowered at the top of the `onDidShow` Task.
-    /// While true, Path 1 (not-shown) writes and Path 2 width-change reanchors
-    /// are suppressed — the correct geometry is committed by the `onDidShow`
-    /// WRITE+REANCHOR anyway, so intermediate writes only cause visible flashes
-    /// and header jumps. Reset to `false` in `popoverDidClose` as a safety net.
+    /// Closing-sentinel for `applyContentSize`: raised inside `fireOnWillClose()`
+    /// before `onWillClose?()` fires, lowered in `popoverDidClose`.
+    /// While true, Path 2 (shown, width changed) skips both the `contentSize` write
+    /// and the `show()` reanchor — the popover is about to disappear and any
+    /// SwiftUI layout pass reporting a stale width from the previous view (e.g.
+    /// settings width written back while PanelMainView remounts during teardown)
+    /// must not poison contentSize for the next open.
     /// `internal` (default) so extension files can access it.
-    var isOpening = false
+    var isClosing = false
 
     /// Button center X in screen coordinates from the last visible-mode open.
     /// Used for the post-show X correction when opening while the menubar is hidden.

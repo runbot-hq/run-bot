@@ -43,18 +43,6 @@ extension MBKPopoverController {
                        "applyContentSize -- not shown, menubar hidden, SKIP WRITE (\(clamped.width),\(clamped.height))")
                 return
             }
-            // GUARDED: skip while the opening sequence is in flight (isOpening == true).
-            // Between openPopover() calling popover.show() and the onDidShow Task
-            // lowering isOpening, SwiftUI layout passes fire Path 1 with a stale
-            // width from the previous session. Writing that stale value here makes
-            // the popover briefly visible at the wrong size before onDidShow issues
-            // the authoritative WRITE+REANCHOR. Suppressing the write is safe because
-            // the correct geometry is committed by that WRITE+REANCHOR call anyway.
-            if isOpening {
-                mbkLog("PopoverController",
-                       "applyContentSize -- not shown, opening in flight, SKIP WRITE (\(clamped.width),\(clamped.height))")
-                return
-            }
             popover.contentSize = clamped
             mbkLog("PopoverController",
                    "applyContentSize -- not shown, WRITE (\(clamped.width),\(clamped.height))")
@@ -109,23 +97,26 @@ extension MBKPopoverController {
             // delegate logic is ever added that must not fire twice per open,
             // this call site must be audited first.
             //
-            // GUARDED: skip the show() reanchor while the opening sequence is in
-            // flight (isOpening == true). The onDidShow Task issues the first
-            // authoritative WRITE+REANCHOR which already positions the window
-            // correctly; a second show() call before isOpening is cleared causes
-            // the popover window to reposition and produces the one-time header
-            // jump visible on first row tap after open.
+            // GUARDED: skip entirely while the closing sequence is in flight
+            // (isClosing == true). fireOnWillClose() raises isClosing before
+            // onWillClose?() fires, so any SwiftUI layout pass triggered by the
+            // host app's close handler (e.g. nav-state reset → RootPanelView .id()
+            // flip → PanelMainView remount → GR onAppear with settings-sized frame)
+            // is suppressed here. Writing a stale width to contentSize and calling
+            // show() while the popover is tearing down poisons the next open's
+            // geometry (main opens at settings width). The popover is about to
+            // disappear; no contentSize write or reanchor is needed.
+            if isClosing {
+                mbkLog("PopoverController",
+                       "applyContentSize -- closing in flight, SKIP WRITE+REANCHOR (\(clamped.width),\(clamped.height))")
+                return
+            }
             popover.contentSize = clamped
             if widthChanged {
                 guard let button = statusItem.button,
                       let rect = positioningRect(for: button) else {
                     mbkLog("PopoverController",
                            "applyContentSize -- WRITE only, button unavailable for re-anchor (\(clamped.width),\(clamped.height))")
-                    return
-                }
-                if isOpening {
-                    mbkLog("PopoverController",
-                           "applyContentSize -- WRITE only, opening in flight, skip reanchor (\(clamped.width),\(clamped.height))")
                     return
                 }
                 if let anchorX = buttonScreenMidX { lastKnownAnchorX = anchorX }
