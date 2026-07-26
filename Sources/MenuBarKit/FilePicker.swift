@@ -56,13 +56,13 @@
 //   the panel. Clearing hasActiveOverlay synchronously — or even at the next
 //   actor turn — lets the monitor see false on that delivery and call
 //   performClose. One DispatchQueue.main.async hop defers the clear past the
-//   monitor’s event delivery. The two hops serve different purposes: the Task
+//   monitor's event delivery. The two hops serve different purposes: the Task
 //   hop enforces actor isolation; the GCD hop defers the gate clear past AppKit
 //   event delivery.
 //
 // WHY completion IS CALLED OUTSIDE THE GCD HOP:
-//   The GCD hop’s sole responsibility is deferring the gate flag clears past
-//   the event monitor’s run-loop turn. completion is declared @MainActor and
+//   The GCD hop's sole responsibility is deferring the gate flag clears past
+//   the event monitor's run-loop turn. completion is declared @MainActor and
 //   must be called with compiler-enforced actor isolation — which the GCD
 //   closure does not provide (main thread at runtime, but not statically
 //   verified). completion is therefore called in the Task { @MainActor } scope
@@ -86,7 +86,7 @@ import AppKit
 /// Presents a directory-selection `NSOpenPanel` anchored above the popover,
 /// with automatic overlay-gate management.
 ///
-/// The panel floats one window level above the popover’s `nonactivatingPanel`
+/// The panel floats one window level above the popover's `nonactivatingPanel`
 /// window so it is always visible. Key focus is transferred via
 /// `makeKeyAndOrderFront` after the panel is shown (level alone does not
 /// transfer key focus on macOS 14+).
@@ -94,6 +94,12 @@ import AppKit
 /// The overlay gate is armed for the full lifetime of the panel and cleared on
 /// the next run-loop turn after the panel is dismissed, preventing a spurious
 /// outside-click dismiss. See the file header for full design rationale.
+///
+/// - Note: Unlike `.mbkSheet` and `.mbkAlert`, this function requires an
+///   explicit `overlayGate:` parameter. It is a free function with no SwiftUI
+///   view hierarchy context, so it cannot resolve `MBKOverlayGate` from
+///   `@Environment`. Pass the same gate instance you injected via
+///   `.environment(overlayGate)` at your root view.
 ///
 /// - Parameters:
 ///   - overlayGate: The gate owned by the enclosing `MBKPopoverController`.
