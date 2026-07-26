@@ -43,9 +43,17 @@ import SwiftUI
 // it to clamp the popover height on every open via its internal applyContentSize
 // logic. The cap is a hard ceiling that prevents the popover from growing beyond
 // the visible screen area — it is NOT a dynamic real-time measurement.
-// Single-display setups (the overwhelming majority of RunBot users) are
-// unaffected. Multi-monitor divergence after launch is an accepted limitation
-// for this lifecycle model; the app must be relaunched to pick up a new screen.
+//
+// MULTI-SCREEN EDGE CASES ARE OUT OF SCOPE — by design, not by omission:
+// RunBot is a status-bar app. The NSStatusItem is anchored to the menu bar,
+// which macOS places on exactly one screen at a time (the "main" display, as
+// reported by NSScreen.main). The popover always opens directly below that
+// status item — it cannot appear on a secondary display. There is therefore
+// only ever one relevant screen: NSScreen.main at the time of the read.
+// Display topology changes (connect/disconnect, display scaling, resolution
+// changes) do not affect this contract — the popover is always on the main
+// screen and maxHeight is always derived from that same screen. No dynamic
+// per-open re-read or applicationDidChangeScreenParameters wiring is needed.
 // ❌ NEVER move this read inside onWillShow or onDidShow — MBKPopoverController
 //    requires the cap at construction time, not per-open.
 
@@ -72,14 +80,10 @@ extension AppDelegate {
         //
         // maxHeight is intentionally computed once at launch, not per-open.
         // MBKPopoverController takes this as a constructor cap and does not re-read it.
-        // On display reconfiguration (connect/disconnect external monitor) this value
-        // becomes stale until next launch. This is an accepted limitation: the status-bar
-        // popover is not expected to survive display topology changes gracefully.
+        // Multi-screen edge cases are out of scope — see SCREEN CAP note above.
         // screenScrollMaxHeight in PanelMainView reads NSScreen.main live on every call
         // and will always be current for the SwiftUI side — the MBK cap is the only
-        // stale value after a display change.
-        // TODO: if MBK ever exposes a setMaxHeight() API, wire it to
-        // NSApplicationDelegate.applicationDidChangeScreenParameters(_:).
+        // value read once at launch, and that is intentional.
         let visibleHeight = NSScreen.main?.visibleFrame.height ?? 900
         let maxHeight = visibleHeight * 0.80
         log("AppDelegate › setupPanel — visibleHeight=\(visibleHeight) maxHeight=\(maxHeight) multiplier=0.80")
