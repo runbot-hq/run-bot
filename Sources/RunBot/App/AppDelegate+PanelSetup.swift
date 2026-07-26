@@ -15,7 +15,7 @@ import SwiftUI
 //
 // As of #2264 the root view is RootPanelView — a single persistent view that
 // owns all route switching via Group { switch }.id(route). This replaces the
-// setRootView() AnyView-swap pattern so MBK's GeometryReader always fires
+// setRootView() AnyView-swap pattern so MBK’s GeometryReader always fires
 // fresh on every route change.
 //
 // SHEET RESPAWN MODEL:
@@ -90,6 +90,10 @@ extension AppDelegate {
         }
 
         // onWillClose — fires before any teardown on both normal and force-close paths.
+        // wasForced=true: user clicked outside while a sheet was open — snapshot
+        //   nav and sheet state so onDidShow can respawn them on next open.
+        // wasForced=false: user toggled the icon or pressed Escape — clear state
+        //   so next open starts fresh at main.
         ctrl.onWillClose = { [weak self] wasForced in
             guard let self else { return }
             log("AppDelegate › onWillClose wasForced=\(wasForced)")
