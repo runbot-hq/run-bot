@@ -69,6 +69,18 @@ extension MBKPopoverController {
             // Path 3: hidden mode — AppKit ignores NSPopover.contentSize for window
             // positioning, but SwiftUI's hosting controller still reads it for layout.
             //
+            // NOTE: isOpening is not guarded here. Path 3 is only reachable when
+            // popover.isShown == true AND isShownSentinel != nil. isShownSentinel is set
+            // in popoverWillShow, which fires inside popover.show(). isOpening is raised
+            // immediately BEFORE popover.show() and lowered in the onDidShow Task —
+            // one actor hop after show() returns. Therefore any Path 3 call that arrives
+            // while isOpening == true would also require isShownSentinel to already be set,
+            // which requires show() to have returned and popoverWillShow to have fired.
+            // At that point the chrome snapshot in popoverWillShow has already captured
+            // correct geometry — the isOpening window is irrelevant to Path 3.
+            // ❌ DO NOT add an isOpening guard here — it would cause Path 3 to silently
+            //    skip the first authoritative frame write on open.
+            //
             // Chrome deltas (hiddenChromeW/H), hiddenButtonMidX, and hiddenWindowY
             // are snapshotted ONCE in popoverWillShow against AppKit's freshly-
             // positioned window. They are constant for the entire session:

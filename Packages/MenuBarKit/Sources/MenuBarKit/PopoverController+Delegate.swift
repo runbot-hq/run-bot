@@ -42,6 +42,13 @@ extension MBKPopoverController: NSPopoverDelegate {
         // the sole correct discriminator between first-open and re-anchor calls.
         // ❌ Do NOT replace this guard with an isOpening check — isOpening is also
         //    true on re-anchor show() calls when a Task hop hasn't landed yet.
+        //
+        // ORDERING SAFETY: openPopover() does NOT reset popover.contentSize before
+        // calling show(). The contentSize at this point is the last value written by
+        // applyContentSize — the correct geometry from the previous session. Chrome
+        // deltas derived here are therefore always valid.
+        // ❌ NEVER add a contentSize reset in openPopover() before show() — doing so
+        //    would corrupt hiddenChromeH (delta = stale window height − reset value).
         guard hiddenChromeW == nil,
               let window = hostingController.view.window,
               let button = statusItem.button,
@@ -80,6 +87,12 @@ extension MBKPopoverController: NSPopoverDelegate {
         setButtonHighlight(false)
         stopEventMonitor()
         isShownSentinel = nil
+        // DEFENSIVE: isOpening is lowered in the onDidShow Task before any close
+        // can occur, so this reset is structurally unreachable under normal flow.
+        // Kept as a safety net against any future path (e.g. show() failing silently,
+        // or a MBK change that skips onDidShow) where isOpening could be left dirty.
+        // ❌ NEVER remove on the grounds that it is "unreachable" — that reasoning
+        //    is load-bearing on the current open/close ordering remaining stable.
         isOpening = false
         hiddenChromeW = nil
         hiddenChromeH = nil

@@ -326,6 +326,15 @@ struct PanelMainView: View {
         // By then MBK has already used the stale scrollViewHeight as the initial
         // contentSize seed — too late to prevent the wrong-size flash.
         //
+        // TIMING PROOF: onWillShow?() is called at the top of openPopover(), before
+        // isOpening = true and before popover.show(). SwiftUI processes @Observable
+        // mutations synchronously on the main actor — by the time onWillShow returns,
+        // all onChange(of:) observers for willShowToken have already fired and
+        // scrollViewHeight == 0. Only then does openPopover() call popover.show(),
+        // which triggers hostingController.view.fittingSize. The reset therefore
+        // always precedes the fittingSize read. If onWillShow is ever made async
+        // or moved after show(), this guarantee breaks — audit this site.
+        //
         // See PanelVisibilityState.willShowToken for full contract.
         // See issue #2278 follow-up for root-cause analysis.
         .onChange(of: panelVisibilityState.willShowToken) { _, _ in
