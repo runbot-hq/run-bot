@@ -123,6 +123,21 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
     /// in `openPopover()` and lowered at the top of the `onDidShow` Task.
     /// While true, Path 1 (not-shown) writes and Path 2 width-change reanchors
     /// are suppressed. Reset to `false` in `popoverDidClose` as a safety net.
+    ///
+    /// THREAD SAFETY — no lock needed:
+    /// `MBKPopoverController` is `@MainActor`. Every read and write of `isOpening`
+    /// is in a `@MainActor` context: the raise in `openPopover()`, the lower in
+    /// `Task { @MainActor in }`, the checks in `applyContentSize`, and the reset in
+    /// `popoverDidClose`. Swift 6 strict concurrency enforces this at compile time —
+    /// a cross-actor write would be a compile error, not a runtime race.
+    ///
+    /// RELATIONSHIP WITH popoverWillShow:
+    /// `isOpening` is already `true` when `popoverWillShow` fires on first open
+    /// (raised before `popover.show()`, which calls `popoverWillShow` synchronously).
+    /// The chrome snapshot in `popoverWillShow` does NOT check `isOpening` — the
+    /// `hiddenChromeW == nil` guard is the correct discriminator. Do NOT replace
+    /// that guard with an `isOpening` check: `isOpening` can still be `true` on
+    /// re-anchor show() calls if the Task hop hasn't landed yet.
     var isOpening = false
 
     /// Button center X in screen coordinates from the last visible-mode open.

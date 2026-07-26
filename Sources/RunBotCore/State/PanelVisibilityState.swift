@@ -123,10 +123,22 @@ public final class PanelVisibilityState {
     /// `onChange(of:)` fires on every distinct value. No reset path, no
     /// risk of missing an event if two opens happen in rapid succession.
     ///
+    /// WHY onChange(of: willShowToken) WORKS WITHOUT @Published:
+    /// This class uses the Swift Observation framework (@Observable macro), NOT
+    /// ObservableObject/@Published. @Observable synthesises an _$observationRegistrar
+    /// and wraps every stored `var` with get/set accessors that register reads as
+    /// dependencies during SwiftUI body evaluation. `onChange(of: willShowToken)`
+    /// registers a dependency on this property during the last body pass, and SwiftUI
+    /// re-evaluates and fires the closure on every mutation — identical behaviour to
+    /// @Published but without the explicit annotation. Do NOT add @Published here;
+    /// it is not compatible with @Observable and is unnecessary.
+    ///
     /// SET BY:   AppDelegate in `onWillShow` (before MBK calls show()).
     /// READ BY:  PanelMainView.onChange(of: panelVisibilityState.willShowToken).
     /// ❌ NEVER set this outside onWillShow.
     /// ❌ NEVER read this outside PanelMainView (or its direct sub-views if needed).
+    /// ❌ Do NOT add @Published — incompatible with @Observable, unnecessary.
+    /// ❌ Do NOT replace with a Bool — see WHY A TOKEN above.
     public var willShowToken: Int = 0
 
     /// Creates a new `PanelVisibilityState` with all flags in their initial off state.

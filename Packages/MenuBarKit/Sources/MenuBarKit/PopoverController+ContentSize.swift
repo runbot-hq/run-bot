@@ -69,18 +69,6 @@ extension MBKPopoverController {
             // Path 3: hidden mode — AppKit ignores NSPopover.contentSize for window
             // positioning, but SwiftUI's hosting controller still reads it for layout.
             //
-            // NOTE: isOpening is not guarded here. Path 3 is only reachable when
-            // popover.isShown == true AND isShownSentinel != nil. isShownSentinel is set
-            // in popoverWillShow, which fires inside popover.show(). isOpening is raised
-            // immediately BEFORE popover.show() and lowered in the onDidShow Task —
-            // one actor hop after show() returns. Therefore any Path 3 call that arrives
-            // while isOpening == true would also require isShownSentinel to already be set,
-            // which requires show() to have returned and popoverWillShow to have fired.
-            // At that point the chrome snapshot in popoverWillShow has already captured
-            // correct geometry — the isOpening window is irrelevant to Path 3.
-            // ❌ DO NOT add an isOpening guard here — it would cause Path 3 to silently
-            //    skip the first authoritative frame write on open.
-            //
             // Chrome deltas (hiddenChromeW/H), hiddenButtonMidX, and hiddenWindowY
             // are snapshotted ONCE in popoverWillShow against AppKit's freshly-
             // positioned window. They are constant for the entire session:
@@ -109,8 +97,17 @@ extension MBKPopoverController {
             // ❌ DO NOT use window.frame.origin.x — it was computed for a specific
             // width and is wrong for any other width. Always derive X from btnMidX.
             let newX = btnMidX - newW / 2
-            // Y-FLOOR: last-resort clamp so the panel never rises above the visible
-            // screen area under any edge case. ❌ DO NOT REMOVE.
+            // Y-FLOOR: last-resort safety clamp so the panel never rises above the
+            // visible screen area under any edge case (e.g. external display removed
+            // mid-session, Dock moved to a different edge).
+            //
+            // visibleFrame.minY on macOS is typically 0 (Dock at bottom) or the Dock
+            // height (Dock at bottom, not auto-hiding). The ?? 0 fallback for a nil
+            // screen is the most conservative safe value — it prevents the panel from
+            // going off the top of a screen we cannot measure. This floor fires only
+            // when fixedY is genuinely below visibleFloor; under normal operation
+            // newY == fixedY on every call.
+            // ❌ DO NOT REMOVE — this is a last-resort guard, not dead code.
             let visibleFloor = window.screen?.visibleFrame.minY ?? 0
             let newY = max(fixedY, visibleFloor)
             if newY != fixedY {
