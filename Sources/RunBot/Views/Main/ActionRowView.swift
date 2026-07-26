@@ -226,10 +226,14 @@ struct ActionRowView: View {
 // MARK: - RowTapModifier
 /// Animation is always `.easeInOut(duration: 0.15)` — do NOT add `.bouncy` (#957).
 private struct RowTapModifier: ViewModifier {
+    /// The jobs for this row; tap is a no-op when empty.
     let jobs: [ActiveJob]
+    /// Drives the expand/collapse state of the parent row.
     @Binding var expandState: Bool?
+    /// Current row status, used to decide the post-collapse state.
     let rowStatus: RBStatus
 
+    /// Attaches the tap gesture that toggles expand state with a 0.15 s ease-in-out animation.
     func body(content: Content) -> some View {
         content.onTapGesture {
             guard !jobs.isEmpty else { return }
