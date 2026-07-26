@@ -52,6 +52,15 @@ extension MBKPopoverController {
     /// Shows the popover anchored to the status-bar button.
     /// Handles `onWillShow`/`onDidShow` callbacks and post-show X correction
     /// for the hidden-menubar case.
+    ///
+    /// Pre-open sequence:
+    /// 1. Fire `onWillShow` (bumps `willShowToken` → SwiftUI resets `scrollViewHeight = 0`).
+    /// 2. Reset `popover.contentSize` to `(minWidth, 100)` to clear any stale seed and
+    ///    break the 1pt dead-band that suppresses re-writes on the second open cycle.
+    /// 3. Raise `isOpening` to suppress spurious Path 1 writes and Path 2 reanchors
+    ///    between `show()` and the `onDidShow` Task.
+    /// 4. Call `popover.show()` — `popoverWillShow` snapshots chrome deltas here.
+    /// 5. `onDidShow` Task lowers `isOpening`, then fires `onDidShow`.
     func openPopover() {
         guard let button = statusItem.button else { return }
         mbkLog("PopoverController", "openPopover -- calling onWillShow")
@@ -166,11 +175,48 @@ extension MBKPopoverController {
     }
 
     /// Closes all child windows of the panel and calls `popover.performClose`.
+    /// Used when an outside click arrives while a non-file-picker sheet is active.
+    ///
+    /// NOTE: `hasFilePickerOverlay` is intentionally NOT cleared here.
+    /// The event monitor only reaches `forceClose()` when `hasFilePickerOverlay` is
+    /// false — the `if hasFilePicker` branch fires first and returns early.
+    /// This path is therefore structurally unreachable while `hasFilePickerOverlay`
+    /// is true. `popoverDidClose` is the authoritative reset point for all gate
+    /// flags and always fires after `performClose()`.
+    ///
+    /// ORDERING SAFETY — why performClose rejection is structurally impossible here:
+    ///   forceClose() clears `overlayGate.hasActiveOverlay = false` BEFORE calling
+    ///   `performClose(nil)`. Therefore `popoverShouldClose` will return `true` when
+    ///   AppKit consults it, and the close will proceed. The `onWillCloseFired` guard
+    ///   in `fireOnWillClose` is the sole protection against a double-fire if this
+    ///   ordering is ever disturbed — do not reorder the gate clear and performClose
+    ///   call without also reviewing that guard.
     func forceClose() {
         fireOnWillClose(wasForced: true)
         mbkLog("PopoverController", "forceClose -- clearing gate")
         overlayGate.hasActiveOverlay = false
         if let pw = panelWindow {
+            // WHY WE DO NOT GUARD child ITERATION WITH child.isVisible:
+            //   The TOCTOU race in MBKSheetAnchorTask (see AnchoredSheet.swift Known
+            //   Limitations) can leave a dangling entry in pw.childWindows after the
+            //   sheet has already been dismissed. A reviewer may be tempted to add
+            //   `guard child.isVisible else { continue }` to skip it.
+            //
+            //   Do NOT do this. The reasons:
+            //   1. `isVisible` returns `true` on a window that is animating out — the
+            //      real sheet and a ghost entry are indistinguishable by `isVisible`
+            //      alone at the moment forceClose fires.
+            //   2. If the real sheet window happens to be `isVisible == false` (already
+            //      hidden by SwiftUI before forceClose is called), skipping it would
+            //      leave it attached as a child — the popover would fail to close or
+            //      the orphaned window would leak.
+            //   3. `addChildWindow(_:ordered:)` and `removeChildWindow(_:)` on an
+            //      already-closing window are no-ops on macOS, so iterating and
+            //      closing all children unconditionally is always safe.
+            //   The correct fix for the ghost-entry problem, if it ever causes an
+            //   observable issue, is to track the sheet NSWindow reference directly
+            //   in MBKSheetAnchorTask and expose it for targeted removal — not to use
+            //   `isVisible` as a heuristic discriminator here.
             for child in (pw.childWindows ?? []) {
                 mbkLog("PopoverController", "forceClose -- closing child #\(child.windowNumber)")
                 pw.removeChildWindow(child)
