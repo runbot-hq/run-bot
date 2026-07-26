@@ -125,10 +125,14 @@ public final class PanelVisibilityState {
     ///
     /// WRAPPING CONTRACT:
     /// Always increment with `&+=` (wrapping add), never plain `+=`.
-    /// Swift traps on integer overflow in debug builds — a plain `+= 1` at
-    /// Int.max will crash. `&+= 1` wraps to Int.min, which is still a distinct
-    /// value, so onChange(of:) fires correctly. The token semantics (unique
-    /// event per open) are preserved across the wrap.
+    /// On 64-bit (all Apple Silicon and modern Apple hardware), Int.max is
+    /// 9,223,372,036,854,775,807 — overflow is not a realistic concern in
+    /// practice. `&+=` is used defensively for correctness and to signal
+    /// intent: this is an event counter where wrap-around is explicitly
+    /// acceptable, not a value where overflow is an error. `&+= 1` wraps
+    /// to Int.min, which is still a distinct value, so onChange(of:) fires
+    /// correctly. The token semantics (unique event per open) are preserved
+    /// across the wrap.
     ///
     /// SET BY:   AppDelegate in `onWillShow` (before MBK calls show()), using `&+= 1`.
     /// READ BY:  PanelMainView.onChange(of: panelVisibilityState.willShowToken).
