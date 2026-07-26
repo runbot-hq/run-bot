@@ -28,22 +28,25 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
     nonisolated(unsafe) private var workspaceObserver: NSObjectProtocol?
 
     /// Captured once in popoverWillShow: the window's maxY (top edge).
-    /// Used by applyContentSize to pin the window top while resizing.
     private var anchorTopY: CGFloat?
 
     /// The last origin.x written while the menubar was visible.
     private var lastVisibleOriginX: CGFloat?
 
-    /// The NSPopover chrome height (window.frame.height - popover.contentSize.height)
-    /// captured exactly once when the menubar first hides while the popover is shown.
-    /// Used as the constant chrome offset for all DIRECT FRAME writes while hidden.
-    /// Cleared in popoverDidClose.
+    /// Captured once when the menubar first hides:
+    /// the NSPopover chrome height (window.frame.height - popover.contentSize.height).
     private var hiddenModeChromeHeight: CGFloat?
+
+    /// Captured once when the menubar first hides:
+    /// the content height that was stable while the menubar was visible.
+    /// Used to clamp all DIRECT FRAME height writes to prevent SwiftUI
+    /// layout feedback loops (the window resize triggers re-measurement
+    /// which requests a new resize, etc.).
+    private var hiddenModeContentHeight: CGFloat?
 
     private var onWillCloseFired = false
 
-    /// Content size to flush into NSPopover.contentSize on next popoverWillShow
-    /// or when the menubar reappears.
+    /// Content size to flush into NSPopover.contentSize on next menubar re-appear.
     private var pendingContentSize: CGSize?
 
     nonisolated(unsafe) private var menubarPollTimer: Timer?
@@ -132,6 +135,7 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
         // Menubar is back — flush via normal NSPopover path.
         stopMenubarPollTimer()
         hiddenModeChromeHeight = nil
+        hiddenModeContentHeight = nil
         pendingContentSize = nil
         popover.contentSize = pending
         let buttonMidX = buttonWin.frame.minX + button.frame.midX
@@ -257,43 +261,52 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
         guard popover.isShown,
               let window = hostingController.view.window,
               let topY = anchorTopY else {
-            // Not shown — bare write. No dedup guard here; SwiftUI may batch
-            // or order calls differently before show, so always take latest.
             popover.contentSize = clamped
             mbkLog("PopoverController", "applyContentSize -- not shown, WRITE (\(clamped.width),\(clamped.height))")
             return
         }
 
         if isMenuBarHidden {
-            // Snapshot the chrome height the first time we enter hidden mode.
-            // popover.contentSize still reflects the last visible write at this point.
-            // After this we never touch popover.contentSize while hidden, so the
-            // chrome constant must not be recomputed from window.frame.height.
+            // Snapshot chrome height AND content height once on first hidden call.
+            // content height is the stable size from when the menubar was visible;
+            // we use it to clamp all DIRECT FRAME height writes, preventing
+            // SwiftUI from entering a layout feedback loop:
+            //   window resize → SwiftUI re-measures → larger fittingSize
+            //   → applyContentSize → window resize → …
             if hiddenModeChromeHeight == nil {
                 hiddenModeChromeHeight = window.frame.height - popover.contentSize.height
-                mbkLog("PopoverController", "applyContentSize -- snapshotted chrome=\(hiddenModeChromeHeight!)")
+                hiddenModeContentHeight = popover.contentSize.height
+                mbkLog("PopoverController",
+                       "applyContentSize -- snapshotted chrome=\(hiddenModeChromeHeight!) stableH=\(hiddenModeContentHeight!)")
             }
             let chrome = hiddenModeChromeHeight!
+            let stableH = hiddenModeContentHeight!
 
-            // Skip if neither dimension changed meaningfully vs the pending size
-            // (or last content size if no pending yet).
-            let reference = pendingContentSize ?? popover.contentSize
-            guard abs(reference.width - clamped.width) > 1 || abs(reference.height - clamped.height) > 1 else {
-                mbkLog("PopoverController", "applyContentSize -- menubar hidden, no change, skip")
-                return
-            }
-
+            // Always track the latest desired size for the flush on menubar return.
+            let previous = pendingContentSize
             pendingContentSize = clamped
             startMenubarPollTimer()
 
-            // Resize window directly — bypasses NSPopover repositioning logic.
-            let originX = lastVisibleOriginX ?? window.frame.origin.x
-            let newHeight = clamped.height + chrome
+            // Clamp the window height to the stable pre-hide content height.
+            // Width can still vary freely (no feedback loop risk there).
+            let clampedH = min(clamped.height, stableH)
+            let newHeight = clampedH + chrome
             let newOriginY = topY - newHeight
+            let originX = lastVisibleOriginX ?? window.frame.origin.x
             let newFrame = NSRect(x: originX, y: newOriginY, width: window.frame.width, height: newHeight)
+
+            // Skip redundant frame writes.
+            guard abs(window.frame.height - newHeight) > 1
+               || abs(window.frame.origin.y - newOriginY) > 1 else {
+                mbkLog("PopoverController",
+                       "applyContentSize -- menubar hidden, no frame change (pending=(\(clamped.width),\(clamped.height)))")
+                return
+            }
+
             window.setFrame(newFrame, display: true)
             mbkLog("PopoverController",
-                   "applyContentSize -- menubar hidden, DIRECT FRAME (\(clamped.width),\(clamped.height)) chrome=\(chrome) frame=\(newFrame)")
+                   "applyContentSize -- menubar hidden, DIRECT FRAME (\(clamped.width),\(clamped.height)) clampedH=\(clampedH) chrome=\(chrome) frame=\(newFrame)")
+            _ = previous
             return
         }
 
@@ -304,6 +317,7 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
         if menubarPollTimer != nil {
             stopMenubarPollTimer()
             hiddenModeChromeHeight = nil
+            hiddenModeContentHeight = nil
             pendingContentSize = nil
         }
 
@@ -415,6 +429,7 @@ extension MBKPopoverController: NSPopoverDelegate {
         anchorTopY = nil
         lastVisibleOriginX = nil
         hiddenModeChromeHeight = nil
+        hiddenModeContentHeight = nil
         pendingContentSize = nil
         overlayGate.hasActiveOverlay = false
         overlayGate.hasFilePickerOverlay = false
