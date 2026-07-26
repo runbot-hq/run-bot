@@ -52,7 +52,9 @@ struct RootPanelView: View {
 
     /// Switches between route branches; `.id(navState)` forces remount on every change.
     var body: some View {
+        #if DEBUG
         log("【RootPanelView.body】rendered navState=\(navState)", category: .panel)
+        #endif
         return Group {
             switch appState.savedNavState {
             case .none, .main:
@@ -64,7 +66,7 @@ struct RootPanelView: View {
             }
         }
         .id(navState)
-        .onChange(of: navState) { newNav in
+        .onChange(of: navState) { _, newNav in
             log("【RootPanelView】navState → \(newNav)", category: .panel)
         }
     }
