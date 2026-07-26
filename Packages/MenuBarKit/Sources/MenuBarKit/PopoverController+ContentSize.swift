@@ -67,26 +67,28 @@ extension MBKPopoverController {
         if isMenuBarHidden {
             // Path 3: hidden mode — NSPopover ignores setContentSize here.
             //
-            // Chrome deltas and buttonMidX are snapshotted once per hidden session.
-            // On a view switch (size delta > 20pt in either dimension) the chrome
-            // snapshot is invalidated and we return immediately — the re-snapshot
-            // fires on the NEXT call, by which point window.frame has been updated
-            // by our previous setFrame and popover.contentSize still reflects the
-            // previous view's size. Both are consistent so chrome deltas are correct.
+            // Chrome deltas and buttonMidX are snapshotted once per hidden session
+            // (first call after show). They are constant for the lifetime of the session
+            // — AppKit window chrome does not change between views.
+            //
+            // A view switch (main↔settings) is detected by WIDTH change only (> 20pt).
+            // Height growth within the same view (e.g. rows loading, row expand) must
+            // never trigger invalidation — it is normal content reflow and the frame
+            // write must proceed. Using height delta here caused the metric bar to
+            // scroll off the top when many rows loaded (621→760). See #2279.
+            //
+            // On a view switch: invalidate and return immediately. The re-snapshot fires
+            // on the NEXT call, by which point window.frame has been updated by our
+            // previous setFrame and popover.contentSize still reflects the previous
+            // view's size — both consistent, so chrome deltas are correct.
             //
             // ❌ Do NOT re-snapshot on the same call as the invalidation — window.frame
-            // hasn't been updated yet, so chromeH = window.frame.height - popover.contentSize.height
-            // produces garbage (e.g. chromeH=190 instead of 26).
-            // ❌ Do NOT write popover.contentSize before computing chrome deltas —
-            // that makes the delta math inconsistent with window.frame.
+            // hasn't been updated yet relative to the new content size.
+            // ❌ Do NOT write popover.contentSize before computing chrome deltas.
             // ❌ Do NOT re-snapshot on every call — window.frame is only valid
             // immediately after a setFrame, not on every layout pass.
-            // The Y formula window.frame.origin.y + (window.frame.height - newH)
-            // is correct at (re-)snapshot time because window.frame is fresh.
-            let viewSwitched = hiddenChromeW != nil && (
-                abs(clamped.width  - popover.contentSize.width)  > 20 ||
-                abs(clamped.height - popover.contentSize.height) > 20
-            )
+            let viewSwitched = hiddenChromeW != nil &&
+                abs(clamped.width - popover.contentSize.width) > 20
             if viewSwitched {
                 hiddenChromeW = nil
                 hiddenChromeH = nil
@@ -119,9 +121,6 @@ extension MBKPopoverController {
             // different widths) both land centred under the status item.
             let newX = btnMidX - newW / 2
             // Anchor from current bottom edge upward — self-contained.
-            // window.frame is valid here: either this is the initial snapshot call
-            // (window.frame set by AppKit at show time) or the view-switch re-snapshot
-            // (window.frame set by our previous setFrame for the prior view).
             let newY = window.frame.origin.y + (window.frame.height - newH)
             let newFrame = NSRect(x: newX, y: newY, width: newW, height: newH)
             window.setFrame(newFrame, display: true)
