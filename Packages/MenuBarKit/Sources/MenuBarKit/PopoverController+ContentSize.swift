@@ -96,7 +96,7 @@ extension MBKPopoverController {
             // delegate logic is ever added that must not fire twice per open,
             // this call site must be audited first.
             //
-            // GUARDED: skip entirely while the closing sequence is in flight
+            // GUARDED (1): skip entirely while the closing sequence is in flight
             // (isClosing == true). fireOnWillClose() raises isClosing before
             // onWillClose?() fires, so any SwiftUI layout pass triggered by the
             // host app's close handler (e.g. nav-state reset → RootPanelView .id()
@@ -112,6 +112,37 @@ extension MBKPopoverController {
             }
             popover.contentSize = clamped
             if widthChanged {
+                // GUARDED (2): suppress show() reanchor when the incoming width is
+                // narrower than the current contentSize width.
+                //
+                // WHY: during main → settings → main navigation the departing settings
+                // view's GeometryReader fires one last size report (480×551) AFTER the
+                // main view has remounted into the .id()-flipped RootPanelView tree.
+                // At this point isClosing=false and isOpening=false — no existing guard
+                // catches it. The 480-wide report goes through and triggers a show()
+                // reanchor; AppKit resizes the live window to settings dimensions.
+                // When the menubar subsequently hides, hiddenChromeW/H is snapshotted
+                // from that poisoned window, corrupting every DIRECT FRAME write for
+                // the rest of the hidden session (root cause of the wrong-size-in-
+                // hidden-mode bug observed after the #2280 fix landed).
+                //
+                // A width decrease mid-session (new < old by more than 1pt, which is
+                // already guaranteed by the widthChanged guard above) while the popover
+                // is fully open and not opening/closing is structurally only possible
+                // from a departing view's final GR fire — the live view's width never
+                // shrinks during normal in-session navigation (main only widens as more
+                // runners/jobs load; settings is always narrower than main).
+                //
+                // Action: write contentSize (already done above — the value must not
+                // stay frozen at the old width in case the arriving view happens to
+                // match it) but skip show(). The arriving main-view GR fires
+                // immediately after and performs the authoritative reanchor to the
+                // correct width.
+                if clamped.width < oldWidth - 1 && !isOpening {
+                    mbkLog("PopoverController",
+                           "applyContentSize -- width narrowed mid-session (\(oldWidth) → \(clamped.width)), WRITE only, stale departing-view GR suppressed")
+                    return
+                }
                 guard let button = statusItem.button,
                       let rect = positioningRect(for: button) else {
                     mbkLog("PopoverController",
