@@ -165,6 +165,33 @@ extension AppDelegate {
             panelVisibilityState.isOpen = false
         }
 
+        // setRootView(_:) is intentionally NOT called — ever.
+        //
+        // MBKPopoverController exposes setRootView(_:) for adopters that swap
+        // top-level views on navigation (AnyView-swap pattern). RunBot does not
+        // use this path.
+        //
+        // Instead, navigation is owned by RootPanelView via appState.savedNavState:
+        //   • A single persistent SwiftUI root (RootPanelView) is passed at init
+        //     time and never replaced.
+        //   • Route changes are pure state mutations — RootPanelView switches
+        //     branches internally via Group { switch }.id(route).
+        //
+        // WHY this is better than setRootView(_:) for RunBot:
+        //   • MBK's GeometryReader in wrapped() is attached once at init. Calling
+        //     setRootView(_:) replaces the inner view but keeps the same GR wrapper,
+        //     which is correct. However, the new inner view loses its .onAppear
+        //     trigger for the GR — MBK only sees a size change if SwiftUI reports
+        //     one, not a fresh appear. RootPanelView's .id(route) forces a full
+        //     re-render on every route change, guaranteeing MBK's GR fires fresh.
+        //   • No AnyView boxing on navigation paths — RootPanelView uses concrete
+        //     view types in each switch branch.
+        //   • AppDelegate stays a pure wiring layer with no view-factory methods.
+        //
+        // ❌ NEVER add a setRootView(_:) call here for navigation.
+        // ❌ NEVER add view factory methods (mainView(), settingsView()) back to AppDelegate.
+        // All route changes go through appState.savedNavState only.
+
         ctrl.setup()
         popoverController = ctrl
         log("AppDelegate › setupPanel — MBKPopoverController setup complete")
