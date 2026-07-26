@@ -126,7 +126,7 @@ struct PanelMainView: View {
     @State private var displayTickTask: Task<Void, any Error>?
     /// Height of the ScrollView frame, driven by the content GeometryReader (RULE 5).
     /// Starts at 0 (no constraint) until the first measurement fires on appear.
-    /// Reset to 0 on every panel open — see onChange(of: panelVisibilityState.isOpen) below.
+    /// Reset to 0 whenever willShowToken changes — see onChange(of: panelVisibilityState.willShowToken).
     @State private var scrollViewHeight: CGFloat = 0
     /// Measured natural height of PanelHeaderView. Captured once on appear (RULE 12).
     /// Used to subtract from the cap so the full panel never overflows the screen.
@@ -236,8 +236,26 @@ struct PanelMainView: View {
                             let prev = headerHeight
                             #endif
                             headerHeight = newH
+                            // Re-clamp scrollViewHeight now that the cap has narrowed.
+                            //
+                            // WHY: headerHeight starts at 0 on first mount; the content GR
+                            // writes scrollViewHeight using screenScrollMaxHeight = cap - 0
+                            // (uncapped). When headerHeight arrives here, the real cap is
+                            // smaller. Without this re-clamp, the next content onChange
+                            // (e.g. first row tap) writes a smaller capped value → panel
+                            // resizes → the header appears to jump once then stabilise.
+                            // Clamping immediately here means the stored value is already
+                            // correct before any content onChange fires.
+                            //
+                            // The `> 0` guard avoids a no-op write when scrollViewHeight
+                            // hasn't been measured yet (first layout pass with willShowToken
+                            // reset). min() is monotonically non-increasing, so this never
+                            // grows the panel — only tightens it.
+                            if scrollViewHeight > 0 {
+                                scrollViewHeight = min(scrollViewHeight, screenScrollMaxHeight)
+                            }
                             #if DEBUG
-                            log("【header.geo】onChange \(prev) → \(newH) menuBarHidden=\(isMenuBarHidden) ← HEADER HEIGHT CHANGED", category: .panel)
+                            log("【header.geo】onChange \(prev) → \(newH) scrollViewHeight reclamped=\(scrollViewHeight) menuBarHidden=\(isMenuBarHidden) ← HEADER HEIGHT CHANGED", category: .panel)
                             #endif
                         }
                 }
@@ -296,28 +314,30 @@ struct PanelMainView: View {
             systemStats.stop()
             stopDisplayTickTimer()
         }
+        // willShowToken is bumped by AppDelegate in onWillShow, synchronously before
+        // MBK reads hostingController.view.fittingSize and calls popover.show().
+        // Resetting scrollViewHeight = 0 here ensures the stale value is cleared
+        // before MBK seeds contentSize — so the panel opens at the correct height
+        // without a visible grow animation.
+        //
+        // WHY NOT onChange(of: isOpen):
+        // isOpen is set in onDidShow, one actor turn AFTER show() has returned.
+        // By then MBK has already used the stale scrollViewHeight as the initial
+        // contentSize seed — too late to prevent the wrong-size flash.
+        //
+        // See PanelVisibilityState.willShowToken for full contract.
+        // See issue #2278 follow-up for root-cause analysis.
+        .onChange(of: panelVisibilityState.willShowToken) { _, _ in
+            #if DEBUG
+            log("【PanelMainView】willShowToken fired — resetting scrollViewHeight menuBarHidden=\(isMenuBarHidden)", category: .panel)
+            #endif
+            scrollViewHeight = 0
+        }
         .onChange(of: panelVisibilityState.isOpen) { _, newOpen in
             #if DEBUG
             log("【PanelMainView】panelVisibilityState.isOpen → \(newOpen) menuBarHidden=\(isMenuBarHidden)", category: .panel)
             #endif
-            if newOpen {
-                // Reset scrollViewHeight on every open so a stale value written
-                // during a dismissed-window layout pass (e.g. Settings → hide →
-                // reopen) does not survive into the next open cycle.
-                //
-                // WHY THIS IS SAFE:
-                // The `> 0 ? scrollViewHeight : nil` guard in actionsSectionScrollable
-                // already handles scrollViewHeight == 0 by removing the .frame(height:)
-                // constraint for one layout pass. This lets the content GR re-measure
-                // unconstrained and write the correct value via onChange(of: geo.size.height).
-                // The reset is a single @State write — zero visual side-effect.
-                //
-                // See issue #2278 for full root-cause analysis.
-                scrollViewHeight = 0
-                systemStats.start()
-            } else {
-                systemStats.stop()
-            }
+            if newOpen { systemStats.start() } else { systemStats.stop() }
         }
         // Reset the visible row count only when the list shrinks (e.g. a runner is removed),
         // not on every poll update — avoids snapping the user back mid-scroll.

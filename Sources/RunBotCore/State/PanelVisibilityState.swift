@@ -108,6 +108,27 @@ public final class PanelVisibilityState {
     /// ❌ NEVER call more than once per open.
     public var onHeightReady: ((CGFloat) -> Void)?
 
+    /// Monotonically incremented by AppDelegate in `onWillShow`, synchronously
+    /// before MBK calls `hostingController.view.fittingSize` and `popover.show()`.
+    ///
+    /// PURPOSE — allow PanelMainView to reset `scrollViewHeight = 0` at the
+    /// earliest possible moment, before MBK seeds `contentSize` from the SwiftUI
+    /// view's `fittingSize`. Without this, the stale scrollViewHeight is baked into
+    /// the pre-show contentSize and the panel opens at the wrong height, growing in
+    /// steps as the content GR re-measures on subsequent layout passes.
+    ///
+    /// WHY A TOKEN AND NOT A BOOL:
+    /// A bool would need to be reset after consumption. A monotonic Int is
+    /// self-cleaning — each increment is a unique event, and SwiftUI's
+    /// `onChange(of:)` fires on every distinct value. No reset path, no
+    /// risk of missing an event if two opens happen in rapid succession.
+    ///
+    /// SET BY:   AppDelegate in `onWillShow` (before MBK calls show()).
+    /// READ BY:  PanelMainView.onChange(of: panelVisibilityState.willShowToken).
+    /// ❌ NEVER set this outside onWillShow.
+    /// ❌ NEVER read this outside PanelMainView (or its direct sub-views if needed).
+    public var willShowToken: Int = 0
+
     /// Creates a new `PanelVisibilityState` with all flags in their initial off state.
     ///
     /// The body is intentionally empty — all stored properties carry inline defaults.
