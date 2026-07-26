@@ -56,13 +56,13 @@
 //   the panel. Clearing hasActiveOverlay synchronously — or even at the next
 //   actor turn — lets the monitor see false on that delivery and call
 //   performClose. One DispatchQueue.main.async hop defers the clear past the
-//   monitor's event delivery. The two hops serve different purposes: the Task
+//   monitor’s event delivery. The two hops serve different purposes: the Task
 //   hop enforces actor isolation; the GCD hop defers the gate clear past AppKit
 //   event delivery.
 //
 // WHY completion IS CALLED OUTSIDE THE GCD HOP:
-//   The GCD hop's sole responsibility is deferring the gate flag clears past
-//   the event monitor's run-loop turn. completion is declared @MainActor and
+//   The GCD hop’s sole responsibility is deferring the gate flag clears past
+//   the event monitor’s run-loop turn. completion is declared @MainActor and
 //   must be called with compiler-enforced actor isolation — which the GCD
 //   closure does not provide (main thread at runtime, but not statically
 //   verified). completion is therefore called in the Task { @MainActor } scope
@@ -83,6 +83,24 @@
 
 import AppKit
 
+/// Presents a directory-selection `NSOpenPanel` anchored above the popover,
+/// with automatic overlay-gate management.
+///
+/// The panel floats one window level above the popover’s `nonactivatingPanel`
+/// window so it is always visible. Key focus is transferred via
+/// `makeKeyAndOrderFront` after the panel is shown (level alone does not
+/// transfer key focus on macOS 14+).
+///
+/// The overlay gate is armed for the full lifetime of the panel and cleared on
+/// the next run-loop turn after the panel is dismissed, preventing a spurious
+/// outside-click dismiss. See the file header for full design rationale.
+///
+/// - Parameters:
+///   - overlayGate: The gate owned by the enclosing `MBKPopoverController`.
+///   - message: Optional message shown inside the panel above the file list.
+///   - completion: Called on the `@MainActor` with the chosen `URL`, or `nil`
+///     if the user cancelled. Called on the same run-loop turn as panel dismissal,
+///     before the gate is cleared — safe to present follow-up UI immediately.
 @MainActor
 public func mbkOpenFilePicker(
     overlayGate: MBKOverlayGate,
@@ -126,7 +144,7 @@ public func mbkOpenFilePicker(
             // Queue the gate clear on the next run-loop turn so the event monitor
             // (which fires on the same turn as panel dismissal) still sees the gate
             // armed and does not call performClose prematurely.
-            // See file header "WHY DEFERRED GATE CLEAR" for full rationale.
+            // See file header “WHY DEFERRED GATE CLEAR” for full rationale.
             DispatchQueue.main.async {
                 overlayGate.hasFilePickerOverlay = false
                 mbkLog("FilePicker", "hasFilePickerOverlay=false")
@@ -140,7 +158,7 @@ public func mbkOpenFilePicker(
             // completion is called here — in the @MainActor Task scope, after the
             // GCD hop is queued but before it executes. This restores full
             // compiler-enforced actor isolation for the callback.
-            // See file header "WHY completion IS CALLED OUTSIDE THE GCD HOP".
+            // See file header “WHY completion IS CALLED OUTSIDE THE GCD HOP”.
             let url = response == .OK ? panel.url : nil
             mbkLog("FilePicker", "calling completion url=\(String(describing: url))")
             completion(url)
@@ -153,7 +171,7 @@ public func mbkOpenFilePicker(
     // therefore has a valid window number and is already visible here. However
     // the nonactivatingPanel popover retains key status — makeKeyAndOrderFront
     // transfers key focus to the picker so the user sees it immediately.
-    // See file header "WHY panel.makeKeyAndOrderFront" for full rationale.
+    // See file header “WHY panel.makeKeyAndOrderFront” for full rationale.
     panel.makeKeyAndOrderFront(nil)
     mbkLog("FilePicker", "panel.begin returned — panel=#\(panel.windowNumber) level=\(panel.level.rawValue)")
 }
