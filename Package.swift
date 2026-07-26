@@ -19,10 +19,10 @@ let package = Package(
     dependencies: [
         // Tracks main — resolves to HEAD on every CI run. Do not pin to a revision.
         .package(url: "https://github.com/runbot-hq/AppUpdater", branch: "main"),
-        // Tracks main — resolves to HEAD on every CI run. Do not pin to a revision.
-        .package(url: "https://github.com/runbot-hq/GitHubClient", branch: "main"),
-        // Tracks main — resolves to HEAD on every CI run. Do not pin to a revision.
-        .package(url: "https://github.com/runbot-hq/MenuBarKit", branch: "main"),
+        // Local path — source of truth is now Packages/GitHubClient in this repo.
+        .package(path: "Packages/GitHubClient"),
+        // Local path — source of truth is now Packages/MenuBarKit in this repo.
+        .package(path: "Packages/MenuBarKit"),
     ],
     targets: [
         .target(
