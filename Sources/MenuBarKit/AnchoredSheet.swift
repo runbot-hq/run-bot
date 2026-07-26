@@ -217,7 +217,7 @@ struct MBKAnchoredSheetItemModifier<Item: Identifiable & Equatable, SheetContent
             // — including Escape key and system-level dismiss — so this onChange
             // fires and cleans up the gate and anchor task correctly in all cases.
             // There is no separate code path needed for system dismissal.
-            .onChange(of: item) { oldValue, newValue in
+            .onChange(of: item) { _, newValue in
                 let isPresented = newValue != nil
                 mbkLog("AnchoredSheet[item]", "onChange isPresented=\(isPresented) windows=\(NSApp.windows.count) currentGate=\(overlayGate.hasActiveOverlay)")
                 overlayGate.hasActiveOverlay = isPresented
