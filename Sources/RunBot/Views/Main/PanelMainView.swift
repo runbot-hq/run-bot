@@ -126,6 +126,7 @@ struct PanelMainView: View {
     @State private var displayTickTask: Task<Void, any Error>?
     /// Height of the ScrollView frame, driven by the content GeometryReader (RULE 5).
     /// Starts at 0 (no constraint) until the first measurement fires on appear.
+    /// Reset to 0 on every panel open — see onChange(of: panelVisibilityState.isOpen) below.
     @State private var scrollViewHeight: CGFloat = 0
     /// Measured natural height of PanelHeaderView. Captured once on appear (RULE 12).
     /// Used to subtract from the cap so the full panel never overflows the screen.
@@ -299,7 +300,24 @@ struct PanelMainView: View {
             #if DEBUG
             log("【PanelMainView】panelVisibilityState.isOpen → \(newOpen) menuBarHidden=\(isMenuBarHidden)", category: .panel)
             #endif
-            if newOpen { systemStats.start() } else { systemStats.stop() }
+            if newOpen {
+                // Reset scrollViewHeight on every open so a stale value written
+                // during a dismissed-window layout pass (e.g. Settings → hide →
+                // reopen) does not survive into the next open cycle.
+                //
+                // WHY THIS IS SAFE:
+                // The `> 0 ? scrollViewHeight : nil` guard in actionsSectionScrollable
+                // already handles scrollViewHeight == 0 by removing the .frame(height:)
+                // constraint for one layout pass. This lets the content GR re-measure
+                // unconstrained and write the correct value via onChange(of: geo.size.height).
+                // The reset is a single @State write — zero visual side-effect.
+                //
+                // See issue #2278 for full root-cause analysis.
+                scrollViewHeight = 0
+                systemStats.start()
+            } else {
+                systemStats.stop()
+            }
         }
         // Reset the visible row count only when the list shrinks (e.g. a runner is removed),
         // not on every poll update — avoids snapping the user back mid-scroll.
