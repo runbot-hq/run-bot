@@ -455,6 +455,16 @@ struct PanelMainView: View {
         .padding(.horizontal, 12).padding(.vertical, 4)
     }
 
+    /// WHY withExtendedLifetime(displayTick):
+    /// `rateLimitBanner` is a computed var, not a SwiftUI `body`. SwiftUI only
+    /// re-evaluates it when a state dependency it *directly* reads inside `body`
+    /// changes. `displayTick` is not read anywhere else in the view's dependency
+    /// graph that would cause `rateLimitBanner` to be re-evaluated every second.
+    /// `withExtendedLifetime(displayTick) {}` is a zero-cost call (no allocation,
+    /// no closure capture overhead) that registers `displayTick` as a read
+    /// dependency of this computed var, forcing SwiftUI to re-evaluate it every
+    /// time `displayTick` increments. Without this line the countdown label
+    /// freezes and never updates. ❌ NEVER remove.
     private var rateLimitBanner: some View {
         withExtendedLifetime(displayTick) {}
         let countdownLabel: String

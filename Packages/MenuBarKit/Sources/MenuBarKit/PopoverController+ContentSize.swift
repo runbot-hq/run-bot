@@ -70,8 +70,8 @@ extension MBKPopoverController {
             // layout. Write contentSize first so SwiftUI lays out at the correct width,
             // then drive window.setFrame directly using snapshotted chrome deltas.
             //
-            // Chrome deltas and window Y are snapshotted once on the first Path 3 call
-            // per session (when hiddenChromeW == nil). Never invalidated or recalculated.
+            // Chrome deltas, button X, and window Y are snapshotted once in
+            // popoverWillShow per session. Never invalidated or recalculated.
             //
             // ❌ NEVER recalculate newY from window.frame — it moves the top edge of the
             //    popover on every height change, pinning the window to the screen edge.
@@ -79,16 +79,6 @@ extension MBKPopoverController {
             // ❌ Do NOT write popover.contentSize before computing the snapshot —
             //    the delta math reads both window.frame and popover.contentSize and
             //    they must be consistent (both reflecting the same prior state).
-            if hiddenChromeW == nil,
-               let button = statusItem.button,
-               let buttonWin = button.window {
-                hiddenChromeW    = window.frame.width  - popover.contentSize.width
-                hiddenChromeH    = window.frame.height - popover.contentSize.height
-                hiddenButtonMidX = buttonWin.frame.minX + button.frame.midX
-                hiddenWindowY    = window.frame.origin.y
-                mbkLog("PopoverController",
-                       "applyContentSize -- hidden snapshot chromeW=\(hiddenChromeW!) chromeH=\(hiddenChromeH!) buttonMidX=\(hiddenButtonMidX!) windowY=\(hiddenWindowY!)")
-            }
             guard let chromeW = hiddenChromeW,
                   let chromeH = hiddenChromeH,
                   let btnMidX = hiddenButtonMidX,
