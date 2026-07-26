@@ -126,6 +126,8 @@ struct PanelMainView: View {
     @State private var displayTickTask: Task<Void, any Error>?
     /// Height of the ScrollView frame, driven by the content GeometryReader (RULE 5).
     /// Starts at 0 (no constraint) until the first measurement fires on appear.
+    /// Reset to 0 on every panel open so a stale value from a previous session
+    /// does not survive into the next open (see issue #2280).
     @State private var scrollViewHeight: CGFloat = 0
     /// Measured natural height of PanelHeaderView. Captured once on appear (RULE 12).
     /// Used to subtract from the cap so the full panel never overflows the screen.
@@ -299,7 +301,21 @@ struct PanelMainView: View {
             #if DEBUG
             log("【PanelMainView】panelVisibilityState.isOpen → \(newOpen) menuBarHidden=\(isMenuBarHidden)", category: .panel)
             #endif
-            if newOpen { systemStats.start() } else { systemStats.stop() }
+            if newOpen {
+                // Reset scrollViewHeight so the content GR can re-fire an unconstrained
+                // measurement on this open. Without this, a stale value written during a
+                // previous session (e.g. Settings → hide app → reopen) persists:
+                // the ScrollView is frame-constrained from the first layout pass, SwiftUI
+                // reports no height delta, onChange never fires, and the main view stays
+                // blank until an interaction forces a re-measure. Resetting to 0 removes
+                // the .frame(height:) constraint for one pass (the > 0 ? ... : nil guard
+                // in actionsSectionScrollable), allowing the GR to measure cleanly.
+                // See issue #2280.
+                scrollViewHeight = 0
+                systemStats.start()
+            } else {
+                systemStats.stop()
+            }
         }
         // Reset the visible row count only when the list shrinks (e.g. a runner is removed),
         // not on every poll update — avoids snapping the user back mid-scroll.
