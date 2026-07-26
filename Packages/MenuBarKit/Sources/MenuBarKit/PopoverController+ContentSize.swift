@@ -17,7 +17,7 @@ extension MBKPopoverController {
     /// (2) shown, menubar visible — write `contentSize`, re-anchor via `show()` on width
     /// change so AppKit re-derives the arrow position atomically; (3) shown, menubar
     /// hidden — `NSPopover.contentSize` is ignored by AppKit, so drive `window.setFrame`
-    /// directly using snapshotted chrome deltas and `buttonMidX`.
+    /// directly using chrome deltas snapshotted once in `popoverWillShow`.
     func applyContentSize(_ preferred: CGSize) {
         let clamped = clamp(preferred)
         guard clamped.width > 0, clamped.height > 0 else { return }
@@ -70,25 +70,17 @@ extension MBKPopoverController {
             // layout. Write contentSize first so SwiftUI lays out at the correct width,
             // then drive window.setFrame directly using snapshotted chrome deltas.
             //
-            // Chrome deltas and window Y are snapshotted once on the first Path 3 call
-            // per session (when hiddenChromeW == nil). Never invalidated or recalculated.
+            // Chrome deltas, buttonMidX, and windowY are snapshotted ONCE in
+            // popoverWillShow against AppKit's freshly-positioned window.
+            // They are constant for the entire session:
+            //   - Chrome size never changes between views (same NSPopover window).
+            //   - buttonMidX never changes (button doesn't move).
+            //   - windowY must never change (Y must not move after open).
             //
-            // ❌ NEVER recalculate newY from window.frame — it moves the top edge of the
-            //    popover on every height change, pinning the window to the screen edge.
-            //    Y is snapshotted once (hiddenWindowY) and held constant for the session.
-            // ❌ Do NOT write popover.contentSize before computing the snapshot —
-            //    the delta math reads both window.frame and popover.contentSize and
-            //    they must be consistent (both reflecting the same prior state).
-            if hiddenChromeW == nil,
-               let button = statusItem.button,
-               let buttonWin = button.window {
-                hiddenChromeW    = window.frame.width  - popover.contentSize.width
-                hiddenChromeH    = window.frame.height - popover.contentSize.height
-                hiddenButtonMidX = buttonWin.frame.minX + button.frame.midX
-                hiddenWindowY    = window.frame.origin.y
-                mbkLog("PopoverController",
-                       "applyContentSize -- hidden snapshot chromeW=\(hiddenChromeW!) chromeH=\(hiddenChromeH!) buttonMidX=\(hiddenButtonMidX!) windowY=\(hiddenWindowY!)")
-            }
+            // ❌ NEVER re-snapshot here. window.frame at this point reflects our own
+            //    prior setFrame call, not AppKit's frame — chrome deltas derived from
+            //    it will be wrong and produce negative values / bad positions.
+            // ❌ NEVER invalidate hiddenChromeW/H/windowY mid-session for view switches.
             guard let chromeW = hiddenChromeW,
                   let chromeH = hiddenChromeH,
                   let btnMidX = hiddenButtonMidX,

@@ -126,6 +126,8 @@ struct PanelMainView: View {
     @State private var displayTickTask: Task<Void, any Error>?
     /// Height of the ScrollView frame, driven by the content GeometryReader (RULE 5).
     /// Starts at 0 (no constraint) until the first measurement fires on appear.
+    /// Reset to 0 by willShowToken onChange so the stale value is cleared before
+    /// MBK seeds contentSize on the next open.
     @State private var scrollViewHeight: CGFloat = 0
     /// Measured natural height of PanelHeaderView. Captured once on appear (RULE 12).
     /// Used to subtract from the cap so the full panel never overflows the screen.
@@ -295,26 +297,33 @@ struct PanelMainView: View {
             systemStats.stop()
             stopDisplayTickTimer()
         }
+        // willShowToken is bumped by AppDelegate in onWillShow, synchronously before
+        // MBK reads hostingController.view.fittingSize and calls popover.show().
+        // Resetting scrollViewHeight = 0 here ensures the stale value is cleared
+        // before MBK seeds contentSize — so the panel opens at the correct height
+        // without a visible grow animation. See PanelVisibilityState.willShowToken.
+        //
+        // WHY NOT onChange(of: isOpen) open branch:
+        // isOpen is set in onDidShow, one actor turn AFTER show() has returned.
+        // By then MBK has already used the stale scrollViewHeight as the initial
+        // contentSize seed — too late to prevent the wrong-size flash.
+        .onChange(of: panelVisibilityState.willShowToken) { _, _ in
+            #if DEBUG
+            log("【PanelMainView】willShowToken fired — resetting scrollViewHeight menuBarHidden=\(isMenuBarHidden)", category: .panel)
+            #endif
+            scrollViewHeight = 0
+        }
         .onChange(of: panelVisibilityState.isOpen) { _, newOpen in
             #if DEBUG
             log("【PanelMainView】panelVisibilityState.isOpen → \(newOpen) menuBarHidden=\(isMenuBarHidden)", category: .panel)
             #endif
             if newOpen {
-                // scrollViewHeight was already reset to 0 in the close branch below,
-                // so the > 0 ? ... : nil guard in actionsSectionScrollable handles the
-                // first layout pass unconstrained. Do NOT reset here — resetting at
-                // open time causes a mid-session re-layout that churns the reported
-                // width through MBKPopoverController, triggering spurious
-                // WRITE+REANCHOR calls that jump the header. See #2279.
                 systemStats.start()
             } else {
-                // Reset scrollViewHeight at close time, while the popover is closed
-                // and no layout passes are active. This clears any stale value written
-                // during a dismissed-window layout pass (settings→main remount inside
-                // onWillClose teardown) before the next open, not during it.
-                // The > 0 ? ... : nil guard in actionsSectionScrollable removes the
-                // frame constraint for the first unconstrained pass on next open,
-                // letting the content GR re-measure and write the correct value. See #2279.
+                // Reset scrollViewHeight at close time as a belt-and-suspenders safety net.
+                // willShowToken handles the reset before the next open's fittingSize read;
+                // this close-time reset clears any stale value written during post-close
+                // layout passes (settings→main remount inside onWillClose teardown).
                 scrollViewHeight = 0
                 systemStats.stop()
             }
@@ -442,14 +451,6 @@ struct PanelMainView: View {
     // MARK: - Display tick timer
 
     /// Starts the 1-second structured `displayTick` loop. Cancels any existing task first.
-    ///
-    /// Sleep-first: fires 1 s after start, matching the prior `Timer.scheduledTimer` behaviour.
-    /// No open-state gate — RULE 9: displayTick runs always while the view is alive.
-    /// Named "displayTick" for Instruments visibility (RG6).
-    /// `try` (not `try?`) on Task.sleep propagates CancellationError cleanly so the loop
-    /// exits immediately on cancel without executing a spurious post-cancel tick.
-    /// `@MainActor` is explicit so the compiler statically verifies that `displayTickTask`
-    /// (a `@State`-backed property) is always mutated on the main actor.
     @MainActor private func startDisplayTickTimer() {
         stopDisplayTickTimer()
         displayTickTask = Task(name: "displayTick") { @MainActor in
@@ -461,7 +462,6 @@ struct PanelMainView: View {
     }
 
     /// Cancels and nils the `displayTick` task.
-    /// `@MainActor` matches `startDisplayTickTimer()` — both mutate `displayTickTask`.
     @MainActor private func stopDisplayTickTimer() {
         displayTickTask?.cancel()
         displayTickTask = nil
@@ -470,11 +470,6 @@ struct PanelMainView: View {
     // MARK: - Banners
 
     /// Inline error banner shown when `appState.runnerState.fetchError` is non-nil.
-    ///
-    /// Displays a truncated error description. Dismisses automatically on the next
-    /// successful fetch cycle when `applyFetchResult` clears `fetchError`.
-    /// Stale `runners`/`jobs`/`actions` remain visible below the banner so the user
-    /// still sees the last-known state while connectivity is degraded.
     private func fetchErrorBanner(_ error: any Error) -> some View {
         HStack(spacing: 6) {
             Image(systemName: "exclamationmark.triangle.fill").foregroundColor(.red).font(.caption)
@@ -486,15 +481,6 @@ struct PanelMainView: View {
     }
 
     /// Rate-limit warning banner showing a countdown to API reset.
-    ///
-    /// WHY withExtendedLifetime(displayTick):
-    /// `displayTick` must be read inside `body` to register a SwiftUI dependency so the
-    /// banner label refreshes every second. However, `rateLimitBanner` is a computed var
-    /// called from body — not body itself — so the compiler cannot see the read directly.
-    /// `withExtendedLifetime` is a zero-cost call that makes the dependency explicit to both
-    /// the compiler and future readers without changing runtime behaviour. The actual per-second
-    /// refresh is driven by the `tick:` parameter chain: body → actionsSectionContent →
-    /// ActionRowView(tick:). This call is intentional and not dead code.
     private var rateLimitBanner: some View {
         withExtendedLifetime(displayTick) {}
         let countdownLabel: String

@@ -114,20 +114,28 @@ extension AppDelegate {
             maxHeight: maxHeight
         )
 
-        // onWillShow is intentionally empty / commented out.
+        // onWillShow — fires synchronously at the top of MBK's openPopover(),
+        // before hostingController.view.fittingSize is read and before popover.show().
         //
-        // WHY nav state does not need to be restored here:
-        // appState.savedNavState is persistent @Observable state — it is never cleared
-        // on open, only on explicit back-navigation or onWillClose(wasForced: false).
-        // RootPanelView reads it directly and reactively; by the time onWillShow fires
-        // the SwiftUI tree is already rendering the correct route. There is nothing to do.
+        // WHY willShowToken is bumped here (not in onDidShow):
+        // PanelMainView reacts to willShowToken by resetting scrollViewHeight = 0.
+        // This reset must happen BEFORE MBK reads fittingSize — if it fires after,
+        // the stale scrollViewHeight is already baked into the contentSize seed and
+        // the panel opens at the wrong height, growing in steps as the content GR
+        // re-measures. onWillShow is the only callback that fires before fittingSize.
         //
-        // Other candidates considered for this callback (auth token pre-flight, stale-job
-        // guard restoration) were deferred — see the commented-out block below for context.
-        // Do not remove; restore and expand once onWillShow responsibilities are decided.
-        // ctrl.onWillShow = {
-        //     log("AppDelegate › onWillShow")
-        // }
+        // WHY NOT reset scrollViewHeight = 0 in onDidShow or onChange(of: isOpen):
+        // Both of those fire after popover.show() has returned. By then, MBK has
+        // already called fittingSize (which sees the stale scrollViewHeight) and
+        // passed that size to popover.contentSize. The panel is already visible at
+        // the wrong height; the subsequent reset causes a visible grow animation.
+        //
+        // See issue #2278 for full root-cause analysis.
+        ctrl.onWillShow = { [weak self] in
+            guard let self else { return }
+            log("AppDelegate › onWillShow — bumping willShowToken")
+            panelVisibilityState.willShowToken &+= 1
+        }
 
         // onDidShow — fires one actor turn after popover.show().
         // Restore runner sheet state now that the view tree has a window.
@@ -185,33 +193,6 @@ extension AppDelegate {
             }
             panelVisibilityState.isOpen = false
         }
-
-        // setRootView(_:) is intentionally NOT called — ever.
-        //
-        // MBKPopoverController exposes setRootView(_:) for adopters that swap
-        // top-level views on navigation (AnyView-swap pattern). RunBot does not
-        // use this path.
-        //
-        // Instead, navigation is owned by RootPanelView via appState.savedNavState:
-        //   • A single persistent SwiftUI root (RootPanelView) is passed at init
-        //     time and never replaced.
-        //   • Route changes are pure state mutations — RootPanelView switches
-        //     branches internally via Group { switch }.id(route).
-        //
-        // WHY this is better than setRootView(_:) for RunBot:
-        //   • MBK's GeometryReader in wrapped() is attached once at init. Calling
-        //     setRootView(_:) replaces the inner view but keeps the same GR wrapper,
-        //     which is correct. However, the new inner view loses its .onAppear
-        //     trigger for the GR — MBK only sees a size change if SwiftUI reports
-        //     one, not a fresh appear. RootPanelView's .id(route) forces a full
-        //     re-render on every route change, guaranteeing MBK's GR fires fresh.
-        //   • No AnyView boxing on navigation paths — RootPanelView uses concrete
-        //     view types in each switch branch.
-        //   • AppDelegate stays a pure wiring layer with no view-factory methods.
-        //
-        // ❌ NEVER add a setRootView(_:) call here for navigation.
-        // ❌ NEVER add view factory methods (mainView(), settingsView()) back to AppDelegate.
-        // All route changes go through appState.savedNavState only.
 
         ctrl.setup()
         popoverController = ctrl
