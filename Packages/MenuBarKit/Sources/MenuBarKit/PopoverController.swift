@@ -114,6 +114,8 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
 
     /// Shown-sentinel for `applyContentSize`: `true` while the popover is open,
     /// `nil` while closed. Set in `popoverWillShow`, cleared in `popoverDidClose`.
+    /// Carries no positional value — frame writes derive Y from
+    /// `window.frame.origin.y` directly.
     /// `internal` (default) so extension files can access it.
     var isShownSentinel: Bool?
 
@@ -134,15 +136,12 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
 
     /// Chrome width delta (window frame width − content width) for hidden-mode sizing.
     /// Snapshotted once in `popoverWillShow`. `nil` outside a session.
-    /// `internal` (default) so extension files can access it.
     var hiddenChromeW: CGFloat?
     /// Chrome height delta (window frame height − content height) for hidden-mode sizing.
     /// Snapshotted once in `popoverWillShow`. `nil` outside a session.
-    /// `internal` (default) so extension files can access it.
     var hiddenChromeH: CGFloat?
     /// Button center X in screen coordinates for the hidden-mode session.
-    /// Snapshotted once in `popoverWillShow`. `nil` outside a session.
-    /// `internal` (default) so extension files can access it.
+    /// Snapshotted once in `popoverWillShow`. `nil` outside a hidden-mode session.
     var hiddenButtonMidX: CGFloat?
     /// Window origin Y (bottom edge, AppKit flipped coords) snapshotted once in
     /// `popoverWillShow`. Used as a fixed constant for all Path 3 `setFrame` calls
