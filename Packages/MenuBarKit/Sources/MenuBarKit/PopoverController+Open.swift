@@ -15,9 +15,8 @@ extension MBKPopoverController {
     /// Returns `true` when the macOS auto-hide menubar is currently hidden (slid off-screen).
     ///
     /// `screenH < 0` signals a nil screen — treated as hidden.
-    /// `buttonY >= screenH` covers both the flush-at-top-edge case (auto-hide, bar slid away)
-    /// and the above-screen case. Uses `>=` because when the bar is hidden, the button window
-    /// sits flush with the screen top: buttonY == screenH exactly.
+    /// `buttonY > screenH` means the button window has slid above the screen top.
+    /// Uses `>` (not `>=`): `buttonY == screenH` is the normal flush resting position.
     var isMenuBarHidden: Bool {
         guard let button = statusItem.button else { return false }
         let buttonWin = button.window
@@ -27,7 +26,7 @@ extension MBKPopoverController {
         let winFrame = buttonWin?.frame ?? .zero
         let screenH = screenFrame.height > 0 ? screenFrame.height : -1
         let buttonY = winFrame.maxY
-        let hidden = screenH < 0 || buttonY >= screenH
+        let hidden = screenH < 0 || buttonY > screenH
         mbkLog("PopoverController",
                "isMenuBarHidden=\(hidden) buttonWinFrame=\(winFrame) screenFrame=\(screenFrame) visibleFrame=\(visibleFrame) buttonY=\(buttonY) screenH=\(screenH)")
         return hidden
@@ -35,8 +34,8 @@ extension MBKPopoverController {
 
     /// Button center X in screen coordinates.
     /// Derived as `buttonWin.frame.minX + button.frame.midX` so it is correct
-    /// in both visible and hidden mode (`statusBarWindow.frame.minX` is stable
-    /// even when the bar is hidden — only Y goes stale).
+    /// in both visible and hidden mode (`statusBarWindow.frame.midX` can be
+    /// stale when the menubar is hidden).
     var buttonScreenMidX: CGFloat? {
         guard let button = statusItem.button,
               let win = button.window else { return nil }
@@ -63,9 +62,11 @@ extension MBKPopoverController {
     /// Hidden-menubar mode: feeds AppKit a synthetic `positioningRect` whose midX
     /// is `lastKnownAnchorX` converted to button-local coordinates so `show()`
     /// places the window at the correct X from frame 1 — no post-show jump.
+    /// Falls back to the real button rect when no `lastKnownAnchorX` is available
+    /// (first-ever open in hidden mode with no prior visible open).
     ///
-    /// `lastKnownAnchorX` is always snapshotted on open (not only in visible mode)
-    /// because button window X is valid even when the menubar is hidden.
+    /// Visible-menubar mode: uses the real `positioningRect` as before and
+    /// snapshots `lastKnownAnchorX` for future hidden-mode opens.
     func openPopover() {
         guard let button = statusItem.button,
               let buttonWin = button.window else { return }
@@ -75,18 +76,18 @@ extension MBKPopoverController {
 
         let menuBarHidden = isMenuBarHidden
 
-        // Always snapshot lastKnownAnchorX — button window X (minX) is stable
-        // in both visible and hidden mode. Only Y goes stale when the bar hides.
-        if let anchorX = buttonScreenMidX {
+        if !menuBarHidden, let anchorX = buttonScreenMidX {
             lastKnownAnchorX = anchorX
             mbkLog("PopoverController", "openPopover -- lastKnownAnchorX updated to \(anchorX)")
         }
 
         // Build the positioning rect.
         //
-        // Hidden-menubar path: feed AppKit a synthetic rect whose midX is
-        // lastKnownAnchorX converted to button-local coords so show() places
-        // the window at the correct X from frame 1 — no post-show jump.
+        // Hidden-menubar path: the button window has slid off-screen so its
+        // reported frame.minX is stale. AppKit uses the positioningRect to derive
+        // the popover window's initial X. By feeding a synthetic rect whose midX
+        // is lastKnownAnchorX (screen coords) converted to button-local coords,
+        // AppKit places the window at the correct X on frame 1 with no visible jump.
         //
         // Visible-menubar path: use the real button rect unchanged.
         let posRect: NSRect
@@ -144,18 +145,14 @@ extension MBKPopoverController {
     /// `responds(to:)` is the safety net — if Apple ever renames the property
     /// the walk finds nothing and the function is a silent no-op.
     ///
-    /// Called from `popoverDidShow` (via async hop) and from the `contentSizeObserver`
-    /// KVO (deferred async, only while popover.isShown) so the arrow stays correct
-    /// after every resize without firing stale corrections post-close.
+    /// Called from `popoverDidShow` (via async hop) so AppKit's own
+    /// `_updateAnchorPointForFrame:reshape:` pass has already completed
+    /// before we write.
     func correctArrowAnchorPoint() {
         guard let window = hostingController.view.window,
               window.frame.width > 0,
-              window.frame.minX > 0,
               let anchorX = buttonScreenMidX else { return }
 
-        // Walk inside-out: start from the hosted SwiftUI view upward.
-        // The first ancestor that responds to "anchorPoint" is NSPopoverFrame
-        // (or its macOS-version equivalent).
         let anchorPointSel = NSSelectorFromString("anchorPoint")
         var candidate: NSView? = hostingController.view
         var frameView: NSView?
@@ -179,6 +176,70 @@ extension MBKPopoverController {
         )
         mbkLog("PopoverController",
                "correctArrowAnchorPoint -- anchorX=\(anchorX) winFrame=\(window.frame) normalizedX=\(normalizedX) clamped=\(clamped) target=\(type(of: frameView))")
+    }
+
+    // MARK: - Window position pin
+
+    /// Snapshots the popover window's `minX` and subscribes to `didMove` and
+    /// `didResize` notifications so that if AppKit repositions the window
+    /// horizontally (e.g. during a scroll-view height change in hidden-menubar
+    /// mode) we immediately restore the original `minX`.
+    ///
+    /// Must be called after the popover frame has settled (i.e. from the same
+    /// async hop as `correctArrowAnchorPoint` in `popoverDidShow`).
+    func pinPopoverWindow() {
+        guard let window = hostingController.view.window else {
+            mbkLog("PopoverController", "pinPopoverWindow -- no window, skipping")
+            return
+        }
+        let pinnedX = window.frame.minX
+        pinnedWindowMinX = pinnedX
+        mbkLog("PopoverController", "pinPopoverWindow -- pinnedX=\(pinnedX) winFrame=\(window.frame)")
+
+        let nc = NotificationCenter.default
+        windowMoveObserver = nc.addObserver(
+            forName: NSWindow.didMoveNotification,
+            object: window,
+            queue: .main
+        ) { [weak self, weak window] _ in
+            self?.handlePopoverWindowMoved(window: window)
+        }
+        windowResizeObserver = nc.addObserver(
+            forName: NSWindow.didResizeNotification,
+            object: window,
+            queue: .main
+        ) { [weak self, weak window] _ in
+            self?.handlePopoverWindowMoved(window: window)
+        }
+    }
+
+    /// Called when the popover window moves or resizes.
+    /// If the window's `minX` has drifted from `pinnedWindowMinX`, restore it.
+    private func handlePopoverWindowMoved(window: NSWindow?) {
+        guard popover.isShown,
+              let window,
+              let pinnedX = pinnedWindowMinX,
+              window.frame.minX != pinnedX else { return }
+        let drifted = window.frame.minX
+        var f = window.frame
+        f.origin.x = pinnedX
+        window.setFrameOrigin(f.origin)
+        mbkLog("PopoverController",
+               "handlePopoverWindowMoved -- driftedX=\(drifted) restoredX=\(pinnedX) newFrame=\(window.frame)")
+        // Re-correct arrow after restoring position so normalizedX is valid.
+        correctArrowAnchorPoint()
+    }
+
+    /// Removes the `didMove` and `didResize` observers and clears `pinnedWindowMinX`.
+    /// Called from `popoverDidClose`.
+    func unpinPopoverWindow() {
+        let nc = NotificationCenter.default
+        if let obs = windowMoveObserver { nc.removeObserver(obs) }
+        if let obs = windowResizeObserver { nc.removeObserver(obs) }
+        windowMoveObserver = nil
+        windowResizeObserver = nil
+        pinnedWindowMinX = nil
+        mbkLog("PopoverController", "unpinPopoverWindow -- observers removed")
     }
 
     // MARK: - Panel / sheet helpers
@@ -252,7 +313,7 @@ extension MBKPopoverController {
     /// `sizingOptions = [.preferredContentSize]` lets AppKit drive `contentSize`
     /// directly from SwiftUI's natural layout — no manual GeometryReader chain needed.
     /// Arrow position is corrected by `correctArrowAnchorPoint()` via `popoverDidShow`
-    /// (initial open) and via `contentSizeObserver` KVO (subsequent resizes, only while shown).
+    /// after AppKit's own layout pass completes.
     func setupPopover() {
         hostingController = NSHostingController(rootView: rootView)
         hostingController.sizingOptions = [.preferredContentSize]
@@ -261,18 +322,9 @@ extension MBKPopoverController {
         popover.animates = false
         popover.behavior = .applicationDefined
         popover.delegate = self
-
-        // KVO: re-correct arrow anchor on every AppKit-driven contentSize change
-        // (settings navigation, row expand/collapse, etc.).
-        // `isShown` guard prevents stale post-close callbacks from firing when the
-        // window has already been torn down (winMinX=0 causes normalizedX >> 1).
-        // Deferred via DispatchQueue.main.async so the window frame has settled
-        // before we read it to derive the normalised anchor X.
-        contentSizeObserver = popover.observe(\.contentSize, options: [.new]) { [weak self] _, _ in
-            DispatchQueue.main.async {
-                guard let self, self.popover.isShown else { return }
-                self.correctArrowAnchorPoint()
-            }
-        }
+        // contentSizeObserver intentionally absent.
+        // Arrow correction is owned by popoverDidShow (after AppKit's own
+        // _updateAnchorPointForFrame:reshape: pass completes). KVO on
+        // contentSize fires too early and loses the race.
     }
 }

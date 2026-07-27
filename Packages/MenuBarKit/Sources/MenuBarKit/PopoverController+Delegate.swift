@@ -16,17 +16,21 @@ extension MBKPopoverController: NSPopoverDelegate {
         mbkLog("PopoverController", "popoverWillShow")
     }
 
-    /// Corrects the arrow anchor point after AppKit has committed the popover frame.
+    /// Corrects the arrow anchor point and pins the window X after AppKit has
+    /// committed the popover frame.
     ///
     /// The `DispatchQueue.main.async` hop gives AppKit one full run-loop turn to
     /// complete its internal `_updateAnchorPointForFrame:reshape:` call before we
-    /// write `anchorPoint`. Writing synchronously here (or from a KVO on contentSize)
-    /// loses the race — AppKit's layout pass runs after our write and resets
-    /// `anchorPoint` to `(0, 0)`.
+    /// write `anchorPoint`. Writing synchronously here loses the race — AppKit's
+    /// layout pass runs after our write and resets `anchorPoint` to `(0, 0)`.
+    ///
+    /// `pinPopoverWindow()` is called in the same hop so the pin is in place
+    /// before any subsequent resize or move notification can fire.
     public func popoverDidShow(_ notification: Notification) {
         mbkLog("PopoverController", "popoverDidShow")
         DispatchQueue.main.async { [weak self] in
             self?.correctArrowAnchorPoint()
+            self?.pinPopoverWindow()
         }
     }
 
@@ -38,11 +42,12 @@ extension MBKPopoverController: NSPopoverDelegate {
     }
 
     /// Fires `onWillClose`, dehighlights the button, stops the event monitor,
-    /// and resets per-session state.
+    /// resets per-session state, and removes the window-pin observers.
     public func popoverDidClose(_ notification: Notification) {
         fireOnWillClose(wasForced: false)
         setButtonHighlight(false)
         stopEventMonitor()
+        unpinPopoverWindow()
         overlayGate.hasActiveOverlay = false
         overlayGate.hasFilePickerOverlay = false
         onWillCloseFired = false
