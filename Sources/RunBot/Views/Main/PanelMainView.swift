@@ -106,6 +106,12 @@ struct PanelMainView: View {
 
     // MARK: - Scroll section
 
+    /// Fraction of `visibleFrame.height` used to cap the scroll section.
+    /// Matches the old `screenScrollMaxHeight` heuristic. Change here only.
+    private let scrollHeightFraction: CGFloat = 0.8
+    /// Fallback scroll-section height (pt) when `NSScreen.main` is nil (headless CI).
+    private let scrollHeightFallback: CGFloat = 600
+
     /// Scrollable container for the actions section.
     ///
     /// Height is driven by SwiftUI's natural layout via `sizingOptions = [.preferredContentSize]`
@@ -118,7 +124,7 @@ struct PanelMainView: View {
         ScrollView(.vertical, showsIndicators: true) {
             actionsSectionContent
         }
-        .frame(maxHeight: NSScreen.main.map { $0.visibleFrame.height * 0.8 } ?? 600)
+        .frame(maxHeight: NSScreen.main.map { $0.visibleFrame.height * scrollHeightFraction } ?? scrollHeightFallback)
     }
 
     // MARK: - Content
