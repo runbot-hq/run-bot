@@ -32,22 +32,26 @@ extension MBKPopoverController: NSPopoverDelegate {
     public func popoverWillShow(_ notification: Notification) {
         setButtonHighlight(true)
         isShownSentinel = true
-        if let window = hostingController.view.window,
-           let button = statusItem.button,
-           let buttonWin = button.window {
-            hiddenChromeW    = window.frame.width  - popover.contentSize.width
-            hiddenChromeH    = window.frame.height - popover.contentSize.height
-            hiddenButtonMidX = buttonWin.frame.minX + button.frame.midX
-            hiddenWindowY    = window.frame.maxY
+        guard let window = hostingController.view.window else {
             mbkLog("PopoverController",
-                   "popoverWillShow -- isShownSentinel=true" +
-                   " chromeW=\(hiddenChromeW!) chromeH=\(hiddenChromeH!)" +
-                   " btnMidX=\(hiddenButtonMidX!) windowMaxY=\(hiddenWindowY!)" +
-                   " win=\(window.frame) #\(window.windowNumber)")
-        } else {
-            mbkLog("PopoverController",
-                   "popoverWillShow -- isShownSentinel=true (no hostingWindow yet, chrome not snapshotted)")
+                   "popoverWillShow -- isShownSentinel=true (hostingController.view.window nil, chrome not snapshotted; Path 3 will SKIP this session)")
+            return
         }
+        guard let button = statusItem.button,
+              let buttonWin = button.window else {
+            mbkLog("PopoverController",
+                   "popoverWillShow -- isShownSentinel=true (statusItem.button or button.window nil, chrome not snapshotted; Path 3 will SKIP this session)")
+            return
+        }
+        hiddenChromeW    = window.frame.width  - popover.contentSize.width
+        hiddenChromeH    = window.frame.height - popover.contentSize.height
+        hiddenButtonMidX = buttonWin.frame.minX + button.frame.midX
+        hiddenWindowY    = window.frame.maxY
+        mbkLog("PopoverController",
+               "popoverWillShow -- isShownSentinel=true" +
+               " chromeW=\(hiddenChromeW!) chromeH=\(hiddenChromeH!)" +
+               " btnMidX=\(hiddenButtonMidX!) windowMaxY=\(hiddenWindowY!)" +
+               " win=\(window.frame) #\(window.windowNumber)")
     }
 
     /// Blocks the popover from closing while any overlay (sheet or file picker) is active.
