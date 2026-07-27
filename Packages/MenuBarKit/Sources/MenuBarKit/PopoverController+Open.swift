@@ -178,15 +178,17 @@ extension MBKPopoverController {
     }
 
     /// Called when the popover window moves or resizes.
-    /// Restores both axes to the pinned values snapshotted in `pinPopoverWindow()`:
-    /// - X: `pinnedWindowMinX` (guards against the hidden-menubar AppKit bug that
-    ///   drifts the window to minX=0 on content-size changes)
-    /// - Y: `pinnedWindowMaxY - window.frame.height` (keeps the top edge fixed
-    ///   just below the menu bar regardless of height changes)
+    /// Restores both axes:
+    /// - X: `lastKnownAnchorX - window.frame.width / 2` keeps the window centred
+    ///   on the button regardless of width changes (guards against the hidden-menubar
+    ///   AppKit bug that drifts the window to minX=0 on content-size changes).
+    ///   Falls back to `pinnedWindowMinX`, then `window.frame.minX`.
+    /// - Y: `pinnedWindowMaxY - window.frame.height` keeps the top edge fixed
+    ///   just below the menu bar regardless of height changes.
     private func handlePopoverWindowMoved(window: NSWindow?) {
         guard popover.isShown,
               let window else { return }
-        let correctX = pinnedWindowMinX ?? window.frame.minX
+        let correctX = lastKnownAnchorX.map { $0 - window.frame.width / 2 } ?? pinnedWindowMinX ?? window.frame.minX
         let correctY = (pinnedWindowMaxY ?? (window.frame.origin.y + window.frame.height)) - window.frame.height
         guard window.frame.minX != correctX || window.frame.origin.y != correctY else { return }
         let driftedX = window.frame.minX
