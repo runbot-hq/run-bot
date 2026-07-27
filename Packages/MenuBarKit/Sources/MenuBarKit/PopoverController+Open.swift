@@ -23,6 +23,11 @@ extension MBKPopoverController {
     /// Note: returning `true` here is safe because `openPopover()` gates the hidden
     /// path on `lastKnownAnchorX != nil`; on first-ever open that binding fails and
     /// the visible-menubar else-branch fires instead.
+    ///
+    /// Asymmetry note: `statusItem.button == nil` returns `false` (button not yet
+    /// constructed — no open can be in progress) while `button.window == nil` returns
+    /// `true` (button exists but window not yet attached — treat as hidden for safety).
+    /// These are distinct lifecycle states, not equivalent nil checks.
     var isMenuBarHidden: Bool {
         guard let button = statusItem.button else { return false }
         guard let buttonWin = button.window else {
@@ -107,6 +112,10 @@ extension MBKPopoverController {
             panel.backgroundColor = .clear
             panel.level = .statusBar
             panel.orderFront(nil)
+            // Defensively close any stale panel before overwriting the reference.
+            // Normally unpinPopoverWindow() closes it in popoverDidClose, but on a
+            // rapid re-open race the old panel could still be alive here.
+            arrowAnchorPanel?.close()
             arrowAnchorPanel = panel
             mbkLog("PopoverController", "openPopover -- hidden-menubar arrowAnchorPanel frame=\(panelRect) anchorX=\(anchorX)")
             // NSPanel.contentView is always non-nil (guaranteed by NSWindow contract).
@@ -172,6 +181,11 @@ extension MBKPopoverController {
             object: window,
             queue: .main
         ) { [weak self, weak window] _ in
+            // The Task hop is intentional and load-bearing: `handlePopoverWindowMoved`
+            // calls `setFrameOrigin`, which synchronously re-fires `didMoveNotification`.
+            // The async hop defers the handler to the next run-loop turn, breaking the
+            // synchronous re-entrancy cycle. The epsilon guard in the handler then
+            // suppresses any residual spurious correction.
             Task { @MainActor [weak self, weak window] in
                 self?.handlePopoverWindowMoved(window: window)
             }
@@ -181,6 +195,7 @@ extension MBKPopoverController {
             object: window,
             queue: .main
         ) { [weak self, weak window] _ in
+            // Same intentional Task hop as didMoveNotification — see above.
             Task { @MainActor [weak self, weak window] in
                 self?.handlePopoverWindowMoved(window: window)
             }
