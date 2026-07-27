@@ -89,9 +89,9 @@ extension MBKPopoverController {
 
         startEventMonitor()
 
-        // Explicitly correct arrow anchor after show() so the first open is
-        // always correct even if the KVO fires before the window is assigned.
-        correctArrowAnchorPoint()
+        // correctArrowAnchorPoint() is NOT called here.
+        // popoverDidShow fires after show() returns and owns the correction
+        // with correct timing — after AppKit's own _updateAnchorPointForFrame:reshape: pass.
 
         Task { @MainActor in
             mbkLog("PopoverController", "onDidShow Task hop -- calling onDidShow")
@@ -106,24 +106,45 @@ extension MBKPopoverController {
 
     // MARK: - Arrow anchor correction
 
-    /// Corrects the popover arrow position by writing directly to `NSPopoverFrame.anchorPoint`
-    /// (private API, KVC-accessible since macOS 10.8).
+    /// Corrects the popover arrow by writing `anchorPoint` to the `NSPopoverFrame`
+    /// private view that actually owns arrow rendering.
     ///
-    /// Called from the `contentSizeObserver` KVO block on every `popover.contentSize` change
-    /// and explicitly at the end of `openPopover()` as a first-open safety net.
+    /// Uses an inside-out superview walk starting from `hostingController.view`
+    /// so we always land on the correct frame-decoration view regardless of how
+    /// many intermediate wrappers AppKit inserts (macOS 15/26 adds at least one
+    /// between contentView and NSPopoverFrame).
     ///
-    /// `anchorPoint` is a normalised `CGPoint` within the popover frame where
-    /// x=0.5 centres the arrow. We derive it from `buttonScreenMidX` relative to
-    /// the current window frame. Clamped to [0.05, 0.95] to keep the arrow visible.
+    /// `responds(to:)` is the safety net — if Apple ever renames the property
+    /// the walk finds nothing and the function is a silent no-op.
     ///
-    /// The `responds(to:)` guard makes this a silent no-op if Apple ever removes or
-    /// renames `NSPopoverFrame` — no crash, no App Store risk.
+    /// Called from `popoverDidShow` (via async hop) so AppKit's own
+    /// `_updateAnchorPointForFrame:reshape:` pass has already completed
+    /// before we write.
     func correctArrowAnchorPoint() {
         guard let window = hostingController.view.window,
-              let frameView = window.contentView?.superview,
-              frameView.responds(to: NSSelectorFromString("anchorPoint")),
-              let anchorX = buttonScreenMidX,
-              window.frame.width > 0 else { return }
+              window.frame.width > 0,
+              let anchorX = buttonScreenMidX else { return }
+
+        // Walk inside-out: start from the hosted SwiftUI view upward.
+        // The first ancestor that responds to "anchorPoint" is NSPopoverFrame
+        // (or its macOS-version equivalent). Walking from contentView?.superview
+        // is unreliable — on macOS 15+ that resolves to NSThemeFrame which
+        // coincidentally also responds to "anchorPoint" but is the wrong target.
+        let anchorPointSel = NSSelectorFromString("anchorPoint")
+        var candidate: NSView? = hostingController.view
+        var frameView: NSView?
+        while let v = candidate {
+            if v.responds(to: anchorPointSel) {
+                frameView = v
+                break
+            }
+            candidate = v.superview
+        }
+        guard let frameView else {
+            mbkLog("PopoverController", "correctArrowAnchorPoint -- no anchorPoint-capable view found, skipping")
+            return
+        }
+
         let normalizedX = (anchorX - window.frame.minX) / window.frame.width
         let clamped = max(0.05, min(0.95, normalizedX))
         frameView.setValue(
@@ -131,7 +152,7 @@ extension MBKPopoverController {
             forKey: "anchorPoint"
         )
         mbkLog("PopoverController",
-               "correctArrowAnchorPoint -- anchorX=\(anchorX) winMinX=\(window.frame.minX) winW=\(window.frame.width) normalizedX=\(normalizedX) clamped=\(clamped)")
+               "correctArrowAnchorPoint -- anchorX=\(anchorX) winMinX=\(window.frame.minX) winW=\(window.frame.width) normalizedX=\(normalizedX) clamped=\(clamped) target=\(type(of: frameView))")
     }
 
     // MARK: - Panel / sheet helpers
@@ -204,8 +225,8 @@ extension MBKPopoverController {
     ///
     /// `sizingOptions = [.preferredContentSize]` lets AppKit drive `contentSize`
     /// directly from SwiftUI's natural layout — no manual GeometryReader chain needed.
-    /// Arrow position is corrected by `correctArrowAnchorPoint()` via the
-    /// `contentSizeObserver` KVO block on every size change.
+    /// Arrow position is corrected by `correctArrowAnchorPoint()` via `popoverDidShow`
+    /// after AppKit's own layout pass completes.
     func setupPopover() {
         hostingController = NSHostingController(rootView: rootView)
         hostingController.sizingOptions = [.preferredContentSize]
@@ -214,12 +235,9 @@ extension MBKPopoverController {
         popover.animates = false
         popover.behavior = .applicationDefined
         popover.delegate = self
-
-        // KVO: correct arrow anchor on every AppKit-driven contentSize write.
-        // DispatchQueue.main.async ensures the window frame has been committed
-        // before we read it to derive the normalised anchor X.
-        contentSizeObserver = popover.observe(\.contentSize, options: [.new]) { [weak self] _, _ in
-            DispatchQueue.main.async { self?.correctArrowAnchorPoint() }
-        }
+        // contentSizeObserver intentionally removed.
+        // Arrow correction is driven by popoverDidShow (after AppKit's own
+        // _updateAnchorPointForFrame:reshape: pass completes) rather than
+        // by KVO on contentSize, which fires too early and loses the race.
     }
 }
