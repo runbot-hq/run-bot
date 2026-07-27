@@ -17,6 +17,15 @@ extension MBKPopoverController {
     /// `screenH < 0` signals a nil screen — treated as hidden.
     /// `buttonY > screenH` means the button window has slid above the screen top.
     /// Uses `>` (not `>=`): `buttonY == screenH` is the normal flush resting position.
+    ///
+    /// IN PRACTICE the `screenH < 0` branch is the one that fires: when the menubar is
+    /// auto-hidden the status-bar window no longer intersects any screen, so
+    /// `button.window?.screen` is nil and the log shows `screenH=-1.0` (the sentinel,
+    /// not a real height). `buttonY > screenH` is the fallback for the case where the
+    /// window has slid up but AppKit still reports a screen. Note the consequence: any
+    /// other reason for a nil screen — mid-flight display reconfiguration, the status
+    /// item's display being disconnected — is also reported as "menubar hidden" and
+    /// routes sizing through Path 3.
     var isMenuBarHidden: Bool {
         guard let button = statusItem.button else { return false }
         let buttonScreen = button.window?.screen
@@ -72,14 +81,21 @@ extension MBKPopoverController {
         // breaking the scrollViewHeight reset contract and causing the panel to open
         // at the wrong height (the exact regression this guard was added to prevent).
         //
+        // ORDERING NUANCE — "before the first layout pass" does NOT mean "synchronously":
+        // bumping willShowToken does not run the host's reset inline. SwiftUI applies
+        // onChange(of:) in its next update transaction. What calling onWillShow here
+        // buys is that the reset is *enqueued before* show(), so SwiftUI applies it in
+        // the same update that produces the first post-show layout pass, rather than one
+        // pass later. Raising isOpening first would instead suppress the applyContentSize
+        // call that pass produces — the regression this ordering exists to prevent.
+        //
         // WHY this gap cannot produce a stale applyContentSize write in practice:
         // The popover is not yet attached to a window when onWillShow fires —
-        // popover.show() has not been called. SwiftUI's onChange(of:) dispatches
-        // on the next run-loop turn, not synchronously; and a layout pass requires
-        // the view to be in a live window. No applyContentSize call can reach
-        // Path 1 or Path 2 synchronously from the willShowToken bump here.
-        // isOpening = true is raised on the very next line before popover.show(),
-        // so all layout passes that fire during or after show() are correctly suppressed.
+        // popover.show() has not been called, and a layout pass requires the view to be
+        // in a live window. No applyContentSize call can reach Path 1, 2, or 3 from the
+        // willShowToken bump here. isOpening = true is raised on the very next line
+        // before popover.show(), so the layout passes that fire during or after show()
+        // are suppressed on Paths 1 and 2 (Path 3 is ungated — see ContentSize.swift).
         onWillShow?()
         mbkLog("PopoverController", "onWillShow fired")
 

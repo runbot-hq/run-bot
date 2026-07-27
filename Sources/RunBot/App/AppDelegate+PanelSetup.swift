@@ -57,6 +57,15 @@ import SwiftUI
 // per-open re-read or applicationDidChangeScreenParameters wiring is needed.
 // ❌ NEVER move this read inside onWillShow or onDidShow — MBKPopoverController
 //    requires the cap at construction time, not per-open.
+//
+// ⚠️ CAVEAT — the cap DOES go stale on a resolution / main-display change:
+// "which screen" is out of scope, but "what height" is not. maxHeight is frozen at
+// launch while PanelMainView.screenScrollMaxHeight re-reads NSScreen.main on every
+// call. Change resolution, change display scaling, or make a different display the
+// main one, and the two caps diverge — exactly the gap CAP ALIGNMENT above warns
+// about — until the app is relaunched. The failure mode is the compressed header,
+// not a crash. Fixing it means making maxHeight mutable on MBKPopoverController (it
+// is a `let` today) and re-reading on NSApplication.didChangeScreenParametersNotification.
 
 /// Extension owning `MBKPopoverController` construction and lifecycle-callback wiring.
 extension AppDelegate {

@@ -87,6 +87,14 @@ extension MBKPopoverController {
             // Chrome deltas, button X, and window top edge are snapshotted once in
             // popoverWillShow per session. Never invalidated or recalculated.
             //
+            // ASYMMETRY — there is no `isOpening` guard on this path, unlike Paths 1
+            // and 2. A layout pass landing between popover.show() and the onDidShow
+            // Task therefore reaches this branch and issues a real window.setFrame at
+            // whatever width SwiftUI reports at that instant. Hidden-mode opens look
+            // correct in the #2279 logs, so this is recorded as an asymmetry rather
+            // than a deliberate exemption: adding the guard changes hidden-mode open
+            // timing and must be verified on device before it lands.
+            //
             // KNOWN LIMITATION — mid-session menubar hide:
             // hiddenWindowY (and all chrome snapshot values) are captured in
             // popoverWillShow, which fires before any of our setFrame calls.
@@ -138,11 +146,15 @@ extension MBKPopoverController {
             // Path 2: menubar visible — write contentSize then re-anchor via show()
             // on width change so AppKit re-derives arrow position atomically.
             //
-            // NOTE: show() re-triggers popoverWillShow (and all NSPopoverDelegate
-            // methods). setButtonHighlight(true) and isShownSentinel = true are
-            // idempotent no-ops on a second call within the same session. If
-            // delegate logic is ever added that must not fire twice per open,
-            // this call site must be audited first.
+            // NOTE — show() on an ALREADY-SHOWN popover does NOT re-run the
+            // NSPopoverDelegate callbacks. No popoverWillShow line follows a reanchor
+            // in the #2279 device logs; only the openPopover() show() produces one.
+            // That is load-bearing for the chrome snapshot popoverWillShow now takes:
+            // it must happen exactly once per session, against AppKit's own geometry.
+            // A re-fire here would re-snapshot hiddenWindowY from a frame Path 3 has
+            // already moved. If a future macOS release starts re-firing the delegate,
+            // make popoverWillShow snapshot-once (guard on `hiddenWindowY == nil`)
+            // before trusting this call site again.
             //
             // GUARDED: skip both the contentSize write AND the show() reanchor while
             // the opening sequence is in flight (isOpening == true). The onDidShow

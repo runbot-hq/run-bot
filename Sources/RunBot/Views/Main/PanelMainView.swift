@@ -84,16 +84,20 @@ import SwiftUI
 //
 // DUAL scrollViewHeight RESET — WHY TWO SITES AND WHY THAT IS INTENTIONAL (ref #2278):
 //         scrollViewHeight is reset to 0 in two places:
-//           1. onChange(of: willShowToken) — fires synchronously in onWillShow,
-//              BEFORE MBK reads fittingSize and calls show(). This is the primary
-//              reset and the one that actually prevents the wrong-height flash:
-//              scrollViewHeight == 0 means .frame(height: nil) when fittingSize is
-//              read, so MBK seeds contentSize from the unconstrained natural height.
+//           1. onChange(of: willShowToken) — driven from MBK's onWillShow, before
+//              popover.show(). This is the primary reset and the one that actually
+//              prevents the wrong-height flash: scrollViewHeight == 0 means
+//              .frame(height: nil), so the first post-show geometry pass measures the
+//              content unconstrained and MBK commits that natural height instead of
+//              the previous session's.
+//              NOTE: MBK's pre-show fittingSize read was removed in #2289. The reset
+//              no longer has to beat a fittingSize read — it has to be applied by
+//              SwiftUI no later than the first post-show layout pass.
 //           2. onChange(of: isOpen) false branch — fires after the popover closes,
 //              while no layout passes are active. Belt-and-suspenders: clears any
 //              stale value written by post-close layout passes (e.g. settings→main
-//              remount inside onWillClose teardown) so it cannot poison fittingSize
-//              on a rapid reopen that fires before willShowToken is processed.
+//              remount inside onWillClose teardown) so it cannot poison the first
+//              measurement on a rapid reopen that fires before willShowToken is processed.
 //         ORDERING: willShowToken always fires before isOpen flips to false
 //         (willShowToken is bumped in onWillShow pre-show; isOpen is set in onDidShow
 //         post-show, and cleared in onWillClose after that). The close-branch reset
@@ -305,8 +309,9 @@ struct PanelMainView: View {
             stopDisplayTickTimer()
         }
         // PRIMARY scrollViewHeight reset — see DUAL scrollViewHeight RESET in file header.
-        // Fires synchronously in onWillShow, before MBK reads fittingSize and calls show(),
-        // so the stale height is gone before contentSize is seeded.
+        // Driven from MBK's onWillShow, before popover.show(), so the stale height is gone
+        // before the first post-show geometry pass is measured. (MBK no longer reads
+        // fittingSize pre-show — that read was removed in #2289.)
         // ❌ NEVER remove. ❌ NEVER move to onChange(of: isOpen) open branch (too late).
         .onChange(of: panelVisibilityState.willShowToken) { _, _ in
             #if DEBUG
@@ -329,7 +334,7 @@ struct PanelMainView: View {
             } else {
                 // SECONDARY scrollViewHeight reset — see DUAL scrollViewHeight RESET in file header.
                 // Belt-and-suspenders: clears any stale value written by post-close layout
-                // passes so it cannot poison fittingSize on a rapid reopen. The willShowToken
+                // passes so they cannot poison the first measurement on a rapid reopen. The willShowToken
                 // reset (above) is the authoritative guard; this one fires after close and
                 // is redundant for normal flows. Both are idempotent. ❌ NEVER remove.
                 scrollViewHeight = 0
