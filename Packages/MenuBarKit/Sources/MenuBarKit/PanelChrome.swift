@@ -167,18 +167,7 @@ final class MBKPanelChromeView: NSView {
     override func layout() {
         super.layout()
 
-        // Guard against degenerate bounds (e.g. before the first open, when the
-        // window has not yet been positioned and its frame is zero or near-zero).
-        // Any non-finite or zero dimension produces NaN in the rotated-square
-        // arrow math, which NSViewValidateGeometry traps as EXC_BREAKPOINT.
         let arrowHeight = max(metrics.arrowHeight, 0)
-        guard bounds.width > 0, bounds.height > arrowHeight,
-              bounds.width.isFinite, bounds.height.isFinite else {
-            arrowGlass.isHidden = true
-            bodyGlass.isHidden = true
-            return
-        }
-
         let body = CGRect(
             x: bounds.minX,
             y: bounds.minY,
@@ -189,7 +178,6 @@ final class MBKPanelChromeView: NSView {
 
         container.frame = bounds
         containerContent.frame = bounds
-        bodyGlass.isHidden = false
         bodyGlass.frame = body
         bodyGlass.cornerRadius = radius
         bodyFill.frame = bodyGlass.bounds
