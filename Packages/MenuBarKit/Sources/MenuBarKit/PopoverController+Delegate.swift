@@ -26,15 +26,28 @@ extension MBKPopoverController: NSPopoverDelegate {
     /// Fast-close guard: if the popover is closed within that one run-loop turn
     /// (rapid double-click, or a programmatic close in tests), `popoverDidClose`
     /// fires first and `unpinPopoverWindow()` runs as a no-op (observers not yet
-    /// installed). Without the guard below, the Task would then install observers
-    /// on a dead session. On the next open, `pinPopoverWindow()`'s double-install
-    /// guard would fire on the stale non-nil tokens and skip re-registration,
-    /// leaving the new session entirely unpinned.
+    /// installed). Without the isShown guard below, the Task would then install
+    /// observers on a dead session. On the next open, `pinPopoverWindow()`'s
+    /// double-install guard would fire on the stale non-nil tokens and skip
+    /// re-registration, leaving the new session entirely unpinned.
+    ///
+    /// Hidden-mode gate: `pinPopoverWindow()` installs live NotificationCenter
+    /// observers. In visible-menubar mode `handlePopoverWindowMoved` is already
+    /// gated by `isPinnedForHiddenMode` and is a no-op, but the observers still
+    /// fire on every AppKit arrow-animation resize, each spawning an async Task.
+    /// Skipping the install in visible mode eliminates that unnecessary overhead
+    /// and makes the intent explicit — the pin is only needed for hidden-menubar
+    /// sessions. `unpinPopoverWindow()` is unconditional and idempotent, so no
+    /// change is needed on the close side.
     public func popoverDidShow(_ notification: Notification) {
         mbkLog("PopoverController", "popoverDidShow")
         Task { @MainActor [weak self] in
             guard self?.popover.isShown == true else {
                 mbkLog("PopoverController", "popoverDidShow Task -- popover already closed, skipping pinPopoverWindow")
+                return
+            }
+            guard self?.isPinnedForHiddenMode == true else {
+                mbkLog("PopoverController", "popoverDidShow Task -- visible-menubar mode, skipping pinPopoverWindow")
                 return
             }
             self?.pinPopoverWindow()

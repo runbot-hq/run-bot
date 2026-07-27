@@ -36,6 +36,15 @@ extension MBKPopoverController {
     /// display's menu bar, so `button.window` is always on the primary display
     /// where origin.y == 0 and frame.height == frame.maxY. A secondary-display
     /// correction would add complexity with no real-world benefit.
+    ///
+    /// screenFrame == .zero transient: `buttonWin.screen` can return a valid NSScreen
+    /// whose `.frame` is transiently (0,0,0,0) during a display reconfiguration event
+    /// (e.g. display sleep/wake, resolution change). In that state screenH = -1 and
+    /// hidden = true. On first-ever open `lastKnownAnchorX` is nil so `openPopover()`
+    /// falls through to the visible path — safe. On a subsequent open it would use a
+    /// stale `lastKnownAnchorX` with the ghost panel, which may produce a briefly
+    /// misplaced popover until the next real open updates the anchor. This is a
+    /// transient cosmetic edge case with no data loss; no fix is applied.
     var isMenuBarHidden: Bool {
         guard let button = statusItem.button else { return false }
         guard let buttonWin = button.window else {

@@ -107,11 +107,18 @@ struct PanelMainView: View {
     // MARK: - Scroll section
 
     /// Scrollable container for the actions section.
-    /// Height is driven by AppKit via .preferredContentSize — no manual frame needed.
+    ///
+    /// Height is driven by SwiftUI's natural layout via `sizingOptions = [.preferredContentSize]`
+    /// in `MBKPopoverController`. The `maxHeight` cap prevents the popover from growing past
+    /// the screen edge on very long runner/workflow lists — without it, `NSHostingController`
+    /// reports the full unconstrained content height to AppKit and the popover overflows.
+    /// 80% of `visibleFrame.height` matches the old `screenScrollMaxHeight` heuristic.
+    /// The 600pt fallback is used only when `NSScreen.main` is nil (headless CI).
     private var actionsSectionScrollable: some View {
         ScrollView(.vertical, showsIndicators: true) {
             actionsSectionContent
         }
+        .frame(maxHeight: NSScreen.main.map { $0.visibleFrame.height * 0.8 } ?? 600)
     }
 
     // MARK: - Content
