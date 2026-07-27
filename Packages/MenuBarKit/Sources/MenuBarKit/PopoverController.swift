@@ -12,7 +12,7 @@
 //   - Install/remove the NSWorkspace app-switch observer
 //   - Implement popoverShouldClose via the MBKOverlayGate
 //   - Reset the overlay gate in popoverDidClose (safety net)
-//   - Correct arrow anchor point via popoverDidShow (correctArrowAnchorPoint)
+//   - Show popover anchored to a real positioning subview (correct arrow placement)
 //   - Pin popover window minX via didMove/didResize notifications (pinPopoverWindow)
 //
 // STAY-OPEN-WHILE-SHEET-ACTIVE — deliberate trade-off:
@@ -58,7 +58,7 @@
 //
 // FILE ORGANISATION:
 //   PopoverController.swift             — stored properties, init, setup, deinit
-//   PopoverController+Open.swift        — toggle/open/close, positioning, highlight, arrow correction, window pin
+//   PopoverController+Open.swift        — toggle/open/close, positioning, highlight, window pin
 //   PopoverController+Observers.swift   — workspace observer, event monitor
 //   PopoverController+Delegate.swift    — NSPopoverDelegate conformance
 
@@ -105,9 +105,22 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
     nonisolated(unsafe) var workspaceObserver: NSObjectProtocol?
 
     /// Button center X in screen coordinates from the last visible-mode open.
-    /// Used for the post-show X correction when opening while the menubar is hidden.
-    /// `nil` until first visible-mode open.
+    /// Used to synthesise the correct `positioningRect` when opening while the
+    /// menubar is hidden (button window Y is stale; X is stable).
+    /// `nil` until first open.
     var lastKnownAnchorX: CGFloat?
+
+    /// Ephemeral 1pt-wide subview added to the status-bar button just before
+    /// `popover.show()` and removed in `popoverDidClose`.
+    ///
+    /// AppKit computes the arrow tip from the `positioningView` argument passed
+    /// to `show(relativeTo:of:preferredEdge:)`. Passing `of: button` with a
+    /// synthetic `positioningRect` does NOT move the arrow — AppKit uses the
+    /// button's own screen frame for arrow placement, not the rect argument.
+    /// Passing a real subview positioned at the correct local X gives AppKit an
+    /// accurate screen coordinate and produces a correctly centred arrow even
+    /// when the menubar is auto-hidden.
+    var positioningView: NSView?
 
     /// The popover window's `frame.minX` snapshotted in `pinPopoverWindow()` after
     /// `popoverDidShow` settles. If AppKit drifts the window left during a scroll-view
@@ -132,6 +145,13 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
 
     /// Prevents `onWillClose` from firing more than once per open/close cycle.
     var onWillCloseFired = false
+
+    /// KVO observer on `popover.contentSize`.
+    /// Fires after AppKit commits a new size, making it a convenient hook for
+    /// any post-resize corrections (currently unused for arrow — arrow is handled
+    /// by the positioning subview approach).
+    /// Installed in `setupPopover()`, lives for the controller's lifetime.
+    var contentSizeObserver: NSKeyValueObservation?
 
     // MARK: - Init
 
