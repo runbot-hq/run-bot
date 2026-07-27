@@ -103,16 +103,10 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
     /// Workspace app-switch observer token. `nonisolated(unsafe)` — see file header.
     nonisolated(unsafe) var workspaceObserver: NSObjectProtocol?
 
-    /// Button center X in screen coordinates from the last visible-mode open.
+    /// Button center X in screen coordinates from the last open.
     /// Used in hidden-menubar mode to position the arrow anchor panel before show().
     /// `nil` until first open.
     var lastKnownAnchorX: CGFloat?
-
-    /// The popover window's `frame.minX` snapshotted in `pinPopoverWindow()` after
-    /// `popoverDidShow` settles. If AppKit drifts the window left during a scroll-view
-    /// height change, `handlePopoverWindowMoved` restores this value immediately.
-    /// Cleared in `unpinPopoverWindow()` on close.
-    var pinnedWindowMinX: CGFloat?
 
     /// The popover window's `frame.maxY` (top edge) snapshotted in `pinPopoverWindow()`
     /// after `popoverDidShow` settles. As content grows the window height increases;
@@ -135,8 +129,9 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
     /// Invisible 20×1pt `NSPanel` used as `positioningView` for `NSPopover.show`
     /// in hidden-menubar mode. Positioned at `lastKnownAnchorX - 10` in screen
     /// coordinates so AppKit bakes the arrow at the correct center X at show() time.
-    /// Closed in the `popoverDidShow` async hop. Kept alive until then so AppKit
-    /// can read its screen position during its own layout pass.
+    /// Kept alive until `unpinPopoverWindow()` closes it on `popoverDidClose` —
+    /// closing it earlier causes AppKit to lose the anchor and jump the popover
+    /// to (0, y) on the next resize event.
     var arrowAnchorPanel: NSPanel?
 
     // MARK: - Init

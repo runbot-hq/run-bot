@@ -132,24 +132,19 @@ extension MBKPopoverController {
     /// just below the menu bar.
     ///
     /// `pinnedWindowMaxY` is clamped to `screen.visibleFrame.maxY` so the popover
-    /// never intrudes into the hidden menubar zone (4 pt gap between window.maxY
-    /// and visibleFrame.maxY that AppKit introduces when the bar is hidden).
+    /// never intrudes into the hidden menubar zone.
     ///
-    /// Must be called after the popover frame has settled (i.e. from the same
-    /// async hop as `correctArrowAnchorPoint` in `popoverDidShow`).
+    /// Must be called after the popover frame has settled (i.e. from the async
+    /// hop in `popoverDidShow`).
     func pinPopoverWindow() {
         guard let window = hostingController.view.window else {
             mbkLog("PopoverController", "pinPopoverWindow -- no window, skipping")
             return
         }
-        let pinnedX = window.frame.minX
-        // Use visibleFrame.maxY as the ceiling so the top edge stays flush with
-        // the visible area regardless of the 4 pt overshoot AppKit introduces.
         let pinnedMaxY = window.screen?.visibleFrame.maxY
             ?? (window.frame.origin.y + window.frame.height)
-        pinnedWindowMinX = pinnedX
         pinnedWindowMaxY = pinnedMaxY
-        mbkLog("PopoverController", "pinPopoverWindow -- pinnedX=\(pinnedX) pinnedMaxY=\(pinnedMaxY) winFrame=\(window.frame)")
+        mbkLog("PopoverController", "pinPopoverWindow -- pinnedMaxY=\(pinnedMaxY) winFrame=\(window.frame)")
 
         let nc = NotificationCenter.default
         windowMoveObserver = nc.addObserver(
@@ -187,7 +182,7 @@ extension MBKPopoverController {
                "handlePopoverWindowMoved -- driftedX=\(driftedX) driftedY=\(driftedY) restoredX=\(correctX) restoredY=\(correctY) newFrame=\(window.frame)")
     }
 
-    /// Removes the `didMove` and `didResize` observers, clears pinned origin,
+    /// Removes the `didMove` and `didResize` observers, clears pinned state,
     /// and closes `arrowAnchorPanel` if still alive.
     /// Called from `popoverDidClose`.
     func unpinPopoverWindow() {
@@ -196,7 +191,6 @@ extension MBKPopoverController {
         if let obs = windowResizeObserver { nc.removeObserver(obs) }
         windowMoveObserver = nil
         windowResizeObserver = nil
-        pinnedWindowMinX = nil
         pinnedWindowMaxY = nil
         arrowAnchorPanel?.close()
         arrowAnchorPanel = nil
