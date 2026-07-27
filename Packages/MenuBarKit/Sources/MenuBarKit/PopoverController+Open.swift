@@ -162,6 +162,13 @@ extension MBKPopoverController {
     /// Guarded by `popover.isShown` to block the spurious post-close KVO fire
     /// that AppKit emits during teardown — at that point the window frame is
     /// degenerate (minX=0) and writing anchorPoint=0.95 would corrupt the next open.
+    ///
+    /// `anchorPoint` is normalized against `frameView.bounds.width`, not
+    /// `window.frame.width`. `NSPopoverFrame` is inset from the window by the
+    /// shadow/border margin (≈20–30 pt per side on macOS 15/26); using the window
+    /// width produces a value that is systematically off, rendering the arrow left
+    /// of center. Converting the button screen X into `frameView`-local coordinates
+    /// gives the correct fraction regardless of the inset or macOS version.
     func correctArrowAnchorPoint() {
         guard popover.isShown else { return }
         guard let window = hostingController.view.window,
@@ -195,14 +202,23 @@ extension MBKPopoverController {
             return
         }
 
-        let normalizedX = (anchorX - window.frame.minX) / window.frame.width
+        // Convert the button's screen X into frameView-local coordinates.
+        // NSPopoverFrame is inset from the window by the shadow/border margin
+        // (≈20–30 pt per side on macOS 15/26). Normalizing against window.frame.width
+        // produces a value that is systematically off — the arrow renders left of center.
+        // Using frameView.bounds.width with the correct offset gives the right fraction
+        // regardless of inset size or macOS version.
+        let frameMinXInWindow = frameView.convert(NSPoint.zero, to: nil).x
+        let frameWidth = frameView.bounds.width
+        guard frameWidth > 0 else { return }
+        let normalizedX = (anchorX - window.frame.minX - frameMinXInWindow) / frameWidth
         let clamped = max(0.05, min(0.95, normalizedX))
         frameView.setValue(
             NSValue(point: CGPoint(x: clamped, y: 0)),
             forKey: "anchorPoint"
         )
         mbkLog("PopoverController",
-               "correctArrowAnchorPoint -- anchorX=\(anchorX) winFrame=\(window.frame) normalizedX=\(normalizedX) clamped=\(clamped) target=\(type(of: frameView))")
+               "correctArrowAnchorPoint -- anchorX=\(anchorX) winFrame=\(window.frame) frameMinXInWindow=\(frameMinXInWindow) frameWidth=\(frameWidth) normalizedX=\(normalizedX) clamped=\(clamped) target=\(type(of: frameView))")
     }
 
     // MARK: - Window position pin
