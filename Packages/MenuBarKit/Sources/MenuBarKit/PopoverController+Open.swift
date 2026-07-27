@@ -18,14 +18,19 @@ extension MBKPopoverController {
     /// `buttonY >= screenH` covers the flush-at-top-edge case: when auto-hide is on
     /// and the bar has slid away, the button window sits exactly at screenH (buttonY == screenH).
     /// Uses `>=` (not `>`): `buttonY == screenH` is the hidden resting position.
+    /// A nil button window (possible during startup before the status item is attached)
+    /// is treated as hidden so the caller falls back to the safe hidden-menubar path.
     var isMenuBarHidden: Bool {
         guard let button = statusItem.button else { return false }
-        let buttonWin = button.window
-        let buttonScreen = buttonWin?.screen
+        guard let buttonWin = button.window else {
+            mbkLog("PopoverController", "isMenuBarHidden -- button.window is nil, treating as hidden")
+            return true
+        }
+        let buttonScreen = buttonWin.screen
         let screenFrame = buttonScreen?.frame ?? .zero
         // visibleFrame is not used in the hidden calculation — included in mbkLog only.
         let visibleFrame = buttonScreen?.visibleFrame ?? .zero
-        let winFrame = buttonWin?.frame ?? .zero
+        let winFrame = buttonWin.frame
         let screenH = screenFrame.height > 0 ? screenFrame.height : -1
         let buttonY = winFrame.maxY
         let hidden = screenH < 0 || buttonY >= screenH
@@ -185,14 +190,11 @@ extension MBKPopoverController {
               let anchorX = lastKnownAnchorX else { return }
         let correctX = anchorX - window.frame.width / 2
         let correctY = (pinnedWindowMaxY ?? (window.frame.origin.y + window.frame.height)) - window.frame.height
-        // Float-equality guard: relies on AppKit snapping setFrameOrigin to the
-        // same CGFloat values we computed, which holds on both Retina (0.5pt grid)
-        // and non-Retina (1pt grid) because anchorX and pinnedWindowMaxY are both
-        // derived from AppKit frame values — no external floating-point arithmetic.
-        // If the frame after the set does not match (shouldn’t happen in practice),
-        // the next didMove/didResize notification will re-enter and correct it;
-        // there is no infinite loop because the second set will produce an exact match.
-        guard window.frame.minX != correctX || window.frame.origin.y != correctY else { return }
+        // Epsilon guard (0.5pt): avoids a spurious correction when AppKit rounds
+        // the frame to a pixel boundary that differs from our computed value by a
+        // sub-pixel amount. 0.5pt is the finest grid AppKit uses (1× Retina);
+        // any real drift caused by AppKit repositioning the window will be ≥1pt.
+        guard abs(window.frame.minX - correctX) >= 0.5 || abs(window.frame.origin.y - correctY) >= 0.5 else { return }
         let driftedX = window.frame.minX
         let driftedY = window.frame.origin.y
         window.setFrameOrigin(NSPoint(x: correctX, y: correctY))
