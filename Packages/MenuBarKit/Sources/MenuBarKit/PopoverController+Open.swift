@@ -50,10 +50,13 @@ extension MBKPopoverController {
     }
 
     /// Shows the popover anchored to the status-bar button.
-    /// Handles `onWillShow`/`onDidShow` callbacks and post-show X correction
-    /// for the hidden-menubar case.
+    /// Handles `onWillShow`/`onDidShow` callbacks.
+    /// In hidden-menubar mode, feeds AppKit a synthetic `positioningRect` whose
+    /// midX is `lastKnownAnchorX` (button-local) so `show()` places the window
+    /// at the correct X from frame 1 — no post-show `setFrameOrigin` jump.
     func openPopover() {
-        guard let button = statusItem.button else { return }
+        guard let button = statusItem.button,
+              let buttonWin = button.window else { return }
         mbkLog("PopoverController", "openPopover -- calling onWillShow")
         onWillShow?()
         mbkLog("PopoverController", "onWillShow fired")
@@ -65,27 +68,25 @@ extension MBKPopoverController {
             mbkLog("PopoverController", "openPopover -- lastKnownAnchorX updated to \(anchorX)")
         }
 
-        guard let rect = positioningRect(for: button) else { return }
-        popover.show(relativeTo: rect, of: button, preferredEdge: .minY)
+        // Build the positioning rect.
+        // Hidden-menubar: use a synthetic rect centered on lastKnownAnchorX
+        // (converted from screen to button-local coordinates) so AppKit places
+        // the popover window at the correct X on frame 1 without a post-show jump.
+        // Visible-menubar: use the real button rect as before.
+        let posRect: NSRect
+        if menuBarHidden, let knownScreenX = lastKnownAnchorX {
+            let localMidX = knownScreenX - buttonWin.frame.minX
+            posRect = NSRect(x: localMidX - 0.5, y: button.bounds.minY, width: 1, height: max(button.bounds.height, 1))
+            mbkLog("PopoverController", "openPopover -- hidden-menubar synthetic posRect midX=\(localMidX)")
+        } else if let real = positioningRect(for: button) {
+            posRect = real
+        } else {
+            return
+        }
+
+        popover.show(relativeTo: posRect, of: button, preferredEdge: .minY)
         NSApp.activate(ignoringOtherApps: true)
         mbkLog("PopoverController", "popover shown")
-
-        // Post-show reposition when menubar is hidden.
-        // AppKit anchors the window using the button's stale off-screen position — bad X.
-        // Override immediately with lastKnownAnchorX before the user sees it.
-        if menuBarHidden,
-           let liveAnchorX = lastKnownAnchorX,
-           let window = hostingController.view.window {
-            let correctedOrigin = NSPoint(
-                x: liveAnchorX - window.frame.width / 2,
-                y: window.frame.origin.y
-            )
-            window.setFrameOrigin(correctedOrigin)
-            mbkLog("PopoverController",
-                   "openPopover -- menubar hidden, post-show REPOSITION liveAnchorX=\(liveAnchorX) w=\(window.frame.width) origin=\(correctedOrigin)")
-        } else if menuBarHidden {
-            mbkLog("PopoverController", "openPopover -- menubar hidden but no lastKnownAnchorX yet, cannot reposition")
-        }
 
         startEventMonitor()
 
