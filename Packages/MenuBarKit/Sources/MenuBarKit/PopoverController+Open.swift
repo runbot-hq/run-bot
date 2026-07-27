@@ -149,13 +149,13 @@ extension MBKPopoverController {
 
         startEventMonitor()
 
-        Task { @MainActor in
+        Task { @MainActor [weak self] in
             mbkLog("PopoverController", "onDidShow Task hop -- calling onDidShow")
-            guard self.popover.isShown else {
+            guard self?.popover.isShown == true else {
                 mbkLog("PopoverController", "onDidShow Task hop -- popover already closed, skipping onDidShow")
                 return
             }
-            self.onDidShow?()
+            self?.onDidShow?()
             mbkLog("PopoverController", "onDidShow fired")
         }
     }
@@ -199,8 +199,13 @@ extension MBKPopoverController {
             mbkLog("PopoverController", "pinPopoverWindow -- no window, skipping")
             return
         }
+        // Fallback uses NSScreen.main?.visibleFrame.maxY rather than window.frame.maxY:
+        // when window.screen is nil (headless CI, display sleep) window.frame.maxY is
+        // the window's own top edge — not the screen boundary — which would silently
+        // disable the pin effect. NSScreen.main is a better-effort screen boundary.
         let pinnedMaxY = window.screen?.visibleFrame.maxY
-            ?? (window.frame.origin.y + window.frame.height)
+            ?? NSScreen.main?.visibleFrame.maxY
+            ?? window.frame.maxY
         pinnedWindowMaxY = pinnedMaxY
         mbkLog("PopoverController", "pinPopoverWindow -- pinnedMaxY=\(pinnedMaxY) winFrame=\(window.frame)")
 

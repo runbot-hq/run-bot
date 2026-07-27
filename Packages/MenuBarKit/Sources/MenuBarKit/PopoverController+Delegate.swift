@@ -22,9 +22,21 @@ extension MBKPopoverController: NSPopoverDelegate {
     /// complete its internal layout pass before we snapshot the frame in
     /// `pinPopoverWindow()`. The pin must be in place before any subsequent
     /// resize or move notification can fire.
+    ///
+    /// Fast-close guard: if the popover is closed within that one run-loop turn
+    /// (rapid double-click, or a programmatic close in tests), `popoverDidClose`
+    /// fires first and `unpinPopoverWindow()` runs as a no-op (observers not yet
+    /// installed). Without the guard below, the Task would then install observers
+    /// on a dead session. On the next open, `pinPopoverWindow()`'s double-install
+    /// guard would fire on the stale non-nil tokens and skip re-registration,
+    /// leaving the new session entirely unpinned.
     public func popoverDidShow(_ notification: Notification) {
         mbkLog("PopoverController", "popoverDidShow")
         Task { @MainActor [weak self] in
+            guard self?.popover.isShown == true else {
+                mbkLog("PopoverController", "popoverDidShow Task -- popover already closed, skipping pinPopoverWindow")
+                return
+            }
             self?.pinPopoverWindow()
         }
     }
