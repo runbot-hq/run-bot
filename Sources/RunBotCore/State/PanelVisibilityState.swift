@@ -109,7 +109,7 @@ public final class PanelVisibilityState {
     public var onHeightReady: ((CGFloat) -> Void)?
 
     /// Monotonically incremented by AppDelegate in `onWillShow` via `bumpWillShowToken()`,
-    /// synchronously before MBK calls `hostingController.view.fittingSize` and `popover.show()`.
+    /// synchronously before MBK calls `popover.show()`.
     ///
     /// PURPOSE — allow PanelMainView to reset `scrollViewHeight = 0` at the
     /// earliest possible moment, before MBK seeds `contentSize` from the SwiftUI
@@ -139,6 +139,7 @@ public final class PanelVisibilityState {
     ///           assignment from outside RunBotCore is a compile error.
     /// READ BY:  PanelMainView.onChange(of: panelVisibilityState.willShowToken).
     /// ❌ NEVER call `bumpWillShowToken()` outside onWillShow.
+    /// ❌ NEVER use `+= 1` — use `&+= 1` to avoid a debug-build trap at Int.max.
     /// ❌ NEVER read this outside PanelMainView (or its direct sub-views if needed).
     public private(set) var willShowToken: Int = 0
 
