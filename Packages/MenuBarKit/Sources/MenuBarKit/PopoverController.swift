@@ -130,6 +130,15 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
     /// Reset in `unpinPopoverWindow()` on close.
     var isPinnedForHiddenMode: Bool = false
 
+    /// `true` while `handlePopoverWindowMoved` is executing `setFrameOrigin`.
+    /// Guards against the re-entrancy loop caused by the Task hop in the didMove/
+    /// didResize observers: `setFrameOrigin` synchronously fires `didMoveNotification`,
+    /// which enqueues a new Task; that Task fires on the next run-loop turn and would
+    /// re-enter the handler. With this flag set, the re-entrant Task bails immediately
+    /// rather than issuing another correction that would produce visible Y-jumping.
+    /// Reset in `unpinPopoverWindow()` as a safety net on close.
+    var isCorrectingFrame: Bool = false
+
     /// `NSWindow.didMoveNotification` observer token. Managed by
     /// `pinPopoverWindow()` / `unpinPopoverWindow()`.
     var windowMoveObserver: Any?
