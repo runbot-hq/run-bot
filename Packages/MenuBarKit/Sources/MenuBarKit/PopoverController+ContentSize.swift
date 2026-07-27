@@ -50,14 +50,28 @@ extension MBKPopoverController {
             // the popover briefly visible at the wrong size before onDidShow issues
             // the authoritative WRITE+REANCHOR. Suppressing the write is safe because
             // the correct geometry is committed by that WRITE+REANCHOR call anyway.
-            if isOpening {
+            //
+            // EXCEPTION — the first open of the app run (hasCommittedContentSize == false).
+            // There is no previous session, so there is no stale width to flash: the only
+            // thing in popover.contentSize is the setupPopover() placeholder, which is
+            // definitionally wrong. Suppressing the write there meant the popover was shown
+            // at the placeholder size, popoverWillShow snapshotted chrome and AppKit derived
+            // the arrow against that placeholder-sized window, and the size was only
+            // corrected by a post-show WRITE+REANCHOR — leaving the arrow drawn for the old
+            // geometry (the chopped arrow in #2279, reproducible only on the first show).
+            // Committing the in-flight size makes the first open behave like every
+            // subsequent one, which is pre-sized by the close-path write below.
+            if isOpening && hasCommittedContentSize {
                 mbkLog("PopoverController",
                        "applyContentSize -- not shown, opening in flight, SKIP WRITE (\(clamped.width),\(clamped.height))")
                 return
             }
-            popover.contentSize = clamped
             mbkLog("PopoverController",
-                   "applyContentSize -- not shown, WRITE (\(clamped.width),\(clamped.height))")
+                   isOpening
+                   ? "applyContentSize -- not shown, first open in flight, WRITE (\(clamped.width),\(clamped.height))"
+                   : "applyContentSize -- not shown, WRITE (\(clamped.width),\(clamped.height))")
+            popover.contentSize = clamped
+            hasCommittedContentSize = true
             return
         }
 
@@ -106,6 +120,7 @@ extension MBKPopoverController {
             // AppKit ignores this for window positioning in hidden mode, but the
             // hosting controller uses it for view layout.
             popover.contentSize = clamped
+            hasCommittedContentSize = true
             let newW = clamped.width  + chromeW
             let newH = clamped.height + chromeH
             // ❌ DO NOT use window.frame.origin.x — it was computed for a specific
@@ -142,6 +157,7 @@ extension MBKPopoverController {
                 return
             }
             popover.contentSize = clamped
+            hasCommittedContentSize = true
             if widthChanged {
                 guard let button = statusItem.button,
                       let rect = positioningRect(for: button) else {

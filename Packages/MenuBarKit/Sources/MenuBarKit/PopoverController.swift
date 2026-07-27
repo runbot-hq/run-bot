@@ -119,8 +119,16 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
     /// Opening-sentinel for `applyContentSize`: raised just before `popover.show()`
     /// in `openPopover()` and lowered at the top of the `onDidShow` Task.
     /// While true, Path 1 (not-shown) writes and Path 2 width-change reanchors
-    /// are suppressed. Reset to `false` in `popoverDidClose` as a safety net.
+    /// are suppressed — except on the very first open, see `hasCommittedContentSize`.
+    /// Reset to `false` in `popoverDidClose` as a safety net.
     var isOpening = false
+
+    /// `true` once a SwiftUI-reported size has been written to `popover.contentSize`
+    /// at least once in this app run. Never reset — `setupPopover()` seeds
+    /// `contentSize` with a placeholder, and only the first open has to cope with it.
+    /// Read by Path 1 to allow the in-flight write on the very first open, where
+    /// there is no previous session and therefore no stale width to flash. See #2279.
+    var hasCommittedContentSize = false
 
     /// Button center X in screen coordinates from the last visible-mode open.
     /// Used for the post-show X correction when opening while the menubar is hidden.
