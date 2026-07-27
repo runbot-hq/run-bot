@@ -115,6 +115,13 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
     /// Cleared in `unpinPopoverWindow()` on close.
     var pinnedWindowMaxY: CGFloat?
 
+    /// `true` when the current open session used the hidden-menubar ghost-panel path.
+    /// Set in `openPopover()` and read in `handlePopoverWindowMoved()` to gate the
+    /// X/Y correction — in visible-menubar mode AppKit owns window position and the
+    /// pin must not interfere with its own repositioning logic.
+    /// Reset in `unpinPopoverWindow()` on close.
+    var isPinnedForHiddenMode: Bool = false
+
     /// `NSWindow.didMoveNotification` observer token. Managed by
     /// `pinPopoverWindow()` / `unpinPopoverWindow()`.
     var windowMoveObserver: Any?

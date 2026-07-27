@@ -119,11 +119,13 @@ extension MBKPopoverController {
             panel.level = .statusBar
             panel.orderFront(nil)
             arrowAnchorPanel = panel
+            isPinnedForHiddenMode = true
             mbkLog("PopoverController", "openPopover -- hidden-menubar arrowAnchorPanel frame=\(panelRect) anchorX=\(anchorX)")
             // NSPanel.contentView is always non-nil (guaranteed by NSWindow contract).
             let contentView = panel.contentView!
             popover.show(relativeTo: contentView.bounds, of: contentView, preferredEdge: .minY)
         } else {
+            isPinnedForHiddenMode = false
             guard let posRect = positioningRect(for: button) else { return }
             mbkLog("PopoverController", "openPopover -- visible-menubar posRect=\(posRect)")
             popover.show(relativeTo: posRect, of: button, preferredEdge: .minY)
@@ -205,6 +207,9 @@ extension MBKPopoverController {
     }
 
     /// Called when the popover window moves or resizes.
+    /// Only corrects position when `isPinnedForHiddenMode` is `true` — in
+    /// visible-menubar mode AppKit owns the window position and this handler
+    /// must not interfere with its own popover-placement logic.
     /// Recomputes the correct X as `lastKnownAnchorX - window.frame.width / 2`,
     /// snapped to the display pixel grid via `backingScaleFactor` so that
     /// `setFrameOrigin` produces a value AppKit will round to the same point,
@@ -212,7 +217,8 @@ extension MBKPopoverController {
     /// Recomputes the correct Y as `pinnedWindowMaxY - window.frame.height`
     /// so the top edge stays fixed regardless of height changes.
     private func handlePopoverWindowMoved(window: NSWindow?) {
-        guard popover.isShown,
+        guard isPinnedForHiddenMode,
+              popover.isShown,
               let window,
               let anchorX = lastKnownAnchorX else { return }
         guard let pinnedMaxY = pinnedWindowMaxY else {
@@ -248,6 +254,7 @@ extension MBKPopoverController {
         windowMoveObserver = nil
         windowResizeObserver = nil
         pinnedWindowMaxY = nil
+        isPinnedForHiddenMode = false
         arrowAnchorPanel?.close()
         arrowAnchorPanel = nil
         mbkLog("PopoverController", "unpinPopoverWindow -- observers removed")
