@@ -100,7 +100,13 @@ extension MBKPopoverController {
             panel.orderFront(nil)
             arrowAnchorPanel = panel
             mbkLog("PopoverController", "openPopover -- hidden-menubar arrowAnchorPanel frame=\(panelRect) anchorX=\(anchorX)")
-            popover.show(relativeTo: panel.contentView!.bounds, of: panel.contentView!, preferredEdge: .minY)
+            guard let contentView = panel.contentView else {
+                mbkLog("PopoverController", "openPopover -- arrowAnchorPanel has no contentView, falling back to visible-mode show")
+                guard let posRect = positioningRect(for: button) else { return }
+                popover.show(relativeTo: posRect, of: button, preferredEdge: .minY)
+                return
+            }
+            popover.show(relativeTo: contentView.bounds, of: contentView, preferredEdge: .minY)
         } else {
             guard let posRect = positioningRect(for: button) else { return }
             mbkLog("PopoverController", "openPopover -- visible-menubar posRect=\(posRect)")
@@ -152,14 +158,18 @@ extension MBKPopoverController {
             object: window,
             queue: .main
         ) { [weak self, weak window] _ in
-            self?.handlePopoverWindowMoved(window: window)
+            Task { @MainActor [weak self, weak window] in
+                self?.handlePopoverWindowMoved(window: window)
+            }
         }
         windowResizeObserver = nc.addObserver(
             forName: NSWindow.didResizeNotification,
             object: window,
             queue: .main
         ) { [weak self, weak window] _ in
-            self?.handlePopoverWindowMoved(window: window)
+            Task { @MainActor [weak self, weak window] in
+                self?.handlePopoverWindowMoved(window: window)
+            }
         }
     }
 
