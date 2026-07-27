@@ -181,10 +181,10 @@ extension MBKPopoverController {
 
     // MARK: - Window position pin
 
-    /// Snapshots the popover window's `minX` and subscribes to `didMove` and
-    /// `didResize` notifications so that if AppKit repositions the window
-    /// horizontally (e.g. during a scroll-view height change in hidden-menubar
-    /// mode) we immediately restore the correct `minX`.
+    /// Snapshots the popover window's origin (X and Y) and subscribes to `didMove`
+    /// and `didResize` notifications so that if AppKit repositions the window
+    /// (e.g. during a scroll-view height change in hidden-menubar mode) we
+    /// immediately restore the correct origin.
     ///
     /// Must be called after the popover frame has settled (i.e. from the same
     /// async hop as `correctArrowAnchorPoint` in `popoverDidShow`).
@@ -194,8 +194,10 @@ extension MBKPopoverController {
             return
         }
         let pinnedX = window.frame.minX
+        let pinnedY = window.frame.origin.y
         pinnedWindowMinX = pinnedX
-        mbkLog("PopoverController", "pinPopoverWindow -- pinnedX=\(pinnedX) winFrame=\(window.frame)")
+        pinnedWindowOriginY = pinnedY
+        mbkLog("PopoverController", "pinPopoverWindow -- pinnedX=\(pinnedX) pinnedY=\(pinnedY) winFrame=\(window.frame)")
 
         let nc = NotificationCenter.default
         windowMoveObserver = nc.addObserver(
@@ -217,21 +219,24 @@ extension MBKPopoverController {
     /// Called when the popover window moves or resizes.
     /// Recomputes the correct X as `lastKnownAnchorX - window.frame.width / 2`
     /// so the window stays centred on the button regardless of width changes.
+    /// Also restores Y to `pinnedWindowOriginY` if AppKit has drifted it.
     private func handlePopoverWindowMoved(window: NSWindow?) {
         guard popover.isShown,
               let window,
               let anchorX = lastKnownAnchorX else { return }
         let correctX = anchorX - window.frame.width / 2
-        guard window.frame.minX != correctX else { return }
-        let drifted = window.frame.minX
-        window.setFrameOrigin(NSPoint(x: correctX, y: window.frame.origin.y))
+        let correctY = pinnedWindowOriginY ?? window.frame.origin.y
+        guard window.frame.minX != correctX || window.frame.origin.y != correctY else { return }
+        let driftedX = window.frame.minX
+        let driftedY = window.frame.origin.y
+        window.setFrameOrigin(NSPoint(x: correctX, y: correctY))
         mbkLog("PopoverController",
-               "handlePopoverWindowMoved -- driftedX=\(drifted) restoredX=\(correctX) newFrame=\(window.frame)")
+               "handlePopoverWindowMoved -- driftedX=\(driftedX) driftedY=\(driftedY) restoredX=\(correctX) restoredY=\(correctY) newFrame=\(window.frame)")
         // Re-correct arrow after restoring position so normalizedX is valid.
         correctArrowAnchorPoint()
     }
 
-    /// Removes the `didMove` and `didResize` observers and clears `pinnedWindowMinX`.
+    /// Removes the `didMove` and `didResize` observers and clears pinned origin.
     /// Called from `popoverDidClose`.
     func unpinPopoverWindow() {
         let nc = NotificationCenter.default
@@ -240,6 +245,7 @@ extension MBKPopoverController {
         windowMoveObserver = nil
         windowResizeObserver = nil
         pinnedWindowMinX = nil
+        pinnedWindowOriginY = nil
         mbkLog("PopoverController", "unpinPopoverWindow -- observers removed")
     }
 
