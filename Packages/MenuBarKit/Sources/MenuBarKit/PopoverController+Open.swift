@@ -64,11 +64,13 @@ extension MBKPopoverController {
     ///
     /// In **hidden-menubar mode**: AppKit's button window frame is stale (Y off-screen),
     /// so the arrow position cannot be derived from the button's coordinate space.
-    /// Instead, an invisible 20×1pt `NSPanel` (`arrowAnchorPanel`) is created at
+    /// An invisible 20×1pt `NSPanel` (`arrowAnchorPanel`) is created at
     /// `lastKnownAnchorX - 10` in screen coordinates (Y = `visibleFrame.maxY - 1`)
     /// and passed as the `positioningView`. AppKit reads the panel's screen origin at
-    /// show() time, baking the arrow at the correct center X. The panel is closed in
-    /// the `popoverDidShow` async hop once AppKit's layout pass is complete.
+    /// show() time, baking the arrow at the correct center X.
+    /// The panel is kept alive (alphaValue=0) until `unpinPopoverWindow()` closes it
+    /// on `popoverDidClose` — closing it earlier causes AppKit to lose the anchor
+    /// and jump the popover to (0, y) on the next resize event.
     func openPopover() {
         guard let button = statusItem.button else { return }
         mbkLog("PopoverController", "openPopover -- calling onWillShow")
@@ -114,13 +116,8 @@ extension MBKPopoverController {
             mbkLog("PopoverController", "onDidShow Task hop -- calling onDidShow")
             guard self.popover.isShown else {
                 mbkLog("PopoverController", "onDidShow Task hop -- popover already closed, skipping onDidShow")
-                self.arrowAnchorPanel?.close()
-                self.arrowAnchorPanel = nil
                 return
             }
-            self.arrowAnchorPanel?.close()
-            self.arrowAnchorPanel = nil
-            mbkLog("PopoverController", "openPopover -- arrowAnchorPanel closed")
             self.onDidShow?()
             mbkLog("PopoverController", "onDidShow fired")
         }
@@ -190,7 +187,8 @@ extension MBKPopoverController {
                "handlePopoverWindowMoved -- driftedX=\(driftedX) driftedY=\(driftedY) restoredX=\(correctX) restoredY=\(correctY) newFrame=\(window.frame)")
     }
 
-    /// Removes the `didMove` and `didResize` observers and clears pinned origin.
+    /// Removes the `didMove` and `didResize` observers, clears pinned origin,
+    /// and closes `arrowAnchorPanel` if still alive.
     /// Called from `popoverDidClose`.
     func unpinPopoverWindow() {
         let nc = NotificationCenter.default
@@ -207,9 +205,12 @@ extension MBKPopoverController {
 
     // MARK: - Panel / sheet helpers
 
-    /// The `NSWindow` with `.nonactivatingPanel` style mask, if any.
+    /// The `NSWindow` with `.nonactivatingPanel` style mask that is NOT `arrowAnchorPanel`.
+    /// Used to find the sheet-hosting panel for `forceClose()`.
     var panelWindow: NSWindow? {
-        NSApp.windows.first { $0.styleMask.contains(.nonactivatingPanel) }
+        NSApp.windows.first {
+            $0.styleMask.contains(.nonactivatingPanel) && $0 !== arrowAnchorPanel
+        }
     }
 
     /// `true` when the panel window has at least one child window (i.e. a sheet is attached).
