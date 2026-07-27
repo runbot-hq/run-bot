@@ -14,10 +14,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 .environment(appState)
                 .environment(overlayGate),
             overlayGate: overlayGate,
-            symbolName: "flask.fill",
-            minWidth: 200,
-            maxWidth: 480,
-            maxHeight: 600
+            symbolName: "flask.fill"
         )
         mbkLog("AppDelegate", "popoverController created")
         popoverController.setup()
