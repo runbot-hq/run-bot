@@ -133,6 +133,13 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
     /// Prevents `onWillClose` from firing more than once per open/close cycle.
     var onWillCloseFired = false
 
+    /// Invisible 1×22pt subview of the status-bar button used as `positioningView`
+    /// for `NSPopover.show` in hidden-menubar mode.
+    /// AppKit derives the arrow X from this view's position — repositioning it
+    /// is the only public-API way to move the arrow after show().
+    /// Created in `openPopover()`, removed in `unpinPopoverWindow()`.
+    var arrowPositioningView: NSView?
+
     // MARK: - Init
 
     /// Creates the controller with a root SwiftUI view and shared overlay gate.
