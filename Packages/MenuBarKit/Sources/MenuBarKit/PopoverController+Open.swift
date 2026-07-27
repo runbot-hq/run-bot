@@ -62,6 +62,24 @@ extension MBKPopoverController {
 
         guard let button = statusItem.button else { return }
         mbkLog("PopoverController", "openPopover -- calling onWillShow")
+        // WHY onWillShow fires BEFORE isOpening = true (ordering is load-bearing):
+        //
+        // onWillShow bumps willShowToken, which triggers scrollViewHeight = 0 in
+        // PanelMainView. That reset MUST be committed before the first post-show
+        // SwiftUI layout pass, which fires synchronously inside popover.show() below.
+        // Moving isOpening = true before onWillShow?() would cause the Path 1/2
+        // isOpening guard in applyContentSize to suppress that geometry pass —
+        // breaking the scrollViewHeight reset contract and causing the panel to open
+        // at the wrong height (the exact regression this guard was added to prevent).
+        //
+        // WHY this gap cannot produce a stale applyContentSize write in practice:
+        // The popover is not yet attached to a window when onWillShow fires —
+        // popover.show() has not been called. SwiftUI's onChange(of:) dispatches
+        // on the next run-loop turn, not synchronously; and a layout pass requires
+        // the view to be in a live window. No applyContentSize call can reach
+        // Path 1 or Path 2 synchronously from the willShowToken bump here.
+        // isOpening = true is raised on the very next line before popover.show(),
+        // so all layout passes that fire during or after show() are correctly suppressed.
         onWillShow?()
         mbkLog("PopoverController", "onWillShow fired")
 
