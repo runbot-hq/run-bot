@@ -239,15 +239,6 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
     /// the window stays frozen at its first measured size while the content
     /// silently overflows it.
     ///
-    /// WHY chrome AND hosting ARE PINNED TO contentView DIRECTLY (not to an
-    /// intermediate NSView): NSWindow sets its contentView's frame directly —
-    /// there is no Auto Layout relationship between the window and its
-    /// contentView. An intermediate container with translatesAutoresizingMask-
-    /// IntoConstraints = true therefore has undefined size from the constraint
-    /// solver's perspective, so the chrome and hosting anchors resolve to NaN,
-    /// and NSViewValidateGeometry traps. Pinning directly to the window's own
-    /// contentView (which AppKit keeps sized to the window) avoids this.
-    ///
     /// The chrome is added *first* so it stays behind the hosting view; both are
     /// pinned to the same four edges, so the bubble is always exactly the window.
     private func setupPanelWindow() {
@@ -258,22 +249,14 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
             self?.applyMeasuredSize()
         }
 
-        let window = MBKPanel()
-        window.onCancel = { [weak self] in
-            mbkLog("PanelController", "cancelOperation -- Escape, closing")
-            self?.performClose()
-        }
-        panel = window
-
-        // NSWindow sizes contentView to the window bounds and keeps it there.
-        // chrome and hosting are both pinned to contentView's edges, so they
-        // always fill the window exactly. translatesAutoresizingMaskIntoConstraints
-        // is false on both because we provide all four required constraints.
-        guard let contentView = window.contentView else { return }
+        // Plain, fully transparent container. The chrome below draws the bubble.
+        let container = NSView()
+        container.translatesAutoresizingMaskIntoConstraints = true
+        container.autoresizingMask = [.width, .height]
 
         let chrome = MBKPanelChromeView(metrics: metrics)
         chromeView = chrome
-        contentView.addSubview(chrome)
+        container.addSubview(chrome)
 
         let hosting = MBKHostingView(
             rootView: MBKPanelContentView(limits: limits, metrics: metrics, content: rootView)
@@ -285,18 +268,25 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
             self?.scheduleIfMeasurementChanged(reason: "layout")
         }
         hostingView = hosting
-        contentView.addSubview(hosting)
-
+        container.addSubview(hosting)
         NSLayoutConstraint.activate([
-            chrome.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
-            chrome.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
-            chrome.topAnchor.constraint(equalTo: contentView.topAnchor),
-            chrome.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
-            hosting.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
-            hosting.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
-            hosting.topAnchor.constraint(equalTo: contentView.topAnchor),
-            hosting.bottomAnchor.constraint(equalTo: contentView.bottomAnchor)
+            chrome.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            chrome.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            chrome.topAnchor.constraint(equalTo: container.topAnchor),
+            chrome.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+            hosting.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            hosting.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            hosting.topAnchor.constraint(equalTo: container.topAnchor),
+            hosting.bottomAnchor.constraint(equalTo: container.bottomAnchor)
         ])
+
+        let window = MBKPanel()
+        window.contentView = container
+        window.onCancel = { [weak self] in
+            mbkLog("PanelController", "cancelOperation -- Escape, closing")
+            self?.performClose()
+        }
+        panel = window
     }
 
     // MARK: - Root view replacement
