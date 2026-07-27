@@ -99,6 +99,12 @@ extension MBKPopoverController {
         }
 
         if menuBarHidden, let anchorX = lastKnownAnchorX, let screen = button.window?.screen ?? NSScreen.main {
+            // Close any stale panel before creating a new one so that the old reference
+            // is never in NSApp.windows simultaneously with the new panel.
+            // Normally unpinPopoverWindow() closes it in popoverDidClose, but on a
+            // rapid re-open race the old panel could still be alive here.
+            arrowAnchorPanel?.close()
+            arrowAnchorPanel = nil
             let panelY = screen.visibleFrame.maxY - 1
             let panelRect = NSRect(x: anchorX - 10, y: panelY, width: 20, height: 1)
             let panel = NSPanel(
@@ -112,10 +118,6 @@ extension MBKPopoverController {
             panel.backgroundColor = .clear
             panel.level = .statusBar
             panel.orderFront(nil)
-            // Defensively close any stale panel before overwriting the reference.
-            // Normally unpinPopoverWindow() closes it in popoverDidClose, but on a
-            // rapid re-open race the old panel could still be alive here.
-            arrowAnchorPanel?.close()
             arrowAnchorPanel = panel
             mbkLog("PopoverController", "openPopover -- hidden-menubar arrowAnchorPanel frame=\(panelRect) anchorX=\(anchorX)")
             // NSPanel.contentView is always non-nil (guaranteed by NSWindow contract).
@@ -213,10 +215,17 @@ extension MBKPopoverController {
         guard popover.isShown,
               let window,
               let anchorX = lastKnownAnchorX else { return }
+        guard let pinnedMaxY = pinnedWindowMaxY else {
+            // pinnedWindowMaxY is nil only if pinPopoverWindow() bailed at the no-window
+            // guard, in which case no observers were installed and this handler cannot
+            // legitimately fire. Log and bail rather than computing a no-op correction.
+            mbkLog("PopoverController", "handlePopoverWindowMoved -- pinnedWindowMaxY is nil, skipping")
+            return
+        }
         let scale = window.backingScaleFactor
         let rawX = anchorX - window.frame.width / 2
         let correctX = scale > 0 ? (round(rawX * scale) / scale) : rawX
-        let correctY = (pinnedWindowMaxY ?? (window.frame.origin.y + window.frame.height)) - window.frame.height
+        let correctY = pinnedMaxY - window.frame.height
         // Epsilon guard (0.5pt): avoids a spurious correction when AppKit rounds
         // the frame to a pixel boundary that differs from our computed value by a
         // sub-pixel amount. 0.5pt is the finest grid AppKit uses (1× Retina);
