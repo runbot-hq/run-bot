@@ -57,6 +57,10 @@ extension MBKPanelController {
         lastContentSize = nil
         lastMeasuredSize = nil
         onWillCloseFired = false
+        // Opens the gate on the frame pipeline. Before the first open the status
+        // item has no on-screen position, so every launch-time layout pass would
+        // write a frame anchored at the bottom-left of the display.
+        hasOpenedOnce = true
 
         // While the panel was off screen SwiftUI may never have laid out, in which
         // case `intrinsicContentSize` is still degenerate. Force one layout pass so

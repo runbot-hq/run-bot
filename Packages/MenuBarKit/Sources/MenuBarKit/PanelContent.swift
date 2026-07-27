@@ -18,8 +18,8 @@
 //    ❌ NEVER set `translatesAutoresizingMaskIntoConstraints = true` here again.
 // 2. AppKit therefore asks SwiftUI for the root's size under an *unspecified*
 //    proposal. The root is `MBKPanelContentView`: the adopter's content, capped
-//    in height, inset by the arrow, wrapped in the glass bubble. Its ideal size
-//    is exactly the window size — content plus the arrow strip.
+//    in height, inset by the arrow, clipped to the bubble. Its ideal size is
+//    exactly the window size — content plus the arrow strip.
 // 3. `MBKPanelController` subtracts the arrow strip, clamps, and turns the result
 //    into a window frame. Resizing the *window* resizes the pinned hosting view,
 //    so SwiftUI re-proposes exactly that size to the content and a `ScrollView`
@@ -37,6 +37,11 @@
 //    #2278/#2279 were about.
 // ❌ NEVER measure with a `GeometryReader`. A geometry reader sees the size we
 //    already applied, not the size the content wants, so it cannot detect growth.
+// ❌ NEVER apply `.glassEffect(...)` in this wrapper. Glass cannot sample other
+//    glass: a SwiftUI glass ancestor silently flattens every
+//    `GlassEffectContainer` in the adopter's content. The bubble is drawn by
+//    `MBKPanelChromeView` at the AppKit layer, below this hosting view, exactly
+//    the way `NSPopover` used to layer its chrome under the hosted content.
 import AppKit
 import Observation
 import SwiftUI
@@ -73,10 +78,12 @@ final class MBKPanelLimits {
 
 // MARK: - Root view
 
-/// Root SwiftUI view of the panel: the adopter's content inside the glass bubble.
+/// Root SwiftUI view of the panel: the adopter's content, clipped to the bubble.
 ///
-/// The window is fully clear (`backgroundColor = .clear`, `isOpaque = false`);
-/// everything the user sees is drawn here.
+/// The bubble *material* is not here — it is `MBKPanelChromeView`, an AppKit
+/// `NSGlassEffectView` pair sitting below this view in the same window. This
+/// view only positions and clips, so the adopter's own Liquid Glass renders
+/// with no glass ancestor above it.
 struct MBKPanelContentView: View {
 
     /// Live sizing limits and arrow position.
@@ -89,6 +96,9 @@ struct MBKPanelContentView: View {
     let content: AnyView
 
     /// The current bubble silhouette, tracking the live arrow position.
+    ///
+    /// Used for clipping only. The same `arrowCenterX` drives
+    /// `MBKPanelChromeView`, so the clip and the AppKit glass always agree.
     private var bubble: MBKBubbleShape {
         MBKBubbleShape(
             arrowCenterX: limits.arrowCenterX,
@@ -98,16 +108,15 @@ struct MBKPanelContentView: View {
         )
     }
 
-    /// Caps the content height, insets it below the arrow, and draws the glass.
+    /// Caps the content height, insets it below the arrow, and clips to the bubble.
     ///
     /// Order matters: the cap applies to the content alone, the arrow inset is
-    /// added on top of it, and the glass and the clip both use the *padded*
-    /// bounds so the shape and the window frame describe the same rectangle.
+    /// added on top of it, and the clip uses the *padded* bounds so the
+    /// silhouette and the window frame describe the same rectangle.
     var body: some View {
         content
             .frame(maxHeight: limits.maxContentHeight)
             .padding(.top, metrics.arrowHeight)
-            .glassEffect(.regular, in: bubble)
             .clipShape(bubble)
     }
 }

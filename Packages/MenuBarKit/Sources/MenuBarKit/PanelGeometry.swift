@@ -134,6 +134,32 @@ public enum MBKPanelGeometry {
         max(visibleFrame.width - metrics.screenMargin * 2, 0)
     }
 
+    /// Whether the menu bar is currently slid off-screen on the given display.
+    ///
+    /// Derived from the screen rather than from the status-bar window. The
+    /// window-based heuristic this replaced compared the status window's `maxY`
+    /// against the screen's, two values that differ by about a point depending
+    /// on which app is active — so the answer flapped between consecutive frame
+    /// writes while the menu bar sat plainly visible.
+    ///
+    /// A visible menu bar removes its whole height (24pt at the very least) from
+    /// the top of `visibleFrame`, so the gap is either ~0 or ~24+ and never
+    /// anything in between. `tolerance` therefore only has to absorb rounding,
+    /// and no amount of 1pt jitter can flip the result.
+    ///
+    /// - Parameters:
+    ///   - screenFrame: The screen's full frame.
+    ///   - visibleFrame: The screen's visible frame.
+    ///   - tolerance: Gap, in points, still counted as "no menu bar". Default 2.
+    /// - Returns: `true` when no menu bar occupies the top of the screen.
+    public static func isMenuBarHidden(
+        screenFrame: CGRect,
+        visibleFrame: CGRect,
+        tolerance: CGFloat = 2
+    ) -> Bool {
+        screenFrame.maxY - visibleFrame.maxY <= tolerance
+    }
+
     /// Clamps a measured content size into the given width/height limits.
     /// - Parameters:
     ///   - content: Measured content size.

@@ -252,6 +252,34 @@ struct MBKPanelGeometryTests {
         #expect(bounds.maxY == 300)
     }
 
+    // MARK: - Menu-bar detection
+
+    @Test func menuBarIsVisibleWhenTheVisibleFrameIsShorterAtTheTop() {
+        let full = CGRect(x: 0, y: 0, width: 1440, height: 900)
+        let visible = CGRect(x: 0, y: 0, width: 1440, height: 875)
+        #expect(!MBKPanelGeometry.isMenuBarHidden(screenFrame: full, visibleFrame: visible))
+    }
+
+    @Test func menuBarIsHiddenWhenTheVisibleFrameReachesTheScreenTop() {
+        let full = CGRect(x: 0, y: 0, width: 1440, height: 900)
+        // Auto-hide: the Dock still takes the bottom, the top is fully free.
+        let visible = CGRect(x: 0, y: 70, width: 1440, height: 830)
+        #expect(MBKPanelGeometry.isMenuBarHidden(screenFrame: full, visibleFrame: visible))
+    }
+
+    @Test func menuBarDetectionIgnoresSubPointJitter() {
+        let full = CGRect(x: 0, y: 0, width: 1440, height: 900)
+        // The 1pt oscillation that made the old status-window heuristic flap.
+        #expect(MBKPanelGeometry.isMenuBarHidden(
+            screenFrame: full,
+            visibleFrame: CGRect(x: 0, y: 0, width: 1440, height: 899)
+        ))
+        #expect(MBKPanelGeometry.isMenuBarHidden(
+            screenFrame: full,
+            visibleFrame: CGRect(x: 0, y: 0, width: 1440, height: 900)
+        ))
+    }
+
     /// Bounding rect of `MBKBubbleShape` drawn into a fixed 400x300 rect.
     /// - Parameters:
     ///   - arrowCenterX: Arrow centre in points from the leading edge.

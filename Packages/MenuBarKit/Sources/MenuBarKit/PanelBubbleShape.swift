@@ -4,15 +4,18 @@
 // The panel's silhouette: a rounded rectangle with an arrow poking out of its
 // top edge, expressed as a SwiftUI `Shape`.
 //
-// WHY A SwiftUI SHAPE AND NOT AN AppKit MASK:
-// The chrome is macOS 26 Liquid Glass, applied with `.glassEffect(_:in:)`.
-// AppKit's `NSGlassEffectView` only exposes `cornerRadius` — it cannot express
-// an arrow — and the old `NSVisualEffectView` + `maskImage` route renders the
-// pre-26 translucency, not glass. `.glassEffect(_:in:)` accepts *any* `Shape`,
-// so the bubble lives here and the window itself stays fully clear.
+// WHAT THIS IS FOR, AND WHAT IT IS NOT FOR:
+// This is the *clip* for the hosted content, and the geometry the unit tests
+// pin down. It is NOT the chrome. The Liquid Glass material is drawn one layer
+// below, in AppKit, by `MBKPanelChromeView` — because a SwiftUI `.glassEffect`
+// ancestor flattens all the glass the adopter draws inside it, and because a
+// window whose only alpha comes from SwiftUI glass gets clicked straight
+// through by macOS.
 //
-// ❌ NEVER go back to `NSVisualEffectView.maskImage` for this. It is flat
-//    translucency, not Liquid Glass.
+// ❌ NEVER pass this shape to `.glassEffect(_:in:)` on the panel root. See
+//    PanelChrome.swift.
+// ❌ NEVER go back to `NSVisualEffectView.maskImage` for the chrome. It is flat
+//    pre-26 translucency, not Liquid Glass.
 //
 // COORDINATE SPACE:
 // SwiftUI, so the origin is top-left and Y grows downward. `arrowCenterX` is
@@ -26,6 +29,9 @@ import SwiftUI
 /// The body occupies everything below `arrowHeight`; the arrow is an isoceles
 /// triangle whose base sits exactly on the body's top edge, so the two subpaths
 /// touch without overlapping and the non-zero winding rule cannot punch a seam.
+///
+/// Used as `.clipShape(...)` on the panel's content. The matching material is
+/// `MBKPanelChromeView`, which is fed the same `arrowCenterX`.
 struct MBKBubbleShape: Shape {
 
     /// Arrow centre, in points from the leading edge of the rect.

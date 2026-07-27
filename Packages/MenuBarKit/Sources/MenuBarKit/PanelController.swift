@@ -10,16 +10,23 @@
 //   show() time. MenuBarKit resizes its content manually after show(), and no
 //   amount of pre-seeding or re-anchoring made AppKit re-derive the arrow —
 //   it stayed clipped (#2278, #2279, PR #2289). We now own one real borderless
-//   panel and draw the bubble + arrow ourselves in SwiftUI (MBKBubbleShape), so
-//   the arrow is recomputed with the frame and can never disagree with it.
+//   panel and draw the bubble + arrow ourselves, so the arrow is recomputed
+//   with the frame and can never disagree with it.
 //
-// WHY THE WINDOW IS EMPTY CHROME:
-//   The panel is fully clear and its content view is a plain NSView. All chrome
-//   — the Liquid Glass bubble and the arrow — is drawn by SwiftUI via
-//   `.glassEffect(.regular, in: MBKBubbleShape(...))`. NSVisualEffectView with a
-//   maskImage was the previous approach; it renders pre-macOS-26 translucency,
-//   not glass, and NSGlassEffectView cannot express an arrow (cornerRadius only).
-//   ❌ NEVER put an NSVisualEffectView back in this window.
+// HOW THE WINDOW IS LAYERED (back to front) — and why:
+//   contentView (plain NSView)
+//     ├── MBKPanelChromeView   Liquid Glass bubble + arrow, AppKit, pinned
+//     └── MBKHostingView       the adopter's SwiftUI content, pinned, on top
+//   The chrome is AppKit and not SwiftUI because glass cannot sample other
+//   glass: a `.glassEffect` ancestor around the hosted tree flattens every
+//   `GlassEffectContainer` the adopter draws (that was the device regression
+//   after 825e3cf). NSPopover's chrome always lived at the window layer, which
+//   is exactly what MBKPanelChromeView reproduces. It is also what gives the
+//   window real backing alpha, without which macOS hit-tests the near-zero
+//   pixels of a clear window and delivers clicks to the app behind the panel.
+//   See PanelChrome.swift for the full rationale.
+//   ❌ NEVER put an NSVisualEffectView back in this window (pre-26 vibrancy).
+//   ❌ NEVER wrap the hosted tree in `.glassEffect(...)`.
 //
 //   ❌ NEVER reintroduce NSPopover.
 //   ❌ NEVER add an invisible helper window to position this one. An earlier
@@ -116,6 +123,8 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
     var panel: MBKPanel!
     /// Hosts the root SwiftUI view.
     var hostingView: MBKHostingView!
+    /// Draws the Liquid Glass bubble and arrow below the hosting view.
+    var chromeView: MBKPanelChromeView!
     /// Live sizing limits handed to SwiftUI.
     var limits: MBKPanelLimits!
     /// Coalesces size invalidations into one frame apply per runloop turn.
@@ -160,6 +169,16 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
 
     /// Prevents `onWillClose` from firing more than once per open/close cycle.
     var onWillCloseFired = false
+
+    /// `true` once `openPanel()` has run for the first time.
+    ///
+    /// Before that the status item has no on-screen position yet, so the anchor
+    /// reads as `topY=0` and the pipeline would write a nonsense frame for every
+    /// launch-time layout pass. See `frameWritesAllowed()`.
+    var hasOpenedOnce = false
+
+    /// Ensures the pre-open skip is logged at most once per process.
+    var didLogPreOpenSkip = false
 
     // MARK: - Init
 
@@ -210,7 +229,7 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
         mbkLog("PanelController", "setup complete")
     }
 
-    /// Builds the panel, its clear content view, and the pinned hosting view.
+    /// Builds the panel, its clear content view, the glass chrome, and the pinned hosting view.
     ///
     /// AUTO LAYOUT IS LOAD-BEARING HERE — do not "simplify" it back to
     /// autoresizing masks. `NSHostingView` only creates and maintains its
@@ -219,6 +238,9 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
     /// below, `invalidateIntrinsicContentSize()` fires once and never again, and
     /// the window stays frozen at its first measured size while the content
     /// silently overflows it.
+    ///
+    /// The chrome is added *first* so it stays behind the hosting view; both are
+    /// pinned to the same four edges, so the bubble is always exactly the window.
     private func setupPanelWindow() {
         limits = MBKPanelLimits(maxContentHeight: liveMaxContentHeight(), arrowCenterX: 0)
 
@@ -227,10 +249,14 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
             self?.applyMeasuredSize()
         }
 
-        // Plain, fully transparent container. All chrome is drawn in SwiftUI.
+        // Plain, fully transparent container. The chrome below draws the bubble.
         let container = NSView()
         container.translatesAutoresizingMaskIntoConstraints = true
         container.autoresizingMask = [.width, .height]
+
+        let chrome = MBKPanelChromeView(metrics: metrics)
+        chromeView = chrome
+        container.addSubview(chrome)
 
         let hosting = MBKHostingView(
             rootView: MBKPanelContentView(limits: limits, metrics: metrics, content: rootView)
@@ -244,6 +270,10 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
         hostingView = hosting
         container.addSubview(hosting)
         NSLayoutConstraint.activate([
+            chrome.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            chrome.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            chrome.topAnchor.constraint(equalTo: container.topAnchor),
+            chrome.bottomAnchor.constraint(equalTo: container.bottomAnchor),
             hosting.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             hosting.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             hosting.topAnchor.constraint(equalTo: container.topAnchor),

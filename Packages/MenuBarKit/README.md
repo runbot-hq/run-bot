@@ -1,7 +1,7 @@
 # MenuBarKit
 
 A Swift package for the anchored-panel + SwiftUI sheet + NSOpenPanel + alert layer of a macOS menu-bar app.
-The panel is a borderless, fully transparent `NSPanel` MenuBarKit owns outright — the bubble and its arrow are drawn in SwiftUI as real macOS 26 Liquid Glass (`.glassEffect(.regular, in: MBKBubbleShape(...))`), not by `NSPopover`, so the arrow can never be clipped by AppKit chrome. Swift 6.2, macOS 26, `@MainActor`-first throughout.
+The panel is a borderless, non-opaque `NSPanel` MenuBarKit owns outright — the bubble and its arrow are real macOS 26 Liquid Glass (`NSGlassEffectView` pair merged by an `NSGlassEffectContainerView`, layered *under* the hosted SwiftUI content the way `NSPopover` layers its chrome), not `NSPopover`, so the arrow can never be clipped by AppKit chrome and the adopter's own Liquid Glass keeps rendering as glass. Swift 6.2, macOS 26, `@MainActor`-first throughout.
 
 **Platform & Stack**
 
@@ -31,7 +31,8 @@ The panel is a borderless, fully transparent `NSPanel` MenuBarKit owns outright 
 | `PanelControllerProtocol.swift` | `MBKPanelControllerProtocol` — `@MainActor` protocol surface for `MBKPanelController`; type your host reference against this for testability/mocking |
 | `Panel.swift` | `MBKPanel` — borderless, non-activating `NSPanel` at `.statusBar` level; Escape routes through `cancelOperation(_:)` |
 | `PanelGeometry.swift` | `MBKPanelGeometry` / `MBKPanelMetrics` / `MBKPanelLayout` — pure, AppKit-free frame math: window size, screen clamping, arrow offset, live height cap. Unit-tested |
-| `PanelBubbleShape.swift` | `MBKBubbleShape` — bubble-with-arrow SwiftUI `Shape`; used both as the `.glassEffect(_:in:)` silhouette and as the content clip, so the Liquid Glass chrome and the window shadow always share one outline |
+| `PanelBubbleShape.swift` | `MBKBubbleShape` — bubble-with-arrow SwiftUI `Shape`; clips the hosted content to the same silhouette the AppKit chrome draws, from the same `arrowCenterX` |
+| `PanelChrome.swift` | `MBKPanelChromeView` — the Liquid Glass bubble: an `NSGlassEffectView` body plus a 45°-rotated square `NSGlassEffectView` arrow, merged by an `NSGlassEffectContainerView`. AppKit, not SwiftUI, because glass cannot sample other glass — and because a window needs real backing alpha or macOS delivers clicks through it |
 | `PanelContent.swift` | `MBKPanelLimits` + `MBKPanelContentView` + `MBKHostingView` — the SwiftUI half of the sizing pipeline |
 | `SizeCoalescer.swift` | `MBKSizeCoalescer` — one frame apply per runloop turn, with a synchronous flush before the panel is shown |
 | `AnchoredSheet.swift` | `.mbkSheet(isPresented:content:)` and `.mbkSheet(item:content:)` — SwiftUI sheet anchored as a child window of the panel so it survives outside-clicks and focus changes |

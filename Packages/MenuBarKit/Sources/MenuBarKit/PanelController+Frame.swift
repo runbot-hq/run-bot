@@ -18,7 +18,7 @@
 // LOGGING CONTRACT (the on-device diagnostic surface):
 //   MEASURE  measured=(w,h) content=(w,h) cap=… reason=…
 //   WRITE    content=(w,h) anchorX=… topY=… hidden=… frame=… arrowX=… clamped=…
-//   SKIP     -- content unchanged / degenerate intrinsic size
+//   SKIP     -- content unchanged / degenerate intrinsic size / not shown yet
 // Every measurement the pipeline saw and every frame it applied has a line.
 
 import AppKit
@@ -59,10 +59,15 @@ extension MBKPanelController {
         guard let screen = buttonScreen ?? NSScreen.main else { return nil }
         let visibleFrame = screen.visibleFrame
 
-        // A nil screen means the button window is entirely off-screen; a button
-        // top above the screen top means the menu bar has slid away. `>` not `>=`:
-        // equality is the normal flush resting position.
-        let hidden = buttonScreen == nil || (buttonWindow?.frame.maxY ?? -1) > screen.frame.maxY
+        // The menu-bar state comes from the screen, not from the status window.
+        // The old heuristic compared `buttonWindow.frame.maxY` against
+        // `screen.frame.maxY`, which differ by about a point depending on the
+        // app's activation state — so `hidden` flapped between consecutive
+        // writes with the menu bar plainly visible. The screen's own visible
+        // frame is unambiguous and moves by a whole menu-bar height, far outside
+        // the tolerance. A nil button screen still means "off-screen entirely".
+        let hidden = buttonScreen == nil
+            || MBKPanelGeometry.isMenuBarHidden(screenFrame: screen.frame, visibleFrame: visibleFrame)
 
         let anchorX: CGFloat
         if let window = buttonWindow, window.frame.width > 0 {
@@ -119,7 +124,7 @@ extension MBKPanelController {
     /// arrow inset itself — so the arrow strip is subtracted here to recover the
     /// content size that `MBKPanelGeometry` expects.
     func applyMeasuredSize() {
-        guard let hostingView, let limits else { return }
+        guard let hostingView, let limits, frameWritesAllowed() else { return }
         let measured = hostingView.intrinsicContentSize
         guard measured.width > 0, measured.height > 0 else {
             mbkLog("PanelController", "SKIP -- degenerate intrinsic size (\(measured.width),\(measured.height))")
@@ -174,12 +179,32 @@ extension MBKPanelController {
 
     // MARK: - Apply
 
-    /// Computes and applies the window frame, and feeds the arrow position to SwiftUI.
+    /// Whether the pipeline may write a window frame yet.
+    ///
+    /// At launch SwiftUI lays out long before the status item exists on screen,
+    /// so the anchor reads `topY=0` and the pipeline would place the panel at
+    /// the bottom-left of the display. Nothing is on screen to see it, but the
+    /// writes are noise in the log and they seed `lastContentSize` with a frame
+    /// nobody asked for. `openPanel()` flushes the coalescer synchronously, so
+    /// refusing until then costs nothing.
+    ///
+    /// - Returns: `true` once `openPanel()` has run; otherwise `false`, logging
+    ///   `SKIP -- not shown yet` on the first refusal only.
+    func frameWritesAllowed() -> Bool {
+        if hasOpenedOnce { return true }
+        if !didLogPreOpenSkip {
+            didLogPreOpenSkip = true
+            mbkLog("PanelController", "SKIP -- not shown yet")
+        }
+        return false
+    }
+
+    /// Computes and applies the window frame, and feeds the arrow position to the chrome.
     /// - Parameters:
     ///   - content: Clamped content size, excluding the arrow strip.
     ///   - reason: Log token describing the caller.
     func applyFrame(content: CGSize, reason: String) {
-        guard let panel, let limits else { return }
+        guard let panel, let limits, frameWritesAllowed() else { return }
         guard let anchor = readAnchor() else {
             mbkLog("PanelController", "\(reason) -- no anchor available, skipping frame")
             return
@@ -196,9 +221,12 @@ extension MBKPanelController {
         if abs(limits.arrowCenterX - layout.arrowCenterX) >= 0.5 {
             limits.arrowCenterX = layout.arrowCenterX
         }
+        // One value, two consumers: the AppKit glass arrow and the SwiftUI clip.
+        chromeView?.arrowCenterX = layout.arrowCenterX
         panel.setFrame(layout.frame, display: true)
         // Resize the window, then let Auto Layout push the new bounds through the
-        // pinned hosting view so SwiftUI re-proposes the real size on this turn.
+        // pinned chrome and hosting view so the bubble and SwiftUI both see the
+        // real size on this turn.
         panel.contentView?.layoutSubtreeIfNeeded()
         // The window is fully clear, so the shadow is derived from the rendered
         // alpha of the glass bubble. It has to be recomputed for the new shape.

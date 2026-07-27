@@ -56,9 +56,14 @@ import SwiftUI
 //         .frame(minWidth: RBMetrics.panelListMinWidth, maxWidth: RBMetrics.panelListMaxWidth).
 //         ❌ NEVER move it into MenuBarKit — it would apply to Settings too.
 //
-// The panel's Liquid Glass bubble and arrow are drawn by MenuBarKit in SwiftUI
-// (`.glassEffect(.regular, in: MBKBubbleShape(...))` on its root wrapper).
-// Do NOT add .background() or an NSVisualEffectView here.
+// The panel's Liquid Glass bubble and arrow are drawn by MenuBarKit in AppKit
+// (`MBKPanelChromeView`: an NSGlassEffectView body plus a rotated NSGlassEffectView
+// arrow, merged by an NSGlassEffectContainerView), one layer *below* this view —
+// exactly where NSPopover used to put its chrome. That is deliberate: a SwiftUI
+// `.glassEffect` ancestor flattens every GlassEffectContainer in this file (the
+// metric bars, the SUCCESS/FAILED tags, every chip), which is what happened on
+// the first attempt at the anchored panel.
+// Do NOT add .background(), a root .glassEffect(), or an NSVisualEffectView here.
 
 /// Root panel view rendered inside the MenuBarKit panel.
 struct PanelMainView: View {
