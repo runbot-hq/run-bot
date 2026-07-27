@@ -23,6 +23,7 @@ extension MBKPopoverController {
         let buttonWin = button.window
         let buttonScreen = buttonWin?.screen
         let screenFrame = buttonScreen?.frame ?? .zero
+        // visibleFrame is not used in the hidden calculation — included in mbkLog only.
         let visibleFrame = buttonScreen?.visibleFrame ?? .zero
         let winFrame = buttonWin?.frame ?? .zero
         let screenH = screenFrame.height > 0 ? screenFrame.height : -1
@@ -184,6 +185,13 @@ extension MBKPopoverController {
               let anchorX = lastKnownAnchorX else { return }
         let correctX = anchorX - window.frame.width / 2
         let correctY = (pinnedWindowMaxY ?? (window.frame.origin.y + window.frame.height)) - window.frame.height
+        // Float-equality guard: relies on AppKit snapping setFrameOrigin to the
+        // same CGFloat values we computed, which holds on both Retina (0.5pt grid)
+        // and non-Retina (1pt grid) because anchorX and pinnedWindowMaxY are both
+        // derived from AppKit frame values — no external floating-point arithmetic.
+        // If the frame after the set does not match (shouldn’t happen in practice),
+        // the next didMove/didResize notification will re-enter and correct it;
+        // there is no infinite loop because the second set will produce an exact match.
         guard window.frame.minX != correctX || window.frame.origin.y != correctY else { return }
         let driftedX = window.frame.minX
         let driftedY = window.frame.origin.y
