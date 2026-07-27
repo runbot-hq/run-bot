@@ -16,20 +16,17 @@ extension MBKPopoverController: NSPopoverDelegate {
         mbkLog("PopoverController", "popoverWillShow")
     }
 
-    /// Corrects the arrow anchor point and pins the window X after AppKit has
-    /// committed the popover frame.
+    /// Pins the window position after AppKit has committed the popover frame.
     ///
     /// The `DispatchQueue.main.async` hop gives AppKit one full run-loop turn to
-    /// complete its internal `_updateAnchorPointForFrame:reshape:` call before we
-    /// write `anchorPoint`. Writing synchronously here loses the race — AppKit's
-    /// layout pass runs after our write and resets `anchorPoint` to `(0, 0)`.
+    /// complete its internal layout before we snapshot the window frame for pinning.
     ///
-    /// `pinPopoverWindow()` is called in the same hop so the pin is in place
-    /// before any subsequent resize or move notification can fire.
+    /// Arrow placement is handled by the ephemeral `positioningView` subview
+    /// passed to `show(relativeTo:of:preferredEdge:)` in `openPopover()` —
+    /// no post-show correction is needed.
     public func popoverDidShow(_ notification: Notification) {
         mbkLog("PopoverController", "popoverDidShow")
         DispatchQueue.main.async { [weak self] in
-            self?.correctArrowAnchorPoint()
             self?.pinPopoverWindow()
         }
     }
@@ -42,12 +39,14 @@ extension MBKPopoverController: NSPopoverDelegate {
     }
 
     /// Fires `onWillClose`, dehighlights the button, stops the event monitor,
-    /// resets per-session state, and removes the window-pin observers.
+    /// resets per-session state, removes the window-pin observers, and removes
+    /// the ephemeral positioning subview from the status-bar button.
     public func popoverDidClose(_ notification: Notification) {
         fireOnWillClose(wasForced: false)
         setButtonHighlight(false)
         stopEventMonitor()
         unpinPopoverWindow()
+        removePositioningView()
         overlayGate.hasActiveOverlay = false
         overlayGate.hasFilePickerOverlay = false
         onWillCloseFired = false

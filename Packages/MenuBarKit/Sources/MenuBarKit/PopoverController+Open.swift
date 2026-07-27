@@ -60,13 +60,20 @@ extension MBKPopoverController {
     /// Shows the popover anchored to the status-bar button.
     /// Handles `onWillShow`/`onDidShow` callbacks.
     ///
-    /// Hidden-menubar mode: feeds AppKit a synthetic `positioningRect` whose midX
-    /// is `lastKnownAnchorX` converted to button-local coordinates so `show()`
-    /// places the window at the correct X from frame 1 — no post-show jump.
-    /// Falls back to the real button rect when no `lastKnownAnchorX` is available
-    /// (first-ever open in hidden mode with no prior visible open).
+    /// Arrow placement strategy:
+    ///   AppKit computes the arrow tip from the **screen position of the
+    ///   `positioningView` argument** passed to `show(relativeTo:of:preferredEdge:)`.
+    ///   Passing `of: button` with a synthetic rect does NOT move the arrow —
+    ///   AppKit ignores the rect and uses the button's own stale screen frame
+    ///   (which is off-screen when auto-hide is active).
     ///
-    /// `lastKnownAnchorX` is always snapshotted on open because button window X
+    ///   The fix: create an ephemeral 1pt-wide `NSView` (`positioningView`),
+    ///   add it as a subview of the button at the correct local X, and pass it
+    ///   as the `positioningView`. AppKit reads its live screen frame and places
+    ///   the arrow correctly even when the button window has slid off-screen.
+    ///   The subview is removed in `popoverDidClose`.
+    ///
+    /// `lastKnownAnchorX` is snapshotted on every open because button window X
     /// (minX) is stable in both visible and hidden mode — only Y goes stale.
     func openPopover() {
         guard let button = statusItem.button,
@@ -82,45 +89,49 @@ extension MBKPopoverController {
             mbkLog("PopoverController", "openPopover -- lastKnownAnchorX updated to \(anchorX)")
         }
 
-        // Build the positioning rect.
+        // Determine the button-local X for the positioning subview.
         //
-        // Hidden-menubar path: the button window has slid off-screen so its
-        // reported frame.minX is stale. AppKit uses the positioningRect to derive
-        // the popover window's initial X. By feeding a synthetic rect whose midX
-        // is lastKnownAnchorX (screen coords) converted to button-local coords,
-        // AppKit places the window at the correct X on frame 1 with no visible jump.
-        //
-        // Visible-menubar path: use the real button rect unchanged.
-        let posRect: NSRect
+        // Visible mode: use the button's own midX directly.
+        // Hidden mode: the button window frame.minX is stale (slid off-screen),
+        // but lastKnownAnchorX (snapshotted from the last reliable open) is accurate.
+        // Convert back to button-local coords: localMidX = knownScreenX - buttonWin.frame.minX.
+        // This gives AppKit the correct screen X for arrow placement even when
+        // the status-bar window has slid away.
+        let localMidX: CGFloat
         if menuBarHidden, let knownScreenX = lastKnownAnchorX {
-            let localMidX = knownScreenX - buttonWin.frame.minX
-            posRect = NSRect(
-                x: localMidX - 0.5,
-                y: button.bounds.minY,
-                width: 1,
-                height: max(button.bounds.height, 1)
-            )
+            localMidX = knownScreenX - buttonWin.frame.minX
             mbkLog("PopoverController",
-                   "openPopover -- hidden-menubar synthetic posRect localMidX=\(localMidX) knownScreenX=\(knownScreenX) buttonWinMinX=\(buttonWin.frame.minX) buttonBounds=\(button.bounds)")
+                   "openPopover -- hidden-menubar localMidX=\(localMidX) knownScreenX=\(knownScreenX) buttonWinMinX=\(buttonWin.frame.minX)")
         } else {
-            guard let real = positioningRect(for: button) else { return }
-            posRect = real
-            if menuBarHidden {
-                mbkLog("PopoverController", "openPopover -- hidden-menubar but no lastKnownAnchorX, using real posRect=\(posRect)")
-            } else {
-                mbkLog("PopoverController", "openPopover -- visible-menubar posRect=\(posRect) buttonWinMinX=\(buttonWin.frame.minX)")
-            }
+            localMidX = button.bounds.midX
+            mbkLog("PopoverController",
+                   "openPopover -- visible-menubar localMidX=\(localMidX) buttonWinMinX=\(buttonWin.frame.minX)")
         }
 
-        popover.show(relativeTo: posRect, of: button, preferredEdge: .minY)
+        // Remove any leftover positioning view from a previous open that
+        // closed without firing popoverDidClose (defensive).
+        positioningView?.removeFromSuperview()
+
+        // Create the ephemeral positioning subview.
+        // AppKit reads this view's screen frame to place the arrow tip.
+        // 1pt wide, full button height, centred on localMidX.
+        let posView = NSView(frame: NSRect(
+            x: localMidX - 0.5,
+            y: button.bounds.minY,
+            width: 1,
+            height: max(button.bounds.height, 1)
+        ))
+        posView.identifier = NSUserInterfaceItemIdentifier("mbkPositioningView")
+        button.addSubview(posView)
+        positioningView = posView
+        mbkLog("PopoverController",
+               "openPopover -- posView frame=\(posView.frame) buttonBounds=\(button.bounds)")
+
+        popover.show(relativeTo: posView.bounds, of: posView, preferredEdge: .minY)
         NSApp.activate(ignoringOtherApps: true)
         mbkLog("PopoverController", "popover shown -- window frame=\(hostingController.view.window?.frame ?? .zero)")
 
         startEventMonitor()
-
-        // correctArrowAnchorPoint() is NOT called here.
-        // popoverDidShow fires after show() returns and owns the correction
-        // with correct timing — after AppKit's own _updateAnchorPointForFrame:reshape: pass.
 
         Task { @MainActor in
             mbkLog("PopoverController", "onDidShow Task hop -- calling onDidShow")
@@ -133,50 +144,12 @@ extension MBKPopoverController {
         }
     }
 
-    // MARK: - Arrow anchor correction
-
-    /// Corrects the popover arrow by writing `anchorPoint` to the `NSPopoverFrame`
-    /// private view that actually owns arrow rendering.
-    ///
-    /// Uses an inside-out superview walk starting from `hostingController.view`
-    /// so we always land on the correct frame-decoration view regardless of how
-    /// many intermediate wrappers AppKit inserts (macOS 15/26 adds at least one
-    /// between contentView and NSPopoverFrame).
-    ///
-    /// `responds(to:)` is the safety net — if Apple ever renames the property
-    /// the walk finds nothing and the function is a silent no-op.
-    ///
-    /// Called from `popoverDidShow` (via async hop) so AppKit's own
-    /// `_updateAnchorPointForFrame:reshape:` pass has already completed
-    /// before we write.
-    func correctArrowAnchorPoint() {
-        guard let window = hostingController.view.window,
-              window.frame.width > 0,
-              let anchorX = buttonScreenMidX else { return }
-
-        let anchorPointSel = NSSelectorFromString("anchorPoint")
-        var candidate: NSView? = hostingController.view
-        var frameView: NSView?
-        while let v = candidate {
-            if v.responds(to: anchorPointSel) {
-                frameView = v
-                break
-            }
-            candidate = v.superview
-        }
-        guard let frameView else {
-            mbkLog("PopoverController", "correctArrowAnchorPoint -- no anchorPoint-capable view found, skipping")
-            return
-        }
-
-        let normalizedX = (anchorX - window.frame.minX) / window.frame.width
-        let clamped = max(0.05, min(0.95, normalizedX))
-        frameView.setValue(
-            NSValue(point: CGPoint(x: clamped, y: 0)),
-            forKey: "anchorPoint"
-        )
-        mbkLog("PopoverController",
-               "correctArrowAnchorPoint -- anchorX=\(anchorX) winFrame=\(window.frame) normalizedX=\(normalizedX) clamped=\(clamped) target=\(type(of: frameView))")
+    /// Removes the ephemeral positioning subview from the status-bar button.
+    /// Called from `popoverDidClose` so the button is clean for the next open.
+    func removePositioningView() {
+        positioningView?.removeFromSuperview()
+        positioningView = nil
+        mbkLog("PopoverController", "removePositioningView -- removed")
     }
 
     // MARK: - Window position pin
@@ -188,7 +161,7 @@ extension MBKPopoverController {
     /// - height` to keep the top edge fixed just below the menu bar.
     ///
     /// Must be called after the popover frame has settled (i.e. from the same
-    /// async hop as `correctArrowAnchorPoint` in `popoverDidShow`).
+    /// async hop as `pinPopoverWindow` in `popoverDidShow`).
     func pinPopoverWindow() {
         guard let window = hostingController.view.window else {
             mbkLog("PopoverController", "pinPopoverWindow -- no window, skipping")
@@ -218,24 +191,41 @@ extension MBKPopoverController {
     }
 
     /// Called when the popover window moves or resizes.
-    /// Recomputes the correct X as `lastKnownAnchorX - window.frame.width / 2`
-    /// so the window stays centred on the button regardless of width changes.
-    /// Recomputes the correct Y as `pinnedWindowMaxY - window.frame.height`
-    /// so the top edge stays fixed regardless of height changes.
+    ///
+    /// Y pin: recomputes `origin.y = pinnedWindowMaxY - height` so the top edge
+    /// stays fixed just below the menu bar regardless of height changes.
+    ///
+    /// X pin: **only applied in visible-menubar mode.** When the menubar is
+    /// auto-hidden, AppKit owns X — it centres the window on the positioningView's
+    /// screen coordinate. Calling `setFrameOrigin` in hidden mode would trigger
+    /// AppKit to recalculate the arrow from the (now off-screen) positioningView,
+    /// resetting the arrow to the left edge of the button.
     private func handlePopoverWindowMoved(window: NSWindow?) {
-        guard popover.isShown,
-              let window,
-              let anchorX = lastKnownAnchorX else { return }
+        guard popover.isShown, let window else { return }
+
+        // Y pin: keep top edge fixed regardless of height changes.
+        if let maxY = pinnedWindowMaxY {
+            let correctY = maxY - window.frame.height
+            if window.frame.origin.y != correctY {
+                let driftedY = window.frame.origin.y
+                window.setFrameOrigin(NSPoint(x: window.frame.origin.x, y: correctY))
+                mbkLog("PopoverController",
+                       "handlePopoverWindowMoved -- Y driftedY=\(driftedY) restoredY=\(correctY) newFrame=\(window.frame)")
+                return  // one correction per event; avoid chaining move notifications
+            }
+        }
+
+        // X pin: visible-menubar mode only.
+        // In hidden mode, skip X correction entirely — AppKit already placed the
+        // window correctly and any setFrameOrigin would corrupt the arrow position.
+        guard !isMenuBarHidden, let anchorX = lastKnownAnchorX else { return }
         let correctX = anchorX - window.frame.width / 2
-        let correctY = (pinnedWindowMaxY ?? (window.frame.origin.y + window.frame.height)) - window.frame.height
-        guard window.frame.minX != correctX || window.frame.origin.y != correctY else { return }
-        let driftedX = window.frame.minX
-        let driftedY = window.frame.origin.y
-        window.setFrameOrigin(NSPoint(x: correctX, y: correctY))
-        mbkLog("PopoverController",
-               "handlePopoverWindowMoved -- driftedX=\(driftedX) driftedY=\(driftedY) restoredX=\(correctX) restoredY=\(correctY) newFrame=\(window.frame)")
-        // Re-correct arrow after restoring position so normalizedX is valid.
-        correctArrowAnchorPoint()
+        if window.frame.minX != correctX {
+            let driftedX = window.frame.minX
+            window.setFrameOrigin(NSPoint(x: correctX, y: window.frame.origin.y))
+            mbkLog("PopoverController",
+                   "handlePopoverWindowMoved -- X driftedX=\(driftedX) restoredX=\(correctX) newFrame=\(window.frame)")
+        }
     }
 
     /// Removes the `didMove` and `didResize` observers and clears pinned origin.
@@ -321,8 +311,9 @@ extension MBKPopoverController {
     ///
     /// `sizingOptions = [.preferredContentSize]` lets AppKit drive `contentSize`
     /// directly from SwiftUI's natural layout — no manual GeometryReader chain needed.
-    /// Arrow position is corrected by `correctArrowAnchorPoint()` via `popoverDidShow`
-    /// after AppKit's own layout pass completes.
+    ///
+    /// The `contentSizeObserver` KVO is retained for future use; arrow correction
+    /// is now handled by the positioning subview approach and no longer needs it.
     func setupPopover() {
         hostingController = NSHostingController(rootView: rootView)
         hostingController.sizingOptions = [.preferredContentSize]
@@ -331,9 +322,11 @@ extension MBKPopoverController {
         popover.animates = false
         popover.behavior = .applicationDefined
         popover.delegate = self
-        // contentSizeObserver intentionally absent.
-        // Arrow correction is owned by popoverDidShow (after AppKit's own
-        // _updateAnchorPointForFrame:reshape: pass completes). KVO on
-        // contentSize fires too early and loses the race.
+        contentSizeObserver = popover.observe(\.contentSize, options: [.new]) { [weak self] _, _ in
+            DispatchQueue.main.async {
+                // Reserved for future post-resize corrections.
+                _ = self
+            }
+        }
     }
 }
