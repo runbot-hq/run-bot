@@ -60,17 +60,18 @@ extension MBKPopoverController {
     /// Shows the popover anchored to the status-bar button.
     /// Handles `onWillShow`/`onDidShow` callbacks.
     ///
-    /// Arrow positioning strategy: a throwaway 1×1-pt `NSView` (the “positioning
-    /// view”) is added as a subview of the status-bar button at the correct
+    /// Arrow positioning strategy: a throwaway 1×1-pt `NSView` (the "positioning
+    /// view") is added as a subview of the status-bar button at the correct
     /// button-local X coordinate, and `show(relativeTo:of:preferredEdge:)` is
     /// called with that view. AppKit derives the arrow position from the
-    /// positioning view’s screen-coordinate midX at call time and bakes it into
-    /// the window — no post-show KVC writes needed. The positioning view is
-    /// removed immediately after `show()` returns.
+    /// positioning view's screen-coordinate midX at call time and tracks it for
+    /// the life of the popover. The positioning view is stored in `positioningView`
+    /// and removed only in `unpinPopoverWindow()` when the popover closes —
+    /// removing it earlier causes AppKit to immediately dismiss the popover.
     ///
     /// Hidden-menubar path: `lastKnownAnchorX` (snapshotted from the button
-    /// window’s stable minX + button midX) is converted to button-local coords
-    /// and used as the positioning view’s X so the arrow lands correctly even
+    /// window's stable minX + button midX) is converted to button-local coords
+    /// and used as the positioning view's X so the arrow lands correctly even
     /// when the button window has slid off-screen.
     ///
     /// Visible-menubar path: the positioning view is placed at `button.bounds.midX`
@@ -108,19 +109,20 @@ extension MBKPopoverController {
             }
         }
 
-        // Create a throwaway 1×1-pt positioning view, add it as a subview of the
-        // button at localMidX, call show(), then remove it immediately.
-        // AppKit reads the positioning view’s screen-coordinate midX at the
-        // moment show() is called and bakes the correct arrow position into the
-        // popover window — no anchorPoint KVC needed.
+        // Create a 1×1-pt positioning view and add it as a subview of the button.
+        // AppKit reads the positioning view's screen-coordinate midX at the moment
+        // show() is called and uses it to place the arrow. The view MUST remain a
+        // subview of the button for the entire popover session — removing it causes
+        // AppKit to immediately dismiss the popover. It is removed in
+        // unpinPopoverWindow(), which is called from popoverDidClose.
         let posView = NSView(frame: NSRect(x: localMidX - 0.5,
                                           y: button.bounds.minY,
                                           width: 1,
                                           height: max(button.bounds.height, 1)))
         button.addSubview(posView)
+        positioningView = posView
         popover.show(relativeTo: posView.bounds, of: posView, preferredEdge: .minY)
-        posView.removeFromSuperview()
-        mbkLog("PopoverController", "openPopover -- posView localMidX=\(localMidX) posView removed; window frame=\(hostingController.view.window?.frame ?? .zero)")
+        mbkLog("PopoverController", "openPopover -- posView localMidX=\(localMidX) alive; window frame=\(hostingController.view.window?.frame ?? .zero)")
 
         NSApp.activate(ignoringOtherApps: true)
         startEventMonitor()
@@ -138,7 +140,7 @@ extension MBKPopoverController {
 
     // MARK: - Window position pin
 
-    /// Snapshots the popover window’s top edge (`maxY = origin.y + height`) and
+    /// Snapshots the popover window's top edge (`maxY = origin.y + height`) and
     /// subscribes to `didMove` and `didResize` notifications so that if AppKit
     /// repositions or resizes the window (e.g. during a scroll-view height change
     /// in hidden-menubar mode) we immediately recompute `origin.y = pinnedWindowMaxY
@@ -192,7 +194,8 @@ extension MBKPopoverController {
                "handlePopoverWindowMoved -- driftedY=\(driftedY) restoredY=\(correctY) newFrame=\(window.frame)")
     }
 
-    /// Removes the `didMove` and `didResize` observers and clears pinned origin.
+    /// Removes the `didMove` and `didResize` observers, clears pinned origin,
+    /// and removes the positioning view from the button.
     /// Called from `popoverDidClose`.
     func unpinPopoverWindow() {
         let nc = NotificationCenter.default
@@ -202,7 +205,9 @@ extension MBKPopoverController {
         windowResizeObserver = nil
         pinnedWindowMinX = nil
         pinnedWindowMaxY = nil
-        mbkLog("PopoverController", "unpinPopoverWindow -- observers removed")
+        positioningView?.removeFromSuperview()
+        positioningView = nil
+        mbkLog("PopoverController", "unpinPopoverWindow -- observers removed, positioningView released")
     }
 
     // MARK: - Panel / sheet helpers
@@ -274,7 +279,7 @@ extension MBKPopoverController {
     /// Creates and configures the `NSPopover` with the hosted SwiftUI root view.
     ///
     /// `sizingOptions = [.preferredContentSize]` lets AppKit drive `contentSize`
-    /// directly from SwiftUI’s natural layout — no manual GeometryReader chain needed.
+    /// directly from SwiftUI's natural layout — no manual GeometryReader chain needed.
     /// Arrow position is determined at `show()` time via a throwaway positioning
     /// view added to the button — see `openPopover()`.
     func setupPopover() {

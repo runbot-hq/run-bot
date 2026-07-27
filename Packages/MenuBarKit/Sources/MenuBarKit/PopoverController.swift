@@ -12,8 +12,8 @@
 //   - Install/remove the NSWorkspace app-switch observer
 //   - Implement popoverShouldClose via the MBKOverlayGate
 //   - Reset the overlay gate in popoverDidClose (safety net)
-//   - Correct arrow anchor point via popoverDidShow (correctArrowAnchorPoint)
-//   - Pin popover window minX via didMove/didResize notifications (pinPopoverWindow)
+//   - Anchor the popover arrow via a positioning view subview of the button
+//   - Pin popover window maxY via didMove/didResize notifications (pinPopoverWindow)
 //
 // STAY-OPEN-WHILE-SHEET-ACTIVE — deliberate trade-off:
 //   When a sheet (or file picker) is live, MBKPopoverController keeps the
@@ -58,7 +58,7 @@
 //
 // FILE ORGANISATION:
 //   PopoverController.swift             — stored properties, init, setup, deinit
-//   PopoverController+Open.swift        — toggle/open/close, positioning, highlight, arrow correction, window pin
+//   PopoverController+Open.swift        — toggle/open/close, positioning, highlight, window pin
 //   PopoverController+Observers.swift   — workspace observer, event monitor
 //   PopoverController+Delegate.swift    — NSPopoverDelegate conformance
 
@@ -105,9 +105,16 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
     nonisolated(unsafe) var workspaceObserver: NSObjectProtocol?
 
     /// Button center X in screen coordinates from the last visible-mode open.
-    /// Used for the post-show X correction when opening while the menubar is hidden.
-    /// `nil` until first visible-mode open.
+    /// Used for positioning when opening while the menubar is hidden.
+    /// `nil` until first open.
     var lastKnownAnchorX: CGFloat?
+
+    /// The throwaway 1×1-pt `NSView` added as a subview of the status-bar button
+    /// before calling `show(relativeTo:of:preferredEdge:)`. AppKit derives the
+    /// arrow position from this view's screen-coordinate midX and tracks it for
+    /// the life of the popover. Must stay alive until `popoverDidClose` — removed
+    /// and nilled in `unpinPopoverWindow()`.
+    var positioningView: NSView?
 
     /// The popover window's `frame.minX` snapshotted in `pinPopoverWindow()` after
     /// `popoverDidShow` settles. If AppKit drifts the window left during a scroll-view
