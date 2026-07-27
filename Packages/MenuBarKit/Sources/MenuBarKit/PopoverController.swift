@@ -12,8 +12,7 @@
 //   - Install/remove the NSWorkspace app-switch observer
 //   - Implement popoverShouldClose via the MBKOverlayGate
 //   - Reset the overlay gate in popoverDidClose (safety net)
-//   - Correct arrow anchor point via popoverDidShow (correctArrowAnchorPoint)
-//   - Pin popover window minX via didMove/didResize notifications (pinPopoverWindow)
+//   - Pin popover window top edge via didMove/didResize notifications (pinPopoverWindow)
 //
 // STAY-OPEN-WHILE-SHEET-ACTIVE — deliberate trade-off:
 //   When a sheet (or file picker) is live, MBKPopoverController keeps the
@@ -58,7 +57,7 @@
 //
 // FILE ORGANISATION:
 //   PopoverController.swift             — stored properties, init, setup, deinit
-//   PopoverController+Open.swift        — toggle/open/close, positioning, highlight, arrow correction, window pin
+//   PopoverController+Open.swift        — toggle/open/close, positioning, highlight, window pin
 //   PopoverController+Observers.swift   — workspace observer, event monitor
 //   PopoverController+Delegate.swift    — NSPopoverDelegate conformance
 
@@ -105,8 +104,8 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
     nonisolated(unsafe) var workspaceObserver: NSObjectProtocol?
 
     /// Button center X in screen coordinates from the last visible-mode open.
-    /// Used for the post-show X correction when opening while the menubar is hidden.
-    /// `nil` until first visible-mode open.
+    /// Used in hidden-menubar mode to position the arrow anchor panel before show().
+    /// `nil` until first open.
     var lastKnownAnchorX: CGFloat?
 
     /// The popover window's `frame.minX` snapshotted in `pinPopoverWindow()` after
@@ -133,12 +132,12 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
     /// Prevents `onWillClose` from firing more than once per open/close cycle.
     var onWillCloseFired = false
 
-    /// Invisible 1×22pt subview of the status-bar button used as `positioningView`
-    /// for `NSPopover.show` in hidden-menubar mode.
-    /// AppKit derives the arrow X from this view's position — repositioning it
-    /// is the only public-API way to move the arrow after show().
-    /// Created in `openPopover()`, removed in `unpinPopoverWindow()`.
-    var arrowPositioningView: NSView?
+    /// Invisible 20×1pt `NSPanel` used as `positioningView` for `NSPopover.show`
+    /// in hidden-menubar mode. Positioned at `lastKnownAnchorX - 10` in screen
+    /// coordinates so AppKit bakes the arrow at the correct center X at show() time.
+    /// Closed in the `popoverDidShow` async hop. Kept alive until then so AppKit
+    /// can read its screen position during its own layout pass.
+    var arrowAnchorPanel: NSPanel?
 
     // MARK: - Init
 
