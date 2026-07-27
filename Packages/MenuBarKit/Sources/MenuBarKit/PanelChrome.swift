@@ -138,7 +138,9 @@ final class MBKPanelChromeView: NSView {
         arrowGlass.style = .regular
         bodyGlass.contentView = bodyFill
         arrowGlass.contentView = arrowFill
-
+        // Keep the arrow hidden until the first real layout so
+        // NSGlassEffectContainerView never tries to place a rotated view
+        // inside a zero-size container, which produces y = NaN -> crash.
         // Zero already batches the two views, and the arrow overlaps the body
         // so any non-negative spacing merges them. One arrow height is a
         // deliberate margin against rounding at fractional backing scales.

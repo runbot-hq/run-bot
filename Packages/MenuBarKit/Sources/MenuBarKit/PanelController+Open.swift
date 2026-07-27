@@ -62,6 +62,20 @@ extension MBKPanelController {
         // write a frame anchored at the bottom-left of the display.
         hasOpenedOnce = true
 
+        // Insert the chrome lazily on the first open, now that the window has a
+        // real frame. Doing this at setup time triggers NSGlassEffectContainerView
+        // to lay out its rotated arrowGlass against a zero-size container → NaN.
+        if let chrome = chromeView, chrome.superview == nil,
+           let container = panel.contentView {
+            container.addSubview(chrome, positioned: .below, relativeTo: hostingView)
+            NSLayoutConstraint.activate([
+                chrome.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+                chrome.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+                chrome.topAnchor.constraint(equalTo: container.topAnchor),
+                chrome.bottomAnchor.constraint(equalTo: container.bottomAnchor)
+            ])
+        }
+
         // While the panel was off screen SwiftUI may never have laid out, in which
         // case `intrinsicContentSize` is still degenerate. Force one layout pass so
         // the measurement below is real on the very first open too.

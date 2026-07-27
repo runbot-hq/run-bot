@@ -254,9 +254,12 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
         container.translatesAutoresizingMaskIntoConstraints = true
         container.autoresizingMask = [.width, .height]
 
-        let chrome = MBKPanelChromeView(metrics: metrics)
-        chromeView = chrome
-        container.addSubview(chrome)
+        // NOTE: MBKPanelChromeView is NOT added here. Adding it at setup time
+        // causes NSGlassEffectContainerView to lay out its rotated arrowGlass
+        // child against a zero-size container (the window has no frame yet),
+        // producing y = NaN → _NSViewValidateGeometry crash. The chrome is
+        // inserted lazily in openPanel(), after the window has a real frame.
+        chromeView = MBKPanelChromeView(metrics: metrics)
 
         let hosting = MBKHostingView(
             rootView: MBKPanelContentView(limits: limits, metrics: metrics, content: rootView)
@@ -270,10 +273,6 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
         hostingView = hosting
         container.addSubview(hosting)
         NSLayoutConstraint.activate([
-            chrome.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            chrome.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            chrome.topAnchor.constraint(equalTo: container.topAnchor),
-            chrome.bottomAnchor.constraint(equalTo: container.bottomAnchor),
             hosting.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             hosting.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             hosting.topAnchor.constraint(equalTo: container.topAnchor),
