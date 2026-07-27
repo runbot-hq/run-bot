@@ -15,8 +15,9 @@ extension MBKPopoverController {
     /// Returns `true` when the macOS auto-hide menubar is currently hidden (slid off-screen).
     ///
     /// `screenH < 0` signals a nil screen — treated as hidden.
-    /// `buttonY > screenH` means the button window has slid above the screen top.
-    /// Uses `>` (not `>=`): `buttonY == screenH` is the normal flush resting position.
+    /// `buttonY >= screenH` covers both the flush-at-top-edge case (auto-hide, bar slid away)
+    /// and the above-screen case. Uses `>=` because when the bar is hidden, the button window
+    /// sits flush with the screen top: buttonY == screenH exactly.
     var isMenuBarHidden: Bool {
         guard let button = statusItem.button else { return false }
         let buttonWin = button.window
@@ -26,7 +27,7 @@ extension MBKPopoverController {
         let winFrame = buttonWin?.frame ?? .zero
         let screenH = screenFrame.height > 0 ? screenFrame.height : -1
         let buttonY = winFrame.maxY
-        let hidden = screenH < 0 || buttonY > screenH
+        let hidden = screenH < 0 || buttonY >= screenH
         mbkLog("PopoverController",
                "isMenuBarHidden=\(hidden) buttonWinFrame=\(winFrame) screenFrame=\(screenFrame) visibleFrame=\(visibleFrame) buttonY=\(buttonY) screenH=\(screenH)")
         return hidden
@@ -146,7 +147,8 @@ extension MBKPopoverController {
     /// the walk finds nothing and the function is a silent no-op.
     ///
     /// Called from `popoverDidShow` (via async hop) and from the `contentSizeObserver`
-    /// KVO (deferred async) so the arrow stays correct after every resize.
+    /// KVO (deferred async, only while popover.isShown) so the arrow stays correct
+    /// after every resize without firing stale corrections post-close.
     func correctArrowAnchorPoint() {
         guard let window = hostingController.view.window,
               window.frame.width > 0,
@@ -248,7 +250,7 @@ extension MBKPopoverController {
     /// `sizingOptions = [.preferredContentSize]` lets AppKit drive `contentSize`
     /// directly from SwiftUI's natural layout — no manual GeometryReader chain needed.
     /// Arrow position is corrected by `correctArrowAnchorPoint()` via `popoverDidShow`
-    /// (initial open) and via `contentSizeObserver` KVO (subsequent resizes).
+    /// (initial open) and via `contentSizeObserver` KVO (subsequent resizes, only while shown).
     func setupPopover() {
         hostingController = NSHostingController(rootView: rootView)
         hostingController.sizingOptions = [.preferredContentSize]
@@ -260,10 +262,15 @@ extension MBKPopoverController {
 
         // KVO: re-correct arrow anchor on every AppKit-driven contentSize change
         // (settings navigation, row expand/collapse, etc.).
+        // `isShown` guard prevents stale post-close callbacks from firing when the
+        // window has already been torn down (winMinX=0 causes normalizedX >> 1).
         // Deferred via DispatchQueue.main.async so the window frame has settled
         // before we read it to derive the normalised anchor X.
         contentSizeObserver = popover.observe(\.contentSize, options: [.new]) { [weak self] _, _ in
-            DispatchQueue.main.async { self?.correctArrowAnchorPoint() }
+            DispatchQueue.main.async {
+                guard let self, self.popover.isShown else { return }
+                self.correctArrowAnchorPoint()
+            }
         }
     }
 }
