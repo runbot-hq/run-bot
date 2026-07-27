@@ -95,7 +95,6 @@ extension MBKPopoverController {
 
         Task { @MainActor in
             mbkLog("PopoverController", "onDidShow Task hop -- calling onDidShow")
-            self.isOpening = false
             guard self.popover.isShown else {
                 mbkLog("PopoverController", "onDidShow Task hop -- popover already closed, skipping onDidShow")
                 return
@@ -138,7 +137,6 @@ extension MBKPopoverController {
     // MARK: - Panel / sheet helpers
 
     /// The `NSWindow` with `.nonactivatingPanel` style mask, if any.
-    /// This is the floating panel window that backs the popover.
     var panelWindow: NSWindow? {
         NSApp.windows.first { $0.styleMask.contains(.nonactivatingPanel) }
     }
@@ -164,21 +162,6 @@ extension MBKPopoverController {
 
     /// Closes all child windows of the panel and calls `popover.performClose`.
     /// Used when an outside click arrives while a non-file-picker sheet is active.
-    ///
-    /// NOTE: `hasFilePickerOverlay` is intentionally NOT cleared here.
-    /// The event monitor only reaches `forceClose()` when `hasFilePickerOverlay` is
-    /// false — the `if hasFilePicker` branch fires first and returns early.
-    /// This path is therefore structurally unreachable while `hasFilePickerOverlay`
-    /// is true. `popoverDidClose` is the authoritative reset point for all gate
-    /// flags and always fires after `performClose()`.
-    ///
-    /// ORDERING SAFETY — why performClose rejection is structurally impossible here:
-    ///   forceClose() clears `overlayGate.hasActiveOverlay = false` BEFORE calling
-    ///   `performClose(nil)`. Therefore `popoverShouldClose` will return `true` when
-    ///   AppKit consults it, and the close will proceed. The `onWillCloseFired` guard
-    ///   in `fireOnWillClose` is the sole protection against a double-fire if this
-    ///   ordering is ever disturbed — do not reorder the gate clear and performClose
-    ///   call without also reviewing that guard.
     func forceClose() {
         fireOnWillClose(wasForced: true)
         mbkLog("PopoverController", "forceClose -- clearing gate")
@@ -228,7 +211,6 @@ extension MBKPopoverController {
         hostingController.sizingOptions = [.preferredContentSize]
         popover = NSPopover()
         popover.contentViewController = hostingController
-        popover.contentSize = NSSize(width: minWidth, height: 100)
         popover.animates = false
         popover.behavior = .applicationDefined
         popover.delegate = self
@@ -239,34 +221,5 @@ extension MBKPopoverController {
         contentSizeObserver = popover.observe(\.contentSize, options: [.new]) { [weak self] _, _ in
             DispatchQueue.main.async { self?.correctArrowAnchorPoint() }
         }
-    }
-
-    /// Wraps `view` in a `GeometryReader` background.
-    /// - DEPRECATED: no longer called. `sizingOptions = [.preferredContentSize]` replaces
-    ///   this mechanism. Retained temporarily so `PopoverController+ContentSize.swift`
-    ///   continues to compile until Step 2 removes it.
-    func wrapped(_ view: AnyView) -> AnyView {
-        AnyView(view
-            .background(
-                GeometryReader { geo in
-                    Color.clear
-                        .onChange(of: geo.size) { [weak self] _, newSize in
-                            self?.applyContentSize(newSize)
-                        }
-                        .onAppear { [weak self] in
-                            self?.applyContentSize(geo.size)
-                        }
-                }
-            )
-        )
-    }
-
-    /// Clamps `size` to `[minWidth, maxWidth] × [0, maxHeight]`.
-    /// - DEPRECATED: retained temporarily until Step 2 removes `applyContentSize`.
-    func clamp(_ size: CGSize) -> CGSize {
-        CGSize(
-            width: min(max(size.width, minWidth), maxWidth),
-            height: min(size.height, maxHeight)
-        )
     }
 }

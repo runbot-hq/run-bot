@@ -12,7 +12,7 @@
 //   - Install/remove the NSWorkspace app-switch observer
 //   - Implement popoverShouldClose via the MBKOverlayGate
 //   - Reset the overlay gate in popoverDidClose (safety net)
-//   - Correct arrow anchor via KVO on popover.contentSize
+//   - Correct arrow anchor via KVO on popover.contentSize (correctArrowAnchorPoint)
 //
 // STAY-OPEN-WHILE-SHEET-ACTIVE — deliberate trade-off:
 //   When a sheet (or file picker) is live, MBKPopoverController keeps the
@@ -56,14 +56,12 @@
 //   module consumers.
 //
 // FILE ORGANISATION:
-//   PopoverController.swift          — stored properties, init, setup, deinit
-//   PopoverController+Open.swift     — toggle/open/close, positioning, highlight, arrow correction
-//   PopoverController+ContentSize.swift — applyContentSize (DEPRECATED — removed in Step 2)
+//   PopoverController.swift             — stored properties, init, setup, deinit
+//   PopoverController+Open.swift        — toggle/open/close, positioning, highlight, arrow correction
 //   PopoverController+Observers.swift   — workspace observer, event monitor
 //   PopoverController+Delegate.swift    — NSPopoverDelegate conformance
 
 import AppKit
-import SwiftUI
 
 /// Manages the full `NSPopover` and `NSStatusItem` lifecycle for a macOS menu-bar app.
 ///
@@ -76,16 +74,9 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
     // MARK: - Configuration
 
     /// Overlay gate — read in `popoverShouldClose` and reset in `popoverDidClose`.
-    /// `internal` (default) so extension files can access it.
     let overlayGate: MBKOverlayGate
     /// SF Symbol name for the status-bar icon.
     private let symbolName: String
-    /// Minimum allowed popover content width.
-    let minWidth: CGFloat
-    /// Maximum allowed popover content width.
-    let maxWidth: CGFloat
-    /// Maximum allowed popover content height.
-    let maxHeight: CGFloat
     /// The current root SwiftUI view, wrapped in `AnyView`.
     var rootView: AnyView
 
@@ -103,7 +94,6 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
     /// The managed `NSPopover`. Assigned in `setup()`.
     var popover: NSPopover!
     /// Hosts the root SwiftUI view. Assigned in `setup()`.
-    /// `internal` (default) so extension files can access it.
     var hostingController: NSHostingController<AnyView>!
     /// Guards against calling `setup()` more than once.
     private var isSetUp = false
@@ -113,19 +103,8 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
     nonisolated(unsafe) var workspaceObserver: NSObjectProtocol?
     /// KVO observer token for `popover.contentSize`.
     /// Fires `correctArrowAnchorPoint()` on every AppKit-driven size write so the
-    /// arrow position stays centred on the button after any resize.
+    /// arrow stays centred on the button after any resize.
     var contentSizeObserver: NSKeyValueObservation?
-
-    /// Shown-sentinel for `applyContentSize`: `true` while the popover is open,
-    /// `nil` while closed. Set in `popoverWillShow`, cleared in `popoverDidClose`.
-    /// Carries no positional value — frame writes derive Y from
-    /// `window.frame.origin.y` directly.
-    /// `internal` (default) so extension files can access it.
-    var isShownSentinel: Bool?
-
-    /// Opening-sentinel retained for `applyContentSize` in ContentSize.swift
-    /// (DEPRECATED — removed in Step 2 along with that file).
-    var isOpening = false
 
     /// Button center X in screen coordinates from the last visible-mode open.
     /// Used for the post-show X correction when opening while the menubar is hidden.
@@ -133,27 +112,7 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
     var lastKnownAnchorX: CGFloat?
 
     /// Prevents `onWillClose` from firing more than once per open/close cycle.
-    /// `internal` (default) so extension files can access it.
     var onWillCloseFired = false
-
-    /// Chrome width delta (window frame width − content width) for hidden-mode sizing.
-    /// Snapshotted once in `popoverWillShow`. `nil` outside an open session (cleared in `popoverDidClose`).
-    var hiddenChromeW: CGFloat?
-    /// Chrome height delta (window frame height − content height) for hidden-mode sizing.
-    /// Snapshotted once in `popoverWillShow`. `nil` outside an open session (cleared in `popoverDidClose`).
-    var hiddenChromeH: CGFloat?
-    /// Button center X in screen coordinates, snapshotted once in `popoverWillShow`.
-    /// `nil` outside an open session (cleared in `popoverDidClose`).
-    var hiddenButtonMidX: CGFloat?
-    /// Top edge of the popover window snapshotted once in `popoverWillShow`.
-    /// Used as the fixed anchor for all Path 3 `setFrame` calls.
-    /// `nil` outside an open session (cleared in `popoverDidClose`).
-    var hiddenWindowTopY: CGFloat?
-
-    /// Guards the one-shot hidden-mode arrow re-anchor in Path 3 of `applyContentSize`.
-    /// DEPRECATED — Path 3 re-anchor replaced by `correctArrowAnchorPoint()` KVO.
-    /// Retained until Step 2 removes `PopoverController+ContentSize.swift`.
-    var hiddenModeAnchored = false
 
     // MARK: - Init
 
@@ -162,22 +121,13 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
     ///   - rootView: The root view displayed inside the popover.
     ///   - overlayGate: Shared gate; blocks dismiss while a sheet or picker is live.
     ///   - symbolName: SF Symbol name for the status-bar icon. Defaults to `"menubar.rectangle"`.
-    ///   - minWidth: Minimum popover content width (default 200).
-    ///   - maxWidth: Maximum popover content width (default 600).
-    ///   - maxHeight: Maximum popover content height (default 600).
     public init<Content: View>(
         rootView: Content,
         overlayGate: MBKOverlayGate,
-        symbolName: String = "menubar.rectangle",
-        minWidth: CGFloat = 200,
-        maxWidth: CGFloat = 600,
-        maxHeight: CGFloat = 600
+        symbolName: String = "menubar.rectangle"
     ) {
         self.overlayGate = overlayGate
         self.symbolName = symbolName
-        self.minWidth = minWidth
-        self.maxWidth = maxWidth
-        self.maxHeight = maxHeight
         self.rootView = AnyView(rootView)
     }
 
@@ -235,7 +185,6 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
 
     // MARK: - Deallocation
 
-    // See deinit TEARDOWN in the file header for thread-safety rationale.
     deinit {
         if let observer = workspaceObserver {
             NSWorkspace.shared.notificationCenter.removeObserver(observer)
