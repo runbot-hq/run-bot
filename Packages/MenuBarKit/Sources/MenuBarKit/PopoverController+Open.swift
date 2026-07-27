@@ -118,6 +118,18 @@ extension MBKPopoverController {
 
         startEventMonitor()
 
+        // KNOWN LIMITATION — isOpening stuck-flag if Task is dropped:
+        // isOpening is lowered here, one MainActor hop after popover.show().
+        // In the normal close path, popoverDidClose also resets isOpening = false
+        // as a safety net. However, if this Task is dropped before execution
+        // (e.g. under extreme memory pressure) AND the popover closes via a path
+        // that does not fire popoverDidClose, isOpening remains true for the rest
+        // of the session. Every subsequent applyContentSize call on Path 1 and
+        // Path 2 would be silently suppressed until the next openPopover() call
+        // resets it via the defensive reset at the top of this function.
+        // This is accepted risk: Task dropping on MainActor under normal macOS
+        // operation is not a realistic scenario, and the defensive reset in
+        // openPopover() bounds the impact to a single broken session.
         Task { @MainActor in
             mbkLog("PopoverController", "onDidShow Task hop -- calling onDidShow")
             // Lower isOpening before onDidShow fires so that any applyContentSize
