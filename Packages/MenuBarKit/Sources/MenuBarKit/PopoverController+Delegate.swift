@@ -16,20 +16,15 @@ extension MBKPopoverController: NSPopoverDelegate {
         mbkLog("PopoverController", "popoverWillShow")
     }
 
-    /// Corrects the arrow anchor point and pins the window X after AppKit has
-    /// committed the popover frame.
+    /// Pins the popover window position after AppKit has committed the frame.
     ///
     /// The `DispatchQueue.main.async` hop gives AppKit one full run-loop turn to
-    /// complete its internal `_updateAnchorPointForFrame:reshape:` call before we
-    /// write `anchorPoint`. Writing synchronously here loses the race — AppKit's
-    /// layout pass runs after our write and resets `anchorPoint` to `(0, 0)`.
-    ///
-    /// `pinPopoverWindow()` is called in the same hop so the pin is in place
-    /// before any subsequent resize or move notification can fire.
+    /// complete its internal layout pass before we snapshot the frame in
+    /// `pinPopoverWindow()`. The pin must be in place before any subsequent
+    /// resize or move notification can fire.
     public func popoverDidShow(_ notification: Notification) {
         mbkLog("PopoverController", "popoverDidShow")
         DispatchQueue.main.async { [weak self] in
-            self?.correctArrowAnchorPoint()
             self?.pinPopoverWindow()
         }
     }
