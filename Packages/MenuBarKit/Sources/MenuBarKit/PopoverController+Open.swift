@@ -149,10 +149,27 @@ extension MBKPopoverController {
     /// Called from `popoverDidShow` (via async hop) so AppKit's own
     /// `_updateAnchorPointForFrame:reshape:` pass has already completed
     /// before we write.
+    ///
+    /// In hidden-menubar mode `buttonScreenMidX` returns a stale value because
+    /// the button window has slid off-screen (its `frame.minX` is unreliable).
+    /// `lastKnownAnchorX` — snapshotted from the last reliable open — is used
+    /// instead, producing a correct `normalizedX ≈ 0.5` (center).
     func correctArrowAnchorPoint() {
         guard let window = hostingController.view.window,
-              window.frame.width > 0,
-              let anchorX = buttonScreenMidX else { return }
+              window.frame.width > 0 else { return }
+
+        // Use lastKnownAnchorX in hidden-menubar mode — buttonScreenMidX is stale
+        // because the button window has slid off-screen (frame.minX unreliable).
+        // Fall back to live buttonScreenMidX in visible mode (the normal path).
+        let anchorX: CGFloat
+        if isMenuBarHidden, let knownX = lastKnownAnchorX {
+            anchorX = knownX
+            mbkLog("PopoverController", "correctArrowAnchorPoint -- hidden mode, using lastKnownAnchorX=\(knownX)")
+        } else if let liveX = buttonScreenMidX {
+            anchorX = liveX
+        } else {
+            return
+        }
 
         let anchorPointSel = NSSelectorFromString("anchorPoint")
         var candidate: NSView? = hostingController.view
@@ -321,8 +338,9 @@ extension MBKPopoverController {
     ///
     /// `sizingOptions = [.preferredContentSize]` lets AppKit drive `contentSize`
     /// directly from SwiftUI's natural layout — no manual GeometryReader chain needed.
-    /// Arrow position is corrected by `correctArrowAnchorPoint()` via `popoverDidShow`
-    /// after AppKit's own layout pass completes.
+    /// Arrow correction is owned by popoverDidShow (after AppKit's own
+    /// `_updateAnchorPointForFrame:reshape:` pass completes). KVO on
+    /// `contentSize` fires too early and loses the race.
     func setupPopover() {
         hostingController = NSHostingController(rootView: rootView)
         hostingController.sizingOptions = [.preferredContentSize]
