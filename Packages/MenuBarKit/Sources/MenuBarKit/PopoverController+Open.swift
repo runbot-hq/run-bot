@@ -15,8 +15,9 @@ extension MBKPopoverController {
     /// Returns `true` when the macOS auto-hide menubar is currently hidden (slid off-screen).
     ///
     /// `screenH < 0` signals a nil screen — treated as hidden.
-    /// `buttonY > screenH` means the button window has slid above the screen top.
-    /// Uses `>` (not `>=`): `buttonY == screenH` is the normal flush resting position.
+    /// `buttonY >= screenH` covers the flush-at-top-edge case: when auto-hide is on
+    /// and the bar has slid away, the button window sits exactly at screenH (buttonY == screenH).
+    /// Uses `>=` (not `>`): `buttonY == screenH` is the hidden resting position.
     var isMenuBarHidden: Bool {
         guard let button = statusItem.button else { return false }
         let buttonWin = button.window
@@ -26,7 +27,7 @@ extension MBKPopoverController {
         let winFrame = buttonWin?.frame ?? .zero
         let screenH = screenFrame.height > 0 ? screenFrame.height : -1
         let buttonY = winFrame.maxY
-        let hidden = screenH < 0 || buttonY > screenH
+        let hidden = screenH < 0 || buttonY >= screenH
         mbkLog("PopoverController",
                "isMenuBarHidden=\(hidden) buttonWinFrame=\(winFrame) screenFrame=\(screenFrame) visibleFrame=\(visibleFrame) buttonY=\(buttonY) screenH=\(screenH)")
         return hidden
@@ -65,8 +66,8 @@ extension MBKPopoverController {
     /// Falls back to the real button rect when no `lastKnownAnchorX` is available
     /// (first-ever open in hidden mode with no prior visible open).
     ///
-    /// Visible-menubar mode: uses the real `positioningRect` as before and
-    /// snapshots `lastKnownAnchorX` for future hidden-mode opens.
+    /// `lastKnownAnchorX` is always snapshotted on open because button window X
+    /// (minX) is stable in both visible and hidden mode — only Y goes stale.
     func openPopover() {
         guard let button = statusItem.button,
               let buttonWin = button.window else { return }
@@ -76,7 +77,7 @@ extension MBKPopoverController {
 
         let menuBarHidden = isMenuBarHidden
 
-        if !menuBarHidden, let anchorX = buttonScreenMidX {
+        if let anchorX = buttonScreenMidX {
             lastKnownAnchorX = anchorX
             mbkLog("PopoverController", "openPopover -- lastKnownAnchorX updated to \(anchorX)")
         }
@@ -183,7 +184,7 @@ extension MBKPopoverController {
     /// Snapshots the popover window's `minX` and subscribes to `didMove` and
     /// `didResize` notifications so that if AppKit repositions the window
     /// horizontally (e.g. during a scroll-view height change in hidden-menubar
-    /// mode) we immediately restore the original `minX`.
+    /// mode) we immediately restore the correct `minX`.
     ///
     /// Must be called after the popover frame has settled (i.e. from the same
     /// async hop as `correctArrowAnchorPoint` in `popoverDidShow`).
@@ -214,18 +215,18 @@ extension MBKPopoverController {
     }
 
     /// Called when the popover window moves or resizes.
-    /// If the window's `minX` has drifted from `pinnedWindowMinX`, restore it.
+    /// Recomputes the correct X as `lastKnownAnchorX - window.frame.width / 2`
+    /// so the window stays centred on the button regardless of width changes.
     private func handlePopoverWindowMoved(window: NSWindow?) {
         guard popover.isShown,
               let window,
-              let pinnedX = pinnedWindowMinX,
-              window.frame.minX != pinnedX else { return }
+              let anchorX = lastKnownAnchorX else { return }
+        let correctX = anchorX - window.frame.width / 2
+        guard window.frame.minX != correctX else { return }
         let drifted = window.frame.minX
-        var f = window.frame
-        f.origin.x = pinnedX
-        window.setFrameOrigin(f.origin)
+        window.setFrameOrigin(NSPoint(x: correctX, y: window.frame.origin.y))
         mbkLog("PopoverController",
-               "handlePopoverWindowMoved -- driftedX=\(drifted) restoredX=\(pinnedX) newFrame=\(window.frame)")
+               "handlePopoverWindowMoved -- driftedX=\(drifted) restoredX=\(correctX) newFrame=\(window.frame)")
         // Re-correct arrow after restoring position so normalizedX is valid.
         correctArrowAnchorPoint()
     }
