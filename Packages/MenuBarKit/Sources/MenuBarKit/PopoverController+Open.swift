@@ -246,14 +246,14 @@ extension MBKPopoverController {
             object: window,
             queue: .main
         ) { [weak self, weak window] _ in
-            // The Task hop is intentional and load-bearing.
+            // The Task hop is required for Swift 6 @MainActor isolation.
             // setFrameOrigin (called inside handlePopoverWindowMoved) synchronously
-            // re-fires didMoveNotification on the same run-loop turn. Without the hop,
-            // the handler would recurse: move → correct → move → correct → …
-            // The async hop breaks the cycle by deferring to the next run-loop turn;
-            // the epsilon guard (0.5pt) in the handler then suppresses any residual
-            // sub-pixel correction on that deferred call.
-            // ❌ Do NOT remove the Task hop or inline this call synchronously.
+            // re-fires didMoveNotification on the same run-loop turn. Without the
+            // isCorrectingFrame guard in the handler, this would produce a loop:
+            // move → Task enqueued → AppKit moves window → Task fires → correction
+            // → move → Task enqueued → … with the Y drifting on every cycle.
+            // isCorrectingFrame is set true before setFrameOrigin and cleared after,
+            // so the Task fired by our own correction bails immediately at entry.
             Task { @MainActor [weak self, weak window] in
                 self?.handlePopoverWindowMoved(window: window)
             }
@@ -263,7 +263,7 @@ extension MBKPopoverController {
             object: window,
             queue: .main
         ) { [weak self, weak window] _ in
-            // Same intentional Task hop as didMoveNotification — see above.
+            // Same isCorrectingFrame guard applies — see didMoveNotification above.
             Task { @MainActor [weak self, weak window] in
                 self?.handlePopoverWindowMoved(window: window)
             }
@@ -280,11 +280,29 @@ extension MBKPopoverController {
     /// preventing a repeated sub-pixel correction loop on every resize event.
     /// Recomputes the correct Y as `pinnedWindowMaxY - window.frame.height`
     /// so the top edge stays fixed regardless of height changes.
+    ///
+    /// isCorrectingFrame guard: `setFrameOrigin` synchronously fires
+    /// `didMoveNotification`, which enqueues a new Task (via the observer closure).
+    /// That Task would re-enter this function on the next run-loop turn and see the
+    /// window already at the correct position — but only if AppKit has not moved it
+    /// again in the meantime. If AppKit does move it (e.g. during a content resize)
+    /// the epsilon guard alone is not enough because the Task delay gives AppKit time
+    /// to produce a new drift ≥0.5pt before the guard fires. The isCorrectingFrame
+    /// flag solves this at the source: while we are calling setFrameOrigin, any
+    /// Task that fires as a result of our own correction bails immediately, regardless
+    /// of what AppKit did between enqueue and fire.
     private func handlePopoverWindowMoved(window: NSWindow?) {
         guard isPinnedForHiddenMode,
               popover.isShown,
               let window,
               let anchorX = lastKnownAnchorX else { return }
+        // Bail if this call was triggered by our own setFrameOrigin below.
+        // Without this guard the Task hop (required for Swift 6 isolation) creates
+        // a Y-jump loop: setFrameOrigin → didMove → Task → handler → setFrameOrigin → …
+        guard !isCorrectingFrame else {
+            mbkLog("PopoverController", "handlePopoverWindowMoved -- re-entrant call from own correction, skipping")
+            return
+        }
         guard let pinnedMaxY = pinnedWindowMaxY else {
             // pinnedWindowMaxY is nil only if pinPopoverWindow() bailed at the no-window
             // guard, in which case no observers were installed and this handler cannot
@@ -303,7 +321,9 @@ extension MBKPopoverController {
         guard abs(window.frame.minX - correctX) >= 0.5 || abs(window.frame.origin.y - correctY) >= 0.5 else { return }
         let driftedX = window.frame.minX
         let driftedY = window.frame.origin.y
+        isCorrectingFrame = true
         window.setFrameOrigin(NSPoint(x: correctX, y: correctY))
+        isCorrectingFrame = false
         mbkLog("PopoverController",
                "handlePopoverWindowMoved -- driftedX=\(driftedX) driftedY=\(driftedY) restoredX=\(correctX) restoredY=\(correctY) newFrame=\(window.frame)")
     }
@@ -324,6 +344,7 @@ extension MBKPopoverController {
         windowResizeObserver = nil
         pinnedWindowMaxY = nil
         isPinnedForHiddenMode = false
+        isCorrectingFrame = false
         arrowAnchorPanel?.close()
         arrowAnchorPanel = nil
         mbkLog("PopoverController", "unpinPopoverWindow -- observers removed")
