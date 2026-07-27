@@ -141,6 +141,12 @@ extension MBKPopoverController {
             panel.level = .statusBar
             panel.orderFront(nil)
             arrowAnchorPanel = panel
+            // isPinnedForHiddenMode is set here, before show() and before pinPopoverWindow()
+            // installs its observers. There is no race: handlePopoverWindowMoved is only
+            // reachable via the didMove/didResize observers, which are not installed until
+            // pinPopoverWindow() runs from the popoverDidShow Task hop. Setting the flag
+            // early is necessary so the Task in popoverDidShow sees the correct mode
+            // before deciding whether to call pinPopoverWindow().
             isPinnedForHiddenMode = true
             mbkLog("PopoverController", "openPopover -- hidden-menubar arrowAnchorPanel frame=\(panelRect) anchorX=\(anchorX)")
             // NSPanel.contentView is always non-nil (guaranteed by NSWindow contract).
@@ -153,6 +159,11 @@ extension MBKPopoverController {
             popover.show(relativeTo: posRect, of: button, preferredEdge: .minY)
         }
 
+        // NSApp.activate(ignoringOtherApps:) is deprecated in macOS 14, but there is no
+        // drop-in replacement for menu-bar apps. The modern NSApplication.activate() (no
+        // parameter) is a no-op when the activation policy is .accessory, which is what
+        // this app uses. ignoringOtherApps: true is the only call that reliably focuses
+        // the popover's text fields and key window on all supported OS versions.
         NSApp.activate(ignoringOtherApps: true)
         mbkLog("PopoverController", "popover shown -- window frame=\(hostingController.view.window?.frame ?? .zero)")
 
