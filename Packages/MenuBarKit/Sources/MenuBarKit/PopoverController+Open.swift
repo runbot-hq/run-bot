@@ -178,6 +178,16 @@ extension MBKPopoverController {
         )
         mbkLog("PopoverController",
                "correctArrowAnchorPoint -- anchorX=\(anchorX) winFrame=\(window.frame) normalizedX=\(normalizedX) clamped=\(clamped) target=\(type(of: frameView))")
+
+        // DEBUG: walk the full superview chain and log every view that has anchorPoint.
+        var walkView: NSView? = hostingController.view
+        while let v = walkView {
+            if v.responds(to: anchorPointSel) {
+                let val = v.value(forKey: "anchorPoint")
+                mbkLog("PopoverController", "anchorPoint-walk -- \(type(of: v)) anchorPoint=\(String(describing: val))")
+            }
+            walkView = v.superview
+        }
     }
 
     // MARK: - Window position pin
