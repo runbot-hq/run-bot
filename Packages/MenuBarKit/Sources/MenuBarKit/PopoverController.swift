@@ -12,7 +12,8 @@
 //   - Install/remove the NSWorkspace app-switch observer
 //   - Implement popoverShouldClose via the MBKOverlayGate
 //   - Reset the overlay gate in popoverDidClose (safety net)
-//   - Correct arrow anchor via KVO on popover.contentSize (correctArrowAnchorPoint)
+//   - Correct arrow anchor point via popoverDidShow (correctArrowAnchorPoint)
+//   - Pin popover window minX via didMove/didResize notifications (pinPopoverWindow)
 //
 // STAY-OPEN-WHILE-SHEET-ACTIVE — deliberate trade-off:
 //   When a sheet (or file picker) is live, MBKPopoverController keeps the
@@ -57,7 +58,7 @@
 //
 // FILE ORGANISATION:
 //   PopoverController.swift             — stored properties, init, setup, deinit
-//   PopoverController+Open.swift        — toggle/open/close, positioning, highlight, arrow correction
+//   PopoverController+Open.swift        — toggle/open/close, positioning, highlight, arrow correction, window pin
 //   PopoverController+Observers.swift   — workspace observer, event monitor
 //   PopoverController+Delegate.swift    — NSPopoverDelegate conformance
 
@@ -102,15 +103,25 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
     nonisolated(unsafe) var eventMonitor: Any?
     /// Workspace app-switch observer token. `nonisolated(unsafe)` — see file header.
     nonisolated(unsafe) var workspaceObserver: NSObjectProtocol?
-    /// KVO observer token for `popover.contentSize`.
-    /// Fires `correctArrowAnchorPoint()` on every AppKit-driven size write so the
-    /// arrow stays centred on the button after any resize.
-    var contentSizeObserver: NSKeyValueObservation?
 
     /// Button center X in screen coordinates from the last visible-mode open.
     /// Used for the post-show X correction when opening while the menubar is hidden.
     /// `nil` until first visible-mode open.
     var lastKnownAnchorX: CGFloat?
+
+    /// The popover window's `frame.minX` snapshotted in `pinPopoverWindow()` after
+    /// `popoverDidShow` settles. If AppKit drifts the window left during a scroll-view
+    /// height change, `handlePopoverWindowMoved` restores this value immediately.
+    /// Cleared in `unpinPopoverWindow()` on close.
+    var pinnedWindowMinX: CGFloat?
+
+    /// `NSWindow.didMoveNotification` observer token. Managed by
+    /// `pinPopoverWindow()` / `unpinPopoverWindow()`.
+    var windowMoveObserver: Any?
+
+    /// `NSWindow.didResizeNotification` observer token. Managed by
+    /// `pinPopoverWindow()` / `unpinPopoverWindow()`.
+    var windowResizeObserver: Any?
 
     /// Prevents `onWillClose` from firing more than once per open/close cycle.
     var onWillCloseFired = false
