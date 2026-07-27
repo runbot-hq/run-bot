@@ -160,14 +160,6 @@ final class MBKPanelChromeView: NSView {
 
     /// Lays the body and the arrow out by hand.
     ///
-    /// The guard at the very top of the method ensures no `NSGlassEffectView`
-    /// frame is ever assigned until `bounds` is a valid, positive-size rect.
-    /// At the first AppKit layout pass the window has no real frame yet, so
-    /// `bounds` is `.zero`; `NSGlassEffectView` raises an internal geometry
-    /// assertion (`Invalid view geometry: y is NaN` → `EXC_BREAKPOINT`) when
-    /// handed a zero-dimension frame. All frame writes therefore live below the
-    /// guard — never above it.
-    ///
     /// `frameCenterRotation` is reset to zero before the arrow's frame is
     /// assigned and re-applied afterwards: while a view is rotated, `frame` is
     /// the *bounding box* of the rotated bounds, so assigning it directly would
@@ -175,40 +167,31 @@ final class MBKPanelChromeView: NSView {
     override func layout() {
         super.layout()
 
-        // Guard the entire method before touching any NSGlassEffectView.
-        // At the first AppKit layout pass the window has no real frame yet,
-        // so bounds is .zero; NSGlassEffectView raises on a zero-dimension frame.
         let arrowHeight = max(metrics.arrowHeight, 0)
-        let bodyHeight  = bounds.height - arrowHeight
-        guard bounds.width > 0, bodyHeight > 0, arrowHeight > 0,
-              bounds.width.isFinite, bodyHeight.isFinite,
-              bounds.minX.isFinite, bounds.minY.isFinite else {
-            arrowGlass.isHidden = true
-            bodyGlass.isHidden  = true
-            return
-        }
-
-        bodyGlass.isHidden  = false
-        arrowGlass.isHidden = false
-
         let body = CGRect(
             x: bounds.minX,
             y: bounds.minY,
             width: bounds.width,
-            height: bodyHeight
+            height: max(bounds.height - arrowHeight, 0)
         )
         let radius = min(max(metrics.cornerRadius, 0), min(body.width, body.height) / 2)
 
-        container.frame        = bounds
+        container.frame = bounds
         containerContent.frame = bounds
-        bodyGlass.frame        = body
+        bodyGlass.frame = body
         bodyGlass.cornerRadius = radius
-        bodyFill.frame         = bodyGlass.bounds
+        bodyFill.frame = bodyGlass.bounds
+
+        guard arrowHeight > 0, body.width > 0, body.height > 0 else {
+            arrowGlass.isHidden = true
+            return
+        }
+        arrowGlass.isHidden = false
 
         // The rendered arrow is `arrowHeight` tall and twice that wide, so the
         // clamp uses the rendered half-width, not `metrics.arrowWidth`.
-        let lower  = body.minX + radius + arrowHeight
-        let upper  = body.maxX - radius - arrowHeight
+        let lower = body.minX + radius + arrowHeight
+        let upper = body.maxX - radius - arrowHeight
         let centre = upper >= lower ? min(max(arrowCenterX, lower), upper) : body.midX
 
         let side = arrowHeight * MBKPanelChromeView.diagonalRatio
@@ -219,7 +202,7 @@ final class MBKPanelChromeView: NSView {
             width: side,
             height: side
         )
-        arrowFill.frame                = arrowGlass.bounds
+        arrowFill.frame = arrowGlass.bounds
         arrowGlass.frameCenterRotation = 45
     }
 
