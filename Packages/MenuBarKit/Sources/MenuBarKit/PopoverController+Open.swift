@@ -53,6 +53,12 @@ extension MBKPopoverController {
         }
         let buttonScreen = buttonWin.screen
         let screenFrame = buttonScreen?.frame ?? .zero
+        // This app is a menu-bar app — the status item always lives on the primary
+        // display where origin.y == 0, making screenFrame.height == screenFrame.maxY.
+        // Assert the invariant so a future multi-display topology surfaces immediately
+        // rather than silently misbehaving in the height comparison below.
+        assert(screenFrame == .zero || screenFrame.origin.y == 0,
+               "isMenuBarHidden: primary display has non-zero Y origin — height/maxY comparison is wrong")
         // visibleFrame is not used in the hidden calculation — included in mbkLog only.
         let visibleFrame = buttonScreen?.visibleFrame ?? .zero
         let winFrame = buttonWin.frame
@@ -109,6 +115,11 @@ extension MBKPopoverController {
     /// so reading it in hidden mode is safe and keeps the value current.
     func openPopover() {
         guard let button = statusItem.button else { return }
+        // Cache button.window once — isMenuBarHidden and buttonScreenMidX each read
+        // button.window internally, and the ghost-panel branch reads it a third time.
+        // All reads are @MainActor-safe; caching removes the redundancy and makes the
+        // nil-fallback path in the ghost-panel branch explicit.
+        let buttonWin = button.window
         mbkLog("PopoverController", "openPopover -- calling onWillShow")
         onWillShow?()
         mbkLog("PopoverController", "onWillShow fired")
@@ -120,7 +131,7 @@ extension MBKPopoverController {
             mbkLog("PopoverController", "openPopover -- lastKnownAnchorX updated to \(anchorX)")
         }
 
-        if menuBarHidden, let anchorX = lastKnownAnchorX, let screen = button.window?.screen ?? NSScreen.main {
+        if menuBarHidden, let anchorX = lastKnownAnchorX, let screen = buttonWin?.screen ?? NSScreen.main {
             // Close any stale panel before creating a new one so that the old reference
             // is never in NSApp.windows simultaneously with the new panel.
             // Normally unpinPopoverWindow() closes it in popoverDidClose, but on a

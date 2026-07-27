@@ -42,15 +42,19 @@ extension MBKPopoverController: NSPopoverDelegate {
     public func popoverDidShow(_ notification: Notification) {
         mbkLog("PopoverController", "popoverDidShow")
         Task { @MainActor [weak self] in
-            guard self?.popover.isShown == true else {
+            // Single guard let self entry makes nil-self semantics explicit: if the
+            // controller is deallocated before this Task runs, bail immediately rather
+            // than reasoning through optional-chain short-circuits on each guard below.
+            guard let self else { return }
+            guard popover.isShown else {
                 mbkLog("PopoverController", "popoverDidShow Task -- popover already closed, skipping pinPopoverWindow")
                 return
             }
-            guard self?.isPinnedForHiddenMode == true else {
+            guard isPinnedForHiddenMode else {
                 mbkLog("PopoverController", "popoverDidShow Task -- visible-menubar mode, skipping pinPopoverWindow")
                 return
             }
-            self?.pinPopoverWindow()
+            pinPopoverWindow()
         }
     }
 
