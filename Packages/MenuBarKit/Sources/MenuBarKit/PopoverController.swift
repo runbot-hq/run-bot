@@ -106,6 +106,14 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
     /// Button center X in screen coordinates from the last open.
     /// Used in hidden-menubar mode to position the arrow anchor panel before show().
     /// `nil` until first open.
+    ///
+    /// X-staleness note: when the auto-hide menubar slides off-screen, only the
+    /// button window's Y coordinate becomes stale (the bar slides vertically).
+    /// The horizontal position (frame.minX) remains valid and is safe to read
+    /// even while the bar is hidden. This is why `lastKnownAnchorX` is updated
+    /// unconditionally from `buttonScreenMidX` on every open — the value is
+    /// always accurate. The guard on `lastKnownAnchorX != nil` in the hidden
+    /// path exists only to protect the first-ever open before any X has been seen.
     var lastKnownAnchorX: CGFloat?
 
     /// The popover window's `frame.maxY` (top edge) snapshotted in `pinPopoverWindow()`
@@ -136,9 +144,12 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
     /// Invisible 20×1pt `NSPanel` used as `positioningView` for `NSPopover.show`
     /// in hidden-menubar mode. Positioned at `lastKnownAnchorX - 10` in screen
     /// coordinates so AppKit bakes the arrow at the correct center X at show() time.
-    /// Kept alive until `unpinPopoverWindow()` closes it on `popoverDidClose` —
-    /// closing it earlier causes AppKit to lose the anchor and jump the popover
-    /// to (0, y) on the next resize event.
+    ///
+    /// ❌ Do NOT close this panel before `popoverDidClose`. AppKit holds a weak
+    /// reference to the positioningView's window; closing it earlier causes AppKit
+    /// to lose the anchor and jump the popover origin to (0, y) on the next
+    /// preferredContentSize-driven resize event. `unpinPopoverWindow()` is the
+    /// correct and only close site.
     var arrowAnchorPanel: NSPanel?
 
     // MARK: - Init

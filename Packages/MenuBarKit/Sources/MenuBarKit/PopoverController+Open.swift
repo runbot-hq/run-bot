@@ -28,6 +28,14 @@ extension MBKPopoverController {
     /// constructed — no open can be in progress) while `button.window == nil` returns
     /// `true` (button exists but window not yet attached — treat as hidden for safety).
     /// These are distinct lifecycle states, not equivalent nil checks.
+    ///
+    /// frame.height vs frame.maxY: the comparison uses `screenFrame.height` rather
+    /// than `screenFrame.maxY`. On the primary display (origin at 0,0) these are
+    /// identical. On secondary displays with a non-zero screen origin they differ.
+    /// This app is a menu-bar app — the status item always lives on the primary
+    /// display's menu bar, so `button.window` is always on the primary display
+    /// where origin.y == 0 and frame.height == frame.maxY. A secondary-display
+    /// correction would add complexity with no real-world benefit.
     var isMenuBarHidden: Bool {
         guard let button = statusItem.button else { return false }
         guard let buttonWin = button.window else {
@@ -85,6 +93,11 @@ extension MBKPopoverController {
     /// The panel is kept alive (alphaValue=0) until `unpinPopoverWindow()` closes it
     /// on `popoverDidClose` — closing it earlier causes AppKit to lose the anchor
     /// and jump the popover to (0, y) on the next resize event.
+    ///
+    /// lastKnownAnchorX is updated unconditionally before the hidden-mode branch:
+    /// only the button window's Y is stale when the bar is hidden (the bar slides
+    /// vertically off-screen). The horizontal position (frame.minX) stays valid,
+    /// so reading it in hidden mode is safe and keeps the value current.
     func openPopover() {
         guard let button = statusItem.button else { return }
         mbkLog("PopoverController", "openPopover -- calling onWillShow")
@@ -161,13 +174,25 @@ extension MBKPopoverController {
     /// Must be called after the popover frame has settled (i.e. from the async
     /// hop in `popoverDidShow`).
     func pinPopoverWindow() {
-        // Guard against double-install: on rapid open→close→open the async Task hop
-        // from the first popoverDidShow can fire after the second pinPopoverWindow()
-        // has already registered observers, leaking the first token. Bail out if
-        // observers are already in place — unpinPopoverWindow() always clears them
-        // synchronously before this can be called for a new session.
+        // Guard against double-install.
+        //
+        // Scenario: rapid open → close → reopen.
+        //   Session 1: popoverDidShow fires → async Task queued → popoverDidClose fires
+        //              → unpinPopoverWindow() clears observers (windowMoveObserver = nil).
+        //   Session 2: popoverDidShow fires → pinPopoverWindow() installs observers.
+        //   Session 1 Task: now fires → hits this guard → observers already in place
+        //              → bails out correctly.
+        //
+        // The opposite race (session 1 Task fires after session 2's popoverDidClose
+        // has already nilled the observers) cannot produce a harmful install: if
+        // session 2 is fully closed, isPinnedForHiddenMode is false and
+        // handlePopoverWindowMoved is a no-op regardless. The leaked token (if any)
+        // is on a deallocated window object and will never fire.
+        //
+        // Both orderings are safe because all paths run on @MainActor — there is no
+        // concurrent mutation of windowMoveObserver / windowResizeObserver.
         guard windowMoveObserver == nil, windowResizeObserver == nil else {
-            mbkLog("PopoverController", "pinPopoverWindow -- already pinned, skipping")
+            mbkLog("PopoverController", "pinPopoverWindow -- stale async task hop after close, skipping")
             return
         }
         guard let window = hostingController.view.window else {
@@ -185,11 +210,14 @@ extension MBKPopoverController {
             object: window,
             queue: .main
         ) { [weak self, weak window] _ in
-            // The Task hop is intentional and load-bearing: `handlePopoverWindowMoved`
-            // calls `setFrameOrigin`, which synchronously re-fires `didMoveNotification`.
-            // The async hop defers the handler to the next run-loop turn, breaking the
-            // synchronous re-entrancy cycle. The epsilon guard in the handler then
-            // suppresses any residual spurious correction.
+            // The Task hop is intentional and load-bearing.
+            // setFrameOrigin (called inside handlePopoverWindowMoved) synchronously
+            // re-fires didMoveNotification on the same run-loop turn. Without the hop,
+            // the handler would recurse: move → correct → move → correct → …
+            // The async hop breaks the cycle by deferring to the next run-loop turn;
+            // the epsilon guard (0.5pt) in the handler then suppresses any residual
+            // sub-pixel correction on that deferred call.
+            // ❌ Do NOT remove the Task hop or inline this call synchronously.
             Task { @MainActor [weak self, weak window] in
                 self?.handlePopoverWindowMoved(window: window)
             }
@@ -247,6 +275,11 @@ extension MBKPopoverController {
     /// Removes the `didMove` and `didResize` observers, clears pinned state,
     /// and closes `arrowAnchorPanel` if still alive.
     /// Called from `popoverDidClose`.
+    ///
+    /// arrowAnchorPanel is closed here (not in openPopover or earlier) because
+    /// AppKit holds a weak reference to the positioningView's window internally.
+    /// Closing the panel before popoverDidClose fires causes AppKit to lose the
+    /// anchor and snap the popover origin to (0, y) on the next content resize.
     func unpinPopoverWindow() {
         let nc = NotificationCenter.default
         if let obs = windowMoveObserver { nc.removeObserver(obs) }
@@ -264,6 +297,16 @@ extension MBKPopoverController {
 
     /// The `NSWindow` with `.nonactivatingPanel` style mask that is NOT `arrowAnchorPanel`.
     /// Used to find the sheet-hosting panel for `forceClose()`.
+    ///
+    /// Why NSApp.windows scan instead of a stored reference: AppKit does not
+    /// guarantee that `hostingController.view.window` is stable across the popover
+    /// lifecycle — it can be reassigned by AppKit between popoverWillShow and
+    /// popoverDidShow. The arrowAnchorPanel exclusion (identity check) is the
+    /// discriminator: arrowAnchorPanel is the only other nonactivatingPanel window
+    /// this controller ever creates, so the scan is unambiguous for this app's
+    /// window topology. If the host app introduces additional nonactivatingPanel
+    /// windows, this property would need to be replaced with a stored reference
+    /// captured in popoverDidShow.
     var panelWindow: NSWindow? {
         NSApp.windows.first {
             $0.styleMask.contains(.nonactivatingPanel) && $0 !== arrowAnchorPanel
