@@ -142,7 +142,7 @@ extension AppDelegate {
         ctrl.onWillShow = { [weak self] in
             guard let self else { return }
             log("AppDelegate › onWillShow — bumping willShowToken")
-            panelVisibilityState.willShowToken &+= 1
+            panelVisibilityState.bumpWillShowToken()
         }
 
         // onDidShow — fires one actor turn after popover.show().
