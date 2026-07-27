@@ -18,13 +18,13 @@ extension MBKPopoverController: NSPopoverDelegate {
 
     /// Pins the popover window position after AppKit has committed the frame.
     ///
-    /// The `DispatchQueue.main.async` hop gives AppKit one full run-loop turn to
+    /// The `Task { @MainActor in }` hop gives AppKit one full run-loop turn to
     /// complete its internal layout pass before we snapshot the frame in
     /// `pinPopoverWindow()`. The pin must be in place before any subsequent
     /// resize or move notification can fire.
     public func popoverDidShow(_ notification: Notification) {
         mbkLog("PopoverController", "popoverDidShow")
-        DispatchQueue.main.async { [weak self] in
+        Task { @MainActor [weak self] in
             self?.pinPopoverWindow()
         }
     }
