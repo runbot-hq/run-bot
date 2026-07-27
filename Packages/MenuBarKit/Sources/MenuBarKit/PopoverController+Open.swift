@@ -140,14 +140,12 @@ extension MBKPopoverController {
 
     // MARK: - Window position pin
 
-    /// Snapshots the popover window's top edge (`maxY = origin.y + height`) and
+    /// Snapshots the popover window's top-left origin (`minX`, `maxY`) and
     /// subscribes to `didMove` and `didResize` notifications so that if AppKit
-    /// repositions or resizes the window (e.g. during a scroll-view height change
-    /// in hidden-menubar mode) we immediately recompute `origin.y = pinnedWindowMaxY
-    /// - height` to keep the top edge fixed just below the menu bar.
-    ///
-    /// Window X is intentionally not pinned here — AppKit owns horizontal
-    /// placement via the positioning view used in `openPopover`.
+    /// repositions or resizes the window (known AppKit bug: hidden-menubar mode
+    /// drifts the window to minX=0 on content-size changes) we immediately
+    /// restore both axes: `origin.x = pinnedWindowMinX` and
+    /// `origin.y = pinnedWindowMaxY - height`.
     ///
     /// Must be called after the popover frame has settled (i.e. from the
     /// `DispatchQueue.main.async` hop in `popoverDidShow`).
@@ -180,18 +178,22 @@ extension MBKPopoverController {
     }
 
     /// Called when the popover window moves or resizes.
-    /// Recomputes the correct Y as `pinnedWindowMaxY - window.frame.height`
-    /// so the top edge stays fixed just below the menu bar regardless of
-    /// height changes. Window X is left for AppKit to manage.
+    /// Restores both axes to the pinned values snapshotted in `pinPopoverWindow()`:
+    /// - X: `pinnedWindowMinX` (guards against the hidden-menubar AppKit bug that
+    ///   drifts the window to minX=0 on content-size changes)
+    /// - Y: `pinnedWindowMaxY - window.frame.height` (keeps the top edge fixed
+    ///   just below the menu bar regardless of height changes)
     private func handlePopoverWindowMoved(window: NSWindow?) {
         guard popover.isShown,
               let window else { return }
+        let correctX = pinnedWindowMinX ?? window.frame.minX
         let correctY = (pinnedWindowMaxY ?? (window.frame.origin.y + window.frame.height)) - window.frame.height
-        guard window.frame.origin.y != correctY else { return }
+        guard window.frame.minX != correctX || window.frame.origin.y != correctY else { return }
+        let driftedX = window.frame.minX
         let driftedY = window.frame.origin.y
-        window.setFrameOrigin(NSPoint(x: window.frame.minX, y: correctY))
+        window.setFrameOrigin(NSPoint(x: correctX, y: correctY))
         mbkLog("PopoverController",
-               "handlePopoverWindowMoved -- driftedY=\(driftedY) restoredY=\(correctY) newFrame=\(window.frame)")
+               "handlePopoverWindowMoved -- driftedX=\(driftedX) driftedY=\(driftedY) restoredX=\(correctX) restoredY=\(correctY) newFrame=\(window.frame)")
     }
 
     /// Removes the `didMove` and `didResize` observers, clears pinned origin,
