@@ -158,7 +158,12 @@ extension MBKPopoverController {
     /// the button window has slid off-screen (its `frame.minX` is unreliable).
     /// `lastKnownAnchorX` — snapshotted from the last reliable open — is used
     /// instead, producing a correct `normalizedX ≈ 0.5` (center).
+    ///
+    /// Guarded by `popover.isShown` to block the spurious post-close KVO fire
+    /// that AppKit emits during teardown — at that point the window frame is
+    /// degenerate (minX=0) and writing anchorPoint=0.95 would corrupt the next open.
     func correctArrowAnchorPoint() {
+        guard popover.isShown else { return }
         guard let window = hostingController.view.window,
               window.frame.width > 0 else { return }
 
