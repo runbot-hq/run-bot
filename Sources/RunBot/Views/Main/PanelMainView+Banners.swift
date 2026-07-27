@@ -28,23 +28,14 @@ extension PanelMainView {
 
     /// Rate-limit warning banner showing a countdown to API reset.
     ///
-    /// WHY withExtendedLifetime(displayTick) — DO NOT REMOVE:
-    /// A reviewer may be tempted to delete this call as "dead code" because
-    /// `withExtendedLifetime` does not directly register a SwiftUI observation
-    /// dependency for value types. This reasoning is incorrect in this context.
-    /// `displayTick` is an `@State var Int`. SwiftUI registers a `@State` dependency
-    /// when the value is read during `body`'s rendering pass. `rateLimitBanner` is a
-    /// computed var called from `body` — `withExtendedLifetime(displayTick)` forces
-    /// `displayTick` to be read in that rendering pass, which is what registers the
-    /// `@State` dependency and causes SwiftUI to invalidate and re-render the banner
-    /// on every tick. Removing this call breaks the per-second countdown refresh.
-    /// (Note: this is `@State` dependency tracking, not `@Observable` registrar
-    /// tracking — the two mechanisms are distinct. This pattern works correctly for
-    /// `@State` scalars but would NOT work for `@Observable` properties.)
-    /// The actual per-second invalidation is driven by the `tick:` parameter
-    /// chain: body → actionsSectionContent → ActionRowView(tick:). This call
-    /// ensures the banner is also re-evaluated on each tick without requiring
-    /// `displayTick` to be threaded as a parameter into `rateLimitBanner`.
+    /// WHY withExtendedLifetime(displayTick):
+    /// `displayTick` must be read inside `body` to register a SwiftUI dependency so the
+    /// banner label refreshes every second. However, `rateLimitBanner` is a computed var
+    /// called from body — not body itself — so the compiler cannot see the read directly.
+    /// `withExtendedLifetime` is a zero-cost call that makes the dependency explicit to both
+    /// the compiler and future readers without changing runtime behaviour. The actual per-second
+    /// refresh is driven by the `tick:` parameter chain: body → actionsSectionContent →
+    /// ActionRowView(tick:). This call is intentional and not dead code.
     var rateLimitBanner: some View {
         withExtendedLifetime(displayTick) {}
         let countdownLabel: String
@@ -61,7 +52,7 @@ extension PanelMainView {
         } else { countdownLabel = "pausing polls" }
         return HStack(spacing: 6) {
             Image(systemName: "exclamationmark.triangle.fill").foregroundColor(.yellow).font(.caption)
-            Text("GitHub rate limit reached \u{2014} \(countdownLabel)").font(.caption).foregroundColor(.secondary)
+            Text("GitHub rate limit reached -- \(countdownLabel)").font(.caption).foregroundColor(.secondary)
         }
         .padding(.horizontal, 12).padding(.vertical, 4)
     }

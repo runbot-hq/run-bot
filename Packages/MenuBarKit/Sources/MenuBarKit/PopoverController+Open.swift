@@ -148,32 +148,6 @@ extension MBKPopoverController {
             // call triggered by onDidShow (e.g. WRITE+REANCHOR from PanelMainView's
             // geometry pass) proceeds normally and commits the correct geometry.
             self.isOpening = false
-            // Signal Path 3 that the first content-size change of this session
-            // should use show() to reanchor rather than setFrame directly.
-            // This lets AppKit fully re-layout NSGlassView and private chrome subviews
-            // at the correct size before the user sees the popover. Cleared by Path 3
-            // after consuming it.
-            self.needsPath3Reanchor = true
-            // Deep window hierarchy snapshot at the moment isOpening is lowered,
-            // before onDidShow triggers any further geometry passes.
-            if let window = self.hostingController.view.window {
-                let sv = window.contentView?.superview
-                let svClass = sv.map { String(describing: type(of: $0)) } ?? "nil"
-                let svFrame = sv.map { "\($0.frame)" } ?? "nil"
-                let svBounds = sv.map { "\($0.bounds)" } ?? "nil"
-                let svSubviews = sv?.subviews.map { "\(type(of: $0))@\($0.frame)" }.joined(separator: ", ") ?? "nil"
-                let svLayer = sv?.layer.map { "\(type(of: $0)) hidden=\($0.isHidden) opacity=\($0.opacity)" } ?? "nil"
-                let winAlpha = window.alphaValue
-                let winVisible = window.isVisible
-                let winFrame = window.frame
-                mbkLog("PopoverController",
-                       "onDidShow -- window snapshot win#\(window.windowNumber)" +
-                       " winFrame=\(winFrame) winAlpha=\(winAlpha) winVisible=\(winVisible)" +
-                       " frameView=\(svClass) svFrame=\(svFrame) svBounds=\(svBounds)" +
-                       " layer=\(svLayer) subviews=[\(svSubviews)]")
-            } else {
-                mbkLog("PopoverController", "onDidShow -- no window at actor hop")
-            }
             self.onDidShow?()
             mbkLog("PopoverController", "onDidShow fired")
         }
@@ -242,7 +216,7 @@ extension MBKPopoverController {
             //   2. If the real sheet window happens to be `isVisible == false` (already
             //      hidden by SwiftUI before forceClose is called), skipping it would
             //      leave it attached as a child — the popover would fail to close or
-            //      the orphaned window would leaked.
+            //      the orphaned window would leak.
             //   3. `addChildWindow(_:ordered:)` and `removeChildWindow(_:)` on an
             //      already-closing window are no-ops on macOS, so iterating and
             //      closing all children unconditionally is always safe.
