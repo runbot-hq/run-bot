@@ -121,6 +121,7 @@ extension MBKPopoverController {
         // correctArrowAnchorPoint() is NOT called here.
         // popoverDidShow fires after show() returns and owns the correction
         // with correct timing — after AppKit's own _updateAnchorPointForFrame:reshape: pass.
+        // The contentSizeObserver in setupPopover() handles subsequent size-change corrections.
 
         Task { @MainActor in
             mbkLog("PopoverController", "onDidShow Task hop -- calling onDidShow")
@@ -146,9 +147,12 @@ extension MBKPopoverController {
     /// `responds(to:)` is the safety net — if Apple ever renames the property
     /// the walk finds nothing and the function is a silent no-op.
     ///
-    /// Called from `popoverDidShow` (via async hop) so AppKit's own
-    /// `_updateAnchorPointForFrame:reshape:` pass has already completed
-    /// before we write.
+    /// Called from:
+    ///   - `popoverDidShow` async hop — initial placement.
+    ///   - `contentSizeObserver` KVO callback — fires after AppKit commits a new
+    ///     size AND after its `_updateAnchorPointForFrame:reshape:` pass, so our
+    ///     write lands last and is not overwritten.
+    ///   - `handlePopoverWindowMoved` — after window position is restored.
     ///
     /// In hidden-menubar mode `buttonScreenMidX` returns a stale value because
     /// the button window has slid off-screen (its `frame.minX` is unreliable).
@@ -338,9 +342,12 @@ extension MBKPopoverController {
     ///
     /// `sizingOptions = [.preferredContentSize]` lets AppKit drive `contentSize`
     /// directly from SwiftUI's natural layout — no manual GeometryReader chain needed.
-    /// Arrow correction is owned by popoverDidShow (after AppKit's own
-    /// `_updateAnchorPointForFrame:reshape:` pass completes). KVO on
-    /// `contentSize` fires too early and loses the race.
+    ///
+    /// The `contentSizeObserver` KVO fires after AppKit commits a new `contentSize`
+    /// AND after its internal `_updateAnchorPointForFrame:reshape:` pass, making it
+    /// the correct hook to re-apply `correctArrowAnchorPoint()`. Using `didResize`
+    /// or the `popoverDidShow` async hop alone is insufficient — AppKit's reshape
+    /// runs after those and overwrites the anchor. The KVO callback fires last.
     func setupPopover() {
         hostingController = NSHostingController(rootView: rootView)
         hostingController.sizingOptions = [.preferredContentSize]
@@ -349,9 +356,10 @@ extension MBKPopoverController {
         popover.animates = false
         popover.behavior = .applicationDefined
         popover.delegate = self
-        // contentSizeObserver intentionally absent.
-        // Arrow correction is owned by popoverDidShow (after AppKit's own
-        // _updateAnchorPointForFrame:reshape: pass completes). KVO on
-        // contentSize fires too early and loses the race.
+        contentSizeObserver = popover.observe(\.contentSize, options: [.new]) { [weak self] _, _ in
+            DispatchQueue.main.async {
+                self?.correctArrowAnchorPoint()
+            }
+        }
     }
 }

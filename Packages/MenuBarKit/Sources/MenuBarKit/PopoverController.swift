@@ -133,6 +133,13 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
     /// Prevents `onWillClose` from firing more than once per open/close cycle.
     var onWillCloseFired = false
 
+    /// KVO observer on `popover.contentSize`.
+    /// Fires after AppKit commits a new size (and after its internal
+    /// `_updateAnchorPointForFrame:reshape:` pass), making it the correct
+    /// moment to re-apply `correctArrowAnchorPoint()`.
+    /// Installed in `setupPopover()`, lives for the controller's lifetime.
+    var contentSizeObserver: NSKeyValueObservation?
+
     // MARK: - Init
 
     /// Creates the controller with a root SwiftUI view and shared overlay gate.
