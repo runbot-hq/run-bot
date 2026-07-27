@@ -9,8 +9,6 @@ import Observation
 //
 // PURPOSE:
 // 1. Provides a live, mutable signal of whether the NSPanel is currently open.
-// 2. Carries a one-shot height-ready callback used by the GeometryReader/PreferenceKey
-//    dynamic height solution (Architecture 3).
 //
 // WHY NOT A PLAIN Bool PROP:
 // AppDelegate constructs PanelMainView (via mainView()) BEFORE the panel
@@ -19,41 +17,14 @@ import Observation
 // mutated by AppDelegate immediately before NSPanel.show() and after
 // NSPanel.close(), so the value seen inside the view is always live.
 //
-// HEIGHT CALLBACK (onHeightReady):
-// AppDelegate sets onHeightReady BEFORE show(). PanelMainView calls it ONCE
-// via .onPreferenceChange(PanelHeightKey.self), guarded by heightReported.
-// AppDelegate's callback calls panel.setFrame(). animates=false = no jump.
-// After the callback fires, heightReported = true prevents repeated calls.
-//
-// USAGE:
-// AppDelegate:
-//   panelVisibilityState.isOpen = true
-//   panelVisibilityState.heightReported = false
-//   panelVisibilityState.onHeightReady = { [weak self, weak panel] h in
-//       guard let self else { return }
-//       let w = AppDelegate.fixedWidth
-//       let max = self.maxHeight
-//       panel?.setFrame(NSRect(...))
-//   }
-//   panel.orderFront(nil)
-//
-// PanelMainView:
-//   .onPreferenceChange(PanelHeightKey.self) { h in
-//       guard h > 10, !panelVisibilityState.heightReported else { return }
-//       panelVisibilityState.heightReported = true
-//       panelVisibilityState.onHeightReady?(h)
-//   }
-//
 // ⚠️ CONTRACT:
 // ❌ NEVER replace isOpen with a plain Bool prop on any view.
-// ❌ NEVER remove onHeightReady or heightReported.
-// ❌ NEVER call onHeightReady more than once per open (heightReported guard).
 // If you are an agent or human, DO NOT REMOVE THIS COMMENT, YOU ARE NOT ALLOWED
 // UNDER ANY CIRCUMSTANCE. The regression we get when this comment is removed
 // is major major major.
 // ════════════════════════════════════════════════════════════════════════════════
 
-/// Observable wrapper for NSPanel open/closed state + one-shot height callback.
+/// Observable wrapper for NSPanel open/closed state.
 /// - Note: `@MainActor` enforces the main-thread constraint that was previously
 ///   only documented. All mutation sites (AppDelegate, SwiftUI view callbacks)
 ///   are already main-actor contexts, so this is a no-op at runtime but lets
@@ -94,18 +65,6 @@ public final class PanelVisibilityState {
     /// ❌ NEVER set isOpen = false in hidePanel() before setting this to true —
     ///    the flag must be visible to onChange before isOpen triggers it.
     public var isTransientHide: Bool = false
-
-    // periphery:ignore
-    /// Set to `false` before each `show()`, set to `true` after first height report.
-    /// Guards against repeated `setContentSize` calls on every layout pass.
-    /// ❌ NEVER remove. ❌ NEVER skip resetting to false before show().
-    public var heightReported: Bool = false
-
-    // periphery:ignore
-    /// Called ONCE after the first real rendered height is known.
-    /// Set by AppDelegate before show(). Calls panel.setFrame().
-    /// ❌ NEVER call more than once per open.
-    public var onHeightReady: ((CGFloat) -> Void)?
 
     /// Creates a new `PanelVisibilityState` with all flags in their initial off state.
     ///
