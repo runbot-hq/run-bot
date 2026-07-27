@@ -191,22 +191,41 @@ extension MBKPopoverController {
     }
 
     /// Called when the popover window moves or resizes.
-    /// Recomputes the correct X as `lastKnownAnchorX - window.frame.width / 2`
-    /// so the window stays centred on the button regardless of width changes.
-    /// Recomputes the correct Y as `pinnedWindowMaxY - window.frame.height`
-    /// so the top edge stays fixed regardless of height changes.
+    ///
+    /// Y pin: recomputes `origin.y = pinnedWindowMaxY - height` so the top edge
+    /// stays fixed just below the menu bar regardless of height changes.
+    ///
+    /// X pin: **only applied in visible-menubar mode.** When the menubar is
+    /// auto-hidden, AppKit owns X — it centres the window on the positioningView's
+    /// screen coordinate. Calling `setFrameOrigin` in hidden mode would trigger
+    /// AppKit to recalculate the arrow from the (now off-screen) positioningView,
+    /// resetting the arrow to the left edge of the button.
     private func handlePopoverWindowMoved(window: NSWindow?) {
-        guard popover.isShown,
-              let window,
-              let anchorX = lastKnownAnchorX else { return }
+        guard popover.isShown, let window else { return }
+
+        // Y pin: keep top edge fixed regardless of height changes.
+        if let maxY = pinnedWindowMaxY {
+            let correctY = maxY - window.frame.height
+            if window.frame.origin.y != correctY {
+                let driftedY = window.frame.origin.y
+                window.setFrameOrigin(NSPoint(x: window.frame.origin.x, y: correctY))
+                mbkLog("PopoverController",
+                       "handlePopoverWindowMoved -- Y driftedY=\(driftedY) restoredY=\(correctY) newFrame=\(window.frame)")
+                return  // one correction per event; avoid chaining move notifications
+            }
+        }
+
+        // X pin: visible-menubar mode only.
+        // In hidden mode, skip X correction entirely — AppKit already placed the
+        // window correctly and any setFrameOrigin would corrupt the arrow position.
+        guard !isMenuBarHidden, let anchorX = lastKnownAnchorX else { return }
         let correctX = anchorX - window.frame.width / 2
-        let correctY = (pinnedWindowMaxY ?? (window.frame.origin.y + window.frame.height)) - window.frame.height
-        guard window.frame.minX != correctX || window.frame.origin.y != correctY else { return }
-        let driftedX = window.frame.minX
-        let driftedY = window.frame.origin.y
-        window.setFrameOrigin(NSPoint(x: correctX, y: correctY))
-        mbkLog("PopoverController",
-               "handlePopoverWindowMoved -- driftedX=\(driftedX) driftedY=\(driftedY) restoredX=\(correctX) restoredY=\(correctY) newFrame=\(window.frame)")
+        if window.frame.minX != correctX {
+            let driftedX = window.frame.minX
+            window.setFrameOrigin(NSPoint(x: correctX, y: window.frame.origin.y))
+            mbkLog("PopoverController",
+                   "handlePopoverWindowMoved -- X driftedX=\(driftedX) restoredX=\(correctX) newFrame=\(window.frame)")
+        }
     }
 
     /// Removes the `didMove` and `didResize` observers and clears pinned origin.
