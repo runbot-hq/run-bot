@@ -108,8 +108,8 @@ public final class PanelVisibilityState {
     /// ❌ NEVER call more than once per open.
     public var onHeightReady: ((CGFloat) -> Void)?
 
-    /// Monotonically incremented by AppDelegate in `onWillShow`, synchronously
-    /// before MBK calls `hostingController.view.fittingSize` and `popover.show()`.
+    /// Monotonically incremented by AppDelegate in `onWillShow` via `bumpWillShowToken()`,
+    /// synchronously before MBK calls `hostingController.view.fittingSize` and `popover.show()`.
     ///
     /// PURPOSE — allow PanelMainView to reset `scrollViewHeight = 0` at the
     /// earliest possible moment, before MBK seeds `contentSize` from the SwiftUI
@@ -124,7 +124,7 @@ public final class PanelVisibilityState {
     /// risk of missing an event if two opens happen in rapid succession.
     ///
     /// WRAPPING CONTRACT:
-    /// Always increment with `&+=` (wrapping add), never plain `+=`.
+    /// Always increment via `bumpWillShowToken()`, which uses `&+=` (wrapping add).
     /// On 64-bit (all Apple Silicon and modern Apple hardware), Int.max is
     /// 9,223,372,036,854,775,807 — overflow is not a realistic concern in
     /// practice. `&+=` is used defensively for correctness and to signal
@@ -134,12 +134,26 @@ public final class PanelVisibilityState {
     /// correctly. The token semantics (unique event per open) are preserved
     /// across the wrap.
     ///
-    /// SET BY:   AppDelegate in `onWillShow` (before MBK calls show()), using `&+= 1`.
+    /// SET BY:   `bumpWillShowToken()` — called by AppDelegate in `onWillShow`
+    ///           (before MBK calls show()). The setter is `private(set)`; direct
+    ///           assignment from outside RunBotCore is a compile error.
     /// READ BY:  PanelMainView.onChange(of: panelVisibilityState.willShowToken).
-    /// ❌ NEVER set this outside onWillShow.
-    /// ❌ NEVER use `+= 1` — use `&+= 1` to avoid a debug-build trap at Int.max.
+    /// ❌ NEVER call `bumpWillShowToken()` outside onWillShow.
     /// ❌ NEVER read this outside PanelMainView (or its direct sub-views if needed).
-    public var willShowToken: Int = 0
+    public private(set) var willShowToken: Int = 0
+
+    /// Increments `willShowToken` using a wrapping add (`&+= 1`).
+    ///
+    /// This is the only permitted mutation path for `willShowToken` outside
+    /// this module. The `private(set)` on `willShowToken` makes direct
+    /// assignment a compile error at external call sites, enforcing the
+    /// "only set via onWillShow" contract at the type-system level.
+    ///
+    /// ❌ NEVER call this outside AppDelegate’s `onWillShow` callback.
+    /// ❌ NEVER use plain `+= 1` — use this method to guarantee the wrapping-add contract.
+    public func bumpWillShowToken() {
+        willShowToken &+= 1
+    }
 
     /// Creates a new `PanelVisibilityState` with all flags in their initial off state.
     ///
