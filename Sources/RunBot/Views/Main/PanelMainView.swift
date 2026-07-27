@@ -204,27 +204,6 @@ struct PanelMainView: View {
         return cap
     }
 
-    /// Local runners currently executing a job inside an in-progress workflow group.
-    ///
-    /// Reads GitHub-side state (`actions`, `jobs`, `runners`) and local runner state
-    /// (`localRunners`) from `runnerState` — the single observable source of truth
-    /// injected via the SwiftUI environment from `AppDelegate.wrapEnv`.
-    private var activeLocalRunners: [RunnerModel] {
-        guard appState.runnerState.actions.contains(where: { $0.groupStatus == .inProgress }) else { return [] }
-        let activeNamesFromJobs = Set(
-            appState.runnerState.jobs.filter { $0.jobStatus == .inProgress }.compactMap { $0.runnerName }
-        )
-        let busyRunners = appState.runnerState.runners.filter { $0.busy }
-        let busyIds = Set(busyRunners.compactMap { $0.id })
-        let busyNames = Set(busyRunners.map { $0.name })
-        return appState.runnerState.localRunners.filter { local in
-            if activeNamesFromJobs.contains(local.runnerName) { return true }
-            if let aid = local.agentId, busyIds.contains(aid) { return true }
-            if busyNames.contains(local.runnerName) { return true }
-            return false
-        }
-    }
-
     /// Root body -- header, optional error/rate-limit banners, local runner rows, and the scrollable actions section.
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -435,40 +414,6 @@ struct PanelMainView: View {
         )
     }
 
-    // MARK: - Content
-
-    /// Workflow rows and the load-more button, rendered inside the scroll container.
-    private var actionsSectionContent: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            SectionHeaderLabel(title: "Workflows")
-            if appState.runnerState.actions.isEmpty {
-                Text("No recent workflows")
-                    .font(.caption).foregroundColor(.secondary)
-                    .padding(.horizontal, 12).padding(.vertical, 8)
-            } else {
-                let visible = Array(appState.runnerState.actions.prefix(visibleCount))
-                ForEach(visible) { group in
-                    ActionRowView(group: group, tick: displayTick, onStepTap: onStepTap)
-                }
-                loadMoreButton
-            }
-        }
-        .padding(.vertical, 4)
-    }
-
-    /// "Load N more workflows" button; hidden when all workflows are already visible.
-    @ViewBuilder private var loadMoreButton: some View {
-        let nextBatch = min(10, appState.runnerState.actions.count - visibleCount)
-        if nextBatch > 0 {
-            Button { visibleCount += nextBatch } label: {
-                Text("Load \(nextBatch) more workflows\u{2026}")
-                    .font(.caption).foregroundColor(.secondary)
-            }
-            .buttonStyle(.plain)
-            .padding(.horizontal, 12).padding(.vertical, 6)
-        }
-    }
-
     // MARK: - Display tick timer
 
     /// Starts the 1-second structured `displayTick` loop. Cancels any existing task first.
@@ -495,54 +440,5 @@ struct PanelMainView: View {
     @MainActor private func stopDisplayTickTimer() {
         displayTickTask?.cancel()
         displayTickTask = nil
-    }
-
-    // MARK: - Banners
-
-    /// Inline error banner shown when `appState.runnerState.fetchError` is non-nil.
-    ///
-    /// Displays a truncated error description. Dismisses automatically on the next
-    /// successful fetch cycle when `applyFetchResult` clears `fetchError`.
-    /// Stale `runners`/`jobs`/`actions` remain visible below the banner so the user
-    /// still sees the last-known state while connectivity is degraded.
-    private func fetchErrorBanner(_ error: any Error) -> some View {
-        HStack(spacing: 6) {
-            Image(systemName: "exclamationmark.triangle.fill").foregroundColor(.red).font(.caption)
-            Text("Fetch error — \(error.localizedDescription)")
-                .font(.caption).foregroundColor(.secondary)
-                .lineLimit(2)
-        }
-        .padding(.horizontal, 12).padding(.vertical, 4)
-    }
-
-    /// Rate-limit warning banner showing a countdown to API reset.
-    ///
-    /// WHY withExtendedLifetime(displayTick):
-    /// `displayTick` must be read inside `body` to register a SwiftUI dependency so the
-    /// banner label refreshes every second. However, `rateLimitBanner` is a computed var
-    /// called from body — not body itself — so the compiler cannot see the read directly.
-    /// `withExtendedLifetime` is a zero-cost call that makes the dependency explicit to both
-    /// the compiler and future readers without changing runtime behaviour. The actual per-second
-    /// refresh is driven by the `tick:` parameter chain: body → actionsSectionContent →
-    /// ActionRowView(tick:). This call is intentional and not dead code.
-    private var rateLimitBanner: some View {
-        withExtendedLifetime(displayTick) {}
-        let countdownLabel: String
-        if let resetDate = appState.runnerState.rateLimitResetDate {
-            let remaining = max(0, resetDate.timeIntervalSinceNow)
-            if remaining < 1 {
-                countdownLabel = "resuming\u{2026}"
-            } else if remaining < 60 {
-                countdownLabel = "resets in \(Int(remaining))s"
-            } else {
-                let mins = Int(remaining) / 60; let secs = Int(remaining) % 60
-                countdownLabel = String(format: "resets in %dm %02ds", mins, secs)
-            }
-        } else { countdownLabel = "pausing polls" }
-        return HStack(spacing: 6) {
-            Image(systemName: "exclamationmark.triangle.fill").foregroundColor(.yellow).font(.caption)
-            Text("GitHub rate limit reached -- \(countdownLabel)").font(.caption).foregroundColor(.secondary)
-        }
-        .padding(.horizontal, 12).padding(.vertical, 4)
     }
 }
