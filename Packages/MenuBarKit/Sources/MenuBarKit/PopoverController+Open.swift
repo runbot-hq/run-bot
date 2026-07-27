@@ -180,15 +180,19 @@ extension MBKPopoverController {
     }
 
     /// Called when the popover window moves or resizes.
-    /// Recomputes the correct X as `lastKnownAnchorX - window.frame.width / 2`
-    /// so the window stays centred on the button regardless of width changes.
+    /// Recomputes the correct X as `lastKnownAnchorX - window.frame.width / 2`,
+    /// snapped to the display pixel grid via `backingScaleFactor` so that
+    /// `setFrameOrigin` produces a value AppKit will round to the same point,
+    /// preventing a repeated sub-pixel correction loop on every resize event.
     /// Recomputes the correct Y as `pinnedWindowMaxY - window.frame.height`
     /// so the top edge stays fixed regardless of height changes.
     private func handlePopoverWindowMoved(window: NSWindow?) {
         guard popover.isShown,
               let window,
               let anchorX = lastKnownAnchorX else { return }
-        let correctX = anchorX - window.frame.width / 2
+        let scale = window.backingScaleFactor
+        let rawX = anchorX - window.frame.width / 2
+        let correctX = scale > 0 ? (round(rawX * scale) / scale) : rawX
         let correctY = (pinnedWindowMaxY ?? (window.frame.origin.y + window.frame.height)) - window.frame.height
         // Epsilon guard (0.5pt): avoids a spurious correction when AppKit rounds
         // the frame to a pixel boundary that differs from our computed value by a
