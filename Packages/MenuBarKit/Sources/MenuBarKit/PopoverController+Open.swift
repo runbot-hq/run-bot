@@ -146,7 +146,8 @@ extension MBKPopoverController {
     /// `responds(to:)` is the safety net — if Apple ever renames the property
     /// the walk finds nothing and the function is a silent no-op.
     ///
-    /// Called from `popoverDidShow` (via async hop) so AppKit's own
+    /// Called from `popoverDidShow` (via async hop) and from
+    /// `handlePopoverWindowMoved` (via Task hop) so AppKit's own
     /// `_updateAnchorPointForFrame:reshape:` pass has already completed
     /// before we write.
     func correctArrowAnchorPoint() {
@@ -222,20 +223,35 @@ extension MBKPopoverController {
     /// so the window stays centred on the button regardless of width changes.
     /// Recomputes the correct Y as `pinnedWindowMaxY - window.frame.height`
     /// so the top edge stays fixed regardless of height changes.
+    /// Then re-corrects the arrow via a `Task { @MainActor }` hop so that
+    /// AppKit's `_updateAnchorPointForFrame:reshape:` — which fires synchronously
+    /// during the resize pass and overwrites any synchronous KVC write — has
+    /// already completed before we write `anchorPoint`.
     private func handlePopoverWindowMoved(window: NSWindow?) {
         guard popover.isShown,
               let window,
               let anchorX = lastKnownAnchorX else { return }
         let correctX = anchorX - window.frame.width / 2
         let correctY = (pinnedWindowMaxY ?? (window.frame.origin.y + window.frame.height)) - window.frame.height
-        guard window.frame.minX != correctX || window.frame.origin.y != correctY else { return }
+        guard window.frame.minX != correctX || window.frame.origin.y != correctY else {
+            // Position is already correct — still re-correct the arrow in case
+            // AppKit ran _updateAnchorPointForFrame:reshape: without moving the window.
+            Task { @MainActor [weak self] in
+                self?.correctArrowAnchorPoint()
+            }
+            return
+        }
         let driftedX = window.frame.minX
         let driftedY = window.frame.origin.y
         window.setFrameOrigin(NSPoint(x: correctX, y: correctY))
         mbkLog("PopoverController",
                "handlePopoverWindowMoved -- driftedX=\(driftedX) driftedY=\(driftedY) restoredX=\(correctX) restoredY=\(correctY) newFrame=\(window.frame)")
-        // Re-correct arrow after restoring position so normalizedX is valid.
-        correctArrowAnchorPoint()
+        // Async hop: AppKit's _updateAnchorPointForFrame:reshape: fires synchronously
+        // during the resize notification — writing anchorPoint here loses the race.
+        // One MainActor Task hop lands us after that pass completes.
+        Task { @MainActor [weak self] in
+            self?.correctArrowAnchorPoint()
+        }
     }
 
     /// Removes the `didMove` and `didResize` observers and clears pinned origin.
