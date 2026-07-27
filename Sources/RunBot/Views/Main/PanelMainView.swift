@@ -133,25 +133,33 @@ struct PanelMainView: View {
     /// Injected local runner store — used to trigger refresh on appear.
     var localRunnerStore: LocalRunnerStore = .shared
     /// Panel open/close and transient-hide state from the environment.
-    @Environment(PanelVisibilityState.self) private var panelVisibilityState: PanelVisibilityState
+    /// Internal (not private) so extension files (+Content, +Banners) can read it.
+    @Environment(PanelVisibilityState.self) var panelVisibilityState: PanelVisibilityState
     /// Core runner/job/action/rate-limit state injected from AppDelegate.wrapEnv.
-    @Environment(AppState.self) private var appState
+    /// Internal (not private) so extension files (+Content, +Banners) can read it.
+    @Environment(AppState.self) var appState
     /// View model for CPU/memory stats displayed in the header.
-    @State private var systemStats = SystemStatsViewModel()
+    /// Internal (not private) so extension files can read it.
+    @State var systemStats = SystemStatsViewModel()
     /// Number of workflow rows currently shown in the actions section.
-    @State private var visibleCount: Int = 10
+    /// Internal (not private) so +Content extension can read and mutate it.
+    @State var visibleCount: Int = 10
     /// Increments every second to drive relative-time label refreshes without re-polling.
-    @State private var displayTick: Int = 0
+    /// Internal (not private) so +Content and +Banners extensions can read it.
+    @State var displayTick: Int = 0
     /// Structured task driving the 1-second `displayTick` loop; managed by `startDisplayTickTimer()`.
     /// Named "displayTick" for visibility in Instruments (RG6).
-    @State private var displayTickTask: Task<Void, any Error>?
+    /// Internal (not private) so the timer extension methods can mutate it.
+    @State var displayTickTask: Task<Void, any Error>?
     /// Height of the ScrollView frame, driven by the content GeometryReader (RULE 5).
     /// Starts at 0 (no constraint) until the first measurement fires on appear.
     ///
     /// Reset at two points — see DUAL scrollViewHeight RESET in the file header.
+    /// Private: only accessed within this file (body + actionsSectionScrollable).
     @State private var scrollViewHeight: CGFloat = 0
     /// Measured natural height of PanelHeaderView. Captured once on appear (RULE 12).
     /// Used to subtract from the cap so the full panel never overflows the screen.
+    /// Private: only accessed within this file (body + screenScrollMaxHeight).
     @State private var headerHeight: CGFloat = 0
 
     /// Creates a `PanelMainView`.
