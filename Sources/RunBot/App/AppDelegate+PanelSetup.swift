@@ -43,16 +43,27 @@ import SwiftUI
 //    two different reads is precisely what produced the header-shrink and
 //    stale-geometry bugs (#2278/#2279): SwiftUI would lay out against one
 //    number while the window was clamped to another.
+//
+// WIDTH — THE OPPOSITE RULE, AND WHY:
+// Height is global (it is a property of the screen), so MenuBarKit owns it.
+// Width is per-route (the list is wide, Settings is a fixed 480pt), so each
+// RunBot view owns its own. MBKPanelController deliberately has no width
+// parameter: the range it used to apply in its wrapper was inherited by every
+// route, which is what stretched Settings to the list's width on device.
+// ❌ NEVER add a width range back to the MBK wrapper.
 
 /// Extension owning `MBKPanelController` construction and lifecycle-callback wiring.
 extension AppDelegate {
 
     // MARK: - Constants
 
-    /// Minimum panel content width.
-    static let minWidth: CGFloat = 280
-    /// Maximum panel content width.
-    static let maxWidth: CGFloat = 900
+    // WIDTH CONSTANTS LIVE IN `RBMetrics`, NOT HERE.
+    // `RBMetrics.panelListMinWidth` / `panelListMaxWidth` are applied by
+    // `PanelMainView` to its own root, NOT by MenuBarKit. A width range in MBK's
+    // wrapper applies to every route, which stretched the fixed-width Settings
+    // screen (480pt) to the list's width.
+    // ❌ NEVER pass a width range to `MBKPanelController` — it no longer has one.
+
     /// Fraction of the visible screen height the panel content may occupy.
     ///
     /// Handed to `MBKPanelController` as `maxHeightFraction`. MenuBarKit is the only
@@ -75,8 +86,6 @@ extension AppDelegate {
             )),
             overlayGate: overlayGate,
             symbolName: "menubar.rectangle",
-            minWidth: AppDelegate.minWidth,
-            maxWidth: AppDelegate.maxWidth,
             maxHeightFraction: AppDelegate.panelHeightMultiplier
         )
 

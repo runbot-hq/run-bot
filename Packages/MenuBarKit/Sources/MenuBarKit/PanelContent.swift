@@ -1,23 +1,36 @@
 // PanelContent.swift
 // MenuBarKit
 //
-// The SwiftUI side of the sizing pipeline.
+// The SwiftUI side of the sizing pipeline, and the panel's chrome.
 //
 // HOW SIZING WORKS — read this before touching anything here:
 //
-// 1. `MBKHostingView` is configured with `sizingOptions = [.intrinsicContentSize]`,
-//    so AppKit asks SwiftUI for the root's size under an *unspecified* proposal.
-// 2. The root is `MBKPanelContentView`, which is just the adopter's content
-//    wrapped in `.frame(minWidth:maxWidth:maxHeight:)`. Under an unspecified
-//    proposal a flexible frame returns the child's ideal size clamped into that
-//    range — that clamped value becomes `intrinsicContentSize`.
-// 3. `MBKPanelController` turns that size into a window frame and applies it.
-//    The hosting view now has a concrete bounds, so SwiftUI re-proposes exactly
-//    that size to the content. A `ScrollView` inside therefore receives the
-//    capped height and scrolls instead of overflowing.
+// 1. `MBKHostingView` is configured with `sizingOptions = [.intrinsicContentSize]`
+//    AND `translatesAutoresizingMaskIntoConstraints = false`, and the controller
+//    pins it edge-to-edge to the window's content view with four required
+//    constraints. BOTH halves are load-bearing: per the AppKit header,
+//    `NSHostingView` only creates — and only keeps invalidating — its
+//    intrinsic-content-size constraints "when Auto Layout constraints are
+//    otherwise being used in the containing window". With the old
+//    autoresizing-mask layout there was no Auto Layout in the window at all, so
+//    `invalidateIntrinsicContentSize()` never fired a second time and the window
+//    froze at whatever size the first measurement produced.
+//    ❌ NEVER set `translatesAutoresizingMaskIntoConstraints = true` here again.
+// 2. AppKit therefore asks SwiftUI for the root's size under an *unspecified*
+//    proposal. The root is `MBKPanelContentView`: the adopter's content, capped
+//    in height, inset by the arrow, wrapped in the glass bubble. Its ideal size
+//    is exactly the window size — content plus the arrow strip.
+// 3. `MBKPanelController` subtracts the arrow strip, clamps, and turns the result
+//    into a window frame. Resizing the *window* resizes the pinned hosting view,
+//    so SwiftUI re-proposes exactly that size to the content and a `ScrollView`
+//    inside receives the capped height and scrolls instead of overflowing.
 // 4. The second pass measures the same value, so the loop converges after one
 //    round trip. The coalescer's 1pt dedupe absorbs float noise.
 //
+// ❌ NEVER put a min/max *width* in this wrapper. It applies to every route the
+//    adopter shows, so a fixed-width settings screen would be stretched to the
+//    list's minimum width. Width belongs to the adopter's own views; MenuBarKit
+//    caps only the height (the live screen fraction) and the screen width.
 // ❌ NEVER add `.fixedSize()` in this wrapper. It would make the content ignore
 //    the concrete proposal in step 3, and every capped scroll view would
 //    overflow the panel instead of scrolling — that is exactly the class of bug
@@ -30,76 +43,110 @@ import SwiftUI
 
 // MARK: - Limits
 
-/// Live sizing limits handed to the SwiftUI content.
+/// Live sizing and chrome state handed to the SwiftUI content.
 ///
 /// Observable so that a change to `maxContentHeight` (recomputed on every open
-/// and on screen-parameter changes) re-lays-out the content without rebuilding
-/// the hosting view.
+/// and on screen-parameter changes) or to `arrowCenterX` (recomputed on every
+/// frame apply) re-lays-out the content without rebuilding the hosting view.
 @Observable
 @MainActor
 final class MBKPanelLimits {
 
-    /// Minimum content width in points.
-    var minWidth: CGFloat
-
-    /// Maximum content width in points.
-    var maxWidth: CGFloat
-
     /// Maximum content height in points, recomputed live from the current screen.
     var maxContentHeight: CGFloat
 
+    /// Arrow centre in window-local points, from the leading edge.
+    ///
+    /// Written by `applyFrame(content:reason:)` from `MBKPanelGeometry.layout`.
+    /// The controller is the only writer; the bubble shape is the only reader.
+    var arrowCenterX: CGFloat
+
     /// Creates a limits object.
     /// - Parameters:
-    ///   - minWidth: Minimum content width in points.
-    ///   - maxWidth: Maximum content width in points.
     ///   - maxContentHeight: Maximum content height in points.
-    init(minWidth: CGFloat, maxWidth: CGFloat, maxContentHeight: CGFloat) {
-        self.minWidth = minWidth
-        self.maxWidth = maxWidth
+    ///   - arrowCenterX: Initial arrow centre in window-local points.
+    init(maxContentHeight: CGFloat, arrowCenterX: CGFloat) {
         self.maxContentHeight = maxContentHeight
+        self.arrowCenterX = arrowCenterX
     }
 }
 
 // MARK: - Root view
 
-/// Root SwiftUI view of the panel: the adopter's content plus the size limits.
+/// Root SwiftUI view of the panel: the adopter's content inside the glass bubble.
+///
+/// The window is fully clear (`backgroundColor = .clear`, `isOpaque = false`);
+/// everything the user sees is drawn here.
 struct MBKPanelContentView: View {
 
-    /// Live sizing limits.
+    /// Live sizing limits and arrow position.
     let limits: MBKPanelLimits
+
+    /// Chrome metrics — arrow size and corner radius.
+    let metrics: MBKPanelMetrics
 
     /// The adopter's content.
     let content: AnyView
 
-    /// Applies the width range and the live height cap.
+    /// The current bubble silhouette, tracking the live arrow position.
+    private var bubble: MBKBubbleShape {
+        MBKBubbleShape(
+            arrowCenterX: limits.arrowCenterX,
+            arrowHeight: metrics.arrowHeight,
+            arrowWidth: metrics.arrowWidth,
+            cornerRadius: metrics.cornerRadius
+        )
+    }
+
+    /// Caps the content height, insets it below the arrow, and draws the glass.
+    ///
+    /// Order matters: the cap applies to the content alone, the arrow inset is
+    /// added on top of it, and the glass and the clip both use the *padded*
+    /// bounds so the shape and the window frame describe the same rectangle.
     var body: some View {
         content
-            .frame(
-                minWidth: limits.minWidth,
-                maxWidth: limits.maxWidth,
-                maxHeight: limits.maxContentHeight
-            )
+            .frame(maxHeight: limits.maxContentHeight)
+            .padding(.top, metrics.arrowHeight)
+            .glassEffect(.regular, in: bubble)
+            .clipShape(bubble)
     }
 }
 
 // MARK: - Hosting view
 
-/// `NSHostingView` that tells the controller when SwiftUI wants a different size.
+/// `NSHostingView` that tells the controller when the hosted size may have changed.
 ///
-/// AppKit calls `invalidateIntrinsicContentSize()` whenever the hosted content's
-/// intrinsic size becomes stale. That is the only signal in the pipeline; the
-/// controller coalesces it and reads `intrinsicContentSize` on the next turn.
+/// Two independent signals, deliberately:
+/// - `invalidateIntrinsicContentSize()` — AppKit's own "the ideal size is stale"
+///   notification. This is the fast path.
+/// - `layout()` — fires on every layout pass. The controller re-measures and only
+///   acts when the number actually moved. This is the safety net: if the
+///   intrinsic invalidation ever stops arriving, the window still tracks content.
 final class MBKHostingView: NSHostingView<MBKPanelContentView> {
 
     /// Called on the main actor when the intrinsic content size may have changed.
     var onIntrinsicSizeChange: (@MainActor () -> Void)?
 
+    /// Called on the main actor at the end of every layout pass.
+    var onLayoutPass: (@MainActor () -> Void)?
+
     /// Creates the hosting view.
+    ///
+    /// `translatesAutoresizingMaskIntoConstraints = false` is required, not
+    /// stylistic — see the sizing notes at the top of this file. Hugging and
+    /// compression resistance are dropped to `.defaultLow` so the controller's
+    /// required edge pins always win over the intrinsic-size constraints AppKit
+    /// derives from the SwiftUI content; the window drives the size, the content
+    /// only reports what it would like.
     /// - Parameter rootView: The panel root view.
     required init(rootView: MBKPanelContentView) {
         super.init(rootView: rootView)
         sizingOptions = [.intrinsicContentSize]
-        translatesAutoresizingMaskIntoConstraints = true
+        translatesAutoresizingMaskIntoConstraints = false
+        setContentHuggingPriority(.defaultLow, for: .horizontal)
+        setContentHuggingPriority(.defaultLow, for: .vertical)
+        setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        setContentCompressionResistancePriority(.defaultLow, for: .vertical)
     }
 
     /// Not supported — the panel is built in code.
@@ -113,5 +160,11 @@ final class MBKHostingView: NSHostingView<MBKPanelContentView> {
     override func invalidateIntrinsicContentSize() {
         super.invalidateIntrinsicContentSize()
         onIntrinsicSizeChange?()
+    }
+
+    /// Forwards the end of every layout pass to the controller.
+    override func layout() {
+        super.layout()
+        onLayoutPass?()
     }
 }

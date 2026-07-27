@@ -16,7 +16,7 @@ import CoreGraphics
 
 /// Fixed chrome dimensions for the anchored panel.
 ///
-/// These describe the bubble we draw ourselves (see `MBKPanelMask`). They are
+/// These describe the bubble we draw ourselves (see `MBKBubbleShape`). They are
 /// tuned to visually match the `NSPopover` chrome that MenuBarKit used to rely
 /// on, so the app looks unchanged after the rewrite.
 public struct MBKPanelMetrics: Equatable, Sendable {
@@ -121,7 +121,20 @@ public enum MBKPanelGeometry {
         max(visibleFrame.height * fraction - metrics.arrowHeight, 0)
     }
 
-    /// Clamps a measured content size into the adopter's width/height limits.
+    /// Content width cap derived live from the screen.
+    ///
+    /// The only width limit MenuBarKit imposes. An adopter-specific min/max width
+    /// would apply to every route the adopter shows, so it belongs in the
+    /// adopter's own views, not here.
+    /// - Parameters:
+    ///   - visibleFrame: The screen's visible frame.
+    ///   - metrics: Chrome metrics; the screen margin is subtracted on both sides.
+    /// - Returns: Maximum content width in points, never negative.
+    public static func maxContentWidth(visibleFrame: CGRect, metrics: MBKPanelMetrics) -> CGFloat {
+        max(visibleFrame.width - metrics.screenMargin * 2, 0)
+    }
+
+    /// Clamps a measured content size into the given width/height limits.
     /// - Parameters:
     ///   - content: Measured content size.
     ///   - minWidth: Minimum allowed width.

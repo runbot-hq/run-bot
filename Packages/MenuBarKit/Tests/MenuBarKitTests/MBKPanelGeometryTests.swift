@@ -6,6 +6,7 @@
 // the regression guard for #2278/#2279 (stale geometry, clipped arrow).
 
 import CoreGraphics
+import SwiftUI
 import Testing
 @testable import MenuBarKit
 
@@ -202,5 +203,72 @@ struct MBKPanelGeometryTests {
         )
         #expect(clamped.width == 500)
         #expect(clamped.height == 0)
+    }
+
+    // MARK: - Width cap
+    //
+    // MenuBarKit caps width against the screen only; it deliberately has no
+    // min/max width of its own — that range lives on the adopter's views.
+
+    @Test func maxContentWidthInsetsBothScreenMargins() {
+        let width = MBKPanelGeometry.maxContentWidth(visibleFrame: screen, metrics: metrics)
+        #expect(width == 1440 - metrics.screenMargin * 2)
+    }
+
+    @Test func maxContentWidthIsNeverNegative() {
+        let width = MBKPanelGeometry.maxContentWidth(
+            visibleFrame: CGRect(x: 0, y: 0, width: 4, height: 100),
+            metrics: metrics
+        )
+        #expect(width == 0)
+    }
+
+    // MARK: - Bubble shape
+
+    @MainActor
+    @Test func bubbleShapeSpansFullRectWithArrowAtTop() {
+        let bounds = Self.bubbleBounds(arrowCenterX: 200)
+        // Arrow tip touches the top edge; the body fills the rest of the rect.
+        #expect(bounds.minY == 0)
+        #expect(bounds.maxY == 300)
+        #expect(bounds.width == 400)
+    }
+
+    @MainActor
+    @Test func bubbleShapeKeepsArrowInsideCornersWhenAnchorIsOutOfRange() {
+        let low = Self.bubbleBounds(arrowCenterX: -500)
+        #expect(low.minX >= 0)
+        #expect(low.maxX <= 400)
+
+        let high = Self.bubbleBounds(arrowCenterX: 5000)
+        #expect(high.minX >= 0)
+        #expect(high.maxX <= 400)
+    }
+
+    @MainActor
+    @Test func bubbleShapeWithoutArrowIsAPlainRoundedRect() {
+        let bounds = Self.bubbleBounds(arrowCenterX: 200, arrowHeight: 0, arrowWidth: 0)
+        #expect(bounds.minY == 0)
+        #expect(bounds.maxY == 300)
+    }
+
+    /// Bounding rect of `MBKBubbleShape` drawn into a fixed 400x300 rect.
+    /// - Parameters:
+    ///   - arrowCenterX: Arrow centre in points from the leading edge.
+    ///   - arrowHeight: Arrow height; defaults to the standard metric.
+    ///   - arrowWidth: Arrow base width; defaults to the standard metric.
+    @MainActor
+    private static func bubbleBounds(
+        arrowCenterX: CGFloat,
+        arrowHeight: CGFloat = MBKPanelMetrics.default.arrowHeight,
+        arrowWidth: CGFloat = MBKPanelMetrics.default.arrowWidth
+    ) -> CGRect {
+        let shape = MBKBubbleShape(
+            arrowCenterX: arrowCenterX,
+            arrowHeight: arrowHeight,
+            arrowWidth: arrowWidth,
+            cornerRadius: MBKPanelMetrics.default.cornerRadius
+        )
+        return shape.path(in: CGRect(x: 0, y: 0, width: 400, height: 300)).boundingRect
     }
 }

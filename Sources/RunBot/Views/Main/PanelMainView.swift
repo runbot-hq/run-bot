@@ -7,10 +7,16 @@ import SwiftUI
 //
 // ARCHITECTURE: MBKPanelController sizing contract (anchored-panel rewrite)
 //
-// This view no longer measures itself. MenuBarKit wraps it in
-// `.frame(minWidth:maxWidth:maxHeight:)` and reads the resulting intrinsic size
-// off its NSHostingView; that size becomes the window frame, and the window
-// frame is then re-proposed to this view. One measurement, one owner.
+// This view no longer measures itself. MenuBarKit caps the height, reads the
+// resulting intrinsic size off its NSHostingView, and makes that the window
+// frame; the window frame is then re-proposed to this view. One measurement,
+// one owner.
+//
+// WIDTH IS THIS VIEW'S RESPONSIBILITY (changed after device testing of #2305).
+// MenuBarKit used to apply `.frame(minWidth:maxWidth:)` in its own wrapper, so
+// the range was inherited by every route and stretched the fixed-width Settings
+// screen (480pt) to the list's width. MBK now caps only the height and the
+// screen width; the range lives on this view's root instead (see RULE 11).
 //
 // WHAT WAS DELETED HERE AND WHY (do not bring any of it back):
 //   • @State scrollViewHeight + the content GeometryReader that fed it
@@ -46,9 +52,13 @@ import SwiftUI
 //         site. On macOS 26, GlassEffectContainer reports slightly different
 //         preferred heights under layout pressure; .fixedSize() pins it so the
 //         Divider below never moves.
+// RULE 11 (WIDTH OWNERSHIP): the root carries
+//         .frame(minWidth: RBMetrics.panelListMinWidth, maxWidth: RBMetrics.panelListMaxWidth).
+//         ❌ NEVER move it into MenuBarKit — it would apply to Settings too.
 //
-// The panel's material and bubble chrome are drawn by MenuBarKit's
-// NSVisualEffectView. Do NOT add .background() or NSVisualEffectView here.
+// The panel's Liquid Glass bubble and arrow are drawn by MenuBarKit in SwiftUI
+// (`.glassEffect(.regular, in: MBKBubbleShape(...))` on its root wrapper).
+// Do NOT add .background() or an NSVisualEffectView here.
 
 /// Root panel view rendered inside the MenuBarKit panel.
 struct PanelMainView: View {
@@ -132,6 +142,9 @@ struct PanelMainView: View {
                 }
             actionsSectionScrollable
         }
+        // RULE 11: LOAD-BEARING — the list's own width range. MenuBarKit does not
+        // impose one, so without this the panel would be as wide as its widest row.
+        .frame(minWidth: RBMetrics.panelListMinWidth, maxWidth: RBMetrics.panelListMaxWidth)
         .onAppear {
             #if DEBUG
             log("【PanelMainView】onAppear panelOpen=\(panelVisibilityState.isOpen)", category: .panel)

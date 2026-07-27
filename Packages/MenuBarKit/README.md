@@ -1,7 +1,7 @@
 # MenuBarKit
 
 A Swift package for the anchored-panel + SwiftUI sheet + NSOpenPanel + alert layer of a macOS menu-bar app.
-The panel is a borderless `NSPanel` MenuBarKit owns outright — the bubble and its arrow are drawn as a mask, not by `NSPopover`, so the arrow can never be clipped by AppKit chrome. Swift 6.2, macOS 26, `@MainActor`-first throughout.
+The panel is a borderless, fully transparent `NSPanel` MenuBarKit owns outright — the bubble and its arrow are drawn in SwiftUI as real macOS 26 Liquid Glass (`.glassEffect(.regular, in: MBKBubbleShape(...))`), not by `NSPopover`, so the arrow can never be clipped by AppKit chrome. Swift 6.2, macOS 26, `@MainActor`-first throughout.
 
 **Platform & Stack**
 
@@ -31,7 +31,7 @@ The panel is a borderless `NSPanel` MenuBarKit owns outright — the bubble and 
 | `PanelControllerProtocol.swift` | `MBKPanelControllerProtocol` — `@MainActor` protocol surface for `MBKPanelController`; type your host reference against this for testability/mocking |
 | `Panel.swift` | `MBKPanel` — borderless, non-activating `NSPanel` at `.statusBar` level; Escape routes through `cancelOperation(_:)` |
 | `PanelGeometry.swift` | `MBKPanelGeometry` / `MBKPanelMetrics` / `MBKPanelLayout` — pure, AppKit-free frame math: window size, screen clamping, arrow offset, live height cap. Unit-tested |
-| `PanelMask.swift` | Bubble-with-arrow silhouette used as the `NSVisualEffectView` mask; also gives the window shadow its shape |
+| `PanelBubbleShape.swift` | `MBKBubbleShape` — bubble-with-arrow SwiftUI `Shape`; used both as the `.glassEffect(_:in:)` silhouette and as the content clip, so the Liquid Glass chrome and the window shadow always share one outline |
 | `PanelContent.swift` | `MBKPanelLimits` + `MBKPanelContentView` + `MBKHostingView` — the SwiftUI half of the sizing pipeline |
 | `SizeCoalescer.swift` | `MBKSizeCoalescer` — one frame apply per runloop turn, with a synchronous flush before the panel is shown |
 | `AnchoredSheet.swift` | `.mbkSheet(isPresented:content:)` and `.mbkSheet(item:content:)` — SwiftUI sheet anchored as a child window of the panel so it survives outside-clicks and focus changes |
@@ -46,14 +46,18 @@ The panel is a borderless `NSPanel` MenuBarKit owns outright — the bubble and 
 let gate = MBKOverlayGate()
 
 // 2. Create and wire the controller
-// minWidth/maxWidth/maxHeightFraction are optional; shown here with their defaults.
 // maxHeightFraction is a fraction of the screen's *visible* height and is
 // re-evaluated on every open, so it never goes stale after a display change.
+//
+// There is deliberately no width parameter. A width range inside MenuBarKit
+// applies to *every* route the adopter shows, which stretches fixed-width
+// screens to the widest route's minimum. Put `.frame(minWidth:maxWidth:)` on
+// the views that want it; MenuBarKit only refuses to grow wider than the screen.
 let controller = MBKPanelController(
-    rootView: ContentView().environment(gate),
+    rootView: ContentView()
+        .frame(minWidth: 200, maxWidth: 600)
+        .environment(gate),
     overlayGate: gate,
-    minWidth: 200,
-    maxWidth: 600,
     maxHeightFraction: 0.8
 )
 controller.setup() // call from applicationDidFinishLaunching

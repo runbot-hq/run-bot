@@ -10,8 +10,16 @@
 //   show() time. MenuBarKit resizes its content manually after show(), and no
 //   amount of pre-seeding or re-anchoring made AppKit re-derive the arrow —
 //   it stayed clipped (#2278, #2279, PR #2289). We now own one real borderless
-//   panel and draw the bubble + arrow ourselves (MBKPanelMask), so the arrow is
-//   recomputed with the frame and can never disagree with it.
+//   panel and draw the bubble + arrow ourselves in SwiftUI (MBKBubbleShape), so
+//   the arrow is recomputed with the frame and can never disagree with it.
+//
+// WHY THE WINDOW IS EMPTY CHROME:
+//   The panel is fully clear and its content view is a plain NSView. All chrome
+//   — the Liquid Glass bubble and the arrow — is drawn by SwiftUI via
+//   `.glassEffect(.regular, in: MBKBubbleShape(...))`. NSVisualEffectView with a
+//   maskImage was the previous approach; it renders pre-macOS-26 translucency,
+//   not glass, and NSGlassEffectView cannot express an arrow (cornerRadius only).
+//   ❌ NEVER put an NSVisualEffectView back in this window.
 //
 //   ❌ NEVER reintroduce NSPopover.
 //   ❌ NEVER add an invisible helper window to position this one. An earlier
@@ -35,8 +43,8 @@
 //   queue: nil delivers on the poster's thread; Task { @MainActor } is the
 //   Swift 6-correct hop to the main actor — compiler-enforced, not asserted.
 //
-// IMPLICIT-UNWRAPPED OPTIONALS (statusItem, panel, effectView, hostingView,
-// limits, coalescer):
+// IMPLICIT-UNWRAPPED OPTIONALS (statusItem, panel, hostingView, limits,
+// coalescer):
 //   Assigned in setup(), not init(). Safe because setup() is called from
 //   applicationDidFinishLaunching before any user interaction is possible.
 //
@@ -66,6 +74,15 @@ import SwiftUI
 @MainActor
 public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
 
+    // MARK: - Constants
+
+    /// Content size used for the first frame when SwiftUI has not measured yet.
+    ///
+    /// Purely cosmetic: it only decides where the panel is drawn for the single
+    /// frame before the real measurement lands. Seeing `FALLBACK` in the log
+    /// during normal use means the measurement pipeline is broken.
+    static let fallbackContentSize = CGSize(width: 320, height: 240)
+
     // MARK: - Configuration
 
     /// Overlay gate — consulted by every close path, reset on close.
@@ -73,10 +90,6 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
     let overlayGate: MBKOverlayGate
     /// SF Symbol name for the status-bar icon.
     private let symbolName: String
-    /// Minimum allowed content width.
-    let minWidth: CGFloat
-    /// Maximum allowed content width.
-    let maxWidth: CGFloat
     /// Fraction of the screen's visible height the content may occupy.
     ///
     /// Evaluated live on every open and on every screen-parameter change — never
@@ -101,8 +114,6 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
     var statusItem: NSStatusItem!
     /// The one window MenuBarKit owns.
     var panel: MBKPanel!
-    /// The panel's content view; carries the bubble mask and the material.
-    var effectView: NSVisualEffectView!
     /// Hosts the root SwiftUI view.
     var hostingView: MBKHostingView!
     /// Live sizing limits handed to SwiftUI.
@@ -132,6 +143,21 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
     /// Cleared on open and on close so a reopen always recomputes.
     var lastContentSize: CGSize?
 
+    /// The raw hosting-view measurement behind `lastContentSize`.
+    ///
+    /// Only used by the layout-pass safety net so it can tell "SwiftUI laid out
+    /// again at the same size" (do nothing) from "the content actually grew"
+    /// (schedule an apply). Cleared alongside `lastContentSize`.
+    var lastMeasuredSize: CGSize?
+
+    /// `true` while `applyFrame(content:reason:)` is driving a layout pass.
+    ///
+    /// `panel.setFrame` and the explicit `layoutSubtreeIfNeeded()` inside
+    /// `applyFrame` both make the hosting view lay out, which re-enters the
+    /// layout-pass hook. This flag makes that re-entry a no-op; `applyFrame`
+    /// re-checks the measurement itself once the flag is clear.
+    var isApplyingFrame = false
+
     /// Prevents `onWillClose` from firing more than once per open/close cycle.
     var onWillCloseFired = false
 
@@ -142,24 +168,24 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
     ///   - rootView: The root view displayed inside the panel.
     ///   - overlayGate: Shared gate; blocks dismiss while a sheet or picker is live.
     ///   - symbolName: SF Symbol name for the status-bar icon. Defaults to `"menubar.rectangle"`.
-    ///   - minWidth: Minimum content width (default 200).
-    ///   - maxWidth: Maximum content width (default 600).
     ///   - maxHeightFraction: Fraction of the screen's visible height the content
     ///     may occupy (default 0.8). Applied live, never snapshotted.
     ///   - metrics: Bubble chrome metrics. Defaults to `MBKPanelMetrics.default`.
+    ///
+    /// - Note: There is deliberately no width parameter. Width is the adopter's
+    ///   business: a global min/max width in MenuBarKit applies to *every* route
+    ///   the adopter shows, which stretches fixed-width screens to the widest
+    ///   route's minimum. Put `.frame(minWidth:maxWidth:)` on the views that want
+    ///   it. MenuBarKit only refuses to grow wider than the screen.
     public init<Content: View>(
         rootView: Content,
         overlayGate: MBKOverlayGate,
         symbolName: String = "menubar.rectangle",
-        minWidth: CGFloat = 200,
-        maxWidth: CGFloat = 600,
         maxHeightFraction: CGFloat = 0.8,
         metrics: MBKPanelMetrics = .default
     ) {
         self.overlayGate = overlayGate
         self.symbolName = symbolName
-        self.minWidth = minWidth
-        self.maxWidth = maxWidth
         self.maxHeightFraction = maxHeightFraction
         self.metrics = metrics
         self.rootView = AnyView(rootView)
@@ -184,38 +210,48 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
         mbkLog("PanelController", "setup complete")
     }
 
-    /// Builds the panel, its visual-effect content view, and the hosting view.
+    /// Builds the panel, its clear content view, and the pinned hosting view.
+    ///
+    /// AUTO LAYOUT IS LOAD-BEARING HERE — do not "simplify" it back to
+    /// autoresizing masks. `NSHostingView` only creates and maintains its
+    /// intrinsic-content-size constraints while Auto Layout is in use in the
+    /// containing window (AppKit header, `sizingOptions`). Without the four pins
+    /// below, `invalidateIntrinsicContentSize()` fires once and never again, and
+    /// the window stays frozen at its first measured size while the content
+    /// silently overflows it.
     private func setupPanelWindow() {
-        limits = MBKPanelLimits(
-            minWidth: minWidth,
-            maxWidth: maxWidth,
-            maxContentHeight: liveMaxContentHeight()
-        )
+        limits = MBKPanelLimits(maxContentHeight: liveMaxContentHeight(), arrowCenterX: 0)
 
         // The coalescer must exist before the hosting view can report a size.
         coalescer = MBKSizeCoalescer { [weak self] in
             self?.applyMeasuredSize()
         }
 
-        let effect = NSVisualEffectView()
-        effect.material = .popover
-        effect.blendingMode = .behindWindow
-        effect.state = .active
-        effect.autoresizingMask = [.width, .height]
-        effectView = effect
+        // Plain, fully transparent container. All chrome is drawn in SwiftUI.
+        let container = NSView()
+        container.translatesAutoresizingMaskIntoConstraints = true
+        container.autoresizingMask = [.width, .height]
 
         let hosting = MBKHostingView(
-            rootView: MBKPanelContentView(limits: limits, content: rootView)
+            rootView: MBKPanelContentView(limits: limits, metrics: metrics, content: rootView)
         )
-        hosting.autoresizingMask = []
         hosting.onIntrinsicSizeChange = { [weak self] in
-            self?.coalescer.schedule()
+            self?.coalescer?.schedule()
+        }
+        hosting.onLayoutPass = { [weak self] in
+            self?.scheduleIfMeasurementChanged(reason: "layout")
         }
         hostingView = hosting
-        effect.addSubview(hosting)
+        container.addSubview(hosting)
+        NSLayoutConstraint.activate([
+            hosting.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            hosting.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            hosting.topAnchor.constraint(equalTo: container.topAnchor),
+            hosting.bottomAnchor.constraint(equalTo: container.bottomAnchor)
+        ])
 
         let window = MBKPanel()
-        window.contentView = effect
+        window.contentView = container
         window.onCancel = { [weak self] in
             mbkLog("PanelController", "cancelOperation -- Escape, closing")
             self?.performClose()
@@ -231,7 +267,7 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
     public func setRootView(_ view: AnyView) {
         rootView = view
         guard isSetUp else { return }
-        hostingView.rootView = MBKPanelContentView(limits: limits, content: rootView)
+        hostingView.rootView = MBKPanelContentView(limits: limits, metrics: metrics, content: rootView)
         mbkLog("PanelController", "setRootView — rootView replaced")
     }
 

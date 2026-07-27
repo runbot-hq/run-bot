@@ -55,6 +55,7 @@ extension MBKPanelController {
 
         limits.maxContentHeight = liveMaxContentHeight()
         lastContentSize = nil
+        lastMeasuredSize = nil
         onWillCloseFired = false
 
         // While the panel was off screen SwiftUI may never have laid out, in which
@@ -66,11 +67,12 @@ extension MBKPanelController {
         coalescer.flush()
 
         if lastContentSize == nil {
-            // Measurement is still unavailable. Anchor and mask the panel at the
-            // minimum size so the first frame the user sees is in the right place
-            // and the right shape; the next intrinsic-size report corrects it.
-            let fallbackHeight = limits.maxContentHeight > 0 ? min(240, limits.maxContentHeight) : 240
-            applyFrame(content: CGSize(width: minWidth, height: fallbackHeight), reason: "FALLBACK")
+            // Measurement is still unavailable. Anchor the panel at an arbitrary
+            // small size so the first frame the user sees is in the right place
+            // and the right shape; the next measurement corrects it.
+            let size = MBKPanelController.fallbackContentSize
+            let fallbackHeight = limits.maxContentHeight > 0 ? min(size.height, limits.maxContentHeight) : size.height
+            applyFrame(content: CGSize(width: size.width, height: fallbackHeight), reason: "FALLBACK")
         }
 
         setButtonHighlight(true)
@@ -156,6 +158,7 @@ extension MBKPanelController {
         overlayGate.hasFilePickerOverlay = false
         onWillCloseFired = false
         lastContentSize = nil
+        lastMeasuredSize = nil
         mbkLog("PanelController", "panel closed wasForced=\(wasForced)")
     }
 

@@ -295,6 +295,15 @@ enum RBMetrics {
     /// Maximum width for the head-branch label in `ActionRowView`.
     /// Kept narrower than `actionRowTitleMaxWidth` since branch names are lower priority (#1194).
     static let actionRowBranchMaxWidth: CGFloat = 80
+    /// Minimum width of the main panel list.
+    ///
+    /// Applied by `PanelMainView` to its own root. MenuBarKit deliberately has no
+    /// width parameter: a range in its wrapper is inherited by every route, which
+    /// stretched the fixed-width Settings screen to the list's width on device.
+    /// ❌ NEVER pass this to `MBKPanelController`.
+    static let panelListMinWidth: CGFloat = 280
+    /// Maximum width of the main panel list. See `panelListMinWidth`.
+    static let panelListMaxWidth: CGFloat = 900
 }
 
 // MARK: - Typography Tokens

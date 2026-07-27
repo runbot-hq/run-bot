@@ -10,13 +10,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         mbkLog("AppDelegate", "applicationDidFinishLaunching")
         panelController = MBKPanelController(
+            // Width is the adopter's business — MBKPanelController has no width
+            // parameter, so the range lives on the root view here.
             rootView: RootView()
+                .frame(minWidth: 200, maxWidth: 480)
                 .environment(appState)
                 .environment(overlayGate),
             overlayGate: overlayGate,
             symbolName: "flask.fill",
-            minWidth: 200,
-            maxWidth: 480,
             maxHeightFraction: 0.8
         )
         mbkLog("AppDelegate", "panelController created")
