@@ -70,8 +70,19 @@ extension MBKPopoverController {
             // layout. Write contentSize first so SwiftUI lays out at the correct width,
             // then drive window.setFrame directly using snapshotted chrome deltas.
             //
-            // Chrome deltas, button X, and window top edge are snapshotted once in
-            // popoverWillShow per session. Never invalidated or recalculated.
+            // Chrome deltas, button X, and window top edge are snapshotted fresh on
+            // every open (and on Path 2 re-anchors) in popoverWillShow.
+            //
+            // WHY Path 3 has no isOpening guard (unlike Path 1 and Path 2):
+            // During the isOpening window, popoverWillShow has not yet fired —
+            // popover.show() has not been called, so AppKit has not invoked the
+            // delegate. All four chrome snapshot vars (hiddenChromeW/H, hiddenButtonMidX,
+            // hiddenWindowY) are nil until popoverWillShow runs. The guard let block
+            // immediately below provides an equivalent implicit gate: if any snapshot
+            // var is nil, Path 3 SKIPs with a log and no write occurs. A stale write
+            // through Path 3 while isOpening is true is therefore impossible given
+            // AppKit's guarantee that popoverWillShow fires synchronously inside
+            // popover.show() — which is called only after isOpening = true is raised.
             //
             // KNOWN LIMITATION — mid-session menubar hide:
             // hiddenWindowY (and all chrome snapshot values) are captured in
@@ -102,11 +113,74 @@ extension MBKPopoverController {
                        "applyContentSize -- menubar hidden, no chrome snapshot yet, SKIP (\(clamped.width),\(clamped.height))")
                 return
             }
+            // Log pre-setFrame window state to expose what differs between session 1
+            // (clipped arrow) and session 2+ (correct arrow).
+            let superview = window.contentView?.superview
+            let superviewClass = superview.map { String(describing: type(of: $0)) } ?? "nil"
+            let subviewClasses = superview?.subviews.map { String(describing: type(of: $0)) }.joined(separator: ", ") ?? "nil"
+            let subviewFrames = superview?.subviews.map { "\($0.frame)" }.joined(separator: ", ") ?? "nil"
+            let superviewBounds = superview.map { "\($0.bounds)" } ?? "nil"
+            let superviewFrame = superview.map { "\($0.frame)" } ?? "nil"
+            let superviewNeedsDisplay = superview?.needsDisplay ?? false
+            let superviewIsHidden = superview?.isHidden ?? true
+            let superviewAlpha = superview?.alphaValue ?? 0
+            let windowAlpha = window.alphaValue
+            let windowIsVisible = window.isVisible
+            let windowIsKey = window.isKeyWindow
+            let contentViewClass = window.contentView.map { String(describing: type(of: $0)) } ?? "nil"
+            let contentViewFrame = window.contentView.map { "\($0.frame)" } ?? "nil"
+            let layerClass = superview?.layer.map { String(describing: type(of: $0)) } ?? "nil"
+            let layerNeedsDisplay = superview?.layer?.needsDisplay() ?? false
+            mbkLog("PopoverController",
+                   "applyContentSize -- Path3 PRE session=\(sessionOpenCount)" +
+                   " win#\(window.windowNumber) winFrame=\(window.frame)" +
+                   " winAlpha=\(windowAlpha) winVisible=\(windowIsVisible) winKey=\(windowIsKey)" +
+                   " popoverContentSize=\(popover.contentSize)" +
+                   " frameView=\(superviewClass) svBounds=\(superviewBounds) svFrame=\(superviewFrame)" +
+                   " svNeedsDisplay=\(superviewNeedsDisplay) svHidden=\(superviewIsHidden) svAlpha=\(superviewAlpha)" +
+                   " layer=\(layerClass) layerNeedsDisplay=\(layerNeedsDisplay)" +
+                   " subviews=[\(subviewClasses)]" +
+                   " subviewFrames=[\(subviewFrames)]" +
+                   " contentView=\(contentViewClass) cvFrame=\(contentViewFrame)" +
+                   " target=(\(clamped.width),\(clamped.height)) needsPath3Reanchor=\(needsPath3Reanchor)")
+
+            if needsPath3Reanchor {
+                // First Path 3 call of this session: use show() to let AppKit fully
+                // re-layout NSGlassView and all private chrome subviews at the correct
+                // size, exactly as Path 2 does. This avoids the stale-chrome bug where
+                // NSGlassView retains its initial (often stale) frame after setFrame,
+                // causing a clipped or misdrawn arrow on session 1.
+                //
+                // show() fires popoverWillShow which re-snapshots hiddenWindowY, so
+                // subsequent setFrame calls in the same session will use the correct
+                // post-reanchor top edge.
+                //
+                // NOTE: show() re-triggers popoverWillShow (and all NSPopoverDelegate
+                // methods). setButtonHighlight(true) and isShownSentinel = true are
+                // idempotent no-ops on a second call within the same session.
+                needsPath3Reanchor = false
+                popover.contentSize = clamped
+                guard let button = statusItem.button,
+                      let rect = positioningRect(for: button) else {
+                    mbkLog("PopoverController",
+                           "applyContentSize -- Path3 REANCHOR skipped, button unavailable (\(clamped.width),\(clamped.height))")
+                    return
+                }
+                if let anchorX = buttonScreenMidX { lastKnownAnchorX = anchorX }
+                popover.show(relativeTo: rect, of: button, preferredEdge: .minY)
+                mbkLog("PopoverController",
+                       "applyContentSize -- Path3 REANCHOR via show() (\(clamped.width),\(clamped.height))")
+                return
+            }
+
+            // Subsequent Path 3 calls this session: drive setFrame directly.
+            // NSGlassView is already correctly sized from the show() reanchor above,
+            // so incremental height/width changes can be applied via setFrame safely.
             // Write contentSize so SwiftUI constrains its layout to the correct size.
             // AppKit ignores this for window positioning in hidden mode, but the
             // hosting controller uses it for view layout.
             popover.contentSize = clamped
-            let newW = clamped.width  + chromeW
+            let newW = clamped.width + chromeW
             let newH = clamped.height + chromeH
             // ❌ DO NOT use window.frame.origin.x — it was computed for a specific
             // width and is wrong for any other width. Derive X from btnMidX always.
@@ -114,9 +188,22 @@ extension MBKPopoverController {
             // Y is derived from the snapshotted top edge so the top of the popover
             // stays pinned just below the status bar on every height change.
             // origin.y = topEdge - windowHeight (AppKit uses bottom-left origin).
+            // The ~28pt gap between topEdge and the screen top is the space AppKit
+            // reserves for the NSPopover arrow to protrude above frame.maxY —
+            // do NOT anchor to screen top or the arrow will be clipped.
             let newY = topEdge - newH
             let newFrame = NSRect(x: newX, y: newY, width: newW, height: newH)
             window.setFrame(newFrame, display: true)
+            let superviewAfter = window.contentView?.superview
+            let superviewClassAfter = superviewAfter.map { String(describing: type(of: $0)) } ?? "nil"
+            let subviewClassesAfter = superviewAfter?.subviews.map { String(describing: type(of: $0)) }.joined(separator: ", ") ?? "nil"
+            let subviewFramesAfter = superviewAfter?.subviews.map { "\($0.frame)" }.joined(separator: ", ") ?? "nil"
+            mbkLog("PopoverController",
+                   "applyContentSize -- Path3 POST-setFrame session=\(sessionOpenCount)" +
+                   " win#\(window.windowNumber) winFrame=\(window.frame)" +
+                   " frameView=\(superviewClassAfter)" +
+                   " subviews=[\(subviewClassesAfter)]" +
+                   " subviewFrames=[\(subviewFramesAfter)]")
             mbkLog("PopoverController",
                    "applyContentSize -- menubar hidden, DIRECT FRAME (\(clamped.width),\(clamped.height)) btnMidX=\(btnMidX) frame=\(newFrame)")
         } else {

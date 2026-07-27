@@ -149,6 +149,21 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
     /// `nil` outside a hidden-mode session.
     var hiddenWindowY: CGFloat?
 
+    /// Monotonically incrementing counter of how many times `popoverWillShow` has fired
+    /// since app launch. Never reset. Used in debug logging to label sessions so
+    /// session 1 (fresh app start) vs session 2+ can be compared in the log.
+    var sessionOpenCount = 0
+
+    /// Set to `true` by the `onDidShow` Task after `isOpening` is lowered.
+    /// Cleared to `false` by Path 3 in `applyContentSize` after consuming it.
+    /// When `true`, Path 3 uses `popover.show()` to reanchor (letting AppKit
+    /// re-layout the full chrome) instead of calling `window.setFrame` directly.
+    /// This is necessary on the first Path 3 call of a hidden-mode session because
+    /// NSGlassView and other private chrome subviews are sized to the initial
+    /// contentSize (often stale from the previous session) and cannot be corrected
+    /// without a full AppKit-driven show cycle.
+    var needsPath3Reanchor = false
+
     // MARK: - Init
 
     /// Creates the controller with a root SwiftUI view and shared overlay gate.
