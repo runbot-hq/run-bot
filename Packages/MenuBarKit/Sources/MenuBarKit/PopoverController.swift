@@ -115,6 +115,12 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
     /// Cleared in `unpinPopoverWindow()` on close.
     var pinnedWindowMinX: CGFloat?
 
+    /// The popover window's `frame.origin.y` snapshotted in `pinPopoverWindow()` after
+    /// `popoverDidShow` settles. If AppKit drifts the window down during a resize in
+    /// hidden-menubar mode, `handlePopoverWindowMoved` restores this value immediately.
+    /// Cleared in `unpinPopoverWindow()` on close.
+    var pinnedWindowOriginY: CGFloat?
+
     /// `NSWindow.didMoveNotification` observer token. Managed by
     /// `pinPopoverWindow()` / `unpinPopoverWindow()`.
     var windowMoveObserver: Any?
