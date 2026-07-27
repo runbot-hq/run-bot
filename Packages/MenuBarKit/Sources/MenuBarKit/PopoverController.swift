@@ -62,6 +62,7 @@
 //   PopoverController+Delegate.swift    — NSPopoverDelegate conformance
 
 import AppKit
+import SwiftUI
 
 /// Manages the full `NSPopover` and `NSStatusItem` lifecycle for a macOS menu-bar app.
 ///
