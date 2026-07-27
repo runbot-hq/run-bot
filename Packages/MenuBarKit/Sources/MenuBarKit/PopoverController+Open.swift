@@ -181,10 +181,11 @@ extension MBKPopoverController {
 
     // MARK: - Window position pin
 
-    /// Snapshots the popover window's origin (X and Y) and subscribes to `didMove`
-    /// and `didResize` notifications so that if AppKit repositions the window
-    /// (e.g. during a scroll-view height change in hidden-menubar mode) we
-    /// immediately restore the correct origin.
+    /// Snapshots the popover window's top edge (`maxY = origin.y + height`) and
+    /// subscribes to `didMove` and `didResize` notifications so that if AppKit
+    /// repositions or resizes the window (e.g. during a scroll-view height change
+    /// in hidden-menubar mode) we immediately recompute `origin.y = pinnedWindowMaxY
+    /// - height` to keep the top edge fixed just below the menu bar.
     ///
     /// Must be called after the popover frame has settled (i.e. from the same
     /// async hop as `correctArrowAnchorPoint` in `popoverDidShow`).
@@ -194,10 +195,10 @@ extension MBKPopoverController {
             return
         }
         let pinnedX = window.frame.minX
-        let pinnedY = window.frame.origin.y
+        let pinnedMaxY = window.frame.origin.y + window.frame.height
         pinnedWindowMinX = pinnedX
-        pinnedWindowOriginY = pinnedY
-        mbkLog("PopoverController", "pinPopoverWindow -- pinnedX=\(pinnedX) pinnedY=\(pinnedY) winFrame=\(window.frame)")
+        pinnedWindowMaxY = pinnedMaxY
+        mbkLog("PopoverController", "pinPopoverWindow -- pinnedX=\(pinnedX) pinnedMaxY=\(pinnedMaxY) winFrame=\(window.frame)")
 
         let nc = NotificationCenter.default
         windowMoveObserver = nc.addObserver(
@@ -219,13 +220,14 @@ extension MBKPopoverController {
     /// Called when the popover window moves or resizes.
     /// Recomputes the correct X as `lastKnownAnchorX - window.frame.width / 2`
     /// so the window stays centred on the button regardless of width changes.
-    /// Also restores Y to `pinnedWindowOriginY` if AppKit has drifted it.
+    /// Recomputes the correct Y as `pinnedWindowMaxY - window.frame.height`
+    /// so the top edge stays fixed regardless of height changes.
     private func handlePopoverWindowMoved(window: NSWindow?) {
         guard popover.isShown,
               let window,
               let anchorX = lastKnownAnchorX else { return }
         let correctX = anchorX - window.frame.width / 2
-        let correctY = pinnedWindowOriginY ?? window.frame.origin.y
+        let correctY = (pinnedWindowMaxY ?? (window.frame.origin.y + window.frame.height)) - window.frame.height
         guard window.frame.minX != correctX || window.frame.origin.y != correctY else { return }
         let driftedX = window.frame.minX
         let driftedY = window.frame.origin.y
@@ -245,7 +247,7 @@ extension MBKPopoverController {
         windowMoveObserver = nil
         windowResizeObserver = nil
         pinnedWindowMinX = nil
-        pinnedWindowOriginY = nil
+        pinnedWindowMaxY = nil
         mbkLog("PopoverController", "unpinPopoverWindow -- observers removed")
     }
 

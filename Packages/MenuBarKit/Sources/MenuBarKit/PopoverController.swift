@@ -115,11 +115,12 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
     /// Cleared in `unpinPopoverWindow()` on close.
     var pinnedWindowMinX: CGFloat?
 
-    /// The popover window's `frame.origin.y` snapshotted in `pinPopoverWindow()` after
-    /// `popoverDidShow` settles. If AppKit drifts the window down during a resize in
-    /// hidden-menubar mode, `handlePopoverWindowMoved` restores this value immediately.
+    /// The popover window's `frame.maxY` (top edge) snapshotted in `pinPopoverWindow()`
+    /// after `popoverDidShow` settles. As content grows the window height increases;
+    /// `handlePopoverWindowMoved` recomputes `origin.y = pinnedWindowMaxY - height`
+    /// so the top edge stays fixed just below the menu bar regardless of size changes.
     /// Cleared in `unpinPopoverWindow()` on close.
-    var pinnedWindowOriginY: CGFloat?
+    var pinnedWindowMaxY: CGFloat?
 
     /// `NSWindow.didMoveNotification` observer token. Managed by
     /// `pinPopoverWindow()` / `unpinPopoverWindow()`.
