@@ -52,48 +52,11 @@ extension MBKPopoverController {
     /// Shows the popover anchored to the status-bar button.
     /// Handles `onWillShow`/`onDidShow` callbacks and post-show X correction
     /// for the hidden-menubar case.
-    ///
-    /// Pre-open sequence:
-    /// 1. Fire `onWillShow` (bumps `willShowToken` → SwiftUI resets `scrollViewHeight = 0`).
-    /// 2. Reset `popover.contentSize` to `(minWidth, 100)` to clear any stale seed and
-    ///    break the 1pt dead-band that suppresses re-writes on the second open cycle.
-    /// 3. Raise `isOpening` to suppress spurious Path 1 writes and Path 2 reanchors
-    ///    between `show()` and the `onDidShow` Task.
-    /// 4. Call `popover.show()` — `popoverWillShow` snapshots chrome deltas here.
-    /// 5. `onDidShow` Task lowers `isOpening`, then fires `onDidShow`.
     func openPopover() {
         guard let button = statusItem.button else { return }
         mbkLog("PopoverController", "openPopover -- calling onWillShow")
         onWillShow?()
         mbkLog("PopoverController", "onWillShow fired")
-
-        // Reset contentSize to the minimum stub before show().
-        //
-        // WHY THIS IS NECESSARY — dead-band on the second open cycle:
-        // applyContentSize's 1pt dead-band guard
-        //   (abs(old.height - new.height) > 1)
-        // suppresses writes when the post-close SwiftUI flush happens to write back
-        // exactly the same height that was set on the previous open. Without this
-        // reset, that first applyContentSize after show() is a no-op and the popover
-        // opens at a stale height. Resetting to (minWidth, 100) ensures the dead-band
-        // is always cleared unconditionally before the first authoritative write fires.
-        //
-        // NOTE: scrollViewHeight = 0 is already guaranteed by the time this line runs.
-        // onWillShow() bumps willShowToken synchronously on the main actor; SwiftUI
-        // fires all onChange(of: willShowToken) observers in the same run-loop turn
-        // before onWillShow() returns — not on a subsequent cycle. The stub reset here
-        // is not compensating for async onChange timing; it is purely a dead-band
-        // breaker. See PanelMainView's TIMING PROOF comment for the full argument.
-        //
-        // TODO: migrate to a formally supported pre-show hook if Apple ever provides
-        // one — the synchronous onChange firing is an observed implementation detail,
-        // not a documented API contract. See TIMING PROOF in PanelMainView.swift.
-        //
-        // ❌ DO NOT REMOVE this reset.
-        // ❌ DO NOT replace it with a flag or @State write — @State mutations
-        //    are asynchronous and will not be synchronously visible before show().
-        popover.contentSize = NSSize(width: minWidth, height: 100)
-        mbkLog("PopoverController", "openPopover -- contentSize reset to (\(minWidth), 100)")
 
         let menuBarHidden = isMenuBarHidden
 
@@ -103,19 +66,6 @@ extension MBKPopoverController {
         }
 
         guard let rect = positioningRect(for: button) else { return }
-        // Raise isOpening before show() so any applyContentSize calls that fire
-        // between now and the onDidShow Task are suppressed. The onDidShow Task
-        // lowers it after committing the authoritative geometry.
-        //
-        // RAPID DOUBLE-OPEN SAFETY — why we do NOT guard { if isOpening { return } }:
-        // If the user opens → instantly closes → instantly reopens, popoverDidClose
-        // resets isOpening = false before the second openPopover() call. So isOpening
-        // is already false on re-entry and such a guard would be a no-op. The real
-        // protection is the `guard self.popover.isShown` in the onDidShow Task: if
-        // cycle 1's Task hop lands after cycle 2 has already closed, it bails without
-        // calling onDidShow. Cycle 2's own Task then lands with isShown == true and
-        // fires onDidShow normally. No stub-height lock-out is possible.
-        isOpening = true
         popover.show(relativeTo: rect, of: button, preferredEdge: .minY)
         NSApp.activate(ignoringOtherApps: true)
         mbkLog("PopoverController", "popover shown")
@@ -139,16 +89,13 @@ extension MBKPopoverController {
 
         startEventMonitor()
 
+        // Explicitly correct arrow anchor after show() so the first open is
+        // always correct even if the KVO fires before the window is assigned.
+        correctArrowAnchorPoint()
+
         Task { @MainActor in
             mbkLog("PopoverController", "onDidShow Task hop -- calling onDidShow")
-            // Lower isOpening before onDidShow fires so that any applyContentSize
-            // call triggered by onDidShow (e.g. WRITE+REANCHOR from PanelMainView's
-            // geometry pass) proceeds normally and commits the correct geometry.
             self.isOpening = false
-            // GUARD: the user may dismiss the popover before this Task hop lands
-            // (e.g. instant click-to-close after open). popoverDidClose has already
-            // fired and cleared isShownSentinel. Calling onDidShow against a closed
-            // popover is unsafe for consumers that assume a live window — bail here.
             guard self.popover.isShown else {
                 mbkLog("PopoverController", "onDidShow Task hop -- popover already closed, skipping onDidShow")
                 return
@@ -156,6 +103,36 @@ extension MBKPopoverController {
             self.onDidShow?()
             mbkLog("PopoverController", "onDidShow fired")
         }
+    }
+
+    // MARK: - Arrow anchor correction
+
+    /// Corrects the popover arrow position by writing directly to `NSPopoverFrame.anchorPoint`
+    /// (private API, KVC-accessible since macOS 10.8).
+    ///
+    /// Called from the `contentSizeObserver` KVO block on every `popover.contentSize` change
+    /// and explicitly at the end of `openPopover()` as a first-open safety net.
+    ///
+    /// `anchorPoint` is a normalised `CGPoint` within the popover frame where
+    /// x=0.5 centres the arrow. We derive it from `buttonScreenMidX` relative to
+    /// the current window frame. Clamped to [0.05, 0.95] to keep the arrow visible.
+    ///
+    /// The `responds(to:)` guard makes this a silent no-op if Apple ever removes or
+    /// renames `NSPopoverFrame` — no crash, no App Store risk.
+    func correctArrowAnchorPoint() {
+        guard let window = hostingController.view.window,
+              let frameView = window.contentView?.superview,
+              frameView.responds(to: NSSelectorFromString("anchorPoint")),
+              let anchorX = buttonScreenMidX,
+              window.frame.width > 0 else { return }
+        let normalizedX = (anchorX - window.frame.minX) / window.frame.width
+        let clamped = max(0.05, min(0.95, normalizedX))
+        frameView.setValue(
+            NSValue(point: CGPoint(x: clamped, y: 0)),
+            forKey: "anchorPoint"
+        )
+        mbkLog("PopoverController",
+               "correctArrowAnchorPoint -- anchorX=\(anchorX) winMinX=\(window.frame.minX) winW=\(window.frame.width) normalizedX=\(normalizedX) clamped=\(clamped)")
     }
 
     // MARK: - Panel / sheet helpers
@@ -207,27 +184,6 @@ extension MBKPopoverController {
         mbkLog("PopoverController", "forceClose -- clearing gate")
         overlayGate.hasActiveOverlay = false
         if let pw = panelWindow {
-            // WHY WE DO NOT GUARD child ITERATION WITH child.isVisible:
-            //   The TOCTOU race in MBKSheetAnchorTask (see AnchoredSheet.swift Known
-            //   Limitations) can leave a dangling entry in pw.childWindows after the
-            //   sheet has already been dismissed. A reviewer may be tempted to add
-            //   `guard child.isVisible else { continue }` to skip it.
-            //
-            //   Do NOT do this. The reasons:
-            //   1. `isVisible` returns `true` on a window that is animating out — the
-            //      real sheet and a ghost entry are indistinguishable by `isVisible`
-            //      alone at the moment forceClose fires.
-            //   2. If the real sheet window happens to be `isVisible == false` (already
-            //      hidden by SwiftUI before forceClose is called), skipping it would
-            //      leave it attached as a child — the popover would fail to close or
-            //      the orphaned window would leak.
-            //   3. `addChildWindow(_:ordered:)` and `removeChildWindow(_:)` on an
-            //      already-closing window are no-ops on macOS, so iterating and
-            //      closing all children unconditionally is always safe.
-            //   The correct fix for the ghost-entry problem, if it ever causes an
-            //   observable issue, is to track the sheet NSWindow reference directly
-            //   in MBKSheetAnchorTask and expose it for targeted removal — not to use
-            //   `isVisible` as a heuristic discriminator here.
             for child in (pw.childWindows ?? []) {
                 mbkLog("PopoverController", "forceClose -- closing child #\(child.windowNumber)")
                 pw.removeChildWindow(child)
@@ -262,24 +218,33 @@ extension MBKPopoverController {
     // MARK: - Popover / view setup
 
     /// Creates and configures the `NSPopover` with the hosted SwiftUI root view.
+    ///
+    /// `sizingOptions = [.preferredContentSize]` lets AppKit drive `contentSize`
+    /// directly from SwiftUI's natural layout — no manual GeometryReader chain needed.
+    /// Arrow position is corrected by `correctArrowAnchorPoint()` via the
+    /// `contentSizeObserver` KVO block on every size change.
     func setupPopover() {
-        hostingController = NSHostingController(rootView: wrapped(rootView))
-        // MUST be []. Leaving this at the macOS default (.preferredContentSize)
-        // makes AppKit auto-write contentSize from the SwiftUI view's live
-        // intrinsic size on every layout pass — a second, competing write path
-        // that races our own applyContentSize() call.
-        hostingController.sizingOptions = []
+        hostingController = NSHostingController(rootView: rootView)
+        hostingController.sizingOptions = [.preferredContentSize]
         popover = NSPopover()
         popover.contentViewController = hostingController
         popover.contentSize = NSSize(width: minWidth, height: 100)
         popover.animates = false
         popover.behavior = .applicationDefined
         popover.delegate = self
+
+        // KVO: correct arrow anchor on every AppKit-driven contentSize write.
+        // DispatchQueue.main.async ensures the window frame has been committed
+        // before we read it to derive the normalised anchor X.
+        contentSizeObserver = popover.observe(\.contentSize, options: [.new]) { [weak self] _, _ in
+            DispatchQueue.main.async { self?.correctArrowAnchorPoint() }
+        }
     }
 
-    /// Wraps `view` in a `GeometryReader` background that calls `applyContentSize`
-    /// on every SwiftUI layout pass and on first appear.
-    /// This is the sole mechanism by which SwiftUI reports its preferred size.
+    /// Wraps `view` in a `GeometryReader` background.
+    /// - DEPRECATED: no longer called. `sizingOptions = [.preferredContentSize]` replaces
+    ///   this mechanism. Retained temporarily so `PopoverController+ContentSize.swift`
+    ///   continues to compile until Step 2 removes it.
     func wrapped(_ view: AnyView) -> AnyView {
         AnyView(view
             .background(
@@ -297,6 +262,7 @@ extension MBKPopoverController {
     }
 
     /// Clamps `size` to `[minWidth, maxWidth] × [0, maxHeight]`.
+    /// - DEPRECATED: retained temporarily until Step 2 removes `applyContentSize`.
     func clamp(_ size: CGSize) -> CGSize {
         CGSize(
             width: min(max(size.width, minWidth), maxWidth),

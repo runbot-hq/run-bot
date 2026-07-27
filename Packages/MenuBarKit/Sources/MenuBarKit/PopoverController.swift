@@ -12,7 +12,7 @@
 //   - Install/remove the NSWorkspace app-switch observer
 //   - Implement popoverShouldClose via the MBKOverlayGate
 //   - Reset the overlay gate in popoverDidClose (safety net)
-//   - Apply SwiftUI-reported content sizes via the GeometryReader wrapper
+//   - Correct arrow anchor via KVO on popover.contentSize
 //
 // STAY-OPEN-WHILE-SHEET-ACTIVE — deliberate trade-off:
 //   When a sheet (or file picker) is live, MBKPopoverController keeps the
@@ -57,8 +57,8 @@
 //
 // FILE ORGANISATION:
 //   PopoverController.swift          — stored properties, init, setup, deinit
-//   PopoverController+Open.swift     — toggle/open/close, positioning, highlight
-//   PopoverController+ContentSize.swift — applyContentSize (three-path sizing)
+//   PopoverController+Open.swift     — toggle/open/close, positioning, highlight, arrow correction
+//   PopoverController+ContentSize.swift — applyContentSize (DEPRECATED — removed in Step 2)
 //   PopoverController+Observers.swift   — workspace observer, event monitor
 //   PopoverController+Delegate.swift    — NSPopoverDelegate conformance
 
@@ -111,6 +111,10 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
     nonisolated(unsafe) var eventMonitor: Any?
     /// Workspace app-switch observer token. `nonisolated(unsafe)` — see file header.
     nonisolated(unsafe) var workspaceObserver: NSObjectProtocol?
+    /// KVO observer token for `popover.contentSize`.
+    /// Fires `correctArrowAnchorPoint()` on every AppKit-driven size write so the
+    /// arrow position stays centred on the button after any resize.
+    var contentSizeObserver: NSKeyValueObservation?
 
     /// Shown-sentinel for `applyContentSize`: `true` while the popover is open,
     /// `nil` while closed. Set in `popoverWillShow`, cleared in `popoverDidClose`.
@@ -119,25 +123,8 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
     /// `internal` (default) so extension files can access it.
     var isShownSentinel: Bool?
 
-    /// Opening-sentinel for `applyContentSize`: raised just before `popover.show()`
-    /// in `openPopover()` and lowered at the top of the `onDidShow` Task.
-    /// While true, Path 1 (not-shown) writes and Path 2 width-change reanchors
-    /// are suppressed. Reset to `false` in `popoverDidClose` as a safety net.
-    ///
-    /// THREAD SAFETY — no lock needed:
-    /// `MBKPopoverController` is `@MainActor`. Every read and write of `isOpening`
-    /// is in a `@MainActor` context: the raise in `openPopover()`, the lower in
-    /// `Task { @MainActor in }`, the checks in `applyContentSize`, and the reset in
-    /// `popoverDidClose`. Swift 6 strict concurrency enforces this at compile time —
-    /// a cross-actor write would be a compile error, not a runtime race.
-    ///
-    /// RELATIONSHIP WITH popoverWillShow:
-    /// `isOpening` is already `true` when `popoverWillShow` fires on first open
-    /// (raised before `popover.show()`, which calls `popoverWillShow` synchronously).
-    /// The chrome snapshot in `popoverWillShow` does NOT check `isOpening` — the
-    /// `hiddenChromeW == nil` guard is the correct discriminator. Do NOT replace
-    /// that guard with an `isOpening` check: `isOpening` can still be `true` on
-    /// re-anchor show() calls if the Task hop hasn't landed yet.
+    /// Opening-sentinel retained for `applyContentSize` in ContentSize.swift
+    /// (DEPRECATED — removed in Step 2 along with that file).
     var isOpening = false
 
     /// Button center X in screen coordinates from the last visible-mode open.
@@ -158,56 +145,14 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
     /// Button center X in screen coordinates, snapshotted once in `popoverWillShow`.
     /// `nil` outside an open session (cleared in `popoverDidClose`).
     var hiddenButtonMidX: CGFloat?
-    /// Top edge of the popover window (AppKit flipped coords: maxY of window.frame)
-    /// snapshotted once in `popoverWillShow` against AppKit's freshly-positioned stub
-    /// window. Used as the fixed anchor for all Path 3 `setFrame` calls so the panel
-    /// top edge stays pinned just below the button for the entire session, regardless
-    /// of how tall the panel grows.
-    ///
-    /// WHY TOP EDGE AND NOT BOTTOM (origin.y):
-    /// The window is snapshotted when contentSize is still the stub (minWidth, 100).
-    /// At that point the window is ~126pt tall (100 content + 26 chrome). As SwiftUI
-    /// measures the real content and Path 3 grows the window to e.g. 540pt, using
-    /// origin.y as the anchor would keep the BOTTOM edge fixed and push the TOP edge
-    /// upward off-screen. Using maxY keeps the TOP edge fixed and grows the window
-    /// downward, which is the correct macOS popover behaviour.
-    ///
-    /// Populated on every first open (visible or hidden mode); read only by Path 3
-    /// (hidden mode). `nil` outside an open session (cleared in `popoverDidClose`).
-    /// ⚠️ ASSUMPTION: if the menubar hides while the popover is open without a
-    /// close/reopen cycle, this value reflects the visible-mode window top edge and
-    /// Path 3 will position the panel at the wrong Y. The `visibleFloor` clamp is
-    /// the only guard. A close/reopen re-snapshots correctly.
-    /// ❌ NEVER recompute from window.frame mid-session — that drifts.
+    /// Top edge of the popover window snapshotted once in `popoverWillShow`.
+    /// Used as the fixed anchor for all Path 3 `setFrame` calls.
+    /// `nil` outside an open session (cleared in `popoverDidClose`).
     var hiddenWindowTopY: CGFloat?
 
     /// Guards the one-shot hidden-mode arrow re-anchor in Path 3 of `applyContentSize`.
-    ///
-    /// PURPOSE:
-    /// When the popover opens in visible mode and the menubar subsequently hides
-    /// mid-session, AppKit's arrow placement geometry was computed against the
-    /// visible-mode window position. Path 3 then drives the window via `setFrame`
-    /// directly, bypassing AppKit's popover positioning logic. The arrow is still
-    /// rendered at the offset AppKit baked in during the last `show()` call —
-    /// which may no longer align with the window's new position after `setFrame`
-    /// shifts it, causing the arrow to appear clipped or at the wrong edge.
-    ///
-    /// On the FIRST Path 3 `setFrame` call of a session, `applyContentSize` issues
-    /// a `popover.show()` re-anchor BEFORE writing the frame. This forces AppKit to
-    /// recompute arrow placement for the current button/window geometry. After that
-    /// single re-anchor, `hiddenModeAnchored` is set to `true` and subsequent Path 3
-    /// calls skip the `show()` and go straight to `setFrame`.
-    ///
-    /// WHEN ALREADY TRUE AT OPEN TIME:
-    /// If the popover is opened while the menubar is already hidden, `openPopover()`
-    /// already called `show()` which positioned the arrow correctly. In that case
-    /// `popoverWillShow` sets `hiddenModeAnchored = true` immediately (detected via
-    /// `isMenuBarHidden`) so Path 3 never issues a redundant re-anchor.
-    ///
-    /// RESET: `popoverDidClose` resets this to `false` so the next session starts clean.
-    /// ❌ NEVER set this to `true` outside `popoverWillShow` (hidden-open path) or
-    ///    the Path 3 re-anchor block in `applyContentSize`.
-    /// ❌ NEVER skip resetting to `false` in `popoverDidClose`.
+    /// DEPRECATED — Path 3 re-anchor replaced by `correctArrowAnchorPoint()` KVO.
+    /// Retained until Step 2 removes `PopoverController+ContentSize.swift`.
     var hiddenModeAnchored = false
 
     // MARK: - Init
@@ -264,7 +209,7 @@ public final class MBKPopoverController: NSObject, MBKPopoverControllerProtocol 
     public func setRootView(_ view: AnyView) {
         rootView = view
         guard isSetUp else { return }
-        hostingController.rootView = wrapped(rootView)
+        hostingController.rootView = rootView
         mbkLog("PopoverController", "setRootView — rootView replaced")
     }
 
