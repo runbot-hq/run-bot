@@ -132,9 +132,10 @@ extension MBKPopoverController {
     /// `responds(to:)` is the safety net — if Apple ever renames the property
     /// the walk finds nothing and the function is a silent no-op.
     ///
-    /// Called from `popoverDidShow` (via async hop) so AppKit's own
-    /// `_updateAnchorPointForFrame:reshape:` pass has already completed
-    /// before we write.
+    /// Called from `popoverDidShow` (via async hop) AND from `handlePopoverWindowMoved`
+    /// so that every `setFrameOrigin` call — which triggers AppKit’s own
+    /// `_updateAnchorPointForFrame:` and stomps our value — is immediately
+    /// followed by a re-stamp of the correct normalized X.
     func correctArrowAnchorPoint() {
         guard let window = hostingController.view.window,
               window.frame.width > 0,
@@ -215,9 +216,10 @@ extension MBKPopoverController {
     /// so the window stays centred on the button regardless of width changes.
     /// Recomputes the correct Y as `pinnedWindowMaxY - window.frame.height`
     /// so the top edge stays fixed regardless of height changes.
-    /// Arrow correction via `correctArrowAnchorPoint` is intentionally omitted here:
-    /// AppKit recomputes anchorPoint correctly from the centered window position
-    /// and the real positioningRect passed at show() time.
+    /// Calls `correctArrowAnchorPoint()` after every `setFrameOrigin` because
+    /// AppKit’s `_updateAnchorPointForFrame:` fires on each move/resize and
+    /// overwrites our anchorPoint with a value derived from the stale
+    /// positioningRect — re-stamping immediately after keeps the arrow centered.
     private func handlePopoverWindowMoved(window: NSWindow?) {
         guard popover.isShown,
               let window,
@@ -230,6 +232,7 @@ extension MBKPopoverController {
         window.setFrameOrigin(NSPoint(x: correctX, y: correctY))
         mbkLog("PopoverController",
                "handlePopoverWindowMoved -- driftedX=\(driftedX) driftedY=\(driftedY) restoredX=\(correctX) restoredY=\(correctY) newFrame=\(window.frame)")
+        correctArrowAnchorPoint()
     }
 
     /// Removes the `didMove` and `didResize` observers and clears pinned origin.
