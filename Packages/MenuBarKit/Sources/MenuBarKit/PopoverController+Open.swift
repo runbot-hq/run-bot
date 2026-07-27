@@ -20,6 +20,9 @@ extension MBKPopoverController {
     /// Uses `>=` (not `>`): `buttonY == screenH` is the hidden resting position.
     /// A nil button window (possible during startup before the status item is attached)
     /// is treated as hidden so the caller falls back to the safe hidden-menubar path.
+    /// Note: returning `true` here is safe because `openPopover()` gates the hidden
+    /// path on `lastKnownAnchorX != nil`; on first-ever open that binding fails and
+    /// the visible-menubar else-branch fires instead.
     var isMenuBarHidden: Bool {
         guard let button = statusItem.button else { return false }
         guard let buttonWin = button.window else {
@@ -106,12 +109,8 @@ extension MBKPopoverController {
             panel.orderFront(nil)
             arrowAnchorPanel = panel
             mbkLog("PopoverController", "openPopover -- hidden-menubar arrowAnchorPanel frame=\(panelRect) anchorX=\(anchorX)")
-            guard let contentView = panel.contentView else {
-                mbkLog("PopoverController", "openPopover -- arrowAnchorPanel has no contentView, falling back to visible-mode show")
-                guard let posRect = positioningRect(for: button) else { return }
-                popover.show(relativeTo: posRect, of: button, preferredEdge: .minY)
-                return
-            }
+            // NSPanel.contentView is always non-nil (guaranteed by NSWindow contract).
+            let contentView = panel.contentView!
             popover.show(relativeTo: contentView.bounds, of: contentView, preferredEdge: .minY)
         } else {
             guard let posRect = positioningRect(for: button) else { return }
@@ -149,6 +148,15 @@ extension MBKPopoverController {
     /// Must be called after the popover frame has settled (i.e. from the async
     /// hop in `popoverDidShow`).
     func pinPopoverWindow() {
+        // Guard against double-install: on rapid open→close→open the async Task hop
+        // from the first popoverDidShow can fire after the second pinPopoverWindow()
+        // has already registered observers, leaking the first token. Bail out if
+        // observers are already in place — unpinPopoverWindow() always clears them
+        // synchronously before this can be called for a new session.
+        guard windowMoveObserver == nil, windowResizeObserver == nil else {
+            mbkLog("PopoverController", "pinPopoverWindow -- already pinned, skipping")
+            return
+        }
         guard let window = hostingController.view.window else {
             mbkLog("PopoverController", "pinPopoverWindow -- no window, skipping")
             return
