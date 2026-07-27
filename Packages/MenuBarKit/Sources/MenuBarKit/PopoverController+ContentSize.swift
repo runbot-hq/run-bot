@@ -129,23 +129,24 @@ extension MBKPopoverController {
             // delegate logic is ever added that must not fire twice per open,
             // this call site must be audited first.
             //
-            // GUARDED: skip the show() reanchor while the opening sequence is in
-            // flight (isOpening == true). The onDidShow Task issues the first
-            // authoritative WRITE+REANCHOR which already positions the window
-            // correctly; a second show() call before isOpening is cleared causes
-            // the popover window to reposition and produces the one-time header
-            // jump visible on first row tap after open.
+            // GUARDED: skip both the contentSize write AND the show() reanchor while
+            // the opening sequence is in flight (isOpening == true). The onDidShow
+            // Task issues the first authoritative WRITE+REANCHOR which positions the
+            // window correctly; any Path 2 call before isOpening is cleared carries
+            // a stale width from the previous session and must not land in
+            // contentSize — writing it would cause the same class of flash that
+            // Path 1 suppression was added to fix.
+            if isOpening {
+                mbkLog("PopoverController",
+                       "applyContentSize -- shown, opening in flight, SKIP WRITE (\(clamped.width),\(clamped.height))")
+                return
+            }
             popover.contentSize = clamped
             if widthChanged {
                 guard let button = statusItem.button,
                       let rect = positioningRect(for: button) else {
                     mbkLog("PopoverController",
                            "applyContentSize -- WRITE only, button unavailable for re-anchor (\(clamped.width),\(clamped.height))")
-                    return
-                }
-                if isOpening {
-                    mbkLog("PopoverController",
-                           "applyContentSize -- WRITE only, opening in flight, skip reanchor (\(clamped.width),\(clamped.height))")
                     return
                 }
                 if let anchorX = buttonScreenMidX { lastKnownAnchorX = anchorX }
