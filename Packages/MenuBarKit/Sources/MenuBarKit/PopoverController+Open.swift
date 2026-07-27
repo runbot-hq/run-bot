@@ -130,6 +130,18 @@ extension MBKPopoverController {
         // This is accepted risk: Task dropping on MainActor under normal macOS
         // operation is not a realistic scenario, and the defensive reset in
         // openPopover() bounds the impact to a single broken session.
+        //
+        // KNOWN LIMITATION — onDidShow fires after close if Task races popoverDidClose:
+        // If popoverDidClose fires between popover.show() and this Task executing
+        // (e.g. a programmatic close arrives on the same run-loop turn as show()),
+        // popoverDidClose resets isOpening = false correctly. This Task then runs
+        // on the next actor turn, lowers isOpening again (benign double-write), and
+        // calls onDidShow?(). In the host app (AppDelegate+PanelSetup.swift),
+        // onDidShow sets panelVisibilityState.isOpen = true and restores runner
+        // sheet state — both of which fire after the panel has already closed.
+        // Fixing this properly requires a cancellable task handle so openPopover()
+        // can cancel the pending onDidShow on the close path. Pre-existing fragility
+        // not introduced by this PR.
         Task { @MainActor in
             mbkLog("PopoverController", "onDidShow Task hop -- calling onDidShow")
             // Lower isOpening before onDidShow fires so that any applyContentSize
