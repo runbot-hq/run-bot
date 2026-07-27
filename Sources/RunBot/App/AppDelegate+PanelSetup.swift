@@ -8,15 +8,17 @@ import SwiftUI
 
 // MARK: - AppDelegate + Panel Setup
 //
-// As of #2262 this file owns MBKPopoverController construction and callback
+// As of #2262 this file owns MBKPanelController construction and callback
 // wiring. NSPopover construction, KVO on preferredContentSize, and
 // PopoverLifecycleCoordinator.installMonitors() have been removed —
-// MBKPopoverController owns all of that now.
+// MBKPanelController owns all of that now.
+//
+// As of the anchored-panel rewrite there is no NSPopover anywhere in the app.
+// MenuBarKit owns one borderless NSPanel and draws the bubble and arrow itself.
 //
 // As of #2264 the root view is RootPanelView — a single persistent view that
 // owns all route switching via Group { switch }.id(route). This replaces the
-// setRootView() AnyView-swap pattern so MBK's GeometryReader always fires
-// fresh on every route change.
+// setRootView() AnyView-swap pattern so MBK re-measures on every route change.
 //
 // SHEET RESPAWN MODEL:
 // PanelSheetState tracks editingRunner (the runner whose detail sheet is open).
@@ -28,80 +30,44 @@ import SwiftUI
 // ❌ NEVER inline this back into AppDelegate.swift.
 // ❌ NEVER call setupPanel() more than once.
 //
-// CAP ALIGNMENT (ref header-shrink investigation):
-// maxHeight and PanelMainView.screenScrollMaxHeight MUST use the same
-// multiplier (AppDelegate.panelHeightMultiplier). Using different multipliers
-// creates a gap between what SwiftUI reports as preferredContentSize and what
-// MBK allows, forcing SwiftUI to re-layout inside a smaller frame and
-// compressing the header. Both caps derive from the same visibleFrame.height —
-// keep them in sync. The shared constant AppDelegate.panelHeightMultiplier is
-// the single source of truth; do not inline the value at either call site.
+// HEIGHT CAP — ONE OWNER, EVALUATED LIVE:
+// The 80%-of-visible-height cap is expressed here only as a *fraction*
+// (AppDelegate.panelHeightMultiplier) and handed to MenuBarKit. MBK resolves it
+// against the live NSScreen visibleFrame on every open and on every
+// didChangeScreenParameters notification, applies it as the SwiftUI maxHeight,
+// and uses the same number when it computes the window frame. There is no
+// second cap on the RunBot side to keep in sync — PanelMainView's old
+// screenScrollMaxHeight was deleted with this change.
 //
-// SCREEN CAP — WHY NSScreen.main AT LAUNCH IS INTENTIONAL:
-// maxHeight is read once from NSScreen.main?.visibleFrame at setupPanel() time
-// and passed as a construction parameter to MBKPopoverController. This is the
-// designed contract: MBKPopoverController receives a fixed cap at init and uses
-// it to clamp the popover height on every open via its internal applyContentSize
-// logic. The cap is a hard ceiling that prevents the popover from growing beyond
-// the visible screen area — it is NOT a dynamic real-time measurement.
-//
-// MULTI-SCREEN EDGE CASES ARE OUT OF SCOPE — by design, not by omission:
-// RunBot is a status-bar app. The NSStatusItem is anchored to the menu bar,
-// which macOS places on exactly one screen at a time (the "main" display, as
-// reported by NSScreen.main). The popover always opens directly below that
-// status item — it cannot appear on a secondary display. There is therefore
-// only ever one relevant screen: NSScreen.main at the time of the read.
-// Display topology changes (connect/disconnect, display scaling, resolution
-// changes) do not affect this contract — the popover is always on the main
-// screen and maxHeight is always derived from that same screen. No dynamic
-// per-open re-read or applicationDidChangeScreenParameters wiring is needed.
-// ❌ NEVER move this read inside onWillShow or onDidShow — MBKPopoverController
-//    requires the cap at construction time, not per-open.
+// ❌ NEVER reintroduce a height cap in a RunBot view. Two caps computed from
+//    two different reads is precisely what produced the header-shrink and
+//    stale-geometry bugs (#2278/#2279): SwiftUI would lay out against one
+//    number while the window was clamped to another.
 
-/// Extension owning `MBKPopoverController` construction and lifecycle-callback wiring.
+/// Extension owning `MBKPanelController` construction and lifecycle-callback wiring.
 extension AppDelegate {
 
     // MARK: - Constants
 
-    /// Minimum popover content width.
+    /// Minimum panel content width.
     static let minWidth: CGFloat = 280
-    /// Maximum popover content width.
+    /// Maximum panel content width.
     static let maxWidth: CGFloat = 900
-    /// Fraction of the visible screen height used as the panel height cap.
+    /// Fraction of the visible screen height the panel content may occupy.
     ///
-    /// Applied in two places that must stay in sync:
-    /// - `setupPanel()` — computes `maxHeight` passed to `MBKPopoverController` at init.
-    /// - `PanelMainView.screenScrollMaxHeight` — computes the SwiftUI scroll cap on every call.
-    ///
-    /// Both derive from `NSScreen.main?.visibleFrame.height`. Using different values at the
-    /// two sites creates a gap: MBK clamps the popover at a height SwiftUI didn't expect,
-    /// forcing a re-layout that compresses the header (see CAP ALIGNMENT in file header).
-    /// ❌ NEVER inline this value at either call site — always reference this constant.
-    /// ❌ NEVER change this value without verifying both sites behave correctly.
+    /// Handed to `MBKPanelController` as `maxHeightFraction`. MenuBarKit is the only
+    /// place this is resolved against a screen, and it resolves it live.
+    /// ❌ NEVER derive a second height cap from this value inside a RunBot view.
     static let panelHeightMultiplier: CGFloat = 0.80
 
-    // MARK: - Popover construction
+    // MARK: - Panel construction
 
-    /// Builds the MBKPopoverController, calls setup(), and wires the three
+    /// Builds the MBKPanelController, calls setup(), and wires the three
     /// lifecycle callbacks. Called once from applicationDidFinishLaunching.
     func setupPanel() {
         log("AppDelegate › setupPanel — begin")
 
-        // maxHeight MUST match PanelMainView.screenScrollMaxHeight multiplier.
-        // See CAP ALIGNMENT note above. Both sites reference AppDelegate.panelHeightMultiplier —
-        // do not inline the value here or in screenScrollMaxHeight.
-        //
-        // maxHeight is intentionally computed once at launch, not per-open.
-        // MBKPopoverController takes this as a constructor cap and does not re-read it.
-        // Multi-screen edge cases are out of scope — see SCREEN CAP note above.
-        // screenScrollMaxHeight in PanelMainView reads NSScreen.main live on every call
-        // and will always be current for the SwiftUI side — the MBK cap is the only
-        // value read once at launch, and that is intentional.
-        let visibleHeight = NSScreen.main?.visibleFrame.height ?? 900
-        let maxHeight = visibleHeight * AppDelegate.panelHeightMultiplier
-        log("AppDelegate › setupPanel — visibleHeight=\(visibleHeight) maxHeight=\(maxHeight) multiplier=\(AppDelegate.panelHeightMultiplier)")
-
-        let ctrl = MBKPopoverController(
+        let ctrl = MBKPanelController(
             rootView: wrapEnv(RootPanelView(
                 onSelectSettings: { [weak self] in self?.navigateToSettings() },
                 onBack: { [weak self] in self?.navigateBack() },
@@ -111,7 +77,7 @@ extension AppDelegate {
             symbolName: "menubar.rectangle",
             minWidth: AppDelegate.minWidth,
             maxWidth: AppDelegate.maxWidth,
-            maxHeight: maxHeight
+            maxHeightFraction: AppDelegate.panelHeightMultiplier
         )
 
         // onWillShow is intentionally empty / commented out.
@@ -188,7 +154,7 @@ extension AppDelegate {
 
         // setRootView(_:) is intentionally NOT called — ever.
         //
-        // MBKPopoverController exposes setRootView(_:) for adopters that swap
+        // MBKPanelController exposes setRootView(_:) for adopters that swap
         // top-level views on navigation (AnyView-swap pattern). RunBot does not
         // use this path.
         //
@@ -199,12 +165,10 @@ extension AppDelegate {
         //     branches internally via Group { switch }.id(route).
         //
         // WHY this is better than setRootView(_:) for RunBot:
-        //   • MBK's GeometryReader in wrapped() is attached once at init. Calling
-        //     setRootView(_:) replaces the inner view but keeps the same GR wrapper,
-        //     which is correct. However, the new inner view loses its .onAppear
-        //     trigger for the GR — MBK only sees a size change if SwiftUI reports
-        //     one, not a fresh appear. RootPanelView's .id(route) forces a full
-        //     re-render on every route change, guaranteeing MBK's GR fires fresh.
+        //   • MBK measures the hosted content's intrinsic size. RootPanelView's
+        //     .id(route) forces a full re-render on every route change, which
+        //     invalidates that intrinsic size and drives a fresh frame — without
+        //     rebuilding the hosting view.
         //   • No AnyView boxing on navigation paths — RootPanelView uses concrete
         //     view types in each switch branch.
         //   • AppDelegate stays a pure wiring layer with no view-factory methods.
@@ -214,7 +178,7 @@ extension AppDelegate {
         // All route changes go through appState.savedNavState only.
 
         ctrl.setup()
-        popoverController = ctrl
-        log("AppDelegate › setupPanel — MBKPopoverController setup complete")
+        panelController = ctrl
+        log("AppDelegate › setupPanel — MBKPanelController setup complete")
     }
 }

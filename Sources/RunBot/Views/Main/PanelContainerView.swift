@@ -20,11 +20,11 @@ import SwiftUI
 //
 // ❌ NEVER remove the overlay — without it the popover content is fully
 //    interactive behind an open sheet, which is confusing and buggy.
-// ❌ NEVER use GeometryReader here — it fights NSPopover's sizing.
+// ❌ NEVER use GeometryReader here to measure — it fights MenuBarKit's sizing.
 // ❌ NEVER remove .frame(maxWidth: .infinity, maxHeight: .infinity) from the
 //    dim overlay — without it the Color.black expands to fill available space
-//    and drives the ZStack size, feeding an inflated height to MBK's
-//    GeometryReader in wrapped() and causing the popover to over-size (#2264).
+//    and drives the ZStack size, inflating the hosting view's
+//    intrinsicContentSize and over-sizing the panel (#2264).
 //
 // ── TRANSIENT HIDE / RESTORE ANIMATION INVARIANT ────────────────────────────────────────
 //
@@ -145,8 +145,8 @@ struct PanelContainerView<Content: View>: View {
                 //
                 // .frame(maxWidth: .infinity, maxHeight: .infinity) is LOAD-BEARING (#2264).
                 // Without it, Color.black expands to fill all available space and becomes
-                // the largest child of the ZStack, driving the ZStack size upward and feeding
-                // an inflated height to MBK's GeometryReader in wrapped().
+                // the largest child of the ZStack, driving the ZStack size upward and inflating
+                // the height MenuBarKit reads off the hosting view's intrinsicContentSize.
                 // ❌ NEVER remove this frame modifier.
                 Color.black.opacity(0.35)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)

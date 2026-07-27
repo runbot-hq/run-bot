@@ -1,6 +1,7 @@
 # MenuBarKit
 
-A Swift package for the NSPopover + SwiftUI sheet + NSOpenPanel + alert layer of a macOS menu-bar app. Swift 6.2, macOS 26, `@MainActor`-first throughout.
+A Swift package for the anchored-panel + SwiftUI sheet + NSOpenPanel + alert layer of a macOS menu-bar app.
+The panel is a borderless `NSPanel` MenuBarKit owns outright — the bubble and its arrow are drawn as a mask, not by `NSPopover`, so the arrow can never be clipped by AppKit chrome. Swift 6.2, macOS 26, `@MainActor`-first throughout.
 
 **Platform & Stack**
 
@@ -25,11 +26,16 @@ A Swift package for the NSPopover + SwiftUI sheet + NSOpenPanel + alert layer of
 
 | File | What it provides |
 |---|---|
-| `OverlayGate.swift` | `MBKOverlayGate` — `@Observable @MainActor` class; `hasActiveOverlay` blocks popover dismiss while any overlay is live; `hasFilePickerOverlay` distinguishes file picker presence so outside clicks are ignored during a pick |
-| `PopoverController.swift` | `MBKPopoverController` — full `NSPopover` + `NSStatusItem` lifecycle; outside-click monitor; workspace app-switch observer; `onWillClose(wasForced:)` callback fires before any teardown on both normal and force-close paths |
-| `PopoverControllerProtocol.swift` | `MBKPopoverControllerProtocol` — `@MainActor` protocol surface for `MBKPopoverController`; type your host reference against this for testability/mocking |
-| `AnchoredSheet.swift` | `.mbkSheet(isPresented:content:)` and `.mbkSheet(item:content:)` — SwiftUI sheet anchored as a child window of the popover so it survives outside-clicks and focus changes |
-| `FilePicker.swift` | `mbkOpenFilePicker(overlayGate:message:completion:)` — `NSOpenPanel` via `panel.begin`, always levels above the popover, gate cleared in completion handler; works from both popover and sheet contexts |
+| `OverlayGate.swift` | `MBKOverlayGate` — `@Observable @MainActor` class; `hasActiveOverlay` blocks panel dismiss while any overlay is live; `hasFilePickerOverlay` distinguishes file picker presence so outside clicks are ignored during a pick |
+| `PanelController.swift` (+`+Open`/`+Frame`/`+Observers`) | `MBKPanelController` — full `NSPanel` + `NSStatusItem` lifecycle; outside-click monitor; workspace app-switch observer; screen-parameter observer; `onWillClose(wasForced:)` callback fires before any teardown on both normal and force-close paths |
+| `PanelControllerProtocol.swift` | `MBKPanelControllerProtocol` — `@MainActor` protocol surface for `MBKPanelController`; type your host reference against this for testability/mocking |
+| `Panel.swift` | `MBKPanel` — borderless, non-activating `NSPanel` at `.statusBar` level; Escape routes through `cancelOperation(_:)` |
+| `PanelGeometry.swift` | `MBKPanelGeometry` / `MBKPanelMetrics` / `MBKPanelLayout` — pure, AppKit-free frame math: window size, screen clamping, arrow offset, live height cap. Unit-tested |
+| `PanelMask.swift` | Bubble-with-arrow silhouette used as the `NSVisualEffectView` mask; also gives the window shadow its shape |
+| `PanelContent.swift` | `MBKPanelLimits` + `MBKPanelContentView` + `MBKHostingView` — the SwiftUI half of the sizing pipeline |
+| `SizeCoalescer.swift` | `MBKSizeCoalescer` — one frame apply per runloop turn, with a synchronous flush before the panel is shown |
+| `AnchoredSheet.swift` | `.mbkSheet(isPresented:content:)` and `.mbkSheet(item:content:)` — SwiftUI sheet anchored as a child window of the panel so it survives outside-clicks and focus changes |
+| `FilePicker.swift` | `mbkOpenFilePicker(overlayGate:message:completion:)` — `NSOpenPanel` via `panel.begin`, always levels above the panel, gate cleared in completion handler; works from both panel and sheet contexts |
 | `Alert.swift` | `.mbkAlert(_:isPresented:actions:)` and `.mbkAlert(_:isPresented:actions:message:)` — drop-in replacement for `.alert()` that gates `MBKOverlayGate` for the full alert lifetime, including safe handling of alerts presented while a sheet is concurrently open |
 | `Logging.swift` | `mbkLog()` — `#if DEBUG`-gated, `@inlinable`, zero-cost in release; route to your own logger via `mbkLogHandler` |
 
@@ -40,19 +46,21 @@ A Swift package for the NSPopover + SwiftUI sheet + NSOpenPanel + alert layer of
 let gate = MBKOverlayGate()
 
 // 2. Create and wire the controller
-// minWidth/maxWidth/maxHeight are optional; shown here with their defaults.
-let controller = MBKPopoverController(
+// minWidth/maxWidth/maxHeightFraction are optional; shown here with their defaults.
+// maxHeightFraction is a fraction of the screen's *visible* height and is
+// re-evaluated on every open, so it never goes stale after a display change.
+let controller = MBKPanelController(
     rootView: ContentView().environment(gate),
     overlayGate: gate,
     minWidth: 200,
     maxWidth: 600,
-    maxHeight: 600
+    maxHeightFraction: 0.8
 )
 controller.setup() // call from applicationDidFinishLaunching
 
 // 3. Lifecycle callbacks
 controller.onWillShow = {
-    // restore route — fires before popover.show()
+    // restore route — fires before the panel is ordered front
 }
 controller.onDidShow = {
     // restore sheet state — fires after one actor turn
@@ -75,7 +83,7 @@ controller.onWillClose = { wasForced in
     ItemDetailView(item: item)
 }
 
-// 5. File picker — works from popover and sheet contexts
+// 5. File picker — works from panel and sheet contexts
 mbkOpenFilePicker(overlayGate: gate) { url in
     // handle url
 }
@@ -108,4 +116,4 @@ mbkLogHandler = { subsystem, message in
 
 - [ ] Replace `DispatchQueue.main.async` in `MBKSheetAnchorTask` with a pure Swift concurrency hop (see [#21](https://github.com/runbot-hq/MenuBarKit/issues/21))
 - [ ] Strengthen sheet window predicate for multi-window environments
-- [ ] Add more test coverage (gate teardown paths, popover delegate logic, force-close path)
+- [ ] Add more test coverage (gate teardown paths, close-path gating, force-close path)

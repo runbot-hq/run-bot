@@ -9,9 +9,11 @@ import SwiftUI
 // MARK: - AppDelegate
 //
 // As of #2262, NSPopover + PopoverLifecycleCoordinator + KVO are replaced by
-// MBKPopoverController. The popover lifecycle (open, close, force-close,
-// outside-click monitor, workspace observer, arrow centering, size tracking)
-// is now fully owned by MBKPopoverController from MenuBarKit.
+// MBKPanelController. As of the anchored-panel rewrite there is no NSPopover
+// anywhere in the app: MenuBarKit owns one borderless NSPanel and draws the
+// bubble and arrow itself. The panel lifecycle (open, close, force-close,
+// outside-click monitor, workspace observer, arrow placement, size tracking)
+// is fully owned by MBKPanelController from MenuBarKit.
 //
 // Run-bot's responsibilities are:
 //   1. Wire onWillShow / onDidShow / onWillClose callbacks.
@@ -22,7 +24,7 @@ import SwiftUI
 //
 // HIDE-WITHOUT-CLOSE:
 // The old hidePanel() + hidePopoverWindowsPreservingSheets() path is replaced
-// by the MBKPopoverController force-close + onWillClose(wasForced:) snapshot
+// by the MBKPanelController force-close + onWillClose(wasForced:) snapshot
 // + onDidShow respawn cycle. When wasForced=true the host snapshots nav and
 // sheet state; onDidShow restores them on next open.
 //
@@ -56,10 +58,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// `mbkOpenFilePicker()` to arm this gate for the overlay lifetime.
     let overlayGate = MBKOverlayGate()
 
-    /// Owns the popover lifecycle: status item, NSPopover, arrow centering,
+    /// Owns the panel lifecycle: status item, anchored NSPanel, arrow placement,
     /// size tracking, outside-click monitor, workspace observer.
     /// Replaced NSPopover + PopoverLifecycleCoordinator + KVO as of #2262.
-    var popoverController: MBKPopoverController?
+    var panelController: MBKPanelController?
 
     /// Sheet state that must survive transient popover hides.
     /// Stays on AppDelegate (wiring concern — not domain state). See issue #2040.
@@ -95,12 +97,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Close
 
-    /// Resets run-bot state ahead of a close driven externally by MBKPopoverController.
+    /// Resets run-bot state ahead of a close driven externally by MBKPanelController.
     ///
     /// ⚠️ THIS METHOD INTENTIONALLY DOES NOT DISMISS THE POPOVER.
-    /// MBKPopoverController owns all close paths (status-bar toggle, click-outside,
+    /// MBKPanelController owns all close paths (status-bar toggle, click-outside,
     /// Escape). This method is called by MBK’s onWillClose to reset run-bot state
-    /// BEFORE MBK completes its own teardown. Adding a popoverController?.close() call
+    /// BEFORE MBK completes its own teardown. Adding a panelController?.close() call
     /// here would re-enter MBK’s state machine mid-teardown and cause double-close or
     /// missed onWillClose callbacks.
     ///
@@ -109,9 +111,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     ///   • navigateBack() does NOT call this — back-nav changes route, not close state.
     ///   • No keyboard shortcut or Escape handler routes through this method.
     /// If you add a call site that expects the popover to visually close, wire
-    /// popoverController?.close() there directly instead of routing through here.
+    /// panelController?.close() there directly instead of routing through here.
     ///
-    /// ❌ NEVER add popoverController?.close() here.
+    /// ❌ NEVER add panelController?.close() here.
     /// ❌ NEVER add popover?.performClose(nil) here.
     func closePanel() {
         log("AppDelegate › closePanel")

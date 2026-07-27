@@ -6,7 +6,7 @@ import RunBotCore
 // MARK: - AppDelegate + Status Item
 //
 // As of #2262, NSStatusItem creation and toggle wiring are owned by
-// MBKPopoverController.setup(). This file owns only icon-update logic
+// MBKPanelController.setup(). This file owns only icon-update logic
 // and the menuBarImage helper that maps AggregateStatus to the correct image.
 //
 // updateStatusIcon() is passed as a callback to appState.start() so AppState
@@ -29,7 +29,7 @@ extension AppDelegate {
         // `aggregateStatus` is derived from `runnerState.runners` which `RunnerPoller`
         // pushes to `RunnerState` via `MainActor.run` after every fetch cycle.
         let status = AggregateStatus(runners: appState.runnerState.runners)
-        popoverController?.setStatusItemImage(menuBarImage(for: status))
+        panelController?.setStatusItemImage(menuBarImage(for: status))
     }
 
     // MARK: - Image helper

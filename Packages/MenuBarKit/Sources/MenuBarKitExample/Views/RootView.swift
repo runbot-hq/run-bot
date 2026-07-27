@@ -22,7 +22,7 @@ struct RootView: View {
             // DEBUG SCAFFOLDING — intentionally kept until popover sizing behaviour
             // is fully battle-tested across route transitions and hidden-menubar opens.
             // This GeometryReader is read-only (print only, no contentSize writes) and
-            // does not conflict with PopoverController.wrapped()'s authoritative observer.
+            // does not conflict with MBKPanelController's authoritative sizing pipeline.
             GeometryReader { geo in
                 Color.clear
                     .onAppear {

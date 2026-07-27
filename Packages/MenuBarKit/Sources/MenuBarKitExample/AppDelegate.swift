@@ -9,7 +9,7 @@ import SwiftUI
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         mbkLog("AppDelegate", "applicationDidFinishLaunching")
-        popoverController = MBKPopoverController(
+        panelController = MBKPanelController(
             rootView: RootView()
                 .environment(appState)
                 .environment(overlayGate),
@@ -17,25 +17,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             symbolName: "flask.fill",
             minWidth: 200,
             maxWidth: 480,
-            maxHeight: 600
+            maxHeightFraction: 0.8
         )
-        mbkLog("AppDelegate", "popoverController created")
-        popoverController.setup()
+        mbkLog("AppDelegate", "panelController created")
+        panelController.setup()
 
-        popoverController.onWillShow = { [weak self] in
+        panelController.onWillShow = { [weak self] in
             guard let self, let snap = lastSession else { return }
             mbkLog("AppDelegate", "onWillShow -- restoring route=\(snap.route)")
             appState.route = snap.route
         }
 
-        popoverController.onDidShow = { [weak self] in
+        panelController.onDidShow = { [weak self] in
             guard let self, let snap = lastSession else { return }
             mbkLog("AppDelegate", "onDidShow -- restoring isSheetPresented=\(snap.isSheetPresented)")
             lastSession = AppState.SessionSnapshot(route: snap.route, isSheetPresented: false)
             appState.isSheetPresented = snap.isSheetPresented
         }
 
-        popoverController.onWillClose = { [weak self] wasForced in
+        panelController.onWillClose = { [weak self] wasForced in
             guard let self else { return }
             let snap = appState.saveSnapshot()
             lastSession = snap
@@ -52,6 +52,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private let appState = AppState()
     private let overlayGate = MBKOverlayGate()
-    private var popoverController: MBKPopoverController!
+    private var panelController: MBKPanelController!
     private var lastSession: AppState.SessionSnapshot?
 }

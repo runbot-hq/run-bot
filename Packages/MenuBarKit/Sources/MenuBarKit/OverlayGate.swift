@@ -9,7 +9,7 @@
 //
 // USAGE:
 //   1. Create one MBKOverlayGate per popover.
-//   2. Pass it to MBKPopoverController, MBKAnchoredSheet, MBKFilePicker, and mbkAlert.
+//   2. Pass it to MBKPanelController, MBKAnchoredSheet, MBKFilePicker, and mbkAlert.
 //   3. The host app does not need to touch hasActiveOverlay directly —
 //      MBKAnchoredSheet, mbkOpenFilePicker, and mbkAlert manage it automatically.
 //
@@ -35,7 +35,7 @@ import Observation
 
 /// Tracks whether any overlay (sheet, file picker, or alert) is currently live over the popover.
 /// Managed automatically by `MBKAnchoredSheet`, `mbkOpenFilePicker`, and `mbkAlert`;
-/// read by `MBKPopoverController.popoverShouldClose` to block dismiss.
+/// read by `MBKPanelController.performClose()` to block dismiss.
 ///
 /// ❌ Host apps must not write `hasActiveOverlay` or `hasFilePickerOverlay` directly.
 /// Use `.mbkSheet`, `mbkOpenFilePicker`, and `.mbkAlert` instead.
@@ -44,7 +44,7 @@ import Observation
 public final class MBKOverlayGate {
     /// `true` while any sheet, file picker, or alert is live over the popover.
     /// Managed automatically by `MBKAnchoredSheet`, `mbkOpenFilePicker`, and `MBKAlertModifier`.
-    /// Read by `MBKPopoverController.popoverShouldClose`.
+    /// Read by `MBKPanelController.performClose()`.
     /// Setter is `internal(set)` — only MenuBarKit write sites may mutate this.
     public internal(set) var hasActiveOverlay: Bool = false {
         didSet {
@@ -53,7 +53,7 @@ public final class MBKOverlayGate {
     }
 
     /// `true` specifically when a file picker panel is open.
-    /// Used by `MBKPopoverController`'s event monitor to distinguish an outside
+    /// Used by `MBKPanelController`'s event monitor to distinguish an outside
     /// click aimed at the picker from a genuine dismiss gesture, even when a
     /// sheet child window is simultaneously present.
     /// Setter is `internal(set)` — only `mbkOpenFilePicker` may mutate this.

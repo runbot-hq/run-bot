@@ -104,11 +104,10 @@ struct ScopesView: View {
             }
             .frame(maxHeight: .infinity)
         }
-        // idealWidth drives MBKPopoverController's preferred width.
-        // ❌ NEVER use maxWidth: .infinity here — under MBKPopoverController,
-        // SwiftUI reports its natural size to the GeometryReader, and .infinity
-        // causes the popover to expand to maxWidth (900 pt). The popover's
-        // maxWidth clamp is the correct upper bound; let it do the clamping.
+        // idealWidth drives MBKPanelController's preferred width.
+        // ❌ NEVER use maxWidth: .infinity here — MBKPanelController measures the
+        // content's natural size, and .infinity resolves to the panel's maxWidth
+        // (900 pt). That clamp is the correct upper bound; let it do the clamping.
         .frame(idealWidth: 480)
         // Use mbkSheet so MBKOverlayGate.hasActiveOverlay is set/cleared automatically.
         .mbkSheet(isPresented: $showAddScopeSheet) {

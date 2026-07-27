@@ -28,7 +28,7 @@ extension AppDelegate {
     ///    a suspension point that reaches `LocalRunnerStore.shared` before configure
     ///    runs will hit a `fatalError`. Fix for issue #1741 — do not move this down.
     /// 2. Hydrate `ScopeEntry.displayName` from persisted prefs.
-    /// 3. `setupPanel()` — creates MBKPopoverController (which internally creates
+    /// 3. `setupPanel()` — creates MBKPanelController (which internally creates
     ///    NSStatusItem + NSPopover). UI wiring only, no domain calls.
     /// 4. `appState.start(onUpdateStatusIcon:)` — remaining domain startup.
     /// - Parameter _: The notification (unused).
@@ -36,7 +36,7 @@ extension AppDelegate {
         log("AppDelegate › applicationDidFinishLaunching — START")
 
         // Route MBK logs through os_log so `log stream` captures them.
-        // Must be set before setupPanel() creates MBKPopoverController.
+        // Must be set before setupPanel() creates MBKPanelController.
         let mbkLogger = Logger(subsystem: "com.eoncode.run-bot", category: "mbk")
         mbkLogHandler = { _, message in
             mbkLogger.debug("\(message, privacy: .public)")
@@ -56,7 +56,7 @@ extension AppDelegate {
             // Hydrate display names before any UI or domain work. (#1538)
             await ScopeStore.shared.refreshDisplayNames()
 
-            // setupPanel() creates MBKPopoverController which calls setup() internally,
+            // setupPanel() creates MBKPanelController which calls setup() internally,
             // creating NSStatusItem + NSPopover. No separate setupStatusItem() call needed.
             setupPanel()
 
