@@ -446,6 +446,7 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
 
 // MARK: - NSView helpers
 
+/// Helpers used internally by `PanelController` to manage subview layout and scroll behaviour.
 extension NSView {
     /// Walks the entire subview tree and collects every NSScrollView descendant.
     /// Used to nuke drawsBackground on open so no scroll view paints over the glass bubble.
