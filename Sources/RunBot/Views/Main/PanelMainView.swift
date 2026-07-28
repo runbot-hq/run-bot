@@ -58,7 +58,7 @@ import SwiftUI
 //
 // The panel's Liquid Glass bubble and arrow are drawn by MenuBarKit in AppKit
 // (`MBKPanelChromeView`: an NSGlassEffectView body plus a rotated NSGlassEffectView
-// arrow, merged by an NSGlassEffectContainerView), one layer *below* this view —
+// arrow), one layer *below* this view —
 // exactly where NSPopover used to put its chrome. That is deliberate: a SwiftUI
 // `.glassEffect` ancestor flattens every GlassEffectContainer in this file (the
 // metric bars, the SUCCESS/FAILED tags, every chip), which is what happened on

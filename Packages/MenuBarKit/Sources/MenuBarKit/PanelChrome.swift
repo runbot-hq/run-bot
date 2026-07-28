@@ -27,19 +27,26 @@
 // LAYERING — back to front, all inside the window's content view:
 //
 //   MBKPanelChromeView                     (this file, pinned edge-to-edge)
-//   └── NSGlassEffectContainerView         merges the two glass views below
-//       └── plain NSView (its contentView)
-//           ├── NSGlassEffectView          body: window minus the arrow strip
-//           └── NSGlassEffectView          arrow: square, rotated 45°
+//   ├── NSGlassEffectView                  body: window minus the arrow strip
+//   └── NSGlassEffectView                  arrow: square, rotated 45°
 //   MBKHostingView                         (pinned edge-to-edge, on top)
+//
+// WHY NO NSGlassEffectContainerView:
+// The container merges the two glass views into one seamless shape, but it
+// fires its own internal layout pass on its children whenever AppKit lays it
+// out. That internal pass runs before our layout() can reset arrowGlass
+// frameCenterRotation to 0, so the layout engine receives a rotated view and
+// computes y = NaN -> _NSViewValidateGeometry crash. Removing the container
+// means the body and arrow render as two separate glass surfaces with a
+// visible seam at the join, which is acceptable. If Apple ever exposes a way
+// to suppress the container's internal layout this can be revisited.
+// ❌ NEVER re-add NSGlassEffectContainerView here.
 //
 // THE ARROW. `NSGlassEffectView` exposes `cornerRadius` and nothing else, so it
 // cannot describe a triangle. Instead the arrow is a square glass view rotated
 // 45° about its centre, with that centre sitting exactly on the body's top
 // edge: the half above the edge is a 90° isoceles triangle, the half below is
-// swallowed by the body. `NSGlassEffectContainerView` merges the two into one
-// continuous liquid shape — that is its documented purpose — so there is no
-// seam between the arrow and the bubble.
+// swallowed by the body.
 //
 // The rotated square's visible extent is `arrowHeight` tall and
 // `2 * arrowHeight` wide, so the rendered arrow is always a right isoceles
@@ -50,9 +57,12 @@
 //
 // ❌ NEVER go back to `NSVisualEffectView` + `maskImage`. That is pre-macOS-26
 //    vibrancy, not Liquid Glass.
-// ❌ NEVER use Auto Layout for the two glass views. `frameCenterRotation` and
-//    Auto Layout do not mix; this view lays its children out by hand in
-//    `layout()` and is itself the only thing the window constrains.
+// ❌ NEVER use Auto Layout for the two glass views, and NEVER use
+//    `frameCenterRotation` for arrowGlass. Both cause AppKit's layout engine
+//    to compute NaN geometry inside NSGlassEffectView's internal layout pass.
+//    The arrow is rotated via CATransform3D on its layer instead (pure CA,
+//    invisible to the layout engine). This view lays its children out by hand
+//    in `layout()` and is itself the only thing the window constrains.
 import AppKit
 
 /// The panel's Liquid Glass bubble and arrow, drawn below the hosted SwiftUI content.
@@ -104,12 +114,6 @@ final class MBKPanelChromeView: NSView {
 
     // MARK: - Subviews
 
-    /// Merges the body and the arrow into one continuous glass shape.
-    private let container = NSGlassEffectContainerView(frame: .zero)
-
-    /// Plain holder assigned to `container.contentView`; the glass views are its subviews.
-    private let containerContent = NSView(frame: .zero)
-
     /// The bubble body: everything below the arrow strip.
     private let bodyGlass = NSGlassEffectView(frame: .zero)
 
@@ -138,17 +142,10 @@ final class MBKPanelChromeView: NSView {
         arrowGlass.style = .regular
         bodyGlass.contentView = bodyFill
         arrowGlass.contentView = arrowFill
-        // Keep the arrow hidden until the first real layout so
-        // NSGlassEffectContainerView never tries to place a rotated view
-        // inside a zero-size container, which produces y = NaN -> crash.
-        // Zero already batches the two views, and the arrow overlaps the body
-        // so any non-negative spacing merges them. One arrow height is a
-        // deliberate margin against rounding at fractional backing scales.
-        container.spacing = max(metrics.arrowHeight, 0)
-        containerContent.addSubview(arrowGlass)
-        containerContent.addSubview(bodyGlass)
-        container.contentView = containerContent
-        addSubview(container)
+        arrowGlass.wantsLayer = true
+        // body behind arrow so the arrow sits on top at the seam.
+        addSubview(bodyGlass)
+        addSubview(arrowGlass)
     }
 
     /// Not supported — the panel is built in code.
@@ -162,10 +159,13 @@ final class MBKPanelChromeView: NSView {
 
     /// Lays the body and the arrow out by hand.
     ///
-    /// `frameCenterRotation` is reset to zero before the arrow's frame is
-    /// assigned and re-applied afterwards: while a view is rotated, `frame` is
-    /// the *bounding box* of the rotated bounds, so assigning it directly would
-    /// shrink the square a little more on every pass.
+    /// The arrow's 45° rotation is applied via `CATransform3D` on the layer,
+    /// NOT via `frameCenterRotation`. `frameCenterRotation` causes AppKit's
+    /// layout engine to see the rotated bounding-box as the view's frame,
+    /// which produces `y = NaN` inside `NSGlassEffectView`'s own internal
+    /// layout pass whenever the window resizes. A layer transform is invisible
+    /// to the layout engine — the frame stays as the plain unrotated square —
+    /// so AppKit never computes NaN geometry.
     override func layout() {
         super.layout()
 
@@ -178,8 +178,6 @@ final class MBKPanelChromeView: NSView {
         )
         let radius = min(max(metrics.cornerRadius, 0), min(body.width, body.height) / 2)
 
-        container.frame = bounds
-        containerContent.frame = bounds
         bodyGlass.frame = body
         bodyGlass.cornerRadius = radius
         bodyFill.frame = bodyGlass.bounds
@@ -197,7 +195,8 @@ final class MBKPanelChromeView: NSView {
         let centre = upper >= lower ? min(max(arrowCenterX, lower), upper) : body.midX
 
         let side = arrowHeight * MBKPanelChromeView.diagonalRatio
-        arrowGlass.frameCenterRotation = 0
+        // Set frame as a plain unrotated square. The layout engine only sees
+        // this rect — never NaN — and the visual rotation is pure CA.
         arrowGlass.frame = CGRect(
             x: centre - side / 2,
             y: body.maxY - side / 2,
@@ -205,7 +204,9 @@ final class MBKPanelChromeView: NSView {
             height: side
         )
         arrowFill.frame = arrowGlass.bounds
-        arrowGlass.frameCenterRotation = 45
+        // Rotate 45° via layer transform so AppKit's layout engine is never
+        // involved in the rotation. CATransform3DMakeRotation takes radians.
+        arrowGlass.layer?.transform = CATransform3DMakeRotation(.pi / 4, 0, 0, 1)
     }
 
     // MARK: - Helpers
