@@ -2,13 +2,13 @@
 // MenuBarKit
 //
 // MBKOverlayGate is the single source of truth for whether any overlay
-// (SwiftUI sheet, NSOpenPanel, alert) is currently active on top of the popover.
+// (SwiftUI sheet, NSOpenPanel, alert) is currently active on top of the panel.
 //
 // It is @Observable so SwiftUI views can read it, and @MainActor because
 // all overlay state must mutate on the main thread.
 //
 // USAGE:
-//   1. Create one MBKOverlayGate per popover.
+//   1. Create one MBKOverlayGate per panel.
 //   2. Pass it to MBKPanelController, MBKAnchoredSheet, MBKFilePicker, and mbkAlert.
 //   3. The host app does not need to touch hasActiveOverlay directly —
 //      MBKAnchoredSheet, mbkOpenFilePicker, and mbkAlert manage it automatically.

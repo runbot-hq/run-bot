@@ -107,7 +107,7 @@ final class MBKSheetAnchorTask {
                 pw.addChildWindow(sheetWindow, ordered: .above)
                 // NSGlassEffectView is the direct panel.contentView — no reapplyGlassStyle()
                 // needed. Direct contentView survives addChildWindow() without corner regression.
-                // (The old MBKPanelChromeView workaround was removed in issue #2318.)
+                // (The old MBKPanelChromeView workaround will be removed in a follow-up.)
                 pw.invalidateShadow()
                 mbkLog("AnchoredSheet[\(self.label)]", "addChildWindow done")
             }

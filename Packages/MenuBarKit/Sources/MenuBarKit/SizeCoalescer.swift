@@ -40,12 +40,19 @@ final class MBKSizeCoalescer {
     /// Applies immediately, on the current turn, and cancels any pending apply.
     ///
     /// Called just before `orderFront` so the first frame the user sees is right.
+    ///
+    /// Note: the `Task` enqueued by a prior `schedule()` call is not cancellable
+    /// once posted. `drain()` checks `scheduled` before calling `apply()` so the
+    /// already-enqueued Task becomes a no-op after `flush()` clears the flag.
     func flush() {
         drain()
     }
 
     /// Runs the apply action and clears the scheduled flag.
+    /// No-op if `scheduled` is already false (guards against a Task posted by
+    /// `schedule()` firing after an intervening `flush()`).
     private func drain() {
+        guard scheduled else { return }
         scheduled = false
         apply()
     }

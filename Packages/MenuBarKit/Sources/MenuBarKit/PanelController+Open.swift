@@ -84,7 +84,13 @@ extension MBKPanelController {
 
         setButtonHighlight(true)
         panel.orderFrontRegardless()
-        NSApp.activate(ignoringOtherApps: true)
+        // NSApp.activate() ensures the app is frontmost so the panel can receive key events.
+        // Called before makeKey() deliberately — activate() is asynchronous in effect
+        // (processed next run-loop turn), but becomesKeyOnlyIfNeeded = false on MBKPanel
+        // means orderFrontRegardless already makes the panel key. makeKey() here is
+        // belt-and-suspenders for the edge case where activate's run-loop processing
+        // hasn't completed. No key-window race observed in practice.
+        NSApp.activate()
         panel.makeKey()
         // Zero drawsBackground on every NSScrollView SwiftUI creates.
         // Deferred one run-loop tick: makeKeyAndOrderFront triggers SwiftUI’s first

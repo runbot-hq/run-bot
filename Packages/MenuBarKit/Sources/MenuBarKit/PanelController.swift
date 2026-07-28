@@ -310,6 +310,13 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
         // All three must be set together — partial combinations produce light or inconsistent
         // glass. These KVC values only affect tint/intensity, not the compositing path, so
         // they do NOT interact with the masksToBounds / offscreen-pass issue.
+        // setValue(_:forKey:) does not throw — a missing key raises NSUndefinedKeyException at
+        // runtime (uncatchable from Swift). If Apple removes a key in a future OS, the app will
+        // crash on first open with: [NSGlassEffectView setValue:forUndefinedKey:]. To diagnose:
+        // look for that message in the crash log. Mitigation: check for the key with
+        // glassView.responds(to: NSSelectorFromString("set_SubduedState:")) before setting, or
+        // restore the default .regular style gracefully and file a radar.
+        // TODO: revisit at macOS 26.x betas — undocumented KVC may change without notice.
         glassView.setValue(1, forKey: "_subduedState")
         glassView.setValue(1, forKey: "_variant")
         glassView.setValue(1, forKey: "_scrimState")
@@ -432,7 +439,7 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
 extension NSView {
     /// Walks the entire subview tree and collects every NSScrollView descendant.
     /// Used to nuke drawsBackground on open so no scroll view paints over the glass bubble.
-    func descendantScrollViews() -> [NSScrollView] {
+    fileprivate func descendantScrollViews() -> [NSScrollView] {
         var result: [NSScrollView] = []
         for sub in subviews {
             if let sv = sub as? NSScrollView { result.append(sv) }
