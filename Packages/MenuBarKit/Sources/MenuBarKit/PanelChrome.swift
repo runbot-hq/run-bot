@@ -6,58 +6,47 @@
 // WHY THE CHROME IS APPKIT AND NOT SwiftUI:
 //
 // 1. GLASS CANNOT SAMPLE GLASS. `.glassEffect(.regular, in: bubble)` on the
-//    root flattens every GlassEffectContainer in the adopter's content.
-//    \u274c NEVER put `.glassEffect(...)` on the panel's root SwiftUI view.
+//    root flattens every GlassEffectContainer inside the adopter's content.
+//    ❌ NEVER put `.glassEffect(...)` on the panel's root SwiftUI view.
 //
-// 2. CLICKS NEED PIXELS. macOS hit-tests borderless non-opaque windows
-//    per-pixel. Near-zero-alpha SwiftUI glass at the rim lets clicks fall
-//    through, firing the workspace observer and closing the panel.
-//    \u274c NEVER rely on SwiftUI alpha alone for hit-testing.
+// 2. CLICKS NEED PIXELS. macOS hit-tests borderless non-opaque windows per-pixel.
+//    Near-zero-alpha SwiftUI glass at the rim lets clicks fall through, firing
+//    the workspace observer and closing the panel.
+//    ❌ NEVER rely on SwiftUI alpha alone for hit-testing.
 //
-// LAYERING (back to front, inside the window's content view):
+// SHAPE STRATEGY:
+// One NSGlassEffectView fills the whole chrome view. Its layer is masked to the
+// bubble silhouette (rounded-rect body + isosceles triangle arrow) via a
+// CAShapeLayer. This produces one seamless glass surface with the correct arrow
+// shape and no second border.
 //
-//   MBKPanelChromeView                     pinned edge-to-edge
-//   \u251c\u2500\u2500 NSGlassEffectContainerView         body glass
-//   \u2502   \u2514\u2500\u2500 NSGlassEffectView (bodyGlass)    rounded-rect body
-//   \u2514\u2500\u2500 NSGlassEffectView (arrowGlass)        triangle arrow, sibling
-//   MBKHostingView                         pinned on top
+// NSGlassEffectContainerView is intentionally NOT used here: it renders its own
+// composite border outline that produced the double-background artifact. A plain
+// NSGlassEffectView with a layer mask gives the same material without the extra
+// border.
 //
-// ARROW SHAPE:
-// NSGlassEffectView only exposes `cornerRadius`. The old approach rotated a
-// square 45\u00b0 via CATransform3D which produced a right-isosceles triangle, but
-// its rendered width (2*arrowHeight) was always wider than `arrowWidth` (22pt
-// at default 11pt height) and couldn\u2019t match the SwiftUI clip exactly.
+// The bubble path mirrors MBKBubbleShape exactly (AppKit CG coords: origin
+// bottom-left, body at minY, arrow tip at maxY) so the AppKit chrome and the
+// SwiftUI clipShape are pixel-identical.
 //
-// New approach: arrowGlass is an unrotated rectangle covering the arrow strip,
-// masked to the exact isosceles triangle via a CAShapeLayer on its layer.
-// Frame stays axis-aligned \u2192 the AppKit layout engine never sees NaN geometry.
-// The triangle path mirrors MBKBubbleShape so chrome and clip are pixel-identical.
-//
-// \u274c NEVER use frameCenterRotation or CATransform3D rotation for arrowGlass.
-// \u274c NEVER go back to NSVisualEffectView + maskImage. Pre-macOS-26 vibrancy.
+// ❌ NEVER go back to NSVisualEffectView + maskImage. Pre-macOS-26 vibrancy.
+// ❌ NEVER use NSGlassEffectContainerView for this view — its border doubles.
 import AppKit
 
-/// The panel\u2019s Liquid Glass bubble drawn below the hosted SwiftUI content.
+/// The panel's Liquid Glass bubble drawn below the hosted SwiftUI content.
+///
+/// Pinned edge-to-edge to the window's content view. One NSGlassEffectView fills
+/// the whole view; a CAShapeLayer mask clips it to the bubble silhouette.
 final class MBKPanelChromeView: NSView {
 
     // MARK: - Constants
 
-    /// Minimum alpha floor \u2014 prevents click-through on panel edges.
+    /// Minimum alpha floor — prevents click-through on panel edges.
     private static let dimmingAlpha: CGFloat = 0.02
 
-    // MARK: - Subviews
+    // MARK: - Properties
 
     private let metrics: MBKPanelMetrics
-    private let container = NSGlassEffectContainerView(frame: .zero)
-    private let bodyGlass = NSGlassEffectView(frame: .zero)
-    private let arrowGlass = NSGlassEffectView(frame: .zero)
-    private let bodyFill: NSView
-    private let arrowFill: NSView
-
-    /// CAShapeLayer mask applied to arrowGlass.layer to clip it to the triangle.
-    private let arrowMask = CAShapeLayer()
-
-    // MARK: - State
 
     /// Arrow centre in window-local points (from leading edge).
     var arrowCenterX: CGFloat = 0 {
@@ -67,31 +56,26 @@ final class MBKPanelChromeView: NSView {
         }
     }
 
+    // MARK: - Subviews
+
+    private let glass = NSGlassEffectView(frame: .zero)
+    private let fill: NSView
+    private let maskLayer = CAShapeLayer()
+
     // MARK: - Init
 
     init(metrics: MBKPanelMetrics) {
         self.metrics = metrics
-        self.bodyFill = MBKPanelChromeView.makeFill()
-        self.arrowFill = MBKPanelChromeView.makeFill()
+        self.fill = MBKPanelChromeView.makeFill()
         super.init(frame: .zero)
         wantsLayer = true
         translatesAutoresizingMaskIntoConstraints = false
 
-        bodyGlass.style = .regular
-        arrowGlass.style = .regular
-        bodyGlass.contentView = bodyFill
-        arrowGlass.contentView = arrowFill
-        arrowGlass.wantsLayer = true
-
-        // bodyGlass inside the container for correct Liquid Glass merging.
-        container.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(bodyGlass)
-
-        // arrowGlass is a sibling of the container, NOT inside it.
-        // Being outside prevents the container\u2019s internal layout pass from
-        // ever touching arrowGlass \u2014 which avoids the y=NaN crash.
-        addSubview(container)
-        addSubview(arrowGlass)
+        glass.style = .regular
+        glass.contentView = fill
+        glass.wantsLayer = true
+        glass.layer?.mask = maskLayer
+        addSubview(glass)
     }
 
     @available(*, unavailable)
@@ -101,57 +85,49 @@ final class MBKPanelChromeView: NSView {
 
     override func layout() {
         super.layout()
+        guard bounds.width > 0, bounds.height > 0 else { return }
 
+        // Glass fills the entire chrome view; the mask does all shaping.
+        glass.frame = bounds
+        glass.cornerRadius = 0  // mask handles shape; no built-in radius needed
+        fill.frame = glass.bounds
+
+        maskLayer.frame = bounds
+        maskLayer.path = bubblePath(in: bounds)
+    }
+
+    // MARK: - Bubble path
+
+    /// Builds the bubble CGPath in AppKit/CG coordinates (origin bottom-left, Y up).
+    /// Body at minY, arrow tip at maxY. Mirrors MBKBubbleShape exactly.
+    private func bubblePath(in rect: CGRect) -> CGPath {
         let arrowH = max(metrics.arrowHeight, 0)
         let body = CGRect(
-            x: bounds.minX,
-            y: bounds.minY,
-            width: bounds.width,
-            height: max(bounds.height - arrowH, 0)
+            x: rect.minX,
+            y: rect.minY,
+            width: rect.width,
+            height: max(rect.height - arrowH, 0)
         )
         let radius = min(max(metrics.cornerRadius, 0), min(body.width, body.height) / 2)
 
-        container.frame = body
-        bodyGlass.frame = CGRect(origin: .zero, size: body.size)
-        bodyGlass.cornerRadius = radius
-        bodyFill.frame = bodyGlass.bounds
-
-        guard arrowH > 0, body.width > 0 else {
-            arrowGlass.isHidden = true
-            return
-        }
-        arrowGlass.isHidden = false
+        let path = CGMutablePath()
+        path.addRoundedRect(in: body, cornerWidth: radius, cornerHeight: radius)
 
         let half = max(metrics.arrowWidth, 0) / 2
+        guard arrowH > 0, half > 0 else { return path }
+
         let lower = body.minX + radius + half
         let upper = body.maxX - radius - half
         let centre = upper >= lower
             ? min(max(arrowCenterX, lower), upper)
             : body.midX
 
-        // Arrow strip: full-width band at top of window, height = arrowH.
-        // The CAShapeLayer mask clips it to the isosceles triangle.
-        let arrowRect = CGRect(
-            x: centre - half,
-            y: body.maxY,
-            width: half * 2,
-            height: arrowH
-        )
-        arrowGlass.frame = arrowRect
-        arrowFill.frame = arrowGlass.bounds
-        arrowGlass.cornerRadius = 0
-
-        // Mask: triangle in arrowGlass\u2019s own coordinate space.
-        // Origin is bottom-left of arrowRect; apex at top-centre.
-        let triPath = CGMutablePath()
-        triPath.move(to:    CGPoint(x: 0,        y: 0))
-        triPath.addLine(to: CGPoint(x: half,     y: arrowH))
-        triPath.addLine(to: CGPoint(x: half * 2, y: 0))
-        triPath.closeSubpath()
-
-        arrowMask.frame = arrowGlass.bounds
-        arrowMask.path = triPath
-        arrowGlass.layer?.mask = arrowMask
+        // Arrow: base on body.maxY, apex at rect.maxY.
+        path.move(to:    CGPoint(x: centre - half, y: body.maxY))
+        path.addLine(to: CGPoint(x: centre,        y: rect.maxY))
+        path.addLine(to: CGPoint(x: centre + half, y: body.maxY))
+        path.closeSubpath()
+        return path
     }
 
     // MARK: - Helpers
