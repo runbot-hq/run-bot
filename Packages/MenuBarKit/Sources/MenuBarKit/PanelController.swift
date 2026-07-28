@@ -33,6 +33,44 @@
 //      attempt (PR #2292) used a ghost panel as a positioningView; it was
 //      rejected. The panel below is the only window MenuBarKit creates.
 //
+// WHAT BREAKS CORNERS (do not re-introduce):
+//   • masksToBounds = true on any ancestor of NSGlassEffectView
+//     Forces an offscreen compositing pass → glass severs live backdrop.
+//   • NSVisualEffectView wrapper as panel.contentView
+//     Adding a VEV ancestor caused glass-goes-square-on-sheet regression.
+//   • CAShapeLayer mask on any layer
+//   • Any async re-assertion of cornerRadius after addChildWindow()
+//
+// ROUNDED CORNERS — HISTORY (approaches tried and rejected):
+//   All of these regress to rect corners on sheet open (addChildWindow):
+//   1. NSVisualEffectView.cornerRadius / masksToBounds  → reset by addChildWindow()
+//   2. CAShapeLayer mask                                → clips pixels, not blur compositor
+//   3. NSGlassEffectView.cornerRadius (with VEV ancestor as contentView)
+//                                                        → reset by addChildWindow()
+//   4. NSGlassEffectView.clipsToBounds (same VEV-ancestor setup)
+//                                                        → reset by addChildWindow()
+//   5. NSPanel subclass overriding addChildWindow()     → AppKit resets again async after super
+//   6. DispatchQueue.main.async re-assertion            → still a race, still regresses
+//   7. plain NSView wrapper + masksToBounds = true      → WORKS for corners BUT forces offscreen
+//                                                          compositing pass → glass goes flat
+//                                                          dark rectangle when sheet opens
+//   8–11. Various NSVisualEffectView clipView material/blending/maskImage approaches
+//         → all removed; clipView no longer exists in the codebase.
+//
+//   CURRENT (working): NSGlassEffectView as direct panel.contentView.
+//   glassView.cornerRadius clips natively inside glass compositor — no offscreen pass,
+//   survives addChildWindow. clipWindowFrameBacking() rounds the AppKit frame-backing
+//   layer (contentView.superview) to suppress residual square border pixels.
+//
+// HOSTING CONTROLLER VIEW TRANSPARENCY:
+//   NSHostingController creates its NSView with an opaque CALayer background.
+//   SwiftUI's .background(.clear) does NOT reach this layer.
+//   wantsLayer = true forces immediate layer creation, so layer is non-nil before
+//   the view is attached to any superview. layer?.backgroundColor can therefore be
+//   zeroed immediately after wantsLayer = true — ordering relative to contentView
+//   assignment does not matter. (An earlier version of this header incorrectly stated
+//   that zeroing before attachment was a silent no-op — that was wrong.)
+//
 // RESPONSIBILITIES:
 //   - Create and show/hide the MBKPanel
 //   - Manage the NSStatusItem button highlight
