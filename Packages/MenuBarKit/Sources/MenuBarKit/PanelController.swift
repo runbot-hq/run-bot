@@ -14,9 +14,13 @@
 //   with the frame and can never disagree with it.
 //
 // HOW THE WINDOW IS LAYERED (back to front) — and why:
-//   contentView (plain NSView)
-//     ├── MBKPanelChromeView   Liquid Glass bubble + arrow, AppKit, pinned
-//     └── MBKHostingView       the adopter's SwiftUI content, pinned, on top
+//   contentView = MBKPanelChromeView (plain NSView)
+//     └── NSGlassEffectView    Liquid Glass material + corner clipping
+//           └── contentView    MBKHostingView  (adopter SwiftUI tree)
+//
+//   IMPORTANT: MBKHostingView is glassView.contentView, NOT addSubview.
+//   Per NSGlassEffectView.h only contentView is clipped by cornerRadius.
+//   Arbitrary subviews are not corner-clipped and render with square edges.
 //   The chrome is AppKit and not SwiftUI because glass cannot sample other
 //   glass: a `.glassEffect` ancestor around the hosted tree flattens every
 //   `GlassEffectContainer` the adopter draws (that was the device regression
@@ -249,10 +253,10 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
             self?.applyMeasuredSize()
         }
 
-        // MBKPanelChromeView is NSVisualEffectView subclass that carries maskImage.
-        // It is used directly as contentView so its maskImage is processed by the
-        // window server — the only mechanism that survives addChildWindow (sheet).
-        // NSGlassEffectView lives inside it; SwiftUI hosting view is pinned on top.
+        // MBKPanelChromeView (plain NSView) is the contentView.
+        // It holds: (1) an NSGlassEffectView that fills the window and provides
+        // Liquid Glass material + rounded corners (CALayer mask re-applied by
+        // AnchoredSheet after addChildWindow), and (2) the hosting view on top.
         let chrome = MBKPanelChromeView(metrics: metrics)
         chrome.translatesAutoresizingMaskIntoConstraints = true
         chrome.autoresizingMask = [.width, .height]
@@ -268,13 +272,14 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
             self?.scheduleIfMeasurementChanged(reason: "layout")
         }
         hostingView = hosting
-        chrome.addSubview(hosting)
-        NSLayoutConstraint.activate([
-            hosting.leadingAnchor.constraint(equalTo: chrome.leadingAnchor),
-            hosting.trailingAnchor.constraint(equalTo: chrome.trailingAnchor),
-            hosting.topAnchor.constraint(equalTo: chrome.topAnchor),
-            hosting.bottomAnchor.constraint(equalTo: chrome.bottomAnchor)
-        ])
+        // Per NSGlassEffectView.h: only contentView is guaranteed to be inside
+        // the glass effect and clipped by its corner radius. Arbitrary addSubview
+        // has undefined z-order behaviour relative to the glass.
+        // Setting hosting as glassView.contentView clips it to the rounded glass
+        // shape — this is what prevents square corners.
+        // NSGlassEffectView sizes contentView to fill itself automatically;
+        // no AL constraints are needed (and adding them would conflict).
+        chrome.glassView.contentView = hosting
 
         let window = MBKPanel()
         window.contentView = chrome

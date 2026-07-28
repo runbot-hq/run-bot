@@ -62,17 +62,8 @@ extension MBKPanelController {
         // write a frame anchored at the bottom-left of the display.
         hasOpenedOnce = true
 
-        // Insert chrome lazily on first open (window has a real frame by now).
-        if let chrome = chromeView, chrome.superview == nil,
-           let container = panel.contentView {
-            container.addSubview(chrome, positioned: .below, relativeTo: hostingView)
-            NSLayoutConstraint.activate([
-                chrome.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-                chrome.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-                chrome.topAnchor.constraint(equalTo: container.topAnchor),
-                chrome.bottomAnchor.constraint(equalTo: container.bottomAnchor)
-            ])
-        }
+        // chrome IS panel.contentView — do not re-insert it as a subview.
+        // (It was previously lazily added here, which caused double-background.)
 
         // While the panel was off screen SwiftUI may never have laid out, in which
         // case `intrinsicContentSize` is still degenerate. Force one layout pass so
