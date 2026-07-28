@@ -375,11 +375,11 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
         clipWindowFrameBacking(window, cornerRadius: metrics.cornerRadius)
     }
 
-    /// Rounds the NSThemeFrame layer (AppKit’s private window-chrome view, contentView.superview)
+    /// Rounds the NSThemeFrame layer (AppKit's private window-chrome view, contentView.superview)
     /// to suppress faint square border pixel artefacts visible on borderless panels with
     /// `backgroundColor = .clear`.
     ///
-    /// `panel.contentView?.superview` is `NSThemeFrame` — AppKit’s private window-chrome view
+    /// `panel.contentView?.superview` is `NSThemeFrame` — AppKit's private window-chrome view
     /// that wraps the entire window. It exists on borderless panels and composites a faint
     /// rectangular frame at window edges, visible as square pixel artefacts when
     /// `backgroundColor = .clear`. We round its layer without `masksToBounds`.
@@ -449,7 +449,7 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
 extension NSView {
     /// Walks the entire subview tree and collects every NSScrollView descendant.
     /// Used to nuke drawsBackground on open so no scroll view paints over the glass bubble.
-    func descendantScrollViews() -> [NSScrollView] {
+    fileprivate func descendantScrollViews() -> [NSScrollView] {
         var result: [NSScrollView] = []
         for sub in subviews {
             if let sv = sub as? NSScrollView { result.append(sv) }
