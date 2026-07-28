@@ -48,9 +48,11 @@ extension MBKPanelController {
     /// pre-show seed plus post-show reposition dance was trying (and failing) to
     /// paper over.
     func openPanel() {
-        // Force-unwrap intentionally: panel/coalescer/limits are set in setup() which
-        // must be called before any open attempt. A nil here means setup() was skipped
-        // — that is a programmer error and should crash loudly, not silently no-op.
+        // setup() must be called before any open attempt. A nil panel/coalescer/limits
+        // here means setup() was skipped — that is a programmer error and should crash
+        // loudly with a clear attribution, not silently no-op or crash at the force-
+        // unwraps below with no context.
+        precondition(isSetUp, "openPanel() called before setup() — call setup() on MBKPanelController first")
         // statusItem?.button is the only legitimate optional (status item may be absent
         // in testing or before NSStatusBar assignment).
         guard statusItem?.button != nil else { return }
@@ -184,10 +186,11 @@ extension MBKPanelController {
     /// CONTRACT: callers MUST call `fireOnWillClose(wasForced:)` before `teardown`.
     /// `teardown` does NOT call `fireOnWillClose` itself — the callback must fire
     /// before gate/window teardown so adopters can snapshot state while it is still
-    /// valid. The assert below enforces this: if `teardown` is called without a
-    /// prior `fireOnWillClose`, the flag is false and the assert trips.
+    /// valid. The precondition below enforces this in all build configurations:
+    /// if `teardown` is called without a prior `fireOnWillClose`, the flag is false
+    /// and the precondition trips regardless of optimisation level.
     private func teardown(wasForced: Bool) {
-        assert(onWillCloseFired, "teardown called without a prior fireOnWillClose — call fireOnWillClose(wasForced:) first")
+        precondition(onWillCloseFired, "teardown called without a prior fireOnWillClose — call fireOnWillClose(wasForced:) first")
         stopEventMonitor()
         setButtonHighlight(false)
         panel?.orderOut(nil)
