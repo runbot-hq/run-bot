@@ -236,9 +236,13 @@ internal extension SettingsView {
 
     // MARK: - Popover arrow row (#1184)
 
-    /// Toggle row that shows or hides the NSPopover anchor arrow.
+    /// Toggle row that shows or hides the anchor arrow.
     ///
     /// FIX #2174: was `Bindable(settings).showPopoverArrow` — now `$settings.showPopoverArrow`.
+    ///
+    /// TODO: `showPopoverArrow` is inert since PR #2305 (NSPopover replaced by owned NSPanel).
+    /// The arrow is now always drawn by `MBKBubbleShape` / `PanelChrome` and cannot be
+    /// suppressed without a separate layout path. Remove this toggle in a follow-up.
     var popoverArrowRow: some View {
         #if DEBUG
         log("【popoverArrowRow】rendered — showPopoverArrow=\(settings.showPopoverArrow)", category: .general)
