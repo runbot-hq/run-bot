@@ -40,8 +40,8 @@
 // ❌ NEVER apply `.glassEffect(...)` in this wrapper. Glass cannot sample other
 //    glass: a SwiftUI glass ancestor silently flattens every
 //    `GlassEffectContainer` in the adopter's content. The bubble is drawn by
-//    `MBKPanelChromeView` at the AppKit layer, below this hosting view, exactly
-//    the way `NSPopover` used to layer its chrome under the hosted content.
+//    `NSGlassEffectView` (direct panel.contentView) is below the hosting view
+//    as a plain sibling — the same layering strategy NSPopover used for its chrome.
 import AppKit
 import Observation
 import SwiftUI
@@ -80,10 +80,10 @@ final class MBKPanelLimits {
 
 /// Root SwiftUI view of the panel: the adopter's content, clipped to the bubble.
 ///
-/// The bubble *material* is not here — it is `MBKPanelChromeView`, an AppKit
-/// `NSGlassEffectView` pair sitting below this view in the same window. This
-/// view only positions and clips, so the adopter's own Liquid Glass renders
-/// with no glass ancestor above it.
+/// The bubble *material* is not here — it is `NSGlassEffectView`, the direct
+/// `panel.contentView`, sitting below this hosting view as a plain sibling.
+/// This view only positions and clips, so the adopter's own Liquid Glass
+/// renders with no glass ancestor above it.
 struct MBKPanelContentView: View {
 
     /// Live sizing limits and arrow position.
@@ -97,8 +97,9 @@ struct MBKPanelContentView: View {
 
     /// The current bubble silhouette, tracking the live arrow position.
     ///
-    /// Used for clipping only. The same `arrowCenterX` drives
-    /// `MBKPanelChromeView`, so the clip and the AppKit glass always agree.
+    /// Used for clipping only. The same `arrowCenterX` also drives
+    /// `NSGlassEffectView.cornerRadius` via `MBKPanelMetrics`, so the clip
+    /// and the AppKit glass always agree.
     private var bubble: MBKBubbleShape {
         MBKBubbleShape(
             arrowCenterX: limits.arrowCenterX,

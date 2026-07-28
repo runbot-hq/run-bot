@@ -6,14 +6,13 @@
 //
 // WHAT THIS IS FOR, AND WHAT IT IS NOT FOR:
 // This is the *clip* for the hosted content, and the geometry the unit tests
-// pin down. It is NOT the chrome. The Liquid Glass material is drawn one layer
-// below, in AppKit, by `MBKPanelChromeView` — because a SwiftUI `.glassEffect`
-// ancestor flattens all the glass the adopter draws inside it, and because a
-// window whose only alpha comes from SwiftUI glass gets clicked straight
-// through by macOS.
+// pin down. It is NOT the chrome. The Liquid Glass material is `NSGlassEffectView`,
+// which is the direct panel.contentView — the hosting view sits above it as a
+// plain addSubview sibling, outside the glass compositor, so the adopter's
+// own .glassEffect elements work correctly.
 //
-// ❌ NEVER pass this shape to `.glassEffect(_:in:)` on the panel root. See
-//    PanelChrome.swift.
+// ❌ NEVER pass this shape to `.glassEffect(_:in:)` on the panel root.
+//    A SwiftUI glass ancestor flattens all GlassEffectContainer content inside it.
 // ❌ NEVER go back to `NSVisualEffectView.maskImage` for the chrome. It is flat
 //    pre-26 translucency, not Liquid Glass.
 //
@@ -31,7 +30,8 @@ import SwiftUI
 /// touch without overlapping and the non-zero winding rule cannot punch a seam.
 ///
 /// Used as `.clipShape(...)` on the panel's content. The matching material is
-/// `MBKPanelChromeView`, which is fed the same `arrowCenterX`.
+/// `NSGlassEffectView` (the direct `panel.contentView`), which uses the same
+/// `cornerRadius` from `MBKPanelMetrics`.
 struct MBKBubbleShape: Shape {
 
     /// Arrow centre, in points from the leading edge of the rect.
@@ -76,7 +76,7 @@ struct MBKBubbleShape: Shape {
         guard arrowInset > 0, half > 0 else { return path }
 
         // Keep the arrow base clear of the rounded corners; the same clamp is
-        // applied to `arrowCenterX` in MBKPanelGeometry, this is belt and braces
+        // applied to `arrowCenterX` in MBKPanelGeometry — this is belt-and-braces
         // for the degenerate case where the panel is narrower than two corners.
         let lower = body.minX + radius + half
         let upper = body.maxX - radius - half

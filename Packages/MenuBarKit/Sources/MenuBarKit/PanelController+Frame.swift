@@ -221,7 +221,6 @@ extension MBKPanelController {
         if abs(limits.arrowCenterX - layout.arrowCenterX) >= 0.5 {
             limits.arrowCenterX = layout.arrowCenterX
         }
-        // chromeView removed — arrow position is consumed by MBKPanelLimits/MBKBubbleShape on the SwiftUI layer.
         panel.setFrame(layout.frame, display: true)
         // Resize the window, then let Auto Layout push the new bounds through the
         // pinned chrome and hosting view so the bubble and SwiftUI both see the

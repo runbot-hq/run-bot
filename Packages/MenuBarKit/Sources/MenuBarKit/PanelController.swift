@@ -123,8 +123,6 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
     var panel: MBKPanel!
     /// Hosts the root SwiftUI view.
     var hostingView: MBKHostingView!
-    /// Draws the Liquid Glass bubble below the hosting view.
-    // chromeView removed — NSGlassEffectView is now the direct panel.contentView.
     /// Live sizing limits handed to SwiftUI.
     var limits: MBKPanelLimits!
     /// Coalesces size invalidations into one frame apply per runloop turn.
