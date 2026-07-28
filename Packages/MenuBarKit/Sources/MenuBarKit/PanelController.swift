@@ -299,9 +299,20 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
         // Private KVC dark-glass tuning. All three must be set together after .style = .regular.
         // Value 1 = darker/richer glass. Do NOT revert to 0 — empirically lighter on macOS 26.
         // Undocumented; may change in a future OS release.
-        glassView.setValue(1, forKey: "_subduedState") // locks dark intrinsic tone, disables desktop sampling
-        glassView.setValue(1, forKey: "_variant")       // selects dark-glass compositor variant
-        glassView.setValue(1, forKey: "_scrimState")    // enables scrim layer reinforcing dark tone
+        //
+        // Each key controls a distinct stage of the same compositor pipeline:
+        //   _subduedState = 1  Locks the glass to its own dark intrinsic tone instead of
+        //                      sampling desktop colours. ("Subdued" in Apple's naming means
+        //                      muted-toward-desktop; = 1 disables that sampling.)
+        //   _variant      = 1  Selects the dark-glass rendering variant of the compositor.
+        //   _scrimState   = 1  Enables the scrim layer that reinforces the dark tone.
+        //
+        // All three must be set together — partial combinations produce light or inconsistent
+        // glass. These KVC values only affect tint/intensity, not the compositing path, so
+        // they do NOT interact with the masksToBounds / offscreen-pass issue.
+        glassView.setValue(1, forKey: "_subduedState")
+        glassView.setValue(1, forKey: "_variant")
+        glassView.setValue(1, forKey: "_scrimState")
 
         let hosting = MBKHostingView(
             rootView: MBKPanelContentView(limits: limits, metrics: metrics, content: rootView)
@@ -351,9 +362,15 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
     /// to suppress faint square border pixel artefacts visible on borderless panels with
     /// `backgroundColor = .clear`.
     ///
-    /// ❌ NO `masksToBounds` — NSThemeFrame is an ancestor of `NSGlassEffectView`. Setting
+    /// `panel.contentView?.superview` is `NSThemeFrame` — AppKit’s private window-chrome view
+    /// that wraps the entire window. It exists on borderless panels and composites a faint
+    /// rectangular frame at window edges, visible as square pixel artefacts when
+    /// `backgroundColor = .clear`. We round its layer without `masksToBounds`.
+    ///
+    /// ❌ DO NOT set `masksToBounds = true` — `NSThemeFrame` is an ancestor of `NSGlassEffectView`.
     /// `masksToBounds` forces the entire window into an offscreen compositing pass, severing
     /// the live backdrop connection and flattening the glass to a dark rectangle.
+    /// `cornerRadius` alone is sufficient to suppress the faint square border pixel artefacts.
     private func clipWindowFrameBacking(_ panel: MBKPanel, cornerRadius: CGFloat) {
         guard let frameView = panel.contentView?.superview else { return }
         frameView.wantsLayer = true

@@ -86,8 +86,10 @@ extension MBKPanelController {
         panel.orderFrontRegardless()
         NSApp.activate(ignoringOtherApps: true)
         panel.makeKey()
-        // Nuke scroll view backgrounds one runloop tick after show so any NSScrollView
-        // descendant doesn’t paint a white/grey slab over the glass bubble.
+        // Zero drawsBackground on every NSScrollView SwiftUI creates.
+        // Deferred one run-loop tick: makeKeyAndOrderFront triggers SwiftUI’s first
+        // layout pass asynchronously, so scroll views don’t exist until this fires.
+        // A synchronous call here would be a no-op — no scroll views exist yet.
         DispatchQueue.main.async { [weak self] in
             self?.panel.contentView?.descendantScrollViews().forEach { $0.drawsBackground = false }
         }
