@@ -117,6 +117,7 @@ struct MBKPanelContentView: View {
         content
             .frame(maxHeight: limits.maxContentHeight)
             .padding(.top, metrics.arrowHeight)
+            .glassEffect(.regular, in: bubble)
             .clipShape(bubble)
     }
 }
@@ -156,10 +157,8 @@ final class MBKHostingView: NSHostingView<MBKPanelContentView> {
         setContentHuggingPriority(.defaultLow, for: .vertical)
         setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         setContentCompressionResistancePriority(.defaultLow, for: .vertical)
-        // NSHostingView renders with a solid background by default. Clear it
-        // so the AppKit glass chrome below is visible through the hosting view.
-        // `backgroundColor` is not available on NSHostingView; the supported
-        // path on macOS 26 is to set the underlying layer background directly.
+        // The window is fully clear; the SwiftUI .glassEffect draws the bubble.
+        // Clear the hosting view's backing layer so nothing paints behind it.
         wantsLayer = true
         layer?.backgroundColor = CGColor.clear
     }
