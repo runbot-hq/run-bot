@@ -317,19 +317,9 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
         // glassView.responds(to: NSSelectorFromString("set_SubduedState:")) before setting, or
         // restore the default .regular style gracefully and file a radar.
         // TODO: revisit at macOS 26.x betas — undocumented KVC may change without notice.
-        // responds(to:) guards: if Apple removes a key, we fall back to .regular style
-        // (lighter glass) rather than crashing with NSUndefinedKeyException.
-        let kvcKeys = ["_subduedState", "_variant", "_scrimState"]
-        let allKeysSupported = kvcKeys.allSatisfy {
-            glassView.responds(to: NSSelectorFromString("set" + $0.prefix(1).uppercased() + $0.dropFirst() + ":"))
-        }
-        if allKeysSupported {
-            glassView.setValue(1, forKey: "_subduedState")
-            glassView.setValue(1, forKey: "_variant")
-            glassView.setValue(1, forKey: "_scrimState")
-        } else {
-            mbkLog("PanelController", "⚠️ NSGlassEffectView KVC keys unavailable — falling back to .regular style (lighter glass). File a radar.")
-        }
+        glassView.setValue(1, forKey: "_subduedState")
+        glassView.setValue(1, forKey: "_variant")
+        glassView.setValue(1, forKey: "_scrimState")
 
         let hosting = MBKHostingView(
             rootView: MBKPanelContentView(limits: limits, metrics: metrics, content: rootView)
