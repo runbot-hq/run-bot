@@ -105,12 +105,9 @@ final class MBKSheetAnchorTask {
                 mbkLog("AnchoredSheet[\(self.label)]", "addChildWindow — #\(sheetWindow.windowNumber)")
                 pw.contentView?.layoutSubtreeIfNeeded()
                 pw.addChildWindow(sheetWindow, ordered: .above)
-                // addChildWindow resets the compositing context on the parent window,
-                // which can clear NSGlassEffectView's internal style/cornerRadius state.
-                // Re-apply via the chrome view so the panel keeps its rounded corners.
-                if let chrome = pw.contentView as? MBKPanelChromeView {
-                    chrome.reapplyGlassStyle()
-                }
+                // NSGlassEffectView is the direct panel.contentView — no reapplyGlassStyle()
+                // needed. Direct contentView survives addChildWindow() without corner regression.
+                // (The old MBKPanelChromeView workaround was removed in issue #2318.)
                 pw.invalidateShadow()
                 mbkLog("AnchoredSheet[\(self.label)]", "addChildWindow done")
             }

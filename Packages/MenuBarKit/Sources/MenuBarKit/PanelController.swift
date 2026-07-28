@@ -14,22 +14,18 @@
 //   with the frame and can never disagree with it.
 //
 // HOW THE WINDOW IS LAYERED (back to front) — and why:
-//   contentView = MBKPanelChromeView (plain NSView)
-//     └── NSGlassEffectView    Liquid Glass material + corner clipping
-//           └── contentView    MBKHostingView  (adopter SwiftUI tree)
+//   contentView = NSGlassEffectView   (direct — no wrapper)
+//     └── contentView    MBKHostingView  (adopter SwiftUI tree)
 //
-//   IMPORTANT: MBKHostingView is glassView.contentView, NOT addSubview.
-//   Per NSGlassEffectView.h only contentView is clipped by cornerRadius.
-//   Arbitrary subviews are not corner-clipped and render with square edges.
-//   The chrome is AppKit and not SwiftUI because glass cannot sample other
-//   glass: a `.glassEffect` ancestor around the hosted tree flattens every
-//   `GlassEffectContainer` the adopter draws (that was the device regression
-//   after 825e3cf). NSPopover's chrome always lived at the window layer, which
-//   is exactly what MBKPanelChromeView reproduces. It is also what gives the
-//   window real backing alpha, without which macOS hit-tests the near-zero
-//   pixels of a clear window and delivers clicks to the app behind the panel.
-//   See PanelChrome.swift for the full rationale.
+//   NSGlassEffectView MUST be the direct panel.contentView. Any intervening
+//   layer-backed ancestor (plain NSView, NSVisualEffectView) routes glass through
+//   an offscreen compositing pass. addChildWindow() (sheet open) resets that pass
+//   → corners revert to rect for the lifetime of the sheet.
+//   Per NSGlassEffectView.h only .contentView is clipped by cornerRadius;
+//   the glass cannot sample other glass so SwiftUI .glassEffect in the hosted
+//   tree still works correctly.
 //   ❌ NEVER put an NSVisualEffectView back in this window (pre-26 vibrancy).
+//   ❌ NEVER wrap NSGlassEffectView in any intermediate NSView.
 //   ❌ NEVER wrap the hosted tree in `.glassEffect(...)`.
 //
 //   ❌ NEVER reintroduce NSPopover.
@@ -128,7 +124,7 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
     /// Hosts the root SwiftUI view.
     var hostingView: MBKHostingView!
     /// Draws the Liquid Glass bubble below the hosting view.
-    var chromeView: MBKPanelChromeView!
+    // chromeView removed — NSGlassEffectView is now the direct panel.contentView.
     /// Live sizing limits handed to SwiftUI.
     var limits: MBKPanelLimits!
     /// Coalesces size invalidations into one frame apply per runloop turn.
@@ -253,14 +249,23 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
             self?.applyMeasuredSize()
         }
 
-        // MBKPanelChromeView (plain NSView) is the contentView.
-        // It holds: (1) an NSGlassEffectView that fills the window and provides
-        // Liquid Glass material + rounded corners (CALayer mask re-applied by
-        // AnchoredSheet after addChildWindow), and (2) the hosting view on top.
-        let chrome = MBKPanelChromeView(metrics: metrics)
-        chrome.translatesAutoresizingMaskIntoConstraints = true
-        chrome.autoresizingMask = [.width, .height]
-        chromeView = chrome
+        // NSGlassEffectView as DIRECT panel.contentView.
+        // CRITICAL: any intervening layer-backed ancestor (NSView wrapper, NSVisualEffectView,
+        // wantsLayer=true view) routes glass through an offscreen compositing pass.
+        // addChildWindow() (fired on sheet open) resets that pass → corners revert to rect
+        // for the lifetime of the sheet. Direct contentView is the only position that
+        // survives addChildWindow() without regression.
+        // ❌ NEVER re-introduce MBKPanelChromeView or any wrapper here.
+        let glassView = NSGlassEffectView(frame: .zero)
+        glassView.style = .regular          // required base — KVC keys below have no effect without it
+        glassView.cornerRadius = metrics.cornerRadius
+        glassView.autoresizingMask = [.width, .height]
+        // Private KVC dark-glass tuning. All three must be set together after .style = .regular.
+        // Value 1 = darker/richer glass. Do NOT revert to 0 — empirically lighter on macOS 26.
+        // Undocumented; may change in a future OS release.
+        glassView.setValue(1, forKey: "_subduedState") // locks dark intrinsic tone, disables desktop sampling
+        glassView.setValue(1, forKey: "_variant")       // selects dark-glass compositor variant
+        glassView.setValue(1, forKey: "_scrimState")    // enables scrim layer reinforcing dark tone
 
         let hosting = MBKHostingView(
             rootView: MBKPanelContentView(limits: limits, metrics: metrics, content: rootView)
@@ -272,22 +277,41 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
             self?.scheduleIfMeasurementChanged(reason: "layout")
         }
         hostingView = hosting
-        // Per NSGlassEffectView.h: only contentView is guaranteed to be inside
-        // the glass effect and clipped by its corner radius. Arbitrary addSubview
-        // has undefined z-order behaviour relative to the glass.
-        // Setting hosting as glassView.contentView clips it to the rounded glass
-        // shape — this is what prevents square corners.
-        // NSGlassEffectView sizes contentView to fill itself automatically;
-        // no AL constraints are needed (and adding them would conflict).
-        chrome.glassView.contentView = hosting
+        // Hosting view must be transparent — NSHostingView has an opaque CALayer by default.
+        // SwiftUI .background(.clear) does not reach this layer. wantsLayer = true forces
+        // immediate layer creation so backgroundColor can be zeroed before attachment.
+        hosting.wantsLayer = true
+        hosting.layer?.backgroundColor = CGColor.clear
+
+        // Only .contentView is corner-clipped per NSGlassEffectView.h — not addSubview.
+        glassView.contentView = hosting
 
         let window = MBKPanel()
-        window.contentView = chrome
+        window.contentView = glassView   // glass IS the contentView — no wrapper
         window.onCancel = { [weak self] in
             mbkLog("PanelController", "cancelOperation -- Escape, closing")
             self?.performClose()
         }
         panel = window
+
+        // Suppress faint square border pixel artefacts on NSThemeFrame.
+        // NO masksToBounds — would route glass through offscreen compositing pass.
+        clipWindowFrameBacking(window, cornerRadius: metrics.cornerRadius)
+    }
+
+    /// Rounds the NSThemeFrame layer (AppKit’s private window-chrome view, contentView.superview)
+    /// to suppress faint square border pixel artefacts visible on borderless panels with
+    /// `backgroundColor = .clear`.
+    ///
+    /// ❌ NO `masksToBounds` — NSThemeFrame is an ancestor of `NSGlassEffectView`. Setting
+    /// `masksToBounds` forces the entire window into an offscreen compositing pass, severing
+    /// the live backdrop connection and flattening the glass to a dark rectangle.
+    private func clipWindowFrameBacking(_ panel: MBKPanel, cornerRadius: CGFloat) {
+        guard let frameView = panel.contentView?.superview else { return }
+        frameView.wantsLayer = true
+        frameView.layer?.backgroundColor = NSColor.clear.cgColor
+        frameView.layer?.cornerRadius = cornerRadius
+        frameView.layer?.cornerCurve = .continuous
     }
 
     // MARK: - Root view replacement
@@ -335,5 +359,20 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
         if let monitor = eventMonitor {
             NSEvent.removeMonitor(monitor)
         }
+    }
+}
+
+// MARK: - NSView helpers
+
+extension NSView {
+    /// Walks the entire subview tree and collects every NSScrollView descendant.
+    /// Used to nuke drawsBackground on open so no scroll view paints over the glass bubble.
+    func descendantScrollViews() -> [NSScrollView] {
+        var result: [NSScrollView] = []
+        for sub in subviews {
+            if let sv = sub as? NSScrollView { result.append(sv) }
+            result.append(contentsOf: sub.descendantScrollViews())
+        }
+        return result
     }
 }

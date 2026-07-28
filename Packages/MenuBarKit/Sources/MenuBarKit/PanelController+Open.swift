@@ -86,6 +86,11 @@ extension MBKPanelController {
         panel.orderFrontRegardless()
         NSApp.activate(ignoringOtherApps: true)
         panel.makeKey()
+        // Nuke scroll view backgrounds one runloop tick after show so any NSScrollView
+        // descendant doesn’t paint a white/grey slab over the glass bubble.
+        DispatchQueue.main.async { [weak self] in
+            self?.panel.contentView?.descendantScrollViews().forEach { $0.drawsBackground = false }
+        }
         mbkLog("PanelController", "panel shown frame=\(panel.frame)")
 
         startEventMonitor()
