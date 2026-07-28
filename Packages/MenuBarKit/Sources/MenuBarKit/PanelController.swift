@@ -317,19 +317,9 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
         // glassView.responds(to: NSSelectorFromString("set_SubduedState:")) before setting, or
         // restore the default .regular style gracefully and file a radar.
         // TODO: revisit at macOS 26.x betas — undocumented KVC may change without notice.
-        // responds(to:) guards: if Apple removes a key, we fall back to .regular style
-        // (lighter glass) rather than crashing with NSUndefinedKeyException.
-        let kvcKeys = ["_subduedState", "_variant", "_scrimState"]
-        let allKeysSupported = kvcKeys.allSatisfy {
-            glassView.responds(to: NSSelectorFromString("set" + $0.prefix(1).uppercased() + $0.dropFirst() + ":"))
-        }
-        if allKeysSupported {
-            glassView.setValue(1, forKey: "_subduedState")
-            glassView.setValue(1, forKey: "_variant")
-            glassView.setValue(1, forKey: "_scrimState")
-        } else {
-            mbkLog("PanelController", "⚠️ NSGlassEffectView KVC keys unavailable — falling back to .regular style (lighter glass). File a radar.")
-        }
+        glassView.setValue(1, forKey: "_subduedState")
+        glassView.setValue(1, forKey: "_variant")
+        glassView.setValue(1, forKey: "_scrimState")
 
         let hosting = MBKHostingView(
             rootView: MBKPanelContentView(limits: limits, metrics: metrics, content: rootView)
@@ -375,11 +365,11 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
         clipWindowFrameBacking(window, cornerRadius: metrics.cornerRadius)
     }
 
-    /// Rounds the NSThemeFrame layer (AppKit’s private window-chrome view, contentView.superview)
+    /// Rounds the NSThemeFrame layer (AppKit's private window-chrome view, contentView.superview)
     /// to suppress faint square border pixel artefacts visible on borderless panels with
     /// `backgroundColor = .clear`.
     ///
-    /// `panel.contentView?.superview` is `NSThemeFrame` — AppKit’s private window-chrome view
+    /// `panel.contentView?.superview` is `NSThemeFrame` — AppKit's private window-chrome view
     /// that wraps the entire window. It exists on borderless panels and composites a faint
     /// rectangular frame at window edges, visible as square pixel artefacts when
     /// `backgroundColor = .clear`. We round its layer without `masksToBounds`.
@@ -446,14 +436,14 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
 
 // MARK: - NSView helpers
 
-extension NSView {
-    /// Walks the entire subview tree and collects every NSScrollView descendant.
-    /// Used to nuke drawsBackground on open so no scroll view paints over the glass bubble.
-    fileprivate func descendantScrollViews() -> [NSScrollView] {
+private extension NSView {
+    /// Walks the entire subview tree and collects every `NSScrollView` descendant.
+    /// Used to zero `drawsBackground` on open so no scroll view paints over the glass bubble.
+    func descendantScrollViews() -> [NSScrollView] {
         var result: [NSScrollView] = []
         for sub in subviews {
             if let sv = sub as? NSScrollView { result.append(sv) }
-            result.append(contentsOf: sub.descendantScrollViews())
+            result += sub.descendantScrollViews()
         }
         return result
     }
