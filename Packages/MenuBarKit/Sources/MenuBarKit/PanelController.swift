@@ -449,7 +449,7 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
 extension NSView {
     /// Walks the entire subview tree and collects every NSScrollView descendant.
     /// Used to nuke drawsBackground on open so no scroll view paints over the glass bubble.
-    fileprivate func descendantScrollViews() -> [NSScrollView] {
+    func descendantScrollViews() -> [NSScrollView] {
         var result: [NSScrollView] = []
         for sub in subviews {
             if let sv = sub as? NSScrollView { result.append(sv) }
