@@ -99,12 +99,12 @@ extension MBKPanelController {
         // (processed next run-loop turn), but becomesKeyOnlyIfNeeded = false on MBKPanel
         // means orderFrontRegardless already makes the panel key. makeKey() here is
         // belt-and-suspenders for the edge case where activate's run-loop processing
-        // hasn’t completed. No key-window race observed in practice.
+        // hasn't completed. No key-window race observed in practice.
         NSApp.activate()
         panel.makeKey()
         // Zero drawsBackground on every NSScrollView SwiftUI creates.
-        // Deferred one run-loop tick: makeKeyAndOrderFront triggers SwiftUI’s first
-        // layout pass asynchronously, so scroll views don’t exist until this fires.
+        // Deferred one run-loop tick: makeKeyAndOrderFront triggers SwiftUI's first
+        // layout pass asynchronously, so scroll views don't exist until this fires.
         // A synchronous call here would be a no-op — no scroll views exist yet.
         DispatchQueue.main.async { [weak self] in
             self?.panel.contentView?.descendantScrollViews().forEach { $0.drawsBackground = false }
