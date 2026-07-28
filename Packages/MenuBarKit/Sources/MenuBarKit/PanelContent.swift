@@ -117,7 +117,6 @@ struct MBKPanelContentView: View {
         content
             .frame(maxHeight: limits.maxContentHeight)
             .padding(.top, metrics.arrowHeight)
-            .glassEffect(.regular, in: bubble)
             .clipShape(bubble)
     }
 }

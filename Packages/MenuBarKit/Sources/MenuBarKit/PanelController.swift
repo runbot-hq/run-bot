@@ -123,7 +123,8 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
     var panel: MBKPanel!
     /// Hosts the root SwiftUI view.
     var hostingView: MBKHostingView!
-    // chromeView removed — glass is now SwiftUI .glassEffect(.regular, in: bubble)
+    /// Draws the Liquid Glass bubble below the hosting view.
+    var chromeView: MBKPanelChromeView!
     /// Live sizing limits handed to SwiftUI.
     var limits: MBKPanelLimits!
     /// Coalesces size invalidations into one frame apply per runloop turn.
@@ -253,6 +254,7 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
         container.translatesAutoresizingMaskIntoConstraints = true
         container.autoresizingMask = [.width, .height]
 
+        chromeView = MBKPanelChromeView(metrics: metrics)
         let hosting = MBKHostingView(
             rootView: MBKPanelContentView(limits: limits, metrics: metrics, content: rootView)
         )
