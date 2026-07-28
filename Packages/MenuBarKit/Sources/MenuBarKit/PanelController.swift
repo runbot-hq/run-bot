@@ -282,9 +282,21 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
         // immediate layer creation so backgroundColor can be zeroed before attachment.
         hosting.wantsLayer = true
         hosting.layer?.backgroundColor = CGColor.clear
+        hosting.translatesAutoresizingMaskIntoConstraints = false
 
-        // Only .contentView is corner-clipped per NSGlassEffectView.h — not addSubview.
-        glassView.contentView = hosting
+        // CRITICAL: hosting is added via addSubview, NOT glassView.contentView.
+        // glassView.contentView puts the SwiftUI tree inside the glass compositor —
+        // glass-inside-glass flattens every GlassEffectContainer in the adopter's content.
+        // addSubview keeps the hosting view as a plain sibling layer above glassView,
+        // outside the compositor, so GlassEffectContainer and .glassEffect elements work.
+        // cornerRadius clipping is handled by MBKBubbleShape clipShape on the SwiftUI side.
+        glassView.addSubview(hosting)
+        NSLayoutConstraint.activate([
+            hosting.leadingAnchor.constraint(equalTo: glassView.leadingAnchor),
+            hosting.trailingAnchor.constraint(equalTo: glassView.trailingAnchor),
+            hosting.topAnchor.constraint(equalTo: glassView.topAnchor),
+            hosting.bottomAnchor.constraint(equalTo: glassView.bottomAnchor),
+        ])
 
         let window = MBKPanel()
         window.contentView = glassView   // glass IS the contentView — no wrapper
