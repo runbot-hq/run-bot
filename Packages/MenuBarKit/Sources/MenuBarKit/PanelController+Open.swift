@@ -48,7 +48,15 @@ extension MBKPanelController {
     /// pre-show seed plus post-show reposition dance was trying (and failing) to
     /// paper over.
     func openPanel() {
-        guard let panel, let coalescer, let limits, statusItem?.button != nil else { return }
+        // Force-unwrap intentionally: panel/coalescer/limits are set in setup() which
+        // must be called before any open attempt. A nil here means setup() was skipped
+        // — that is a programmer error and should crash loudly, not silently no-op.
+        // statusItem?.button is the only legitimate optional (status item may be absent
+        // in testing or before NSStatusBar assignment).
+        guard statusItem?.button != nil else { return }
+        let panel = panel!
+        let coalescer = coalescer!
+        let limits = limits!
         mbkLog("PanelController", "openPanel -- calling onWillShow")
         onWillShow?()
         mbkLog("PanelController", "onWillShow fired")
@@ -84,12 +92,14 @@ extension MBKPanelController {
 
         setButtonHighlight(true)
         panel.orderFrontRegardless()
-        // NSApp.activate() ensures the app is frontmost so the panel can receive key events.
+        // NSApp.activate() — no-argument form, intentional post-deprecation replacement
+        // for activate(ignoringOtherApps: true) which is deprecated macOS 14+.
+        // Ensures the app is frontmost so the panel can receive key events.
         // Called before makeKey() deliberately — activate() is asynchronous in effect
         // (processed next run-loop turn), but becomesKeyOnlyIfNeeded = false on MBKPanel
         // means orderFrontRegardless already makes the panel key. makeKey() here is
         // belt-and-suspenders for the edge case where activate's run-loop processing
-        // hasn't completed. No key-window race observed in practice.
+        // hasn’t completed. No key-window race observed in practice.
         NSApp.activate()
         panel.makeKey()
         // Zero drawsBackground on every NSScrollView SwiftUI creates.
@@ -119,6 +129,7 @@ extension MBKPanelController {
             mbkLog("PanelController", "performClose -- overlay active, staying open")
             return
         }
+        fireOnWillClose(wasForced: false)
         teardown(wasForced: false)
     }
 
@@ -167,10 +178,16 @@ extension MBKPanelController {
         mbkLog("PanelController", "onWillClose fired")
     }
 
-    /// The single close implementation: callback, monitors, highlight, order out, reset.
+    /// The single close implementation: monitors, highlight, order out, reset.
     /// - Parameter wasForced: Whether this close came from the force path.
+    ///
+    /// CONTRACT: callers MUST call `fireOnWillClose(wasForced:)` before `teardown`.
+    /// `teardown` does NOT call `fireOnWillClose` itself — the callback must fire
+    /// before gate/window teardown so adopters can snapshot state while it is still
+    /// valid. The assert below enforces this: if `teardown` is called without a
+    /// prior `fireOnWillClose`, the flag is false and the assert trips.
     private func teardown(wasForced: Bool) {
-        fireOnWillClose(wasForced: wasForced)
+        assert(onWillCloseFired, "teardown called without a prior fireOnWillClose — call fireOnWillClose(wasForced:) first")
         stopEventMonitor()
         setButtonHighlight(false)
         panel?.orderOut(nil)
