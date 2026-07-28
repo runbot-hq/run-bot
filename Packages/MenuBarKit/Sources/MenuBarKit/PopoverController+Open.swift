@@ -199,8 +199,11 @@ extension MBKPopoverController {
     /// recompute `origin.y = pinnedWindowMaxY - height` to keep the top edge fixed
     /// just below the menu bar.
     ///
-    /// `pinnedWindowMaxY` is clamped to `screen.visibleFrame.maxY` so the popover
-    /// never intrudes into the hidden menubar zone.
+    /// `pinnedWindowMaxY` is snapshotted from `window.frame.maxY` — the actual top
+    /// edge AppKit placed the window at after show(). Using screen.visibleFrame.maxY
+    /// instead causes a 1pt mismatch: the arrowAnchorPanel sits at visibleFrame.maxY-1
+    /// so AppKit places the popover top at 949 while the pin would target 950,
+    /// producing a visible 1pt snap on every resize.
     ///
     /// Must be called after the popover frame has settled (i.e. from the async
     /// hop in `popoverDidShow`).
@@ -230,13 +233,12 @@ extension MBKPopoverController {
             mbkLog("PopoverController", "pinPopoverWindow -- no window, skipping")
             return
         }
-        // Fallback uses NSScreen.main?.visibleFrame.maxY rather than window.frame.maxY:
-        // when window.screen is nil (headless CI, display sleep) window.frame.maxY is
-        // the window's own top edge — not the screen boundary — which would silently
-        // disable the pin effect. NSScreen.main is a better-effort screen boundary.
-        let pinnedMaxY = window.screen?.visibleFrame.maxY
-            ?? NSScreen.main?.visibleFrame.maxY
-            ?? window.frame.maxY
+        // Use window.frame.maxY — the actual top edge AppKit placed the window at.
+        // Do NOT use screen.visibleFrame.maxY: the arrowAnchorPanel is positioned at
+        // visibleFrame.maxY - 1, so AppKit places the popover top at that value (e.g.
+        // 949), not at visibleFrame.maxY (950). Pinning to the screen boundary instead
+        // of the real frame causes a 1pt Y correction on every resize, visible as jitter.
+        let pinnedMaxY = window.frame.maxY
         pinnedWindowMaxY = pinnedMaxY
         mbkLog("PopoverController", "pinPopoverWindow -- pinnedMaxY=\(pinnedMaxY) winFrame=\(window.frame)")
 
