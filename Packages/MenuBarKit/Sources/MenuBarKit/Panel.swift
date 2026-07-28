@@ -56,4 +56,5 @@ final class MBKPanel: NSPanel {
     override func cancelOperation(_ sender: Any?) {
         onCancel?()
     }
+
 }

@@ -249,12 +249,15 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
             self?.applyMeasuredSize()
         }
 
-        // Plain, fully transparent container. The chrome below draws the bubble.
-        let container = NSView()
-        container.translatesAutoresizingMaskIntoConstraints = true
-        container.autoresizingMask = [.width, .height]
+        // MBKPanelChromeView is NSVisualEffectView subclass that carries maskImage.
+        // It is used directly as contentView so its maskImage is processed by the
+        // window server — the only mechanism that survives addChildWindow (sheet).
+        // NSGlassEffectView lives inside it; SwiftUI hosting view is pinned on top.
+        let chrome = MBKPanelChromeView(metrics: metrics)
+        chrome.translatesAutoresizingMaskIntoConstraints = true
+        chrome.autoresizingMask = [.width, .height]
+        chromeView = chrome
 
-        chromeView = MBKPanelChromeView(metrics: metrics)
         let hosting = MBKHostingView(
             rootView: MBKPanelContentView(limits: limits, metrics: metrics, content: rootView)
         )
@@ -265,16 +268,16 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
             self?.scheduleIfMeasurementChanged(reason: "layout")
         }
         hostingView = hosting
-        container.addSubview(hosting)
+        chrome.addSubview(hosting)
         NSLayoutConstraint.activate([
-            hosting.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            hosting.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            hosting.topAnchor.constraint(equalTo: container.topAnchor),
-            hosting.bottomAnchor.constraint(equalTo: container.bottomAnchor)
+            hosting.leadingAnchor.constraint(equalTo: chrome.leadingAnchor),
+            hosting.trailingAnchor.constraint(equalTo: chrome.trailingAnchor),
+            hosting.topAnchor.constraint(equalTo: chrome.topAnchor),
+            hosting.bottomAnchor.constraint(equalTo: chrome.bottomAnchor)
         ])
 
         let window = MBKPanel()
-        window.contentView = container
+        window.contentView = chrome
         window.onCancel = { [weak self] in
             mbkLog("PanelController", "cancelOperation -- Escape, closing")
             self?.performClose()

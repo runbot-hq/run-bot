@@ -14,34 +14,40 @@
 //    the workspace observer and closing the panel.
 //    ❌ NEVER rely on SwiftUI alpha alone for hit-testing.
 //
-// SHAPE STRATEGY:
-// One NSGlassEffectView fills the whole chrome view. Its layer is masked to the
-// bubble silhouette (rounded-rect body + isosceles triangle arrow) via a
-// CAShapeLayer. This produces one seamless glass surface with the correct arrow
-// shape and no second border.
+// SHAPE STRATEGY — WHY NSVisualEffectView + maskImage:
 //
-// NSGlassEffectContainerView is intentionally NOT used here: it renders its own
-// composite border outline that produced the double-background artifact. A plain
-// NSGlassEffectView with a layer mask gives the same material without the extra
-// border.
+// `NSVisualEffectView.maskImage` is processed by the window server before
+// compositing. It survives addChildWindow (sheet presentation) because it lives
+// at the window-server level, not the AppKit layer tree. This is the ONLY public
+// API that keeps the panel shaped when a sheet child window is attached.
 //
-// The bubble path mirrors MBKBubbleShape exactly (AppKit CG coords: origin
-// bottom-left, body at minY, arrow tip at maxY) so the AppKit chrome and the
-// SwiftUI clipShape are pixel-identical.
+// CAShapeLayer.mask on contentView.layer does NOT survive addChildWindow:
+// addChildWindow changes the compositing context, causing NSGlassEffectView to
+// recreate its backing CALayer and discard any layer.mask set on it.
 //
-// ❌ NEVER go back to NSVisualEffectView + maskImage. Pre-macOS-26 vibrancy.
-// ❌ NEVER use NSGlassEffectContainerView for this view — its border doubles.
+// The NSVisualEffectView is material=.hudWindow, alphaValue=0 — it contributes
+// zero visible rendering of its own. It exists only as the maskImage carrier.
+// NSGlassEffectView (style=.regular) is a subview of it and provides the actual
+// Liquid Glass material surface.
+//
+// This matches what f18cdd4 proved worked (NSVisualEffectView + maskImage +
+// NSGlassEffectView on top), and is why the shadow follows the bubble for free.
+//
+// ❌ NEVER replace the NSVisualEffectView with a plain NSView — maskImage is a
+//    NSVisualEffectView property; plain views have no equivalent.
+// ❌ NEVER use NSGlassEffectContainerView here — its border doubles.
+// ❌ NEVER put .glassEffect(...) on the SwiftUI root view.
 import AppKit
 
 /// The panel's Liquid Glass bubble drawn below the hosted SwiftUI content.
 ///
-/// Pinned edge-to-edge to the window's content view. One NSGlassEffectView fills
-/// the whole view; a CAShapeLayer mask clips it to the bubble silhouette.
-final class MBKPanelChromeView: NSView {
+/// Acts as the window's `contentView`. Carries the `maskImage` that shapes both
+/// the rendered glass and the window shadow at the window-server level.
+final class MBKPanelChromeView: NSVisualEffectView {
 
     // MARK: - Constants
 
-    /// Minimum alpha floor — prevents click-through on panel edges.
+    /// Minimum alpha floor on the glass fill — prevents click-through on edges.
     private static let dimmingAlpha: CGFloat = 0.02
 
     // MARK: - Properties
@@ -49,10 +55,11 @@ final class MBKPanelChromeView: NSView {
     private let metrics: MBKPanelMetrics
 
     /// Arrow centre in window-local points (from leading edge).
+    /// Setting this regenerates the maskImage and redraws the bubble.
     var arrowCenterX: CGFloat = 0 {
         didSet {
             guard abs(arrowCenterX - oldValue) >= 0.5 else { return }
-            needsLayout = true
+            updateMask()
         }
     }
 
@@ -60,7 +67,6 @@ final class MBKPanelChromeView: NSView {
 
     private let glass = NSGlassEffectView(frame: .zero)
     private let fill: NSView
-    private let maskLayer = CAShapeLayer()
 
     // MARK: - Init
 
@@ -68,13 +74,21 @@ final class MBKPanelChromeView: NSView {
         self.metrics = metrics
         self.fill = MBKPanelChromeView.makeFill()
         super.init(frame: .zero)
-        wantsLayer = true
         translatesAutoresizingMaskIntoConstraints = false
 
+        // The NSVisualEffectView exists solely as the maskImage carrier.
+        // alphaValue must stay 1 — a zero-alpha window has no hit-test area and
+        // every click falls through, firing the outside-click monitor immediately.
+        // .underWindowBackground is the most transparent built-in material;
+        // NSGlassEffectView on top visually dominates so the material is invisible.
+        material = .underWindowBackground
+        blendingMode = .behindWindow
+        state = .active
+
         glass.style = .regular
+        glass.frame = .zero
+        glass.autoresizingMask = [.width, .height]
         glass.contentView = fill
-        glass.wantsLayer = true
-        glass.layer?.mask = maskLayer
         addSubview(glass)
     }
 
@@ -86,48 +100,28 @@ final class MBKPanelChromeView: NSView {
     override func layout() {
         super.layout()
         guard bounds.width > 0, bounds.height > 0 else { return }
-
-        // Glass fills the entire chrome view; the mask does all shaping.
         glass.frame = bounds
-        glass.cornerRadius = 0  // mask handles shape; no built-in radius needed
         fill.frame = glass.bounds
-
-        maskLayer.frame = bounds
-        maskLayer.path = bubblePath(in: bounds)
+        updateMask()
     }
 
-    // MARK: - Bubble path
+    // MARK: - Mask
 
-    /// Builds the bubble CGPath in AppKit/CG coordinates (origin bottom-left, Y up).
-    /// Body at minY, arrow tip at maxY. Mirrors MBKBubbleShape exactly.
-    private func bubblePath(in rect: CGRect) -> CGPath {
-        let arrowH = max(metrics.arrowHeight, 0)
-        let body = CGRect(
-            x: rect.minX,
-            y: rect.minY,
-            width: rect.width,
-            height: max(rect.height - arrowH, 0)
+    /// Regenerates the maskImage from the current bounds and arrowCenterX.
+    ///
+    /// Called from `layout()` and from the `arrowCenterX` didSet so the mask is
+    /// always in sync with the window frame. The maskImage is set on self
+    /// (NSVisualEffectView), which forwards it to the window server — making it
+    /// survive addChildWindow and the compositing-context changes that come with it.
+    private func updateMask() {
+        guard bounds.width > 0, bounds.height > 0 else { return }
+        let scale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
+        maskImage = MBKPanelMask.image(
+            size: bounds.size,
+            arrowCenterX: arrowCenterX,
+            metrics: metrics,
+            scale: scale
         )
-        let radius = min(max(metrics.cornerRadius, 0), min(body.width, body.height) / 2)
-
-        let path = CGMutablePath()
-        path.addRoundedRect(in: body, cornerWidth: radius, cornerHeight: radius)
-
-        let half = max(metrics.arrowWidth, 0) / 2
-        guard arrowH > 0, half > 0 else { return path }
-
-        let lower = body.minX + radius + half
-        let upper = body.maxX - radius - half
-        let centre = upper >= lower
-            ? min(max(arrowCenterX, lower), upper)
-            : body.midX
-
-        // Arrow: base on body.maxY, apex at rect.maxY.
-        path.move(to:    CGPoint(x: centre - half, y: body.maxY))
-        path.addLine(to: CGPoint(x: centre,        y: rect.maxY))
-        path.addLine(to: CGPoint(x: centre + half, y: body.maxY))
-        path.closeSubpath()
-        return path
     }
 
     // MARK: - Helpers
