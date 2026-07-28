@@ -156,10 +156,12 @@ final class MBKHostingView: NSHostingView<MBKPanelContentView> {
         setContentHuggingPriority(.defaultLow, for: .vertical)
         setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         setContentCompressionResistancePriority(.defaultLow, for: .vertical)
-        // NSHostingView draws a solid system background by default. Make it
-        // fully transparent so the AppKit glass chrome below shows through.
+        // NSHostingView renders with a solid background by default. Clear it
+        // so the AppKit glass chrome below is visible through the hosting view.
+        // `backgroundColor` is not available on NSHostingView; the supported
+        // path on macOS 26 is to set the underlying layer background directly.
         wantsLayer = true
-        layer?.backgroundColor = .clear
+        layer?.backgroundColor = CGColor.clear
     }
 
     /// Not supported — the panel is built in code.

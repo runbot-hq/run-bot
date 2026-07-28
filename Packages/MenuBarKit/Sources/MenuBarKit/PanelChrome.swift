@@ -27,20 +27,23 @@
 // LAYERING — back to front, all inside the window's content view:
 //
 //   MBKPanelChromeView                     (this file, pinned edge-to-edge)
-//   ├── NSGlassEffectView                  body: window minus the arrow strip
-//   └── NSGlassEffectView                  arrow: square, rotated 45°
+//   ├── NSGlassEffectContainerView         merges body+arrow into one surface
+//   │   └── NSGlassEffectView              body: window minus the arrow strip
+//   └── NSGlassEffectView                  arrow: square, rotated 45° via CA
 //   MBKHostingView                         (pinned edge-to-edge, on top)
 //
-// WHY NO NSGlassEffectContainerView:
-// The container merges the two glass views into one seamless shape, but it
-// fires its own internal layout pass on its children whenever AppKit lays it
-// out. That internal pass runs before our layout() can reset arrowGlass
-// frameCenterRotation to 0, so the layout engine receives a rotated view and
-// computes y = NaN -> _NSViewValidateGeometry crash. Removing the container
-// means the body and arrow render as two separate glass surfaces with a
-// visible seam at the join, which is acceptable. If Apple ever exposes a way
-// to suppress the container's internal layout this can be revisited.
-// ❌ NEVER re-add NSGlassEffectContainerView here.
+// WHY THE ARROW IS OUTSIDE THE CONTAINER:
+// NSGlassEffectContainerView fires its own internal layout pass on its *direct*
+// children whenever AppKit lays it out. When arrowGlass was inside the container
+// and we applied frameCenterRotation=45, that internal pass ran on the rotated
+// view and produced y=NaN -> _NSViewValidateGeometry crash. The fix is:
+//   1. bodyGlass lives inside the container  → glass renders correctly.
+//   2. arrowGlass is a sibling of the container → the container never touches
+//      it, so no NaN. arrowGlass is rotated via CATransform3D (pure CA, the
+//      layout engine never sees it).
+// The container still produces the correct merged glass shape for the body.
+// The arrow is a separate glass tile; it is visually seamless because it sits
+// directly on top of the body edge and uses the same .regular style.
 //
 // THE ARROW. `NSGlassEffectView` exposes `cornerRadius` and nothing else, so it
 // cannot describe a triangle. Instead the arrow is a square glass view rotated
@@ -114,10 +117,16 @@ final class MBKPanelChromeView: NSView {
 
     // MARK: - Subviews
 
+    /// Container that makes `bodyGlass` render as Liquid Glass.
+    ///
+    /// `arrowGlass` is intentionally NOT added to this container — see the
+    /// layering note at the top of the file.
+    private let container = NSGlassEffectContainerView(frame: .zero)
+
     /// The bubble body: everything below the arrow strip.
     private let bodyGlass = NSGlassEffectView(frame: .zero)
 
-    /// The arrow: a square rotated 45° whose centre sits on the body's top edge.
+    /// The arrow: a square rotated 45° via CATransform3D, sibling of container.
     private let arrowGlass = NSGlassEffectView(frame: .zero)
 
     /// Minimum-alpha fill inside the body glass. See `dimmingAlpha`.
@@ -143,8 +152,16 @@ final class MBKPanelChromeView: NSView {
         bodyGlass.contentView = bodyFill
         arrowGlass.contentView = arrowFill
         arrowGlass.wantsLayer = true
-        // body behind arrow so the arrow sits on top at the seam.
-        addSubview(bodyGlass)
+
+        // bodyGlass inside the container so it gets real Liquid Glass rendering.
+        container.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(bodyGlass)
+
+        // arrowGlass is a direct child of self, NOT inside the container.
+        // This keeps it out of the container's internal layout pass so it
+        // never receives a NaN frame. It is added after the container so it
+        // paints on top, covering the seam at the body's top edge.
+        addSubview(container)
         addSubview(arrowGlass)
     }
 
@@ -178,15 +195,20 @@ final class MBKPanelChromeView: NSView {
         )
         let radius = min(max(metrics.cornerRadius, 0), min(body.width, body.height) / 2)
 
-        bodyGlass.frame = body
+        // The container must match the body exactly so the glass effect
+        // samples the correct region of the screen behind the window.
+        container.frame = body
+        bodyGlass.frame = CGRect(origin: .zero, size: body.size)
         bodyGlass.cornerRadius = radius
         bodyFill.frame = bodyGlass.bounds
 
         guard arrowHeight > 0, body.width > 0, body.height > 0 else {
             arrowGlass.isHidden = true
+            container.isHidden = false  // body still visible even without arrow
             return
         }
         arrowGlass.isHidden = false
+        container.isHidden = false
 
         // The rendered arrow is `arrowHeight` tall and twice that wide, so the
         // clamp uses the rendered half-width, not `metrics.arrowWidth`.
@@ -204,6 +226,9 @@ final class MBKPanelChromeView: NSView {
             height: side
         )
         arrowFill.frame = arrowGlass.bounds
+        // Zero corner radius so the rotated square has sharp corners and
+        // renders as a clean triangle tip, not a pill/circle.
+        arrowGlass.cornerRadius = 0
         // Rotate 45° via layer transform so AppKit's layout engine is never
         // involved in the rotation. CATransform3DMakeRotation takes radians.
         arrowGlass.layer?.transform = CATransform3DMakeRotation(.pi / 4, 0, 0, 1)
