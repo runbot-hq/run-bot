@@ -1,50 +1,39 @@
 // PanelContent.swift
 // MenuBarKit
 //
-// The SwiftUI side of the sizing pipeline, and the panel's chrome.
+// The SwiftUI side of the sizing pipeline.
 //
-// HOW SIZING WORKS — read this before touching anything here:
+// HOW SIZING WORKS:
 //
-// 1. `MBKPanelController` creates an `NSHostingController<MBKPanelContentView>` with
-//    `sizingOptions = []` and pins its view to the glass view on all four edges
-//    (leading, trailing, top, bottom). AppKit therefore proposes a concrete height
-//    that matches the window content area, and SwiftUI can re-measure when the
-//    window resizes.
-// 2. `NSHostingController.preferredContentSize` is updated automatically by AppKit /
-//    SwiftUI each time the ideal size changes. The controller KVO-observes this
-//    property and forwards every non-trivial change to `applyMeasuredSize(_:)`.
-// 3. `applyMeasuredSize` subtracts the arrow strip, clamps, and sets the window frame.
-//    Resizing the window re-proposes the new height through the bottom pin, which
-//    causes SwiftUI to re-measure if the content changed (e.g. list items expanded).
-// 4. On open: after `orderFront`, force a layout pass, then read `preferredContentSize`
-//    synchronously and call `applyMeasuredSize` so the first frame is correct — no snap.
+// 1. `MBKPanelContentView` wraps the adopter's content in an outer `.frame(.infinity)`
+//    fill and an inner VStack. `onGeometryChange` is on the *inner* VStack.
+// 2. The inner VStack measures the content's *natural* height before the outer fill
+//    expands. So the signal is always "what the content wants", not "what the window is".
+// 3. Every time natural height changes, `onSizeChange` fires and the controller calls
+//    `applyMeasuredSize`, which clamps and resizes the window.
+// 4. On first open, `layoutSubtreeIfNeeded()` forces SwiftUI to settle synchronously
+//    so `onGeometryChange` fires before the panel is visible — no snap.
 //
-// ❌ NEVER put a min/max *width* in this wrapper.
-// ❌ NEVER add `.fixedSize()` in this wrapper.
-// ❌ NEVER measure with a `GeometryReader`.
-// ❌ NEVER apply `.glassEffect(...)` in this wrapper.
+// WHY NOT preferredContentSize KVO:
+//   Requires a concrete height proposal from AppKit before it populates.
+//   With three-edge pins the hosting view collapses to zero pre-show,
+//   so preferredContentSize is always (0,0) on open -> FALLBACK every time.
+//
+// ❌ NEVER measure with a GeometryReader — it sees the window size, not natural size.
+// ❌ NEVER add .fixedSize() — breaks the capped scroll path.
+// ❌ NEVER apply .glassEffect() here — glass cannot sample other glass.
 import AppKit
 import Observation
 import SwiftUI
 
 // MARK: - Limits
 
-/// Live sizing and chrome state handed to the SwiftUI content.
-///
-/// Observable so that a change to `arrowCenterX` (recomputed on every frame apply)
-/// re-lays-out the content without rebuilding the hosting controller.
+/// Live chrome state handed to the SwiftUI content.
 @Observable
 @MainActor
 final class MBKPanelLimits {
-
     /// Arrow centre in window-local points, from the leading edge.
-    ///
-    /// Written by `applyFrame(content:reason:)` from `MBKPanelGeometry.layout`.
-    /// The controller is the only writer; the bubble shape is the only reader.
     var arrowCenterX: CGFloat
-
-    /// Creates a limits object.
-    /// - Parameter arrowCenterX: Initial arrow centre in window-local points.
     init(arrowCenterX: CGFloat) {
         self.arrowCenterX = arrowCenterX
     }
@@ -52,28 +41,17 @@ final class MBKPanelLimits {
 
 // MARK: - Root view
 
-/// Root SwiftUI view of the panel: the adopter's content, clipped to the bubble.
-///
-/// The bubble *material* is not here — it is `NSGlassEffectView`, the direct
-/// `panel.contentView`, sitting below this hosting view as a plain sibling.
-/// This view only positions and clips, so the adopter's own Liquid Glass
-/// renders with no glass ancestor above it.
+/// Root SwiftUI view of the panel: adopter content clipped to the bubble.
 struct MBKPanelContentView: View {
 
-    /// Live arrow position.
     let limits: MBKPanelLimits
-
-    /// Chrome metrics — arrow size and corner radius.
     let metrics: MBKPanelMetrics
-
-    /// The adopter's content.
     let content: AnyView
 
-    /// The current bubble silhouette, tracking the live arrow position.
-    ///
-    /// Used for clipping only. The same `arrowCenterX` also drives
-    /// `NSGlassEffectView.cornerRadius` via `MBKPanelMetrics`, so the clip
-    /// and the AppKit glass always agree.
+    /// Called with the inner VStack's natural size whenever it changes.
+    /// This is the sole measurement signal into the AppKit frame pipeline.
+    var onSizeChange: ((CGSize) -> Void)?
+
     private var bubble: MBKBubbleShape {
         MBKBubbleShape(
             arrowCenterX: limits.arrowCenterX,
@@ -83,14 +61,24 @@ struct MBKPanelContentView: View {
         )
     }
 
-    /// Insets the content below the arrow and clips to the bubble.
-    ///
-    /// Height capping is intentionally absent here — `applyMeasuredSize` is the
-    /// sole cap, applied via the window frame. Keeping SwiftUI uncapped lets
-    /// `preferredContentSize` always report the true content height.
     var body: some View {
-        content
-            .padding(.top, metrics.arrowHeight)
-            .clipShape(bubble)
+        // Outer fill: expands to fill whatever size the window proposes.
+        // Does NOT participate in measurement.
+        Color.clear
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .overlay(alignment: .top) {
+                // Inner VStack: sized by content, not by window.
+                // onGeometryChange fires when THIS size changes — natural content height.
+                VStack(spacing: 0) {
+                    content
+                        .padding(.top, metrics.arrowHeight)
+                }
+                .onGeometryChange(for: CGSize.self) { proxy in
+                    proxy.size
+                } action: { newSize in
+                    onSizeChange?(newSize)
+                }
+                .clipShape(bubble)
+            }
     }
 }
