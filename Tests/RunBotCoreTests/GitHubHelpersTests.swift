@@ -156,6 +156,52 @@ struct GitHubHelpersTests {
         #expect(result.contains("content after ansi"), "Log content must be preserved")
     }
 
+    /// Guards the `(\.\d+)?` optional fractional-seconds group in timestampRegex.
+    /// A whole-second RFC 3339 timestamp (no sub-second component) must also be stripped.
+    /// This could occur with self-hosted runners or future runner versions that omit
+    /// the fractional-seconds field.
+    @Test func fetchStepLog_wholeSecondTimestamp_stripped() async throws {
+        let transport = MockTransport()
+        let rawLog = "2026-07-29T03:11:15Z Some content on a whole-second timestamp"
+        transport.stubRawData = Data(rawLog.utf8)
+
+        let result = try #require(
+            await fetchStepLog(jobID: 9, stepNumber: 1, scope: "runbot-hq/run-bot", transport: transport),
+            "fetchStepLog should return non-nil for valid log"
+        )
+
+        #expect(!result.contains("2026-07-29T"), "Whole-second timestamp prefix must be stripped")
+        #expect(
+            result.contains("Some content on a whole-second timestamp"),
+            "Log content must be preserved after stripping whole-second timestamp"
+        )
+    }
+
+    /// Guards CRLF normalisation in stripTimestamps: raw log bytes with \r\n line endings
+    /// (as may arrive from Windows runners or zip-archive log downloads) must not leave
+    /// stray \r characters in the output. Verifies that ##[group] section parsing
+    /// still works correctly after normalisation.
+    @Test func fetchStepLog_crlfLineEndings_normalisedAndStripped() async throws {
+        let transport = MockTransport()
+        // Construct a CRLF log with a ##[group] block so buildLogSections exercises
+        // the section-slicing path, confirming \r doesn't corrupt the group marker.
+        let rawLog = [
+            "2026-07-29T03:11:15.4722230Z ##[group]Build step",
+            "2026-07-29T03:11:15.5000000Z Building project",
+            "2026-07-29T03:11:15.6000000Z ##[endgroup]"
+        ].joined(separator: "\r\n")
+        transport.stubRawData = Data(rawLog.utf8)
+
+        let result = try #require(
+            await fetchStepLog(jobID: 10, stepNumber: 1, scope: "runbot-hq/run-bot", transport: transport),
+            "fetchStepLog should return non-nil for valid log"
+        )
+
+        #expect(!result.contains("\r"), "No stray \\r characters should survive CRLF normalisation")
+        #expect(!result.contains("2026-07-29T"), "Timestamp prefixes must be stripped from CRLF input")
+        #expect(result.contains("Building project"), "Log content must be preserved after CRLF normalisation")
+    }
+
     // MARK: ANSI stripping (regression guard)
 
     @Test func fetchStepLog_stripsAnsiEscapeCodes() async throws {

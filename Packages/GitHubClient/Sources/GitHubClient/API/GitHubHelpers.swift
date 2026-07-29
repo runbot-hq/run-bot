@@ -171,14 +171,17 @@ private func stripAnsi(_ input: String) -> String {
 }
 
 /// Removes the leading GitHub Actions timestamp prefix from every line of `input`.
-/// Normalises CRLF to LF first so stray `\r` characters from Windows runners or
-/// zip-archive log downloads do not survive as trailing line artifacts.
+/// Normalises both CRLF (`\r\n`) and bare CR (`\r`) to LF first, so stray `\r`
+/// characters from Windows runners or zip-archive log downloads do not survive as
+/// trailing line artifacts that would break `##[group]` detection in `buildLogSections`.
 /// e.g. `2026-07-29T03:11:15.4722230Z ` is stripped, leaving only the log content.
-/// Blank timestamped lines (no trailing space) are also matched via the `[^\S\n]*` trailer.
+/// Blank timestamped lines are also matched via the `[^\S\n]*` trailer.
 /// Returns `input` unchanged if `timestampRegex` failed to compile at module load time.
 private func stripTimestamps(_ input: String) -> String {
     guard let timestampRegex else { return input }
-    let normalised = input.replacingOccurrences(of: "\r\n", with: "\n")
+    let normalised = input
+        .replacingOccurrences(of: "\r\n", with: "\n")
+        .replacingOccurrences(of: "\r", with: "\n")
     let range = NSRange(normalised.startIndex..., in: normalised)
     return timestampRegex.stringByReplacingMatches(in: normalised, range: range, withTemplate: "")
 }
