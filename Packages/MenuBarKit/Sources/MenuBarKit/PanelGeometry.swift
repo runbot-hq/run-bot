@@ -104,21 +104,30 @@ public enum MBKPanelGeometry {
         CGSize(width: max(content.width, 0), height: max(content.height, 0) + metrics.arrowHeight)
     }
 
-    /// Content height cap derived live from the screen.
+    /// Content height cap derived live from the drawable space below `topY`.
+    ///
+    /// Uses `topY - visibleFrame.minY` (the space the panel can actually occupy)
+    /// rather than `visibleFrame.height` (the full visible screen height). This
+    /// prevents the cap from exceeding the drawable space when the Dock, a
+    /// secondary display, or a hidden menu bar shifts `topY` away from
+    /// `visibleFrame.maxY`.
     ///
     /// Computed on every open rather than once at launch — the launch-time
     /// snapshot was the root cause of the stale-cap bug in #2279.
     /// - Parameters:
+    ///   - topY: Screen Y that the top edge of the panel touches (= menu-bar bottom).
     ///   - visibleFrame: The screen's visible frame.
-    ///   - fraction: Fraction of the visible height the content may occupy.
+    ///   - fraction: Fraction of the drawable space the content may occupy.
     ///   - metrics: Chrome metrics; the arrow strip is subtracted from the cap.
     /// - Returns: Maximum content height in points, never negative.
     public static func maxContentHeight(
+        topY: CGFloat,
         visibleFrame: CGRect,
         fraction: CGFloat,
         metrics: MBKPanelMetrics
     ) -> CGFloat {
-        max(visibleFrame.height * fraction - metrics.arrowHeight, 0)
+        let drawable = topY - visibleFrame.minY
+        return max(drawable * fraction - metrics.arrowHeight, 0)
     }
 
     /// Content width cap derived live from the screen.
@@ -183,6 +192,11 @@ public enum MBKPanelGeometry {
     /// Invariants, all exercised by `MBKPanelGeometryTests`:
     /// - The top edge is pinned: `frame.maxY == topY` for every content height,
     ///   so the panel grows downward and never detaches from the menu bar.
+    /// - `frame.minY >= visibleFrame.minY` — the panel never overflows above
+    ///   the bottom of the visible area. If content height would push `minY`
+    ///   below the floor, the window height is shrunk to fit and `wasClamped`
+    ///   is set to `true`. (The AppKit cap in `applyMeasuredSize` should prevent
+    ///   this in practice; the clamp here is a hard safety net.)
     /// - The window stays inside `visibleFrame` inset by `metrics.screenMargin`,
     ///   unless it is wider than the inset area, in which case it is centred.
     /// - `arrowCenterX` tracks the anchor but is kept far enough from the
@@ -214,7 +228,16 @@ public enum MBKPanelGeometry {
         } else {
             originX = min(max(unclampedX, minX), maxX)
         }
-        let wasClamped = abs(originX - unclampedX) > 0.5
+
+        // Vertical floor: the panel must not extend below visibleFrame.minY.
+        // topY is always held fixed (the panel grows downward), so if the window
+        // would overflow the bottom of the visible area we shrink the height rather
+        // than move topY. The AppKit cap in applyMeasuredSize prevents this in
+        // normal operation; this clamp is a hard safety net for edge cases.
+        let rawOriginY = topY - size.height
+        let clampedOriginY = max(rawOriginY, visibleFrame.minY)
+        let actualHeight = topY - clampedOriginY
+        let wasClamped = abs(originX - unclampedX) > 0.5 || clampedOriginY != rawOriginY
 
         let arrowHalf = metrics.arrowWidth / 2
         let lowerBound = metrics.cornerRadius + arrowHalf
@@ -226,7 +249,7 @@ public enum MBKPanelGeometry {
             arrowCenterX = size.width / 2
         }
 
-        let frame = CGRect(x: originX, y: topY - size.height, width: size.width, height: size.height)
+        let frame = CGRect(x: originX, y: clampedOriginY, width: size.width, height: actualHeight)
         return MBKPanelLayout(frame: frame, arrowCenterX: arrowCenterX, wasClamped: wasClamped)
     }
 }

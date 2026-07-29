@@ -15,14 +15,18 @@
 //    `ScrollView` inside receives the capped height and scrolls instead of
 //    overflowing.
 //
+// ❌ NEVER add `.fixedSize(vertical: true)` or `.frame(maxHeight:)` in this
+//    wrapper. The hosting view has no bottom AL pin, so SwiftUI receives an
+//    unspecified height proposal. Under an unspecified proposal, `.frame(maxHeight:)`
+//    is a no-op (it only reduces a *parent-proposed* height) and `.fixedSize`
+//    causes SwiftUI to pass the content's ideal height straight through, defeating
+//    the cap entirely. The AppKit pipeline in `applyMeasuredSize` → `clampContent`
+//    is the one and only cap; the SwiftUI layer must not interfere with it.
+//    See issue #2339 for the full analysis.
 // ❌ NEVER put a min/max *width* in this wrapper. It applies to every route the
 //    adopter shows, so a fixed-width settings screen would be stretched to the
 //    list's minimum width. Width belongs to the adopter's own views; MenuBarKit
 //    caps only the height (the live screen fraction) and the screen width.
-// ❌ NEVER remove `.fixedSize(horizontal: false, vertical: true)` from body.
-//    It is what makes content report its natural height under the concrete AL
-//    proposal so that short lists shrink the panel. Without it, .frame(maxHeight:)
-//    fills the full window height for short content and the panel never shrinks.
 // ❌ NEVER measure with a `GeometryReader`. A geometry reader sees the size we
 //    already applied, not the size the content wants, so it cannot detect growth.
 // ❌ NEVER apply `.glassEffect(...)` in this wrapper. Glass cannot sample other
@@ -40,11 +44,6 @@ import SwiftUI
 ///
 /// Observable so that a change to `arrowCenterX` (recomputed on every
 /// frame apply) re-lays-out the content without rebuilding the hosting view.
-/// `maxContentHeight` is no longer here — it is a plain scalar on
-/// `MBKPanelController`, passed directly to `MBKPanelContentView` at
-/// construction time. It does not need to be observed by SwiftUI: when it
-/// changes (screen geometry change or new open) the hosting view's rootView
-/// is already being rebuilt with the new value.
 @Observable
 @MainActor
 final class MBKPanelLimits {
@@ -78,9 +77,6 @@ struct MBKPanelContentView: View {
     /// Chrome metrics — arrow size and corner radius.
     let metrics: MBKPanelMetrics
 
-    /// Maximum content height in points, passed as a plain scalar from the controller.
-    let maxContentHeight: CGFloat
-
     /// The adopter's content.
     let content: AnyView
 
@@ -102,28 +98,22 @@ struct MBKPanelContentView: View {
         )
     }
 
-    /// Caps the content height, insets it below the arrow, and clips to the bubble.
+    /// Insets content below the arrow, clips to the bubble, reports settled size.
     ///
-    /// Order matters:
-    /// 1. `.fixedSize(horizontal: false, vertical: true)` makes content report its
-    ///    natural (ideal) height regardless of the concrete AL proposal from the window.
-    ///    Without this, `.frame(maxHeight:)` under a concrete proposal fills the full
-    ///    window height for short content — the panel never shrinks.
-    /// 2. `.frame(maxHeight: maxContentHeight, alignment: .top)` caps the natural height
-    ///    at the screen fraction AND pins content to the top of that cap. Without
-    ///    `alignment: .top`, SwiftUI centres content vertically inside the cap —
-    ///    visible as the list floating in the middle of the panel while rows load.
-    /// 3. `.padding(.top, metrics.arrowHeight)` adds the arrow strip above the content.
-    /// 4. `.clipShape(bubble)` clips to the bubble silhouette.
-    /// 5. `.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)` fills
-    ///    the hosting view viewport and pins the already-top-aligned content to the
-    ///    top of the window while the panel is resizing to its final size.
-    /// 6. `onGeometryChange` fires with the final settled size — capped for tall content,
-    ///    natural for short content — and drives the window frame.
+    /// Sizing is owned entirely by the AppKit pipeline:
+    /// 1. `onGeometryChange` fires with the content's ideal settled size.
+    /// 2. `applyMeasuredSize` clamps it to the live screen cap.
+    /// 3. `applyFrame` resizes the window to the clamped size.
+    /// 4. The window re-proposes the capped height to SwiftUI on the next pass.
+    /// 5. A `ScrollView` inside `content` receives the cap as a concrete proposal
+    ///    and scrolls rather than overflowing.
+    ///
+    /// `.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)` fills
+    /// the hosting-view viewport and pins content to the top during the brief
+    /// interval between the initial (stale fittingSize) WRITE and the settled
+    /// onGeometryChange WRITE, preventing content from floating to centre.
     var body: some View {
         content
-            .fixedSize(horizontal: false, vertical: true)
-            .frame(maxHeight: maxContentHeight, alignment: .top)
             .padding(.top, metrics.arrowHeight)
             .clipShape(bubble)
             .onGeometryChange(for: CGSize.self, of: \.size) { newSize in
