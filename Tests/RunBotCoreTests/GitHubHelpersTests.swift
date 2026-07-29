@@ -23,17 +23,17 @@ final class MockTransport: GitHubTransportProtocol, @unchecked Sendable {
     /// The raw bytes that `raw(_:timeout:)` will return. Set before calling `fetchStepLog`.
     var stubRawData: Data?
 
-    func raw(_ endpoint: String, timeout: TimeInterval) async -> Data? { stubRawData }
-    func apiAsync(_ endpoint: String, timeout: TimeInterval) async -> Data? { nil }
-    func apiPaginated(_ endpoint: String, timeout: TimeInterval) async -> Data? { nil }
-    func post(_ endpoint: String, body: Data?, timeout: TimeInterval) async -> Data? { nil }
-    func put(_ endpoint: String, body: Data, timeout: TimeInterval) async -> Data? { nil }
-    func delete(_ endpoint: String, timeout: TimeInterval) async -> Bool { false }
-    func cancelRun(runID: Int, scope: String) async -> Bool { false }
-    func patchRunnerLabels(scope: String, runnerID: Int, labels: [String]) async -> [String]? { nil }
-    func fetchRegistrationToken(scope: String) async -> String? { nil }
-    func fetchRemovalToken(scope: String) async -> String? { nil }
-    func deleteRunnerByID(scope: String, runnerID: Int) async -> Bool { false }
+    func raw(_ _: String, timeout _: TimeInterval) async -> Data? { stubRawData }
+    func apiAsync(_ _: String, timeout _: TimeInterval) async -> Data? { nil }
+    func apiPaginated(_ _: String, timeout _: TimeInterval) async -> Data? { nil }
+    func post(_ _: String, body _: Data?, timeout _: TimeInterval) async -> Data? { nil }
+    func put(_ _: String, body _: Data, timeout _: TimeInterval) async -> Data? { nil }
+    func delete(_ _: String, timeout _: TimeInterval) async -> Bool { false }
+    func cancelRun(runID _: Int, scope _: String) async -> Bool { false }
+    func patchRunnerLabels(scope _: String, runnerID _: Int, labels _: [String]) async -> [String]? { nil }
+    func fetchRegistrationToken(scope _: String) async -> String? { nil }
+    func fetchRemovalToken(scope _: String) async -> String? { nil }
+    func deleteRunnerByID(scope _: String, runnerID _: Int) async -> Bool { false }
 }
 
 // MARK: - Tests
@@ -220,6 +220,30 @@ struct GitHubHelpersTests {
         #expect(!result.contains("\r"), "No stray \\r characters should survive CRLF normalisation")
         #expect(!result.contains("2026-07-29T"), "Timestamp prefixes must be stripped from CRLF input")
         #expect(result.contains("Building project"), "Log content must be preserved after CRLF normalisation")
+    }
+
+    /// Guards the bare-CR normalisation branch in stripTimestamps: raw log bytes with
+    /// bare \r line endings (not \r\n) must also be normalised to \n so that no stray
+    /// \r characters survive and ##[group] section parsing works correctly.
+    /// This complements fetchStepLog_crlfLineEndings_normalisedAndStripped, which covers
+    /// the \r\n branch; together they fully exercise the two-pass CR normalisation.
+    @Test func fetchStepLog_bareCrLineEndings_normalisedAndStripped() async throws {
+        let transport = MockTransport()
+        let rawLog = [
+            "2026-07-29T03:11:15.4722230Z ##[group]Build step",
+            "2026-07-29T03:11:15.5000000Z Building project",
+            "2026-07-29T03:11:15.6000000Z ##[endgroup]"
+        ].joined(separator: "\r")
+        transport.stubRawData = Data(rawLog.utf8)
+
+        let result = try #require(
+            await fetchStepLog(jobID: 12, stepNumber: 1, scope: "runbot-hq/run-bot", transport: transport),
+            "fetchStepLog should return non-nil for valid log"
+        )
+
+        #expect(!result.contains("\r"), "No stray \\r characters should survive bare-CR normalisation")
+        #expect(!result.contains("2026-07-29T"), "Timestamp prefixes must be stripped from bare-CR input")
+        #expect(result.contains("Building project"), "Log content must be preserved after bare-CR normalisation")
     }
 
     /// Guards the out-of-range fallback path in parseStepLog: when `stepNumber` exceeds
