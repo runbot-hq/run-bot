@@ -132,14 +132,27 @@ private func fetchAndDecodeStepLog(
 /// Extracts the log section for `stepNumber` from a raw multi-group log string.
 /// If the log contains no `##[group]` markers the full cleaned log is returned.
 /// If `stepNumber` is out of range the full cleaned log is returned as a fallback.
+///
+/// Pipeline order (must not be reordered):
+///   1. CR normalisation — converts \r\n and bare \r to \n so every subsequent
+///      step receives LF-only input. Must run before any line-aware operation;
+///      if skipped, `##[group]\r` would not match `##[group]` in buildLogSections.
+///   2. stripAnsi  — character-based; safe on LF-only input.
+///   3. stripTimestamps — uses .anchorsMatchLines; requires LF-only input.
+///   4. buildLogSections — splits on \n; requires LF-only input.
 private func parseStepLog(
     _ raw: String,
     stepNumber: Int,
     logger: (any GitHubLogger)?
 ) -> String? {
-    let ansiStripped = stripAnsi(raw)
-    let cleaned = stripTimestamps(ansiStripped)
-    let sections = buildLogSections(from: cleaned)
+    // Step 1: normalise line endings to LF. \r\n must be replaced before bare \r
+    // to avoid doubling blank lines (\r\n → \n\n if the \r pass ran first).
+    let normalised = raw
+        .replacingOccurrences(of: "\r\n", with: "\n")
+        .replacingOccurrences(of: "\r", with: "\n")
+    let ansiStripped = stripAnsi(normalised)    // Step 2
+    let cleaned = stripTimestamps(ansiStripped) // Step 3
+    let sections = buildLogSections(from: cleaned) // Step 4
     logger?.log("parseStepLog › parsed \(sections.count) section(s) from log", category: "transport")
     if sections.isEmpty {
         logger?.log("parseStepLog › no group markers, returning full raw log", category: "transport")
@@ -187,17 +200,13 @@ private func stripAnsi(_ input: String) -> String {
 }
 
 /// Removes the leading GitHub Actions timestamp prefix from every line of `input`.
-/// Normalises both CRLF (`\r\n`) and bare CR (`\r`) to LF first, so stray `\r`
-/// characters from Windows runners or zip-archive log downloads do not survive as
-/// trailing line artifacts that would break `##[group]` detection in `buildLogSections`.
+/// Expects LF-only input — CR normalisation is the caller's responsibility and must
+/// have been applied before this function is called (see `parseStepLog`).
 /// e.g. `2026-07-29T03:11:15.4722230Z ` is stripped, leaving only the log content.
 /// Blank timestamped lines are also matched via the `[^\S\n]*` trailer.
 /// Returns `input` unchanged if `timestampRegex` failed to compile at module load time.
 private func stripTimestamps(_ input: String) -> String {
     guard let timestampRegex else { return input }
-    let normalised = input
-        .replacingOccurrences(of: "\r\n", with: "\n")
-        .replacingOccurrences(of: "\r", with: "\n")
-    let range = NSRange(normalised.startIndex..., in: normalised)
-    return timestampRegex.stringByReplacingMatches(in: normalised, range: range, withTemplate: "")
+    let range = NSRange(input.startIndex..., in: input)
+    return timestampRegex.stringByReplacingMatches(in: input, range: range, withTemplate: "")
 }
