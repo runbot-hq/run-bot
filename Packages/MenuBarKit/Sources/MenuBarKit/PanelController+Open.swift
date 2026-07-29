@@ -118,7 +118,8 @@ extension MBKPanelController {
 
         startEventMonitor()
 
-        Task { @MainActor in
+        Task { @MainActor [weak self] in
+            guard let self else { return }
             mbkLog("PanelController", "onDidShow Task hop -- calling onDidShow")
             self.onDidShow?()
             mbkLog("PanelController", "onDidShow fired")
