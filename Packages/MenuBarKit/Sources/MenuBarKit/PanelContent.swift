@@ -120,14 +120,15 @@ struct MBKPanelContentView: View {
     ///    here. It makes the content fill the hosting view's proposed size, which causes
     ///    `onGeometryChange` to report the window size instead of the content's natural
     ///    size, creating a feedback loop: window resize → SwiftUI re-layout → reports
-    ///    new window size → window resize → ⋯. The AppKit pipeline in `applyMeasuredSize`
-    ///    → `clampContent` is the one and only cap; the SwiftUI layer must not interfere
-    ///    with it.
-    /// ❌ NEVER add `.fixedSize(vertical: true)` in this wrapper. The hosting view has no
-    ///    bottom AL pin, so `.frame(maxHeight:)` is the only SwiftUI-side cap. `.fixedSize` causes
-    ///    SwiftUI to pass the content's ideal height straight through, defeating the cap entirely.
-    ///    The AppKit pipeline in `applyMeasuredSize` → `clampContent` is the backup cap;
-    ///    the SwiftUI `maxHeight` is the primary one.
+    ///    new window size → window resize → ⋯.
+    /// ✅ `.fixedSize(horizontal: false, vertical: true)` + `.frame(maxHeight:)` here
+    ///    is correct and load-bearing. `.fixedSize` makes the content use its ideal
+    ///    height (breaking the window-proposal feedback loop), and `.frame(maxHeight:)`
+    ///    caps the ideal height at the screen fraction. The AppKit pipeline in
+    ///    `applyMeasuredSize` → `clampContent` is the backup cap; the SwiftUI modifiers
+    ///    are the primary ones.
+    /// ❌ NEVER add `.fixedSize(vertical: true)` without `.frame(maxHeight:)` — the
+    ///    content's ideal height passes straight through, defeating the cap.
     /// ❌ NEVER put a min/max *width* in this wrapper. It applies to every route the
     ///    adopter shows, so a fixed-width settings screen would be stretched to the
     ///    list's minimum width. Width belongs to the adopter's own views; MenuBarKit
