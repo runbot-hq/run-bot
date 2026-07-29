@@ -334,7 +334,9 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
             glassView.setValue(1, forKey: "_variant")
             glassView.setValue(1, forKey: "_scrimState")
         } else {
-            mbkLog("PanelController", "⚠️ NSGlassEffectView KVC keys unavailable on \(ProcessInfo.processInfo.operatingSystemVersionString) — falling back to .regular style (lighter glass). File a radar.")
+            mbkLog("PanelController", "⚠️ NSGlassEffectView KVC keys unavailable on"
+                + " \(ProcessInfo.processInfo.operatingSystemVersionString)"
+                + " — falling back to .regular style (lighter glass). File a radar.")
         }
 
         let hosting = MBKHostingView(

@@ -11,6 +11,15 @@
 //                     detaches child windows first, so it can never be refused.
 //   teardown(wasForced:) — the single place that fires onWillClose, stops the
 //                     monitors, unhighlights the button, and orders the panel out.
+//
+// RE-ENTRANCY SAFETY — no isClosing flag is needed:
+//   All three callers guard `isShown` (= panel?.isVisible) before calling
+//   `fireOnWillClose` or `teardown`. AppKit flips `isVisible` to false
+//   synchronously inside `orderOut` — not on the next compositor frame.
+//   A second caller arriving on the same runloop turn (Task hop, workspace
+//   notification, or adopter callback) will see isShown = false and
+//   short-circuit at its guard. The precondition in `teardown` cannot be
+//   reached twice per cycle.
 
 import AppKit
 
@@ -56,6 +65,11 @@ extension MBKPanelController {
         // statusItem?.button is the only legitimate optional (status item may be absent
         // in testing or before NSStatusBar assignment).
         guard statusItem?.button != nil else { return }
+        // panel/coalescer/limits are all assigned unconditionally in setup() before
+        // isSetUp = true, so if isSetUp is true they cannot be nil. These three checks
+        // are intentionally redundant: they produce an attribution-rich crash message
+        // if a future edit to setup() forgets to assign one of them, rather than
+        // crashing silently at the force-unwrap below with no context.
         precondition(panel != nil, "MBKPanelController.openPanel() called before setup() — panel is nil")
         precondition(coalescer != nil, "MBKPanelController.openPanel() called before setup() — coalescer is nil")
         precondition(limits != nil, "MBKPanelController.openPanel() called before setup() — limits is nil")
