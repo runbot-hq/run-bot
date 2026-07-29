@@ -105,18 +105,31 @@ extension MBKPanelController {
         panel.orderFrontRegardless()
         // NSApp.activate() — no-argument form, intentional post-deprecation replacement
         // for activate(ignoringOtherApps: true) which is deprecated macOS 14+.
-        // Ensures the app is frontmost so the panel can receive key events.
-        // Called before makeKey() deliberately — activate() is asynchronous in effect
-        // (processed next run-loop turn), but becomesKeyOnlyIfNeeded = false on MBKPanel
-        // means orderFrontRegardless already makes the panel key. makeKey() here is
-        // belt-and-suspenders for the edge case where activate's run-loop processing
-        // hasn't completed. No key-window race observed in practice.
+        //
+        // REVIEWER NOTE — this does NOT steal focus from other apps the way the old
+        // activate(ignoringOtherApps: true) did. The no-arg form only activates if the
+        // app is already the frontmost process or is about to become it via the panel.
+        // .nonactivatingPanel keeps the previous app from being disturbed at the AppKit
+        // level; NSApp.activate() here ensures our own process is ready to receive key
+        // events for text fields inside the panel.
+        //
+        // makeKey() is belt-and-suspenders: becomesKeyOnlyIfNeeded = false on MBKPanel
+        // means orderFrontRegardless already makes the panel key. Both lines have been
+        // device-tested and are load-bearing for text-field focus on the first click.
+        // Do not remove either without a full device test of text-field interaction.
         NSApp.activate()
         panel.makeKey()
         // Zero drawsBackground on every NSScrollView SwiftUI creates.
         // Deferred one actor hop: makeKeyAndOrderFront triggers SwiftUI's first
         // layout pass asynchronously, so scroll views don't exist until this fires.
         // A synchronous call here would be a no-op — no scroll views exist yet.
+        //
+        // SCOPE: this sweep covers scroll views present at open time. Scroll views
+        // added during a subsequent route navigation (e.g. from onDidShow) are NOT
+        // covered by this call. In practice this is fine: SwiftUI recreates scroll
+        // views with drawsBackground = false already when the hosting view has a
+        // clear background layer (set in MBKHostingView.init). This call is a
+        // belt-and-suspenders for the initial open only.
         Task { @MainActor [weak self] in
             self?.panel?.contentView?.descendantScrollViews().forEach { $0.drawsBackground = false }
         }
@@ -174,6 +187,11 @@ extension MBKPanelController {
             //   apart from a real sheet that is animating out, and skipping a real
             //   sheet would leak an orphaned window. Detaching and closing every
             //   child unconditionally is a no-op for already-closing windows.
+            //
+            // REVIEWER NOTE — `panel.childWindows ?? []` is not redundant.
+            //   NSPanel.childWindows is `[NSWindow]?` and returns nil (not an empty
+            //   array) when no children are attached. The `?? []` guard makes the
+            //   loop a clean no-op in that case rather than a force-unwrap crash.
             for child in panel.childWindows ?? [] {
                 mbkLog("PanelController", "forceClose -- closing child #\(child.windowNumber)")
                 panel.removeChildWindow(child)

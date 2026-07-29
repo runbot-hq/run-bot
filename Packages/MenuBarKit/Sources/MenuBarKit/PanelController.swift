@@ -178,6 +178,9 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
     // MARK: - Session state
 
     /// Guards against calling `setup()` more than once.
+    /// `private(set)` — cross-file extensions read this flag (e.g. openPanel's
+    /// precondition check) but must never write it; only `setup()` sets it to true.
+
     private(set) var isSetUp = false
     /// Global mouse-down event monitor token. `nonisolated(unsafe)` — see file header.
     nonisolated(unsafe) var eventMonitor: Any?

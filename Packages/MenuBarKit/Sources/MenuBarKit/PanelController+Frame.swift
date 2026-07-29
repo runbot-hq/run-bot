@@ -65,7 +65,7 @@ extension MBKPanelController {
         // app's activation state — so `hidden` flapped between consecutive
         // writes with the menu bar plainly visible. The screen's own visible
         // frame is unambiguous and moves by a whole menu-bar height, far outside
-        // the tolerance. A nil button screen still means "off-screen entirely".
+        // the tolerance. A nil button screen still means “off-screen entirely”.
         let hidden = buttonScreen == nil
             || MBKPanelGeometry.isMenuBarHidden(screenFrame: screen.frame, visibleFrame: visibleFrame)
 
@@ -129,6 +129,17 @@ extension MBKPanelController {
     /// arrow inset itself — so the arrow strip is subtracted here to recover the
     /// content size that `MBKPanelGeometry` expects.
     func applyMeasuredSize() {
+        // Guard against post-close re-entry: teardown() clears lastContentSize and
+        // lastMeasuredSize, but a Task enqueued by schedule() before teardown ran
+        // can still fire on the next actor turn. Without this guard, that Task would
+        // re-enter applyMeasuredSize(), pass the frameWritesAllowed() check
+        // (hasOpenedOnce stays true after the first open), and write a stale
+        // lastContentSize — causing the NEXT open to hit the "SKIP -- content
+        // unchanged" dedupe and show the panel at the wrong size.
+        guard isShown else {
+            mbkLog("PanelController", "SKIP -- panel not shown, dropping post-close measurement")
+            return
+        }
         guard let hostingView, let limits, frameWritesAllowed() else { return }
         let measured = hostingView.intrinsicContentSize
         guard measured.width > 0, measured.height > 0 else {
