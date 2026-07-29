@@ -232,11 +232,14 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
     /// Prevents `onWillClose` from firing more than once per open/close cycle.
     var onWillCloseFired = false
 
-    /// `true` once `openPanel()` has run for the first time.
+    /// `true` once `openPanel()` has run for the first time. Never reset.
     ///
-    /// Before that the status item has no on-screen position yet, so the anchor
-    /// reads as `topY=0` and the pipeline would write a nonsense frame for every
-    /// launch-time layout pass. See `frameWritesAllowed()`.
+    /// Process-lifetime flag — intentionally not cleared in `teardown()` or
+    /// anywhere else. Before the first open the status item has no on-screen
+    /// position, so the anchor reads as `topY=0` and the pipeline would write
+    /// a nonsense frame for every launch-time layout pass. After the first open
+    /// that condition can never recur, so the flag stays `true` for the lifetime
+    /// of the process. See `frameWritesAllowed()`.
     var hasOpenedOnce = false
 
     /// Ensures the pre-open skip is logged at most once per process.

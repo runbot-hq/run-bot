@@ -72,7 +72,7 @@ struct MBKBubbleShape: Shape {
             style: .continuous
         )
 
-        let half = max(arrowWidth, 0) / 2
+        let half = min(max(arrowWidth, 0) / 2, body.width / 2)
         guard arrowInset > 0, half > 0 else { return path }
 
         // Keep the arrow base clear of the rounded corners; the same clamp is
