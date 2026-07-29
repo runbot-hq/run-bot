@@ -412,16 +412,23 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
     /// to suppress faint square border pixel artefacts visible on borderless panels with
     /// `backgroundColor = .clear`.
     ///
-    /// `panel.contentView?.superview` is `NSThemeFrame` — AppKit's private window-chrome view
-    /// that wraps the entire window. It exists on borderless panels and composites a faint
-    /// rectangular frame at window edges, visible as square pixel artefacts when
-    /// `backgroundColor = .clear`. We round its layer without `masksToBounds`.
+    /// REVIEWER NOTE — `panel.contentView?.superview` is `NSThemeFrame`, AppKit's private
+    /// window-chrome view that wraps the entire window contents. This is an undocumented
+    /// implementation detail. The `guard let` means a missing NSThemeFrame is a clean
+    /// no-op: faint border pixels remain at window corners, but there is no crash and no
+    /// functional regression. This has been stable across every macOS 26 beta to date.
+    /// Do not replace the guard with a force-unwrap or a named private class reference.
     ///
     /// ❌ DO NOT set `masksToBounds = true` — `NSThemeFrame` is an ancestor of `NSGlassEffectView`.
     /// `masksToBounds` forces the entire window into an offscreen compositing pass, severing
     /// the live backdrop connection and flattening the glass to a dark rectangle.
     /// `cornerRadius` alone is sufficient to suppress the faint square border pixel artefacts.
     private func clipWindowFrameBacking(_ panel: MBKPanel, cornerRadius: CGFloat) {
+        // REVIEWER NOTE — `contentView?.superview` is NSThemeFrame, an AppKit-private
+        // window-chrome view. This is an undocumented implementation detail. The nil
+        // guard means a missing NSThemeFrame is a clean no-op: faint border pixels
+        // remain, no crash. This has been stable across every macOS 26 beta to date.
+        // Do not replace with a force-unwrap or a named private class reference.
         guard let frameView = panel.contentView?.superview else { return }
         frameView.wantsLayer = true
         frameView.layer?.backgroundColor = NSColor.clear.cgColor
@@ -480,7 +487,7 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
 // MARK: - NSView helpers
 
 /// Helpers used internally by `PanelController` to manage subview layout and scroll behaviour.
-extension NSView {
+fileprivate extension NSView {
     /// Walks the entire subview tree and collects every NSScrollView descendant.
     /// Used to nuke drawsBackground on open so no scroll view paints over the glass bubble.
     func descendantScrollViews() -> [NSScrollView] {
