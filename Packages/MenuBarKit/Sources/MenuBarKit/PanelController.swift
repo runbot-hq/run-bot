@@ -398,13 +398,13 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
             rootView: MBKPanelContentView(
                 limits: limits,
                 metrics: metrics,
-                maxContentHeight: maxContentHeight,
                 content: rootView,
                 onSizeChange: { [weak self] size in
                     self?.applyMeasuredSize(size)
                 }
             )
         )
+        hosting.sizingOptions = []
         hosting.view.wantsLayer = true
         hosting.view.layer?.backgroundColor = CGColor.clear
         hosting.view.translatesAutoresizingMaskIntoConstraints = false
@@ -480,7 +480,6 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
         hostingController.rootView = MBKPanelContentView(
             limits: limits,
             metrics: metrics,
-            maxContentHeight: maxContentHeight,
             content: rootView,
             onSizeChange: { [weak self] size in
                 self?.applyMeasuredSize(size)
@@ -488,7 +487,7 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
         )
         mbkLog("PanelController", "setRootView — rootView replaced, lastContentSize cleared")
     }
-/// Invalidates the hosting view's intrinsic content size and immediately
+    /// Invalidates the hosting view's intrinsic content size and immediately
     /// applies the current measurement. Call this when SwiftUI content changes
     /// size but a layout pass is needed to pick up the new size (e.g. data
     /// changes inside a ScrollView). Safe to call while the panel is closed —
