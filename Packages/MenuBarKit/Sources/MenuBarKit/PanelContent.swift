@@ -5,10 +5,10 @@
 //
 // HOW SIZING WORKS — read this before touching anything here:
 //
-// `MBKPanelController` uses KVO on `NSHostingController.preferredContentSize`.
-// AppKit debounces `preferredContentSize` so it only fires once per settled
-// layout — no burst, no coalescer needed.
-// 1. SwiftUI settles layout → `preferredContentSize` KVO fires once.
+// `MBKPanelController` uses KVO on `hostingController.view.intrinsicContentSize`.
+// AppKit invalidates intrinsic content size once per settled SwiftUI layout pass
+// — reliable even before the window is on screen, no burst, no coalescer needed.
+// 1. SwiftUI settles layout → `intrinsicContentSize` KVO fires once.
 // 2. `MBKPanelController.applyMeasuredSize(_:)` subtracts the arrow strip,
 //    clamps to the live screen cap, and calls `applyFrame(content:reason:)`.
 // 3. Resizing the window re-proposes exactly that size to SwiftUI; a

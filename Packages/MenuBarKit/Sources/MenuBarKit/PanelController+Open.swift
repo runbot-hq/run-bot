@@ -82,11 +82,11 @@ extension MBKPanelController {
         setButtonHighlight(true)
         panel.orderFrontRegardless()
         // isShown (= panel.isVisible) is now true.
-        // Apply the first frame synchronously using the current preferredContentSize.
+        // Apply the first frame synchronously using the current intrinsicContentSize.
         // If SwiftUI hasn't settled yet (degenerate zero size), fall back to a
         // placeholder frame in the right screen position; KVO fires once SwiftUI
         // settles and corrects it.
-        let initialSize = hostingController.preferredContentSize
+        let initialSize = hostingController.view.intrinsicContentSize
         if initialSize.width > 0, initialSize.height > 0 {
             applyMeasuredSize(initialSize)
         } else {

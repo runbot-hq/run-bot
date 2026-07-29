@@ -123,15 +123,15 @@ extension MBKPanelController {
 
     // MARK: - Measure
 
-    /// Receives the settled `preferredContentSize` from the KVO observer and
+    /// Receives the settled `intrinsicContentSize` from the KVO observer and
     /// applies the resulting frame.
     ///
-    /// `preferredContentSize` is debounced by AppKit — it fires once per settled
-    /// layout, so there is no burst to coalesce. The hosting controller measures
+    /// `intrinsicContentSize` is invalidated by AppKit once per settled SwiftUI
+    /// layout pass — no burst, no coalescer needed. The hosting view measures
     /// the *whole* bubble — the SwiftUI root adds the arrow inset itself — so
     /// the arrow strip is subtracted here to recover the content size that
     /// `MBKPanelGeometry` expects.
-    /// - Parameter measured: The new `preferredContentSize` value from KVO.
+    /// - Parameter measured: The new `intrinsicContentSize` value from KVO.
     func applyMeasuredSize(_ measured: CGSize) {
         // Guard against post-close re-entry: the KVO Task can land on the next
         // actor turn after teardown. Without this guard it would seed
@@ -143,7 +143,7 @@ extension MBKPanelController {
         }
         guard let limits else { return }
         guard measured.width > 0, measured.height > 0 else {
-            mbkLog("PanelController", "SKIP -- degenerate preferredContentSize (\(measured.width),\(measured.height))")
+            mbkLog("PanelController", "SKIP -- degenerate intrinsicContentSize (\(measured.width),\(measured.height))")
             return
         }
 
@@ -228,6 +228,6 @@ extension MBKPanelController {
         }
         guard isShown else { return }
         lastContentSize = nil
-        applyMeasuredSize(hostingController.preferredContentSize)
+        applyMeasuredSize(hostingController.view.intrinsicContentSize)
     }
 }

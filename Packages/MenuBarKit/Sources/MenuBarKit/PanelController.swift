@@ -174,7 +174,7 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
     var hostingController: NSHostingController<MBKPanelContentView>!
     /// Live sizing limits handed to SwiftUI.
     var limits: MBKPanelLimits!
-    /// KVO observation on `hostingController.preferredContentSize`.
+    /// KVO observation on `hostingController.view.intrinsicContentSize`.
     var sizeObservation: NSKeyValueObservation?
 
     /// Maximum content height in points, recomputed on every open and screen change.
@@ -290,10 +290,11 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
 
     /// Builds the panel, its clear content view, the glass chrome, and the pinned hosting view.
     ///
-    /// Sizing is driven by KVO on `NSHostingController.preferredContentSize`. AppKit
-    /// debounces `preferredContentSize` to one fire per settled layout — no burst,
-    /// no coalescer needed. The four AL pins are still required so the hosting view
-    /// tracks the window frame when `applyFrame` resizes it.
+    /// Sizing is driven by KVO on `hostingController.view.intrinsicContentSize`.
+    /// AppKit invalidates intrinsic content size once per settled SwiftUI layout pass,
+    /// delivering a reliable non-zero value even before the window is on screen.
+    /// The four AL pins are still required so the hosting view tracks the window
+    /// frame when `applyFrame` resizes it.
     ///
     /// The chrome is added *first* so it stays behind the hosting view; both are
     /// pinned to the same four edges, so the bubble is always exactly the window.
@@ -387,8 +388,8 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
         hosting.view.layer?.backgroundColor = CGColor.clear
         hosting.view.translatesAutoresizingMaskIntoConstraints = false
         hostingController = hosting
-        sizeObservation = hosting.observe(
-            \NSHostingController<MBKPanelContentView>.preferredContentSize,
+        sizeObservation = hosting.view.observe(
+            \NSView.intrinsicContentSize,
             options: [.new]
         ) { [weak self] _, change in
             guard let self, let size = change.newValue else { return }
