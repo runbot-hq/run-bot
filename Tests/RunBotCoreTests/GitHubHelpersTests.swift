@@ -9,6 +9,19 @@
 // GitHubHelpers.swift and are therefore not accessible even with
 // `@testable import GitHubClient` — @testable only opens `internal`, not
 // `private`. All assertions go through the public API instead.
+//
+// Path coverage for parseStepLog:
+//   sections.isEmpty fallback path — fetchStepLog_stripsTimestampPrefixes_fallbackPath
+//                                     fetchStepLog_bareTimestampLine_stripped
+//                                     fetchStepLog_ansiImmediatelyAfterZ_timestampStillStripped
+//                                     fetchStepLog_wholeSecondTimestamp_stripped
+//                                     fetchStepLog_stripsAnsiEscapeCodes
+//   section-slicing path           — fetchStepLog_stripsTimestampPrefixes_sectionSlicingPath
+//                                     fetchStepLog_midLineTimestamp_preserved
+//                                     fetchStepLog_strippingDoesNotCorruptContent
+//                                     fetchStepLog_crlfLineEndings_normalisedAndStripped
+//                                     fetchStepLog_bareCrLineEndings_normalisedAndStripped
+//   out-of-range fallback path     — fetchStepLog_stepNumberOutOfRange_returnsFullLog
 import Foundation
 import GitHubClient
 import Testing
@@ -48,8 +61,12 @@ struct GitHubHelpersTests {
 
     // MARK: Timestamp stripping
 
-    /// Happy path: line-start timestamps are stripped, content is preserved.
-    @Test func fetchStepLog_stripsTimestampPrefixes() async throws {
+    /// Exercises the `sections.isEmpty` fallback path: the raw log has no `##[group]`
+    /// markers, so `buildLogSections` returns `[]` and `parseStepLog` returns the full
+    /// cleaned string. This intentionally targets the fallback path — see
+    /// `fetchStepLog_stripsTimestampPrefixes_sectionSlicingPath` for the complementary
+    /// test that exercises the same assertion through the section-slicing path.
+    @Test func fetchStepLog_stripsTimestampPrefixes_fallbackPath() async throws {
         let transport = MockTransport()
         let rawLog = [
             "2026-07-29T03:11:15.4722230Z Cleaning up orphan processes",
@@ -63,6 +80,31 @@ struct GitHubHelpersTests {
         )
 
         #expect(!result.contains("2026-07-29T"), "Returned log should not contain RFC 3339 timestamp prefixes")
+        #expect(result.contains("Cleaning up orphan processes"), "Log content should be preserved after stripping")
+        #expect(result.contains("Warning: Node.js 20 is deprecated."), "Log content should be preserved after stripping")
+    }
+
+    /// Exercises the section-slicing path: the same timestamp-stripping assertion as
+    /// `fetchStepLog_stripsTimestampPrefixes_fallbackPath`, but with a `##[group]` wrapper
+    /// so `buildLogSections` finds one section and `parseStepLog` returns it via the
+    /// slicing path rather than the `sections.isEmpty` fallback. Together these two tests
+    /// ensure timestamp stripping is verified on both code paths independently.
+    @Test func fetchStepLog_stripsTimestampPrefixes_sectionSlicingPath() async throws {
+        let transport = MockTransport()
+        let rawLog = [
+            "2026-07-29T03:11:15.4722230Z ##[group]Cleanup",
+            "2026-07-29T03:11:15.5000000Z Cleaning up orphan processes",
+            "2026-07-29T03:11:16.3185700Z Warning: Node.js 20 is deprecated.",
+            "2026-07-29T03:11:16.4000000Z ##[endgroup]"
+        ].joined(separator: "\n")
+        transport.stubRawData = Data(rawLog.utf8)
+
+        let result = try #require(
+            await fetchStepLog(jobID: 13, stepNumber: 1, scope: "runbot-hq/run-bot", transport: transport),
+            "fetchStepLog should return non-nil for valid log"
+        )
+
+        #expect(!result.contains("2026-07-29T"), "Returned section should not contain RFC 3339 timestamp prefixes")
         #expect(result.contains("Cleaning up orphan processes"), "Log content should be preserved after stripping")
         #expect(result.contains("Warning: Node.js 20 is deprecated."), "Log content should be preserved after stripping")
     }
@@ -103,14 +145,10 @@ struct GitHubHelpersTests {
             "fetchStepLog should return non-nil for valid log"
         )
 
-        // The full stripped content line must be present — this only holds if the
-        // line-start prefix was removed AND the mid-line timestamp survived intact.
         #expect(
             result.contains(midLineContent),
             "The full content line (with its mid-line timestamp) must appear after stripping the line-start prefix"
         )
-        // No line in the result should begin with a timestamp prefix — guards against
-        // the regression where stripping silently fails and the prefix leaks through.
         #expect(
             !result.hasPrefix("2026-07-29T"),
             "The section must not start with a raw timestamp prefix"
@@ -122,9 +160,6 @@ struct GitHubHelpersTests {
     }
 
     /// Verifies that stripping timestamp prefixes does not corrupt the underlying log content.
-    /// The input has timestamp prefixes on every line (as a real log does); the assertion
-    /// checks that the content survives the full pipeline (stripAnsi → stripTimestamps →
-    /// section slicing) unchanged.
     /// Uses a ##[group]-wrapped payload so parseStepLog takes the section-slicing path
     /// rather than the sections.isEmpty fallback.
     ///
@@ -133,8 +168,6 @@ struct GitHubHelpersTests {
     @Test func fetchStepLog_strippingDoesNotCorruptContent() async throws {
         let transport = MockTransport()
         let cleanLine = "Cleaning up orphan processes"
-        // Wrap in a ##[group] block so buildLogSections finds exactly one section.
-        // stepNumber: 1 therefore selects this section directly.
         let rawLog = [
             "2026-07-29T03:11:15.4722230Z ##[group]Post job cleanup",
             "2026-07-29T03:11:15.5000000Z \(cleanLine)",
@@ -152,11 +185,11 @@ struct GitHubHelpersTests {
     }
 
     /// Verifies that a blank timestamped line with no trailing space is also stripped.
-    /// This exercises the `[^\S\n]*` trailer in timestampRegex.
-    /// Note: this log has no `##[group]` markers, so `buildLogSections` returns [] and
-    /// `parseStepLog` takes the `sections.isEmpty` fallback path, returning the full
-    /// cleaned string. This intentionally tests stripping outside the section-slicing
-    /// path; sibling tests that use `##[group]` cover the section path explicitly.
+    /// This exercises the `[^\S\n]*` trailer in timestampRegex (zero-repetition match).
+    /// Note: this log has no `##[group]` markers — parseStepLog takes the
+    /// `sections.isEmpty` fallback path, returning the full cleaned string.
+    /// This intentionally targets the fallback path; sibling tests with `##[group]`
+    /// cover the section-slicing path.
     @Test func fetchStepLog_bareTimestampLine_stripped() async throws {
         let transport = MockTransport()
         let rawLog = [
@@ -197,8 +230,6 @@ struct GitHubHelpersTests {
 
     /// Guards the `(\.\d+)?` optional fractional-seconds group in timestampRegex.
     /// A whole-second RFC 3339 timestamp (no sub-second component) must also be stripped.
-    /// This could occur with self-hosted runners or future runner versions that omit
-    /// the fractional-seconds field.
     @Test func fetchStepLog_wholeSecondTimestamp_stripped() async throws {
         let transport = MockTransport()
         let rawLog = "2026-07-29T03:11:15Z Some content on a whole-second timestamp"
@@ -216,14 +247,11 @@ struct GitHubHelpersTests {
         )
     }
 
-    /// Guards CRLF normalisation: raw log bytes with \r\n line endings
-    /// (as may arrive from Windows runners or zip-archive log downloads) must not leave
+    /// Guards CRLF normalisation: raw log bytes with \r\n line endings must not leave
     /// stray \r characters in the output. Verifies that ##[group] section parsing
     /// still works correctly after normalisation.
     @Test func fetchStepLog_crlfLineEndings_normalisedAndStripped() async throws {
         let transport = MockTransport()
-        // Construct a CRLF log with a ##[group] block so buildLogSections exercises
-        // the section-slicing path, confirming \r doesn't corrupt the group marker.
         let rawLog = [
             "2026-07-29T03:11:15.4722230Z ##[group]Build step",
             "2026-07-29T03:11:15.5000000Z Building project",
@@ -242,11 +270,9 @@ struct GitHubHelpersTests {
     }
 
     /// Guards the bare-CR normalisation branch: raw log bytes with bare \r line endings
-    /// (not \r\n) must also be normalised to \n so that no stray \r characters survive
-    /// and ##[group] section parsing works correctly.
-    /// This complements `fetchStepLog_crlfLineEndings_normalisedAndStripped`, which covers
-    /// the \r\n branch; together they fully exercise the two-pass CR normalisation
-    /// (\r\n → \n first, then bare \r → \n — order matters to avoid doubling blank lines).
+    /// must also be normalised to \n. Complements
+    /// `fetchStepLog_crlfLineEndings_normalisedAndStripped`; together they fully exercise
+    /// the two-pass CR normalisation (\r\n → \n first, then bare \r → \n).
     @Test func fetchStepLog_bareCrLineEndings_normalisedAndStripped() async throws {
         let transport = MockTransport()
         let rawLog = [
@@ -266,11 +292,8 @@ struct GitHubHelpersTests {
         #expect(result.contains("Building project"), "Log content must be preserved after bare-CR normalisation")
     }
 
-    /// Guards the out-of-range fallback path in parseStepLog: when `stepNumber` exceeds
-    /// the number of `##[group]` sections found in the log, parseStepLog returns the full
-    /// cleaned log rather than nil or crashing.
-    /// This test uses two ##[group] sections and requests stepNumber 99 to trigger the
-    /// fallback branch explicitly.
+    /// Guards the out-of-range fallback path: when `stepNumber` exceeds the number of
+    /// `##[group]` sections, `parseStepLog` returns the full cleaned log rather than nil.
     @Test func fetchStepLog_stepNumberOutOfRange_returnsFullLog() async throws {
         let transport = MockTransport()
         let rawLog = [
@@ -283,14 +306,11 @@ struct GitHubHelpersTests {
         ].joined(separator: "\n")
         transport.stubRawData = Data(rawLog.utf8)
 
-        // stepNumber 99 is out of range for a 2-section log — parseStepLog falls back
-        // to returning the full cleaned log.
         let result = try #require(
             await fetchStepLog(jobID: 11, stepNumber: 99, scope: "runbot-hq/run-bot", transport: transport),
             "fetchStepLog should return non-nil even when stepNumber is out of range"
         )
 
-        // Full log is returned — both sections' content must be present.
         #expect(result.contains("Step one content"), "Fallback must include content from the first section")
         #expect(result.contains("Step two content"), "Fallback must include content from the second section")
         #expect(!result.contains("2026-07-29T"), "Timestamp prefixes must still be stripped in the fallback path")
@@ -316,7 +336,6 @@ struct GitHubHelpersTests {
 
     @Test func fetchStepLog_returnsNil_forOrgScope() async {
         let transport = MockTransport()
-        // org-scoped logs are not supported — fetchStepLog should return nil early.
         transport.stubRawData = Data("some log".utf8)
         let result = await fetchStepLog(jobID: 5, stepNumber: 1, scope: "runbot-hq", transport: transport)
         #expect(result == nil, "fetchStepLog should return nil for org-only scope")

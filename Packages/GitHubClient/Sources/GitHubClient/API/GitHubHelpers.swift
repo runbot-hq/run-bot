@@ -80,10 +80,15 @@ private let ansiRegex: NSRegularExpression? = try? NSRegularExpression(
 /// digit count would silently fail to strip valid prefixes on those runners. This matches
 /// the approach taken by ncw/parse-actions-logs and other reference implementations.
 ///
-/// **Trailing `[^\S\n]*`** — Matches zero or more non-newline whitespace after the Z,
-/// tolerating the case where an ANSI reset byte appeared between Z and the space separator
-/// and was already removed by `stripAnsi`. Bare timestamp-only lines (no trailing space)
-/// are also matched via this trailer.
+/// **Trailing `[^\S\n]*`** — Matches zero or more non-newline whitespace characters
+/// (spaces, tabs, and any other Unicode whitespace except `\n`) after the Z. This serves
+/// two purposes: (1) it consumes the single space separator that GitHub Actions emits
+/// between the timestamp and the log content; (2) it tolerates the ANSI-after-Z case
+/// where `stripAnsi` has already removed an escape sequence that sat between Z and the
+/// space, leaving Z immediately adjacent to the content with no intervening space.
+/// Tabs after Z are therefore also matched — this is intentional and future-proof.
+/// Bare timestamp-only lines (no trailing whitespace at all) are matched via the `*`
+/// (zero repetitions).
 ///
 /// **`try?`** — Intentional; see note on `ansiRegex` above. Same degradation contract:
 /// if compilation fails, `stripTimestamps` returns input unchanged.
@@ -198,6 +203,12 @@ private func parseStepLog(
 /// the next `##[group]` marker. The `##[endgroup]` line is **intentionally included**
 /// in the returned section string — it acts as the section terminator and callers
 /// use it as a sentinel for display boundaries. It is not stripped here.
+///
+/// Lines that appear **before the first `##[group]` marker** are silently dropped.
+/// For GitHub Actions logs this is by design: preamble lines before the first group
+/// are runner boilerplate that the caller does not need. If the log has no `##[group]`
+/// markers at all, `buildLogSections` returns `[]` and `parseStepLog` falls back to
+/// returning the full cleaned log, making the preamble visible in that case.
 ///
 /// **`hasPrefix` invariant**: By the time this function is called, the full pipeline
 /// (CR normalisation → stripAnsi → stripTimestamps) has already run. Every genuine
