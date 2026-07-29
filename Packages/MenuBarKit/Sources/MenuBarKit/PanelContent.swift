@@ -5,10 +5,12 @@
 //
 // HOW SIZING WORKS — read this before touching anything here:
 //
-// `MBKPanelController` uses KVO on `hostingController.view.intrinsicContentSize`.
-// AppKit invalidates intrinsic content size once per settled SwiftUI layout pass
-// — reliable even before the window is on screen, no burst, no coalescer needed.
-// 1. SwiftUI settles layout → `intrinsicContentSize` KVO fires once.
+// The AppKit pipeline owns all sizing. SwiftUI's job is only to report
+// the content's natural height via `onGeometryChange` and to fill the
+// hosting viewport so content is top-aligned.
+//
+// 1. SwiftUI settles layout → `onGeometryChange` fires with the inner
+//    VStack size (arrow strip + content natural height).
 // 2. `MBKPanelController.applyMeasuredSize(_:)` subtracts the arrow strip,
 //    clamps to the live screen cap, and calls `applyFrame(content:reason:)`.
 // 3. Resizing the window re-proposes exactly that size to SwiftUI; a
@@ -22,7 +24,7 @@
 //    causes SwiftUI to pass the content's ideal height straight through, defeating
 //    the cap entirely. The AppKit pipeline in `applyMeasuredSize` → `clampContent`
 //    is the one and only cap; the SwiftUI layer must not interfere with it.
-//    See issue #2339 for the full analysis.
+//    See issues #2337 and #2339 for the full analysis.
 // ❌ NEVER put a min/max *width* in this wrapper. It applies to every route the
 //    adopter shows, so a fixed-width settings screen would be stretched to the
 //    list's minimum width. Width belongs to the adopter's own views; MenuBarKit
@@ -34,6 +36,11 @@
 //    `GlassEffectContainer` in the adopter's content. The bubble is drawn by
 //    `NSGlassEffectView` (direct panel.contentView) is below the hosting view
 //    as a plain sibling — the same layering strategy NSPopover used for its chrome.
+// ❌ NEVER move `onGeometryChange` outside the inner VStack. It must fire with
+//    the content's natural size *before* the outer fill frame expands the hosting
+//    view to the window bounds. Measuring after the outer fill creates a circular
+//    measurement: window resize → SwiftUI fills new size → onGeometryChange
+//    reports new window size → another resize → …
 import AppKit
 import Observation
 import SwiftUI
@@ -77,12 +84,6 @@ struct MBKPanelContentView: View {
     /// Chrome metrics — arrow size and corner radius.
     let metrics: MBKPanelMetrics
 
-    /// Maximum content height in points, set by the controller on every open.
-    /// Passed as a plain scalar so SwiftUI can cap the content without observing it.
-    /// The cap is re-evaluated on every open and screen change, and the hosting view
-    /// is rebuilt with the new value.
-    let maxContentHeight: CGFloat
-
     /// The adopter's content.
     let content: AnyView
 
@@ -104,58 +105,46 @@ struct MBKPanelContentView: View {
         )
     }
 
-    /// Insets content below the arrow, clips to the bubble, reports settled size.
+    /// Measures the content's natural height then fills the hosting viewport.
     ///
-    /// Sizing is owned entirely by the AppKit pipeline:
-    /// 1. `.frame(maxHeight: maxContentHeight)` caps the content so the ScrollView
-    ///    scrolls rather than overflowing — this is the only SwiftUI-side cap.
-    /// 2. `onGeometryChange` fires with the content's ideal settled size.
-    /// 3. `applyMeasuredSize` clamps it to the live screen cap.
-    /// 4. `applyFrame` resizes the window to the clamped size.
-    /// 5. The window re-proposes the capped height to SwiftUI on the next pass.
-    /// 6. A `ScrollView` inside `content` receives the cap as a concrete proposal
-    ///    and scrolls rather than overflowing.
+    /// Two-layer structure:
     ///
-    /// ❌ NEVER add `.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)`
-    ///    here. It makes the content fill the hosting view's proposed size, which causes
-    ///    `onGeometryChange` to report the window size instead of the content's natural
-    ///    size, creating a feedback loop: window resize → SwiftUI re-layout → reports
-    ///    new window size → window resize → ⋯.
-    /// ✅ `.fixedSize(horizontal: false, vertical: true)` + `.frame(maxHeight:)` here
-    ///    is correct and load-bearing. `.fixedSize` makes the content use its ideal
-    ///    height (breaking the window-proposal feedback loop), and `.frame(maxHeight:)`
-    ///    caps the ideal height at the screen fraction. The AppKit pipeline in
-    ///    `applyMeasuredSize` → `clampContent` is the backup cap; the SwiftUI modifiers
-    ///    are the primary ones.
-    /// ❌ NEVER add `.fixedSize(vertical: true)` without `.frame(maxHeight:)` — the
-    ///    content's ideal height passes straight through, defeating the cap.
-    /// ❌ NEVER put a min/max *width* in this wrapper. It applies to every route the
-    ///    adopter shows, so a fixed-width settings screen would be stretched to the
-    ///    list's minimum width. Width belongs to the adopter's own views; MenuBarKit
-    ///    caps only the height (the live screen fraction) and the screen width.
-    /// ❌ NEVER measure with a `GeometryReader`. A geometry reader sees the size we
-    ///    already applied, not the size the content wants, so it cannot detect growth.
-    /// ❌ NEVER apply `.glassEffect(...)` in this wrapper. Glass cannot sample other
-    ///    glass: a SwiftUI glass ancestor silently flattens every
-    ///    `GlassEffectContainer` in the adopter's content. The bubble is drawn by
-    ///    `NSGlassEffectView` (direct panel.contentView) is below the hosting view
-    ///    as a plain sibling — the same layering strategy NSPopover used for its chrome.
+    /// **Inner layer** (`measuredContent`) — an arrow spacer + the adopter's
+    /// content, with `onGeometryChange` attached. This is the measurement
+    /// source. It reports the content's *natural* height before any outer
+    /// fill frame can expand the hosting view to the window bounds.
+    ///
+    /// **Outer layer** — `.frame(maxWidth: .infinity, maxHeight: .infinity,
+    /// alignment: .top)` fills the AL-pinned hosting viewport and pins the
+    /// measured content to the top of the window so it never floats centred.
+    ///
+    /// The AppKit pipeline in `applyMeasuredSize` → `clampContent` is the
+    /// sole height cap. After `applyFrame` resizes the window to the clamped
+    /// height, SwiftUI re-proposes that concrete size and a `ScrollView`
+    /// inside `content` receives it as a real viewport — it scrolls instead
+    /// of overflowing. No `.fixedSize` or `.frame(maxHeight:)` is needed or
+    /// wanted here.
     var body: some View {
-        content
-            // RULE: .fixedSize BEFORE .frame(maxHeight:) — this is the only modifier
-            // order that works. .fixedSize makes the content use its ideal height
-            // regardless of the window proposal, breaking the feedback loop.
-            // .frame(maxHeight:) then caps the ideal height at the screen fraction.
-            // Without .fixedSize, the VStack fills the proposed window height, and
-            // .frame(maxHeight:) only caps the proposal, not the natural size.
-            // This creates an oscillation: window resize → content fills new size →
-            // onGeometryChange reports new size → another resize → …
-            .fixedSize(horizontal: false, vertical: true)
-            .frame(maxHeight: maxContentHeight)
-            .padding(.top, metrics.arrowHeight)
+        measuredContent
             .clipShape(bubble)
-            .onGeometryChange(for: CGSize.self, of: \.size) { newSize in
-                onSizeChange?(newSize)
-            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+
+    /// Arrow spacer + adopter content, with `onGeometryChange` on the wrapper.
+    ///
+    /// `onGeometryChange` is intentionally placed here — on the inner VStack —
+    /// so it fires with the content's natural size before the outer
+    /// `.frame(maxWidth: .infinity, maxHeight: .infinity)` expands the hosting
+    /// view to the current window bounds. Measuring after the outer fill would
+    /// create a circular measurement loop.
+    private var measuredContent: some View {
+        VStack(spacing: 0) {
+            Color.clear
+                .frame(height: metrics.arrowHeight)
+            content
+        }
+        .onGeometryChange(for: CGSize.self, of: \.size) { newSize in
+            onSizeChange?(newSize)
+        }
     }
 }
