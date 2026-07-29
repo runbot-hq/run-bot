@@ -139,17 +139,16 @@ extension MBKPanelController {
     ///
     /// ORDERING — do not reorder without re-reading `fireOnWillClose`:
     /// `onWillClose(wasForced: true)` fires first so the adopter can snapshot and
-    /// tear down its sheet state; the gate is cleared next so `performClose`-style
-    /// refusal is structurally impossible; child windows are detached last.
+    /// tear down its sheet state; child windows are detached before teardown so
+    /// the panel can close cleanly.
     ///
-    /// NOTE: `hasFilePickerOverlay` is intentionally NOT cleared here. The event
-    /// monitor only reaches `forceClose()` when it is false — the file-picker
-    /// branch returns early. `teardown` is the authoritative reset for both flags.
+    /// NOTE: Neither `hasActiveOverlay` nor `hasFilePickerOverlay` is cleared here.
+    /// The event monitor only reaches `forceClose()` when `hasFilePickerOverlay` is
+    /// false — the file-picker branch returns early. `teardown` is the authoritative
+    /// reset for both flags.
     func forceClose() {
         guard isShown else { return }
         fireOnWillClose(wasForced: true)
-        mbkLog("PanelController", "forceClose -- clearing gate")
-        overlayGate.hasActiveOverlay = false
         if let panel {
             // WHY WE DO NOT GUARD child ITERATION WITH child.isVisible:
             //   The TOCTOU race in MBKSheetAnchorTask (see AnchoredSheet.swift Known
