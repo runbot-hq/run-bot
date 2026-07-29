@@ -80,8 +80,14 @@ extension MBKPanelController {
     }
 
     func liveMaxContentHeight() -> CGFloat {
-        MBKPanelGeometry.maxContentHeight(
-            visibleFrame: liveVisibleFrame(),
+        let visible = liveVisibleFrame()
+        // topY is the menu-bar bottom (= the top edge the panel touches).
+        // Fall back to visibleFrame.maxY when no anchor is available yet
+        // (pre-first-open, headless CI) so the cap is still a sane non-zero value.
+        let topY = readAnchor()?.topY ?? visible.maxY
+        return MBKPanelGeometry.maxContentHeight(
+            topY: topY,
+            visibleFrame: visible,
             fraction: maxHeightFraction,
             metrics: metrics
         )
