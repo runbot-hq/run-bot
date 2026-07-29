@@ -26,7 +26,7 @@ import SwiftUI
 //     live against NSScreen on every open (AppDelegate.panelHeightMultiplier is
 //     passed through as `maxHeightFraction`)
 //   • .frame(height: scrollViewHeight > 0 ? ... : nil) on the ScrollView
-//   • the root .fixedSize() — MenuBarKit's unspecified-proposal measurement pass
+//   • the root .fixedSize() — MenuBarKit’s unspecified-proposal measurement pass
 //     already gives us content-driven sizing, and a .fixedSize() here would make
 //     the ScrollView ignore the capped proposal and overflow instead of scroll
 //   • isMenuBarHidden and the NSApp.windows iteration behind it — MenuBarKit
@@ -56,8 +56,14 @@ import SwiftUI
 // RULE 11 (WIDTH OWNERSHIP): the root carries
 //         .frame(minWidth: RBMetrics.panelListMinWidth, maxWidth: RBMetrics.panelListMaxWidth).
 //         ❌ NEVER move it into MenuBarKit — it would apply to Settings too.
+// RULE 12 (TOP ALIGNMENT): the root carries
+//         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+//         AFTER the width frame. Without this, when the window expands between
+//         MEASURE passes (stale fittingSize open → settled onGeometryChange resize),
+//         SwiftUI re-centres the VStack in the new space instead of keeping it at the top.
+//         ❌ NEVER remove this modifier.
 //
-// The panel's Liquid Glass bubble and arrow are drawn by MenuBarKit in AppKit
+// The panel’s Liquid Glass bubble and arrow are drawn by MenuBarKit in AppKit
 // (`MBKPanelChromeView`: an NSGlassEffectView body plus a rotated NSGlassEffectView
 // arrow), one layer *below* this view —
 // exactly where NSPopover used to put its chrome. That is deliberate: a SwiftUI
@@ -151,9 +157,14 @@ struct PanelMainView: View {
                 }
             actionsSectionScrollable
         }
-        // RULE 11: LOAD-BEARING — the list's own width range. MenuBarKit does not
+        // RULE 11: LOAD-BEARING — the list’s own width range. MenuBarKit does not
         // impose one, so without this the panel would be as wide as its widest row.
         .frame(minWidth: RBMetrics.panelListMinWidth, maxWidth: RBMetrics.panelListMaxWidth)
+        // RULE 12: LOAD-BEARING — pin content to topLeading inside the hosting view.
+        // Between the stale-fittingSize first WRITE and the settled onGeometryChange
+        // second WRITE, the window is larger than the content. Without this frame the
+        // VStack re-centres in that extra space; with it the content stays at the top.
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .onAppear {
             #if DEBUG
             log("【PanelMainView】onAppear panelOpen=\(panelVisibilityState.isOpen)", category: .panel)
@@ -181,7 +192,7 @@ struct PanelMainView: View {
             log("【PanelMainView】actions count → \(newActions.count)", category: .panel)
             #endif
             if newActions.count < oldActions.count { visibleCount = 10 }
-            // Invalidate the panel's content size so the window resizes when the
+            // Invalidate the panel’s content size so the window resizes when the
             // list gains or loses rows. This calls `invalidateContentSize()` on the
             // panel controller, which forces a synchronous layout pass and reads the
             // updated fitting size through the frame pipeline.
