@@ -204,6 +204,13 @@ struct PanelMainView: View {
     /// pass this reports the content's natural height, so a short list produces a
     /// short panel. When that height exceeds the live 80% cap, MenuBarKit re-proposes
     /// the capped height and the ScrollView scrolls inside it.
+    ///
+    /// `.fixedSize(vertical: true)` on the ScrollView is LOAD-BEARING: without it the
+    /// ScrollView fills the full height proposal from the containing ZStack and reports
+    /// the window height regardless of content. With `.fixedSize(vertical: true)`, the
+    /// ScrollView reports its content's natural height (the sum of all rows), so the
+    /// VStack → ZStack → MBKPanelContentView chain sees the correct size and the
+    /// window resizes to match.
     /// ❌ NEVER add .frame(height:) or .frame(maxHeight:) here — see RULE 1.
     private var actionsSectionScrollable: some View {
         ScrollView(.vertical, showsIndicators: true) {
@@ -211,6 +218,7 @@ struct PanelMainView: View {
                 // RULE 5: LOAD-BEARING — forces natural height measurement before ScrollView clips.
                 .fixedSize(horizontal: false, vertical: true)
         }
+        .fixedSize(horizontal: false, vertical: true)
     }
 
     // MARK: - Content
