@@ -101,6 +101,9 @@
 // coalescer):
 //   Assigned in setup(), not init(). Safe because setup() is called from
 //   applicationDidFinishLaunching before any user interaction is possible.
+//   isSetUp = true is set as the LAST statement in setup(), after all five
+//   sub-calls complete, so every IUO is guaranteed assigned before any caller
+//   can observe isSetUp == true.
 //
 // nonisolated(unsafe) — the three observer tokens:
 //   All hold opaque tokens from AppKit APIs that are not Sendable. Every live
@@ -180,17 +183,24 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
     /// Guards against calling `setup()` more than once.
     /// `private(set)` — cross-file extensions read this flag (e.g. openPanel's
     /// precondition check) but must never write it; only `setup()` sets it to true.
-
     private(set) var isSetUp = false
+
     // nonisolated(unsafe) — deinit cannot be @MainActor-isolated. These tokens
     // are only read in deinit, which runs after all @MainActor work is done under
     // the singleton lifetime. Safe as long as the controller is never released
     // from a non-main thread — which holds for the single app-lifetime instance.
     /// Global mouse-down event monitor token.
+    ///
+    /// `nonisolated(unsafe)` because `deinit` cannot be `@MainActor`-isolated and
+    /// reads this token to call `NSEvent.removeMonitor`. Every live read and write
+    /// outside `deinit` is `@MainActor`-isolated. Safe under the singleton lifetime
+    /// assumption: the controller is never released from a non-main thread in
+    /// production. Do not use this class as a non-singleton in tests without
+    /// ensuring teardown happens on the main thread.
     nonisolated(unsafe) var eventMonitor: Any?
-    /// Workspace app-switch observer token.
+    /// Workspace app-switch observer token. See `eventMonitor` for `nonisolated(unsafe)` rationale.
     nonisolated(unsafe) var workspaceObserver: NSObjectProtocol?
-    /// Screen-parameter observer token.
+    /// Screen-parameter observer token. See `eventMonitor` for `nonisolated(unsafe)` rationale.
     nonisolated(unsafe) var screenObserver: NSObjectProtocol?
 
     /// Status-button centre X in screen coordinates from the most recent readable frame.
@@ -272,12 +282,16 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
     /// ❌ NEVER call `setup()` more than once. A `precondition` guards this at runtime.
     public func setup() {
         precondition(!isSetUp, "MBKPanelController.setup() called more than once.")
-        isSetUp = true
         NSApp.setActivationPolicy(.accessory)
         setupStatusItem()
         setupPanelWindow()
         setupWorkspaceObserver()
         setupScreenObserver()
+        // Set last — all IUOs (panel, hostingView, limits, coalescer, statusItem) are
+        // assigned by the five calls above. Setting isSetUp = true before they complete
+        // would allow setRootView() and openPanel() to pass the isSetUp guard and
+        // force-unwrap still-nil IUOs if any sub-call failed mid-way.
+        isSetUp = true
         mbkLog("PanelController", "setup complete")
     }
 
