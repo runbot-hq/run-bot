@@ -33,4 +33,6 @@ jobs:
 
       - name: AI Review Output
         if: steps.review.outputs.review_body != ''
-        run: echo "${{ steps.review.outputs.review_body }}"
+        env:
+          REVIEW_BODY: ${{ steps.review.outputs.review_body }}
+        run: echo "$REVIEW_BODY"
