@@ -181,8 +181,17 @@ struct PanelMainView: View {
             log("【PanelMainView】actions count → \(newActions.count)", category: .panel)
             #endif
             if newActions.count < oldActions.count { visibleCount = 10 }
-            // Invalidate the panel's content size so SwiftUI re-lays out and
-            // onGeometryChange fires with the updated size.
+            // Invalidate the panel's content size so the window resizes when the
+            // list gains or loses rows. This calls `invalidateContentSize()` on the
+            // panel controller, which forces a synchronous layout pass and reads the
+            // updated fitting size through the frame pipeline.
+            panelControllerHandle.remeasure()
+        }
+        // Also remeasure on runner and job changes, which can add rows to the list.
+        .onChange(of: appState.runnerState.runners) { _, _ in
+            panelControllerHandle.remeasure()
+        }
+        .onChange(of: appState.runnerState.jobs) { _, _ in
             panelControllerHandle.remeasure()
         }
     }

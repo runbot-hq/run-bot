@@ -487,17 +487,25 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
         )
         mbkLog("PanelController", "setRootView — rootView replaced, lastContentSize cleared")
     }
-/// Invalidates the hosting view's intrinsic content size so the next
-    /// `onGeometryChange` callback fires with the updated size. This is a
-    /// manual trigger for when SwiftUI does not re-layout automatically
-    /// (e.g. data changes inside a ScrollView). Safe to call while the panel
-    /// is closed — the measurement is skipped by `applyMeasuredSize`'s `isShown`.
+/// Invalidates the hosting view's intrinsic content size and immediately
+    /// applies the current measurement. Call this when SwiftUI content changes
+    /// size but a layout pass is needed to pick up the new size (e.g. data
+    /// changes inside a ScrollView). Safe to call while the panel is closed —
+    /// the measurement is skipped by `applyMeasuredSize`'s `isShown` guard.
     public func invalidateContentSize() {
         guard isSetUp, let hostingController else { return }
         // Invalidate the intrinsic content size so SwiftUI re-lays out the
-        // hosting view. The next `onGeometryChange` callback (set up in
-        // `setupPanelWindow()`) will fire with the updated size.
+        // hosting view on the next layout pass.
         hostingController.view.invalidateIntrinsicContentSize()
+        // Force a synchronous layout pass so the fitting size is up-to-date.
+        hostingController.view.layoutSubtreeIfNeeded()
+        // Read the current fitting size and feed it through the frame pipeline.
+        // This is the same path that `onGeometryChange` in `MBKPanelContentView`
+        // uses, but driven synchronously instead of waiting for a SwiftUI callback.
+        let fitting = hostingController.view.fittingSize
+        if fitting.width > 0, fitting.height > 0 {
+            applyMeasuredSize(fitting)
+        }
     }
 
     /// Replaces the status-bar button image.
