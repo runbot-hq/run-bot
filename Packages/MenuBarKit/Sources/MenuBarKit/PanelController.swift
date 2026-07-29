@@ -245,6 +245,19 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
     /// Ensures the pre-open skip is logged at most once per process.
     var didLogPreOpenSkip = false
 
+    // MARK: - Private types
+
+    /// KVC tuning values for `NSGlassEffectView`'s private dark-glass pipeline.
+    ///
+    /// All three must be set together after `.style = .regular` — partial combinations
+    /// produce light or inconsistent glass. Value `1` selects the darker/richer variant
+    /// in each stage of the compositor pipeline. See `setupPanelWindow()` for full rationale.
+    private enum GlassConfig {
+        static let subduedState: Int = 1
+        static let variant: Int = 1
+        static let scrimState: Int = 1
+    }
+
     // MARK: - Init
 
     /// Creates the controller with a root SwiftUI view and shared overlay gate.
@@ -388,9 +401,9 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
             glassView.responds(to: NSSelectorFromString("set" + $0.prefix(1).uppercased() + $0.dropFirst() + ":"))
         }
         if allKeysSupported {
-            glassView.setValue(1, forKey: "_subduedState")
-            glassView.setValue(1, forKey: "_variant")
-            glassView.setValue(1, forKey: "_scrimState")
+            glassView.setValue(GlassConfig.subduedState, forKey: "_subduedState")
+            glassView.setValue(GlassConfig.variant, forKey: "_variant")
+            glassView.setValue(GlassConfig.scrimState, forKey: "_scrimState")
         } else {
             mbkLog("PanelController", "⚠️ NSGlassEffectView KVC keys unavailable on"
                 + " \(ProcessInfo.processInfo.operatingSystemVersionString)"
