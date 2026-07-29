@@ -114,11 +114,11 @@ public final class AppPreferencesStore {
 
     /// Whether the NSPopover anchor arrow is shown.
     ///
-    // TODO: Remove this property and its Settings toggle (see PR #2305).
-    // It previously drove NSPopover's private `shouldHideAnchor` KVC key.
-    // NSPopover was replaced with an owned NSPanel in PR #2305 — this setting
-    // is now inert. The UserDefaults key is preserved so existing installs do
-    // not lose a stored value, but the toggle in Settings does nothing.
+    /// TODO: Remove this property and its Settings toggle (see PR #2305).
+    /// It previously drove NSPopover's private `shouldHideAnchor` KVC key.
+    /// NSPopover was replaced with an owned NSPanel in PR #2305 — this setting
+    /// is now inert. The UserDefaults key is preserved so existing installs do
+    /// not lose a stored value, but the toggle in Settings does nothing.
     ///
     /// When `false`, the arrow is suppressed on the next popover open via the
     /// private-but-widely-used KVC key `shouldHideAnchor` on `NSPopover`.
