@@ -136,8 +136,16 @@ extension MBKPanelController {
         applyFrame(content: content, reason: "WRITE")
     }
 
+    /// Re-measures after a layout pass and schedules a frame apply if the size moved.
+    ///
+    /// Only runs while the panel is visible. AppKit fires layout passes continuously
+    /// even when the panel is off screen; without the `isShown` gate those passes
+    /// schedule a coalescer drain that immediately bails via the same `isShown` check
+    /// in `applyMeasuredSize` — but because `lastMeasuredSize` is never written in
+    /// that bail path, the dedupe here always sees nil and keeps scheduling, producing
+    /// a tight ~100/s CPU loop for the lifetime of the app.
     func scheduleIfMeasurementChanged(reason: String) {
-        guard !isApplyingFrame, let hostingView, let coalescer else { return }
+        guard isShown, !isApplyingFrame, let hostingView, let coalescer else { return }
         let measured = hostingView.intrinsicContentSize
         guard measured.width > 0, measured.height > 0 else { return }
         if let last = lastMeasuredSize,
