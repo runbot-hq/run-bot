@@ -15,7 +15,7 @@
 //
 // HOW THE WINDOW IS LAYERED (back to front) — and why:
 //   contentView = NSGlassEffectView   (direct — no wrapper)
-//     └── contentView    MBKHostingView  (adopter SwiftUI tree)
+//     └── view    NSHostingController.view  (adopter SwiftUI tree)
 //
 //   NSGlassEffectView MUST be the direct panel.contentView. Any intervening
 //   layer-backed ancestor (plain NSView, NSVisualEffectView) routes glass through
@@ -97,11 +97,10 @@
 //   queue: nil delivers on the poster's thread; Task { @MainActor } is the
 //   Swift 6-correct hop to the main actor — compiler-enforced, not asserted.
 //
-// IMPLICIT-UNWRAPPED OPTIONALS (statusItem, panel, hostingView, limits,
-// coalescer):
+// IMPLICIT-UNWRAPPED OPTIONALS (statusItem, panel, hostingController, limits):
 //   Assigned in setup(), not init(). Safe because setup() is called from
 //   applicationDidFinishLaunching before any user interaction is possible.
-//   isSetUp = true is set as the LAST statement in setup(), after all five
+//   isSetUp = true is set as the LAST statement in setup(), after all four
 //   sub-calls complete, so every IUO is guaranteed assigned before any caller
 //   can observe isSetUp == true.
 //
@@ -171,12 +170,13 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
     var statusItem: NSStatusItem!
     /// The one window MenuBarKit owns.
     var panel: MBKPanel!
-    /// Hosts the root SwiftUI view.
-    var hostingView: MBKHostingView!
+    /// Hosts the root SwiftUI view. `sizingOptions = []` so AppKit measures under
+    /// an unspecified proposal and writes the result to `preferredContentSize`.
+    var hostingController: NSHostingController<MBKPanelContentView>!
     /// Live sizing limits handed to SwiftUI.
     var limits: MBKPanelLimits!
-    /// Coalesces size invalidations into one frame apply per runloop turn.
-    var coalescer: MBKSizeCoalescer!
+    /// KVO token for `hostingController.preferredContentSize`.
+    nonisolated(unsafe) var sizeObservation: NSKeyValueObservation?
 
     // MARK: - Session state
 
@@ -233,11 +233,7 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
     }
 
     private func setupPanelWindow() {
-        limits = MBKPanelLimits(maxContentHeight: liveMaxContentHeight(), arrowCenterX: 0)
-
-        coalescer = MBKSizeCoalescer { [weak self] in
-            self?.applyMeasuredSize()
-        }
+        limits = MBKPanelLimits(arrowCenterX: 0)
 
         let glassView = NSGlassEffectView(frame: .zero)
         glassView.style = .regular
@@ -258,24 +254,29 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
                 + " — falling back to .regular style (lighter glass). File a radar.")
         }
 
-        let hosting = MBKHostingView(
+        let hc = NSHostingController(
             rootView: MBKPanelContentView(limits: limits, metrics: metrics, content: rootView)
         )
-        hosting.onIntrinsicSizeChange = { [weak self] in
-            self?.coalescer?.schedule()
-        }
-        hosting.onLayoutPass = { [weak self] in
-            self?.scheduleIfMeasurementChanged(reason: "layout")
-        }
-        hostingView = hosting
+        hc.sizingOptions = []
+        let hv = hc.view
+        hv.translatesAutoresizingMaskIntoConstraints = false
+        hv.wantsLayer = true
+        hv.layer?.backgroundColor = CGColor.clear
+        hostingController = hc
 
-        glassView.addSubview(hosting)
+        glassView.addSubview(hv)
         NSLayoutConstraint.activate([
-            hosting.leadingAnchor.constraint(equalTo: glassView.leadingAnchor),
-            hosting.trailingAnchor.constraint(equalTo: glassView.trailingAnchor),
-            hosting.topAnchor.constraint(equalTo: glassView.topAnchor),
-            hosting.bottomAnchor.constraint(equalTo: glassView.bottomAnchor),
+            hv.leadingAnchor.constraint(equalTo: glassView.leadingAnchor),
+            hv.trailingAnchor.constraint(equalTo: glassView.trailingAnchor),
+            hv.topAnchor.constraint(equalTo: glassView.topAnchor),
         ])
+
+        sizeObservation = hc.observe(\.preferredContentSize, options: [.new]) { [weak self] _, change in
+            guard let newSize = change.newValue, newSize.width > 0, newSize.height > 0 else { return }
+            Task { @MainActor [weak self] in
+                self?.applyMeasuredSize(newSize)
+            }
+        }
 
         let window = MBKPanel()
         window.contentView = glassView
@@ -310,14 +311,14 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
         guard isSetUp else { return }
         lastContentSize = nil
         lastMeasuredSize = nil
-        hostingView.rootView = MBKPanelContentView(limits: limits, metrics: metrics, content: rootView)
+        hostingController.rootView = MBKPanelContentView(limits: limits, metrics: metrics, content: rootView)
         mbkLog("PanelController", "setRootView — rootView replaced, lastContentSize cleared")
     }
 
     public func invalidateContentSize() {
-        guard isSetUp, let hostingView else { return }
-        hostingView.invalidateIntrinsicContentSize()
-        mbkLog("PanelController", "invalidateContentSize — scheduled natural layout pass")
+        // NSHostingController re-measures automatically via preferredContentSize KVO;
+        // nothing to poke manually.
+        mbkLog("PanelController", "invalidateContentSize — no-op under preferredContentSize pipeline")
     }
 
     public func setStatusItemImage(_ image: NSImage) {
