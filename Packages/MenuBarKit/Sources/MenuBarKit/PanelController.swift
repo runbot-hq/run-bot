@@ -464,6 +464,12 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
     /// `cornerRadius` alone is sufficient to suppress the faint square border pixel artefacts.
     private func clipWindowFrameBacking(_ panel: MBKPanel, cornerRadius: CGFloat) {
         guard let frameView = panel.contentView?.superview else { return }
+        #if DEBUG
+        assert(
+            NSStringFromClass(type(of: frameView)).contains("ThemeFrame"),
+            "clipWindowFrameBacking: contentView.superview is \(NSStringFromClass(type(of: frameView))), expected NSThemeFrame. Apple may have restructured the window hierarchy — verify this function is still rounding the right view."
+        )
+        #endif
         frameView.wantsLayer = true
         frameView.layer?.backgroundColor = NSColor.clear.cgColor
         frameView.layer?.cornerRadius = cornerRadius
