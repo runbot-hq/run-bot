@@ -113,7 +113,7 @@ struct GitHubHelpersTests {
     }
 
     /// Verifies that a blank timestamped line with no trailing space is also stripped.
-    /// This exercises the `[ ]?` optional-space trailer in timestampRegex.
+    /// This exercises the `[^\S\n]*` trailer in timestampRegex.
     /// Note: this log has no `##[group]` markers, so `buildLogSections` returns [] and
     /// `parseStepLog` takes the `sections.isEmpty` fallback path, returning the full
     /// cleaned string. This intentionally tests stripping outside the section-slicing
@@ -133,6 +133,27 @@ struct GitHubHelpersTests {
 
         #expect(!result.contains("2026-07-29T"), "Bare timestamp-only lines must also be stripped")
         #expect(result.contains("Actual content here"), "Content on subsequent lines must be preserved")
+    }
+
+    /// Guards the `[^\S\n]*` trailer in timestampRegex: if an ANSI escape sequence
+    /// appears immediately after the Z (before the space separator), stripAnsi removes
+    /// it first, leaving the Z at end-of-prefix with no trailing space. The widened
+    /// trailer must still match and strip the timestamp prefix.
+    @Test func fetchStepLog_ansiImmediatelyAfterZ_timestampStillStripped() async throws {
+        let transport = MockTransport()
+        // ANSI reset (\u{001B}[0m) sits between Z and the space — stripAnsi removes it,
+        // leaving `2026-07-29T03:11:15.4722230Z content` which the widened regex must match.
+        let rawLog = "2026-07-29T03:11:15.4722230Z\u{001B}[0m content after ansi"
+        transport.stubRawData = Data(rawLog.utf8)
+
+        let result = try #require(
+            await fetchStepLog(jobID: 8, stepNumber: 1, scope: "runbot-hq/run-bot", transport: transport),
+            "fetchStepLog should return non-nil for valid log"
+        )
+
+        #expect(!result.contains("2026-07-29T"), "Timestamp prefix must be stripped even when ANSI code follows Z directly")
+        #expect(!result.contains("\u{001B}["), "ANSI escape sequence must be stripped")
+        #expect(result.contains("content after ansi"), "Log content must be preserved")
     }
 
     // MARK: ANSI stripping (regression guard)

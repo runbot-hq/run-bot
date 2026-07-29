@@ -45,10 +45,12 @@ private let ansiRegex: NSRegularExpression? = try? NSRegularExpression(
 /// Pre-compiled regular expression for stripping GitHub Actions log timestamp prefixes.
 /// Every line from the Actions log API is prefixed with an ISO 8601 timestamp + optional space,
 /// e.g. `2026-07-29T03:11:15.4722230Z ` (content line) or `2026-07-29T03:11:15.0000000Z` (blank line).
-/// The trailing `[ ]?` makes the space optional so bare timestamp-only lines are also stripped.
+/// The trailing `[^\S\n]*` matches zero or more non-newline whitespace after the Z, tolerating
+/// any whitespace variant (including the case where an ANSI reset byte appears between Z and the
+/// space separator after stripAnsi has run). Bare timestamp-only lines are also matched.
 /// Compiled once at module load.
 private let timestampRegex: NSRegularExpression? = try? NSRegularExpression(
-    pattern: #"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z[ ]?"#,
+    pattern: #"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z[^\S\n]*"#,
     options: .anchorsMatchLines
 )
 
@@ -168,7 +170,7 @@ private func stripAnsi(_ input: String) -> String {
 
 /// Removes the leading GitHub Actions timestamp prefix from every line of `input`.
 /// e.g. `2026-07-29T03:11:15.4722230Z ` is stripped, leaving only the log content.
-/// Blank timestamped lines (no trailing space) are also matched via the `[ ]?` trailer.
+/// Blank timestamped lines (no trailing space) are also matched via the `[^\S\n]*` trailer.
 /// Returns `input` unchanged if `timestampRegex` failed to compile at module load time.
 private func stripTimestamps(_ input: String) -> String {
     guard let timestampRegex else { return input }
