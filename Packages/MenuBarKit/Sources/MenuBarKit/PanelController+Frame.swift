@@ -10,7 +10,7 @@
 // free instead of needing a post-show correction.
 //
 // ❌ NEVER call `panel.setFrame` or `setFrameOrigin` anywhere else.
-// ❌ NEVER set `hostingController.view.frame` by hand. The hosting view is pinned
+// ❌ NEVER set `hostingView.frame` by hand. The hosting view is pinned
 //    to the window's content view with required constraints; the *window* resizes
 //    and the hosting view follows.
 //
@@ -219,10 +219,10 @@ extension MBKPanelController {
         if abs(cap - maxContentHeight) >= 1 {
             maxContentHeight = cap
             mbkLog("PanelController", "screen change -- maxContentHeight=\(cap)")
-            hostingController.rootView = MBKPanelContentView(limits: limits, metrics: metrics, maxContentHeight: maxContentHeight, content: rootView)
+            hostingView.rootView = MBKPanelContentView(limits: limits, metrics: metrics, maxContentHeight: maxContentHeight, content: rootView)
         }
         guard isShown else { return }
         lastContentSize = nil
-        applyMeasuredSize(hostingController.view.intrinsicContentSize)
+        applyMeasuredSize(hostingView.frame.size)
     }
 }

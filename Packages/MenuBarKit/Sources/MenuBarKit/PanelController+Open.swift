@@ -72,7 +72,7 @@ extension MBKPanelController {
         mbkLog("PanelController", "onWillShow fired")
 
         maxContentHeight = liveMaxContentHeight()
-        hostingController.rootView = MBKPanelContentView(limits: limits, metrics: metrics, maxContentHeight: maxContentHeight, content: rootView)
+        hostingView.rootView = MBKPanelContentView(limits: limits, metrics: metrics, maxContentHeight: maxContentHeight, content: rootView)
         lastContentSize = nil
         onWillCloseFired = false
 
@@ -86,7 +86,7 @@ extension MBKPanelController {
         // If SwiftUI hasn't settled yet (degenerate zero size), fall back to a
         // placeholder frame in the right screen position; KVO fires once SwiftUI
         // settles and corrects it.
-        let initialSize = hostingController.view.intrinsicContentSize
+        let initialSize = hostingView.frame.size
         if initialSize.width > 0, initialSize.height > 0 {
             applyMeasuredSize(initialSize)
         } else {
