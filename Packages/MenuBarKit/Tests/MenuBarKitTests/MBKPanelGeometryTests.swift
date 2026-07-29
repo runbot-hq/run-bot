@@ -157,7 +157,10 @@ struct MBKPanelGeometryTests {
     // MARK: - Height cap
 
     @Test func maxContentHeightIsFractionOfVisibleFrameMinusArrow() {
+        // topY = visibleFrame.maxY = 875; visibleFrame.minY = 0
+        // drawable = topY - minY = 875; cap = 875 * 0.8 - arrowHeight
         let cap = MBKPanelGeometry.maxContentHeight(
+            topY: visibleFrame.maxY,
             visibleFrame: visibleFrame,
             fraction: 0.8,
             metrics: metrics
@@ -166,8 +169,12 @@ struct MBKPanelGeometryTests {
     }
 
     @Test func maxContentHeightIsNeverNegative() {
+        // topY = 4 = visibleFrame.maxY of this degenerate rect; drawable = 4
+        // 4 * 0.8 = 3.2; 3.2 - arrowHeight(11) < 0 → clamped to 0
+        let degenerate = CGRect(x: 0, y: 0, width: 100, height: 4)
         let cap = MBKPanelGeometry.maxContentHeight(
-            visibleFrame: CGRect(x: 0, y: 0, width: 100, height: 4),
+            topY: degenerate.maxY,
+            visibleFrame: degenerate,
             fraction: 0.8,
             metrics: metrics
         )
