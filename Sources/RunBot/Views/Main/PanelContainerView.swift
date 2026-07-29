@@ -130,8 +130,14 @@ struct PanelContainerView<Content: View>: View {
     }
 
     /// Root view: stacks `content`, the zero-size `WindowReader`, and the optional dim overlay.
+    ///
+    /// `.top` alignment ensures the content is pinned to the top of the panel rather
+    /// than centered. When the ZStack sizes to its largest child (content), alignment
+    /// is a no-op — but when the hosting view's proposed size is larger than the content
+    /// (e.g. during the first layout pass before the ScrollView's fixedSize takes effect),
+    /// `.top` prevents the content from appearing centered.
     var body: some View {
-        ZStack {
+        ZStack(alignment: .top) {
             content
             // WindowReader captures the hosting NSWindow asynchronously.
             // Zero-size so it doesn't affect layout.

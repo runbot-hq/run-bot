@@ -503,6 +503,7 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
         // This is the same path that `onGeometryChange` in `MBKPanelContentView`
         // uses, but driven synchronously instead of waiting for a SwiftUI callback.
         let fitting = hostingController.view.fittingSize
+        mbkLog("PanelController", "invalidateContentSize — fittingSize=(\(fitting.width),\(fitting.height))")
         if fitting.width > 0, fitting.height > 0 {
             applyMeasuredSize(fitting)
         }
