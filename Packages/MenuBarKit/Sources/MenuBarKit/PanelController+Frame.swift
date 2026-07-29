@@ -147,7 +147,7 @@ extension MBKPanelController {
             return
         }
 
-        let cap = limits.maxContentHeight
+        let cap = maxContentHeight
         let content = MBKPanelGeometry.clampContent(
             CGSize(width: measured.width, height: measured.height - metrics.arrowHeight),
             minWidth: 1,
@@ -221,9 +221,10 @@ extension MBKPanelController {
     func refreshForScreenChange() {
         guard let limits else { return }
         let cap = liveMaxContentHeight()
-        if abs(cap - limits.maxContentHeight) >= 1 {
-            limits.maxContentHeight = cap
+        if abs(cap - maxContentHeight) >= 1 {
+            maxContentHeight = cap
             mbkLog("PanelController", "screen change -- maxContentHeight=\(cap)")
+            hostingController.rootView = MBKPanelContentView(limits: limits, metrics: metrics, maxContentHeight: maxContentHeight, content: rootView)
         }
         guard isShown else { return }
         lastContentSize = nil

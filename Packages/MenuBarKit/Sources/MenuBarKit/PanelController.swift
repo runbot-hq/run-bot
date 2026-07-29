@@ -177,6 +177,9 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
     /// KVO observation on `hostingController.preferredContentSize`.
     var sizeObservation: NSKeyValueObservation?
 
+    /// Maximum content height in points, recomputed on every open and screen change.
+    var maxContentHeight: CGFloat = 0
+
     // MARK: - Session state
 
     /// Guards against calling `setup()` more than once.
@@ -295,7 +298,8 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
     /// The chrome is added *first* so it stays behind the hosting view; both are
     /// pinned to the same four edges, so the bubble is always exactly the window.
     private func setupPanelWindow() {
-        limits = MBKPanelLimits(maxContentHeight: liveMaxContentHeight(), arrowCenterX: 0)
+        maxContentHeight = liveMaxContentHeight()
+        limits = MBKPanelLimits(arrowCenterX: 0)
 
         // NSGlassEffectView as DIRECT panel.contentView.
         // CRITICAL: any intervening layer-backed ancestor (NSView wrapper, NSVisualEffectView,
@@ -377,14 +381,16 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
         }
 
         let hosting = NSHostingController(
-            rootView: MBKPanelContentView(limits: limits, metrics: metrics, content: rootView)
+            rootView: MBKPanelContentView(limits: limits, metrics: metrics, maxContentHeight: maxContentHeight, content: rootView)
         )
-        hosting.sizingOptions = .preferredContentSize
         hosting.view.wantsLayer = true
         hosting.view.layer?.backgroundColor = CGColor.clear
         hosting.view.translatesAutoresizingMaskIntoConstraints = false
         hostingController = hosting
-        sizeObservation = hosting.observe(\.preferredContentSize, options: [.new]) { [weak self] _, change in
+        sizeObservation = hosting.observe(
+            \NSHostingController<MBKPanelContentView>.preferredContentSize,
+            options: [.new]
+        ) { [weak self] _, change in
             guard let self, let size = change.newValue else { return }
             Task { @MainActor [weak self] in self?.applyMeasuredSize(size) }
         }
@@ -461,7 +467,7 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
     public func setRootView(_ view: AnyView) {
         rootView = view
         guard isSetUp else { return }
-        hostingController.rootView = MBKPanelContentView(limits: limits, metrics: metrics, content: rootView)
+        hostingController.rootView = MBKPanelContentView(limits: limits, metrics: metrics, maxContentHeight: maxContentHeight, content: rootView)
         mbkLog("PanelController", "setRootView — rootView replaced")
     }
 

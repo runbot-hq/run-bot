@@ -71,7 +71,8 @@ extension MBKPanelController {
         onWillShow?()
         mbkLog("PanelController", "onWillShow fired")
 
-        limits.maxContentHeight = liveMaxContentHeight()
+        maxContentHeight = liveMaxContentHeight()
+        hostingController.rootView = MBKPanelContentView(limits: limits, metrics: metrics, maxContentHeight: maxContentHeight, content: rootView)
         lastContentSize = nil
         onWillCloseFired = false
 
