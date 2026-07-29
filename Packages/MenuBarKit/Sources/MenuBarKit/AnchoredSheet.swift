@@ -99,6 +99,13 @@ final class MBKSheetAnchorTask {
                     return
                 }
                 mbkLog("AnchoredSheet[\(self.label)]", "addChildWindow — #\(sheetWindow.windowNumber)")
+                // Force a layout pass on the panel's content view before attaching the
+                // sheet as a child window. addChildWindow() resets the glass compositor's
+                // offscreen-compositing pass, which can leave the corner-radius clip in a
+                // stale state if the content view hasn't laid out at its final size yet.
+                // layoutSubtreeIfNeeded() ensures the glass and its subviews are at the
+                // correct bounds before the compositor resets, preventing a one-frame
+                // corner regression on sheet open.
                 pw.contentView?.layoutSubtreeIfNeeded()
                 pw.addChildWindow(sheetWindow, ordered: .above)
                 // NSGlassEffectView is the direct panel.contentView — no chrome wrapper.
@@ -229,7 +236,7 @@ struct MBKAnchoredSheetModifier<SheetContent: View>: ViewModifier {
 /// `ViewModifier` backing `.mbkSheet(item:content:)`.
 /// Internal — use the `View.mbkSheet(item:content:)` extension instead.
 struct MBKAnchoredSheetItemModifier<Item: Identifiable & Equatable, SheetContent: View>: ViewModifier {
-    /// Binding to the item that drives sheet presentation; `nil` when dismissed.
+    /// Binding to the item that drives presentation; `nil` when dismissed.
     @Binding var item: Item?
     /// The sheet content factory, called with the current non-nil item.
     let sheetContent: (Item) -> SheetContent
