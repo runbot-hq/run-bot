@@ -105,11 +105,13 @@ struct GitHubHelpersTests {
         )
     }
 
-    /// Verifies stripTimestamps is a no-op on content that has no timestamp prefixes.
+    /// Verifies that stripping timestamp prefixes does not corrupt the underlying log content.
+    /// The input has timestamp prefixes on every line (as a real log does); the assertion
+    /// checks that the content survives the full pipeline (stripAnsi → stripTimestamps →
+    /// section slicing) unchanged.
     /// Uses a ##[group]-wrapped payload so parseStepLog takes the section-slicing path
-    /// rather than the no-group fallback — making it explicit that clean content is
-    /// not corrupted regardless of which branch executes.
-    @Test func fetchStepLog_cleanContent_notCorrupted() async throws {
+    /// rather than the sections.isEmpty fallback.
+    @Test func fetchStepLog_strippingDoesNotCorruptContent() async throws {
         let transport = MockTransport()
         let cleanLine = "Cleaning up orphan processes"
         // Wrap in a ##[group] block so buildLogSections finds exactly one section.
@@ -126,8 +128,8 @@ struct GitHubHelpersTests {
             "fetchStepLog should return non-nil for valid log"
         )
 
-        #expect(result.contains(cleanLine), "Clean log content must survive the stripping pipeline unchanged")
-        #expect(!result.contains("2026-07-29T"), "Timestamp prefixes must still be stripped from the selected section")
+        #expect(result.contains(cleanLine), "Log content must survive the stripping pipeline unchanged")
+        #expect(!result.contains("2026-07-29T"), "Timestamp prefixes must be stripped from the selected section")
     }
 
     /// Verifies that a blank timestamped line with no trailing space is also stripped.
@@ -218,6 +220,36 @@ struct GitHubHelpersTests {
         #expect(!result.contains("\r"), "No stray \\r characters should survive CRLF normalisation")
         #expect(!result.contains("2026-07-29T"), "Timestamp prefixes must be stripped from CRLF input")
         #expect(result.contains("Building project"), "Log content must be preserved after CRLF normalisation")
+    }
+
+    /// Guards the out-of-range fallback path in parseStepLog: when `stepNumber` exceeds
+    /// the number of `##[group]` sections found in the log, parseStepLog returns the full
+    /// cleaned log rather than nil or crashing.
+    /// This test uses two ##[group] sections and requests stepNumber 99 to trigger the
+    /// fallback branch explicitly.
+    @Test func fetchStepLog_stepNumberOutOfRange_returnsFullLog() async throws {
+        let transport = MockTransport()
+        let rawLog = [
+            "2026-07-29T03:11:15.0000000Z ##[group]Step one",
+            "2026-07-29T03:11:15.1000000Z Step one content",
+            "2026-07-29T03:11:15.2000000Z ##[endgroup]",
+            "2026-07-29T03:11:15.3000000Z ##[group]Step two",
+            "2026-07-29T03:11:15.4000000Z Step two content",
+            "2026-07-29T03:11:15.5000000Z ##[endgroup]"
+        ].joined(separator: "\n")
+        transport.stubRawData = Data(rawLog.utf8)
+
+        // stepNumber 99 is out of range for a 2-section log — parseStepLog falls back
+        // to returning the full cleaned log.
+        let result = try #require(
+            await fetchStepLog(jobID: 11, stepNumber: 99, scope: "runbot-hq/run-bot", transport: transport),
+            "fetchStepLog should return non-nil even when stepNumber is out of range"
+        )
+
+        // Full log is returned — both sections' content must be present.
+        #expect(result.contains("Step one content"), "Fallback must include content from the first section")
+        #expect(result.contains("Step two content"), "Fallback must include content from the second section")
+        #expect(!result.contains("2026-07-29T"), "Timestamp prefixes must still be stripped in the fallback path")
     }
 
     // MARK: ANSI stripping (regression guard)
