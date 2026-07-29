@@ -292,8 +292,9 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
     /// Sizing is driven by KVO on `hostingView.intrinsicContentSize`.
     /// AppKit invalidates intrinsic content size once per settled SwiftUI layout pass,
     /// delivering a reliable non-zero value even before the window is on screen.
-    /// The four AL pins are still required so the hosting view tracks the window
-    /// frame when `applyFrame` resizes it.
+    /// The hosting view is pinned with THREE constraints (leading, trailing, top) —
+    /// NO bottom pin. A bottom pin would give SwiftUI a concrete height proposal,
+    /// causing short lists to fill the window height and the panel to never shrink.
     ///
     /// The chrome is added *first* so it stays behind the hosting view; both are
     /// pinned to the same four edges, so the bubble is always exactly the window.
@@ -380,17 +381,13 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
                 + " — falling back to .regular style (lighter glass). File a radar.")
         }
 
-        // NSHostingController with all 4 AL pins + onGeometryChange callback.
-        //
-        // onGeometryChange fires every time SwiftUI's layout settles to a new
-        // size — defining the height from the content's intrinsic measurement.
-        // Width is driven by the leading/trailing AL constraints; the height
-        // from onGeometryChange feeds applyMeasuredSize which resizes the
-        // window frame.
-        //
-        // All 4 pins are required: they give SwiftUI a concrete size proposal so it can
-        // measure content against a real width. Without a bottom pin SwiftUI gets an
-        // unspecified height and preferredContentSize never settles to a useful value.
+        // NSHostingController with leading, trailing, and top AL pins.
+        // NO bottom pin — a bottom pin gives SwiftUI a concrete height proposal,
+        // which causes short lists to fill the full window height (the panel never
+        // shrinks) and the list content to be vertically centred instead of
+        // pinned to the top. onGeometryChange in MBKPanelContentView drives height
+        // by reporting the natural content size; applyMeasuredSize then resizes
+        // the window to match.
         //
         // CRITICAL: hosting.view is added via addSubview, NOT glassView.contentView.
         // glassView.contentView puts the SwiftUI tree inside the glass compositor —
@@ -418,7 +415,11 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
             hosting.view.leadingAnchor.constraint(equalTo: glassView.leadingAnchor),
             hosting.view.trailingAnchor.constraint(equalTo: glassView.trailingAnchor),
             hosting.view.topAnchor.constraint(equalTo: glassView.topAnchor),
-            hosting.view.bottomAnchor.constraint(equalTo: glassView.bottomAnchor),
+            // ❌ NO bottom pin — bottom pin gives SwiftUI a concrete height proposal
+            //    which defeats natural-height measurement and centres the list in the
+            //    window instead of pinning it to the top. The window is resized to the
+            //    content height by applyMeasuredSize; the hosting view follows via the
+            //    top/leading/trailing pins.
         ])
 
         let window = MBKPanel()
