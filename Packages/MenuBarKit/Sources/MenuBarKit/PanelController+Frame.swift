@@ -104,7 +104,7 @@ extension MBKPanelController {
             mbkLog("PanelController", "SKIP -- panel not shown, dropping post-close measurement")
             return
         }
-        guard let limits, frameWritesAllowed() else { return }
+        guard limits != nil, frameWritesAllowed() else { return }
         guard measured.width > 0, measured.height > 0 else {
             mbkLog("PanelController", "SKIP -- degenerate preferredContentSize (\(measured.width),\(measured.height))")
             return

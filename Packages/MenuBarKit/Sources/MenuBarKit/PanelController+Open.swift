@@ -41,7 +41,6 @@ extension MBKPanelController {
         precondition(isSetUp, "openPanel() called before setup() — call setup() on MBKPanelController first")
         guard statusItem?.button != nil else { return }
         let panel = panel!
-        let limits = limits!
         mbkLog("PanelController", "openPanel -- calling onWillShow")
         onWillShow?()
         mbkLog("PanelController", "onWillShow fired")

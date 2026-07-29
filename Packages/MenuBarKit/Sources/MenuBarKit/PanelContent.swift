@@ -6,18 +6,18 @@
 // HOW SIZING WORKS — read this before touching anything here:
 //
 // 1. `MBKPanelController` creates an `NSHostingController<MBKPanelContentView>` with
-//    `sizingOptions = []` and pins its view to the glass view on three edges
-//    (leading, trailing, top — no bottom pin). AppKit therefore asks SwiftUI for the
-//    ideal size under an *unspecified* height proposal.
+//    `sizingOptions = []` and pins its view to the glass view on all four edges
+//    (leading, trailing, top, bottom). AppKit therefore proposes a concrete height
+//    that matches the window content area, and SwiftUI can re-measure when the
+//    window resizes.
 // 2. `NSHostingController.preferredContentSize` is updated automatically by AppKit /
 //    SwiftUI each time the ideal size changes. The controller KVO-observes this
 //    property and forwards every non-trivial change to `applyMeasuredSize(_:)`.
 // 3. `applyMeasuredSize` subtracts the arrow strip, clamps, and sets the window frame.
-//    Resizing the window does NOT resize the three-edge-pinned hosting view vertically,
-//    so SwiftUI keeps receiving an unspecified height proposal and `preferredContentSize`
-//    reflects true content height, not the clamped window height.
-// 4. On open: read `preferredContentSize` synchronously and call `applyMeasuredSize`
-//    before `orderFront` so the first frame the user sees is always correct — no snap.
+//    Resizing the window re-proposes the new height through the bottom pin, which
+//    causes SwiftUI to re-measure if the content changed (e.g. list items expanded).
+// 4. On open: after `orderFront`, force a layout pass, then read `preferredContentSize`
+//    synchronously and call `applyMeasuredSize` so the first frame is correct — no snap.
 //
 // ❌ NEVER put a min/max *width* in this wrapper.
 // ❌ NEVER add `.fixedSize()` in this wrapper.

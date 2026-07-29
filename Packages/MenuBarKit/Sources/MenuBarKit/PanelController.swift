@@ -257,7 +257,7 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
         let hc = NSHostingController(
             rootView: MBKPanelContentView(limits: limits, metrics: metrics, content: rootView)
         )
-        hc.sizingOptions = [.preferredContentSize]
+        hc.sizingOptions = []
         let hv = hc.view
         hv.translatesAutoresizingMaskIntoConstraints = false
         hv.wantsLayer = true
@@ -269,6 +269,7 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
             hv.leadingAnchor.constraint(equalTo: glassView.leadingAnchor),
             hv.trailingAnchor.constraint(equalTo: glassView.trailingAnchor),
             hv.topAnchor.constraint(equalTo: glassView.topAnchor),
+            hv.bottomAnchor.constraint(equalTo: glassView.bottomAnchor),
         ])
 
         sizeObservation = hc.observe(\.preferredContentSize, options: [.new]) { [weak self] _, change in
