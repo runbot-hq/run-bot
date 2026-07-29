@@ -200,21 +200,11 @@ struct PanelMainView: View {
 
     /// Scrollable container for the actions section.
     ///
-    /// `.fixedSize(horizontal: false, vertical: true)` on the ScrollView is LOAD-BEARING.
-    ///
-    /// WHY: MBKPanelContentView also applies `.fixedSize(vertical: true)` on the whole
-    /// content tree before capping with `.frame(maxHeight:)`. For that outer fixedSize to
-    /// see the correct natural height of the list, the ScrollView here must also report
-    /// its scroll-content's natural height (not fill its proposal). Without this, the
-    /// ScrollView reports the proposed window height as its natural height, the outer
-    /// fixedSize sees window-height as the ideal size, and the panel never shrinks.
-    ///
-    /// OVERFLOW IS HANDLED BY MBKPanelContentView: when the natural height exceeds the
-    /// screen cap, `.frame(maxHeight: maxContentHeight)` in MBKPanelContentView clamps it.
-    /// The window is resized to the capped height, which becomes the new concrete proposal
-    /// for this ScrollView, and it scrolls inside that fixed window.
-    ///
-    /// ❌ NEVER remove .fixedSize(horizontal: false, vertical: true) from the ScrollView.
+    /// Unconstrained on purpose. Under the concrete window proposal the ScrollView
+    /// receives the capped height and scrolls. The natural-height measurement is
+    /// driven by onGeometryChange in MBKPanelContentView, not by fixedSize here.
+    /// ❌ NEVER add .fixedSize(horizontal: false, vertical: true) to the ScrollView —
+    ///    it fights the concrete window proposal, causing the Y position to jump.
     /// ❌ NEVER add .frame(height:) or .frame(maxHeight:) here — see RULE 1.
     private var actionsSectionScrollable: some View {
         ScrollView(.vertical, showsIndicators: true) {
@@ -222,7 +212,6 @@ struct PanelMainView: View {
                 // RULE 5: LOAD-BEARING — forces natural height measurement before ScrollView clips.
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .fixedSize(horizontal: false, vertical: true)
     }
 
     // MARK: - Content
