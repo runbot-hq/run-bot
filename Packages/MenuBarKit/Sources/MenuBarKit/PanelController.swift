@@ -169,7 +169,7 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
     // MARK: - Session state
 
     /// Guards against calling `setup()` more than once.
-    var isSetUp = false
+    private(set) var isSetUp = false
     /// Global mouse-down event monitor token. `nonisolated(unsafe)` — see file header.
     nonisolated(unsafe) var eventMonitor: Any?
     /// Workspace app-switch observer token. `nonisolated(unsafe)` — see file header.
