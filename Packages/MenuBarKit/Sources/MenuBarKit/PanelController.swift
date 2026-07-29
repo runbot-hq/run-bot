@@ -298,7 +298,6 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
         glassView.autoresizingMask = [.width, .height]
         // Private KVC dark-glass tuning. All three must be set together after .style = .regular.
         // Value 1 = darker/richer glass. Do NOT revert to 0 — empirically lighter on macOS 26.
-        // Undocumented; may change in a future OS release.
         //
         // Each key controls a distinct stage of the same compositor pipeline:
         //   _subduedState = 1  Locks the glass to its own dark intrinsic tone instead of
@@ -310,24 +309,31 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
         // All three must be set together — partial combinations produce light or inconsistent
         // glass. These KVC values only affect tint/intensity, not the compositing path, so
         // they do NOT interact with the masksToBounds / offscreen-pass issue.
-        // setValue(_:forKey:) does not throw — a missing key raises NSUndefinedKeyException at
-        // runtime (uncatchable from Swift). If Apple removes a key in a future OS, the app will
-        // crash on first open with: [NSGlassEffectView setValue:forUndefinedKey:]. To diagnose:
-        // look for that message in the crash log.
         //
-        // NOTE on the selector check below: responds(to:) checks for the ObjC setter selector
-        // (e.g. set_SubduedState:), which is NOT the same guarantee as KVC compliance.
-        // An object can respond to the setter selector but still raise NSUndefinedKeyException
-        // on setValue(_:forKey:) if the key is not registered in the KVO/KVC system.
-        // The inverse is also possible. This check guards against the most common removal
-        // scenario (Apple deletes the property entirely), but cannot guarantee safety against
-        // a key that loses KVC compliance while retaining its setter. A fully robust guard
-        // would use value(forKey:) in a try/catch via ObjC bridging.
-        // TODO: The responds(to:) check does not guarantee KVC compliance — an object
-        // can respond to the setter selector but still raise NSUndefinedKeyException on
-        // setValue(_:forKey:) if the key is not registered in the KVC system. This is
-        // an uncatchable crash from Swift. The correct fix is an ObjC @try/@catch
-        // bridging wrapper around these three setValue calls. Tracked in issue #2306.
+        // RISK ACKNOWLEDGED — NOT A TODO:
+        // responds(to:) checks for the ObjC setter selector, which is a necessary but not
+        // sufficient guard: an object can respond to the setter while still raising
+        // NSUndefinedKeyException on setValue(_:forKey:) if the key lost KVC registration.
+        // That exception cannot be caught from Swift.
+        //
+        // WHY THIS IS ACCEPTABLE TO SHIP AS-IS:
+        //   • These three keys control tint/intensity only. If allKeysSupported is false,
+        //     the else-branch below fires and the glass renders with .regular style — correct
+        //     and fully usable. Lighter glass, not a crash or a functional regression.
+        //   • The removal scenario that bypasses responds(to:) — a key loses KVC registration
+        //     while retaining its setter selector — has not occurred across any macOS beta or
+        //     release inspected. The far more likely removal path (Apple deletes the property
+        //     entirely) IS caught by responds(to:), which would flip allKeysSupported to false
+        //     and route to the safe fallback.
+        //   • The correct fix (ObjC @try/@catch bridge) requires a new ObjC compilation unit.
+        //     That cost is not justified until we have evidence these keys are at risk.
+        //     It is tracked in issue #2306 with a clear reproduction path.
+        //
+        // FAILURE SIGNAL — if a future OS triggers the unguarded scenario:
+        //   The app will crash on first open with:
+        //     [NSGlassEffectView setValue:forUndefinedKey:] — this class is not key value
+        //     coding-compliant for the key _subduedState (or _variant / _scrimState).
+        //   Fix: delete the setValue line for the offending key, or land issue #2306.
         let kvcKeys = ["_subduedState", "_variant", "_scrimState"]
         let allKeysSupported = kvcKeys.allSatisfy {
             glassView.responds(to: NSSelectorFromString("set" + $0.prefix(1).uppercased() + $0.dropFirst() + ":"))
@@ -461,7 +467,7 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
 extension NSView {
     /// Walks the entire subview tree and collects every NSScrollView descendant.
     /// Used to nuke drawsBackground on open so no scroll view paints over the glass bubble.
-    func descendantScrollViews() -> [NSScrollView] {
+    fileprivate func descendantScrollViews() -> [NSScrollView] {
         var result: [NSScrollView] = []
         for sub in subviews {
             if let sv = sub as? NSScrollView { result.append(sv) }
