@@ -323,8 +323,11 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
         // scenario (Apple deletes the property entirely), but cannot guarantee safety against
         // a key that loses KVC compliance while retaining its setter. A fully robust guard
         // would use value(forKey:) in a try/catch via ObjC bridging.
-        // TODO: revisit at macOS 26.x betas — undocumented KVC may change without notice.
-        // If this fallback fires, file a radar and restore .regular style gracefully.
+        // TODO: The responds(to:) check does not guarantee KVC compliance — an object
+        // can respond to the setter selector but still raise NSUndefinedKeyException on
+        // setValue(_:forKey:) if the key is not registered in the KVC system. This is
+        // an uncatchable crash from Swift. The correct fix is an ObjC @try/@catch
+        // bridging wrapper around these three setValue calls. Tracked in issue #2306.
         let kvcKeys = ["_subduedState", "_variant", "_scrimState"]
         let allKeysSupported = kvcKeys.allSatisfy {
             glassView.responds(to: NSSelectorFromString("set" + $0.prefix(1).uppercased() + $0.dropFirst() + ":"))
@@ -458,7 +461,7 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
 extension NSView {
     /// Walks the entire subview tree and collects every NSScrollView descendant.
     /// Used to nuke drawsBackground on open so no scroll view paints over the glass bubble.
-    fileprivate func descendantScrollViews() -> [NSScrollView] {
+    func descendantScrollViews() -> [NSScrollView] {
         var result: [NSScrollView] = []
         for sub in subviews {
             if let sv = sub as? NSScrollView { result.append(sv) }

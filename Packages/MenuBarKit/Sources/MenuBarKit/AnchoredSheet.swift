@@ -56,17 +56,13 @@ final class MBKSheetAnchorTask {
             }
             mbkLog("AnchoredSheet[\(self.label)]", "hop1 complete — queuing hop2")
             // TODO: GCD hop in MBKSheetAnchorTask.start() — see issue #21 for Swift 6 migration path
-            DispatchQueue.main.async { [weak self] in
+            Task { @MainActor [weak self] in
                 guard let self, !self.cancelled else {
                     mbkLog("AnchoredSheet[\(capturedLabel)]", "hop2 — cancelled/deallocated")
                     return
                 }
-                // NOTE: `cancelled` is an @MainActor-isolated property read here
-                // inside a DispatchQueue.main.async closure. This is safe at runtime
-                // because GCD main queue == main thread == MainActor executor, but the
-                // Swift type system does not verify this statically. Under Swift 6
-                // strict concurrency this pattern may require `@MainActor` annotation
-                // on the closure. The TOCTOU window between the guard check and
+                // @MainActor isolation is statically verified.
+                // The TOCTOU window between the guard check and
                 // addChildWindow is acknowledged — cancellation is best-effort once
                 // this hop is already executing.
                 //

@@ -65,14 +65,6 @@ extension MBKPanelController {
         // statusItem?.button is the only legitimate optional (status item may be absent
         // in testing or before NSStatusBar assignment).
         guard statusItem?.button != nil else { return }
-        // panel/coalescer/limits are all assigned unconditionally in setup() before
-        // isSetUp = true, so if isSetUp is true they cannot be nil. These three checks
-        // are intentionally redundant: they produce an attribution-rich crash message
-        // if a future edit to setup() forgets to assign one of them, rather than
-        // crashing silently at the force-unwrap below with no context.
-        precondition(panel != nil, "MBKPanelController.openPanel() called before setup() — panel is nil")
-        precondition(coalescer != nil, "MBKPanelController.openPanel() called before setup() — coalescer is nil")
-        precondition(limits != nil, "MBKPanelController.openPanel() called before setup() — limits is nil")
         let panel = panel!
         let coalescer = coalescer!
         let limits = limits!

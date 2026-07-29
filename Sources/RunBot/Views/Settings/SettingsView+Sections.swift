@@ -243,6 +243,7 @@ internal extension SettingsView {
     /// TODO: `showPopoverArrow` is inert since PR #2305 (NSPopover replaced by owned NSPanel).
     /// The arrow is now always drawn by `MBKBubbleShape` / `PanelChrome` and cannot be
     /// suppressed without a separate layout path. Remove this toggle in a follow-up.
+    /// TODO: remove when issue #2307 is resolved
     var popoverArrowRow: some View {
         #if DEBUG
         log("【popoverArrowRow】rendered — showPopoverArrow=\(settings.showPopoverArrow)", category: .general)
@@ -257,6 +258,7 @@ internal extension SettingsView {
             // FIX #2174: was Bindable(settings).showPopoverArrow — now $settings.showPopoverArrow
             Toggle("", isOn: $settings.showPopoverArrow)
                 .toggleStyle(.switch).tint(Color.rbSuccess).labelsHidden()
+                .disabled(true)
                 #if DEBUG
                 .onChange(of: settings.showPopoverArrow) { old, new in
                     log("【popoverArrowRow】showPopoverArrow changed \(old) → \(new)", category: .general)
