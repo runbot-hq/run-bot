@@ -11,8 +11,8 @@ import SwiftUI
 // factory methods, no validatedView(for:).
 //
 // This file retains only the AppKit-wiring callbacks that RootPanelView cannot
-// call directly (makeKeyForTextInput requires NSApp.activate):
-//   • navigateToSettings() — mutates savedNavState + promotes to key
+// call directly:
+//   • navigateToSettings() — mutates savedNavState + promotes app to key
 //   • navigateBack()       — clears savedNavState + clears runner sheet
 //
 // ARCHITECTURE RULES:
@@ -33,7 +33,7 @@ extension AppDelegate {
     /// Also promotes the app to key so TextFields in Settings receive input.
     func navigateToSettings() {
         appState.savedNavState = .settings
-        makeKeyForTextInput()
+        NSApp.activate()
     }
 
     /// Navigates back to main.

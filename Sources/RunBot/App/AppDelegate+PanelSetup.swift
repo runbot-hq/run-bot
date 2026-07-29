@@ -9,9 +9,9 @@ import SwiftUI
 // MARK: - AppDelegate + Panel Setup
 //
 // As of #2262 this file owns MBKPanelController construction and callback
-// wiring. NSPopover construction, KVO on preferredContentSize, and
-// PopoverLifecycleCoordinator.installMonitors() have been removed —
-// MBKPanelController owns all of that now.
+// wiring. NSPopover construction, KVO on preferredContentSize, and the old
+// lifecycle coordinator have been removed — MBKPanelController owns all of
+// that now.
 //
 // As of the anchored-panel rewrite there is no NSPopover anywhere in the app.
 // MenuBarKit owns one borderless NSPanel and draws the bubble and arrow itself.
@@ -104,7 +104,7 @@ extension AppDelegate {
         //     log("AppDelegate › onWillShow")
         // }
 
-        // onDidShow — fires one actor turn after popover.show().
+        // onDidShow — fires one actor turn after openPanel().
         // Restore runner sheet state now that the view tree has a window.
         ctrl.onDidShow = { [weak self] in
             guard let self else { return }
@@ -147,7 +147,7 @@ extension AppDelegate {
         // The only risky path would be if MBK fired onWillClose(wasForced:true) without
         // a subsequent onDidShow within the same session, which would require MBK to
         // suppress its own open callback — not a documented MBK behaviour.
-        // Pre-existing: the old PopoverLifecycleCoordinator had the same contract
+        // Pre-existing: the old lifecycle coordinator had the same contract
         // (preservedSheetWindowHide was cleared by openPanel(), not by a separate guard).
         ctrl.onWillClose = { [weak self] wasForced in
             guard let self else { return }
