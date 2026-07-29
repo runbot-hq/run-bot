@@ -200,17 +200,23 @@ struct PanelMainView: View {
 
     /// Scrollable container for the actions section.
     ///
-    /// Unconstrained on purpose. Under MenuBarKit's unspecified-proposal measurement
-    /// pass this reports the content's natural height, so a short list produces a
-    /// short panel. When that height exceeds the live 80% cap, MenuBarKit re-proposes
-    /// the capped height and the ScrollView scrolls inside it.
+    /// The ScrollView does NOT carry .fixedSize(vertical: true).
     ///
-    /// `.fixedSize(vertical: true)` on the ScrollView is LOAD-BEARING: without it the
-    /// ScrollView fills the full height proposal from the containing ZStack and reports
-    /// the window height regardless of content. With `.fixedSize(vertical: true)`, the
-    /// ScrollView reports its content's natural height (the sum of all rows), so the
-    /// VStack → ZStack → MBKPanelContentView chain sees the correct size and the
-    /// window resizes to match.
+    /// WHY: MBKPanelContentView applies .frame(maxHeight: maxContentHeight) which caps
+    /// the panel height. .fixedSize(vertical: true) on the ScrollView would make it
+    /// bypass that cap entirely — it tells SwiftUI "ignore the proposed height and use
+    /// my natural height", so the ScrollView reports its full content height (e.g. 710pt)
+    /// through onGeometryChange regardless of the cap, and the window grows past the
+    /// screen limit. This was the hidden=true / oversized-window bug in the logs.
+    ///
+    /// HOW SHORT LISTS STILL WORK: onGeometryChange sits outside the ScrollView in
+    /// MBKPanelContentView and fires with the actual settled size after the cap is
+    /// applied. When content is shorter than the cap, .frame(maxHeight:) passes through
+    /// the natural height unchanged, so onGeometryChange sees the true short size and
+    /// the window sizes to content. When content exceeds the cap, onGeometryChange sees
+    /// the capped height and the ScrollView scrolls inside the fixed window.
+    ///
+    /// ❌ NEVER add .fixedSize(vertical: true) to the ScrollView — it breaks the cap.
     /// ❌ NEVER add .frame(height:) or .frame(maxHeight:) here — see RULE 1.
     private var actionsSectionScrollable: some View {
         ScrollView(.vertical, showsIndicators: true) {
@@ -218,7 +224,6 @@ struct PanelMainView: View {
                 // RULE 5: LOAD-BEARING — forces natural height measurement before ScrollView clips.
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .fixedSize(horizontal: false, vertical: true)
     }
 
     // MARK: - Content
