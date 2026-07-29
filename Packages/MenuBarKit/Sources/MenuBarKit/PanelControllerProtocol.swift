@@ -25,6 +25,12 @@ public protocol MBKPanelControllerProtocol: AnyObject {
     /// The caller is responsible for supplying an appropriately sized, template-mode
     /// `NSImage`. `MBKPanelController` does not resize or retemplate the image.
     func setStatusItemImage(_ image: NSImage)
+/// Invalidates the hosting view's intrinsic content size and schedules a
+    /// measurement on the next layout pass. Call this when the SwiftUI content
+    /// changes size but the standard KVO observer has not fired yet (e.g. data
+    /// changes inside a ScrollView that do not trigger preferredContentSize).
+    /// Safe to call while the panel is closed — the measurement is skipped.
+    func invalidateContentSize()
 
     /// Called in `openPanel()` before the panel is ordered front.
     /// Safe for restoring route and other state with no overlay gate side effects.

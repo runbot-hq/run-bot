@@ -33,6 +33,30 @@ import SwiftUI
 // ❌ NEVER remove. ❌ NEVER remove from wrapEnv().
 // See ARCHITECTURE.md §panelVisibilityState.
 
+/// Environment-injectable handle for remeasuring the panel when SwiftUI content grows.
+///
+/// `@Observable` is required because SwiftUI's `.environment()` requires the
+/// type to conform to `Observable` (as of macOS 26). `MBKPanelController` is
+/// a plain `final class` and cannot be made `@Observable` from outside the
+/// `MenuBarKit` module, so this wrapper bridges the gap.
+///
+/// The `panelController` reference is weak to avoid a retain cycle — the
+/// controller owns the panel which owns the hosting view which owns the SwiftUI
+/// tree that holds this handle.
+@MainActor
+@Observable
+final class PanelControllerHandle {
+    /// Calls `MBKPanelController.invalidateContentSize()` via the weak reference
+    /// captured at construction time. Safe to call while the panel is closed —
+    /// the measurement is skipped by `applyMeasuredSize`'s `isShown` guard.
+    let remeasure: () -> Void
+
+    /// Creates a handle with the given remeasure closure.
+    /// - Parameter remeasure: Closure that invalidates the panel's content size.
+    init(remeasure: @escaping () -> Void) {
+        self.remeasure = remeasure
+    }
+}
 // ⚠️ @MainActor isolation — see ARCHITECTURE.md §@MainActor isolation.
 // ❌ NEVER remove @MainActor from this class declaration.
 
@@ -81,10 +105,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// `PanelContainerView` and its dim overlay observe this object;
     /// removing it causes a runtime crash on sheet dismissal.
     func wrapEnv<V: View>(_ view: V) -> AnyView {
-        AnyView(view
+        let handle = PanelControllerHandle(
+            remeasure: { [weak self] in
+                self?.panelController?.invalidateContentSize()
+            }
+        )
+        return AnyView(view
             .environment(panelVisibilityState)
             .environment(appState)
             .environment(overlayGate)
+            .environment(handle)
         )
     }
 

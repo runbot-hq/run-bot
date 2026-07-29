@@ -479,6 +479,28 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
         hostingController.rootView = MBKPanelContentView(limits: limits, metrics: metrics, maxContentHeight: maxContentHeight, content: rootView)
         mbkLog("PanelController", "setRootView — rootView replaced, lastContentSize cleared")
     }
+/// Invalidates the hosting view's intrinsic content size and schedules a
+    /// measurement on the next layout pass.
+    ///
+    /// Call this when the SwiftUI content changes size but the standard
+    /// `preferredContentSize` KVO observer has not fired (e.g. data changes
+    /// inside a `ScrollView` with `.fixedSize(vertical: true)` — SwiftUI may
+    /// not invalidate the intrinsic content size for layout changes inside a
+    /// scroll view, so `preferredContentSize` never updates).
+    ///
+    /// Safe to call while the panel is closed — the measurement is skipped by
+    /// `applyMeasuredSize`'s `isShown` guard.
+    public func invalidateContentSize() {
+        guard isSetUp, let hostingController else { return }
+        hostingController.view.invalidateIntrinsicContentSize()
+        // Schedule the measurement on the next actor turn so SwiftUI has a
+        // chance to settle the new layout before we read fittingSize.
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let size = hostingController.view.fittingSize
+            applyMeasuredSize(size)
+        }
+    }
 
     // MARK: - Status item
 

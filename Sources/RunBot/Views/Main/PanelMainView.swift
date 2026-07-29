@@ -1,6 +1,7 @@
 // PanelMainView.swift
 // RunBot
 import GitHubClient
+import MenuBarKit
 import RunBotCore
 import SwiftUI
 // REGRESSION GUARD -- DO NOT REMOVE - see regression history (ref #52 #54 #57 #375 #376 #377)
@@ -77,6 +78,9 @@ struct PanelMainView: View {
     @Environment(PanelVisibilityState.self) private var panelVisibilityState: PanelVisibilityState
     /// Core runner/job/action/rate-limit state injected from AppDelegate.wrapEnv.
     @Environment(AppState.self) private var appState
+    /// Panel controller handle injected from AppDelegate.wrapEnv — used to
+    /// invalidate content size when the list grows and standard KVO is insufficient.
+    @Environment(PanelControllerHandle.self) private var panelControllerHandle
     /// View model for CPU/memory stats displayed in the header.
     @State private var systemStats = SystemStatsViewModel()
     /// Number of workflow rows currently shown in the actions section.
@@ -177,6 +181,10 @@ struct PanelMainView: View {
             log("【PanelMainView】actions count → \(newActions.count)", category: .panel)
             #endif
             if newActions.count < oldActions.count { visibleCount = 10 }
+            // Invalidate the panel's content size so the window grows when the
+            // list gains new rows. The standard preferredContentSize KVO does not
+            // fire reliably for data changes inside a ScrollView with .fixedSize.
+            panelControllerHandle.remeasure()
         }
     }
 
