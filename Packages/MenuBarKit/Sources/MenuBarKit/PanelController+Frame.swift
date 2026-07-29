@@ -230,17 +230,22 @@ extension MBKPanelController {
         if abs(cap - maxContentHeight) >= 1 {
             maxContentHeight = cap
             mbkLog("PanelController", "screen change -- maxContentHeight=\(cap)")
-            hostingController.rootView = MBKPanelContentView(
-                limits: limits,
-                metrics: metrics,
-                content: rootView,
-                onSizeChange: { [weak self] size in
-                    self?.applyMeasuredSize(size)
-                }
-            )
+            // ❌ DO NOT rebuild hostingController.rootView here.
+            //    MBKPanelContentView has no cap parameter since c80879c — there
+            //    is nothing to propagate into the view. The rebuild was only ever
+            //    needed when the view held the cap. Now it is a pure no-op that
+            //    costs a full SwiftUI layout pass and discards any settled
+            //    in-flight layout state. The updated cap is stored in
+            //    self.maxContentHeight and will be read by applyMeasuredSize
+            //    when onGeometryChange fires on the next layout pass.
         }
         guard isShown else { return }
         lastContentSize = nil
-        applyMeasuredSize(hostingController.view.fittingSize)
+        // Schedule a natural layout pass. onGeometryChange will fire with the
+        // correct natural size on the next runloop turn and call applyMeasuredSize.
+        // ❌ DO NOT read fittingSize here — same race as invalidateContentSize:
+        //    AppKit proposes the current window height to SwiftUI before it settles,
+        //    so fittingSize reflects the window size, not the content’s natural size.
+        hostingController.view.invalidateIntrinsicContentSize()
     }
 }

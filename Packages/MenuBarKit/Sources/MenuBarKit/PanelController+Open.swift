@@ -66,41 +66,46 @@ extension MBKPanelController {
         // in testing or before NSStatusBar assignment).
         guard statusItem?.button != nil else { return }
         let panel = panel!
-        let limits = limits!
         mbkLog("PanelController", "openPanel -- calling onWillShow")
         onWillShow?()
         mbkLog("PanelController", "onWillShow fired")
 
         maxContentHeight = liveMaxContentHeight()
-        hostingController.rootView = MBKPanelContentView(
-            limits: limits,
-            metrics: metrics,
-            content: rootView,
-            onSizeChange: { [weak self] size in
-                self?.applyMeasuredSize(size)
-            }
-        )
+        // ❌ DO NOT rebuild hostingController.rootView here.
+        //    MBKPanelContentView holds no mutable state that needs refreshing at
+        //    open time — limits and metrics are reference types (class / struct
+        //    passed by the controller), and onSizeChange was wired at setup.
+        //    Rebuilding throws away onGeometryChange’s settled state and forces
+        //    a cold SwiftUI layout pass before orderFrontRegardless, which means
+        //    the first measurement after open comes from an unsettled tree.
+        //    The cap is already updated in self.maxContentHeight above and will
+        //    be read by applyMeasuredSize when onGeometryChange fires naturally.
         lastContentSize = nil
         onWillCloseFired = false
 
         // chrome IS panel.contentView — do not re-insert it as a subview.
         // (It was previously lazily added here, which caused double-background.)
 
+        // Apply a sensible initial frame BEFORE orderFrontRegardless so the
+        // panel has a real size when it becomes visible. With sizingOptions = [],
+        // fittingSize returns zero, so we cannot use it — use the fallback size
+        // directly. onGeometryChange will correct the frame on the first layout
+        // pass after the panel is shown.
+        let fallbackHeight = maxContentHeight > 0
+            ? min(MBKPanelController.fallbackContentSize.height, maxContentHeight)
+            : MBKPanelController.fallbackContentSize.height
+        applyFrame(content: CGSize(width: MBKPanelController.fallbackContentSize.width, height: fallbackHeight), reason: "FALLBACK")
+
         setButtonHighlight(true)
         panel.orderFrontRegardless()
         // isShown (= panel.isVisible) is now true.
-        // Apply the first frame synchronously using the current intrinsicContentSize.
-        // If SwiftUI hasn't settled yet (degenerate zero size), fall back to a
-        // placeholder frame in the right screen position; onGeometryChange fires
-        // once SwiftUI settles and corrects it.
-        let initialSize = hostingController.view.fittingSize
-        if initialSize.width > 0, initialSize.height > 0 {
-            applyMeasuredSize(initialSize)
-        } else {
-            let size = MBKPanelController.fallbackContentSize
-            let fallbackHeight = maxContentHeight > 0 ? min(size.height, maxContentHeight) : size.height
-            applyFrame(content: CGSize(width: size.width, height: fallbackHeight), reason: "FALLBACK")
-        }
+        // onGeometryChange on the inner VStack fires on the first layout pass
+        // after orderFrontRegardless and is the sole measurement source.
+        // fittingSize (and the FALLBACK path) is incompatible with
+        // sizingOptions = [] — the hosting view's intrinsic content size is
+        // suppressed, so fittingSize returns zero, which previously tripped the
+        // FALLBACK branch and stomped the correct frame that onGeometryChange
+        // had already applied.
         // NSApp.activate() — no-argument form, intentional post-deprecation replacement
         // for activate(ignoringOtherApps: true) which is deprecated macOS 14+.
         //

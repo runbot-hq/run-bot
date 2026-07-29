@@ -494,19 +494,22 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
     /// the measurement is skipped by `applyMeasuredSize`'s `isShown` guard.
     public func invalidateContentSize() {
         guard isSetUp, let hostingController else { return }
-        // Invalidate the intrinsic content size so SwiftUI re-lays out the
-        // hosting view on the next layout pass.
+        // Schedule a natural AppKit layout pass. SwiftUI will settle on the next
+        // runloop turn and fire onGeometryChange in MBKPanelContentView, which
+        // calls applyMeasuredSize with the correct natural content size.
+        //
+        // ❌ DO NOT call layoutSubtreeIfNeeded() here.
+        //    That forces a synchronous AppKit layout pass *before* SwiftUI has
+        //    settled. The height proposal SwiftUI receives at that moment is the
+        //    current window height, not an unspecified proposal, so fittingSize
+        //    returns the window height — not the content's natural height. Feeding
+        //    that value to applyMeasuredSize writes a wrong frame that gets
+        //    immediately corrected by the real onGeometryChange callback, causing
+        //    a visible snap. The fix: let onGeometryChange be the sole measurement
+        //    source, always. invalidateIntrinsicContentSize() is sufficient to
+        //    schedule the pass that triggers it.
         hostingController.view.invalidateIntrinsicContentSize()
-        // Force a synchronous layout pass so the fitting size is up-to-date.
-        hostingController.view.layoutSubtreeIfNeeded()
-        // Read the current fitting size and feed it through the frame pipeline.
-        // This is the same path that `onGeometryChange` in `MBKPanelContentView`
-        // uses, but driven synchronously instead of waiting for a SwiftUI callback.
-        let fitting = hostingController.view.fittingSize
-        mbkLog("PanelController", "invalidateContentSize — fittingSize=(\(fitting.width),\(fitting.height))")
-        if fitting.width > 0, fitting.height > 0 {
-            applyMeasuredSize(fitting)
-        }
+        mbkLog("PanelController", "invalidateContentSize — scheduled natural layout pass")
     }
 
     /// Replaces the status-bar button image.
