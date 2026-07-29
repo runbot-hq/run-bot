@@ -15,7 +15,7 @@
 //
 // HOW THE WINDOW IS LAYERED (back to front) — and why:
 //   contentView = NSGlassEffectView   (direct — no wrapper)
-//     └── subview        NSHostingController  (adopter SwiftUI tree)
+//     └── contentView    MBKHostingView  (adopter SwiftUI tree)
 //
 //   NSGlassEffectView MUST be the direct panel.contentView. Any intervening
 //   layer-backed ancestor (plain NSView, NSVisualEffectView) routes glass through
@@ -97,7 +97,8 @@
 //   queue: nil delivers on the poster's thread; Task { @MainActor } is the
 //   Swift 6-correct hop to the main actor — compiler-enforced, not asserted.
 //
-// IMPLICIT-UNWRAPPED OPTIONALS (statusItem, panel, hostingController, limits):
+// IMPLICIT-UNWRAPPED OPTIONALS (statusItem, panel, hostingView, limits,
+// coalescer):
 //   Assigned in setup(), not init(). Safe because setup() is called from
 //   applicationDidFinishLaunching before any user interaction is possible.
 //   isSetUp = true is set as the LAST statement in setup(), after all five
@@ -171,35 +172,28 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
     /// The one window MenuBarKit owns.
     var panel: MBKPanel!
     /// Hosts the root SwiftUI view.
-    var hostingController: NSHostingController<MBKPanelContentView>!
+    var hostingView: MBKHostingView!
     /// Live sizing limits handed to SwiftUI.
     var limits: MBKPanelLimits!
-
-    /// Maximum content height in points, recomputed on every open and screen change.
-    var maxContentHeight: CGFloat = 0
+    /// Coalesces size invalidations into one frame apply per runloop turn.
+    var coalescer: MBKSizeCoalescer!
 
     // MARK: - Session state
 
     /// Guards against calling `setup()` more than once.
-    /// `private(set)` — cross-file extensions read this flag (e.g. openPanel's
-    /// precondition check) but must never write it; only `setup()` sets it to true.
     private(set) var isSetUp = false
 
     nonisolated(unsafe) var eventMonitor: Any?
-    /// Workspace app-switch observer token. See `eventMonitor` for `nonisolated(unsafe)` rationale.
     nonisolated(unsafe) var workspaceObserver: NSObjectProtocol?
-    /// Screen-parameter observer token. See `eventMonitor` for `nonisolated(unsafe)` rationale.
     nonisolated(unsafe) var screenObserver: NSObjectProtocol?
 
-    /// Status-button centre X in screen coordinates from the most recent readable frame.
     var lastKnownAnchorX: CGFloat?
-
-    /// The content size behind the frame currently on screen, for 1pt dedupe.
-    /// Cleared on open and on close so a reopen always recomputes.
     var lastContentSize: CGSize?
-
-    /// Prevents `onWillClose` from firing more than once per open/close cycle.
+    var lastMeasuredSize: CGSize?
+    var isApplyingFrame = false
     var onWillCloseFired = false
+    var hasOpenedOnce = false
+    var didLogPreOpenSkip = false
 
     // MARK: - Private types
 
@@ -238,41 +232,12 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
         mbkLog("PanelController", "setup complete")
     }
 
-    /// Builds the panel, the glass chrome, and the AL-pinned hosting view.
-    ///
-    /// AL PINS — four edges (leading, trailing, top, bottom):
-    ///   The bottom pin is required so that every window resize driven by
-    ///   `applyFrame` propagates a new concrete height proposal to SwiftUI.
-    ///   Without it SwiftUI receives an unspecified proposal, fires
-    ///   `onGeometryChange` once on the first layout pass, then goes silent —
-    ///   window resizes never re-propose so content growth is never reported.
-    ///
-    ///   With the bottom pin: window resizes → bottom constraint changes →
-    ///   SwiftUI receives a new concrete height → re-lays out → `onGeometryChange`
-    ///   fires with the updated natural content size.
-    ///
-    /// sizingOptions = []:
-    ///   Suppresses the intrinsicContentSize-driven sizing path entirely.
-    ///   `onGeometryChange` on the inner VStack in `MBKPanelContentView` is
-    ///   the sole measurement source. The intrinsicContentSize path is
-    ///   incompatible with the bottom-pin architecture: if the hosting view
-    ///   also advertises an intrinsic size, AppKit may use it to drive the
-    ///   window size in addition to `applyFrame`, creating a feedback loop.
-    ///
-    /// WHY THIS DOES NOT CREATE A MEASUREMENT FEEDBACK LOOP:
-    ///   `onGeometryChange` is on the *inner* VStack in `MBKPanelContentView`,
-    ///   not the outer `.frame(.infinity)` fill. The inner VStack measures the
-    ///   content's *natural* height before the outer fill expands to the window
-    ///   bounds. So the sequence is:
-    ///     applyFrame resizes window
-    ///     → bottom pin proposes new height to SwiftUI
-    ///     → inner VStack re-measures natural content height (unchanged if content hasn't grown)
-    ///     → onGeometryChange fires only if natural height changed
-    ///     → applyFrame only if content size changed (dedupe in applyMeasuredSize)
-    ///   No loop. See PanelContent.swift for the inner/outer split.
     private func setupPanelWindow() {
-        maxContentHeight = liveMaxContentHeight()
-        limits = MBKPanelLimits(arrowCenterX: 0)
+        limits = MBKPanelLimits(maxContentHeight: liveMaxContentHeight(), arrowCenterX: 0)
+
+        coalescer = MBKSizeCoalescer { [weak self] in
+            self?.applyMeasuredSize()
+        }
 
         let glassView = NSGlassEffectView(frame: .zero)
         glassView.style = .regular
@@ -293,35 +258,23 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
                 + " — falling back to .regular style (lighter glass). File a radar.")
         }
 
-        let hosting = NSHostingController(
-            rootView: MBKPanelContentView(
-                limits: limits,
-                metrics: metrics,
-                content: rootView,
-                onSizeChange: { [weak self] size in
-                    self?.applyMeasuredSize(size)
-                }
-            )
+        let hosting = MBKHostingView(
+            rootView: MBKPanelContentView(limits: limits, metrics: metrics, content: rootView)
         )
-        // sizingOptions = [] — suppress intrinsicContentSize-driven sizing.
-        // onGeometryChange on the inner VStack is the sole measurement source.
-        // The intrinsicContentSize path conflicts with the bottom-pin architecture.
-        hosting.sizingOptions = []
-        hosting.view.wantsLayer = true
-        hosting.view.layer?.backgroundColor = CGColor.clear
-        hosting.view.translatesAutoresizingMaskIntoConstraints = false
-        hostingController = hosting
+        hosting.onIntrinsicSizeChange = { [weak self] in
+            self?.coalescer?.schedule()
+        }
+        hosting.onLayoutPass = { [weak self] in
+            self?.scheduleIfMeasurementChanged(reason: "layout")
+        }
+        hostingView = hosting
 
-        glassView.addSubview(hosting.view)
-        // FOUR-EDGE pins — the bottom pin is load-bearing for the sizing pipeline.
-        // See setupPanelWindow() header comment above for the full rationale.
-        // ❌ DO NOT remove the bottom pin. Without it onGeometryChange fires once
-        //    and goes silent — window resizes never re-propose to SwiftUI.
+        glassView.addSubview(hosting)
         NSLayoutConstraint.activate([
-            hosting.view.leadingAnchor.constraint(equalTo: glassView.leadingAnchor),
-            hosting.view.trailingAnchor.constraint(equalTo: glassView.trailingAnchor),
-            hosting.view.topAnchor.constraint(equalTo: glassView.topAnchor),
-            hosting.view.bottomAnchor.constraint(equalTo: glassView.bottomAnchor),
+            hosting.leadingAnchor.constraint(equalTo: glassView.leadingAnchor),
+            hosting.trailingAnchor.constraint(equalTo: glassView.trailingAnchor),
+            hosting.topAnchor.constraint(equalTo: glassView.topAnchor),
+            hosting.bottomAnchor.constraint(equalTo: glassView.bottomAnchor),
         ])
 
         let window = MBKPanel()
@@ -341,8 +294,7 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
         assert(
             NSStringFromClass(type(of: frameView)).contains("ThemeFrame"),
             "clipWindowFrameBacking: contentView.superview is \(NSStringFromClass(type(of: frameView))),"
-            + " expected NSThemeFrame. Apple may have restructured the window hierarchy"
-            + " — verify this function is still rounding the right view."
+            + " expected NSThemeFrame."
         )
         #endif
         frameView.wantsLayer = true
@@ -357,25 +309,14 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
         rootView = view
         guard isSetUp else { return }
         lastContentSize = nil
-        hostingController.rootView = MBKPanelContentView(
-            limits: limits,
-            metrics: metrics,
-            content: rootView,
-            onSizeChange: { [weak self] size in
-                self?.applyMeasuredSize(size)
-            }
-        )
+        lastMeasuredSize = nil
+        hostingView.rootView = MBKPanelContentView(limits: limits, metrics: metrics, content: rootView)
         mbkLog("PanelController", "setRootView — rootView replaced, lastContentSize cleared")
     }
 
     public func invalidateContentSize() {
-        guard isSetUp, let hostingController else { return }
-        // Schedule a natural layout pass. onGeometryChange fires on the next
-        // settled pass and calls applyMeasuredSize with the correct natural size.
-        // ❌ DO NOT call layoutSubtreeIfNeeded() here — it forces a synchronous
-        //    pass before SwiftUI settles, reads fittingSize at window height
-        //    (not content height), and causes a visible snap.
-        hostingController.view.invalidateIntrinsicContentSize()
+        guard isSetUp, let hostingView else { return }
+        hostingView.invalidateIntrinsicContentSize()
         mbkLog("PanelController", "invalidateContentSize — scheduled natural layout pass")
     }
 

@@ -5,70 +5,60 @@
 //
 // HOW SIZING WORKS — read this before touching anything here:
 //
-// The AppKit pipeline owns all sizing. SwiftUI's job is only to report
-// the content's natural height via `onGeometryChange` and to fill the
-// hosting viewport so content is top-aligned.
+// 1. `MBKHostingView` is configured with `sizingOptions = [.intrinsicContentSize]`
+//    AND `translatesAutoresizingMaskIntoConstraints = false`, and the controller
+//    pins it edge-to-edge to the window's content view with four required
+//    constraints. BOTH halves are load-bearing: per the AppKit header,
+//    `NSHostingView` only creates — and only keeps invalidating — its
+//    intrinsic-content-size constraints "when Auto Layout constraints are
+//    otherwise being used in the containing window". With the old
+//    autoresizing-mask layout there was no Auto Layout in the window at all, so
+//    `invalidateIntrinsicContentSize()` never fired a second time and the window
+//    froze at whatever size the first measurement produced.
+//    ❌ NEVER set `translatesAutoresizingMaskIntoConstraints = true` here again.
+// 2. AppKit therefore asks SwiftUI for the root's size under an *unspecified*
+//    proposal. The root is `MBKPanelContentView`: the adopter's content, capped
+//    in height, inset by the arrow, clipped to the bubble. Its ideal size is
+//    exactly the window size — content plus the arrow strip.
+// 3. `MBKPanelController` subtracts the arrow strip, clamps, and turns the result
+//    into a window frame. Resizing the *window* resizes the pinned hosting view,
+//    so SwiftUI re-proposes exactly that size to the content and a `ScrollView`
+//    inside receives the capped height and scrolls instead of overflowing.
+// 4. The second pass measures the same value, so the loop converges after one
+//    round trip. The coalescer's 1pt dedupe absorbs float noise.
 //
-// 1. SwiftUI settles layout → `onGeometryChange` fires with the inner
-//    VStack size (arrow strip + content natural height).
-// 2. `MBKPanelController.applyMeasuredSize(_:)` subtracts the arrow strip,
-//    clamps to the live screen cap, and calls `applyFrame(content:reason:)`.
-// 3. Resizing the window re-proposes exactly that size to SwiftUI via the
-//    bottom AL pin; a `ScrollView` inside receives the capped height and
-//    scrolls instead of overflowing.
-//
-// AL PIN ARCHITECTURE:
-//   The hosting view is pinned on all four edges (leading, trailing, top,
-//   bottom). The bottom pin is load-bearing: it propagates every window
-//   resize as a new concrete height proposal to SwiftUI, so `onGeometryChange`
-//   keeps firing as content grows or shrinks. Without the bottom pin SwiftUI
-//   receives an unspecified proposal, fires `onGeometryChange` once, and then
-//   goes silent — window resizes are invisible to SwiftUI.
-//
-// WHY THIS DOES NOT CREATE A FEEDBACK LOOP:
-//   `onGeometryChange` is on the *inner* VStack (`measuredContent`), not the
-//   outer `.frame(.infinity)` fill. The inner VStack reports the content's
-//   *natural* height before the outer fill expands to the window bounds.
-//   Sequence: applyFrame resizes window → bottom pin proposes new height →
-//   inner VStack re-measures natural content height → `onGeometryChange` fires
-//   only if natural height changed → `applyMeasuredSize` dedupe skips if
-//   unchanged. No loop.
-//
-// ❌ NEVER add `.fixedSize(vertical: true)` or `.frame(maxHeight:)` in this
-//    wrapper. Under a concrete height proposal from the bottom pin, `.frame(maxHeight:)`
-//    would cap the *outer fill* at some value, not the inner content — the inner
-//    VStack measures natural height regardless. The AppKit pipeline in
-//    `applyMeasuredSize` → `clampContent` is the one and only height cap.
-//    See issues #2337 and #2339 for the full analysis.
 // ❌ NEVER put a min/max *width* in this wrapper. It applies to every route the
 //    adopter shows, so a fixed-width settings screen would be stretched to the
 //    list's minimum width. Width belongs to the adopter's own views; MenuBarKit
 //    caps only the height (the live screen fraction) and the screen width.
+// ❌ NEVER add `.fixedSize()` in this wrapper. It would make the content ignore
+//    the concrete proposal in step 3, and every capped scroll view would
+//    overflow the panel instead of scrolling — that is exactly the class of bug
+//    #2278/#2279 were about.
 // ❌ NEVER measure with a `GeometryReader`. A geometry reader sees the size we
 //    already applied, not the size the content wants, so it cannot detect growth.
 // ❌ NEVER apply `.glassEffect(...)` in this wrapper. Glass cannot sample other
 //    glass: a SwiftUI glass ancestor silently flattens every
 //    `GlassEffectContainer` in the adopter's content. The bubble is drawn by
-//    `NSGlassEffectView` (direct panel.contentView) below the hosting view
+//    `NSGlassEffectView` (direct panel.contentView) is below the hosting view
 //    as a plain sibling — the same layering strategy NSPopover used for its chrome.
-// ❌ NEVER move `onGeometryChange` outside the inner VStack. It must fire with
-//    the content's natural size *before* the outer fill frame expands the hosting
-//    view to the window bounds. Measuring after the outer fill creates a circular
-//    measurement: window resize → SwiftUI fills new size → onGeometryChange
-//    reports new window size → another resize → …
 import AppKit
 import Observation
 import SwiftUI
 
 // MARK: - Limits
 
-/// Live chrome state handed to the SwiftUI content.
+/// Live sizing and chrome state handed to the SwiftUI content.
 ///
-/// Observable so that a change to `arrowCenterX` (recomputed on every
+/// Observable so that a change to `maxContentHeight` (recomputed on every open
+/// and on screen-parameter changes) or to `arrowCenterX` (recomputed on every
 /// frame apply) re-lays-out the content without rebuilding the hosting view.
 @Observable
 @MainActor
 final class MBKPanelLimits {
+
+    /// Maximum content height in points, recomputed live from the current screen.
+    var maxContentHeight: CGFloat
 
     /// Arrow centre in window-local points, from the leading edge.
     ///
@@ -77,8 +67,11 @@ final class MBKPanelLimits {
     var arrowCenterX: CGFloat
 
     /// Creates a limits object.
-    /// - Parameter arrowCenterX: Initial arrow centre in window-local points.
-    init(arrowCenterX: CGFloat) {
+    /// - Parameters:
+    ///   - maxContentHeight: Maximum content height in points.
+    ///   - arrowCenterX: Initial arrow centre in window-local points.
+    init(maxContentHeight: CGFloat, arrowCenterX: CGFloat) {
+        self.maxContentHeight = maxContentHeight
         self.arrowCenterX = arrowCenterX
     }
 }
@@ -93,7 +86,7 @@ final class MBKPanelLimits {
 /// renders with no glass ancestor above it.
 struct MBKPanelContentView: View {
 
-    /// Live arrow position.
+    /// Live sizing limits and arrow position.
     let limits: MBKPanelLimits
 
     /// Chrome metrics — arrow size and corner radius.
@@ -102,10 +95,11 @@ struct MBKPanelContentView: View {
     /// The adopter's content.
     let content: AnyView
 
-    /// Called by `onGeometryChange` every time SwiftUI's layout settles to a new
-    /// size. The controller uses this to resize the window frame.
-    var onSizeChange: ((CGSize) -> Void)?
-
+    /// The current bubble silhouette, tracking the live arrow position.
+    ///
+    /// Used for clipping only. The same `arrowCenterX` also drives
+    /// `NSGlassEffectView.cornerRadius` via `MBKPanelMetrics`, so the clip
+    /// and the AppKit glass always agree.
     private var bubble: MBKBubbleShape {
         MBKBubbleShape(
             arrowCenterX: limits.arrowCenterX,
@@ -115,44 +109,77 @@ struct MBKPanelContentView: View {
         )
     }
 
-    /// Measures the content's natural height then fills the hosting viewport.
+    /// Caps the content height, insets it below the arrow, and clips to the bubble.
     ///
-    /// Two-layer structure:
-    ///
-    /// **Inner layer** (`measuredContent`) — an arrow spacer + the adopter's
-    /// content, with `onGeometryChange` attached. This is the measurement
-    /// source. It reports the content's *natural* height before any outer
-    /// fill frame can expand the hosting view to the window bounds.
-    ///
-    /// **Outer layer** — `.frame(maxWidth: .infinity, maxHeight: .infinity,
-    /// alignment: .top)` fills the AL-pinned hosting viewport and pins the
-    /// measured content to the top of the window so it never floats centred.
-    ///
-    /// The AppKit pipeline in `applyMeasuredSize` → `clampContent` is the
-    /// sole height cap. After `applyFrame` resizes the window to the clamped
-    /// height, SwiftUI re-proposes that concrete size via the bottom AL pin
-    /// and a `ScrollView` inside `content` receives it as a real viewport —
-    /// it scrolls instead of overflowing. No `.fixedSize` or `.frame(maxHeight:)`
-    /// is needed or wanted here.
+    /// Order matters: the cap applies to the content alone, the arrow inset is
+    /// added on top of it, and the clip uses the *padded* bounds so the
+    /// silhouette and the window frame describe the same rectangle.
     var body: some View {
-        measuredContent
+        content
+            .frame(maxHeight: limits.maxContentHeight)
+            .padding(.top, metrics.arrowHeight)
             .clipShape(bubble)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+}
+
+// MARK: - Hosting view
+
+/// `NSHostingView` that tells the controller when the hosted size may have changed.
+///
+/// Two independent signals, deliberately:
+/// - `invalidateIntrinsicContentSize()` — AppKit's own "the ideal size is stale"
+///   notification. This is the fast path.
+/// - `layout()` — fires on every layout pass. The controller re-measures and only
+///   acts when the number actually moved. This is the safety net: if the
+///   intrinsic invalidation ever stops arriving, the window still tracks content.
+final class MBKHostingView: NSHostingView<MBKPanelContentView> {
+
+    /// Called on the main actor when the intrinsic content size may have changed.
+    var onIntrinsicSizeChange: (@MainActor () -> Void)?
+
+    /// Called on the main actor at the end of every layout pass.
+    var onLayoutPass: (@MainActor () -> Void)?
+
+    /// Creates the hosting view.
+    ///
+    /// `translatesAutoresizingMaskIntoConstraints = false` is required, not
+    /// stylistic — see the sizing notes at the top of this file. Hugging and
+    /// compression resistance are dropped to `.defaultLow` so the controller's
+    /// required edge pins always win over the intrinsic-size constraints AppKit
+    /// derives from the SwiftUI content; the window drives the size, the content
+    /// only reports what it would like.
+    /// - Parameter rootView: The panel root view.
+    required init(rootView: MBKPanelContentView) {
+        super.init(rootView: rootView)
+        sizingOptions = [.intrinsicContentSize]
+        translatesAutoresizingMaskIntoConstraints = false
+        setContentHuggingPriority(.defaultLow, for: .horizontal)
+        setContentHuggingPriority(.defaultLow, for: .vertical)
+        setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        setContentCompressionResistancePriority(.defaultLow, for: .vertical)
+        // The window is fully clear; NSGlassEffectView (the direct panel.contentView)
+        // draws the bubble below this hosting view. Clear this layer so the glass
+        // backdrop is not occluded by an opaque SwiftUI root.
+        wantsLayer = true
+        layer?.backgroundColor = CGColor.clear
     }
 
-    /// Arrow spacer + adopter content, with `onGeometryChange` on the wrapper.
-    ///
-    /// `onGeometryChange` is intentionally on the inner VStack — not the outer
-    /// fill — so it fires with the content's natural size. See file header for
-    /// the full inner/outer split rationale.
-    private var measuredContent: some View {
-        VStack(spacing: 0) {
-            Color.clear
-                .frame(height: metrics.arrowHeight)
-            content
-        }
-        .onGeometryChange(for: CGSize.self, of: \.size) { newSize in
-            onSizeChange?(newSize)
-        }
+    /// Not supported — the panel is built in code.
+    /// - Parameter coder: Unused.
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) is not supported")
+    }
+
+    /// Forwards AppKit's invalidation to the controller.
+    override func invalidateIntrinsicContentSize() {
+        super.invalidateIntrinsicContentSize()
+        onIntrinsicSizeChange?()
+    }
+
+    /// Forwards the end of every layout pass to the controller.
+    override func layout() {
+        super.layout()
+        onLayoutPass?()
     }
 }
