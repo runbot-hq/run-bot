@@ -12,8 +12,10 @@ import Testing
 
 struct MBKPanelGeometryTests {
 
-    /// Standard 1440x900 display with a 25pt menu bar.
-    private let screen = CGRect(x: 0, y: 0, width: 1440, height: 875)
+    /// Visible frame of a standard 1440×900 display with a 25pt menu bar.
+    /// This is the *visible* frame (875pt tall), not the full screen frame (900pt).
+    /// Tests that need the full screen frame construct it inline as CGRect(x:0, y:0, width:1440, height:900).
+    private let visibleFrame = CGRect(x: 0, y: 0, width: 1440, height: 875)
     private let metrics = MBKPanelMetrics.default
 
     // MARK: - Window size
@@ -45,7 +47,7 @@ struct MBKPanelGeometryTests {
                 content: CGSize(width: 400, height: height),
                 anchorX: 700,
                 topY: topY,
-                visibleFrame: screen,
+                visibleFrame: visibleFrame,
                 metrics: metrics
             )
             #expect(layout.frame.maxY == topY)
@@ -59,7 +61,7 @@ struct MBKPanelGeometryTests {
             content: CGSize(width: 400, height: 300),
             anchorX: 700,
             topY: 875,
-            visibleFrame: screen,
+            visibleFrame: visibleFrame,
             metrics: metrics
         )
         #expect(layout.frame.midX == 700)
@@ -75,11 +77,11 @@ struct MBKPanelGeometryTests {
             content: CGSize(width: 400, height: 300),
             anchorX: anchorX,
             topY: 875,
-            visibleFrame: screen,
+            visibleFrame: visibleFrame,
             metrics: metrics
         )
         #expect(layout.wasClamped)
-        #expect(layout.frame.maxX == screen.maxX - metrics.screenMargin)
+        #expect(layout.frame.maxX == visibleFrame.maxX - metrics.screenMargin)
         // Arrow still points at the status item, in window-local coordinates.
         #expect(abs(layout.frame.minX + layout.arrowCenterX - anchorX) < 0.001)
     }
@@ -90,7 +92,7 @@ struct MBKPanelGeometryTests {
             content: CGSize(width: 400, height: 300),
             anchorX: 1439,
             topY: 875,
-            visibleFrame: screen,
+            visibleFrame: visibleFrame,
             metrics: metrics
         )
         #expect(layout.wasClamped)
@@ -102,11 +104,11 @@ struct MBKPanelGeometryTests {
             content: CGSize(width: 400, height: 300),
             anchorX: 20,
             topY: 875,
-            visibleFrame: screen,
+            visibleFrame: visibleFrame,
             metrics: metrics
         )
         #expect(layout.wasClamped)
-        #expect(layout.frame.minX == screen.minX + metrics.screenMargin)
+        #expect(layout.frame.minX == visibleFrame.minX + metrics.screenMargin)
     }
 
     @Test func arrowNeverEntersTheCornerRadius() {
@@ -116,7 +118,7 @@ struct MBKPanelGeometryTests {
                 content: CGSize(width: 400, height: 300),
                 anchorX: anchorX,
                 topY: 875,
-                visibleFrame: screen,
+                visibleFrame: visibleFrame,
                 metrics: metrics
             )
             #expect(layout.arrowCenterX >= lowerBound)
@@ -129,10 +131,10 @@ struct MBKPanelGeometryTests {
             content: CGSize(width: 2000, height: 300),
             anchorX: 1200,
             topY: 875,
-            visibleFrame: screen,
+            visibleFrame: visibleFrame,
             metrics: metrics
         )
-        #expect(layout.frame.midX == screen.midX)
+        #expect(layout.frame.midX == visibleFrame.midX)
         // Origin is -280, so the anchor at 1200 lands 1480pt into the window.
         #expect(layout.arrowCenterX == 1480)
     }
@@ -156,7 +158,7 @@ struct MBKPanelGeometryTests {
 
     @Test func maxContentHeightIsFractionOfVisibleFrameMinusArrow() {
         let cap = MBKPanelGeometry.maxContentHeight(
-            visibleFrame: screen,
+            visibleFrame: visibleFrame,
             fraction: 0.8,
             metrics: metrics
         )
@@ -211,7 +213,7 @@ struct MBKPanelGeometryTests {
     // min/max width of its own — that range lives on the adopter's views.
 
     @Test func maxContentWidthInsetsBothScreenMargins() {
-        let width = MBKPanelGeometry.maxContentWidth(visibleFrame: screen, metrics: metrics)
+        let width = MBKPanelGeometry.maxContentWidth(visibleFrame: visibleFrame, metrics: metrics)
         #expect(width == 1440 - metrics.screenMargin * 2)
     }
 

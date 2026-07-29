@@ -164,6 +164,13 @@ extension MBKPanelController {
     /// The event monitor only reaches `forceClose()` when `hasFilePickerOverlay` is
     /// false — the file-picker branch returns early. `teardown` is the authoritative
     /// reset for both flags.
+    ///
+    /// WHY THE GATE IS NOT CLEARED EARLY (before `teardown`):
+    /// Clearing here and again in `teardown` would open a window where a synchronous
+    /// re-arm of the gate from a child-window close `onChange` goes undetected —
+    /// `teardown` would then clear a gate the adopter just armed, leaving the next
+    /// open/close cycle with no overlay protection. A single authoritative reset in
+    /// `teardown` avoids that race entirely.
     func forceClose() {
         guard isShown else { return }
         fireOnWillClose(wasForced: true)

@@ -230,6 +230,12 @@ extension MBKPanelController {
         // Resize the window, then let Auto Layout push the new bounds through the
         // pinned chrome and hosting view so the bubble and SwiftUI both see the
         // real size on this turn.
+        // ORDERING: layoutSubtreeIfNeeded() runs synchronously here, before
+        // invalidateShadow(). coalescer.flush() in openPanel() guarantees no
+        // pending resize is in flight when the panel is first shown; for the
+        // resize-while-visible path this call ensures the glass and SwiftUI tree
+        // are both at the new size before the shadow is recomputed from the
+        // window's alpha channel.
         panel.contentView?.layoutSubtreeIfNeeded()
         // The window is fully clear, so the shadow is derived from the rendered
         // alpha of the glass bubble. It has to be recomputed for the new shape.
