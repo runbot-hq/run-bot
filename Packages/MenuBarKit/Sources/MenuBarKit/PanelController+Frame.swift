@@ -64,7 +64,7 @@ extension MBKPanelController {
         // app's activation state — so `hidden` flapped between consecutive
         // writes with the menu bar plainly visible. The screen's own visible
         // frame is unambiguous and moves by a whole menu-bar height, far outside
-        // the tolerance. A nil button screen still means “off-screen entirely”.
+        // the tolerance. A nil button screen still means "off-screen entirely".
         let hidden = buttonScreen == nil
             || MBKPanelGeometry.isMenuBarHidden(screenFrame: screen.frame, visibleFrame: visibleFrame)
 
@@ -103,11 +103,18 @@ extension MBKPanelController {
             ?? CGRect(x: 0, y: 0, width: 1440, height: 900)
     }
 
-    /// The current content height cap, recomputed from the live visible frame.
+    /// The current content height cap, recomputed from the live anchor and visible frame.
+    ///
+    /// `topY` is read from the live anchor so the cap uses the drawable space below the
+    /// menu bar rather than the full visible-frame height. Falls back to `visibleFrame.maxY`
+    /// when no anchor is available (e.g. headless CI or pre-setup call).
     /// - Returns: Maximum content height in points.
     func liveMaxContentHeight() -> CGFloat {
-        MBKPanelGeometry.maxContentHeight(
-            visibleFrame: liveVisibleFrame(),
+        let vf = liveVisibleFrame()
+        let topY = readAnchor()?.topY ?? vf.maxY
+        return MBKPanelGeometry.maxContentHeight(
+            topY: topY,
+            visibleFrame: vf,
             fraction: maxHeightFraction,
             metrics: metrics
         )
@@ -214,12 +221,19 @@ extension MBKPanelController {
 
     /// Recomputes the height cap and re-applies the frame after a display change.
     func refreshForScreenChange() {
-        guard let limits else { return }
+        guard limits != nil else { return }
         let cap = liveMaxContentHeight()
         if abs(cap - maxContentHeight) >= 1 {
             maxContentHeight = cap
             mbkLog("PanelController", "screen change -- maxContentHeight=\(cap)")
-            hostingController.rootView = MBKPanelContentView(limits: limits, metrics: metrics, maxContentHeight: maxContentHeight, content: rootView)
+            hostingController.rootView = MBKPanelContentView(
+                limits: limits,
+                metrics: metrics,
+                content: rootView,
+                onSizeChange: { [weak self] size in
+                    self?.applyMeasuredSize(size)
+                }
+            )
         }
         guard isShown else { return }
         lastContentSize = nil
