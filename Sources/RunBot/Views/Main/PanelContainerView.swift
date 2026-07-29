@@ -131,7 +131,7 @@ struct PanelContainerView<Content: View>: View {
 
     /// Root view: stacks `content`, the zero-size `WindowReader`, and the optional dim overlay.
     var body: some View {
-        ZStack {
+        ZStack(alignment: .top) {
             content
             // WindowReader captures the hosting NSWindow asynchronously.
             // Zero-size so it doesn't affect layout.

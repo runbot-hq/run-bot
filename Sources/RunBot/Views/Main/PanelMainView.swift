@@ -154,13 +154,6 @@ struct PanelMainView: View {
         // RULE 11: LOAD-BEARING — the list's own width range. MenuBarKit does not
         // impose one, so without this the panel would be as wide as its widest row.
         .frame(minWidth: RBMetrics.panelListMinWidth, maxWidth: RBMetrics.panelListMaxWidth)
-        // RULE 12: LOAD-BEARING — stretches the VStack to fill the hosting view's full
-        // height while keeping content pinned to the top. Without this, the bottom AL
-        // constraint on the hosting view distributes the VStack's height evenly across
-        // the available space, centering the list when the content is shorter than the
-        // window. `.top` alignment ensures the header stays at the top and the list
-        // grows downward from the header, not from the center.
-        .frame(maxHeight: .infinity, alignment: .top)
         .onAppear {
             #if DEBUG
             log("【PanelMainView】onAppear panelOpen=\(panelVisibilityState.isOpen)", category: .panel)
