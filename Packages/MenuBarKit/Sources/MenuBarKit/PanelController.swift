@@ -80,36 +80,6 @@
 //   assignment does not matter. (An earlier version of this header incorrectly stated
 //   that zeroing before attachment was a silent no-op — that was wrong.)
 //
-// SIZING PIPELINE — read before touching setupPanelWindow():
-//   Goal: list height (or any SwiftUI content height) drives panel height
-//   dynamically as items expand/collapse after the panel is already open.
-//
-//   Signal: KVO on hostingController.preferredContentSize.
-//   NSHostingController writes preferredContentSize after every layout pass
-//   that produces a new ideal size under an *unspecified* proposal. KVO fires
-//   only when the value actually changes — built-in deduplication.
-//
-//   ❌ sizingOptions = [.preferredContentSize]  — DO NOT USE.
-//   With .preferredContentSize, AppKit uses preferredContentSize to drive the
-//   hosting view's size via its own intrinsic-size constraints. Those intrinsic
-//   constraints fight the required bottom pin below, and one or the other wins
-//   arbitrarily. The bottom pin is what causes SwiftUI to re-measure after a
-//   window resize — without it KVO fires once and then goes silent.
-//   sizingOptions = [] disables AppKit's path; preferredContentSize is then a
-//   pure output (SwiftUI → controller) rather than also an input (AppKit →
-//   SwiftUI via intrinsic constraints).
-//
-//   ✅ sizingOptions = []  — required.
-//
-//   ✅ Four-edge AL pins (leading + trailing + top + bottom)  — all required.
-//   After applyMeasuredSize resizes the window, the bottom pin re-proposes the
-//   new concrete height back to SwiftUI. SwiftUI re-measures under that
-//   concrete proposal; if content height changed, preferredContentSize changes
-//   and KVO fires. If content height is unchanged, preferredContentSize stays
-//   the same and the 1pt dedupe in applyMeasuredSize absorbs float noise.
-//   Without the bottom pin the re-proposal never happens and KVO goes silent
-//   after the first measurement.
-//
 // RESPONSIBILITIES:
 //   - Create and show/hide the MBKPanel
 //   - Manage the NSStatusItem button highlight
@@ -134,7 +104,7 @@
 //   sub-calls complete, so every IUO is guaranteed assigned before any caller
 //   can observe isSetUp == true.
 //
-// nonisolated(unsafe) — the observer tokens:
+// nonisolated(unsafe) — the three observer tokens:
 //   All hold opaque tokens from AppKit APIs that are not Sendable. Every live
 //   read/write is @MainActor-isolated. Safe under the singleton lifetime
 //   assumption — see the deinit note below.
@@ -200,9 +170,8 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
     var statusItem: NSStatusItem!
     /// The one window MenuBarKit owns.
     var panel: MBKPanel!
-    /// Hosts the root SwiftUI view.
-    /// sizingOptions = [] so preferredContentSize is a pure SwiftUI→controller output.
-    /// The four-edge AL pins (not sizingOptions) drive the re-proposal loop.
+    /// Hosts the root SwiftUI view. `sizingOptions = []` so AppKit measures under
+    /// an unspecified proposal and writes the result to `preferredContentSize`.
     var hostingController: NSHostingController<MBKPanelContentView>!
     /// Live sizing limits handed to SwiftUI.
     var limits: MBKPanelLimits!
@@ -288,8 +257,6 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
         let hc = NSHostingController(
             rootView: MBKPanelContentView(limits: limits, metrics: metrics, content: rootView)
         )
-        // sizingOptions = [] is load-bearing — see SIZING PIPELINE in the file header.
-        // ❌ DO NOT change to .preferredContentSize — it fights the bottom pin.
         hc.sizingOptions = []
         let hv = hc.view
         hv.translatesAutoresizingMaskIntoConstraints = false
@@ -298,10 +265,6 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
         hostingController = hc
 
         glassView.addSubview(hv)
-        // Four-edge pins are load-bearing — see SIZING PIPELINE in the file header.
-        // ❌ DO NOT remove the bottom pin — without it, AppKit never re-proposes a
-        //    new height to SwiftUI after a window resize, so preferredContentSize
-        //    never changes and KVO goes silent after the first measurement.
         NSLayoutConstraint.activate([
             hv.leadingAnchor.constraint(equalTo: glassView.leadingAnchor),
             hv.trailingAnchor.constraint(equalTo: glassView.trailingAnchor),
