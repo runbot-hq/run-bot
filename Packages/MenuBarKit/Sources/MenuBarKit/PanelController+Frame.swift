@@ -10,15 +10,14 @@
 // free instead of needing a post-show correction.
 //
 // ❌ NEVER call `panel.setFrame` or `setFrameOrigin` anywhere else.
-// ❌ NEVER set `hostingView.frame` by hand. The hosting view is pinned to the
-//    window's content view with required constraints; the *window* resizes and
-//    the hosting view follows. Assigning its frame directly was how the content
-//    ended up bigger than the window, centred and clipped at both ends.
+// ❌ NEVER set `hostingController.view.frame` by hand. The hosting view is pinned
+//    to the window's content view with required constraints; the *window* resizes
+//    and the hosting view follows.
 //
 // LOGGING CONTRACT (the on-device diagnostic surface):
-//   MEASURE  measured=(w,h) content=(w,h) cap=… reason=…
+//   MEASURE  measured=(w,h) content=(w,h) cap=… shown=…
 //   WRITE    content=(w,h) anchorX=… topY=… hidden=… frame=… arrowX=… clamped=…
-//   SKIP     -- content unchanged / degenerate intrinsic size / not shown yet
+//   SKIP     -- content unchanged / degenerate size / not shown yet
 // Every measurement the pipeline saw and every frame it applied has a line.
 
 import AppKit
@@ -81,9 +80,6 @@ extension MBKPanelController {
 
     func liveMaxContentHeight() -> CGFloat {
         let visible = liveVisibleFrame()
-        // topY is the menu-bar bottom (= the top edge the panel touches).
-        // Fall back to visibleFrame.maxY when no anchor is available yet
-        // (pre-first-open, headless CI) so the cap is still a sane non-zero value.
         let topY = readAnchor()?.topY ?? visible.maxY
         return MBKPanelGeometry.maxContentHeight(
             topY: topY,
@@ -165,8 +161,14 @@ extension MBKPanelController {
             limits.arrowCenterX = layout.arrowCenterX
         }
         panel.setFrame(layout.frame, display: true)
-        panel.contentView?.layoutSubtreeIfNeeded()
         panel.invalidateShadow()
+
+        // Re-propose the new window height to SwiftUI so preferredContentSize
+        // updates if content changed further (e.g. another row expanded while
+        // this resize was in flight). Without this call SwiftUI only measures
+        // once on open and never again — the window resize is invisible to it.
+        hostingController.view.layoutSubtreeIfNeeded()
+
         isApplyingFrame = false
 
         mbkLog(
