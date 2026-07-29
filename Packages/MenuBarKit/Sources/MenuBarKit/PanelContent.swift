@@ -109,21 +109,21 @@ struct MBKPanelContentView: View {
     ///    natural (ideal) height regardless of the concrete AL proposal from the window.
     ///    Without this, `.frame(maxHeight:)` under a concrete proposal fills the full
     ///    window height for short content — the panel never shrinks.
-    /// 2. `.frame(maxHeight: maxContentHeight)` caps the natural height at the screen
-    ///    fraction. Content taller than the cap is clipped here; a ScrollView inside
-    ///    will receive the capped height as its proposal in step 3 and scroll.
+    /// 2. `.frame(maxHeight: maxContentHeight, alignment: .top)` caps the natural height
+    ///    at the screen fraction AND pins content to the top of that cap. Without
+    ///    `alignment: .top`, SwiftUI centres content vertically inside the cap —
+    ///    visible as the list floating in the middle of the panel while rows load.
     /// 3. `.padding(.top, metrics.arrowHeight)` adds the arrow strip above the content.
     /// 4. `.clipShape(bubble)` clips to the bubble silhouette.
     /// 5. `.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)` fills
-    ///    the hosting view viewport and pins content to the top. Without this, content
-    ///    shorter than the hosting view height is vertically centred — visible as the
-    ///    list floating in the middle of the panel before the window shrinks to fit.
+    ///    the hosting view viewport and pins the already-top-aligned content to the
+    ///    top of the window while the panel is resizing to its final size.
     /// 6. `onGeometryChange` fires with the final settled size — capped for tall content,
     ///    natural for short content — and drives the window frame.
     var body: some View {
         content
             .fixedSize(horizontal: false, vertical: true)
-            .frame(maxHeight: maxContentHeight)
+            .frame(maxHeight: maxContentHeight, alignment: .top)
             .padding(.top, metrics.arrowHeight)
             .clipShape(bubble)
             .onGeometryChange(for: CGSize.self, of: \.size) { newSize in
