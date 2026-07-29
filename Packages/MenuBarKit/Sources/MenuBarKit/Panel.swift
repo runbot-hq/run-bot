@@ -21,8 +21,10 @@ final class MBKPanel: NSPanel {
 
     /// Creates the panel with the style mask and window-level MenuBarKit relies on.
     init() {
+        // .zero — NSWindow ignores contentRect for borderless panels; the real frame
+        // is set by applyFrame() before orderFront. Not linked to fallbackContentSize.
         super.init(
-            contentRect: CGRect(x: 0, y: 0, width: 320, height: 240),
+            contentRect: .zero,
             styleMask: [.borderless, .nonactivatingPanel, .fullSizeContentView],
             backing: .buffered,
             defer: false
