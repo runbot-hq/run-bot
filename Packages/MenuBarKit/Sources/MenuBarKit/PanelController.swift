@@ -411,15 +411,38 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
         hostingController = hosting
 
         glassView.addSubview(hosting.view)
+        // Bottom pin is low-priority (defaultLow) so it does NOT give SwiftUI a
+        // concrete height proposal that would defeat natural-height measurement.
+        //
+        // WHY a bottom pin is needed at all:
+        //   With sizingOptions = [] and only top/leading/trailing pins, AppKit has
+        //   no idea how tall to make the hosting view — its height is unconstrained
+        //   and collapses to zero. SwiftUI therefore receives a zero-height proposal
+        //   and never lays out, so onGeometryChange never fires and MEASURE is never
+        //   logged. The panel shows the 320×240 fallback frame and stays there.
+        //
+        // WHY low-priority instead of required:
+        //   A required bottom pin makes the hosting view exactly as tall as the
+        //   window content area. SwiftUI receives that as a concrete height proposal,
+        //   which means onGeometryChange on the inner VStack reports the window
+        //   height instead of the content's natural height — defeating the whole
+        //   measurement design.
+        //
+        // HOW low-priority works here:
+        //   AppKit satisfies the pin at the lowest priority, so the hosting view
+        //   gets a real height to lay out into. SwiftUI measures the content's
+        //   natural height and fires onGeometryChange. applyMeasuredSize then
+        //   resizes the window to match the content. Once the window height equals
+        //   the content height the low-priority pin is satisfied anyway — it never
+        //   fights the layout. On subsequent opens the window already has the right
+        //   height from the previous session, so the pin is still satisfied.
+        let bottomPin = hosting.view.bottomAnchor.constraint(equalTo: glassView.bottomAnchor)
+        bottomPin.priority = .defaultLow
         NSLayoutConstraint.activate([
             hosting.view.leadingAnchor.constraint(equalTo: glassView.leadingAnchor),
             hosting.view.trailingAnchor.constraint(equalTo: glassView.trailingAnchor),
             hosting.view.topAnchor.constraint(equalTo: glassView.topAnchor),
-            // ❌ NO bottom pin — bottom pin gives SwiftUI a concrete height proposal
-            //    which defeats natural-height measurement and centres the list in the
-            //    window instead of pinning it to the top. The window is resized to the
-            //    content height by applyMeasuredSize; the hosting view follows via the
-            //    top/leading/trailing pins.
+            bottomPin,
         ])
 
         let window = MBKPanel()
