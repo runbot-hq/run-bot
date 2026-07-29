@@ -233,7 +233,6 @@ extension MBKPanelController {
             hostingController.rootView = MBKPanelContentView(
                 limits: limits,
                 metrics: metrics,
-                maxContentHeight: maxContentHeight,
                 content: rootView,
                 onSizeChange: { [weak self] size in
                     self?.applyMeasuredSize(size)
