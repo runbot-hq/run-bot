@@ -114,7 +114,11 @@ struct MBKPanelContentView: View {
     ///    will receive the capped height as its proposal in step 3 and scroll.
     /// 3. `.padding(.top, metrics.arrowHeight)` adds the arrow strip above the content.
     /// 4. `.clipShape(bubble)` clips to the bubble silhouette.
-    /// 5. `onGeometryChange` fires with the final settled size — capped for tall content,
+    /// 5. `.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)` fills
+    ///    the hosting view viewport and pins content to the top. Without this, content
+    ///    shorter than the hosting view height is vertically centred — visible as the
+    ///    list floating in the middle of the panel before the window shrinks to fit.
+    /// 6. `onGeometryChange` fires with the final settled size — capped for tall content,
     ///    natural for short content — and drives the window frame.
     var body: some View {
         content
@@ -125,5 +129,6 @@ struct MBKPanelContentView: View {
             .onGeometryChange(for: CGSize.self, of: \.size) { newSize in
                 onSizeChange?(newSize)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 }
