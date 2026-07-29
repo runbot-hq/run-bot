@@ -130,37 +130,34 @@ struct PanelContainerView<Content: View>: View {
     }
 
     /// Root view: stacks `content`, the zero-size `WindowReader`, and the optional dim overlay.
-    ///
-    /// `.overlay` (not `ZStack`) is intentional: `ZStack` proposes its full available
-    /// size to all children and takes the size of its largest child. Since the window
-    /// passes the current panel height as the proposed size, the ZStack always reports
-    /// the current window height back up — even when the list content is shorter. This
-    /// defeats `onGeometryChange` in `MBKPanelContentView`, which needs to see the
-    /// content's natural (unproposed) size.
-    ///
-    /// `.overlay` sizes to its base view (`content`) and draws on top — it does not
-    /// inflate the size. The dim overlay and `WindowReader` become decoration, not
-    /// layout participants. `content` is free to report its natural size up the tree.
     var body: some View {
-        content
-            .overlay {
-                // WindowReader captures the hosting NSWindow asynchronously.
-                // Zero-size so it doesn't affect layout.
-                WindowReader(window: $hostWindow)
-                    .frame(width: 0, height: 0)
-                if isSheetActive {
-                    // Semi-transparent overlay that blocks interaction with the
-                    // popover content while a sheet is presented in front of it.
-                    // NSPopover does not dim its own content during sheet presentation
-                    // the way a normal NSWindow does, so we do it manually.
-                    Color.black.opacity(0.35)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .ignoresSafeArea()
-                        .allowsHitTesting(true)
-                        .transition(.opacity)
-                }
+        ZStack {
+            content
+            // WindowReader captures the hosting NSWindow asynchronously.
+            // Zero-size so it doesn't affect layout.
+            WindowReader(window: $hostWindow)
+                .frame(width: 0, height: 0)
+            if isSheetActive {
+                // Semi-transparent overlay that blocks interaction with the
+                // popover content while a sheet is presented in front of it.
+                // NSPopover does not dim its own content during sheet presentation
+                // the way a normal NSWindow does, so we do it manually.
+                //
+                // .frame(maxWidth: .infinity, maxHeight: .infinity) is LOAD-BEARING (#2264).
+                // Without it, Color.black expands to fill all available space and becomes
+                // the largest child of the ZStack, driving the ZStack size upward and inflating
+                // the height MenuBarKit reads off the hosting view's intrinsicContentSize.
+                // ❌ NEVER remove this frame modifier.
+                Color.black.opacity(0.35)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .ignoresSafeArea()
+                    // Must hit-test true — without this, taps pass through to the
+                    // content behind the sheet, which is confusing and buggy.
+                    .allowsHitTesting(true)
+                    .transition(.opacity)
             }
-            // Animate overlay appearance/disappearance.
+        }
+        // Animate overlay appearance/disappearance.
         // This only plays on genuine false→true (sheet opens) and true→false
         // (sheet closes) transitions. It does NOT re-play on transient hide/restore
         // because isSheetActive is kept true throughout — see invariant above.
