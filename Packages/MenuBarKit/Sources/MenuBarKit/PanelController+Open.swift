@@ -226,7 +226,9 @@ extension MBKPanelController {
     /// do not arm the gate inside `onWillClose`.
     private func teardown(wasForced: Bool) {
         if !onWillCloseFired {
-            assertionFailure("teardown called without a prior fireOnWillClose — call fireOnWillClose(wasForced:) first")
+            assertionFailure(
+                "teardown called without a prior fireOnWillClose — call fireOnWillClose(wasForced:) first"
+            )
             fireOnWillClose(wasForced: wasForced)
         }
         stopEventMonitor()
