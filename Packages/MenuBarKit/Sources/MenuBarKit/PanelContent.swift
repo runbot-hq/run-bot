@@ -141,6 +141,15 @@ struct MBKPanelContentView: View {
     ///    as a plain sibling — the same layering strategy NSPopover used for its chrome.
     var body: some View {
         content
+            // RULE: .fixedSize BEFORE .frame(maxHeight:) — this is the only modifier
+            // order that works. .fixedSize makes the content use its ideal height
+            // regardless of the window proposal, breaking the feedback loop.
+            // .frame(maxHeight:) then caps the ideal height at the screen fraction.
+            // Without .fixedSize, the VStack fills the proposed window height, and
+            // .frame(maxHeight:) only caps the proposal, not the natural size.
+            // This creates an oscillation: window resize → content fills new size →
+            // onGeometryChange reports new size → another resize → …
+            .fixedSize(horizontal: false, vertical: true)
             .frame(maxHeight: maxContentHeight)
             .padding(.top, metrics.arrowHeight)
             .clipShape(bubble)
