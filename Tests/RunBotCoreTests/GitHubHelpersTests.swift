@@ -46,43 +46,43 @@ final class GitHubHelpersTests: XCTestCase {
     // MARK: Timestamp stripping
 
     /// Happy path: line-start timestamps are stripped, content is preserved.
-    func test_fetchStepLog_stripsTimestampPrefixes() async {
+    func test_fetchStepLog_stripsTimestampPrefixes() async throws {
         let rawLog = [
             "2026-07-29T03:11:15.4722230Z Cleaning up orphan processes",
             "2026-07-29T03:11:16.3185700Z Warning: Node.js 20 is deprecated."
         ].joined(separator: "\n")
         transport.stubRawData = Data(rawLog.utf8)
 
-        let result = await fetchStepLog(jobID: 1, stepNumber: 1, scope: scope, transport: transport)
+        let result = try XCTUnwrap(
+            await fetchStepLog(jobID: 1, stepNumber: 1, scope: scope, transport: transport),
+            "fetchStepLog should return non-nil for valid log"
+        )
 
-        XCTAssertNotNil(result, "fetchStepLog should return non-nil for valid log")
-        XCTAssertFalse(
-            result?.contains("2026-07-29T") ?? false,
-            "Returned log should not contain RFC 3339 timestamp prefixes"
-        )
-        XCTAssertTrue(
-            result?.contains("Cleaning up orphan processes") ?? false,
-            "Log content should be preserved after stripping"
-        )
-        XCTAssertTrue(
-            result?.contains("Warning: Node.js 20 is deprecated.") ?? false,
-            "Log content should be preserved after stripping"
-        )
+        XCTAssertFalse(result.contains("2026-07-29T"), "Returned log should not contain RFC 3339 timestamp prefixes")
+        XCTAssertTrue(result.contains("Cleaning up orphan processes"), "Log content should be preserved after stripping")
+        XCTAssertTrue(result.contains("Warning: Node.js 20 is deprecated."), "Log content should be preserved after stripping")
     }
 
     /// Guards the `.anchorsMatchLines` behaviour: a timestamp that appears mid-line
     /// inside log content (not at the start of a line) must NOT be stripped.
-    /// This is the only assertion that directly exercises the anchor constraint on
-    /// `timestampRegex` — a regression here would mean content timestamps get eaten.
-    func test_fetchStepLog_midLineTimestamp_preserved() async {
+    /// Uses a ##[group] wrapper so parseStepLog exercises the section-slicing path,
+    /// not the sections.isEmpty fallback — this directly guards the anchor constraint.
+    func test_fetchStepLog_midLineTimestamp_preserved() async throws {
         let midLineContent = "Error occurred at 2026-07-29T03:11:15.4722230Z during build"
-        let rawLog = "2026-07-29T03:11:15.4722230Z \(midLineContent)"
+        let rawLog = [
+            "2026-07-29T03:11:15.4000000Z ##[group]Build step",
+            "2026-07-29T03:11:15.4722230Z \(midLineContent)",
+            "2026-07-29T03:11:15.5000000Z ##[endgroup]"
+        ].joined(separator: "\n")
         transport.stubRawData = Data(rawLog.utf8)
 
-        let result = await fetchStepLog(jobID: 2, stepNumber: 1, scope: scope, transport: transport)
+        let result = try XCTUnwrap(
+            await fetchStepLog(jobID: 2, stepNumber: 1, scope: scope, transport: transport),
+            "fetchStepLog should return non-nil for valid log"
+        )
 
         XCTAssertTrue(
-            result?.contains("2026-07-29T03:11:15.4722230Z during build") ?? false,
+            result.contains("2026-07-29T03:11:15.4722230Z during build"),
             "A timestamp embedded mid-line in log content must not be stripped"
         )
     }
@@ -91,7 +91,7 @@ final class GitHubHelpersTests: XCTestCase {
     /// Uses a ##[group]-wrapped payload so parseStepLog takes the section-slicing path
     /// rather than the no-group fallback — making it explicit that clean content is
     /// not corrupted regardless of which branch executes.
-    func test_fetchStepLog_cleanContent_notCorrupted() async {
+    func test_fetchStepLog_cleanContent_notCorrupted() async throws {
         let cleanLine = "Cleaning up orphan processes"
         // Wrap in a ##[group] block so buildLogSections finds exactly one section.
         // stepNumber: 1 therefore selects this section directly.
@@ -102,34 +102,46 @@ final class GitHubHelpersTests: XCTestCase {
         ].joined(separator: "\n")
         transport.stubRawData = Data(rawLog.utf8)
 
-        let result = await fetchStepLog(jobID: 3, stepNumber: 1, scope: scope, transport: transport)
+        let result = try XCTUnwrap(
+            await fetchStepLog(jobID: 3, stepNumber: 1, scope: scope, transport: transport),
+            "fetchStepLog should return non-nil for valid log"
+        )
 
-        XCTAssertTrue(
-            result?.contains(cleanLine) ?? false,
-            "Clean log content must survive the stripping pipeline unchanged"
+        XCTAssertTrue(result.contains(cleanLine), "Clean log content must survive the stripping pipeline unchanged")
+        XCTAssertFalse(result.contains("2026-07-29T"), "Timestamp prefixes must still be stripped from the selected section")
+    }
+
+    /// Verifies that a blank timestamped line with no trailing space is also stripped.
+    /// This exercises the `[ ]?` optional-space trailer in timestampRegex.
+    func test_fetchStepLog_bareTimestampLine_stripped() async throws {
+        let rawLog = [
+            "2026-07-29T03:11:15.0000000Z",
+            "2026-07-29T03:11:15.1000000Z Actual content here"
+        ].joined(separator: "\n")
+        transport.stubRawData = Data(rawLog.utf8)
+
+        let result = try XCTUnwrap(
+            await fetchStepLog(jobID: 7, stepNumber: 1, scope: scope, transport: transport),
+            "fetchStepLog should return non-nil for valid log"
         )
-        XCTAssertFalse(
-            result?.contains("2026-07-29T") ?? false,
-            "Timestamp prefixes must still be stripped from the selected section"
-        )
+
+        XCTAssertFalse(result.contains("2026-07-29T"), "Bare timestamp-only lines must also be stripped")
+        XCTAssertTrue(result.contains("Actual content here"), "Content on subsequent lines must be preserved")
     }
 
     // MARK: ANSI stripping (regression guard)
 
-    func test_fetchStepLog_stripsAnsiEscapeCodes() async {
+    func test_fetchStepLog_stripsAnsiEscapeCodes() async throws {
         let rawLog = "2026-07-29T03:11:15.4722230Z \u{001B}[31mError: build failed\u{001B}[0m"
         transport.stubRawData = Data(rawLog.utf8)
 
-        let result = await fetchStepLog(jobID: 4, stepNumber: 1, scope: scope, transport: transport)
+        let result = try XCTUnwrap(
+            await fetchStepLog(jobID: 4, stepNumber: 1, scope: scope, transport: transport),
+            "fetchStepLog should return non-nil for valid log"
+        )
 
-        XCTAssertFalse(
-            result?.contains("\u{001B}[") ?? false,
-            "ANSI escape sequences should be stripped"
-        )
-        XCTAssertTrue(
-            result?.contains("Error: build failed") ?? false,
-            "Log content should survive ANSI stripping"
-        )
+        XCTAssertFalse(result.contains("\u{001B}["), "ANSI escape sequences should be stripped")
+        XCTAssertTrue(result.contains("Error: build failed"), "Log content should survive ANSI stripping")
     }
 
     // MARK: Edge cases
