@@ -42,6 +42,14 @@ private let ansiRegex: NSRegularExpression? = try? NSRegularExpression(
     pattern: "\u{001B}\\[[0-9;]*[A-Za-z]"
 )
 
+/// Pre-compiled regular expression for stripping GitHub Actions log timestamp prefixes.
+/// Every line from the Actions log API is prefixed with an ISO 8601 timestamp + space,
+/// e.g. `2026-07-29T03:11:15.4722230Z `. Compiled once at module load.
+private let timestampRegex: NSRegularExpression? = try? NSRegularExpression(
+    pattern: #"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z "#,
+    options: .anchorsMatchLines
+)
+
 /// Fetches the log for a single step via the transport layer's `raw()` method.
 @concurrent
 public func fetchStepLog(
@@ -69,7 +77,7 @@ public func fetchStepLog(
 }
 
 /// Fetches raw log bytes from `endpoint` and decodes them as UTF-8.
-/// GitHub’s log endpoint redirects to S3; `URLSession` follows the redirect automatically
+/// GitHub's log endpoint redirects to S3; `URLSession` follows the redirect automatically
 /// and returns the raw log text. A response body starting with `{` indicates a GitHub
 /// error object was returned instead of log content and is treated as a failure.
 @concurrent
@@ -107,7 +115,7 @@ private func parseStepLog(
     stepNumber: Int,
     logger: (any GitHubLogger)?
 ) -> String? {
-    let cleaned = stripAnsi(raw)
+    let cleaned = stripTimestamps(stripAnsi(raw))
     let sections = buildLogSections(from: cleaned)
     logger?.log("parseStepLog › parsed \(sections.count) section(s) from log", category: "transport")
     if sections.isEmpty {
@@ -153,4 +161,13 @@ private func stripAnsi(_ input: String) -> String {
     guard let ansiRegex else { return input }
     let range = NSRange(input.startIndex..., in: input)
     return ansiRegex.stringByReplacingMatches(in: input, range: range, withTemplate: "")
+}
+
+/// Removes the leading GitHub Actions timestamp prefix from every line of `input`.
+/// e.g. `2026-07-29T03:11:15.4722230Z ` is stripped, leaving only the log content.
+/// Returns `input` unchanged if `timestampRegex` failed to compile at module load time.
+private func stripTimestamps(_ input: String) -> String {
+    guard let timestampRegex else { return input }
+    let range = NSRange(input.startIndex..., in: input)
+    return timestampRegex.stringByReplacingMatches(in: input, range: range, withTemplate: "")
 }
