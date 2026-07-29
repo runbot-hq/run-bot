@@ -57,6 +57,20 @@ git fetch && git checkout main && git pull
 bash build.sh && open dist/RunBot.app
 ```
 
+**Logging:**
+
+```bash
+ log stream --level debug --style compact \
+  --predicate 'process == "RunBot" AND subsystem == "com.eoncode.run-bot" AND category == "mbk"'
+```
+
+Reset build artifacts
+
+```bash
+rm -rf .build && swift package clean && swift package purge-cache
+```
+
+
 ## Security
 
 > [!WARNING]
