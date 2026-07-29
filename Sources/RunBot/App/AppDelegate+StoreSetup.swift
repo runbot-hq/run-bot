@@ -29,7 +29,7 @@ extension AppDelegate {
     ///    runs will hit a `fatalError`. Fix for issue #1741 — do not move this down.
     /// 2. Hydrate `ScopeEntry.displayName` from persisted prefs.
     /// 3. `setupPanel()` — creates MBKPanelController (which internally creates
-    ///    NSStatusItem + NSPopover). UI wiring only, no domain calls.
+    ///    NSStatusItem + MBKPanel). UI wiring only, no domain calls.
     /// 4. `appState.start(onUpdateStatusIcon:)` — remaining domain startup.
     /// - Parameter _: The notification (unused).
     func applicationDidFinishLaunching(_ _: Notification) {
@@ -57,7 +57,7 @@ extension AppDelegate {
             await ScopeStore.shared.refreshDisplayNames()
 
             // setupPanel() creates MBKPanelController which calls setup() internally,
-            // creating NSStatusItem + NSPopover. No separate setupStatusItem() call needed.
+            // creating NSStatusItem + MBKPanel. No separate setupStatusItem() call needed.
             setupPanel()
 
             // Domain startup — fully owned by AppState.
