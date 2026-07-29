@@ -257,7 +257,7 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
         let hc = NSHostingController(
             rootView: MBKPanelContentView(limits: limits, metrics: metrics, content: rootView)
         )
-        hc.sizingOptions = []
+        hc.sizingOptions = [.preferredContentSize]
         let hv = hc.view
         hv.translatesAutoresizingMaskIntoConstraints = false
         hv.wantsLayer = true

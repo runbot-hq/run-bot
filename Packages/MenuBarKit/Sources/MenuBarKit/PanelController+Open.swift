@@ -51,6 +51,16 @@ extension MBKPanelController {
         onWillCloseFired = false
         hasOpenedOnce = true
 
+        setButtonHighlight(true)
+        panel.orderFrontRegardless()
+        NSApp.activate()
+        panel.makeKey()
+        mbkLog("PanelController", "panel shown frame=\(panel.frame)")
+
+        // Force a layout now that the view has a window, then read the actual
+        // preferredContentSize that SwiftUI computed. Before orderFront the view
+        // has never laid out, so preferredContentSize is (0,0).
+        hostingController.view.layoutSubtreeIfNeeded()
         let measured = hostingController.preferredContentSize
         if measured.width > 0, measured.height > 0 {
             applyMeasuredSize(measured)
@@ -61,12 +71,6 @@ extension MBKPanelController {
             let fallbackHeight = size.height
             applyFrame(content: CGSize(width: size.width, height: fallbackHeight), reason: "FALLBACK")
         }
-
-        setButtonHighlight(true)
-        panel.orderFrontRegardless()
-        NSApp.activate()
-        panel.makeKey()
-        mbkLog("PanelController", "panel shown frame=\(panel.frame)")
 
         startEventMonitor()
 
