@@ -313,12 +313,18 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
         // setValue(_:forKey:) does not throw — a missing key raises NSUndefinedKeyException at
         // runtime (uncatchable from Swift). If Apple removes a key in a future OS, the app will
         // crash on first open with: [NSGlassEffectView setValue:forUndefinedKey:]. To diagnose:
-        // look for that message in the crash log. Mitigation: check for the key with
-        // glassView.responds(to: NSSelectorFromString("set_SubduedState:")) before setting, or
-        // restore the default .regular style gracefully and file a radar.
+        // look for that message in the crash log.
+        //
+        // NOTE on the selector check below: responds(to:) checks for the ObjC setter selector
+        // (e.g. set_SubduedState:), which is NOT the same guarantee as KVC compliance.
+        // An object can respond to the setter selector but still raise NSUndefinedKeyException
+        // on setValue(_:forKey:) if the key is not registered in the KVO/KVC system.
+        // The inverse is also possible. This check guards against the most common removal
+        // scenario (Apple deletes the property entirely), but cannot guarantee safety against
+        // a key that loses KVC compliance while retaining its setter. A fully robust guard
+        // would use value(forKey:) in a try/catch via ObjC bridging.
         // TODO: revisit at macOS 26.x betas — undocumented KVC may change without notice.
-        // responds(to:) guards: if Apple removes a key, we fall back to .regular style
-        // (lighter glass) rather than crashing with NSUndefinedKeyException.
+        // If this fallback fires, file a radar and restore .regular style gracefully.
         let kvcKeys = ["_subduedState", "_variant", "_scrimState"]
         let allKeysSupported = kvcKeys.allSatisfy {
             glassView.responds(to: NSSelectorFromString("set" + $0.prefix(1).uppercased() + $0.dropFirst() + ":"))
