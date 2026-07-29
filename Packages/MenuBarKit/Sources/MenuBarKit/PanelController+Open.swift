@@ -89,17 +89,19 @@ extension MBKPanelController {
         setButtonHighlight(true)
         panel.orderFrontRegardless()
         // isShown (= panel.isVisible) is now true.
-        // Apply a sensible initial frame so the panel has a real size. This
-        // triggers a natural layout pass in the hosting view, which fires
-        // onGeometryChange → applyMeasuredSize with the correct measurement.
-        // With sizingOptions = [], fittingSize returns zero so we cannot use it
-        // — use the fallback size directly. The dedupe guard in applyMeasuredSize
-        // is bypassed because lastContentSize was cleared above, so the first
-        // onGeometryChange callback always applies the correct frame.
-        let fallbackHeight = maxContentHeight > 0
-            ? min(MBKPanelController.fallbackContentSize.height, maxContentHeight)
-            : MBKPanelController.fallbackContentSize.height
-        applyFrame(content: CGSize(width: MBKPanelController.fallbackContentSize.width, height: fallbackHeight), reason: "FALLBACK")
+        //
+        // onGeometryChange on the inner VStack may have already fired during the
+        // pre-show layout pass (before orderFrontRegardless) and written a real
+        // frame via applyMeasuredSize — in which case lastContentSize is non-nil.
+        // Only apply the fallback frame if onGeometryChange has NOT yet given us
+        // a real measurement. Applying it unconditionally stomps the correct frame
+        // that onGeometryChange already wrote, locking the panel at 320×240.
+        if lastContentSize == nil {
+            let fallbackHeight = maxContentHeight > 0
+                ? min(MBKPanelController.fallbackContentSize.height, maxContentHeight)
+                : MBKPanelController.fallbackContentSize.height
+            applyFrame(content: CGSize(width: MBKPanelController.fallbackContentSize.width, height: fallbackHeight), reason: "FALLBACK")
+        }
         // isShown (= panel.isVisible) is now true.
         // onGeometryChange on the inner VStack fires on the first layout pass
         // after orderFrontRegardless and is the sole measurement source.
