@@ -13,17 +13,32 @@
 //    VStack size (arrow strip + content natural height).
 // 2. `MBKPanelController.applyMeasuredSize(_:)` subtracts the arrow strip,
 //    clamps to the live screen cap, and calls `applyFrame(content:reason:)`.
-// 3. Resizing the window re-proposes exactly that size to SwiftUI; a
-//    `ScrollView` inside receives the capped height and scrolls instead of
-//    overflowing.
+// 3. Resizing the window re-proposes exactly that size to SwiftUI via the
+//    bottom AL pin; a `ScrollView` inside receives the capped height and
+//    scrolls instead of overflowing.
+//
+// AL PIN ARCHITECTURE:
+//   The hosting view is pinned on all four edges (leading, trailing, top,
+//   bottom). The bottom pin is load-bearing: it propagates every window
+//   resize as a new concrete height proposal to SwiftUI, so `onGeometryChange`
+//   keeps firing as content grows or shrinks. Without the bottom pin SwiftUI
+//   receives an unspecified proposal, fires `onGeometryChange` once, and then
+//   goes silent — window resizes are invisible to SwiftUI.
+//
+// WHY THIS DOES NOT CREATE A FEEDBACK LOOP:
+//   `onGeometryChange` is on the *inner* VStack (`measuredContent`), not the
+//   outer `.frame(.infinity)` fill. The inner VStack reports the content's
+//   *natural* height before the outer fill expands to the window bounds.
+//   Sequence: applyFrame resizes window → bottom pin proposes new height →
+//   inner VStack re-measures natural content height → `onGeometryChange` fires
+//   only if natural height changed → `applyMeasuredSize` dedupe skips if
+//   unchanged. No loop.
 //
 // ❌ NEVER add `.fixedSize(vertical: true)` or `.frame(maxHeight:)` in this
-//    wrapper. The hosting view has no bottom AL pin, so SwiftUI receives an
-//    unspecified height proposal. Under an unspecified proposal, `.frame(maxHeight:)`
-//    is a no-op (it only reduces a *parent-proposed* height) and `.fixedSize`
-//    causes SwiftUI to pass the content's ideal height straight through, defeating
-//    the cap entirely. The AppKit pipeline in `applyMeasuredSize` → `clampContent`
-//    is the one and only cap; the SwiftUI layer must not interfere with it.
+//    wrapper. Under a concrete height proposal from the bottom pin, `.frame(maxHeight:)`
+//    would cap the *outer fill* at some value, not the inner content — the inner
+//    VStack measures natural height regardless. The AppKit pipeline in
+//    `applyMeasuredSize` → `clampContent` is the one and only height cap.
 //    See issues #2337 and #2339 for the full analysis.
 // ❌ NEVER put a min/max *width* in this wrapper. It applies to every route the
 //    adopter shows, so a fixed-width settings screen would be stretched to the
@@ -34,7 +49,7 @@
 // ❌ NEVER apply `.glassEffect(...)` in this wrapper. Glass cannot sample other
 //    glass: a SwiftUI glass ancestor silently flattens every
 //    `GlassEffectContainer` in the adopter's content. The bubble is drawn by
-//    `NSGlassEffectView` (direct panel.contentView) is below the hosting view
+//    `NSGlassEffectView` (direct panel.contentView) below the hosting view
 //    as a plain sibling — the same layering strategy NSPopover used for its chrome.
 // ❌ NEVER move `onGeometryChange` outside the inner VStack. It must fire with
 //    the content's natural size *before* the outer fill frame expands the hosting
@@ -91,11 +106,6 @@ struct MBKPanelContentView: View {
     /// size. The controller uses this to resize the window frame.
     var onSizeChange: ((CGSize) -> Void)?
 
-    /// The current bubble silhouette, tracking the live arrow position.
-    ///
-    /// Used for clipping only. The same `arrowCenterX` also drives
-    /// `NSGlassEffectView.cornerRadius` via `MBKPanelMetrics`, so the clip
-    /// and the AppKit glass always agree.
     private var bubble: MBKBubbleShape {
         MBKBubbleShape(
             arrowCenterX: limits.arrowCenterX,
@@ -120,10 +130,10 @@ struct MBKPanelContentView: View {
     ///
     /// The AppKit pipeline in `applyMeasuredSize` → `clampContent` is the
     /// sole height cap. After `applyFrame` resizes the window to the clamped
-    /// height, SwiftUI re-proposes that concrete size and a `ScrollView`
-    /// inside `content` receives it as a real viewport — it scrolls instead
-    /// of overflowing. No `.fixedSize` or `.frame(maxHeight:)` is needed or
-    /// wanted here.
+    /// height, SwiftUI re-proposes that concrete size via the bottom AL pin
+    /// and a `ScrollView` inside `content` receives it as a real viewport —
+    /// it scrolls instead of overflowing. No `.fixedSize` or `.frame(maxHeight:)`
+    /// is needed or wanted here.
     var body: some View {
         measuredContent
             .clipShape(bubble)
@@ -132,11 +142,9 @@ struct MBKPanelContentView: View {
 
     /// Arrow spacer + adopter content, with `onGeometryChange` on the wrapper.
     ///
-    /// `onGeometryChange` is intentionally placed here — on the inner VStack —
-    /// so it fires with the content's natural size before the outer
-    /// `.frame(maxWidth: .infinity, maxHeight: .infinity)` expands the hosting
-    /// view to the current window bounds. Measuring after the outer fill would
-    /// create a circular measurement loop.
+    /// `onGeometryChange` is intentionally on the inner VStack — not the outer
+    /// fill — so it fires with the content's natural size. See file header for
+    /// the full inner/outer split rationale.
     private var measuredContent: some View {
         VStack(spacing: 0) {
             Color.clear
