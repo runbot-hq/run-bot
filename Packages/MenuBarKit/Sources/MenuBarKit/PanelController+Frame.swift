@@ -93,8 +93,11 @@ extension MBKPanelController {
     private func liveVisibleFrame() -> CGRect {
         statusItem?.button?.window?.screen?.visibleFrame
             ?? NSScreen.main?.visibleFrame
-            // NSScreen.main is nil only with no display attached (headless CI / no screens).
-            // The panel is never shown in that state, so this value is never seen by the user.
+            // HEADLESS FALLBACK — only reachable when NSScreen.main is nil (e.g. CI with
+            // no display attached). Never reached in production. Tests that call
+            // liveVisibleFrame() indirectly in a headless environment will silently use
+            // this rect — pure-math geometry tests pass their own visibleFrame directly
+            // and are not affected, but future indirect callers should be aware.
             // A sane non-zero rect is used rather than CGRect.zero because zero produces a
             // degenerate maxContentHeight of 0, which would suppress all frame writes if
             // somehow reached while the panel is visible.
