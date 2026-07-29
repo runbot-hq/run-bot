@@ -175,8 +175,6 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
     /// Live sizing limits handed to SwiftUI.
     var limits: MBKPanelLimits!
     /// KVO observation on `hostingController.preferredContentSize`.
-    /// `nonisolated(unsafe)` — only read in `deinit` after all @MainActor work is done.
-    nonisolated(unsafe) var sizeObservation: NSKeyValueObservation?
 
     /// Maximum content height in points, recomputed on every open and screen change.
     var maxContentHeight: CGFloat = 0
@@ -219,11 +217,6 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
 
     /// Prevents `onWillClose` from firing more than once per open/close cycle.
     var onWillCloseFired = false
-
-    /// Polling task that monitors `intrinsicContentSize` while the panel is open.
-    /// Used instead of KVO on `preferredContentSize` because that notification
-    /// does not fire reliably for content changes inside a ScrollView.
-    var sizingPollTask: Task<Void, Never>?
 
     // MARK: - Private types
 
@@ -387,12 +380,13 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
                 + " — falling back to .regular style (lighter glass). File a radar.")
         }
 
-        // NSHostingController with all 4 AL pins + KVO on preferredContentSize.
+        // NSHostingController with all 4 AL pins + onGeometryChange callback.
         //
-        // preferredContentSize is updated by AppKit once per settled SwiftUI layout pass
-        // (debounced — no burst). It reports the size SwiftUI *wants*, which may differ
-        // from the window size proposed by the 4 AL pins. applyMeasuredSize receives it
-        // and resizes the window + hosting view frame to match.
+        // onGeometryChange fires every time SwiftUI's layout settles to a new
+        // size — defining the height from the content's intrinsic measurement.
+        // Width is driven by the leading/trailing AL constraints; the height
+        // from onGeometryChange feeds applyMeasuredSize which resizes the
+        // window frame.
         //
         // All 4 pins are required: they give SwiftUI a concrete size proposal so it can
         // measure content against a real width. Without a bottom pin SwiftUI gets an
@@ -404,19 +398,20 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
         // addSubview keeps the hosting view as a plain sibling layer above glassView,
         // outside the compositor, so GlassEffectContainer and .glassEffect elements work.
         let hosting = NSHostingController(
-            rootView: MBKPanelContentView(limits: limits, metrics: metrics, maxContentHeight: maxContentHeight, content: rootView)
+            rootView: MBKPanelContentView(
+                limits: limits,
+                metrics: metrics,
+                maxContentHeight: maxContentHeight,
+                content: rootView,
+                onSizeChange: { [weak self] size in
+                    self?.applyMeasuredSize(size)
+                }
+            )
         )
         hosting.view.wantsLayer = true
         hosting.view.layer?.backgroundColor = CGColor.clear
         hosting.view.translatesAutoresizingMaskIntoConstraints = false
         hostingController = hosting
-        sizeObservation = hosting.observe(
-            \NSHostingController<MBKPanelContentView>.preferredContentSize,
-            options: [.new]
-        ) { [weak self] _, change in
-            guard let self, let size = change.newValue else { return }
-            Task { @MainActor [weak self] in self?.applyMeasuredSize(size) }
-        }
 
         glassView.addSubview(hosting.view)
         NSLayoutConstraint.activate([
@@ -481,80 +476,29 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
         // Without this the dedupe check skips the frame write and the arrow is
         // positioned relative to the old (wider/narrower) window width.
         lastContentSize = nil
-        hostingController.rootView = MBKPanelContentView(limits: limits, metrics: metrics, maxContentHeight: maxContentHeight, content: rootView)
+        hostingController.rootView = MBKPanelContentView(
+            limits: limits,
+            metrics: metrics,
+            maxContentHeight: maxContentHeight,
+            content: rootView,
+            onSizeChange: { [weak self] size in
+                self?.applyMeasuredSize(size)
+            }
+        )
         mbkLog("PanelController", "setRootView — rootView replaced, lastContentSize cleared")
     }
-/// Invalidates the hosting view's intrinsic content size and schedules a
-    /// measurement on the next layout pass.
-    ///
-    /// Call this when the SwiftUI content changes size but the standard
-    /// `preferredContentSize` KVO observer has not fired (e.g. data changes
-    /// inside a `ScrollView` with `.fixedSize(vertical: true)` — SwiftUI may
-    /// not invalidate the intrinsic content size for layout changes inside a
-    /// scroll view, so `preferredContentSize` never updates).
-    ///
-    /// Safe to call while the panel is closed — the measurement is skipped by
-    /// `applyMeasuredSize`'s `isShown` guard.
+/// Invalidates the hosting view's intrinsic content size so the next
+    /// `onGeometryChange` callback fires with the updated size. This is a
+    /// manual trigger for when SwiftUI does not re-layout automatically
+    /// (e.g. data changes inside a ScrollView). Safe to call while the panel
+    /// is closed — the measurement is skipped by `applyMeasuredSize`'s `isShown`.
     public func invalidateContentSize() {
         guard isSetUp, let hostingController else { return }
-        mbkLog("PanelController", "invalidateContentSize — invalidating intrinsic content size")
+        // Invalidate the intrinsic content size so SwiftUI re-lays out the
+        // hosting view. The next `onGeometryChange` callback (set up in
+        // `setupPanelWindow()`) will fire with the updated size.
         hostingController.view.invalidateIntrinsicContentSize()
-        // Force an immediate layout pass so intrinsicContentSize is updated
-        // synchronously, not on the next display cycle. layoutSubtreeIfNeeded()
-        // on an NSHostingView triggers a SwiftUI layout pass (resolve the view
-        // tree, measure, arrange) and then updates the view's intrinsic size.
-        hostingController.view.layoutSubtreeIfNeeded()
-        let size = hostingController.view.intrinsicContentSize
-        mbkLog("PanelController", "invalidateContentSize — intrinsicContentSize=\(size.width)x\(size.height), applying")
-        guard size.width > 0, size.height > 0 else { return }
-        applyMeasuredSize(size)
     }
-
-    // MARK: - Sizing poll
-
-    /// Starts a polling Task that reads `intrinsicContentSize` every 0.5s while
-    /// the panel is open and feeds it through `applyMeasuredSize`.
-    ///
-    /// This is a belt-and-suspenders approach. The preferred approach is the
-    /// `preferredContentSize` KVO observer (set up in `setupPanelWindow()`), but
-    /// that notification does not fire reliably for content changes inside a
-    /// `ScrollView` with `.fixedSize(vertical: true)` — the exact scenario when
-    /// the run-bot workflow list grows. The poll catches these cases.
-    ///
-    /// The poll is stopped automatically in `teardown()` via `stopSizingPoll()`.
-    ///
-    /// `applyMeasuredSize` deduplicates via `lastContentSize`, so repeated reads
-    /// of the same size are a cheap no-op (one log line).
-    func startSizingPoll() {
-        stopSizingPoll() // Cancel any previous poll before starting a new one.
-        sizingPollTask = Task { [weak self] in
-            // Short delay before the first poll to let the initial layout settle.
-            try? await Task.sleep(nanoseconds: 100_000_000) // 100ms
-            while !Task.isCancelled {
-                guard !Task.isCancelled, let self else { return }
-                await MainActor.run {
-                    guard !Task.isCancelled, self.isShown else { return }
-                    self.hostingController?.view.invalidateIntrinsicContentSize()
-                    self.hostingController?.view.layoutSubtreeIfNeeded()
-                    let size = self.hostingController?.view.intrinsicContentSize ?? .zero
-                    guard size.width > 0, size.height > 0 else { return }
-                    self.applyMeasuredSize(size)
-                }
-                // Wait 0.1s between polls. This provides a ~100ms max lag for
-                // catching content changes that the explicit invalidateContentSize()
-                // call missed, while keeping the window responsive to rapid changes.
-                try? await Task.sleep(nanoseconds: 100_000_000)
-            }
-        }
-    }
-
-    /// Cancels the sizing poll task, if running.
-    func stopSizingPoll() {
-        sizingPollTask?.cancel()
-        sizingPollTask = nil
-    }
-
-    // MARK: - Status item
 
     /// Replaces the status-bar button image.
     /// - Parameter image: The new template image.
@@ -587,6 +531,5 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
         if let monitor = eventMonitor {
             NSEvent.removeMonitor(monitor)
         }
-        sizeObservation?.invalidate()
     }
 }

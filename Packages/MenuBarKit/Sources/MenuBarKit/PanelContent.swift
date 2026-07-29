@@ -84,6 +84,10 @@ struct MBKPanelContentView: View {
     /// The adopter's content.
     let content: AnyView
 
+    /// Called by `onGeometryChange` every time SwiftUI's layout settles to a new
+    /// size. The controller uses this to resize the window frame.
+    var onSizeChange: ((CGSize) -> Void)?
+
     /// The current bubble silhouette, tracking the live arrow position.
     ///
     /// Used for clipping only. The same `arrowCenterX` also drives
@@ -108,5 +112,8 @@ struct MBKPanelContentView: View {
             .frame(maxHeight: maxContentHeight)
             .padding(.top, metrics.arrowHeight)
             .clipShape(bubble)
+            .onGeometryChange(for: CGSize.self, of: \.size) { newSize in
+                onSizeChange?(newSize)
+            }
     }
 }

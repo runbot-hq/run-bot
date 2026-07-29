@@ -114,14 +114,6 @@ extension MBKPanelController {
 
         startEventMonitor()
 
-        // Start the sizing poll task that checks intrinsicContentSize periodically.
-        // This is needed because preferredContentSize KVO does not fire reliably
-        // for content changes inside a ScrollView with .fixedSize (the list
-        // growing/shrinking scenario in RunBot). The poll reads the raw
-        // intrinsicContentSize, which triggers a synchronous layout pass if the
-        // view is dirty, and feeds it through applyMeasuredSize.
-        startSizingPoll()
-
         Task { @MainActor [weak self] in
             guard let self else { return }
             mbkLog("PanelController", "onDidShow Task hop -- calling onDidShow")
@@ -231,7 +223,6 @@ extension MBKPanelController {
             fireOnWillClose(wasForced: wasForced)
         }
         stopEventMonitor()
-        stopSizingPoll()
         setButtonHighlight(false)
         panel?.orderOut(nil)
         overlayGate.hasActiveOverlay = false

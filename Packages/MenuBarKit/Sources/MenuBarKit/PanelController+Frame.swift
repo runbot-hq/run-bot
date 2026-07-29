@@ -123,18 +123,18 @@ extension MBKPanelController {
 
     // MARK: - Measure
 
-    /// Receives the settled `intrinsicContentSize` from the KVO observer and
+    /// Receives the settled size from the `onGeometryChange` callback and
     /// applies the resulting frame.
     ///
-    /// `intrinsicContentSize` is invalidated by AppKit once per settled SwiftUI
-    /// layout pass — no burst, no coalescer needed. The hosting view measures
-    /// the *whole* bubble — the SwiftUI root adds the arrow inset itself — so
-    /// the arrow strip is subtracted here to recover the content size that
-    /// `MBKPanelGeometry` expects.
-    /// - Parameter measured: The new `intrinsicContentSize` value from KVO.
+    /// `onGeometryChange` fires once per settled SwiftUI layout pass — no burst,
+    /// no coalescer needed. The hosting view measures the *whole* bubble — the
+    /// SwiftUI root adds the arrow inset itself — so the arrow strip is
+    /// subtracted here to recover the content size that `MBKPanelGeometry`
+    /// expects.
+    /// - Parameter measured: The new size from `onGeometryChange`.
     func applyMeasuredSize(_ measured: CGSize) {
-        // Guard against post-close re-entry: the KVO Task can land on the next
-        // actor turn after teardown. Without this guard it would seed
+        // Guard against post-close re-entry: the onGeometryChange callback can fire
+        // on the next actor turn after teardown. Without this guard it would seed
         // lastContentSize with a stale size, causing the next open to hit the
         // "SKIP -- content unchanged" dedupe and show the panel at the wrong size.
         guard isShown else {
