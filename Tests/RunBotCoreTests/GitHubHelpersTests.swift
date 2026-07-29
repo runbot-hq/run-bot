@@ -114,6 +114,10 @@ struct GitHubHelpersTests {
 
     /// Verifies that a blank timestamped line with no trailing space is also stripped.
     /// This exercises the `[ ]?` optional-space trailer in timestampRegex.
+    /// Note: this log has no `##[group]` markers, so `buildLogSections` returns [] and
+    /// `parseStepLog` takes the `sections.isEmpty` fallback path, returning the full
+    /// cleaned string. This intentionally tests stripping outside the section-slicing
+    /// path; sibling tests that use `##[group]` cover the section path explicitly.
     @Test func fetchStepLog_bareTimestampLine_stripped() async throws {
         let transport = MockTransport()
         let rawLog = [

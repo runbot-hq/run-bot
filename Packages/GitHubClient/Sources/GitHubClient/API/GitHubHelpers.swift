@@ -117,11 +117,8 @@ private func parseStepLog(
     stepNumber: Int,
     logger: (any GitHubLogger)?
 ) -> String? {
-    // stripAnsi runs before stripTimestamps intentionally: ANSI escape sequences
-    // appear in the content portion of a log line (after the timestamp prefix),
-    // never inside the prefix itself. Stripping ANSI first cannot corrupt the
-    // line-start anchor that timestampRegex relies on. Do not reverse this order.
-    let cleaned = stripTimestamps(stripAnsi(raw))
+    let ansiStripped = stripAnsi(raw)
+    let cleaned = stripTimestamps(ansiStripped)
     let sections = buildLogSections(from: cleaned)
     logger?.log("parseStepLog › parsed \(sections.count) section(s) from log", category: "transport")
     if sections.isEmpty {
