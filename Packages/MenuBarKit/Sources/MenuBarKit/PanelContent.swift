@@ -109,4 +109,3 @@ struct MBKPanelContentView: View {
             .clipShape(bubble)
     }
 }
-

@@ -224,8 +224,11 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
     /// produce light or inconsistent glass. Value `1` selects the darker/richer variant
     /// in each stage of the compositor pipeline. See `setupPanelWindow()` for full rationale.
     private enum GlassConfig {
+        /// Locks glass to its own dark intrinsic tone (disables desktop-colour sampling).
         static let subduedState: Int = 1
+        /// Selects the dark-glass rendering variant of the compositor.
         static let variant: Int = 1
+        /// Enables the scrim layer that reinforces the dark tone.
         static let scrimState: Int = 1
     }
 
@@ -383,9 +386,7 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
         hostingController = hosting
         sizeObservation = hosting.observe(\.preferredContentSize, options: [.new]) { [weak self] _, change in
             guard let self, let size = change.newValue else { return }
-            Task { @MainActor [weak self] in
-                self?.applyMeasuredSize(size)
-            }
+            Task { @MainActor [weak self] in self?.applyMeasuredSize(size) }
         }
 
         // CRITICAL: hosting is added via addSubview, NOT glassView.contentView.
@@ -441,7 +442,9 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
         #if DEBUG
         assert(
             NSStringFromClass(type(of: frameView)).contains("ThemeFrame"),
-            "clipWindowFrameBacking: contentView.superview is \(NSStringFromClass(type(of: frameView))), expected NSThemeFrame. Apple may have restructured the window hierarchy — verify this function is still rounding the right view."
+            "clipWindowFrameBacking: contentView.superview is \(NSStringFromClass(type(of: frameView))),"
+            + " expected NSThemeFrame. Apple may have restructured the window hierarchy"
+            + " — verify this function is still rounding the right view."
         )
         #endif
         frameView.wantsLayer = true
