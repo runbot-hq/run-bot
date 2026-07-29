@@ -45,12 +45,14 @@ private let ansiRegex: NSRegularExpression? = try? NSRegularExpression(
 /// Pre-compiled regular expression for stripping GitHub Actions log timestamp prefixes.
 /// Every line from the Actions log API is prefixed with an ISO 8601 timestamp + optional space,
 /// e.g. `2026-07-29T03:11:15.4722230Z ` (content line) or `2026-07-29T03:11:15.0000000Z` (blank line).
+/// The fractional-seconds group `(\.\d+)?` is optional to cover whole-second timestamps
+/// (e.g. `2026-07-29T03:11:15Z`) that self-hosted or future runners may emit.
 /// The trailing `[^\S\n]*` matches zero or more non-newline whitespace after the Z, tolerating
 /// any whitespace variant (including the case where an ANSI reset byte appears between Z and the
 /// space separator after stripAnsi has run). Bare timestamp-only lines are also matched.
 /// Compiled once at module load.
 private let timestampRegex: NSRegularExpression? = try? NSRegularExpression(
-    pattern: #"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z[^\S\n]*"#,
+    pattern: #"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z[^\S\n]*"#,
     options: .anchorsMatchLines
 )
 
@@ -169,11 +171,14 @@ private func stripAnsi(_ input: String) -> String {
 }
 
 /// Removes the leading GitHub Actions timestamp prefix from every line of `input`.
+/// Normalises CRLF to LF first so stray `\r` characters from Windows runners or
+/// zip-archive log downloads do not survive as trailing line artifacts.
 /// e.g. `2026-07-29T03:11:15.4722230Z ` is stripped, leaving only the log content.
 /// Blank timestamped lines (no trailing space) are also matched via the `[^\S\n]*` trailer.
 /// Returns `input` unchanged if `timestampRegex` failed to compile at module load time.
 private func stripTimestamps(_ input: String) -> String {
     guard let timestampRegex else { return input }
-    let range = NSRange(input.startIndex..., in: input)
-    return timestampRegex.stringByReplacingMatches(in: input, range: range, withTemplate: "")
+    let normalised = input.replacingOccurrences(of: "\r\n", with: "\n")
+    let range = NSRange(normalised.startIndex..., in: normalised)
+    return timestampRegex.stringByReplacingMatches(in: normalised, range: range, withTemplate: "")
 }
