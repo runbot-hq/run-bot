@@ -121,12 +121,13 @@ struct MBKPanelContentView: View {
     ///    `onGeometryChange` to report the window size instead of the content's natural
     ///    size, creating a feedback loop: window resize → SwiftUI re-layout → reports
     ///    new window size → window resize → ⋯.
-    /// ✅ `.fixedSize(horizontal: false, vertical: true)` + `.frame(maxHeight:)` here
+    /// ✅ `.fixedSize(horizontal: false, vertical: true)` + `.frame(maxHeight:, alignment: .top)` here
     ///    is correct and load-bearing. `.fixedSize` makes the content use its ideal
-    ///    height (breaking the window-proposal feedback loop), and `.frame(maxHeight:)`
-    ///    caps the ideal height at the screen fraction. The AppKit pipeline in
-    ///    `applyMeasuredSize` → `clampContent` is the backup cap; the SwiftUI modifiers
-    ///    are the primary ones.
+    ///    height (breaking the window-proposal feedback loop), `.frame(maxHeight:)` caps
+    ///    the ideal height at the screen fraction, and `alignment: .top` pins the content
+    ///    to the top edge of the capped frame so it never floats down when ideal < cap.
+    ///    The AppKit pipeline in `applyMeasuredSize` → `clampContent` is the backup cap;
+    ///    the SwiftUI modifiers are the primary ones.
     /// ❌ NEVER add `.fixedSize(vertical: true)` without `.frame(maxHeight:)` — the
     ///    content's ideal height passes straight through, defeating the cap.
     /// ❌ NEVER put a min/max *width* in this wrapper. It applies to every route the
@@ -145,13 +146,15 @@ struct MBKPanelContentView: View {
             // RULE: .fixedSize BEFORE .frame(maxHeight:) — this is the only modifier
             // order that works. .fixedSize makes the content use its ideal height
             // regardless of the window proposal, breaking the feedback loop.
-            // .frame(maxHeight:) then caps the ideal height at the screen fraction.
+            // .frame(maxHeight:, alignment: .top) then caps the ideal height at the
+            // screen fraction and pins the content to the top edge of the capped frame,
+            // so it never floats down when ideal height < cap.
             // Without .fixedSize, the VStack fills the proposed window height, and
             // .frame(maxHeight:) only caps the proposal, not the natural size.
             // This creates an oscillation: window resize → content fills new size →
             // onGeometryChange reports new size → another resize → …
             .fixedSize(horizontal: false, vertical: true)
-            .frame(maxHeight: maxContentHeight)
+            .frame(maxHeight: maxContentHeight, alignment: .top)
             .padding(.top, metrics.arrowHeight)
             .clipShape(bubble)
             .onGeometryChange(for: CGSize.self, of: \.size) { newSize in
