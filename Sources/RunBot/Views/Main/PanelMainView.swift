@@ -215,7 +215,6 @@ struct PanelMainView: View {
                 loadMoreButton
             }
         }
-        .padding(.vertical, 4)
     }
 
     /// "Load N more workflows" button; hidden when all workflows are already visible.
