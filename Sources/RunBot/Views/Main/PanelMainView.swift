@@ -186,6 +186,13 @@ struct PanelMainView: View {
             // fire reliably for data changes inside a ScrollView with .fixedSize.
             panelControllerHandle.remeasure()
         }
+        // Also invalidate on runner and job changes, which can add rows to the list.
+        .onChange(of: appState.runnerState.runners) { _, _ in
+            panelControllerHandle.remeasure()
+        }
+        .onChange(of: appState.runnerState.jobs) { _, _ in
+            panelControllerHandle.remeasure()
+        }
     }
 
     // MARK: - Scroll section
