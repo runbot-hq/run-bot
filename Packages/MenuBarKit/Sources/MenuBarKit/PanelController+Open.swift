@@ -18,7 +18,7 @@
 //   synchronously inside `orderOut` — not on the next compositor frame.
 //   A second caller arriving on the same runloop turn (Task hop, workspace
 //   notification, or adopter callback) will see isShown = false and
-//   short-circuit at its guard. The precondition in `teardown` cannot be
+//   short-circuit at its guard. The `assertionFailure` in `teardown` cannot be
 //   reached twice per cycle.
 
 import AppKit
@@ -202,13 +202,15 @@ extension MBKPanelController {
     /// CONTRACT: callers MUST call `fireOnWillClose(wasForced:)` before `teardown`.
     /// `teardown` does NOT call `fireOnWillClose` itself — the callback must fire
     /// before gate/window teardown so adopters can snapshot state while it is still
-    /// valid. The precondition below enforces this in all build configurations:
-    /// if `teardown` is called without a prior `fireOnWillClose`, the flag is false
-    /// and the precondition trips regardless of optimisation level.
+    /// valid. `assertionFailure` enforces this contract loudly in debug and test builds.
+    /// In release builds, if the contract is violated, `teardown` calls
+    /// `fireOnWillClose` itself as a safe fallback — degraded behaviour rather
+    /// than a production crash.
     ///
-    /// `precondition` (not `assert`) is deliberate: a silent mis-fire of `onWillClose`
-    /// in a release build would leave the overlay gate in an inconsistent state and
-    /// corrupt the next open/close cycle. A loud crash is the safer failure mode here.
+    /// `assertionFailure` (not `precondition`) is deliberate: a process termination
+    /// in a release build from an unforeseen close path is a worse outcome than a
+    /// mis-sequenced `onWillClose`. The fallback above keeps the gate and close
+    /// cycle consistent in production while still crashing loudly in debug.
     /// Both current callers (`performClose`, `forceClose`) are verified safe — each
     /// guards `isShown` before calling `fireOnWillClose`, and `isShown` reflects
     /// `panel?.isVisible` which AppKit flips synchronously on `orderOut`.
@@ -219,7 +221,10 @@ extension MBKPanelController {
     /// `teardown`) will be cleared by `teardown`. The documented adopter contract is:
     /// do not arm the gate inside `onWillClose`.
     private func teardown(wasForced: Bool) {
-        precondition(onWillCloseFired, "teardown called without a prior fireOnWillClose — call fireOnWillClose(wasForced:) first")
+        if !onWillCloseFired {
+            assertionFailure("teardown called without a prior fireOnWillClose — call fireOnWillClose(wasForced:) first")
+            fireOnWillClose(wasForced: wasForced)
+        }
         stopEventMonitor()
         setButtonHighlight(false)
         panel?.orderOut(nil)
