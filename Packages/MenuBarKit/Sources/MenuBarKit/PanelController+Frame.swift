@@ -10,15 +10,15 @@
 // free instead of needing a post-show correction.
 //
 // ❌ NEVER call `panel.setFrame` or `setFrameOrigin` anywhere else.
-// ❌ NEVER set `hostingView.frame` by hand. The hosting view is pinned to the
-//    window's content view with required constraints; the *window* resizes and
-//    the hosting view follows. Assigning its frame directly was how the content
-//    ended up bigger than the window, centred and clipped at both ends.
+// ❌ NEVER set `hostingController.view.frame` by hand. The hosting view is
+//    pinned to the window's content view with required constraints; the *window*
+//    resizes and the hosting view follows. Assigning its frame directly was how
+//    the content ended up bigger than the window, centred and clipped at both ends.
 //
 // LOGGING CONTRACT (the on-device diagnostic surface):
 //   MEASURE  measured=(w,h) content=(w,h) cap=… reason=…
 //   WRITE    content=(w,h) anchorX=… topY=… hidden=… frame=… arrowX=… clamped=…
-//   SKIP     -- content unchanged / degenerate intrinsic size / not shown yet
+//   SKIP     -- content unchanged / degenerate / not shown yet
 // Every measurement the pipeline saw and every frame it applied has a line.
 
 import AppKit
@@ -80,14 +80,8 @@ extension MBKPanelController {
     }
 
     func liveMaxContentHeight() -> CGFloat {
-        let visible = liveVisibleFrame()
-        // topY is the menu-bar bottom (= the top edge the panel touches).
-        // Fall back to visibleFrame.maxY when no anchor is available yet
-        // (pre-first-open, headless CI) so the cap is still a sane non-zero value.
-        let topY = readAnchor()?.topY ?? visible.maxY
-        return MBKPanelGeometry.maxContentHeight(
-            topY: topY,
-            visibleFrame: visible,
+        MBKPanelGeometry.maxContentHeight(
+            visibleFrame: liveVisibleFrame(),
             fraction: maxHeightFraction,
             metrics: metrics
         )
@@ -147,7 +141,7 @@ extension MBKPanelController {
     }
 
     func applyFrame(content: CGSize, reason: String) {
-        guard let panel, let limits, frameWritesAllowed() else { return }
+        guard let panel, frameWritesAllowed() else { return }
         guard let anchor = readAnchor() else {
             mbkLog("PanelController", "\(reason) -- no anchor available, skipping frame")
             return
@@ -161,11 +155,10 @@ extension MBKPanelController {
         )
 
         isApplyingFrame = true
-        if abs(limits.arrowCenterX - layout.arrowCenterX) >= 0.5 {
+        if let limits, abs(limits.arrowCenterX - layout.arrowCenterX) >= 0.5 {
             limits.arrowCenterX = layout.arrowCenterX
         }
         panel.setFrame(layout.frame, display: true)
-        panel.contentView?.layoutSubtreeIfNeeded()
         panel.invalidateShadow()
         isApplyingFrame = false
 
@@ -183,9 +176,6 @@ extension MBKPanelController {
         guard isShown else { return }
         lastContentSize = nil
         lastMeasuredSize = nil
-        let measured = hostingController.preferredContentSize
-        if measured.width > 0, measured.height > 0 {
-            applyMeasuredSize(measured)
-        }
+        mbkLog("PanelController", "screen change -- will re-measure on next KVO fire")
     }
 }
