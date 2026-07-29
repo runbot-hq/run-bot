@@ -43,10 +43,12 @@ private let ansiRegex: NSRegularExpression? = try? NSRegularExpression(
 )
 
 /// Pre-compiled regular expression for stripping GitHub Actions log timestamp prefixes.
-/// Every line from the Actions log API is prefixed with an ISO 8601 timestamp + space,
-/// e.g. `2026-07-29T03:11:15.4722230Z `. Compiled once at module load.
+/// Every line from the Actions log API is prefixed with an ISO 8601 timestamp + optional space,
+/// e.g. `2026-07-29T03:11:15.4722230Z ` (content line) or `2026-07-29T03:11:15.0000000Z` (blank line).
+/// The trailing `[ ]?` makes the space optional so bare timestamp-only lines are also stripped.
+/// Compiled once at module load.
 private let timestampRegex: NSRegularExpression? = try? NSRegularExpression(
-    pattern: #"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z "#,
+    pattern: #"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z[ ]?"#,
     options: .anchorsMatchLines
 )
 
@@ -115,6 +117,10 @@ private func parseStepLog(
     stepNumber: Int,
     logger: (any GitHubLogger)?
 ) -> String? {
+    // stripAnsi runs before stripTimestamps intentionally: ANSI escape sequences
+    // appear in the content portion of a log line (after the timestamp prefix),
+    // never inside the prefix itself. Stripping ANSI first cannot corrupt the
+    // line-start anchor that timestampRegex relies on. Do not reverse this order.
     let cleaned = stripTimestamps(stripAnsi(raw))
     let sections = buildLogSections(from: cleaned)
     logger?.log("parseStepLog › parsed \(sections.count) section(s) from log", category: "transport")
@@ -165,6 +171,7 @@ private func stripAnsi(_ input: String) -> String {
 
 /// Removes the leading GitHub Actions timestamp prefix from every line of `input`.
 /// e.g. `2026-07-29T03:11:15.4722230Z ` is stripped, leaving only the log content.
+/// Blank timestamped lines (no trailing space) are also matched via the `[ ]?` trailer.
 /// Returns `input` unchanged if `timestampRegex` failed to compile at module load time.
 private func stripTimestamps(_ input: String) -> String {
     guard let timestampRegex else { return input }
