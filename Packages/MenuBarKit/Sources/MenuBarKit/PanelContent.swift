@@ -36,17 +36,18 @@ import SwiftUI
 
 // MARK: - Limits
 
-/// Live sizing and chrome state handed to the SwiftUI content.
+/// Live chrome state handed to the SwiftUI content.
 ///
-/// Observable so that a change to `maxContentHeight` (recomputed on every open
-/// and on screen-parameter changes) or to `arrowCenterX` (recomputed on every
+/// Observable so that a change to `arrowCenterX` (recomputed on every
 /// frame apply) re-lays-out the content without rebuilding the hosting view.
+/// `maxContentHeight` is no longer here — it is a plain scalar on
+/// `MBKPanelController`, passed directly to `MBKPanelContentView` at
+/// construction time. It does not need to be observed by SwiftUI: when it
+/// changes (screen geometry change or new open) the hosting view's rootView
+/// is already being rebuilt with the new value.
 @Observable
 @MainActor
 final class MBKPanelLimits {
-
-    /// Maximum content height in points, recomputed live from the current screen.
-    var maxContentHeight: CGFloat
 
     /// Arrow centre in window-local points, from the leading edge.
     ///
@@ -55,11 +56,8 @@ final class MBKPanelLimits {
     var arrowCenterX: CGFloat
 
     /// Creates a limits object.
-    /// - Parameters:
-    ///   - maxContentHeight: Maximum content height in points.
-    ///   - arrowCenterX: Initial arrow centre in window-local points.
-    init(maxContentHeight: CGFloat, arrowCenterX: CGFloat) {
-        self.maxContentHeight = maxContentHeight
+    /// - Parameter arrowCenterX: Initial arrow centre in window-local points.
+    init(arrowCenterX: CGFloat) {
         self.arrowCenterX = arrowCenterX
     }
 }
@@ -74,11 +72,14 @@ final class MBKPanelLimits {
 /// renders with no glass ancestor above it.
 struct MBKPanelContentView: View {
 
-    /// Live sizing limits and arrow position.
+    /// Live arrow position.
     let limits: MBKPanelLimits
 
     /// Chrome metrics — arrow size and corner radius.
     let metrics: MBKPanelMetrics
+
+    /// Maximum content height in points, passed as a plain scalar from the controller.
+    let maxContentHeight: CGFloat
 
     /// The adopter's content.
     let content: AnyView
@@ -104,9 +105,8 @@ struct MBKPanelContentView: View {
     /// silhouette and the window frame describe the same rectangle.
     var body: some View {
         content
-            .frame(maxHeight: limits.maxContentHeight)
+            .frame(maxHeight: maxContentHeight)
             .padding(.top, metrics.arrowHeight)
             .clipShape(bubble)
     }
 }
-
