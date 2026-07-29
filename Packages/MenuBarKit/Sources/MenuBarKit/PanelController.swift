@@ -492,12 +492,22 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
     /// `applyMeasuredSize`'s `isShown` guard.
     public func invalidateContentSize() {
         guard isSetUp, let hostingController else { return }
+        mbkLog("PanelController", "invalidateContentSize — invalidating intrinsic content size")
         hostingController.view.invalidateIntrinsicContentSize()
         // Schedule the measurement on the next actor turn so SwiftUI has a
-        // chance to settle the new layout before we read fittingSize.
+        // chance to settle the new layout before we read intrinsicContentSize.
         Task { @MainActor [weak self] in
             guard let self else { return }
-            let size = hostingController.view.fittingSize
+            // Read intrinsicContentSize (not fittingSize) — fittingSize returns
+            // the frame size when the view is pinned with 4 AL constraints,
+            // which is the window size, not the content's ideal size.
+            // intrinsicContentSize reflects the SwiftUI content's preferred size
+            // regardless of the current frame.
+            let size = hostingController.view.intrinsicContentSize
+            mbkLog("PanelController", "invalidateContentSize — intrinsicContentSize=\(size.width)x\(size.height), applying")
+            // Only apply if the size is non-zero and actually changed from the
+            // current window size.
+            guard size.width > 0, size.height > 0 else { return }
             applyMeasuredSize(size)
         }
     }

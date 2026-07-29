@@ -82,6 +82,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// `mbkOpenFilePicker()` to arm this gate for the overlay lifetime.
     let overlayGate = MBKOverlayGate()
 
+    /// Panel controller handle injected into the SwiftUI environment.
+    /// Created after `panelController` is assigned so the remeasure closure
+    /// captures a non-nil reference. Updated in `setupPanel()` after the
+    /// controller is created.
+    var panelControllerHandle: PanelControllerHandle?
+
     /// Owns the panel lifecycle: status item, anchored NSPanel, arrow placement,
     /// size tracking, outside-click monitor, workspace observer.
     /// Replaced NSPopover + KVO as of #2262.
@@ -105,10 +111,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// `PanelContainerView` and its dim overlay observe this object;
     /// removing it causes a runtime crash on sheet dismissal.
     func wrapEnv<V: View>(_ view: V) -> AnyView {
-        let handle = PanelControllerHandle(
-            remeasure: { [weak self] in
-                self?.panelController?.invalidateContentSize()
-            }
+        // Use the stored handle if available, otherwise create a temporary one.
+        // The temporary handle is created during initial setupPanel() before
+        // panelController is assigned — its remeasure closure is a no-op until
+        // the handle is replaced with the real one below.
+        let handle = panelControllerHandle ?? PanelControllerHandle(
+            remeasure: { /* no-op until panelController is assigned */ }
         )
         return AnyView(view
             .environment(panelVisibilityState)

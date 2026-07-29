@@ -188,6 +188,26 @@ extension AppDelegate {
 
         ctrl.setup()
         panelController = ctrl
+
+        // Create the PanelControllerHandle AFTER panelController is assigned,
+        // so the remeasure closure captures a non-nil reference.
+        let handle = PanelControllerHandle(
+            remeasure: { [weak self] in
+                self?.panelController?.invalidateContentSize()
+            }
+        )
+        panelControllerHandle = handle
+
+        // Replace the root view environment to include the new handle.
+        // The initial RootPanelView was created with a temporary no-op handle
+        // during the MBKPanelController initializer (via wrapEnv). Now that
+        // panelController is assigned, we replace the handle with the real one.
+        ctrl.setRootView(wrapEnv(RootPanelView(
+            onSelectSettings: { [weak self] in self?.navigateToSettings() },
+            onBack: { [weak self] in self?.navigateBack() },
+            onStepBack: { [weak self] in self?.navigateBack() }
+        )))
+
         log("AppDelegate › setupPanel — MBKPanelController setup complete")
     }
 }
