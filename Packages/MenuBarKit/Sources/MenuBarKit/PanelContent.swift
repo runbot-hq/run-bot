@@ -157,8 +157,9 @@ final class MBKHostingView: NSHostingView<MBKPanelContentView> {
         setContentHuggingPriority(.defaultLow, for: .vertical)
         setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         setContentCompressionResistancePriority(.defaultLow, for: .vertical)
-        // The window is fully clear; the SwiftUI .glassEffect draws the bubble.
-        // Clear the hosting view's backing layer so nothing paints behind it.
+        // The window is fully clear; NSGlassEffectView (the direct panel.contentView)
+        // draws the bubble below this hosting view. Clear this layer so the glass
+        // backdrop is not occluded by an opaque SwiftUI root.
         wantsLayer = true
         layer?.backgroundColor = CGColor.clear
     }

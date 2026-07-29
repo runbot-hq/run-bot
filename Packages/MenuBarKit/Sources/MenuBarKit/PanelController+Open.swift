@@ -119,20 +119,6 @@ extension MBKPanelController {
         // Do not remove either without a full device test of text-field interaction.
         NSApp.activate()
         panel.makeKey()
-        // Zero drawsBackground on every NSScrollView SwiftUI creates.
-        // Deferred one actor hop: makeKeyAndOrderFront triggers SwiftUI's first
-        // layout pass asynchronously, so scroll views don't exist until this fires.
-        // A synchronous call here would be a no-op — no scroll views exist yet.
-        //
-        // SCOPE: this sweep covers scroll views present at open time. Scroll views
-        // added during a subsequent route navigation (e.g. from onDidShow) are NOT
-        // covered by this call. In practice this is fine: SwiftUI recreates scroll
-        // views with drawsBackground = false already when the hosting view has a
-        // clear background layer (set in MBKHostingView.init). This call is a
-        // belt-and-suspenders for the initial open only.
-        Task { @MainActor [weak self] in
-            self?.panel?.contentView?.descendantScrollViews().forEach { $0.drawsBackground = false }
-        }
         mbkLog("PanelController", "panel shown frame=\(panel.frame)")
 
         startEventMonitor()

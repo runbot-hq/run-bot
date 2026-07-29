@@ -514,22 +514,3 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
         }
     }
 }
-
-// MARK: - NSView helpers
-
-/// Helpers used internally by `PanelController` to manage subview layout and scroll behaviour.
-extension NSView {
-    // Internal to MenuBarKit — not a public framework API surface.
-    // fileprivate would break the recursive sub.descendantScrollViews() call
-    // across file boundaries. internal (the Swift default) is correct here.
-    /// Walks the entire subview tree and collects every NSScrollView descendant.
-    /// Used to nuke drawsBackground on open so no scroll view paints over the glass bubble.
-    func descendantScrollViews() -> [NSScrollView] {
-        var result: [NSScrollView] = []
-        for sub in subviews {
-            if let sv = sub as? NSScrollView { result.append(sv) }
-            result.append(contentsOf: sub.descendantScrollViews())
-        }
-        return result
-    }
-}
