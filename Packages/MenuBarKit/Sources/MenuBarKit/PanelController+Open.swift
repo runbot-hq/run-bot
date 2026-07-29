@@ -57,8 +57,8 @@ extension MBKPanelController {
     /// pre-show seed plus post-show reposition dance was trying (and failing) to
     /// paper over.
     func openPanel() {
-        // setup() must be called before any open attempt. A nil panel/coalescer/limits
-        // here means setup() was skipped — that is a programmer error and should crash
+        // setup() must be called before any open attempt. A nil panel/limits here
+        // means setup() was skipped — that is a programmer error and should crash
         // loudly with a clear attribution, not silently no-op or crash at the force-
         // unwraps below with no context.
         precondition(isSetUp, "openPanel() called before setup() — call setup() on MBKPanelController first")
@@ -66,7 +66,6 @@ extension MBKPanelController {
         // in testing or before NSStatusBar assignment).
         guard statusItem?.button != nil else { return }
         let panel = panel!
-        let coalescer = coalescer!
         let limits = limits!
         mbkLog("PanelController", "openPanel -- calling onWillShow")
         onWillShow?()
@@ -74,32 +73,14 @@ extension MBKPanelController {
 
         limits.maxContentHeight = liveMaxContentHeight()
         lastContentSize = nil
-        lastMeasuredSize = nil
         onWillCloseFired = false
-        // Opens the gate on the frame pipeline. Before the first open the status
-        // item has no on-screen position, so every launch-time layout pass would
-        // write a frame anchored at the bottom-left of the display.
-        hasOpenedOnce = true
 
         // chrome IS panel.contentView — do not re-insert it as a subview.
         // (It was previously lazily added here, which caused double-background.)
 
-        // While the panel was off screen SwiftUI may never have laid out, in which
-        // case `intrinsicContentSize` is still degenerate. Force one layout pass so
-        // the measurement below is real on the very first open too.
-        hostingView?.layoutSubtreeIfNeeded()
-
-        // Synchronous measure + frame apply on this turn — see MBKSizeCoalescer.
-        coalescer.flush()
-
-        if lastContentSize == nil {
-            // Measurement is still unavailable. Anchor the panel at an arbitrary
-            // small size so the first frame the user sees is in the right place
-            // and the right shape; the next measurement corrects it.
-            let size = MBKPanelController.fallbackContentSize
-            let fallbackHeight = limits.maxContentHeight > 0 ? min(size.height, limits.maxContentHeight) : size.height
-            applyFrame(content: CGSize(width: size.width, height: fallbackHeight), reason: "FALLBACK")
-        }
+        // KVO on preferredContentSize fires once SwiftUI settles after orderFront.
+        // No pre-open flush needed; the KVO Task delivers the first real size.
+        applyMeasuredSize(hostingController.preferredContentSize)
 
         setButtonHighlight(true)
         panel.orderFrontRegardless()
@@ -238,7 +219,6 @@ extension MBKPanelController {
         overlayGate.hasFilePickerOverlay = false
         onWillCloseFired = false
         lastContentSize = nil
-        lastMeasuredSize = nil
         mbkLog("PanelController", "panel closed wasForced=\(wasForced)")
     }
 
