@@ -19,10 +19,10 @@
 //    adopter shows, so a fixed-width settings screen would be stretched to the
 //    list's minimum width. Width belongs to the adopter's own views; MenuBarKit
 //    caps only the height (the live screen fraction) and the screen width.
-// ❌ NEVER add `.fixedSize()` in this wrapper. It would make the content ignore
-//    the concrete proposal in step 3, and every capped scroll view would
-//    overflow the panel instead of scrolling — that is exactly the class of bug
-//    #2278/#2279 were about.
+// ❌ NEVER remove `.fixedSize(horizontal: false, vertical: true)` from body.
+//    It is what makes content report its natural height under the concrete AL
+//    proposal so that short lists shrink the panel. Without it, .frame(maxHeight:)
+//    fills the full window height for short content and the panel never shrinks.
 // ❌ NEVER measure with a `GeometryReader`. A geometry reader sees the size we
 //    already applied, not the size the content wants, so it cannot detect growth.
 // ❌ NEVER apply `.glassEffect(...)` in this wrapper. Glass cannot sample other
@@ -104,11 +104,21 @@ struct MBKPanelContentView: View {
 
     /// Caps the content height, insets it below the arrow, and clips to the bubble.
     ///
-    /// Order matters: the cap applies to the content alone, the arrow inset is
-    /// added on top of it, and the clip uses the *padded* bounds so the
-    /// silhouette and the window frame describe the same rectangle.
+    /// Order matters:
+    /// 1. `.fixedSize(horizontal: false, vertical: true)` makes content report its
+    ///    natural (ideal) height regardless of the concrete AL proposal from the window.
+    ///    Without this, `.frame(maxHeight:)` under a concrete proposal fills the full
+    ///    window height for short content — the panel never shrinks.
+    /// 2. `.frame(maxHeight: maxContentHeight)` caps the natural height at the screen
+    ///    fraction. Content taller than the cap is clipped here; a ScrollView inside
+    ///    will receive the capped height as its proposal in step 3 and scroll.
+    /// 3. `.padding(.top, metrics.arrowHeight)` adds the arrow strip above the content.
+    /// 4. `.clipShape(bubble)` clips to the bubble silhouette.
+    /// 5. `onGeometryChange` fires with the final settled size — capped for tall content,
+    ///    natural for short content — and drives the window frame.
     var body: some View {
         content
+            .fixedSize(horizontal: false, vertical: true)
             .frame(maxHeight: maxContentHeight)
             .padding(.top, metrics.arrowHeight)
             .clipShape(bubble)

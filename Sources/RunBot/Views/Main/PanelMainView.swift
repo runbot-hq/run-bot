@@ -51,7 +51,7 @@ import SwiftUI
 // RULE 9: displayTick fires every 1 second ALWAYS (no open-state gate).
 // RULE 10 (HEADER STABILITY): PanelHeaderView keeps .fixedSize() at the call
 //         site. On macOS 26, GlassEffectContainer reports slightly different
-//         preferred heights under layout pressure; .fixedSize() pins it so the
+//         preferred heights under layout pressure on macOS 26; .fixedSize() pins it so the
 //         Divider below never moves.
 // RULE 11 (WIDTH OWNERSHIP): the root carries
 //         .frame(minWidth: RBMetrics.panelListMinWidth, maxWidth: RBMetrics.panelListMaxWidth).
@@ -200,23 +200,21 @@ struct PanelMainView: View {
 
     /// Scrollable container for the actions section.
     ///
-    /// The ScrollView does NOT carry .fixedSize(vertical: true).
+    /// `.fixedSize(horizontal: false, vertical: true)` on the ScrollView is LOAD-BEARING.
     ///
-    /// WHY: MBKPanelContentView applies .frame(maxHeight: maxContentHeight) which caps
-    /// the panel height. .fixedSize(vertical: true) on the ScrollView would make it
-    /// bypass that cap entirely — it tells SwiftUI "ignore the proposed height and use
-    /// my natural height", so the ScrollView reports its full content height (e.g. 710pt)
-    /// through onGeometryChange regardless of the cap, and the window grows past the
-    /// screen limit. This was the hidden=true / oversized-window bug in the logs.
+    /// WHY: MBKPanelContentView also applies `.fixedSize(vertical: true)` on the whole
+    /// content tree before capping with `.frame(maxHeight:)`. For that outer fixedSize to
+    /// see the correct natural height of the list, the ScrollView here must also report
+    /// its scroll-content's natural height (not fill its proposal). Without this, the
+    /// ScrollView reports the proposed window height as its natural height, the outer
+    /// fixedSize sees window-height as the ideal size, and the panel never shrinks.
     ///
-    /// HOW SHORT LISTS STILL WORK: onGeometryChange sits outside the ScrollView in
-    /// MBKPanelContentView and fires with the actual settled size after the cap is
-    /// applied. When content is shorter than the cap, .frame(maxHeight:) passes through
-    /// the natural height unchanged, so onGeometryChange sees the true short size and
-    /// the window sizes to content. When content exceeds the cap, onGeometryChange sees
-    /// the capped height and the ScrollView scrolls inside the fixed window.
+    /// OVERFLOW IS HANDLED BY MBKPanelContentView: when the natural height exceeds the
+    /// screen cap, `.frame(maxHeight: maxContentHeight)` in MBKPanelContentView clamps it.
+    /// The window is resized to the capped height, which becomes the new concrete proposal
+    /// for this ScrollView, and it scrolls inside that fixed window.
     ///
-    /// ❌ NEVER add .fixedSize(vertical: true) to the ScrollView — it breaks the cap.
+    /// ❌ NEVER remove .fixedSize(horizontal: false, vertical: true) from the ScrollView.
     /// ❌ NEVER add .frame(height:) or .frame(maxHeight:) here — see RULE 1.
     private var actionsSectionScrollable: some View {
         ScrollView(.vertical, showsIndicators: true) {
@@ -224,6 +222,7 @@ struct PanelMainView: View {
                 // RULE 5: LOAD-BEARING — forces natural height measurement before ScrollView clips.
                 .fixedSize(horizontal: false, vertical: true)
         }
+        .fixedSize(horizontal: false, vertical: true)
     }
 
     // MARK: - Content
