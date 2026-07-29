@@ -36,11 +36,27 @@ public func fetchUserRepos(
 
 // MARK: - Step log
 
+// References — ANSI stripping:
+// • laurent22/github-actions-logs-extension (Chrome/Firefox extension, converts ANSI to HTML colours):
+//   https://github.com/laurent22/github-actions-logs-extension
+// • Joplin blog — walkthrough of the extension and why raw Actions logs need client-side parsing:
+//   https://joplinapp.org/news/20230116-github-actions-log-viewer/
+
 /// Pre-compiled regular expression for stripping ANSI escape sequences from CI log output.
 /// Compiled once at module load to avoid repeated allocation on every log fetch.
 private let ansiRegex: NSRegularExpression? = try? NSRegularExpression(
     pattern: "\u{001B}\\[[0-9;]*[A-Za-z]"
 )
+
+// References — timestamp stripping:
+// • ncw/parse-actions-logs (Go CLI, functionally identical regex with optional fractional seconds):
+//   https://github.com/ncw/parse-actions-logs
+// • Xebia — Fluentd/regex approach to stripping the RFC3339 prefix for log forwarding:
+//   https://xebia.com/blog/how-to-forward-github-action-runner-logs/
+// • GitHub Community — Promtail pipeline with RFC3339Nano timestamp extraction:
+//   https://github.com/orgs/community/discussions/160683
+// • GitHub REST API — fetching raw log bytes via GET /repos/.../actions/jobs/{job_id}/logs:
+//   https://www.getorchestra.io/guides/github-actions-download-job-logs-for-a-workflow-ru
 
 /// Pre-compiled regular expression for stripping GitHub Actions log timestamp prefixes.
 /// Every line from the Actions log API is prefixed with an ISO 8601 timestamp + optional space,
