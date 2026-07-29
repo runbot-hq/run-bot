@@ -60,15 +60,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Owns the panel lifecycle: status item, anchored NSPanel, arrow placement,
     /// size tracking, outside-click monitor, workspace observer.
-    /// Replaced NSPopover + PopoverLifecycleCoordinator + KVO as of #2262.
+    /// Replaced NSPopover + KVO as of #2262.
     var panelController: MBKPanelController?
 
-    /// Sheet state that must survive transient popover hides.
+    /// Sheet state that must survive transient panel hides.
     /// Stays on AppDelegate (wiring concern — not domain state). See issue #2040.
     let panelSheetState = PanelSheetState()
 
     /// Shared observable that tracks whether the panel is open.
-    /// Injected into every SwiftUI view via `wrapEnv(_:)`.
+    /// Injected into every SwiftUI view via `wrapEnv(_:)`
     /// ❌ NEVER remove. ❌ NEVER remove from wrapEnv().
     let panelVisibilityState = PanelVisibilityState()
 
@@ -88,33 +88,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
     }
 
-    // MARK: - Make key for text input
-
-    /// Promotes the app to key so TextFields in the popover receive input.
-    func makeKeyForTextInput() {
-        NSApp.activate(ignoringOtherApps: true)
-    }
-
     // MARK: - Close
 
     /// Resets run-bot state ahead of a close driven externally by MBKPanelController.
     ///
-    /// ⚠️ THIS METHOD INTENTIONALLY DOES NOT DISMISS THE POPOVER.
+    /// ⚠️ THIS METHOD INTENTIONALLY DOES NOT DISMISS THE PANEL.
     /// MBKPanelController owns all close paths (status-bar toggle, click-outside,
-    /// Escape). This method is called by MBK’s onWillClose to reset run-bot state
+    /// Escape). This method is called by MBK's onWillClose to reset run-bot state
     /// BEFORE MBK completes its own teardown. Adding a panelController?.close() call
-    /// here would re-enter MBK’s state machine mid-teardown and cause double-close or
+    /// here would re-enter MBK's state machine mid-teardown and cause double-close or
     /// missed onWillClose callbacks.
     ///
     /// CALL SITE AUDIT (keep current):
     ///   • AppDelegate+PanelSetup onWillClose(wasForced: false) — the only caller.
     ///   • navigateBack() does NOT call this — back-nav changes route, not close state.
     ///   • No keyboard shortcut or Escape handler routes through this method.
-    /// If you add a call site that expects the popover to visually close, wire
+    /// If you add a call site that expects the panel to visually close, wire
     /// panelController?.close() there directly instead of routing through here.
     ///
     /// ❌ NEVER add panelController?.close() here.
-    /// ❌ NEVER add popover?.performClose(nil) here.
     func closePanel() {
         log("AppDelegate › closePanel")
         appState.savedNavState = nil
