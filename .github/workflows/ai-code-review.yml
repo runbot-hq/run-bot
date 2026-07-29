@@ -17,7 +17,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: runbot-hq/local-ai-code-review-action@main
+      - id: review
+        uses: runbot-hq/local-ai-code-review-action@main
         # @main is intentional — runbot-hq/local-ai-code-review-action is a
         # first-party repo we own and control. Pinning to @main means every
         # commit (including binary and dist updates) is live immediately.
@@ -29,3 +30,9 @@ jobs:
         with:
           model: qwen3.5:9b
           maximum_response_tokens: 8192  # deep tier (>=150 reviewable lines) uses think=true and needs the headroom
+
+      - name: AI Review Output
+        if: steps.review.outputs.review_body != ''
+        env:
+          REVIEW_BODY: ${{ steps.review.outputs.review_body }}
+        run: echo "$REVIEW_BODY"
