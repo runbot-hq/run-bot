@@ -56,6 +56,9 @@ extension MBKPanelController {
         // statusItem?.button is the only legitimate optional (status item may be absent
         // in testing or before NSStatusBar assignment).
         guard statusItem?.button != nil else { return }
+        precondition(panel != nil, "MBKPanelController.openPanel() called before setup() — panel is nil")
+        precondition(coalescer != nil, "MBKPanelController.openPanel() called before setup() — coalescer is nil")
+        precondition(limits != nil, "MBKPanelController.openPanel() called before setup() — limits is nil")
         let panel = panel!
         let coalescer = coalescer!
         let limits = limits!
@@ -105,11 +108,11 @@ extension MBKPanelController {
         NSApp.activate()
         panel.makeKey()
         // Zero drawsBackground on every NSScrollView SwiftUI creates.
-        // Deferred one run-loop tick: makeKeyAndOrderFront triggers SwiftUI's first
+        // Deferred one actor hop: makeKeyAndOrderFront triggers SwiftUI's first
         // layout pass asynchronously, so scroll views don't exist until this fires.
         // A synchronous call here would be a no-op — no scroll views exist yet.
-        DispatchQueue.main.async { [weak self] in
-            self?.panel.contentView?.descendantScrollViews().forEach { $0.drawsBackground = false }
+        Task { @MainActor [weak self] in
+            self?.panel?.contentView?.descendantScrollViews().forEach { $0.drawsBackground = false }
         }
         mbkLog("PanelController", "panel shown frame=\(panel.frame)")
 
