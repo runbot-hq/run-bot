@@ -86,7 +86,7 @@ extension MBKPanelController {
         // If SwiftUI hasn't settled yet (degenerate zero size), fall back to a
         // placeholder frame in the right screen position; KVO fires once SwiftUI
         // settles and corrects it.
-        let initialSize = hostingView.frame.size
+        let initialSize = hostingView.fittingSize
         if initialSize.width > 0, initialSize.height > 0 {
             applyMeasuredSize(initialSize)
         } else {

@@ -223,6 +223,6 @@ extension MBKPanelController {
         }
         guard isShown else { return }
         lastContentSize = nil
-        applyMeasuredSize(hostingView.frame.size)
+        applyMeasuredSize(hostingView.fittingSize)
     }
 }

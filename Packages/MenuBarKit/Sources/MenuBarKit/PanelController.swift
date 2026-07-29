@@ -174,8 +174,9 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
     var hostingView: NSHostingView<MBKPanelContentView>!
     /// Live sizing limits handed to SwiftUI.
     var limits: MBKPanelLimits!
-    /// KVO observation on `hostingView.intrinsicContentSize`.
-    var sizeObservation: NSKeyValueObservation?
+    /// Notification observer token for `NSView.frameDidChangeNotification` on `hostingView`.
+    /// `nonisolated(unsafe)` — only read in `deinit` after all @MainActor work is done.
+    nonisolated(unsafe) var sizeObservation: (any NSObjectProtocol)?
 
     /// Maximum content height in points, recomputed on every open and screen change.
     var maxContentHeight: CGFloat = 0
@@ -396,21 +397,24 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
         let hosting = NSHostingView(
             rootView: MBKPanelContentView(limits: limits, metrics: metrics, maxContentHeight: maxContentHeight, content: rootView)
         )
-        hosting.sizingOptions = [.intrinsicContentSize]
+        // sizingOptions = [] (default): AL drives width via leading/trailing pins.
+        // Height is free — no bottom constraint is added below, so SwiftUI receives
+        // an unspecified height proposal and ScrollView+.fixedSize reports true height.
+        // NSHostingView invalidates its own frame and posts NSViewFrameDidChangeNotification
+        // after each SwiftUI layout pass. We observe that notification to call applyMeasuredSize.
+        hosting.sizingOptions = []
+        hosting.postsFrameChangedNotifications = true
         hosting.wantsLayer = true
         hosting.layer?.backgroundColor = CGColor.clear
         hosting.translatesAutoresizingMaskIntoConstraints = false
         hostingView = hosting
-        // sizingOptions = [.intrinsicContentSize] makes the hosting view resize its
-        // own frame to match SwiftUI content size. Observing .frame therefore gives
-        // us content-size changes. intrinsicContentSize itself is not KVO-compliant
-        // on NSHostingView — frame is the correct KVO target here.
-        sizeObservation = hosting.observe(
-            \NSHostingView<MBKPanelContentView>.frame,
-            options: [.new]
-        ) { [weak self] view, _ in
-            let size = view.frame.size
-            Task { @MainActor [weak self] in self?.applyMeasuredSize(size) }
+        sizeObservation = NotificationCenter.default.addObserver(
+            forName: NSView.frameDidChangeNotification,
+            object: hosting,
+            queue: .main
+        ) { [weak self, weak hosting] _ in
+            guard let self, let hosting else { return }
+            Task { @MainActor [weak self] in self?.applyMeasuredSize(hosting.fittingSize) }
         }
 
         // CRITICAL: hosting is added via addSubview, NOT glassView.contentView.
@@ -526,6 +530,8 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
         if let monitor = eventMonitor {
             NSEvent.removeMonitor(monitor)
         }
-        sizeObservation?.invalidate()
+        if let token = sizeObservation {
+            NotificationCenter.default.removeObserver(token)
+        }
     }
 }
