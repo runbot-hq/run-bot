@@ -40,14 +40,11 @@ final class MockTransport: GitHubTransportProtocol, @unchecked Sendable {
 @Suite("fetchStepLog timestamp stripping")
 struct GitHubHelpersTests {
 
-    private let transport = MockTransport()
-    /// A valid `owner/repo` scope string — required for `fetchStepLog` to not early-exit.
-    private let scope = "runbot-hq/run-bot"
-
     // MARK: Timestamp stripping
 
     /// Happy path: line-start timestamps are stripped, content is preserved.
     @Test func fetchStepLog_stripsTimestampPrefixes() async throws {
+        let transport = MockTransport()
         let rawLog = [
             "2026-07-29T03:11:15.4722230Z Cleaning up orphan processes",
             "2026-07-29T03:11:16.3185700Z Warning: Node.js 20 is deprecated."
@@ -55,7 +52,7 @@ struct GitHubHelpersTests {
         transport.stubRawData = Data(rawLog.utf8)
 
         let result = try #require(
-            await fetchStepLog(jobID: 1, stepNumber: 1, scope: scope, transport: transport),
+            await fetchStepLog(jobID: 1, stepNumber: 1, scope: "runbot-hq/run-bot", transport: transport),
             "fetchStepLog should return non-nil for valid log"
         )
 
@@ -69,6 +66,7 @@ struct GitHubHelpersTests {
     /// Uses a ##[group] wrapper so parseStepLog exercises the section-slicing path,
     /// not the sections.isEmpty fallback — this directly guards the anchor constraint.
     @Test func fetchStepLog_midLineTimestamp_preserved() async throws {
+        let transport = MockTransport()
         let midLineContent = "Error occurred at 2026-07-29T03:11:15.4722230Z during build"
         let rawLog = [
             "2026-07-29T03:11:15.4000000Z ##[group]Build step",
@@ -78,7 +76,7 @@ struct GitHubHelpersTests {
         transport.stubRawData = Data(rawLog.utf8)
 
         let result = try #require(
-            await fetchStepLog(jobID: 2, stepNumber: 1, scope: scope, transport: transport),
+            await fetchStepLog(jobID: 2, stepNumber: 1, scope: "runbot-hq/run-bot", transport: transport),
             "fetchStepLog should return non-nil for valid log"
         )
 
@@ -93,6 +91,7 @@ struct GitHubHelpersTests {
     /// rather than the no-group fallback — making it explicit that clean content is
     /// not corrupted regardless of which branch executes.
     @Test func fetchStepLog_cleanContent_notCorrupted() async throws {
+        let transport = MockTransport()
         let cleanLine = "Cleaning up orphan processes"
         // Wrap in a ##[group] block so buildLogSections finds exactly one section.
         // stepNumber: 1 therefore selects this section directly.
@@ -104,7 +103,7 @@ struct GitHubHelpersTests {
         transport.stubRawData = Data(rawLog.utf8)
 
         let result = try #require(
-            await fetchStepLog(jobID: 3, stepNumber: 1, scope: scope, transport: transport),
+            await fetchStepLog(jobID: 3, stepNumber: 1, scope: "runbot-hq/run-bot", transport: transport),
             "fetchStepLog should return non-nil for valid log"
         )
 
@@ -115,6 +114,7 @@ struct GitHubHelpersTests {
     /// Verifies that a blank timestamped line with no trailing space is also stripped.
     /// This exercises the `[ ]?` optional-space trailer in timestampRegex.
     @Test func fetchStepLog_bareTimestampLine_stripped() async throws {
+        let transport = MockTransport()
         let rawLog = [
             "2026-07-29T03:11:15.0000000Z",
             "2026-07-29T03:11:15.1000000Z Actual content here"
@@ -122,7 +122,7 @@ struct GitHubHelpersTests {
         transport.stubRawData = Data(rawLog.utf8)
 
         let result = try #require(
-            await fetchStepLog(jobID: 7, stepNumber: 1, scope: scope, transport: transport),
+            await fetchStepLog(jobID: 7, stepNumber: 1, scope: "runbot-hq/run-bot", transport: transport),
             "fetchStepLog should return non-nil for valid log"
         )
 
@@ -133,11 +133,12 @@ struct GitHubHelpersTests {
     // MARK: ANSI stripping (regression guard)
 
     @Test func fetchStepLog_stripsAnsiEscapeCodes() async throws {
+        let transport = MockTransport()
         let rawLog = "2026-07-29T03:11:15.4722230Z \u{001B}[31mError: build failed\u{001B}[0m"
         transport.stubRawData = Data(rawLog.utf8)
 
         let result = try #require(
-            await fetchStepLog(jobID: 4, stepNumber: 1, scope: scope, transport: transport),
+            await fetchStepLog(jobID: 4, stepNumber: 1, scope: "runbot-hq/run-bot", transport: transport),
             "fetchStepLog should return non-nil for valid log"
         )
 
@@ -148,6 +149,7 @@ struct GitHubHelpersTests {
     // MARK: Edge cases
 
     @Test func fetchStepLog_returnsNil_forOrgScope() async {
+        let transport = MockTransport()
         // org-scoped logs are not supported — fetchStepLog should return nil early.
         transport.stubRawData = Data("some log".utf8)
         let result = await fetchStepLog(jobID: 5, stepNumber: 1, scope: "runbot-hq", transport: transport)
@@ -155,8 +157,9 @@ struct GitHubHelpersTests {
     }
 
     @Test func fetchStepLog_returnsNil_whenTransportReturnsNil() async {
+        let transport = MockTransport()
         transport.stubRawData = nil
-        let result = await fetchStepLog(jobID: 6, stepNumber: 1, scope: scope, transport: transport)
+        let result = await fetchStepLog(jobID: 6, stepNumber: 1, scope: "runbot-hq/run-bot", transport: transport)
         #expect(result == nil, "fetchStepLog should return nil when transport returns nil")
     }
 }
