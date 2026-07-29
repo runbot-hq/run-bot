@@ -182,11 +182,15 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
     /// precondition check) but must never write it; only `setup()` sets it to true.
 
     private(set) var isSetUp = false
-    /// Global mouse-down event monitor token. `nonisolated(unsafe)` — see file header.
+    // nonisolated(unsafe) — deinit cannot be @MainActor-isolated. These tokens
+    // are only read in deinit, which runs after all @MainActor work is done under
+    // the singleton lifetime. Safe as long as the controller is never released
+    // from a non-main thread — which holds for the single app-lifetime instance.
+    /// Global mouse-down event monitor token.
     nonisolated(unsafe) var eventMonitor: Any?
-    /// Workspace app-switch observer token. `nonisolated(unsafe)` — see file header.
+    /// Workspace app-switch observer token.
     nonisolated(unsafe) var workspaceObserver: NSObjectProtocol?
-    /// Screen-parameter observer token. `nonisolated(unsafe)` — see file header.
+    /// Screen-parameter observer token.
     nonisolated(unsafe) var screenObserver: NSObjectProtocol?
 
     /// Status-button centre X in screen coordinates from the most recent readable frame.
@@ -501,6 +505,9 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
 
 /// Helpers used internally by `PanelController` to manage subview layout and scroll behaviour.
 extension NSView {
+    // Internal to MenuBarKit — not a public framework API surface.
+    // fileprivate would break the recursive sub.descendantScrollViews() call
+    // across file boundaries. internal (the Swift default) is correct here.
     /// Walks the entire subview tree and collects every NSScrollView descendant.
     /// Used to nuke drawsBackground on open so no scroll view paints over the glass bubble.
     func descendantScrollViews() -> [NSScrollView] {
