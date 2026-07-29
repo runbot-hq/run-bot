@@ -386,16 +386,7 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
         )
         hosting.view.wantsLayer = true
         hosting.view.layer?.backgroundColor = CGColor.clear
-        // Frame-based layout: no AL constraints on the hosting view.
-        // AL pins (all 4 edges) propose the current window size to SwiftUI, which
-        // prevents SwiftUI from ever reporting a *larger* intrinsicContentSize when
-        // content grows — AL fights back and re-clamps. Instead we let the window
-        // frame drive size: panel.setFrame resizes the contentView automatically,
-        // and we call hosting.view.setFrameSize in applyFrame to keep them in sync.
-        // autoresizingMask = .width + .height makes the hosting view fill the
-        // contentView when panel.setFrame changes the window — no AL needed.
-        hosting.view.translatesAutoresizingMaskIntoConstraints = true
-        hosting.view.autoresizingMask = [.width, .height]
+        hosting.view.translatesAutoresizingMaskIntoConstraints = false
         hostingController = hosting
         sizeObservation = hosting.view.observe(
             \NSView.intrinsicContentSize,
@@ -411,8 +402,27 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
         // addSubview keeps the hosting view as a plain sibling layer above glassView,
         // outside the compositor, so GlassEffectContainer and .glassEffect elements work.
         // cornerRadius clipping is handled by MBKBubbleShape clipShape on the SwiftUI side.
-        // No AL constraints — frame tracking via autoresizingMask above.
+        // ORDERING: addSubview must come before `window.contentView = glassView`.
+        // Three AL constraints pin hosting to top/leading/trailing of glassView.
+        // The bottom edge is intentionally NOT pinned: a bottom pin proposes the
+        // current window height to SwiftUI as its available space, which prevents
+        // SwiftUI from ever reporting a *larger* intrinsicContentSize when content
+        // grows — AL fights back and clamps to the current window size. Without
+        // the bottom pin SwiftUI measures its natural height freely; applyFrame
+        // then resizes the window to match via panel.setFrame.
         glassView.addSubview(hosting.view)
+        // top/leading/trailing pin the hosting view to the glass edges.
+        // The bottom is NOT pinned — see comment above.
+        // The height >= 1 at low priority silences the "ambiguous height" AL warning
+        // without constraining SwiftUI; intrinsicContentSize wins over priority 1.
+        let heightFloor = hosting.view.heightAnchor.constraint(greaterThanOrEqualToConstant: 1)
+        heightFloor.priority = .init(1)
+        NSLayoutConstraint.activate([
+            hosting.view.leadingAnchor.constraint(equalTo: glassView.leadingAnchor),
+            hosting.view.trailingAnchor.constraint(equalTo: glassView.trailingAnchor),
+            hosting.view.topAnchor.constraint(equalTo: glassView.topAnchor),
+            heightFloor,
+        ])
 
         let window = MBKPanel()
         window.contentView = glassView   // glass IS the contentView — no wrapper

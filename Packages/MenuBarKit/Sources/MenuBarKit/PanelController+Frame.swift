@@ -194,14 +194,6 @@ extension MBKPanelController {
         if abs(limits.arrowCenterX - layout.arrowCenterX) >= 0.5 {
             limits.arrowCenterX = layout.arrowCenterX
         }
-        // Pre-size the hosting view to the new window content size *before* setFrame.
-        // SwiftUI uses the hosting view's current bounds as the proposed size for the
-        // next layout pass. If we resize the window first and let autoresizingMask
-        // propagate, SwiftUI sees the new size only on the *next* runloop turn, which
-        // means intrinsicContentSize KVO fires with the old proposed size and we get
-        // one frame of wrong size. Setting the frame here synchronously gives SwiftUI
-        // the correct proposed size immediately.
-        hostingController.view.setFrameSize(layout.frame.size)
         panel.setFrame(layout.frame, display: true)
         // layoutSubtreeIfNeeded flushes AL and SwiftUI layout synchronously so the
         // glass and hosting view are both at the new size before invalidateShadow.
