@@ -220,6 +220,11 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
     /// Prevents `onWillClose` from firing more than once per open/close cycle.
     var onWillCloseFired = false
 
+    /// Polling task that monitors `intrinsicContentSize` while the panel is open.
+    /// Used instead of KVO on `preferredContentSize` because that notification
+    /// does not fire reliably for content changes inside a ScrollView.
+    var sizingPollTask: Task<Void, Never>?
+
     // MARK: - Private types
 
     /// KVC tuning values for `NSGlassEffectView`'s private dark-glass pipeline.
@@ -510,6 +515,47 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
             guard size.width > 0, size.height > 0 else { return }
             applyMeasuredSize(size)
         }
+    }
+
+    // MARK: - Sizing poll
+
+    /// Starts a polling Task that reads `intrinsicContentSize` every 0.5s while
+    /// the panel is open and feeds it through `applyMeasuredSize`.
+    ///
+    /// This is a belt-and-suspenders approach. The preferred approach is the
+    /// `preferredContentSize` KVO observer (set up in `setupPanelWindow()`), but
+    /// that notification does not fire reliably for content changes inside a
+    /// `ScrollView` with `.fixedSize(vertical: true)` — the exact scenario when
+    /// the run-bot workflow list grows. The poll catches these cases.
+    ///
+    /// The poll is stopped automatically in `teardown()` via `stopSizingPoll()`.
+    ///
+    /// `applyMeasuredSize` deduplicates via `lastContentSize`, so repeated reads
+    /// of the same size are a cheap no-op (one log line).
+    func startSizingPoll() {
+        stopSizingPoll() // Cancel any previous poll before starting a new one.
+        sizingPollTask = Task { [weak self] in
+            while !Task.isCancelled {
+                // Wait 0.5s between polls. This is infrequent enough to not
+                // impact CPU, but frequent enough to catch content changes
+                // within a second or two of the user seeing stale sizing.
+                try? await Task.sleep(nanoseconds: 500_000_000)
+                guard !Task.isCancelled, let self else { return }
+                await MainActor.run {
+                    guard !Task.isCancelled, self.isShown else { return }
+                    self.hostingController?.view.invalidateIntrinsicContentSize()
+                    let size = self.hostingController?.view.intrinsicContentSize ?? .zero
+                    guard size.width > 0, size.height > 0 else { return }
+                    self.applyMeasuredSize(size)
+                }
+            }
+        }
+    }
+
+    /// Cancels the sizing poll task, if running.
+    func stopSizingPoll() {
+        sizingPollTask?.cancel()
+        sizingPollTask = nil
     }
 
     // MARK: - Status item
