@@ -44,6 +44,17 @@ public func fetchUserRepos(
 
 /// Pre-compiled regular expression for stripping ANSI escape sequences from CI log output.
 /// Compiled once at module load to avoid repeated allocation on every log fetch.
+///
+/// `try?` is intentional: the pattern is a static literal and will never fail to compile
+/// at runtime. The `try?` form is consistent with `timestampRegex` below and avoids a
+/// forced-unwrap that would crash on launch for a non-fatal feature. If compilation somehow
+/// fails, `stripAnsi` falls back to returning input unchanged — logs remain readable, just
+/// with ANSI codes present. This is the correct degradation behaviour.
+///
+/// Note: `stripAnsi` must run **after** CR normalisation (step 2 in `parseStepLog`) and
+/// **before** `stripTimestamps`. The ANSI pattern is character-based and does not interact
+/// with line endings, but maintaining the documented pipeline order is required for
+/// `stripTimestamps` to receive clean LF-only input.
 private let ansiRegex: NSRegularExpression? = try? NSRegularExpression(
     pattern: "\u{001B}\\[[0-9;]*[A-Za-z]"
 )
@@ -61,11 +72,22 @@ private let ansiRegex: NSRegularExpression? = try? NSRegularExpression(
 /// Pre-compiled regular expression for stripping GitHub Actions log timestamp prefixes.
 /// Every line from the Actions log API is prefixed with an ISO 8601 timestamp + optional space,
 /// e.g. `2026-07-29T03:11:15.4722230Z ` (content line) or `2026-07-29T03:11:15.0000000Z` (blank line).
-/// The fractional-seconds group `(\.\d+)?` is optional to cover whole-second timestamps
-/// (e.g. `2026-07-29T03:11:15Z`) that self-hosted or future runners may emit.
-/// The trailing `[^\S\n]*` matches zero or more non-newline whitespace after the Z, tolerating
-/// any whitespace variant (including the case where an ANSI reset byte appears between Z and the
-/// space separator after stripAnsi has run). Bare timestamp-only lines are also matched.
+///
+/// **Fractional seconds (`\.\d+`)?** — The group is optional (`?`) to cover whole-second
+/// timestamps (e.g. `2026-07-29T03:11:15Z`) that self-hosted or future runners may emit.
+/// The digit count is intentionally **not** constrained to `{1,6}` or `{1,9}`: GitHub Actions
+/// currently emits 7-digit precision and some runners emit nanoseconds; constraining the
+/// digit count would silently fail to strip valid prefixes on those runners. This matches
+/// the approach taken by ncw/parse-actions-logs and other reference implementations.
+///
+/// **Trailing `[^\S\n]*`** — Matches zero or more non-newline whitespace after the Z,
+/// tolerating the case where an ANSI reset byte appeared between Z and the space separator
+/// and was already removed by `stripAnsi`. Bare timestamp-only lines (no trailing space)
+/// are also matched via this trailer.
+///
+/// **`try?`** — Intentional; see note on `ansiRegex` above. Same degradation contract:
+/// if compilation fails, `stripTimestamps` returns input unchanged.
+///
 /// Compiled once at module load.
 private let timestampRegex: NSRegularExpression? = try? NSRegularExpression(
     pattern: #"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z[^\S\n]*"#,
@@ -172,7 +194,17 @@ private func parseStepLog(
 }
 
 /// Splits a cleaned log string into sections delimited by `##[group]` markers.
-/// Each section starts at the marker line and ends just before the next marker.
+/// Each section starts at the `##[group]` marker line and runs to (but not including)
+/// the next `##[group]` marker. The `##[endgroup]` line is **intentionally included**
+/// in the returned section string — it acts as the section terminator and callers
+/// use it as a sentinel for display boundaries. It is not stripped here.
+///
+/// **`line.contains` vs `line.hasPrefix`**: After timestamp stripping, every
+/// `##[group]` marker is at the start of its line (the timestamp prefix that
+/// preceded it has been removed). `contains` is therefore equivalent to `hasPrefix`
+/// in practice. `contains` is used deliberately so that logs from runners that emit
+/// the marker without a preceding timestamp (e.g. in the sections.isEmpty fallback
+/// path) are also handled correctly.
 private func buildLogSections(from cleaned: String) -> [String] {
     let lines = cleaned.components(separatedBy: "\n")
     var sections: [String] = []
@@ -193,6 +225,9 @@ private func buildLogSections(from cleaned: String) -> [String] {
 
 /// Removes ANSI escape sequences from `input` using the pre-compiled `ansiRegex`.
 /// Returns `input` unchanged if `ansiRegex` failed to compile at module load time.
+///
+/// Must be called **after** CR normalisation and **before** `stripTimestamps`.
+/// See the pipeline-order comment on `parseStepLog` for the full rationale.
 private func stripAnsi(_ input: String) -> String {
     guard let ansiRegex else { return input }
     let range = NSRange(input.startIndex..., in: input)

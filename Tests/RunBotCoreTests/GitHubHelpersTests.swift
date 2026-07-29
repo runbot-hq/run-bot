@@ -17,6 +17,11 @@ import Testing
 
 /// Minimal `GitHubTransportProtocol` conformer for unit tests.
 /// `raw(_:timeout:)` returns `stubRawData`; all other methods return nil / false.
+///
+/// **No shared state**: every test method instantiates its own `MockTransport()`
+/// locally and sets `stubRawData` on that instance. There is no suite-level or
+/// class-level shared transport — each test is fully isolated with no risk of
+/// stale state or cross-test interference.
 final class MockTransport: GitHubTransportProtocol, @unchecked Sendable {
     let decoder: JSONDecoder = JSONDecoder()
     let logger: (any GitHubLogger)? = nil
@@ -67,11 +72,22 @@ struct GitHubHelpersTests {
     /// Uses a ##[group] wrapper so parseStepLog exercises the section-slicing path,
     /// not the sections.isEmpty fallback — this directly guards the anchor constraint.
     ///
-    /// After stripping, the section should contain exactly:
+    /// After stripping, the section contains:
     ///   ##[group]Build step
     ///   Error occurred at 2026-07-29T03:11:15.4722230Z during build
     ///   ##[endgroup]
     /// The line-start timestamp prefix is removed; the mid-line timestamp is preserved.
+    ///
+    /// Note: `##[endgroup]` is intentionally present in the result — `buildLogSections`
+    /// includes it in the section content by design (it acts as a section terminator
+    /// for the caller). The assertions below do not check for its absence.
+    ///
+    /// The line-start timestamp assertions use `!result.hasPrefix("2026-07-29T")` and
+    /// `!result.contains("\n2026-07-29T")` rather than splitting by newline. Together
+    /// these two checks are sufficient and complete: `hasPrefix` guards the first line,
+    /// `contains("\n2026-07-29T")` guards every subsequent line. A timestamp at the
+    /// start of any line must be preceded by `\n` (because CR normalisation has already
+    /// run), so no line-start timestamp can escape both checks.
     @Test func fetchStepLog_midLineTimestamp_preserved() async throws {
         let transport = MockTransport()
         let midLineContent = "Error occurred at 2026-07-29T03:11:15.4722230Z during build"
@@ -111,6 +127,9 @@ struct GitHubHelpersTests {
     /// section slicing) unchanged.
     /// Uses a ##[group]-wrapped payload so parseStepLog takes the section-slicing path
     /// rather than the sections.isEmpty fallback.
+    ///
+    /// Note: `##[endgroup]` is intentionally present in the returned section — see the
+    /// note on `fetchStepLog_midLineTimestamp_preserved` above.
     @Test func fetchStepLog_strippingDoesNotCorruptContent() async throws {
         let transport = MockTransport()
         let cleanLine = "Cleaning up orphan processes"
@@ -197,7 +216,7 @@ struct GitHubHelpersTests {
         )
     }
 
-    /// Guards CRLF normalisation in stripTimestamps: raw log bytes with \r\n line endings
+    /// Guards CRLF normalisation: raw log bytes with \r\n line endings
     /// (as may arrive from Windows runners or zip-archive log downloads) must not leave
     /// stray \r characters in the output. Verifies that ##[group] section parsing
     /// still works correctly after normalisation.
@@ -222,11 +241,12 @@ struct GitHubHelpersTests {
         #expect(result.contains("Building project"), "Log content must be preserved after CRLF normalisation")
     }
 
-    /// Guards the bare-CR normalisation branch in stripTimestamps: raw log bytes with
-    /// bare \r line endings (not \r\n) must also be normalised to \n so that no stray
-    /// \r characters survive and ##[group] section parsing works correctly.
-    /// This complements fetchStepLog_crlfLineEndings_normalisedAndStripped, which covers
-    /// the \r\n branch; together they fully exercise the two-pass CR normalisation.
+    /// Guards the bare-CR normalisation branch: raw log bytes with bare \r line endings
+    /// (not \r\n) must also be normalised to \n so that no stray \r characters survive
+    /// and ##[group] section parsing works correctly.
+    /// This complements `fetchStepLog_crlfLineEndings_normalisedAndStripped`, which covers
+    /// the \r\n branch; together they fully exercise the two-pass CR normalisation
+    /// (\r\n → \n first, then bare \r → \n — order matters to avoid doubling blank lines).
     @Test func fetchStepLog_bareCrLineEndings_normalisedAndStripped() async throws {
         let transport = MockTransport()
         let rawLog = [
