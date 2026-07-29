@@ -15,7 +15,7 @@
 //
 // HOW THE WINDOW IS LAYERED (back to front) — and why:
 //   contentView = NSGlassEffectView   (direct — no wrapper)
-//     └── subview        NSHostingView  (adopter SwiftUI tree)
+//     └── subview        NSHostingController  (adopter SwiftUI tree)
 //
 //   NSGlassEffectView MUST be the direct panel.contentView. Any intervening
 //   layer-backed ancestor (plain NSView, NSVisualEffectView) routes glass through
@@ -97,7 +97,7 @@
 //   queue: nil delivers on the poster's thread; Task { @MainActor } is the
 //   Swift 6-correct hop to the main actor — compiler-enforced, not asserted.
 //
-// IMPLICIT-UNWRAPPED OPTIONALS (statusItem, panel, hostingView, limits):
+// IMPLICIT-UNWRAPPED OPTIONALS (statusItem, panel, hostingController, limits):
 //   Assigned in setup(), not init(). Safe because setup() is called from
 //   applicationDidFinishLaunching before any user interaction is possible.
 //   isSetUp = true is set as the LAST statement in setup(), after all five
@@ -171,12 +171,12 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
     /// The one window MenuBarKit owns.
     var panel: MBKPanel!
     /// Hosts the root SwiftUI view.
-    var hostingView: NSHostingView<MBKPanelContentView>!
+    var hostingController: NSHostingController<MBKPanelContentView>!
     /// Live sizing limits handed to SwiftUI.
     var limits: MBKPanelLimits!
-    /// Notification observer token for `NSView.frameDidChangeNotification` on `hostingView`.
+    /// KVO observation on `hostingController.preferredContentSize`.
     /// `nonisolated(unsafe)` — only read in `deinit` after all @MainActor work is done.
-    nonisolated(unsafe) var sizeObservation: (any NSObjectProtocol)?
+    nonisolated(unsafe) var sizeObservation: NSKeyValueObservation?
 
     /// Maximum content height in points, recomputed on every open and screen change.
     var maxContentHeight: CGFloat = 0
@@ -382,60 +382,43 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
                 + " — falling back to .regular style (lighter glass). File a radar.")
         }
 
-        // NSHostingView (not NSHostingController) so we can set sizingOptions.
-        // sizingOptions = [.intrinsicContentSize] makes the hosting view self-size
-        // to its SwiftUI content height without an AL bottom constraint. SwiftUI
-        // therefore receives an *unspecified* height proposal, which lets
-        // ScrollView + .fixedSize(horizontal:false, vertical:true) report the
-        // true content height. KVO on intrinsicContentSize then fires with that
-        // height and applyFrame resizes the window to match.
+        // NSHostingController with all 4 AL pins + KVO on preferredContentSize.
         //
-        // AUTO LAYOUT IS LOAD-BEARING HERE — do not remove the leading/trailing
-        // pins or replace with autoresizingMask. NSHostingView only fires
-        // intrinsicContentSize KVO reliably while AL is active in the window.
-        // Without at least one AL constraint the KVO fires once and never again.
-        let hosting = NSHostingView(
-            rootView: MBKPanelContentView(limits: limits, metrics: metrics, maxContentHeight: maxContentHeight, content: rootView)
-        )
-        // sizingOptions = [] (default): AL drives width via leading/trailing pins.
-        // Height is free — no bottom constraint is added below, so SwiftUI receives
-        // an unspecified height proposal and ScrollView+.fixedSize reports true height.
-        // NSHostingView invalidates its own frame and posts NSViewFrameDidChangeNotification
-        // after each SwiftUI layout pass. We observe that notification to call applyMeasuredSize.
-        hosting.sizingOptions = []
-        hosting.postsFrameChangedNotifications = true
-        hosting.wantsLayer = true
-        hosting.layer?.backgroundColor = CGColor.clear
-        hosting.translatesAutoresizingMaskIntoConstraints = false
-        hostingView = hosting
-        sizeObservation = NotificationCenter.default.addObserver(
-            forName: NSView.frameDidChangeNotification,
-            object: hosting,
-            queue: .main
-        ) { [weak self, weak hosting] _ in
-            guard let self, let hosting else { return }
-            Task { @MainActor [weak self] in self?.applyMeasuredSize(hosting.fittingSize) }
-        }
-
-        // CRITICAL: hosting is added via addSubview, NOT glassView.contentView.
+        // preferredContentSize is updated by AppKit once per settled SwiftUI layout pass
+        // (debounced — no burst). It reports the size SwiftUI *wants*, which may differ
+        // from the window size proposed by the 4 AL pins. applyMeasuredSize receives it
+        // and resizes the window + hosting view frame to match.
+        //
+        // All 4 pins are required: they give SwiftUI a concrete size proposal so it can
+        // measure content against a real width. Without a bottom pin SwiftUI gets an
+        // unspecified height and preferredContentSize never settles to a useful value.
+        //
+        // CRITICAL: hosting.view is added via addSubview, NOT glassView.contentView.
         // glassView.contentView puts the SwiftUI tree inside the glass compositor —
         // glass-inside-glass flattens every GlassEffectContainer in the adopter's content.
         // addSubview keeps the hosting view as a plain sibling layer above glassView,
         // outside the compositor, so GlassEffectContainer and .glassEffect elements work.
-        // cornerRadius clipping is handled by MBKBubbleShape clipShape on the SwiftUI side.
-        // ORDERING: addSubview must come before `window.contentView = glassView`.
-        // leading/trailing pin the hosting view to the glass x-edges.
-        // top pins the origin. No bottom constraint — sizingOptions drives height.
-        // All 4 AL pins (including bottom) were intentionally removed: a bottom
-        // pin proposes the current window height to SwiftUI, preventing
-        // intrinsicContentSize from ever reporting a taller value.
-        // sizingOptions = [.intrinsicContentSize] replaces the bottom pin: the
-        // hosting view self-sizes vertically, giving SwiftUI a free height proposal.
-        glassView.addSubview(hosting)
+        let hosting = NSHostingController(
+            rootView: MBKPanelContentView(limits: limits, metrics: metrics, maxContentHeight: maxContentHeight, content: rootView)
+        )
+        hosting.view.wantsLayer = true
+        hosting.view.layer?.backgroundColor = CGColor.clear
+        hosting.view.translatesAutoresizingMaskIntoConstraints = false
+        hostingController = hosting
+        sizeObservation = hosting.observe(
+            \NSHostingController<MBKPanelContentView>.preferredContentSize,
+            options: [.new]
+        ) { [weak self] _, change in
+            guard let self, let size = change.newValue else { return }
+            Task { @MainActor [weak self] in self?.applyMeasuredSize(size) }
+        }
+
+        glassView.addSubview(hosting.view)
         NSLayoutConstraint.activate([
-            hosting.leadingAnchor.constraint(equalTo: glassView.leadingAnchor),
-            hosting.trailingAnchor.constraint(equalTo: glassView.trailingAnchor),
-            hosting.topAnchor.constraint(equalTo: glassView.topAnchor),
+            hosting.view.leadingAnchor.constraint(equalTo: glassView.leadingAnchor),
+            hosting.view.trailingAnchor.constraint(equalTo: glassView.trailingAnchor),
+            hosting.view.topAnchor.constraint(equalTo: glassView.topAnchor),
+            hosting.view.bottomAnchor.constraint(equalTo: glassView.bottomAnchor),
         ])
 
         let window = MBKPanel()
@@ -493,7 +476,7 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
         // Without this the dedupe check skips the frame write and the arrow is
         // positioned relative to the old (wider/narrower) window width.
         lastContentSize = nil
-        hostingView.rootView = MBKPanelContentView(limits: limits, metrics: metrics, maxContentHeight: maxContentHeight, content: rootView)
+        hostingController.rootView = MBKPanelContentView(limits: limits, metrics: metrics, maxContentHeight: maxContentHeight, content: rootView)
         mbkLog("PanelController", "setRootView — rootView replaced, lastContentSize cleared")
     }
 
@@ -530,8 +513,6 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
         if let monitor = eventMonitor {
             NSEvent.removeMonitor(monitor)
         }
-        if let token = sizeObservation {
-            NotificationCenter.default.removeObserver(token)
-        }
+        sizeObservation?.invalidate()
     }
 }

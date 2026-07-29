@@ -219,10 +219,10 @@ extension MBKPanelController {
         if abs(cap - maxContentHeight) >= 1 {
             maxContentHeight = cap
             mbkLog("PanelController", "screen change -- maxContentHeight=\(cap)")
-            hostingView.rootView = MBKPanelContentView(limits: limits, metrics: metrics, maxContentHeight: maxContentHeight, content: rootView)
+            hostingController.rootView = MBKPanelContentView(limits: limits, metrics: metrics, maxContentHeight: maxContentHeight, content: rootView)
         }
         guard isShown else { return }
         lastContentSize = nil
-        applyMeasuredSize(hostingView.fittingSize)
+        applyMeasuredSize(hostingController.view.fittingSize)
     }
 }
