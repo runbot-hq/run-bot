@@ -79,12 +79,21 @@ extension MBKPanelController {
         // chrome IS panel.contentView — do not re-insert it as a subview.
         // (It was previously lazily added here, which caused double-background.)
 
-        // KVO on preferredContentSize fires once SwiftUI settles after orderFront.
-        // No pre-open flush needed; the KVO Task delivers the first real size.
-        applyMeasuredSize(hostingController.preferredContentSize)
-
         setButtonHighlight(true)
         panel.orderFrontRegardless()
+        // isShown (= panel.isVisible) is now true.
+        // Apply the first frame synchronously using the current preferredContentSize.
+        // If SwiftUI hasn't settled yet (degenerate zero size), fall back to a
+        // placeholder frame in the right screen position; KVO fires once SwiftUI
+        // settles and corrects it.
+        let initialSize = hostingController.preferredContentSize
+        if initialSize.width > 0, initialSize.height > 0 {
+            applyMeasuredSize(initialSize)
+        } else {
+            let size = MBKPanelController.fallbackContentSize
+            let fallbackHeight = maxContentHeight > 0 ? min(size.height, maxContentHeight) : size.height
+            applyFrame(content: CGSize(width: size.width, height: fallbackHeight), reason: "FALLBACK")
+        }
         // NSApp.activate() — no-argument form, intentional post-deprecation replacement
         // for activate(ignoringOtherApps: true) which is deprecated macOS 14+.
         //
