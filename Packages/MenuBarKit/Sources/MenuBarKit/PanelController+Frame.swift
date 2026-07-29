@@ -10,10 +10,9 @@
 // free instead of needing a post-show correction.
 //
 // ❌ NEVER call `panel.setFrame` or `setFrameOrigin` anywhere else.
-// ❌ NEVER set `hostingView.frame` by hand. The hosting view is pinned to the
-//    window's content view with required constraints; the *window* resizes and
-//    the hosting view follows. Assigning its frame directly was how the content
-//    ended up bigger than the window, centred and clipped at both ends.
+// ❌ NEVER set `hostingController.view.frame` by hand. The hosting view is pinned
+//    to the window's content view with required constraints; the *window* resizes
+//    and the hosting view follows.
 //
 // LOGGING CONTRACT (the on-device diagnostic surface):
 //   MEASURE  measured=(w,h) content=(w,h) cap=… reason=…
@@ -124,32 +123,29 @@ extension MBKPanelController {
 
     // MARK: - Measure
 
-    /// Measures the hosted content and applies the resulting frame.
+    /// Receives the settled `preferredContentSize` from the KVO observer and
+    /// applies the resulting frame.
     ///
-    /// Called only through `MBKSizeCoalescer`, so at most once per runloop turn.
-    ///
-    /// The hosting view measures the *whole* bubble — the SwiftUI root adds the
-    /// arrow inset itself — so the arrow strip is subtracted here to recover the
-    /// content size that `MBKPanelGeometry` expects.
-    func applyMeasuredSize() {
-        // Guard against post-close re-entry: teardown() clears lastContentSize and
-        // lastMeasuredSize, but a Task enqueued by schedule() before teardown ran
-        // can still fire on the next actor turn. Without this guard, that Task would
-        // re-enter applyMeasuredSize(), pass the frameWritesAllowed() check
-        // (hasOpenedOnce stays true after the first open), and write a stale
-        // lastContentSize — causing the NEXT open to hit the "SKIP -- content
-        // unchanged" dedupe and show the panel at the wrong size.
+    /// `preferredContentSize` is debounced by AppKit — it fires once per settled
+    /// layout, so there is no burst to coalesce. The hosting controller measures
+    /// the *whole* bubble — the SwiftUI root adds the arrow inset itself — so
+    /// the arrow strip is subtracted here to recover the content size that
+    /// `MBKPanelGeometry` expects.
+    /// - Parameter measured: The new `preferredContentSize` value from KVO.
+    func applyMeasuredSize(_ measured: CGSize) {
+        // Guard against post-close re-entry: the KVO Task can land on the next
+        // actor turn after teardown. Without this guard it would seed
+        // lastContentSize with a stale size, causing the next open to hit the
+        // "SKIP -- content unchanged" dedupe and show the panel at the wrong size.
         guard isShown else {
             mbkLog("PanelController", "SKIP -- panel not shown, dropping post-close measurement")
             return
         }
-        guard let hostingView, let limits, frameWritesAllowed() else { return }
-        let measured = hostingView.intrinsicContentSize
+        guard let limits else { return }
         guard measured.width > 0, measured.height > 0 else {
-            mbkLog("PanelController", "SKIP -- degenerate intrinsic size (\(measured.width),\(measured.height))")
+            mbkLog("PanelController", "SKIP -- degenerate preferredContentSize (\(measured.width),\(measured.height))")
             return
         }
-        lastMeasuredSize = measured
 
         let cap = limits.maxContentHeight
         let content = MBKPanelGeometry.clampContent(
@@ -166,7 +162,7 @@ extension MBKPanelController {
             """
         )
 
-        if isShown, let last = lastContentSize,
+        if let last = lastContentSize,
            abs(last.width - content.width) < 1, abs(last.height - content.height) < 1 {
             mbkLog("PanelController", "SKIP -- content unchanged (\(content.width),\(content.height))")
             return
@@ -175,55 +171,14 @@ extension MBKPanelController {
         applyFrame(content: content, reason: "WRITE")
     }
 
-    /// Re-measures after a layout pass and schedules an apply if the size moved.
-    ///
-    /// The safety net behind `invalidateIntrinsicContentSize()`. A layout pass
-    /// that produces the same measurement does nothing at all, so this costs one
-    /// cached property read per pass in the steady state.
-    /// - Parameter reason: Log token describing what triggered the re-measure.
-    func scheduleIfMeasurementChanged(reason: String) {
-        guard !isApplyingFrame, let hostingView, let coalescer else { return }
-        let measured = hostingView.intrinsicContentSize
-        guard measured.width > 0, measured.height > 0 else { return }
-        if let last = lastMeasuredSize,
-           abs(last.width - measured.width) < 1, abs(last.height - measured.height) < 1 {
-            return
-        }
-        mbkLog(
-            "PanelController",
-            "MEASURE \(reason) -- measured=(\(measured.width),\(measured.height)) differs from applied, scheduling"
-        )
-        coalescer.schedule()
-    }
-
     // MARK: - Apply
-
-    /// Whether the pipeline may write a window frame yet.
-    ///
-    /// At launch SwiftUI lays out long before the status item exists on screen,
-    /// so the anchor reads `topY=0` and the pipeline would place the panel at
-    /// the bottom-left of the display. Nothing is on screen to see it, but the
-    /// writes are noise in the log and they seed `lastContentSize` with a frame
-    /// nobody asked for. `openPanel()` flushes the coalescer synchronously, so
-    /// refusing until then costs nothing.
-    ///
-    /// - Returns: `true` once `openPanel()` has run; otherwise `false`, logging
-    ///   `SKIP -- not shown yet` on the first refusal only.
-    func frameWritesAllowed() -> Bool {
-        if hasOpenedOnce { return true }
-        if !didLogPreOpenSkip {
-            didLogPreOpenSkip = true
-            mbkLog("PanelController", "SKIP -- not shown yet")
-        }
-        return false
-    }
 
     /// Computes and applies the window frame, and feeds the arrow position to the chrome.
     /// - Parameters:
     ///   - content: Clamped content size, excluding the arrow strip.
     ///   - reason: Log token describing the caller.
     func applyFrame(content: CGSize, reason: String) {
-        guard let panel, let limits, frameWritesAllowed() else { return }
+        guard let panel, let limits else { return }
         guard let anchor = readAnchor() else {
             mbkLog("PanelController", "\(reason) -- no anchor available, skipping frame")
             return
@@ -236,7 +191,6 @@ extension MBKPanelController {
             metrics: metrics
         )
 
-        isApplyingFrame = true
         if abs(limits.arrowCenterX - layout.arrowCenterX) >= 0.5 {
             limits.arrowCenterX = layout.arrowCenterX
         }
@@ -245,16 +199,13 @@ extension MBKPanelController {
         // pinned chrome and hosting view so the bubble and SwiftUI both see the
         // real size on this turn.
         // ORDERING: layoutSubtreeIfNeeded() runs synchronously here, before
-        // invalidateShadow(). coalescer.flush() in openPanel() guarantees no
-        // pending resize is in flight when the panel is first shown; for the
-        // resize-while-visible path this call ensures the glass and SwiftUI tree
-        // are both at the new size before the shadow is recomputed from the
-        // window's alpha channel.
+        // invalidateShadow(). For the resize-while-visible path this call ensures
+        // the glass and SwiftUI tree are both at the new size before the shadow is
+        // recomputed from the window's alpha channel.
         panel.contentView?.layoutSubtreeIfNeeded()
         // The window is fully clear, so the shadow is derived from the rendered
         // alpha of the glass bubble. It has to be recomputed for the new shape.
         panel.invalidateShadow()
-        isApplyingFrame = false
 
         mbkLog(
             "PanelController",
@@ -264,11 +215,6 @@ extension MBKPanelController {
             frame=\(layout.frame) arrowX=\(layout.arrowCenterX) clamped=\(layout.wasClamped)
             """
         )
-
-        // The re-proposal above may have changed what the content wants (a
-        // ScrollView that now fits, a wrapped label that now needs a second
-        // line). Converge on the next turn rather than leaving it to chance.
-        scheduleIfMeasurementChanged(reason: "post-apply")
     }
 
     /// Recomputes the height cap and re-applies the frame after a display change.
@@ -281,7 +227,6 @@ extension MBKPanelController {
         }
         guard isShown else { return }
         lastContentSize = nil
-        lastMeasuredSize = nil
-        coalescer?.flush()
+        applyMeasuredSize(hostingController.preferredContentSize)
     }
 }
