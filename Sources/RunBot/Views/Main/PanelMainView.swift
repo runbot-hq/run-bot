@@ -181,16 +181,8 @@ struct PanelMainView: View {
             log("【PanelMainView】actions count → \(newActions.count)", category: .panel)
             #endif
             if newActions.count < oldActions.count { visibleCount = 10 }
-            // Invalidate the panel's content size so the window grows when the
-            // list gains new rows. The standard preferredContentSize KVO does not
-            // fire reliably for data changes inside a ScrollView with .fixedSize.
-            panelControllerHandle.remeasure()
-        }
-        // Also invalidate on runner and job changes, which can add rows to the list.
-        .onChange(of: appState.runnerState.runners) { _, _ in
-            panelControllerHandle.remeasure()
-        }
-        .onChange(of: appState.runnerState.jobs) { _, _ in
+            // Invalidate the panel's content size so SwiftUI re-lays out and
+            // onGeometryChange fires with the updated size.
             panelControllerHandle.remeasure()
         }
     }
