@@ -66,6 +66,12 @@ struct GitHubHelpersTests {
     /// inside log content (not at the start of a line) must NOT be stripped.
     /// Uses a ##[group] wrapper so parseStepLog exercises the section-slicing path,
     /// not the sections.isEmpty fallback — this directly guards the anchor constraint.
+    ///
+    /// After stripping, the section should contain exactly:
+    ///   ##[group]Build step
+    ///   Error occurred at 2026-07-29T03:11:15.4722230Z during build
+    ///   ##[endgroup]
+    /// The line-start timestamp prefix is removed; the mid-line timestamp is preserved.
     @Test func fetchStepLog_midLineTimestamp_preserved() async throws {
         let transport = MockTransport()
         let midLineContent = "Error occurred at 2026-07-29T03:11:15.4722230Z during build"
@@ -81,9 +87,21 @@ struct GitHubHelpersTests {
             "fetchStepLog should return non-nil for valid log"
         )
 
+        // The full stripped content line must be present — this only holds if the
+        // line-start prefix was removed AND the mid-line timestamp survived intact.
         #expect(
-            result.contains("2026-07-29T03:11:15.4722230Z during build"),
-            "A timestamp embedded mid-line in log content must not be stripped"
+            result.contains(midLineContent),
+            "The full content line (with its mid-line timestamp) must appear after stripping the line-start prefix"
+        )
+        // No line in the result should begin with a timestamp prefix — guards against
+        // the regression where stripping silently fails and the prefix leaks through.
+        #expect(
+            !result.hasPrefix("2026-07-29T"),
+            "The section must not start with a raw timestamp prefix"
+        )
+        #expect(
+            !result.contains("\n2026-07-29T"),
+            "No line within the section should begin with a raw timestamp prefix"
         )
     }
 
