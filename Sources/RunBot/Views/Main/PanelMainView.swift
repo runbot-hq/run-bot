@@ -26,7 +26,7 @@ import SwiftUI
 //     live against NSScreen on every open (AppDelegate.panelHeightMultiplier is
 //     passed through as `maxHeightFraction`)
 //   • .frame(height: scrollViewHeight > 0 ? ... : nil) on the ScrollView
-//   • the root .fixedSize() — MenuBarKit’s unspecified-proposal measurement pass
+//   • the root .fixedSize() — MenuBarKit's unspecified-proposal measurement pass
 //     already gives us content-driven sizing, and a .fixedSize() here would make
 //     the ScrollView ignore the capped proposal and overflow instead of scroll
 //   • isMenuBarHidden and the NSApp.windows iteration behind it — MenuBarKit
@@ -61,9 +61,8 @@ import SwiftUI
 //         AFTER the width frame. Without this, when the window expands between
 //         MEASURE passes (stale fittingSize open → settled onGeometryChange resize),
 //         SwiftUI re-centres the VStack in the new space instead of keeping it at the top.
-//         ❌ NEVER remove this modifier.
 //
-// The panel’s Liquid Glass bubble and arrow are drawn by MenuBarKit in AppKit
+// The panel's Liquid Glass bubble and arrow are drawn by MenuBarKit in AppKit
 // (`MBKPanelChromeView`: an NSGlassEffectView body plus a rotated NSGlassEffectView
 // arrow), one layer *below* this view —
 // exactly where NSPopover used to put its chrome. That is deliberate: a SwiftUI
@@ -134,9 +133,6 @@ struct PanelMainView: View {
                 statsVM: systemStats,
                 onSelectSettings: onSelectSettings
             )
-            // RULE 10: LOAD-BEARING — do not remove.
-            // .fixedSize() prevents GlassEffectContainer from reporting fluctuating
-            // heights under layout pressure on macOS 26 (see RULE 10 above).
             .fixedSize()
             .onAppear { systemStats.start() }
             Divider()
@@ -157,9 +153,11 @@ struct PanelMainView: View {
                 }
             actionsSectionScrollable
         }
-        // RULE 11: LOAD-BEARING — the list’s own width range. MenuBarKit does not
-        // impose one, so without this the panel would be as wide as its widest row.
         .frame(minWidth: RBMetrics.panelListMinWidth, maxWidth: RBMetrics.panelListMaxWidth)
+        // Pin the VStack to the top-leading corner of the window. Without this,
+        // when the window grows between MEASURE passes SwiftUI re-centres the
+        // VStack vertically, making the list appear to float down the screen.
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .onAppear {
             #if DEBUG
             log("【PanelMainView】onAppear panelOpen=\(panelVisibilityState.isOpen)", category: .panel)
@@ -180,20 +178,13 @@ struct PanelMainView: View {
             #endif
             if newOpen { systemStats.start() } else { systemStats.stop() }
         }
-        // Reset the visible row count only when the list shrinks (e.g. a runner is removed),
-        // not on every poll update — avoids snapping the user back mid-scroll.
         .onChange(of: appState.runnerState.actions) { oldActions, newActions in
             #if DEBUG
             log("【PanelMainView】actions count → \(newActions.count)", category: .panel)
             #endif
             if newActions.count < oldActions.count { visibleCount = 10 }
-            // Invalidate the panel’s content size so the window resizes when the
-            // list gains or loses rows. This calls `invalidateContentSize()` on the
-            // panel controller, which forces a synchronous layout pass and reads the
-            // updated fitting size through the frame pipeline.
             panelControllerHandle.remeasure()
         }
-        // Also remeasure on runner and job changes, which can add rows to the list.
         .onChange(of: appState.runnerState.runners) { _, _ in
             panelControllerHandle.remeasure()
         }
@@ -204,25 +195,15 @@ struct PanelMainView: View {
 
     // MARK: - Scroll section
 
-    /// Scrollable container for the actions section.
-    ///
-    /// Unconstrained on purpose. Under the concrete window proposal the ScrollView
-    /// receives the capped height and scrolls. The natural-height measurement is
-    /// driven by onGeometryChange in MBKPanelContentView, not by fixedSize here.
-    /// ❌ NEVER add .fixedSize(horizontal: false, vertical: true) to the ScrollView —
-    ///    it fights the concrete window proposal, causing the Y position to jump.
-    /// ❌ NEVER add .frame(height:) or .frame(maxHeight:) here — see RULE 1.
     private var actionsSectionScrollable: some View {
         ScrollView(.vertical, showsIndicators: true) {
             actionsSectionContent
-                // RULE 5: LOAD-BEARING — forces natural height measurement before ScrollView clips.
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
 
     // MARK: - Content
 
-    /// Workflow rows and the load-more button, rendered inside the scroll container.
     private var actionsSectionContent: some View {
         VStack(alignment: .leading, spacing: 0) {
             SectionHeaderLabel(title: "Workflows")
@@ -240,7 +221,6 @@ struct PanelMainView: View {
         }
     }
 
-    /// "Load N more workflows" button; hidden when all workflows are already visible.
     @ViewBuilder private var loadMoreButton: some View {
         let nextBatch = min(10, appState.runnerState.actions.count - visibleCount)
         if nextBatch > 0 {
@@ -255,15 +235,6 @@ struct PanelMainView: View {
 
     // MARK: - Display tick timer
 
-    /// Starts the 1-second structured `displayTick` loop. Cancels any existing task first.
-    ///
-    /// Sleep-first: fires 1 s after start, matching the prior `Timer.scheduledTimer` behaviour.
-    /// No open-state gate — RULE 9: displayTick runs always while the view is alive.
-    /// Named "displayTick" for Instruments visibility (RG6).
-    /// `try` (not `try?`) on Task.sleep propagates CancellationError cleanly so the loop
-    /// exits immediately on cancel without executing a spurious post-cancel tick.
-    /// `@MainActor` is explicit so the compiler statically verifies that `displayTickTask`
-    /// (a `@State`-backed property) is always mutated on the main actor.
     @MainActor private func startDisplayTickTimer() {
         stopDisplayTickTimer()
         displayTickTask = Task(name: "displayTick") { @MainActor in
@@ -274,8 +245,6 @@ struct PanelMainView: View {
         }
     }
 
-    /// Cancels and nils the `displayTick` task.
-    /// `@MainActor` matches `startDisplayTickTimer()` — both mutate `displayTickTask`.
     @MainActor private func stopDisplayTickTimer() {
         displayTickTask?.cancel()
         displayTickTask = nil
@@ -283,12 +252,6 @@ struct PanelMainView: View {
 
     // MARK: - Banners
 
-    /// Inline error banner shown when `appState.runnerState.fetchError` is non-nil.
-    ///
-    /// Displays a truncated error description. Dismisses automatically on the next
-    /// successful fetch cycle when `applyFetchResult` clears `fetchError`.
-    /// Stale `runners`/`jobs`/`actions` remain visible below the banner so the user
-    /// still sees the last-known state while connectivity is degraded.
     private func fetchErrorBanner(_ error: any Error) -> some View {
         HStack(spacing: 6) {
             Image(systemName: "exclamationmark.triangle.fill").foregroundColor(.red).font(.caption)
@@ -299,16 +262,6 @@ struct PanelMainView: View {
         .padding(.horizontal, 12).padding(.vertical, 4)
     }
 
-    /// Rate-limit warning banner showing a countdown to API reset.
-    ///
-    /// WHY withExtendedLifetime(displayTick):
-    /// `displayTick` must be read inside `body` to register a SwiftUI dependency so the
-    /// banner label refreshes every second. However, `rateLimitBanner` is a computed var
-    /// called from body — not body itself — so the compiler cannot see the read directly.
-    /// `withExtendedLifetime` is a zero-cost call that makes the dependency explicit to both
-    /// the compiler and future readers without changing runtime behaviour. The actual per-second
-    /// refresh is driven by the `tick:` parameter chain: body → actionsSectionContent →
-    /// ActionRowView(tick:). This call is intentional and not dead code.
     private var rateLimitBanner: some View {
         withExtendedLifetime(displayTick) {}
         let countdownLabel: String
