@@ -45,6 +45,7 @@ final class GitHubHelpersTests: XCTestCase {
 
     // MARK: Timestamp stripping
 
+    /// Happy path: line-start timestamps are stripped, content is preserved.
     func test_fetchStepLog_stripsTimestampPrefixes() async {
         let rawLog = [
             "2026-07-29T03:11:15.4722230Z Cleaning up orphan processes",
@@ -69,13 +70,48 @@ final class GitHubHelpersTests: XCTestCase {
         )
     }
 
-    func test_fetchStepLog_plainLog_noTimestamps_returnedUnchanged() async {
-        let rawLog = "Cleaning up orphan processes\nAll steps succeeded."
+    /// Guards the `.anchorsMatchLines` behaviour: a timestamp that appears mid-line
+    /// inside log content (not at the start of a line) must NOT be stripped.
+    /// This is the only assertion that directly exercises the anchor constraint on
+    /// `timestampRegex` — a regression here would mean content timestamps get eaten.
+    func test_fetchStepLog_midLineTimestamp_preserved() async {
+        let midLineContent = "Error occurred at 2026-07-29T03:11:15.4722230Z during build"
+        let rawLog = "2026-07-29T03:11:15.4722230Z \(midLineContent)"
         transport.stubRawData = Data(rawLog.utf8)
 
         let result = await fetchStepLog(jobID: 2, stepNumber: 1, scope: scope, transport: transport)
 
-        XCTAssertEqual(result, rawLog, "A log with no timestamps should be returned unchanged")
+        XCTAssertTrue(
+            result?.contains("2026-07-29T03:11:15.4722230Z during build") ?? false,
+            "A timestamp embedded mid-line in log content must not be stripped"
+        )
+    }
+
+    /// Verifies stripTimestamps is a no-op on content that has no timestamp prefixes.
+    /// Uses a ##[group]-wrapped payload so parseStepLog takes the section-slicing path
+    /// rather than the no-group fallback — making it explicit that clean content is
+    /// not corrupted regardless of which branch executes.
+    func test_fetchStepLog_cleanContent_notCorrupted() async {
+        let cleanLine = "Cleaning up orphan processes"
+        // Wrap in a ##[group] block so buildLogSections finds exactly one section.
+        // stepNumber: 1 therefore selects this section directly.
+        let rawLog = [
+            "2026-07-29T03:11:15.4722230Z ##[group]Post job cleanup",
+            "2026-07-29T03:11:15.5000000Z \(cleanLine)",
+            "2026-07-29T03:11:15.6000000Z ##[endgroup]"
+        ].joined(separator: "\n")
+        transport.stubRawData = Data(rawLog.utf8)
+
+        let result = await fetchStepLog(jobID: 3, stepNumber: 1, scope: scope, transport: transport)
+
+        XCTAssertTrue(
+            result?.contains(cleanLine) ?? false,
+            "Clean log content must survive the stripping pipeline unchanged"
+        )
+        XCTAssertFalse(
+            result?.contains("2026-07-29T") ?? false,
+            "Timestamp prefixes must still be stripped from the selected section"
+        )
     }
 
     // MARK: ANSI stripping (regression guard)
@@ -84,7 +120,7 @@ final class GitHubHelpersTests: XCTestCase {
         let rawLog = "2026-07-29T03:11:15.4722230Z \u{001B}[31mError: build failed\u{001B}[0m"
         transport.stubRawData = Data(rawLog.utf8)
 
-        let result = await fetchStepLog(jobID: 3, stepNumber: 1, scope: scope, transport: transport)
+        let result = await fetchStepLog(jobID: 4, stepNumber: 1, scope: scope, transport: transport)
 
         XCTAssertFalse(
             result?.contains("\u{001B}[") ?? false,
@@ -101,13 +137,13 @@ final class GitHubHelpersTests: XCTestCase {
     func test_fetchStepLog_returnsNil_forOrgScope() async {
         // org-scoped logs are not supported — fetchStepLog should return nil early.
         transport.stubRawData = Data("some log".utf8)
-        let result = await fetchStepLog(jobID: 4, stepNumber: 1, scope: "runbot-hq", transport: transport)
+        let result = await fetchStepLog(jobID: 5, stepNumber: 1, scope: "runbot-hq", transport: transport)
         XCTAssertNil(result, "fetchStepLog should return nil for org-only scope")
     }
 
     func test_fetchStepLog_returnsNil_whenTransportReturnsNil() async {
         transport.stubRawData = nil
-        let result = await fetchStepLog(jobID: 5, stepNumber: 1, scope: scope, transport: transport)
+        let result = await fetchStepLog(jobID: 6, stepNumber: 1, scope: scope, transport: transport)
         XCTAssertNil(result, "fetchStepLog should return nil when transport returns nil")
     }
 }
