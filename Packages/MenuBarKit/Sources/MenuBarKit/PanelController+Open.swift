@@ -41,24 +41,24 @@ extension MBKPanelController {
         precondition(isSetUp, "openPanel() called before setup() — call setup() on MBKPanelController first")
         guard statusItem?.button != nil else { return }
         let panel = panel!
-        let coalescer = coalescer!
         let limits = limits!
         mbkLog("PanelController", "openPanel -- calling onWillShow")
         onWillShow?()
         mbkLog("PanelController", "onWillShow fired")
 
-        limits.maxContentHeight = liveMaxContentHeight()
         lastContentSize = nil
         lastMeasuredSize = nil
         onWillCloseFired = false
         hasOpenedOnce = true
 
-        hostingView?.layoutSubtreeIfNeeded()
-        coalescer.flush()
+        let measured = hostingController.preferredContentSize
+        if measured.width > 0, measured.height > 0 {
+            applyMeasuredSize(measured)
+        }
 
         if lastContentSize == nil {
             let size = MBKPanelController.fallbackContentSize
-            let fallbackHeight = limits.maxContentHeight > 0 ? min(size.height, limits.maxContentHeight) : size.height
+            let fallbackHeight = size.height
             applyFrame(content: CGSize(width: size.width, height: fallbackHeight), reason: "FALLBACK")
         }
 

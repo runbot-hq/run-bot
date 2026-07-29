@@ -338,6 +338,8 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
     // MARK: - Deallocation
 
     deinit {
+        sizeObservation?.invalidate()
+        sizeObservation = nil
         if let observer = workspaceObserver {
             NSWorkspace.shared.notificationCenter.removeObserver(observer)
         }

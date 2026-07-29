@@ -99,20 +99,19 @@ extension MBKPanelController {
 
     // MARK: - Measure
 
-    func applyMeasuredSize() {
+    func applyMeasuredSize(_ measured: CGSize) {
         guard isShown else {
             mbkLog("PanelController", "SKIP -- panel not shown, dropping post-close measurement")
             return
         }
-        guard let hostingView, let limits, frameWritesAllowed() else { return }
-        let measured = hostingView.intrinsicContentSize
+        guard let limits, frameWritesAllowed() else { return }
         guard measured.width > 0, measured.height > 0 else {
-            mbkLog("PanelController", "SKIP -- degenerate intrinsic size (\(measured.width),\(measured.height))")
+            mbkLog("PanelController", "SKIP -- degenerate preferredContentSize (\(measured.width),\(measured.height))")
             return
         }
         lastMeasuredSize = measured
 
-        let cap = limits.maxContentHeight
+        let cap = liveMaxContentHeight()
         let content = MBKPanelGeometry.clampContent(
             CGSize(width: measured.width, height: measured.height - metrics.arrowHeight),
             minWidth: 1,
@@ -134,29 +133,6 @@ extension MBKPanelController {
         }
         lastContentSize = content
         applyFrame(content: content, reason: "WRITE")
-    }
-
-    /// Re-measures after a layout pass and schedules a frame apply if the size moved.
-    ///
-    /// Only runs while the panel is visible. AppKit fires layout passes continuously
-    /// even when the panel is off screen; without the `isShown` gate those passes
-    /// schedule a coalescer drain that immediately bails via the same `isShown` check
-    /// in `applyMeasuredSize` — but because `lastMeasuredSize` is never written in
-    /// that bail path, the dedupe here always sees nil and keeps scheduling, producing
-    /// a tight ~100/s CPU loop for the lifetime of the app.
-    func scheduleIfMeasurementChanged(reason: String) {
-        guard isShown, !isApplyingFrame, let hostingView, let coalescer else { return }
-        let measured = hostingView.intrinsicContentSize
-        guard measured.width > 0, measured.height > 0 else { return }
-        if let last = lastMeasuredSize,
-           abs(last.width - measured.width) < 1, abs(last.height - measured.height) < 1 {
-            return
-        }
-        mbkLog(
-            "PanelController",
-            "MEASURE \(reason) -- measured=(\(measured.width),\(measured.height)) differs from applied, scheduling"
-        )
-        coalescer.schedule()
     }
 
     // MARK: - Apply
@@ -201,20 +177,15 @@ extension MBKPanelController {
             frame=\(layout.frame) arrowX=\(layout.arrowCenterX) clamped=\(layout.wasClamped)
             """
         )
-
-        scheduleIfMeasurementChanged(reason: "post-apply")
     }
 
     func refreshForScreenChange() {
-        guard let limits else { return }
-        let cap = liveMaxContentHeight()
-        if abs(cap - limits.maxContentHeight) >= 1 {
-            limits.maxContentHeight = cap
-            mbkLog("PanelController", "screen change -- maxContentHeight=\(cap)")
-        }
         guard isShown else { return }
         lastContentSize = nil
         lastMeasuredSize = nil
-        coalescer?.flush()
+        let measured = hostingController.preferredContentSize
+        if measured.width > 0, measured.height > 0 {
+            applyMeasuredSize(measured)
+        }
     }
 }
