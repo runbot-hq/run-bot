@@ -191,6 +191,13 @@ extension MBKPanelController {
     /// valid. The precondition below enforces this in all build configurations:
     /// if `teardown` is called without a prior `fireOnWillClose`, the flag is false
     /// and the precondition trips regardless of optimisation level.
+    ///
+    /// `precondition` (not `assert`) is deliberate: a silent mis-fire of `onWillClose`
+    /// in a release build would leave the overlay gate in an inconsistent state and
+    /// corrupt the next open/close cycle. A loud crash is the safer failure mode here.
+    /// Both current callers (`performClose`, `forceClose`) are verified safe — each
+    /// guards `isShown` before calling `fireOnWillClose`, and `isShown` reflects
+    /// `panel?.isVisible` which AppKit flips synchronously on `orderOut`.
     private func teardown(wasForced: Bool) {
         precondition(onWillCloseFired, "teardown called without a prior fireOnWillClose — call fireOnWillClose(wasForced:) first")
         stopEventMonitor()
