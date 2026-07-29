@@ -499,22 +499,15 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
         guard isSetUp, let hostingController else { return }
         mbkLog("PanelController", "invalidateContentSize — invalidating intrinsic content size")
         hostingController.view.invalidateIntrinsicContentSize()
-        // Schedule the measurement on the next actor turn so SwiftUI has a
-        // chance to settle the new layout before we read intrinsicContentSize.
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            // Read intrinsicContentSize (not fittingSize) — fittingSize returns
-            // the frame size when the view is pinned with 4 AL constraints,
-            // which is the window size, not the content's ideal size.
-            // intrinsicContentSize reflects the SwiftUI content's preferred size
-            // regardless of the current frame.
-            let size = hostingController.view.intrinsicContentSize
-            mbkLog("PanelController", "invalidateContentSize — intrinsicContentSize=\(size.width)x\(size.height), applying")
-            // Only apply if the size is non-zero and actually changed from the
-            // current window size.
-            guard size.width > 0, size.height > 0 else { return }
-            applyMeasuredSize(size)
-        }
+        // Force an immediate layout pass so intrinsicContentSize is updated
+        // synchronously, not on the next display cycle. layoutSubtreeIfNeeded()
+        // on an NSHostingView triggers a SwiftUI layout pass (resolve the view
+        // tree, measure, arrange) and then updates the view's intrinsic size.
+        hostingController.view.layoutSubtreeIfNeeded()
+        let size = hostingController.view.intrinsicContentSize
+        mbkLog("PanelController", "invalidateContentSize — intrinsicContentSize=\(size.width)x\(size.height), applying")
+        guard size.width > 0, size.height > 0 else { return }
+        applyMeasuredSize(size)
     }
 
     // MARK: - Sizing poll
@@ -535,19 +528,22 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
     func startSizingPoll() {
         stopSizingPoll() // Cancel any previous poll before starting a new one.
         sizingPollTask = Task { [weak self] in
+            // Short delay before the first poll to let the initial layout settle.
+            try? await Task.sleep(nanoseconds: 100_000_000) // 100ms
             while !Task.isCancelled {
-                // Wait 0.5s between polls. This is infrequent enough to not
-                // impact CPU, but frequent enough to catch content changes
-                // within a second or two of the user seeing stale sizing.
-                try? await Task.sleep(nanoseconds: 500_000_000)
                 guard !Task.isCancelled, let self else { return }
                 await MainActor.run {
                     guard !Task.isCancelled, self.isShown else { return }
                     self.hostingController?.view.invalidateIntrinsicContentSize()
+                    self.hostingController?.view.layoutSubtreeIfNeeded()
                     let size = self.hostingController?.view.intrinsicContentSize ?? .zero
                     guard size.width > 0, size.height > 0 else { return }
                     self.applyMeasuredSize(size)
                 }
+                // Wait 0.1s between polls. This provides a ~100ms max lag for
+                // catching content changes that the explicit invalidateContentSize()
+                // call missed, while keeping the window responsive to rapid changes.
+                try? await Task.sleep(nanoseconds: 100_000_000)
             }
         }
     }
