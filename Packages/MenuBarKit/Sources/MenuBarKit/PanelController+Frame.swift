@@ -202,11 +202,15 @@ extension MBKPanelController {
             limits.arrowCenterX = layout.arrowCenterX
         }
         panel.setFrame(layout.frame, display: true)
-        // layoutSubtreeIfNeeded flushes AL and SwiftUI layout synchronously so the
-        // glass and hosting view are both at the new size before invalidateShadow.
-        panel.contentView?.layoutSubtreeIfNeeded()
-        // The window is fully clear, so the shadow is derived from the rendered
-        // alpha of the glass bubble. It has to be recomputed for the new shape.
+        // ❌ NO layoutSubtreeIfNeeded here. Forcing a synchronous layout pass reads
+        // the hosting view's stale intrinsicContentSize (SwiftUI hasn't settled yet),
+        // which causes the hosting view to collapse to a degenerate height. This
+        // degenerate height is then proposed to SwiftUI, which fires onGeometryChange
+        // with a tiny size, which triggers another applyFrame → infinite loop.
+        // The window resize with display: true already schedules a natural layout
+        // pass on the next runloop turn, which is when SwiftUI has settled.
+        // The shadow is derived from the rendered alpha of the glass bubble, which
+        // is correct after the natural layout pass.
         panel.invalidateShadow()
 
         mbkLog(

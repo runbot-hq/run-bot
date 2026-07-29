@@ -77,6 +77,12 @@ struct MBKPanelContentView: View {
     /// Chrome metrics — arrow size and corner radius.
     let metrics: MBKPanelMetrics
 
+    /// Maximum content height in points, set by the controller on every open.
+    /// Passed as a plain scalar so SwiftUI can cap the content without observing it.
+    /// The cap is re-evaluated on every open and screen change, and the hosting view
+    /// is rebuilt with the new value.
+    let maxContentHeight: CGFloat
+
     /// The adopter's content.
     let content: AnyView
 
@@ -101,24 +107,45 @@ struct MBKPanelContentView: View {
     /// Insets content below the arrow, clips to the bubble, reports settled size.
     ///
     /// Sizing is owned entirely by the AppKit pipeline:
-    /// 1. `onGeometryChange` fires with the content's ideal settled size.
-    /// 2. `applyMeasuredSize` clamps it to the live screen cap.
-    /// 3. `applyFrame` resizes the window to the clamped size.
-    /// 4. The window re-proposes the capped height to SwiftUI on the next pass.
-    /// 5. A `ScrollView` inside `content` receives the cap as a concrete proposal
+    /// 1. `.frame(maxHeight: maxContentHeight)` caps the content so the ScrollView
+    ///    scrolls rather than overflowing — this is the only SwiftUI-side cap.
+    /// 2. `onGeometryChange` fires with the content's ideal settled size.
+    /// 3. `applyMeasuredSize` clamps it to the live screen cap.
+    /// 4. `applyFrame` resizes the window to the clamped size.
+    /// 5. The window re-proposes the capped height to SwiftUI on the next pass.
+    /// 6. A `ScrollView` inside `content` receives the cap as a concrete proposal
     ///    and scrolls rather than overflowing.
     ///
-    /// `.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)` fills
-    /// the hosting-view viewport and pins content to the top during the brief
-    /// interval between the initial (stale fittingSize) WRITE and the settled
-    /// onGeometryChange WRITE, preventing content from floating to centre.
+    /// ❌ NEVER add `.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)`
+    ///    here. It makes the content fill the hosting view's proposed size, which causes
+    ///    `onGeometryChange` to report the window size instead of the content's natural
+    ///    size, creating a feedback loop: window resize → SwiftUI re-layout → reports
+    ///    new window size → window resize → ⋯. The AppKit pipeline in `applyMeasuredSize`
+    ///    → `clampContent` is the one and only cap; the SwiftUI layer must not interfere
+    ///    with it.
+    /// ❌ NEVER add `.fixedSize(vertical: true)` in this wrapper. The hosting view has no
+    ///    bottom AL pin, so `.frame(maxHeight:)` is the only SwiftUI-side cap. `.fixedSize` causes
+    ///    SwiftUI to pass the content's ideal height straight through, defeating the cap entirely.
+    ///    The AppKit pipeline in `applyMeasuredSize` → `clampContent` is the backup cap;
+    ///    the SwiftUI `maxHeight` is the primary one.
+    /// ❌ NEVER put a min/max *width* in this wrapper. It applies to every route the
+    ///    adopter shows, so a fixed-width settings screen would be stretched to the
+    ///    list's minimum width. Width belongs to the adopter's own views; MenuBarKit
+    ///    caps only the height (the live screen fraction) and the screen width.
+    /// ❌ NEVER measure with a `GeometryReader`. A geometry reader sees the size we
+    ///    already applied, not the size the content wants, so it cannot detect growth.
+    /// ❌ NEVER apply `.glassEffect(...)` in this wrapper. Glass cannot sample other
+    ///    glass: a SwiftUI glass ancestor silently flattens every
+    ///    `GlassEffectContainer` in the adopter's content. The bubble is drawn by
+    ///    `NSGlassEffectView` (direct panel.contentView) is below the hosting view
+    ///    as a plain sibling — the same layering strategy NSPopover used for its chrome.
     var body: some View {
         content
+            .frame(maxHeight: maxContentHeight)
             .padding(.top, metrics.arrowHeight)
             .clipShape(bubble)
             .onGeometryChange(for: CGSize.self, of: \.size) { newSize in
                 onSizeChange?(newSize)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 }
