@@ -41,6 +41,15 @@
 //   • CAShapeLayer mask on any layer
 //   • Any async re-assertion of cornerRadius after addChildWindow()
 //
+// SAFE ON NSGlassEffectView ANCESTORS (do not confuse with the above):
+//   • cornerRadius on NSThemeFrame.layer   — sets visual rounding only;
+//     does NOT force an offscreen compositing pass. Used in
+//     clipWindowFrameBacking() to suppress square border pixel artefacts.
+//   • cornerCurve = .continuous on NSThemeFrame.layer — same: purely
+//     cosmetic, no compositing-pass consequence.
+//   These two properties are safe to set on any ancestor. Only
+//   masksToBounds forces the offscreen pass.
+//
 // ROUNDED CORNERS — HISTORY (approaches tried and rejected):
 //   All of these regress to rect corners on sheet open (addChildWindow):
 //   1. NSVisualEffectView.cornerRadius / masksToBounds  → reset by addChildWindow()
@@ -387,6 +396,14 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
         // addSubview keeps the hosting view as a plain sibling layer above glassView,
         // outside the compositor, so GlassEffectContainer and .glassEffect elements work.
         // cornerRadius clipping is handled by MBKBubbleShape clipShape on the SwiftUI side.
+        // ORDERING: addSubview must come before `window.contentView = glassView`.
+        // The four AL constraints below pin hosting to glassView's anchors.
+        // glassView IS panel.contentView — the anchor targets are equivalent to
+        // panel.contentView anchors — but only after contentView= is assigned.
+        // If contentView= were moved above this line in a future refactor, the
+        // constraints would reference a view not yet in the window hierarchy and
+        // Auto Layout would log unsatisfiable-constraint warnings at open time.
+        // Keep this addSubview + constraint block together and before contentView=.
         glassView.addSubview(hosting)
         NSLayoutConstraint.activate([
             hosting.leadingAnchor.constraint(equalTo: glassView.leadingAnchor),
