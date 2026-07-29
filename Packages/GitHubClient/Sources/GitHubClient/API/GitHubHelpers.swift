@@ -199,19 +199,21 @@ private func parseStepLog(
 /// in the returned section string — it acts as the section terminator and callers
 /// use it as a sentinel for display boundaries. It is not stripped here.
 ///
-/// **`line.contains` vs `line.hasPrefix`**: After timestamp stripping, every
-/// `##[group]` marker is at the start of its line (the timestamp prefix that
-/// preceded it has been removed). `contains` is therefore equivalent to `hasPrefix`
-/// in practice. `contains` is used deliberately so that logs from runners that emit
-/// the marker without a preceding timestamp (e.g. in the sections.isEmpty fallback
-/// path) are also handled correctly.
+/// **`hasPrefix` invariant**: By the time this function is called, the full pipeline
+/// (CR normalisation → stripAnsi → stripTimestamps) has already run. Every genuine
+/// `##[group]` marker emitted by the Actions runner is therefore at the start of its
+/// line — the timestamp prefix that preceded it has been removed. `hasPrefix` is used
+/// rather than `contains` to avoid false splits on user-emitted log lines that happen
+/// to contain the string `##[group]` mid-line (e.g. `echo "##[group]something"` in a
+/// `run:` step), which would otherwise silently corrupt section boundaries and shift
+/// every subsequent `stepNumber` index by one.
 private func buildLogSections(from cleaned: String) -> [String] {
     let lines = cleaned.components(separatedBy: "\n")
     var sections: [String] = []
     var current: [String] = []
     var seenGroup = false
     for line in lines {
-        if line.contains("##[group]") {
+        if line.hasPrefix("##[group]") {
             if seenGroup, !current.isEmpty { sections.append(current.joined(separator: "\n")) }
             seenGroup = true
             current = [line]
