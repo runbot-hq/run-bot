@@ -37,7 +37,7 @@ final class MBKSizeCoalescer {
         }
     }
 
-    /// Applies immediately, on the current turn, and cancels any pending apply.
+    /// Applies immediately, on the current turn, and pre-empts any pending apply.
     ///
     /// Called just before `orderFront` so the first frame the user sees is right.
     ///
