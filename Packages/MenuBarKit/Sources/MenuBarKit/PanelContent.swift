@@ -104,16 +104,17 @@ struct MBKPanelContentView: View {
 
     /// Caps the content height, insets it below the arrow, and clips to the bubble.
     ///
-    /// Order matters: the cap applies to the content alone, the arrow inset is
-    /// added on top of it, and the clip uses the *padded* bounds so the
-    /// silhouette and the window frame describe the same rectangle.
+    /// Order matters: `onGeometryChange` measures the uncapped content so the
+    /// controller always sees the natural height. The cap is applied only for
+    /// visual clipping — if the natural height exceeds the cap, the controller
+    /// will resize the window to the cap via `applyMeasuredSize`'s clamp.
     var body: some View {
         content
-            .frame(maxHeight: maxContentHeight)
-            .padding(.top, metrics.arrowHeight)
-            .clipShape(bubble)
             .onGeometryChange(for: CGSize.self, of: \.size) { newSize in
                 onSizeChange?(newSize)
             }
+            .frame(maxHeight: maxContentHeight)
+            .padding(.top, metrics.arrowHeight)
+            .clipShape(bubble)
     }
 }
