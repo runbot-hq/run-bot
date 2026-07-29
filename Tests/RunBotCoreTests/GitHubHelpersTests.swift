@@ -9,6 +9,7 @@
 // GitHubHelpers.swift and are therefore not accessible even with
 // `@testable import GitHubClient` — @testable only opens `internal`, not
 // `private`. All assertions go through the public API instead.
+import Foundation
 import GitHubClient
 import Testing
 
