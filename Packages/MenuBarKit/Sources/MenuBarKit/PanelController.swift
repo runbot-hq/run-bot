@@ -386,7 +386,16 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
         )
         hosting.view.wantsLayer = true
         hosting.view.layer?.backgroundColor = CGColor.clear
-        hosting.view.translatesAutoresizingMaskIntoConstraints = false
+        // Frame-based layout: no AL constraints on the hosting view.
+        // AL pins (all 4 edges) propose the current window size to SwiftUI, which
+        // prevents SwiftUI from ever reporting a *larger* intrinsicContentSize when
+        // content grows — AL fights back and re-clamps. Instead we let the window
+        // frame drive size: panel.setFrame resizes the contentView automatically,
+        // and we call hosting.view.setFrameSize in applyFrame to keep them in sync.
+        // autoresizingMask = .width + .height makes the hosting view fill the
+        // contentView when panel.setFrame changes the window — no AL needed.
+        hosting.view.translatesAutoresizingMaskIntoConstraints = true
+        hosting.view.autoresizingMask = [.width, .height]
         hostingController = hosting
         sizeObservation = hosting.view.observe(
             \NSView.intrinsicContentSize,
@@ -402,21 +411,8 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
         // addSubview keeps the hosting view as a plain sibling layer above glassView,
         // outside the compositor, so GlassEffectContainer and .glassEffect elements work.
         // cornerRadius clipping is handled by MBKBubbleShape clipShape on the SwiftUI side.
-        // ORDERING: addSubview must come before `window.contentView = glassView`.
-        // The four AL constraints below pin hosting to glassView's anchors.
-        // glassView IS panel.contentView — the anchor targets are equivalent to
-        // panel.contentView anchors — but only after contentView= is assigned.
-        // If contentView= were moved above this line in a future refactor, the
-        // constraints would reference a view not yet in the window hierarchy and
-        // Auto Layout would log unsatisfiable-constraint warnings at open time.
-        // Keep this addSubview + constraint block together and before contentView=.
+        // No AL constraints — frame tracking via autoresizingMask above.
         glassView.addSubview(hosting.view)
-        NSLayoutConstraint.activate([
-            hosting.view.leadingAnchor.constraint(equalTo: glassView.leadingAnchor),
-            hosting.view.trailingAnchor.constraint(equalTo: glassView.trailingAnchor),
-            hosting.view.topAnchor.constraint(equalTo: glassView.topAnchor),
-            hosting.view.bottomAnchor.constraint(equalTo: glassView.bottomAnchor),
-        ])
 
         let window = MBKPanel()
         window.contentView = glassView   // glass IS the contentView — no wrapper
@@ -468,8 +464,13 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
     public func setRootView(_ view: AnyView) {
         rootView = view
         guard isSetUp else { return }
+        // Clear lastContentSize so applyMeasuredSize always re-runs applyFrame after
+        // a view swap, even if the new view happens to be the same pixel size.
+        // Without this the dedupe check skips the frame write and the arrow is
+        // positioned relative to the old (wider/narrower) window width.
+        lastContentSize = nil
         hostingController.rootView = MBKPanelContentView(limits: limits, metrics: metrics, maxContentHeight: maxContentHeight, content: rootView)
-        mbkLog("PanelController", "setRootView — rootView replaced")
+        mbkLog("PanelController", "setRootView — rootView replaced, lastContentSize cleared")
     }
 
     // MARK: - Status item
