@@ -3,17 +3,23 @@
 //
 // The one and only frame pipeline.
 //
-// LOGGING CONTRACT:
-//   GEOMETRY  naturalSize=(w,h) — onGeometryChange fired with this size
-//   MEASURE   naturalSize=(w,h) content=(w,h) cap=…  — after clamping
-//   WRITE     content=(w,h) anchorX=… topY=… frame=… arrowX=… clamped=…
-//   SKIP      -- reason
+// Every frame the panel ever gets comes from `applyFrame(content:reason:)`.
+// There is no second write path, no chrome-delta snapshot, and no per-session
+// positional state — the anchor is read live from the status button and the
+// screen each time.
 //
-// ❌ NEVER call panel.setFrame anywhere else.
-// ❌ NEVER set hostingController.view.frame by hand.
+// ❌ NEVER call `panel.setFrame` or `setFrameOrigin` anywhere else.
+// ❌ NEVER set `hostingController.view.frame` by hand.
+//
+// LOGGING CONTRACT:
+//   KVO      preferredContentSize fired with (w,h)
+//   MEASURE  measured=(w,h) content=(w,h) cap=…
+//   WRITE    content=(w,h) anchorX=… topY=… hidden=… frame=… arrowX=… clamped=…
+//   SKIP     -- reason
 
 import AppKit
 
+/// Live anchor reading: where the panel must attach for one frame computation.
 struct MBKAnchorReading {
     let anchorX: CGFloat
     let topY: CGFloat
@@ -26,16 +32,10 @@ extension MBKPanelController {
     // MARK: - Anchor
 
     func readAnchor() -> MBKAnchorReading? {
-        guard let button = statusItem?.button else {
-            mbkLog("PanelController", "readAnchor -- no status button")
-            return nil
-        }
+        guard let button = statusItem?.button else { return nil }
         let buttonWindow = button.window
         let buttonScreen = buttonWindow?.screen
-        guard let screen = buttonScreen ?? NSScreen.main else {
-            mbkLog("PanelController", "readAnchor -- no screen")
-            return nil
-        }
+        guard let screen = buttonScreen ?? NSScreen.main else { return nil }
         let visibleFrame = screen.visibleFrame
 
         let hidden = buttonScreen == nil
@@ -47,10 +47,8 @@ extension MBKPanelController {
             lastKnownAnchorX = anchorX
         } else if let cached = lastKnownAnchorX {
             anchorX = cached
-            mbkLog("PanelController", "readAnchor -- using cached anchorX=\(cached)")
         } else {
             anchorX = visibleFrame.maxX - metrics.screenMargin
-            mbkLog("PanelController", "readAnchor -- fallback anchorX=\(anchorX)")
         }
 
         let topY = hidden ? visibleFrame.maxY : (buttonWindow?.frame.minY ?? visibleFrame.maxY)
@@ -69,11 +67,8 @@ extension MBKPanelController {
     }
 
     func liveMaxContentHeight() -> CGFloat {
-        let visible = liveVisibleFrame()
-        let topY = readAnchor()?.topY ?? visible.maxY
-        return MBKPanelGeometry.maxContentHeight(
-            topY: topY,
-            visibleFrame: visible,
+        MBKPanelGeometry.maxContentHeight(
+            visibleFrame: liveVisibleFrame(),
             fraction: maxHeightFraction,
             metrics: metrics
         )
@@ -85,16 +80,10 @@ extension MBKPanelController {
 
     // MARK: - Measure
 
-    /// Entry point from onGeometryChange. `measured` is the inner VStack's natural size
-    /// (content + arrowHeight padding already included via .padding(.top, arrowHeight)).
+    /// Entry point from preferredContentSize KVO.
+    /// `measured` is the value NSHostingController reported — full panel height
+    /// including the arrow strip.
     func applyMeasuredSize(_ measured: CGSize) {
-        mbkLog("PanelController", "applyMeasuredSize -- entry measured=(\(measured.width),\(measured.height)) isShown=\(isShown) hasOpenedOnce=\(hasOpenedOnce) isApplyingFrame=\(isApplyingFrame)")
-
-        if isApplyingFrame {
-            mbkLog("PanelController", "applyMeasuredSize -- isApplyingFrame, storing as pendingMeasuredSize=(\(measured.width),\(measured.height))")
-            pendingMeasuredSize = measured
-            return
-        }
         guard hasOpenedOnce else {
             mbkLog("PanelController", "SKIP -- not shown yet, storing for first open")
             lastMeasuredSize = measured
@@ -105,25 +94,21 @@ extension MBKPanelController {
             return
         }
         guard measured.width > 0, measured.height > 0 else {
-            mbkLog("PanelController", "SKIP -- degenerate size (\(measured.width),\(measured.height))")
+            mbkLog("PanelController", "SKIP -- degenerate preferredContentSize (\(measured.width),\(measured.height))")
             return
         }
-
         lastMeasuredSize = measured
 
         let cap = liveMaxContentHeight()
-        // measured already includes arrowHeight via .padding(.top) in the inner VStack.
-        // Subtract arrowHeight so clampContent operates on pure content height.
-        let contentHeight = measured.height - metrics.arrowHeight
         let content = MBKPanelGeometry.clampContent(
-            CGSize(width: measured.width, height: contentHeight),
+            CGSize(width: measured.width, height: measured.height - metrics.arrowHeight),
             minWidth: 1,
             maxWidth: liveMaxContentWidth(),
             maxHeight: cap
         )
         mbkLog(
             "PanelController",
-            "MEASURE naturalSize=(\(measured.width),\(measured.height)) contentHeight=\(contentHeight) content=(\(content.width),\(content.height)) cap=\(cap)"
+            "MEASURE measured=(\(measured.width),\(measured.height)) content=(\(content.width),\(content.height)) cap=\(cap)"
         )
 
         if let last = lastContentSize,
@@ -141,16 +126,13 @@ extension MBKPanelController {
         if hasOpenedOnce { return true }
         if !didLogPreOpenSkip {
             didLogPreOpenSkip = true
-            mbkLog("PanelController", "frameWritesAllowed -- false, not opened yet")
+            mbkLog("PanelController", "SKIP -- not opened yet")
         }
         return false
     }
 
     func applyFrame(content: CGSize, reason: String) {
-        guard let panel, let limits, frameWritesAllowed() else {
-            mbkLog("PanelController", "applyFrame SKIP -- panel=\(panel != nil) limits=\(limits != nil) frameWritesAllowed=\(frameWritesAllowed())")
-            return
-        }
+        guard let panel, let limits, frameWritesAllowed() else { return }
         guard let anchor = readAnchor() else {
             mbkLog("PanelController", "\(reason) -- no anchor available, skipping frame")
             return
@@ -171,12 +153,6 @@ extension MBKPanelController {
         panel.invalidateShadow()
         isApplyingFrame = false
 
-        if let pending = pendingMeasuredSize {
-            pendingMeasuredSize = nil
-            mbkLog("PanelController", "applyFrame -- draining pendingMeasuredSize=(\(pending.width),\(pending.height))")
-            applyMeasuredSize(pending)
-        }
-
         mbkLog(
             "PanelController",
             """
@@ -188,10 +164,18 @@ extension MBKPanelController {
     }
 
     func refreshForScreenChange() {
+        guard let limits else { return }
+        let cap = liveMaxContentHeight()
+        if abs(cap - limits.maxContentHeight) >= 1 {
+            limits.maxContentHeight = cap
+            mbkLog("PanelController", "refreshForScreenChange -- maxContentHeight updated to \(cap)")
+        }
         guard isShown else { return }
-        mbkLog("PanelController", "refreshForScreenChange -- forcing layout pass")
         lastContentSize = nil
         lastMeasuredSize = nil
-        hostingController.view.layoutSubtreeIfNeeded()
+        let size = hostingController.preferredContentSize
+        if size.width > 0, size.height > 0 {
+            applyMeasuredSize(size)
+        }
     }
 }

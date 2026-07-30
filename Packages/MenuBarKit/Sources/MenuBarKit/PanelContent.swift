@@ -1,63 +1,75 @@
 // PanelContent.swift
 // MenuBarKit
 //
-// The SwiftUI side of the sizing pipeline.
+// The SwiftUI side of the panel. Measurement happens via preferredContentSize
+// KVO on the NSHostingController — not here. This file only defines the view
+// hierarchy and the live chrome state.
 //
-// HOW SIZING WORKS:
+// WHY NOT onGeometryChange:
+//   rootView is stored as AnyView. SwiftUI cannot compute ideal height through
+//   AnyView — it erases the concrete type. .fixedSize on an AnyView child
+//   always resolves to 0. onGeometryChange therefore always reports only the
+//   arrow placeholder height (metrics.arrowHeight), never the content height.
+//   Making MBKPanelContentView generic does not fix this: Content resolves to
+//   AnyView at the call site (NSHostingController<MBKPanelContentView<AnyView>>)
+//   and SwiftUI still sees AnyView at layout time.
 //
-// 1. `MBKPanelContentView` measures the adopter's content with an inner VStack
-//    that uses `.fixedSize` so it reports natural content height, not the
-//    outer `.frame(.infinity)` fill size.
-// 2. `onGeometryChange` is on the inner VStack — it re-fires whenever the
-//    `AnyView` subtree changes size, even when the VStack's own identity
-//    is stable. The `@Observable` state changes in the adopter cause SwiftUI
-//    to re-render the subtree, which triggers a new geometry pass.
-// 3. Every time natural height changes, `onSizeChange` fires and the controller
-//    calls `applyMeasuredSize`, which clamps and resizes the window.
-// 4. `maxContentHeight` is cached from the controller at construction time and
-//    passed to `.frame(maxHeight:)` *before* `.fixedSize` — this gives a
-//    `ScrollView` inside the content a real viewport proposal so it knows when
-//    to scroll.
-// 5. On first open, `layoutSubtreeIfNeeded()` forces SwiftUI to settle
-//    synchronously so `onGeometryChange` fires before the panel is visible.
+// WHY preferredContentSize KVO WORKS:
+//   NSHostingController populates preferredContentSize at the AppKit/SwiftUI
+//   bridge level under an unspecified height proposal. AnyView is not in that
+//   call path. AppKit asks SwiftUI for the ideal size directly through the
+//   renderer; the concrete list type is visible at that level.
 //
-// WHY NOT preferredContentSize KVO:
-//   Requires a concrete height proposal from AppKit before it populates.
-//   With three-edge pins the hosting view collapses to zero pre-show,
-//   so preferredContentSize is always (0,0) on open -> FALLBACK every time.
+// SIZING CONTRACT (see SIZING PIPELINE in PanelController.swift for full detail):
+//   sizingOptions = []          — pcs is pure output, no feedback loop
+//   four-edge AL pins           — bottom pin re-proposes after window resize
+//   KVO on preferredContentSize — sole measurement signal
+//   limits.maxContentHeight     — @Observable, updated on open + screen change
 //
-// ❌ NEVER measure with a GeometryReader — it sees the window size, not natural size.
+// ❌ NEVER add onGeometryChange here — AnyView erases ideal size.
+// ❌ NEVER add .fixedSize() — not needed and breaks the capped scroll path.
+// ❌ NEVER add a maxContentHeight stored property here — use limits.maxContentHeight.
+// ❌ NEVER measure with GeometryReader — it sees window size, not content size.
 // ❌ NEVER apply .glassEffect() here — glass cannot sample other glass.
+
 import AppKit
 import Observation
 import SwiftUI
 
 // MARK: - Limits
 
-/// Live chrome state handed to the SwiftUI content.
+/// Live sizing and chrome state handed to the SwiftUI content.
+///
+/// Observable so that a change to `maxContentHeight` (recomputed on every open
+/// and on screen-parameter changes) or to `arrowCenterX` (recomputed on every
+/// frame apply) re-lays-out the content without rebuilding the hosting view.
 @Observable
 @MainActor
 final class MBKPanelLimits {
+
+    /// Maximum content height in points, recomputed live from the current screen.
+    var maxContentHeight: CGFloat
+
     /// Arrow centre in window-local points, from the leading edge.
     var arrowCenterX: CGFloat
-    init(arrowCenterX: CGFloat) {
+
+    init(maxContentHeight: CGFloat, arrowCenterX: CGFloat) {
+        self.maxContentHeight = maxContentHeight
         self.arrowCenterX = arrowCenterX
     }
 }
 
 // MARK: - Root view
 
-/// Root SwiftUI view of the panel: adopter content clipped to the bubble.
+/// Root SwiftUI view of the panel: adopter content capped, padded, clipped.
+///
+/// No measurement happens here. preferredContentSize KVO on the hosting
+/// controller is the sole sizing signal.
 struct MBKPanelContentView: View {
 
     let limits: MBKPanelLimits
     let metrics: MBKPanelMetrics
-    let maxContentHeight: CGFloat
     let content: AnyView
-
-    /// Called with the inner VStack's natural size whenever it changes.
-    /// This is the sole measurement signal into the AppKit frame pipeline.
-    var onSizeChange: ((CGSize) -> Void)?
 
     private var bubble: MBKBubbleShape {
         MBKBubbleShape(
@@ -69,29 +81,9 @@ struct MBKPanelContentView: View {
     }
 
     var body: some View {
-        innerMeasured
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-    }
-
-    private var innerMeasured: some View {
-        VStack(spacing: 0) {
-            // Arrow height placeholder — keeps the content below the arrow tip.
-            Color.clear
-                .frame(height: metrics.arrowHeight)
-            content
-                // Cap FIRST: gives ScrollView a real height proposal so it scrolls at the cap.
-                .frame(maxHeight: maxContentHeight, alignment: .top)
-                // THEN resolve to ideal height within that cap.
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .fixedSize(horizontal: false, vertical: true)
-        // Measure here — sees natural content height, NOT the outer .infinity fill.
-        .onGeometryChange(for: CGSize.self) { proxy in
-            proxy.size
-        } action: { [self] newSize in
-            mbkLog("MBKPanelContentView", "onGeometryChange -- naturalSize=(\(newSize.width),\(newSize.height))")
-            onSizeChange?(newSize)
-        }
-        .clipShape(bubble)
+        content
+            .frame(maxHeight: limits.maxContentHeight, alignment: .top)
+            .padding(.top, metrics.arrowHeight)
+            .clipShape(bubble)
     }
 }

@@ -2,11 +2,12 @@
 // MenuBarKit
 //
 // Open/close logic for MBKPanelController.
+// See PanelController.swift file header for full design notes.
 //
 // CLOSE PATHS — all funnel into teardown:
-//   performClose()  — gated normal close
-//   forceClose()    — outside click while sheet live
-//   teardown(wasForced:) — single place that fires onWillClose, stops monitors
+//   performClose()       — gated normal close
+//   forceClose()         — outside click while sheet live
+//   teardown(wasForced:) — fires onWillClose, stops monitors, orders panel out
 
 import AppKit
 
@@ -36,35 +37,45 @@ extension MBKPanelController {
     func openPanel() {
         precondition(isSetUp, "openPanel() called before setup()")
         guard statusItem?.button != nil else { return }
-        let panel = panel!
+
         mbkLog("PanelController", "openPanel -- calling onWillShow")
         onWillShow?()
         mbkLog("PanelController", "onWillShow fired")
 
+        // Refresh cap for the current screen before anything is shown.
+        limits.maxContentHeight = liveMaxContentHeight()
+        mbkLog("PanelController", "openPanel -- maxContentHeight=\(limits.maxContentHeight)")
+
+        lastContentSize = nil
+        lastMeasuredSize = nil
         onWillCloseFired = false
         hasOpenedOnce = true
+
+        // Use preferredContentSize if KVO already fired (e.g. pre-show layout pass).
+        // Falls back to FALLBACK only if not yet populated — KVO will correct it
+        // once the view lays out in the live window.
+        let pcs = hostingController.preferredContentSize
+        mbkLog("PanelController", "openPanel -- preferredContentSize=(\(pcs.width),\(pcs.height))")
+        if pcs.width > 0, pcs.height > 0 {
+            mbkLog("PanelController", "openPanel -- applying pre-show preferredContentSize")
+            applyMeasuredSize(pcs)
+        } else {
+            let fallback = MBKPanelController.fallbackContentSize
+            let fallbackH = limits.maxContentHeight > 0
+                ? min(fallback.height, limits.maxContentHeight)
+                : fallback.height
+            mbkLog("PanelController", "openPanel -- FALLBACK (\(fallback.width),\(fallbackH))")
+            applyFrame(
+                content: CGSize(width: fallback.width, height: fallbackH),
+                reason: "FALLBACK"
+            )
+        }
 
         setButtonHighlight(true)
         panel.orderFrontRegardless()
         NSApp.activate()
         panel.makeKey()
-        mbkLog("PanelController", "panel orderFront frame=\(panel.frame)")
-
-        // Force SwiftUI to settle now that the view has a window.
-        // onGeometryChange fires synchronously during this pass,
-        // so applyMeasuredSize will be called before we reach the FALLBACK check.
-        mbkLog("PanelController", "openPanel -- pre-layout lastContentSize=\(String(describing: lastContentSize))")
-        hostingController.view.layoutSubtreeIfNeeded()
-        mbkLog("PanelController", "openPanel -- layoutSubtreeIfNeeded done, lastContentSize=\(String(describing: lastContentSize))")
-
-        if lastContentSize == nil {
-            mbkLog("PanelController", "openPanel -- FALLBACK reason: onGeometryChange did not fire during layoutSubtreeIfNeeded")
-            let size = MBKPanelController.fallbackContentSize
-            applyFrame(content: size, reason: "FALLBACK")
-            lastContentSize = nil  // let the first real measurement override FALLBACK
-        } else {
-            mbkLog("PanelController", "openPanel -- onGeometryChange fired successfully, no FALLBACK needed")
-        }
+        mbkLog("PanelController", "openPanel -- panel shown frame=\(panel!.frame)")
 
         startEventMonitor()
 
