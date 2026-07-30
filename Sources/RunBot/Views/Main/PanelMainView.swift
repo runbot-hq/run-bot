@@ -195,6 +195,8 @@ struct PanelMainView: View {
 
     // MARK: - Scroll section
 
+    /// Scrollable container for the actions section.
+    /// Height is driven by `preferredContentSize` KVO through MenuBarKit's sizing pipeline (see RULE 5).
     private var actionsSectionScrollable: some View {
         ScrollView(.vertical, showsIndicators: true) {
             actionsSectionContent
@@ -204,6 +206,7 @@ struct PanelMainView: View {
 
     // MARK: - Content
 
+    /// Workflow rows and the load-more button, rendered inside the scroll container.
     private var actionsSectionContent: some View {
         VStack(alignment: .leading, spacing: 0) {
             SectionHeaderLabel(title: "Workflows")
@@ -221,6 +224,7 @@ struct PanelMainView: View {
         }
     }
 
+    /// "Load N more workflows" button; hidden when all workflows are already visible.
     @ViewBuilder private var loadMoreButton: some View {
         let nextBatch = min(10, appState.runnerState.actions.count - visibleCount)
         if nextBatch > 0 {
@@ -235,6 +239,12 @@ struct PanelMainView: View {
 
     // MARK: - Display tick timer
 
+    /// Starts the 1-second structured `displayTick` loop. Cancels any existing task first.
+    ///
+    /// No open-state gate — RULE 9: displayTick runs always while the view is alive.
+    /// Named "displayTick" for Instruments visibility (RG6).
+    /// `@MainActor` is explicit so the compiler statically verifies that `displayTickTask`
+    /// (a `@State`-backed property) is always mutated on the main actor.
     @MainActor private func startDisplayTickTimer() {
         stopDisplayTickTimer()
         displayTickTask = Task(name: "displayTick") { @MainActor in
@@ -245,6 +255,8 @@ struct PanelMainView: View {
         }
     }
 
+    /// Cancels and nils the `displayTick` task.
+    /// `@MainActor` matches `startDisplayTickTimer()` — both mutate `displayTickTask`.
     @MainActor private func stopDisplayTickTimer() {
         displayTickTask?.cancel()
         displayTickTask = nil
@@ -252,6 +264,12 @@ struct PanelMainView: View {
 
     // MARK: - Banners
 
+    /// Inline error banner shown when `appState.runnerState.fetchError` is non-nil.
+    ///
+    /// Displays a truncated error description. Dismisses automatically on the next
+    /// successful fetch cycle when `fetchError` is cleared.
+    /// Stale `runners`/`jobs`/`actions` remain visible below the banner so the user
+    /// still sees the last-known state while connectivity is degraded.
     private func fetchErrorBanner(_ error: any Error) -> some View {
         HStack(spacing: 6) {
             Image(systemName: "exclamationmark.triangle.fill").foregroundColor(.red).font(.caption)
@@ -262,6 +280,10 @@ struct PanelMainView: View {
         .padding(.horizontal, 12).padding(.vertical, 4)
     }
 
+    /// Rate-limit warning banner showing a countdown to API reset.
+    ///
+    /// WHY withExtendedLifetime(displayTick): makes the per-second dependency explicit
+    /// to both the compiler and future readers without changing runtime behaviour.
     private var rateLimitBanner: some View {
         withExtendedLifetime(displayTick) {}
         let countdownLabel: String
