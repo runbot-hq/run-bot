@@ -157,13 +157,18 @@ import AppKit
 /// Counter-intuitive: value `1` produces darker/richer glass than `0` in this panel
 /// context. Do NOT revert to `0` — empirically verified lighter on macOS 26.
 /// These keys are undocumented and may change in a future OS update.
+/// Private SPI values for `NSGlassEffectView` KVC keys.
+///
+/// These values are applied via `setValue(_:forKey:)` in `setupPanelWindow()`.
+/// The exact semantics are unknown — they are private SPI keys on NSGlassEffectView
+/// and may change in future OS releases. If the glass appearance regresses,
+/// check these values first.
 enum GlassConfig {
-    // Values observed to produce the correct Liquid Glass appearance on macOS 26.
-    // These are private SPI keys on NSGlassEffectView — exact semantics are unknown
-    // and may change in future OS releases. If the glass appearance regresses,
-    // check these values first.
+    /// Subdued/inactive appearance (matches system panels).
     static let subduedState: Int = 1
+    /// Default panel variant.
     static let variant: Int = 1
+    /// Enables the scrim layer that reinforces the dark tone.
     static let scrimState: Int = 1
 }
 import SwiftUI
