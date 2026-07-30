@@ -52,7 +52,7 @@ extension MBKPanelController {
         let visibleFrame = screen.visibleFrame
 
         let hidden = buttonScreen == nil
-            || MBKPanelGeometry.isMenuBarHidden(screenFrame: screen.frame, visibleFrame: visibleFrame)
+            || abs(screen.frame.maxY - visibleFrame.maxY) <= 2
 
         let anchorX: CGFloat
         if let window = buttonWindow, window.frame.width > 0 {
