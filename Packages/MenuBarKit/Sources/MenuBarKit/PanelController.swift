@@ -153,34 +153,34 @@
 
 import AppKit
 import SwiftUI
-/// NSGlassEffectView private KVC keys — all three set to 1 to produce dark glass.
-///
-/// Each key controls a distinct stage of the same compositor pipeline:
-/// - `_subduedState = 1`  Locks the glass to its own dark intrinsic tone instead of
-///                        sampling desktop colours.
-/// - `_variant      = 1`  Selects the dark-glass rendering variant of the compositor.
-/// - `_scrimState   = 1`  Enables the scrim layer that reinforces the dark tone.
-///
-/// All three must be set together. Setting fewer than all three leaves the pipeline
-/// misaligned — partial combinations produce light or inconsistent glass.
-///
-/// Counter-intuitive: value `1` produces darker/richer glass than `0` in this panel
-/// context. Do NOT revert to `0` — empirically verified lighter on macOS 26.
-/// These keys are undocumented and may change in a future OS update.
-/// Private SPI values for `NSGlassEffectView` KVC keys.
-///
-/// These values are applied via `setValue(_:forKey:)` in `setupPanelWindow()`.
-/// The exact semantics are unknown — they are private SPI keys on NSGlassEffectView
-/// and may change in future OS releases. If the glass appearance regresses,
-/// check these values first.
-// GlassConfig groups the three NSGlassEffectView KVC constants that configure
-// the panel's Liquid Glass appearance. Kept as a named enum (rather than inlined
-// at the call site) so that:
-// - All three values are documented and discoverable in one place.
-// - An OS-update audit has a single location to check and update.
-// - The names make the KVC semantics legible at the call site without requiring
-//   a comment on every setValue(_:forKey:) line.
-// ❌ Do NOT inline these values or dissolve this enum — the namespace is intentional.
+// NSGlassEffectView private KVC keys — all three set to 1 to produce dark glass.
+//
+// Each key controls a distinct stage of the same compositor pipeline:
+// - `_subduedState = 1`  Locks the glass to its own dark intrinsic tone instead of
+//                        sampling desktop colours.
+// - `_variant      = 1`  Selects the dark-glass rendering variant of the compositor.
+// - `_scrimState   = 1`  Enables the scrim layer that reinforces the dark tone.
+//
+// All three must be set together. Setting fewer than all three leaves the pipeline
+// misaligned — partial combinations produce light or inconsistent glass.
+//
+// Counter-intuitive: value `1` produces darker/richer glass than `0` in this panel
+// context. Do NOT revert to `0` — empirically verified lighter on macOS 26.
+// These keys are undocumented and may change in a future OS update.
+// Private SPI values for `NSGlassEffectView` KVC keys.
+//
+// These values are applied via `setValue(_:forKey:)` in `setupPanelWindow()`.
+// The exact semantics are unknown — they are private SPI keys on NSGlassEffectView
+// and may change in future OS releases. If the glass appearance regresses,
+// check these values first.
+/// Groups the three NSGlassEffectView KVC constants that configure the panel's
+/// Liquid Glass appearance. Kept as a named enum (rather than inlined at the
+/// call site) so that all three values are documented and discoverable in one
+/// place, an OS-update audit has a single location to check, and the names
+/// make the KVC semantics legible without requiring a comment on every
+/// `setValue(_:forKey:)` line.
+/// - Note: Do NOT inline these values or dissolve this enum — the namespace
+///   is intentional.
 private enum GlassConfig {
     /// Subdued/inactive appearance (matches system panels).
     static let subduedState: Int = 1
