@@ -1,7 +1,7 @@
 # MenuBarKit
 
 A Swift package for the anchored-panel + SwiftUI sheet + NSOpenPanel + alert layer of a macOS menu-bar app.
-The panel is a borderless, non-opaque `NSPanel` MenuBarKit owns outright — the bubble and its arrow are real macOS 26 Liquid Glass (`NSGlassEffectView` pair merged by an `NSGlassEffectContainerView`, layered *under* the hosted SwiftUI content the way `NSPopover` layers its chrome), not `NSPopover`, so the arrow can never be clipped by AppKit chrome and the adopter's own Liquid Glass keeps rendering as glass. Swift 6.2, macOS 26, `@MainActor`-first throughout.
+The panel is a borderless, non-opaque `NSPanel` MenuBarKit owns outright — the bubble is real macOS 26 Liquid Glass (`NSGlassEffectView` as the direct `panel.contentView`), not `NSPopover`. No arrow. The frame is computed by pure geometry math and applied before the window appears, so the panel can never disagree with its content size. The adopter's own Liquid Glass keeps rendering as glass. Swift 6.2, macOS 26, `@MainActor`-first throughout.
 
 **Platform & Stack**
 
@@ -31,7 +31,7 @@ The panel is a borderless, non-opaque `NSPanel` MenuBarKit owns outright — the
 | `PanelControllerProtocol.swift` | `MBKPanelControllerProtocol` — `@MainActor` protocol surface for `MBKPanelController`; type your host reference against this for testability/mocking |
 | `Panel.swift` | `MBKPanel` — borderless, non-activating `NSPanel` at `.statusBar` level; Escape routes through `cancelOperation(_:)` |
 | `PanelGeometry.swift` | `MBKPanelGeometry` / `MBKPanelMetrics` / `MBKPanelLayout` — pure, AppKit-free frame math: window size, screen clamping, live height cap. Unit-tested |
-| `PanelController.swift` (`setupPanelWindow`) | `NSGlassEffectView` chrome — the Liquid Glass bubble is set up inline in `setupPanelWindow()`. `NSGlassEffectView` is the direct `panel.contentView`; no separate chrome file exists. (`MBKPanelChromeView` / `PanelChrome.swift` were removed; chrome is now owned by `PanelController`.) |
+| `PanelController.swift` (`setupPanelWindow`) | `NSGlassEffectView` chrome — the Liquid Glass bubble is set up inline in `setupPanelWindow()`. `NSGlassEffectView` is the direct `panel.contentView`; no arrow, no `NSGlassEffectContainerView`. Chrome is owned entirely by `PanelController`; no separate chrome file exists. |
 | `PanelContent.swift` | `MBKPanelLimits` + `MBKPanelContentView` — the SwiftUI half of the sizing pipeline |
 | `AnchoredSheet.swift` | `.mbkSheet(isPresented:content:)` and `.mbkSheet(item:content:)` — SwiftUI sheet anchored as a child window of the panel so it survives outside-clicks and focus changes |
 | `FilePicker.swift` | `mbkOpenFilePicker(overlayGate:message:completion:)` — `NSOpenPanel` via `panel.begin`, always levels above the panel, gate cleared in completion handler; works from both panel and sheet contexts |
