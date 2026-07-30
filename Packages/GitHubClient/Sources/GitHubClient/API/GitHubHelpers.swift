@@ -190,11 +190,12 @@ private func fetchAndDecodeStepLog(
 ///
 /// Matching strategy (in order):
 ///   1. Exact match on `step.name` against `##[group]<name>`.
-///   2. Case-insensitive prefix match — handles the common case where the `##[group]`
-///      header is `"Run actions/checkout@v4"` but `step.name` is `"actions/checkout@v4"`
-///      (GitHub prepends `"Run "` to `run:` step names in the log but not in the API).
-///      Only the forward direction is matched (section name has step name as prefix)
-///      to avoid false positives from short step names matching unrelated sections.
+///   2. "Run "-prefix normalisation — GitHub prepends `"Run "` to `run:` step names in the
+///      log group header but not in the API step name. A section named `"Run actions/checkout@v4"`
+///      therefore matches a step named `"actions/checkout@v4"`. The comparison is
+///      case-insensitive and checks only the exact two forms (with and without `"Run "`)
+///      to avoid general prefix over-matching (e.g. "Build" must not match
+///      "Build documentation").
 ///   3. Synthetic step heuristics:
 ///      - "Set up job" / "Initialize containers" → preamble (lines before first group)
 ///      - Names starting with "Post " / "Complete job" / "Stop containers" → epilogue
@@ -236,14 +237,17 @@ private func parseStepLog(
         return match.body
     }
 
-    // 2. Case-insensitive prefix match — section name starts with step name.
-    //    e.g. step.name="actions/checkout@v4", group header="Run actions/checkout@v4".
-    //    Only the forward direction (section.hasPrefix(stepName)) is checked; the reverse
-    //    would allow a short step name like "Run" or "Post" to match any section, bypassing
-    //    the synthetic heuristics in step 3.
-    let lower = stepName.lowercased()
-    if let match = parsed.sections.first(where: { $0.name.lowercased().hasPrefix(lower) }) {
-        logger?.log("parseStepLog › prefix match \"\(match.name)\" for \"\(stepName)\"", category: "transport")
+    // 2. "Run "-prefix normalisation.
+    //    GitHub's log group headers prepend "Run " to run: step names, but the API step
+    //    name does not include this prefix. Check both the bare name and the "Run "-prefixed
+    //    form with a case-insensitive exact comparison. General hasPrefix is intentionally
+    //    avoided: "Build" must not match "Build documentation".
+    let lowerStep = stepName.lowercased()
+    if let match = parsed.sections.first(where: {
+        let lowerSection = $0.name.lowercased()
+        return lowerSection == lowerStep || lowerSection == "run \(lowerStep)"
+    }) {
+        logger?.log("parseStepLog › run-prefix match \"\(match.name)\" for \"\(stepName)\"", category: "transport")
         return match.body
     }
 
@@ -272,11 +276,10 @@ private func parseStepLog(
 /// - Preamble: all lines before the first `##[group]` marker.
 /// - Sections: lines between a `##[group]<name>` and `##[endgroup]` (both markers included
 ///   in `body`), in source order.
-/// - Epilogue: all lines after the last `##[endgroup]` marker. This includes any inter-group
-///   lines that appeared between an `##[endgroup]` and the next `##[group]` during the run
-///   (e.g. blank separator lines or runner annotations). Such lines are accumulated in
-///   `interGroupLines` during the loop and prepended to the final post-loop tail so that
-///   none are silently dropped.
+/// - Epilogue: all out-of-section lines after the first group: both lines between consecutive
+///   `##[endgroup]`/`##[group]` pairs and lines after the final `##[endgroup]`. All such lines
+///   are accumulated into `interGroupLines` during the loop; no separate post-loop slice is
+///   needed, so there is no risk of double-counting the final tail.
 ///
 /// Malformed logs (a `##[group]` with no matching `##[endgroup]`) are handled gracefully:
 /// the open section is flushed at end-of-input rather than silently dropped.
@@ -291,19 +294,18 @@ private func buildParsedLog(from cleaned: String) -> ParsedLog {
     var currentName: String?
     var currentBody: [String] = []
     var seenFirstGroup = false
-    var lastEndgroupIdx: Int?
-    // Accumulates lines that fall between an ##[endgroup] and the next ##[group].
-    // These are folded into the epilogue at the end so they are never silently dropped.
+    // Accumulates every out-of-section line after the first ##[group]: both inter-group
+    // lines (between ##[endgroup] and the next ##[group]) and the post-final-endgroup tail.
+    // Using a single buffer avoids the double-counting that occurs when a post-loop slice
+    // is concatenated with an inter-group buffer.
     var interGroupLines: [String] = []
 
-    for (idx, line) in lines.enumerated() {
+    for line in lines {
         if line.hasPrefix("##[group]") {
             // Flush previous open section (handles back-to-back groups without endgroup)
             if let name = currentName, !currentBody.isEmpty {
                 sections.append(LogSection(name: name, body: currentBody.joined(separator: "\n")))
             }
-            // Any inter-group lines collected since the last ##[endgroup] are kept in
-            // interGroupLines and will be prepended to the epilogue after the loop.
             seenFirstGroup = true
             currentName = String(line.dropFirst("##[group]".count))
             currentBody = [line]
@@ -314,14 +316,13 @@ private func buildParsedLog(from cleaned: String) -> ParsedLog {
             }
             currentName = nil
             currentBody = []
-            lastEndgroupIdx = idx
         } else if currentName != nil {
             currentBody.append(line)
         } else if !seenFirstGroup {
             preambleLines.append(line)
         } else {
-            // seenFirstGroup == true && currentName == nil: between ##[endgroup] and next
-            // ##[group] (or end of file). Accumulate so they reach the epilogue.
+            // seenFirstGroup == true && currentName == nil: between ##[endgroup] and the
+            // next ##[group], or after the final ##[endgroup]. Both cases land here.
             interGroupLines.append(line)
         }
     }
@@ -331,18 +332,10 @@ private func buildParsedLog(from cleaned: String) -> ParsedLog {
         sections.append(LogSection(name: name, body: currentBody.joined(separator: "\n")))
     }
 
-    // Epilogue: inter-group lines accumulated above, followed by every line after the
-    // last ##[endgroup]. The two regions are concatenated so that lines between any
-    // ##[endgroup]/##[group] pair are preserved alongside the true post-run tail.
-    var epilogueLines: [String] = interGroupLines
-    if let endIdx = lastEndgroupIdx, endIdx + 1 < lines.count {
-        epilogueLines += Array(lines[(endIdx + 1)...])
-    }
-
     return ParsedLog(
         sections: sections,
         preamble: preambleLines.joined(separator: "\n"),
-        epilogue: epilogueLines.joined(separator: "\n")
+        epilogue: interGroupLines.joined(separator: "\n")
     )
 }
 

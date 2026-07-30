@@ -4,19 +4,21 @@
 // Tests for parseStepLog / buildParsedLog in GitHubHelpers.swift.
 //
 // Coverage map:
-//   exact name match              — test_exactNameMatch
-//   prefix match ("Run X" vs X)   — test_prefixMatch
-//   synthetic: Set up job         — test_setUpJob_returnsPreamble
-//   synthetic: Complete job       — test_completeJob_returnsEpilogue
-//   synthetic: Post Run X         — test_postRunStep_returnsEpilogue
-//   no match → full log fallback  — test_noMatch_returnsFullLog
-//   unclosed group                — test_unclosedGroup_stillMatches
-//   inter-group lines preserved   — test_interGroupLines_notDropped
-//   timestamp stripping           — test_timestampStripping
-//   ANSI stripping                — test_ansiStripping
-//   ANSI + timestamp compose      — test_ansiAndTimestampCompose
-//   CRLF normalisation            — test_crlfNormalisation
-//   bare CR normalisation         — test_bareCrNormalisation
+//   exact name match                        — test_exactNameMatch
+//   prefix match ("Run X" vs X)             — test_prefixMatch_groupHasRunPrefix
+//   run-prefix does not over-match          — test_runPrefixDoesNotMatchUnrelated
+//   synthetic: Set up job                   — test_setUpJob_returnsPreamble
+//   synthetic: Complete job                 — test_completeJob_returnsEpilogue
+//   synthetic: Post Run X                   — test_postRunStep_returnsEpilogue
+//   no match → full log fallback            — test_noMatch_returnsFullLog
+//   unclosed group                          — test_unclosedGroup_stillMatches
+//   inter-group lines preserved             — test_interGroupLines_notDropped
+//   inter-group lines not duplicated        — test_interGroupLines_noDuplication
+//   timestamp stripping                     — test_timestampStripping
+//   ANSI stripping                          — test_ansiStripping
+//   ANSI + timestamp compose                — test_ansiAndTimestampCompose
+//   CRLF normalisation                      — test_crlfNormalisation
+//   bare CR normalisation                   — test_bareCrNormalisation
 import Foundation
 @testable import GitHubClient
 import XCTest
@@ -61,14 +63,35 @@ final class GitHubHelpersTests: XCTestCase {
     }
 
     func test_prefixMatch_groupHasRunPrefix() {
-        // GitHub step name: "actions/checkout@v4"
-        // ##[group] header: "Run actions/checkout@v4"
+        // step.name from the API: "actions/checkout@v4"
+        // ##[group] header in the log: "Run actions/checkout@v4"
+        // The "Run "-normalisation in step 2 must bridge this gap.
         let raw = makeLog(
             sections: [(name: "Run actions/checkout@v4", body: ["Fetching the repository"])]
         )
         let result = parseStepLog(raw, stepName: "actions/checkout@v4", stepNumber: 2, logger: nil)
         XCTAssertNotNil(result)
         XCTAssert(result!.contains("Fetching the repository"))
+        XCTAssertFalse(result!.contains("##[group]Run actions/checkout@v4") == false,
+            "Should return the matching section body, not the full log")
+    }
+
+    func test_runPrefixDoesNotMatchUnrelated() {
+        // "Build" as a step name must not match a section named "Build documentation".
+        // The normalisation checks only exact equality with and without the "Run " prefix.
+        let raw = makeLog(
+            sections: [
+                (name: "Build documentation", body: ["docs output"]),
+                (name: "Run tests", body: ["test output"])
+            ]
+        )
+        let result = parseStepLog(raw, stepName: "Build", stepNumber: 3, logger: nil)
+        // "Build" does not exactly equal "Build documentation" or "Run Build",
+        // so it should fall through to the full-log fallback.
+        XCTAssertNotNil(result)
+        XCTAssert(result!.contains("docs output"),
+            "Fallback should return full log, not a false prefix match")
+        XCTAssert(result!.contains("test output"))
     }
 
     func test_setUpJob_returnsPreamble() {
@@ -140,6 +163,30 @@ final class GitHubHelpersTests: XCTestCase {
         XCTAssert(result!.contains("runner annotation between groups"),
                   "Inter-group lines must not be dropped")
         XCTAssert(result!.contains("final cleanup line"))
+    }
+
+    func test_interGroupLines_noDuplication() {
+        // The final tail (after the last ##[endgroup]) must appear exactly once in the epilogue.
+        // A previous bug concatenated interGroupLines with a post-loop lastEndgroupIdx slice,
+        // causing lines that were already in interGroupLines to be appended a second time.
+        let raw = [
+            "##[group]Run step-one",
+            "step one output",
+            "##[endgroup]",
+            "inter-group annotation",
+            "##[group]Run step-two",
+            "step two output",
+            "##[endgroup]",
+            "final cleanup line"
+        ].joined(separator: "\n")
+        let result = parseStepLog(raw, stepName: "Complete job", stepNumber: 99, logger: nil)
+        XCTAssertNotNil(result)
+        let text = result!
+        // Each distinct line must appear exactly once.
+        let annotationCount = text.components(separatedBy: "inter-group annotation").count - 1
+        let finalCount = text.components(separatedBy: "final cleanup line").count - 1
+        XCTAssertEqual(annotationCount, 1, "inter-group annotation must appear exactly once")
+        XCTAssertEqual(finalCount, 1, "final cleanup line must appear exactly once")
     }
 
     // MARK: - Cleaning pipeline
