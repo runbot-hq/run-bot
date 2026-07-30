@@ -249,7 +249,8 @@ private struct JobRowCard: View {
                 if isExpanded { stepsContainer }
             }
             .background {
-                Color.clear.glassCard(cornerRadius: RBRadius.small)
+                RoundedRectangle(cornerRadius: RBRadius.small, style: .continuous)
+                    .strokeBorder(.white.opacity(0.1), lineWidth: 0.5)
             }
         }
         .padding(.vertical, 1)
