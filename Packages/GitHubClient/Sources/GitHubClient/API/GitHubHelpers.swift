@@ -129,8 +129,12 @@ public struct LogSection {
 /// can call `buildParsedLog` directly to verify structural parsing independently of
 /// `parseStepLog`'s matching logic. It is not part of the public API.
 struct ParsedLog {
+    /// In-order named sections delimited by `##[group]`/`##[endgroup]` pairs.
     let sections: [LogSection]
+    /// Lines before the first `##[group]` marker (e.g. runner version, OS info).
     let preamble: String
+    /// Content lines between consecutive group pairs (inter-group) and after the final
+    /// `##[endgroup]`. Marker lines themselves are not included; see struct doc comment.
     let epilogue: String
 }
 
