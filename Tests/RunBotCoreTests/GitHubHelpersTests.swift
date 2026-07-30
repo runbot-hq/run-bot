@@ -12,13 +12,15 @@
 //   synthetic: Post Run X                   — test_postRunStep_returnsEpilogue
 //   user step named "Post <X>" (no Run prefix in group header)
 //                                           — test_postPrefixUserStep_matchesSectionNotEpilogue
+//   user step named "Post <X>" (Run prefix in group header, stage-2 bypass)
+//                                           — test_postPrefixUserStep_matchesSectionViaRunPrefix
 //   no match → full log fallback            — test_noMatch_returnsFullLog
 //   unclosed group                          — test_unclosedGroup_stillMatches
 //   inter-group lines preserved             — test_interGroupLines_notDropped
 //   inter-group lines not duplicated        — test_interGroupLines_noDuplication
 //   timestamp stripping                     — test_timestampStripping
 //   ANSI stripping                          — test_ansiStripping
-//   ANSI + timestamp compose                — test_ansiAndTimestampCompose
+//   ANSI + timestamp compose (ANSI-after-Z) — test_ansiAndTimestampCompose
 //   CRLF normalisation                      — test_crlfNormalisation
 //   bare CR normalisation                   — test_bareCrNormalisation
 import Foundation
@@ -160,6 +162,28 @@ final class GitHubHelpersTests: XCTestCase {
         XCTAssertFalse(result!.contains("test output"))
     }
 
+    func test_postPrefixUserStep_matchesSectionViaRunPrefix() {
+        // A real user step named "Post deploy" whose log group header is "Run Post deploy"
+        // must be matched by stage 2 (run-prefix normalisation) and must NOT be redirected
+        // to the epilogue by the stage-3 synthetic heuristic. This validates the second
+        // path through the ordering guarantee: lowerSection == "run post deploy" ==
+        // "run " + lowerStep, so stage 2 fires before stage 3 ever runs.
+        let raw = makeLog(
+            sections: [
+                (name: "Run Post deploy", body: ["deploying to production"]),
+                (name: "Run tests", body: ["test output"])
+            ],
+            epilogue: ["epilogue content"]
+        )
+        let result = parseStepLog(raw, stepName: "Post deploy", stepNumber: 3, logger: nil)
+        XCTAssertNotNil(result)
+        XCTAssert(result!.contains("deploying to production"),
+            "User step \"Post deploy\" must match \"Run Post deploy\" section via stage 2")
+        XCTAssertFalse(result!.contains("epilogue content"),
+            "Stage-3 synthetic heuristic must not fire when stage 2 already matched")
+        XCTAssertFalse(result!.contains("test output"))
+    }
+
     func test_noMatch_returnsFullLog() {
         let raw = makeLog(
             sections: [(name: "Run some-action", body: ["output"])]
@@ -248,13 +272,30 @@ final class GitHubHelpersTests: XCTestCase {
     }
 
     func test_ansiAndTimestampCompose() {
+        // Exercises the ANSI-after-Z edge case: an ANSI escape sequence sitting between
+        // the timestamp Z and the log content, e.g. "2026-...Z \u{1B}[32moutput\u{1B}[0m".
+        // This is the specific case the [^\S\n]* trailer in timestampRegex defends against:
+        // after stripAnsi removes the escape following Z, the timestamp regex must still
+        // match and strip the prefix cleanly.
+        // Pipeline: CR → stripAnsi → stripTimestamps → buildParsedLog.
+        // After stripAnsi: "2026-07-29T03:11:15.0000000Z ##[group]Run step"
+        //                  "2026-07-29T03:11:16.0000000Z coloured output"
+        //                  "2026-07-29T03:11:16.0000001Z ##[endgroup]"
+        // After stripTimestamps: "##[group]Run step" / "coloured output" / "##[endgroup]"
         let esc = "\u{001B}"
-        let raw = "2026-07-29T03:11:15.0000000Z \(esc)[32m##[group]Run step\(esc)[0m\n2026-07-29T03:11:16.0000000Z output\n2026-07-29T03:11:16.0000001Z ##[endgroup]"
+        let raw = [
+            "2026-07-29T03:11:15.0000000Z ##[group]Run step",
+            "2026-07-29T03:11:16.0000000Z \(esc)[32mcoloured output\(esc)[0m",
+            "2026-07-29T03:11:16.0000001Z ##[endgroup]"
+        ].joined(separator: "\n")
         let result = parseStepLog(raw, stepName: "Run step", stepNumber: 1, logger: nil)
         XCTAssertNotNil(result)
-        XCTAssertFalse(result!.contains("2026-"))
-        XCTAssertFalse(result!.contains(esc))
-        XCTAssert(result!.contains("output"))
+        XCTAssertFalse(result!.contains("2026-"),
+            "Timestamp prefix must be stripped from all lines")
+        XCTAssertFalse(result!.contains(esc),
+            "ANSI escape sequences must be stripped")
+        XCTAssert(result!.contains("coloured output"),
+            "Content must survive both stripping passes")
     }
 
     func test_crlfNormalisation() {
