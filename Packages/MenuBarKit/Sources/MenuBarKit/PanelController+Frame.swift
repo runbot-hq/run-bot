@@ -49,6 +49,18 @@ extension MBKPanelController {
         }
         let visibleFrame = screen.visibleFrame
 
+        // Coordinate system: macOS Y increases upward. screen.frame.maxY is the
+        // physical top of the display. visibleFrame.maxY is the bottom edge of the
+        // menu bar (the top of the usable area below it).
+        //
+        // Menu bar VISIBLE:     visibleFrame.maxY ≈ screen.frame.maxY - 24..28pt
+        //                       → gap is large (~24pt) → <= 2 is FALSE → hidden = false ✅
+        //
+        // Menu bar AUTO-HIDDEN: OS expands visibleFrame toward the full screen height
+        //                       → gap collapses to ~0pt → <= 2 is TRUE  → hidden = true  ✅
+        //
+        // buttonScreen == nil means the status item has no screen (e.g. hidden by
+        // system crowding) — treat as hidden so topY falls back to visibleFrame.maxY.
         let hidden = buttonScreen == nil
             || abs(screen.frame.maxY - visibleFrame.maxY) <= 2
 
