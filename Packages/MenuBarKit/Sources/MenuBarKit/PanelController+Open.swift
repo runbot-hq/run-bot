@@ -80,7 +80,13 @@ extension MBKPanelController {
 
         setButtonHighlight(true)
         panel.orderFrontRegardless()
-        NSApp.activate()
+        // NSApp.activate() carried over from the NSPopover era where it was required
+        // for text-field focus. On the owned MBKPanel, makeKey() below is sufficient —
+        // the panel is .nonactivatingPanel and becomesKeyOnlyIfNeeded = false, so
+        // activate() here just steals focus from the user's active app for no benefit.
+        // Commented out — remove after confirming no regression (text fields, chrome).
+        // TODO: remove NSApp.activate() if no regression after a release cycle.
+        // NSApp.activate()
         panel.makeKey()
         mbkLog("PanelController", "openPanel -- panel shown frame=\(panel!.frame)")
 
