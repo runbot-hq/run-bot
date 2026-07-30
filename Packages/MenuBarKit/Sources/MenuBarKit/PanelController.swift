@@ -80,6 +80,7 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
     var lastContentSize: CGSize?
     var lastMeasuredSize: CGSize?
     var isApplyingFrame = false
+    var pendingMeasuredSize: CGSize?
     var onWillCloseFired = false
     var hasOpenedOnce = false
     var didLogPreOpenSkip = false

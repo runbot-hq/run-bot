@@ -63,6 +63,7 @@ extension MBKPanelController {
             mbkLog("PanelController", "openPanel -- onGeometryChange did not fire, using FALLBACK")
             let size = MBKPanelController.fallbackContentSize
             applyFrame(content: size, reason: "FALLBACK")
+            lastContentSize = nil  // let the first real measurement override FALLBACK
         } else {
             mbkLog("PanelController", "openPanel -- onGeometryChange fired successfully, no FALLBACK needed")
         }

@@ -90,8 +90,9 @@ extension MBKPanelController {
     func applyMeasuredSize(_ measured: CGSize) {
         mbkLog("PanelController", "applyMeasuredSize -- entry measured=(\(measured.width),\(measured.height)) isShown=\(isShown) hasOpenedOnce=\(hasOpenedOnce) isApplyingFrame=\(isApplyingFrame)")
 
-        guard !isApplyingFrame else {
-            mbkLog("PanelController", "SKIP -- reentrant call during applyFrame")
+        if isApplyingFrame {
+            mbkLog("PanelController", "applyMeasuredSize -- isApplyingFrame, storing as pendingMeasuredSize=(\(measured.width),\(measured.height))")
+            pendingMeasuredSize = measured
             return
         }
         guard hasOpenedOnce else {
@@ -169,6 +170,12 @@ extension MBKPanelController {
         panel.setFrame(layout.frame, display: true)
         panel.invalidateShadow()
         isApplyingFrame = false
+
+        if let pending = pendingMeasuredSize {
+            pendingMeasuredSize = nil
+            mbkLog("PanelController", "applyFrame -- draining pendingMeasuredSize=(\(pending.width),\(pending.height))")
+            applyMeasuredSize(pending)
+        }
 
         mbkLog(
             "PanelController",
