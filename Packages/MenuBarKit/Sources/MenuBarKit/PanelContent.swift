@@ -65,11 +65,11 @@ final class MBKPanelLimits {
 ///
 /// No measurement happens here. preferredContentSize KVO on the hosting
 /// controller is the sole sizing signal.
-struct MBKPanelContentView: View {
+struct MBKPanelContentView<Content: View>: View {
 
     let limits: MBKPanelLimits
     let metrics: MBKPanelMetrics
-    let content: AnyView
+    let content: Content
 
     private var bubble: MBKBubbleShape {
         MBKBubbleShape(

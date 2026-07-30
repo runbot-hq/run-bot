@@ -14,13 +14,6 @@ public protocol MBKPanelControllerProtocol: AnyObject {
     /// Call from `applicationDidFinishLaunching` before any user interaction.
     func setup()
 
-    /// Replaces the panel's root view with `view`.
-    /// The sizing pipeline picks up the resulting intrinsic-size change automatically.
-    /// Call this whenever you want to navigate to a different top-level view
-    /// without closing and reopening the panel.
-    /// ❌ NEVER call from a SwiftUI view — use callbacks only.
-    func setRootView(_ view: AnyView)
-
     /// Updates the status-bar button image.
     /// The caller is responsible for supplying an appropriately sized, template-mode
     /// `NSImage`. `MBKPanelController` does not resize or retemplate the image.

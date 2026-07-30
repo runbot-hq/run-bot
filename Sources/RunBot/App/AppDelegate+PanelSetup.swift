@@ -79,11 +79,13 @@ extension AppDelegate {
         log("AppDelegate › setupPanel — begin")
 
         let ctrl = MBKPanelController(
-            rootView: wrapEnv(RootPanelView(
-                onSelectSettings: { [weak self] in self?.navigateToSettings() },
-                onBack: { [weak self] in self?.navigateBack() },
-                onStepBack: { [weak self] in self?.navigateBack() }
-            )),
+            rootView: wrapEnv(
+                RootPanelView(
+                    onSelectSettings: { [weak self] in self?.navigateToSettings() },
+                    onBack: { [weak self] in self?.navigateBack() },
+                    onStepBack: { [weak self] in self?.navigateBack() }
+                )
+            ),
             overlayGate: overlayGate,
             symbolName: "menubar.rectangle",
             maxHeightFraction: AppDelegate.panelHeightMultiplier
@@ -114,41 +116,6 @@ extension AppDelegate {
             panelVisibilityState.isTransientHide = false
         }
 
-        // onWillClose — fires before any teardown on both normal and force-close paths.
-        // wasForced=true: user clicked outside while a sheet was open — snapshot
-        //   nav and sheet state so onDidShow can respawn them on next open.
-        // wasForced=false: user toggled the icon or pressed Escape — delegate to
-        //   closePanel() which is the canonical normal-close state-reset path.
-        //
-        // ⚠️ ORDERING INVARIANT (load-bearing — do not reorder) — wasForced=true PATH ONLY:
-        // On the wasForced=true path, isTransientHide MUST be set to true BEFORE
-        // isOpen is set to false. PanelContainerView.onChange(of: panelVisibilityState.isOpen)
-        // fires synchronously when isOpen changes; if isTransientHide is not already true
-        // at that point, the dim-overlay animation replays incorrectly on the next restore.
-        // The current ordering (captureTransientHideState → isTransientHide = true →
-        // [end of if-block] → isOpen = false) preserves this invariant.
-        //
-        // On the wasForced=false path, isTransientHide is intentionally NOT set — it
-        // remains false. PanelContainerView.onChange(of: isOpen) fires with
-        // isTransientHide == false, which is the correct signal for a normal close: the
-        // dim overlay animates out as expected. Setting isTransientHide = true on this
-        // path would suppress the animation and leave the flag permanently dirty.
-        // Both paths write isOpen = false unconditionally at the end of the closure —
-        // the ordering constraint above applies only to the wasForced=true branch.
-        //
-        // ⚠️ KNOWN LIMITATION — isTransientHide state leak:
-        // When wasForced=true, panelVisibilityState.isTransientHide is set to true here
-        // and is only cleared in onDidShow. If the user force-closes (clicks outside
-        // while a sheet is open) and then NEVER reopens the panel, isTransientHide
-        // remains true. On a subsequent normal open after a cold relaunch this is
-        // harmless (the app relaunches with fresh state). Within the same session,
-        // onDidShow always fires on the next open and clears the flag — so the leak
-        // window is: force-close → quit without reopening → (no consequence, app exits).
-        // The only risky path would be if MBK fired onWillClose(wasForced:true) without
-        // a subsequent onDidShow within the same session, which would require MBK to
-        // suppress its own open callback — not a documented MBK behaviour.
-        // Pre-existing: the old lifecycle coordinator had the same contract
-        // (preservedSheetWindowHide was cleared by openPanel(), not by a separate guard).
         ctrl.onWillClose = { [weak self] wasForced in
             guard let self else { return }
             log("AppDelegate › onWillClose wasForced=\(wasForced)")
@@ -161,31 +128,6 @@ extension AppDelegate {
             panelVisibilityState.isOpen = false
         }
 
-        // setRootView(_:) is intentionally NOT called — ever.
-        //
-        // MBKPanelController exposes setRootView(_:) for adopters that swap
-        // top-level views on navigation (AnyView-swap pattern). RunBot does not
-        // use this path.
-        //
-        // Instead, navigation is owned by RootPanelView via appState.savedNavState:
-        //   • A single persistent SwiftUI root (RootPanelView) is passed at init
-        //     time and never replaced.
-        //   • Route changes are pure state mutations — RootPanelView switches
-        //     branches internally via Group { switch }.id(route).
-        //
-        // WHY this is better than setRootView(_:) for RunBot:
-        //   • MBK measures the hosted content's intrinsic size. RootPanelView's
-        //     .id(route) forces a full re-render on every route change, which
-        //     invalidates that intrinsic size and drives a fresh frame — without
-        //     rebuilding the hosting view.
-        //   • No AnyView boxing on navigation paths — RootPanelView uses concrete
-        //     view types in each switch branch.
-        //   • AppDelegate stays a pure wiring layer with no view-factory methods.
-        //
-        // ❌ NEVER add a setRootView(_:) call here for navigation.
-        // ❌ NEVER add view factory methods (mainView(), settingsView()) back to AppDelegate.
-        // All route changes go through appState.savedNavState only.
-
         ctrl.setup()
         panelController = ctrl
 
@@ -197,16 +139,6 @@ extension AppDelegate {
             }
         )
         panelControllerHandle = handle
-
-        // Replace the root view environment to include the new handle.
-        // The initial RootPanelView was created with a temporary no-op handle
-        // during the MBKPanelController initializer (via wrapEnv). Now that
-        // panelController is assigned, we replace the handle with the real one.
-        ctrl.setRootView(wrapEnv(RootPanelView(
-            onSelectSettings: { [weak self] in self?.navigateToSettings() },
-            onBack: { [weak self] in self?.navigateBack() },
-            onStepBack: { [weak self] in self?.navigateBack() }
-        )))
 
         log("AppDelegate › setupPanel — MBKPanelController setup complete")
     }

@@ -53,6 +53,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private let appState = AppState()
     private let overlayGate = MBKOverlayGate()
-    private var panelController: MBKPanelController!
+    private var panelController: MBKPanelController<some View>!
     private var lastSession: AppState.SessionSnapshot?
 }

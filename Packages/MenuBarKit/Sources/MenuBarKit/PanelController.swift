@@ -149,23 +149,32 @@
 //   PanelController+Observers.swift  — workspace, screen, mouse and key monitors
 
 import AppKit
+/// Glass configuration constants used by MBKPanelController.
+enum GlassConfig {
+    static var subduedState: Int { 1 }
+    static var variant: Int { 1 }
+    static var scrimState: Int { 1 }
+}
 import SwiftUI
 
 /// Manages the full anchored-panel and `NSStatusItem` lifecycle for a macOS menu-bar app.
 @MainActor
-public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
+public final class MBKPanelController<Content: View>: NSObject, MBKPanelControllerProtocol {
 
     // MARK: - Constants
 
-    static let fallbackContentSize = CGSize(width: 320, height: 240)
+/// Non-generic container for constants used by MBKPanelController.
+enum MBKPanelControllerConstants {
+    static var fallbackContentSize: CGSize { CGSize(width: 320, height: 240) }
+}
 
-    // MARK: - Configuration
+// MARK: - Configuration
 
     let overlayGate: MBKOverlayGate
     private let symbolName: String
     let maxHeightFraction: CGFloat
     let metrics: MBKPanelMetrics
-    var rootView: AnyView
+    var rootView: Content
 
     public var onWillShow: (() -> Void)?
     public var onDidShow: (() -> Void)?
@@ -178,7 +187,7 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
     /// Hosts the root SwiftUI view.
     /// sizingOptions = [] — preferredContentSize is pure output, no feedback loop.
     /// Four-edge AL pins drive the re-proposal loop after every window resize.
-    var hostingController: NSHostingController<MBKPanelContentView>!
+    var hostingController: NSHostingController<MBKPanelContentView<Content>>!
     /// Live sizing limits. maxContentHeight is @Observable — updated on open
     /// and screen change so the SwiftUI cap is always current.
     var limits: MBKPanelLimits!
@@ -201,17 +210,15 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
     var hasOpenedOnce = false
     var didLogPreOpenSkip = false
 
-    // MARK: - Private types
-
-    private enum GlassConfig {
-        static let subduedState: Int = 1
-        static let variant: Int = 1
-        static let scrimState: Int = 1
-    }
-
     // MARK: - Init
 
-    public init<Content: View>(
+    /// @objc entry point for the status item button action.
+    /// Forwards to the internal togglePanel() in PanelController+Open.swift.
+    @objc func togglePanel() {
+        togglePanelInternal()
+    }
+
+    public init(
         rootView: Content,
         overlayGate: MBKOverlayGate,
         symbolName: String = "menubar.rectangle",
@@ -222,7 +229,7 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
         self.symbolName = symbolName
         self.maxHeightFraction = maxHeightFraction
         self.metrics = metrics
-        self.rootView = AnyView(rootView)
+        self.rootView = rootView
     }
 
     // MARK: - Setup
@@ -330,21 +337,6 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
         frameView.layer?.cornerCurve = .continuous
     }
 
-    // MARK: - Root view replacement
-
-    public func setRootView(_ view: AnyView) {
-        rootView = view
-        guard isSetUp else { return }
-        lastContentSize = nil
-        lastMeasuredSize = nil
-        limits.maxContentHeight = liveMaxContentHeight()
-        hostingController.rootView = MBKPanelContentView(
-            limits: limits,
-            metrics: metrics,
-            content: rootView
-        )
-        mbkLog("PanelController", "setRootView -- rootView replaced maxContentHeight=\(limits.maxContentHeight)")
-    }
 
     public func invalidateContentSize() {
         mbkLog("PanelController", "invalidateContentSize -- reading preferredContentSize")

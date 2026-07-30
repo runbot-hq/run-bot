@@ -25,7 +25,7 @@ extension MBKPanelController {
 
     // MARK: - Toggle / open
 
-    @objc func togglePanel() {
+    func togglePanelInternal() {
         mbkLog("PanelController", "togglePanel -- isShown=\(isShown)")
         if isShown {
             performClose()
@@ -60,7 +60,7 @@ extension MBKPanelController {
             mbkLog("PanelController", "openPanel -- applying pre-show preferredContentSize")
             applyMeasuredSize(pcs)
         } else {
-            let fallback = MBKPanelController.fallbackContentSize
+            let fallback = MBKPanelControllerConstants.fallbackContentSize
             let fallbackH = limits.maxContentHeight > 0
                 ? min(fallback.height, limits.maxContentHeight)
                 : fallback.height

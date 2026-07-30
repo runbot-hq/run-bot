@@ -91,7 +91,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Owns the panel lifecycle: status item, anchored NSPanel, arrow placement,
     /// size tracking, outside-click monitor, workspace observer.
     /// Replaced NSPopover + KVO as of #2262.
-    var panelController: MBKPanelController?
+    var panelController: MBKPanelController<AnyView>!
 
     /// Sheet state that must survive transient panel hides.
     /// Stays on AppDelegate (wiring concern — not domain state). See issue #2040.
