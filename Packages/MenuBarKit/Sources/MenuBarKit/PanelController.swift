@@ -425,7 +425,7 @@ public final class MBKPanelController<Content: View>: NSObject, MBKPanelControll
         guard isShown else { return }
         // Log anchor state before deferring — helps diagnose stale-buttonScreen regressions.
         if let anchor = readAnchor() {
-            mbkLog("PanelController", "routeDidChange -- anchor anchorX=\(anchor.anchorX) hidden=\(anchor.menuBarHidden) buttonScreen=\(statusItem?.button?.window?.screen != nil)")
+            mbkLog("PanelController", "routeDidChange -- anchor anchorX=\(anchor.anchorX) buttonScreen=\(statusItem?.button?.window?.screen != nil)")
         } else {
             mbkLog("PanelController", "routeDidChange -- anchor NIL")
         }

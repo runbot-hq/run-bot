@@ -14,7 +14,7 @@
 // LOGGING CONTRACT:
 //   KVO      preferredContentSize fired with (w,h)
 //   MEASURE  measured=(w,h) cap=…
-//   WRITE    content=(w,h) anchorX=… topY=… hidden=… frame=… clamped=…
+//   WRITE    content=(w,h) anchorX=… topY=… frame=… clamped=…
 //   SKIP     -- reason
 
 import AppKit
@@ -27,8 +27,6 @@ struct MBKAnchorReading {
     let topY: CGFloat
     /// The visible frame of the screen containing the status item.
     let visibleFrame: CGRect
-    /// Whether the menu bar is currently hidden or the button has no screen.
-    let menuBarHidden: Bool
 }
 
 /// Frame computation and application for MBKPanelController.
@@ -79,8 +77,7 @@ extension MBKPanelController {
         return MBKAnchorReading(
             anchorX: anchorX,
             topY: topY,
-            visibleFrame: visibleFrame,
-            menuBarHidden: hidden
+            visibleFrame: visibleFrame
         )
     }
 
@@ -175,7 +172,7 @@ extension MBKPanelController {
             mbkLog("PanelController", "\(reason) -- no anchor available, skipping frame")
             return
         }
-        mbkLog("PanelController", "applyFrame ANCHOR -- anchorX=\(anchor.anchorX) topY=\(anchor.topY) hidden=\(anchor.menuBarHidden) visibleFrame=\(anchor.visibleFrame)")
+        mbkLog("PanelController", "applyFrame ANCHOR -- anchorX=\(anchor.anchorX) topY=\(anchor.topY) visibleFrame=\(anchor.visibleFrame)")
         let layout = MBKPanelGeometry.layout(
             content: content,
             anchorX: anchor.anchorX,
@@ -194,7 +191,7 @@ extension MBKPanelController {
             "PanelController",
             """
             \(reason) content=(\(content.width),\(content.height)) \
-            anchorX=\(anchor.anchorX) topY=\(anchor.topY) hidden=\(anchor.menuBarHidden) \
+            anchorX=\(anchor.anchorX) topY=\(anchor.topY) \
             frame=\(layout.frame) clamped=\(layout.wasClamped)
             """
         )
