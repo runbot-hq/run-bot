@@ -44,11 +44,13 @@ extension MBKPanelController {
         guard statusItem?.button != nil else { return }
 
         mbkLog("PanelController", "openPanel -- calling onWillShow")
+        // Refresh the height cap before onWillShow so that any KVO fire triggered
+        // by the host's onWillShow callback (e.g. an @Observable property write
+        // that immediately re-triggers SwiftUI layout) runs applyMeasuredSize
+        // against the current session's cap, not the previous session's stale value.
+        limits.maxContentHeight = liveMaxContentHeight()
         onWillShow?()
         mbkLog("PanelController", "onWillShow fired")
-
-        // Refresh cap for the current screen before anything is shown.
-        limits.maxContentHeight = liveMaxContentHeight()
         mbkLog("PanelController", "openPanel -- maxContentHeight=\(limits.maxContentHeight)")
 
         lastContentSize = nil
@@ -84,7 +86,7 @@ extension MBKPanelController {
         setButtonHighlight(true)
         panel.orderFrontRegardless()
         panel.makeKey()
-        mbkLog("PanelController", "openPanel -- panel shown frame=\(panel!.frame)")
+        mbkLog("PanelController", "openPanel -- panel shown frame=\(panel.frame)")
 
         // Trigger first layout pass so preferredContentSize populates and KVO fires.
         hostingController.view.layoutSubtreeIfNeeded()

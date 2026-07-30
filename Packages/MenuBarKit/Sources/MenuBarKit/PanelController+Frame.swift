@@ -227,6 +227,16 @@ extension MBKPanelController {
             mbkLog("PanelController", "refreshForScreenChange -- maxContentHeight updated to \(cap)")
         }
         guard isShown else { return }
+        // lastContentSize is nil'd before re-reading preferredContentSize so the dedup
+        // guard in applyMeasuredSize does not suppress the forced re-layout.
+        // Ordering note: if a KVO Task hop is already queued when this runs (a
+        // preferredContentSize change that arrived just before the screen change),
+        // it will call applyMeasuredSize after this method completes with a
+        // pre-screen-change size. Because lastContentSize is nil'd, the dedup guard
+        // won't suppress it — producing one extra frame write with a stale content cap.
+        // The practical consequence is a single unnecessary frame write; no visual
+        // glitch occurs because the new cap is applied first. isShown guards the
+        // blast radius to open-panel-only. No fix needed; noted for future ordering audits.
         lastContentSize = nil
         let size = hostingController.preferredContentSize
         if size.width > 0, size.height > 0 {

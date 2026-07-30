@@ -127,6 +127,15 @@
 //   sub-calls complete, so every IUO is guaranteed assigned before any caller
 //   can observe isSetUp == true.
 //
+//   isSetUp guards the precondition in openPanel() — no caller can reach
+//   openPanel() before setup() finishes.
+//   hasOpenedOnce guards applyFrame and applyMeasuredSize against pre-open
+//   KVO or invalidation calls that arrive before the first openPanel().
+//   The two guards are complementary, not redundant: isSetUp catches
+//   programming errors (openPanel before setup), while hasOpenedOnce
+//   catches the normal KVO timing window where the measurement system
+//   fires before the first user interaction.
+//
 // nonisolated(unsafe) — the observer tokens:
 //   All hold opaque tokens from AppKit APIs that are not Sendable. Every live
 //   read/write is @MainActor-isolated. Safe under the singleton lifetime
