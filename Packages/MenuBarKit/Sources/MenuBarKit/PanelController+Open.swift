@@ -50,11 +50,13 @@ extension MBKPanelController {
         lastMeasuredSize = nil
         onWillCloseFired = false
         hasOpenedOnce = true
+        mbkLog("PanelController", "openPanel -- intrinsicContentSize=(\(hostingController.view.intrinsicContentSize.width),\(hostingController.view.intrinsicContentSize.height)) preferredContentSize=(\(hostingController.preferredContentSize.width),\(hostingController.preferredContentSize.height))")
 
         // Use preferredContentSize if KVO already fired (e.g. pre-show layout pass).
         // Falls back to FALLBACK only if not yet populated — KVO will correct it
         // once the view lays out in the live window.
         let pcs = hostingController.preferredContentSize
+        mbkLog("PanelController", "openPanel PRE-SHOW -- preferredContentSize=\(pcs) intrinsicContentSize=\(hostingController.view.intrinsicContentSize)")
         if pcs.width > 0, pcs.height > 0 {
             mbkLog("PanelController", "openPanel -- applying pre-show preferredContentSize")
             let cap = liveMaxContentHeight()
@@ -84,6 +86,7 @@ extension MBKPanelController {
 
         Task { @MainActor [weak self] in
             guard let self else { return }
+            mbkLog("PanelController", "onDidShow -- panel.frame=\(panel?.frame ?? .zero) preferredContentSize=\(hostingController.preferredContentSize)")
             mbkLog("PanelController", "onDidShow Task hop -- calling onDidShow")
             self.onDidShow?()
             mbkLog("PanelController", "onDidShow fired")

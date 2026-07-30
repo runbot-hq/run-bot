@@ -271,6 +271,7 @@ enum MBKPanelControllerConstants {
         // With a concrete root-view type (RootEnvView) SwiftUI computes ideal height
         // correctly. AppKit writes preferredContentSize only when this option is set.
         hc.sizingOptions = .preferredContentSize
+        mbkLog("PanelController", "setupPanelWindow -- sizingOptions=\(hc.sizingOptions.rawValue) rootView=\(type(of: hc.rootView))")
         let hv = hc.view
         hv.translatesAutoresizingMaskIntoConstraints = false
         hv.wantsLayer = true
@@ -290,14 +291,15 @@ enum MBKPanelControllerConstants {
             \.preferredContentSize,
             options: [.new]
         ) { [weak self] _, change in
-            guard let size = change.newValue, size.width > 0, size.height > 0 else { return }
+            guard let self, let newSize = change.newValue else { return }
+            mbkLog("PanelController", "KVO fired -- preferredContentSize=\(newSize) isShown=\(self.isShown)")
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 mbkLog(
                     "PanelController",
-                    "KVO preferredContentSize -- size=(\(size.width),\(size.height)) isShown=\(self.isShown)"
+                    "KVO preferredContentSize -- new=(\(newSize.width),\(newSize.height)) isShown=\(self.isShown) hasOpenedOnce=\(self.hasOpenedOnce) isApplyingFrame=\(self.isApplyingFrame)"
                 )
-                self.applyMeasuredSize(size)
+                self.applyMeasuredSize(newSize)
             }
         }
         mbkLog("PanelController", "setupPanelWindow -- KVO on preferredContentSize registered")
@@ -331,7 +333,7 @@ enum MBKPanelControllerConstants {
 
 
     public func invalidateContentSize() {
-        mbkLog("PanelController", "invalidateContentSize -- reading preferredContentSize")
+        mbkLog("PanelController", "invalidateContentSize -- intrinsicContentSize=(\(hostingController.view.intrinsicContentSize.width),\(hostingController.view.intrinsicContentSize.height)) preferredContentSize=(\(hostingController.preferredContentSize.width),\(hostingController.preferredContentSize.height))")
         let size = hostingController.preferredContentSize
         guard size.width > 0, size.height > 0 else {
             mbkLog("PanelController", "invalidateContentSize -- degenerate size, skipping")
@@ -349,8 +351,10 @@ enum MBKPanelControllerConstants {
     /// Call this from the host app **before** a route change (e.g. settings, back,
     /// step-log) so the panel resizes to the new route's content.
     public func routeDidChange() {
+        mbkLog("PanelController", "routeDidChange -- clearing lastContentSize=\(String(describing: lastContentSize)) lastMeasuredSize=\(String(describing: lastMeasuredSize))")
         lastContentSize = nil
         lastMeasuredSize = nil
+        mbkLog("PanelController", "routeDidChange -- cleared, preferredContentSize=\(hostingController.preferredContentSize) intrinsicContentSize=\(hostingController.view.intrinsicContentSize)")
     }
 
     private func setupStatusItem() {
