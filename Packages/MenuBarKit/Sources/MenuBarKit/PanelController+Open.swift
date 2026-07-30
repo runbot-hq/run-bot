@@ -51,24 +51,10 @@ extension MBKPanelController {
         onWillCloseFired = false
         hasOpenedOnce = true
 
-        // Use preferredContentSize if KVO already fired (e.g. pre-show layout pass).
-        // Falls back to FALLBACK only if not yet populated — KVO will correct it
-        // once the view lays out in the live window.
-        let pcs = hostingController.preferredContentSize
-        if pcs.width > 0, pcs.height > 0 {
-            mbkLog("PanelController", "openPanel -- applying pre-show preferredContentSize")
-            let cap = liveMaxContentHeight()
-            let content = MBKPanelGeometry.clampContent(
-                CGSize(width: pcs.width, height: pcs.height - metrics.arrowHeight),
-                minWidth: 1,
-                maxWidth: liveMaxContentWidth(),
-                maxHeight: cap
-            )
-            applyFrame(content: content, reason: "PRE-SHOW")
-        } else {
-            mbkLog("PanelController", "openPanel -- FALLBACK (320.0,240.0)")
-            applyFrame(content: CGSize(width: 320, height: 240), reason: "FALLBACK")
-        }
+        let openSize = pendingContentSize ?? CGSize(width: 320, height: 240)
+        let reason = pendingContentSize != nil ? "PRE-SHOW" : "FALLBACK"
+        pendingContentSize = nil
+        applyFrame(content: openSize, reason: reason)
 
         setButtonHighlight(true)
         panel.orderFrontRegardless()
