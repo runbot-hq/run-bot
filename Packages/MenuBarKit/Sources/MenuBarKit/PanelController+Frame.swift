@@ -84,6 +84,16 @@ extension MBKPanelController {
         )
     }
 
+/// Strips the arrow-height padding from a raw preferredContentSize measurement
+    /// before passing it to MBKPanelGeometry.clampContent.
+    /// Both the KVO path (applyMeasuredSize) and the pre-show path (openPanel) must
+    /// strip this padding — use this helper at both sites so any future change to the
+    /// padding model is made in one place.
+    func contentSize(fromMeasured size: CGSize) -> CGSize {
+        CGSize(width: size.width, height: size.height - metrics.arrowHeight)
+    }
+
+    /// Returns the visible frame of the screen currently hosting the status item,
     /// Returns the visible frame of the screen currently hosting the status item,
     /// falling back to NSScreen.main, then a safe default.
     private func liveVisibleFrame() -> CGRect {
@@ -140,7 +150,7 @@ extension MBKPanelController {
             metrics: metrics
         )
         let content = MBKPanelGeometry.clampContent(
-            CGSize(width: measured.width, height: measured.height - metrics.arrowHeight),
+            contentSize(fromMeasured: measured),
             minWidth: 1,
             maxWidth: liveMaxContentWidth(),
             maxHeight: cap
@@ -170,6 +180,10 @@ extension MBKPanelController {
     /// This is the **only** permitted call site for `panel.setFrame`.
     func applyFrame(content: CGSize, anchor: MBKAnchorReading? = nil, reason: String) {
         mbkLog("PanelController", "applyFrame ENTER -- content=(\(content.width),\(content.height)) reason=\(reason)")
+        // Silent no-op when called before setup() or after teardown — intentional.
+        // applyFrame can be invoked from KVO during a close sequence where panel/limits
+        // may already be nil. Use precondition(isSetUp) only at entry points that must
+        // never fire pre-setup (e.g. openPanel).
         guard let panel, let limits, hasOpenedOnce else { return }
         guard let anchor = anchor ?? readAnchor() else {
             mbkLog("PanelController", "\(reason) -- no anchor available, skipping frame")
