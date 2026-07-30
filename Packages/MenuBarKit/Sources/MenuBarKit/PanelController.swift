@@ -143,13 +143,26 @@
 //   PanelController+Observers.swift  — workspace, screen, mouse and key monitors
 
 import AppKit
-/// Glass configuration constants used by MBKPanelController.
+/// NSGlassEffectView private KVC keys — all three set to 1 to produce dark glass.
+///
+/// Each key controls a distinct stage of the same compositor pipeline:
+/// - `_subduedState = 1`  Locks the glass to its own dark intrinsic tone instead of
+///                        sampling desktop colours.
+/// - `_variant      = 1`  Selects the dark-glass rendering variant of the compositor.
+/// - `_scrimState   = 1`  Enables the scrim layer that reinforces the dark tone.
+///
+/// All three must be set together. Setting fewer than all three leaves the pipeline
+/// misaligned — partial combinations produce light or inconsistent glass.
+///
+/// Counter-intuitive: value `1` produces darker/richer glass than `0` in this panel
+/// context. Do NOT revert to `0` — empirically verified lighter on macOS 26.
+/// These keys are undocumented and may change in a future OS update.
 enum GlassConfig {
-    /// Subdued state value for the glass effect.
+    /// Locks the glass compositor to its own dark intrinsic tone (value `1`).
     static var subduedState: Int { 1 }
-    /// Variant value for the glass effect.
+    /// Selects the dark-glass rendering variant of the compositor (value `1`).
     static var variant: Int { 1 }
-    /// Scrim state value for the glass effect.
+    /// Enables the scrim layer that reinforces the dark tone (value `1`).
     static var scrimState: Int { 1 }
 }
 import SwiftUI
@@ -355,6 +368,11 @@ public final class MBKPanelController<Content: View>: NSObject, MBKPanelControll
         frameView.layer?.backgroundColor = NSColor.clear.cgColor
         frameView.layer?.cornerRadius = cornerRadius
         frameView.layer?.cornerCurve = .continuous
+        // DO NOT set masksToBounds = true — NSThemeFrame is an ancestor of
+        // NSGlassEffectView. masksToBounds forces the entire window into an
+        // offscreen compositing pass, severing the live backdrop connection.
+        // The glass falls back to flat/washed-out. cornerRadius alone is
+        // sufficient to suppress the faint square border pixel artefacts.
     }
 
     /// Invalidates the hosting controller's intrinsic content size, triggering re-layout.

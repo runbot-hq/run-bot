@@ -169,7 +169,9 @@ extension MBKPanelController {
 
     // MARK: - Highlight
 
-    /// Highlights or un-highlights the status item button.
+    /// Drives the status-button's pressed appearance while the panel is open.
+    /// Uses `highlight(_:)` rather than `isHighlighted`: `isHighlighted` resets
+    /// to false the moment the panel takes key status; `highlight(_:)` persists.
     func setButtonHighlight(_ isOn: Bool) {
         statusItem?.button?.highlight(isOn)
     }
