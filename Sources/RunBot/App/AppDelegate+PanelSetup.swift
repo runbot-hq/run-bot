@@ -78,9 +78,10 @@ extension AppDelegate {
     func setupPanel() {
         log("AppDelegate › setupPanel — begin")
 
-        // Use a temporary handle during construction — the real handle is created
-        // after panelController is assigned (see below). The temporary handle's
-        // remeasure closure is a no-op until the real handle replaces it.
+        // tempHandle is the live, permanent handle. It captures panelController weakly
+        // so it is safe to construct before panelController is assigned — by the time
+        // any view calls remeasure(), panelController is non-nil (assigned below before
+        // any user interaction is possible).
         let tempHandle = PanelControllerHandle(
             remeasure: { [weak self] in
                 self?.panelController?.invalidateContentSize()

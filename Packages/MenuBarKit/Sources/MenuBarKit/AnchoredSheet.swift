@@ -17,7 +17,7 @@ func mbkWaitAndAnchorSheetWindow(
     panelWindow: NSWindow,
     label: String
 ) -> MBKSheetAnchorTask {
-    mbkLog("AnchoredSheet[\(label)]", "mbkWaitAndAnchorSheetWindow called — pw=#\(panelWindow.windowNumber)")
+    mbkLog("AnchoredSheet[\(label)]", "mbkWaitAndAnchorSheetWindow called — panelWindow=#\(panelWindow.windowNumber)")
     let task = MBKSheetAnchorTask(panelWindow: panelWindow, label: label)
     task.start()
     return task
@@ -40,7 +40,7 @@ final class MBKSheetAnchorTask {
 
     /// Creates the task. Does not start the async work — call `start()` explicitly.
     init(panelWindow: NSWindow, label: String) {
-        mbkLog("AnchoredSheet[\(label)]", "MBKSheetAnchorTask.init pw=#\(panelWindow.windowNumber)")
+        mbkLog("AnchoredSheet[\(label)]", "MBKSheetAnchorTask.init panelWindow=#\(panelWindow.windowNumber)")
         self.panelWindow = panelWindow
         self.label = label
     }
@@ -72,22 +72,22 @@ final class MBKSheetAnchorTask {
                 //   addChildWindow(_:ordered:) on an already-closing or already-parented
                 //   window is documented as a no-op on macOS — it does not crash and
                 //   does not double-add the window.
-                //   HOWEVER: the window may remain in pw.childWindows momentarily,
+                //   HOWEVER: the window may remain in panelWindow.childWindows momentarily,
                 //   causing hasSheetChildWindow = true on the very next outside-click
                 //   event. That routes the event monitor to forceClose() instead of
                 //   performClose(), so onWillClose fires with wasForced: true on a
                 //   session that was actually a normal close. Host code that branches
                 //   on wasForced must treat it as advisory rather than authoritative.
-                let pw = self.panelWindow
+                let panelWindow = self.panelWindow
                 let allWindows = NSApp.windows
                 mbkLog("AnchoredSheet[\(self.label)]", "hop2 — polling \(allWindows.count) windows")
-                for w in allWindows where w !== pw {
+                for w in allWindows where w !== panelWindow {
                     let title = w.title.isEmpty ? "<empty>" : w.title
                     mbkLog(
                         "AnchoredSheet[\(self.label)]",
                         "  candidate #\(w.windowNumber) styleMask=\(w.styleMask.rawValue)" +
                         " isKey=\(w.isKeyWindow) borderless=\(w.styleMask == .borderless)" +
-                        " inSheets=\(pw.sheets.contains(w)) title=\(title)"
+                        " inSheets=\(panelWindow.sheets.contains(w)) title=\(title)"
                     )
                 }
                 // ⚠️ KNOWN LIMITATION: `isKeyWindow` is not guaranteed to be true yet at this
@@ -98,11 +98,18 @@ final class MBKSheetAnchorTask {
                 // is separate from this timing issue. See #21 for a proper fix (track the sheet
                 // NSWindow reference directly in MBKSheetAnchorTask instead of searching by predicate).
                 guard let sheetWindow = allWindows.first(where: {
-                    $0 !== pw &&
+                    $0 !== panelWindow &&
                     $0.styleMask.contains(.borderless) &&
                     $0.isKeyWindow
                 }) else {
                     mbkLog("AnchoredSheet[\(self.label)]", "hop2 — no matching window found (borderless+isKey)")
+                    #if DEBUG
+                    assertionFailure(
+                        "AnchoredSheet[\(self.label)]: hop2 found no borderless+isKey window. "
+                        + "The sheet is unanchored — the panel will be closable while the sheet is visible. "
+                        + "See issue #21 for the proper fix (track NSWindow reference directly)."
+                    )
+                    #endif
                     return
                 }
                 mbkLog("AnchoredSheet[\(self.label)]", "addChildWindow — #\(sheetWindow.windowNumber)")
@@ -113,11 +120,11 @@ final class MBKSheetAnchorTask {
                 // lifetime of the sheet. Forcing layout here ensures AppKit sees a
                 // fully-laid-out contentView tree before the compositing pass resets,
                 // which preserves the rounded corners on sheet open.
-                pw.contentView?.layoutSubtreeIfNeeded()
-                pw.addChildWindow(sheetWindow, ordered: .above)
+                panelWindow.contentView?.layoutSubtreeIfNeeded()
+                panelWindow.addChildWindow(sheetWindow, ordered: .above)
                 // NSGlassEffectView is the direct panel.contentView — no chrome wrapper.
                 // Direct contentView survives addChildWindow() without corner regression.
-                pw.invalidateShadow()
+                panelWindow.invalidateShadow()
                 mbkLog("AnchoredSheet[\(self.label)]", "addChildWindow done")
             }
         }

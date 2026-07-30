@@ -286,7 +286,7 @@ public final class MBKPanelController<Content: View>: NSObject, MBKPanelControll
         // Values sourced from NSGlassEffectView.h (private SPI, macOS 26).
         // _subduedState = 1 → subdued/inactive appearance (matches system panels)
         // _variant      = 1 → default panel variant
-        // _scrimState   = 1 → scrim disabled
+        // _scrimState   = 1 → see GlassConfig.scrimState doc above
         // responds(to:) above guards selector existence only — it cannot verify
         // that enum ordinals are stable across OS versions. If glass looks wrong
         // after an OS update, audit GlassConfig values against the updated header.

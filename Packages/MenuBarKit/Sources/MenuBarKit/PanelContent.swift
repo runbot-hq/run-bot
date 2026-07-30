@@ -22,7 +22,7 @@
 //
 // SIZING CONTRACT (see SIZING PIPELINE in PanelController.swift for full detail):
 //   sizingOptions = .preferredContentSize  — pcs is live output
-//   three-edge AL pins                     — top/leading/trailing only
+//   four-edge AL pins                      — top/leading/trailing/bottom (bottom is load-bearing for KVO continuity; see PanelController.swift SIZING PIPELINE)
 //   KVO on preferredContentSize            — sole measurement signal
 //   limits.maxContentHeight                — @Observable, updated on open + screen change
 //
