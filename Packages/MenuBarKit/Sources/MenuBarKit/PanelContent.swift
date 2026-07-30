@@ -68,15 +68,16 @@ struct MBKPanelContentView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .overlay(alignment: .top) {
                 // Inner VStack: sized by content, not by window.
-                // onGeometryChange fires when THIS size changes — natural content height.
+                // onGeometryChange lives on content so it re-fires when the
+                // adopter's @Observable state changes and the subtree grows.
                 VStack(spacing: 0) {
                     content
                         .padding(.top, metrics.arrowHeight)
-                }
-                .onGeometryChange(for: CGSize.self) { proxy in
-                    proxy.size
-                } action: { newSize in
-                    onSizeChange?(newSize)
+                        .onGeometryChange(for: CGSize.self) { proxy in
+                            proxy.size
+                        } action: { newSize in
+                            onSizeChange?(newSize)
+                        }
                 }
                 .clipShape(bubble)
             }
