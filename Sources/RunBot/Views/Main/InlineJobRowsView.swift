@@ -248,7 +248,9 @@ private struct JobRowCard: View {
                 jobHeader
                 if isExpanded { stepsContainer }
             }
-            .glassCard(cornerRadius: RBRadius.small)
+            .background {
+                Color.clear.glassCard(cornerRadius: RBRadius.small)
+            }
         }
         .padding(.vertical, 1)
         .jobContextMenu(job: job, group: group)
