@@ -99,11 +99,36 @@ private let timestampRegex: NSRegularExpression? = try? NSRegularExpression(
     options: .anchorsMatchLines
 )
 
+/// A parsed section of a GitHub Actions log, keyed by the group name from `##[group]<name>`.
+///
+/// Produced by `buildParsedLog`. The `name` is the exact text that follows the `##[group]`
+/// marker (e.g. `"Run actions/checkout@v4"`). The `body` is the cleaned content between
+/// the group and endgroup markers, with the marker lines themselves included so callers
+/// can render them as section boundaries if needed.
+public struct LogSection {
+    /// The name extracted from the `##[group]<name>` marker line.
+    public let name: String
+    /// Cleaned body lines between (and including) the ##[group] and ##[endgroup] markers.
+    public let body: String
+}
+
+/// Full parse result for a GitHub Actions log: named sections plus ungrouped regions.
+///
+/// - `sections`: In-order named sections delimited by `##[group]`/`##[endgroup]` pairs.
+/// - `preamble`: Lines before the first `##[group]` marker (e.g. "Set up job" runner output).
+/// - `epilogue`: Lines after the last `##[endgroup]` marker (e.g. cleanup, Node.js warnings).
+private struct ParsedLog {
+    let sections: [LogSection]
+    let preamble: String
+    let epilogue: String
+}
+
 /// Fetches the log for a single step via the transport layer's `raw()` method.
 @concurrent
 public func fetchStepLog(
     jobID: Int,
     stepNumber: Int,
+    stepName: String,
     scope scopeString: String,
     transport: any GitHubTransportProtocol = currentTransport
 ) async -> String? {
@@ -118,11 +143,11 @@ public func fetchStepLog(
         return nil
     }
     let endpoint = "\(scope.apiPrefix)/actions/jobs/\(jobID)/logs"
-    transport.logger?.log("fetchStepLog › fetching \(endpoint) step=\(stepNumber)", category: "transport")
+    transport.logger?.log("fetchStepLog › fetching \(endpoint) step=\(stepNumber) name=\(stepName)", category: "transport")
     guard let raw = await fetchAndDecodeStepLog(endpoint: endpoint, jobID: jobID, transport: transport) else {
         return nil
     }
-    return parseStepLog(raw, stepNumber: stepNumber, logger: transport.logger)
+    return parseStepLog(raw, stepName: stepName, stepNumber: stepNumber, logger: transport.logger)
 }
 
 /// Fetches raw log bytes from `endpoint` and decodes them as UTF-8.
@@ -156,84 +181,144 @@ private func fetchAndDecodeStepLog(
     return raw
 }
 
-/// Extracts the log section for `stepNumber` from a raw multi-group log string.
-/// If the log contains no `##[group]` markers the full cleaned log is returned.
-/// If `stepNumber` is out of range the full cleaned log is returned as a fallback.
+/// Extracts the log section for `stepName` from a raw multi-group log string.
+///
+/// Matching strategy (in order):
+///   1. Exact match on `step.name` against `##[group]<name>`.
+///   2. Case-insensitive prefix match — handles "Run actions/checkout@v4" vs the step
+///      name "actions/checkout@v4" that GitHub sometimes trims.
+///   3. Synthetic step heuristics:
+///      - "Set up job" / "Initialize containers" → preamble (lines before first group)
+///      - Names starting with "Post " / "Complete job" / "Stop containers" → epilogue
+///   4. Fallback: return the full cleaned log.
+///
+/// This replaces the old integer-index approach. `step.number` from the GitHub API counts
+/// all steps including synthetic ones ("Set up job", "Complete job", "Post Run X") that
+/// have no `##[group]` block in the raw log, so `stepNumber - 1` was always misaligned.
 ///
 /// Pipeline order (must not be reordered):
-///   1. CR normalisation — converts \r\n and bare \r to \n so every subsequent
-///      step receives LF-only input. Must run before any line-aware operation;
-///      if skipped, `##[group]\r` would not match `##[group]` in buildLogSections.
+///   1. CR normalisation — converts \r\n and bare \r to \n.
 ///   2. stripAnsi  — character-based; safe on LF-only input.
 ///   3. stripTimestamps — uses .anchorsMatchLines; requires LF-only input.
-///   4. buildLogSections — splits on \n; requires LF-only input.
+///   4. buildParsedLog — splits on \n; requires LF-only input.
 private func parseStepLog(
     _ raw: String,
+    stepName: String,
     stepNumber: Int,
     logger: (any GitHubLogger)?
 ) -> String? {
-    // Step 1: normalise line endings to LF. \r\n must be replaced before bare \r
-    // to avoid doubling blank lines (\r\n → \n\n if the \r pass ran first).
+    // Step 1: normalise line endings to LF.
     let normalised = raw
         .replacingOccurrences(of: "\r\n", with: "\n")
         .replacingOccurrences(of: "\r", with: "\n")
     let ansiStripped = stripAnsi(normalised)    // Step 2
     let cleaned = stripTimestamps(ansiStripped) // Step 3
-    let sections = buildLogSections(from: cleaned) // Step 4
-    logger?.log("parseStepLog › parsed \(sections.count) section(s) from log", category: "transport")
-    if sections.isEmpty {
-        logger?.log("parseStepLog › no group markers, returning full raw log", category: "transport")
-        return cleaned
+    let parsed = buildParsedLog(from: cleaned)  // Step 4
+
+    logger?.log(
+        "parseStepLog › \(parsed.sections.count) section(s), stepName=\"\(stepName)\" stepNumber=\(stepNumber)",
+        category: "transport")
+
+    // 1. Exact name match
+    if let match = parsed.sections.first(where: { $0.name == stepName }) {
+        logger?.log("parseStepLog › exact match \"\(stepName)\"", category: "transport")
+        return match.body
     }
-    let index = stepNumber - 1
-    guard index >= 0, index < sections.count else {
-        logger?.log(
-            "parseStepLog › stepNumber \(stepNumber) out of range "
-            + "(sections=\(sections.count)), returning full log",
-            category: "transport")
-        return cleaned
+
+    // 2. Case-insensitive prefix match — e.g. step.name="actions/checkout@v4",
+    //    group header="Run actions/checkout@v4"
+    let lower = stepName.lowercased()
+    if let match = parsed.sections.first(where: {
+        $0.name.lowercased().hasPrefix(lower) || lower.hasPrefix($0.name.lowercased())
+    }) {
+        logger?.log("parseStepLog › prefix match \"\(match.name)\" for \"\(stepName)\"", category: "transport")
+        return match.body
     }
-    let section = sections[index]
-    logger?.log("parseStepLog › step \(stepNumber) → \(section.count)ch", category: "transport")
-    return section
+
+    // 3. Synthetic step heuristics
+    let lowerName = stepName.lowercased()
+    if lowerName == "set up job" || lowerName == "initialize containers" {
+        logger?.log("parseStepLog › synthetic preamble for \"\(stepName)\"", category: "transport")
+        return parsed.preamble.isEmpty ? nil : parsed.preamble
+    }
+    if lowerName.hasPrefix("post ") || lowerName == "complete job" || lowerName == "stop containers" {
+        logger?.log("parseStepLog › synthetic epilogue for \"\(stepName)\"", category: "transport")
+        return parsed.epilogue.isEmpty ? nil : parsed.epilogue
+    }
+
+    // 4. Fallback: return full cleaned log
+    logger?.log(
+        "parseStepLog › no match for \"\(stepName)\", returning full log",
+        category: "transport")
+    return cleaned
 }
 
-/// Splits a cleaned log string into sections delimited by `##[group]` markers.
-/// Each section starts at the `##[group]` marker line and runs to (but not including)
-/// the next `##[group]` marker. The `##[endgroup]` line is **intentionally included**
-/// in the returned section string — it acts as the section terminator and callers
-/// use it as a sentinel for display boundaries. It is not stripped here.
+/// Splits a cleaned log into a `ParsedLog` with named sections, a preamble, and an epilogue.
 ///
-/// Lines that appear **before the first `##[group]` marker** are silently dropped.
-/// For GitHub Actions logs this is by design: preamble lines before the first group
-/// are runner boilerplate that the caller does not need. If the log has no `##[group]`
-/// markers at all, `buildLogSections` returns `[]` and `parseStepLog` falls back to
-/// returning the full cleaned log, making the preamble visible in that case.
+/// - Preamble: all lines before the first `##[group]` marker.
+/// - Sections: lines between a `##[group]<name>` and `##[endgroup]` (both markers included
+///   in `body`), in source order.
+/// - Epilogue: all lines after the last `##[endgroup]` marker.
 ///
-/// **`hasPrefix` invariant**: By the time this function is called, the full pipeline
-/// (CR normalisation → stripAnsi → stripTimestamps) has already run. Every genuine
-/// `##[group]` marker emitted by the Actions runner is therefore at the start of its
-/// line — the timestamp prefix that preceded it has been removed. `hasPrefix` is used
-/// rather than `contains` to avoid false splits on user-emitted log lines that happen
-/// to contain the string `##[group]` mid-line (e.g. `echo "##[group]something"` in a
-/// `run:` step), which would otherwise silently corrupt section boundaries and shift
-/// every subsequent `stepNumber` index by one.
-private func buildLogSections(from cleaned: String) -> [String] {
+/// Malformed logs (a `##[group]` with no matching `##[endgroup]`) are handled gracefully:
+/// the open section is flushed at end-of-input rather than silently dropped.
+///
+/// `hasPrefix("##[group]")` is used (not `contains`) to avoid false splits on user-emitted
+/// `echo "##[group]something"` lines — the upstream pipeline has already stripped the
+/// timestamp prefix so genuine markers are always at column 0.
+private func buildParsedLog(from cleaned: String) -> ParsedLog {
     let lines = cleaned.components(separatedBy: "\n")
-    var sections: [String] = []
-    var current: [String] = []
-    var seenGroup = false
-    for line in lines {
+    var sections: [LogSection] = []
+    var preambleLines: [String] = []
+    var currentName: String?
+    var currentBody: [String] = []
+    var seenFirstGroup = false
+    var lastEndgroupIdx: Int?
+
+    for (idx, line) in lines.enumerated() {
         if line.hasPrefix("##[group]") {
-            if seenGroup, !current.isEmpty { sections.append(current.joined(separator: "\n")) }
-            seenGroup = true
-            current = [line]
-        } else if seenGroup {
-            current.append(line)
+            // Flush previous open section (handles back-to-back groups without endgroup)
+            if let name = currentName, !currentBody.isEmpty {
+                sections.append(LogSection(name: name, body: currentBody.joined(separator: "\n")))
+            }
+            seenFirstGroup = true
+            currentName = String(line.dropFirst("##[group]".count))
+            currentBody = [line]
+        } else if line.hasPrefix("##[endgroup]") {
+            currentBody.append(line)
+            if let name = currentName {
+                sections.append(LogSection(name: name, body: currentBody.joined(separator: "\n")))
+            }
+            currentName = nil
+            currentBody = []
+            lastEndgroupIdx = idx
+        } else if currentName != nil {
+            currentBody.append(line)
+        } else if !seenFirstGroup {
+            preambleLines.append(line)
         }
+        // Lines between endgroup and the next group (or end of file) accumulate in
+        // the epilogue bucket, captured below after the loop.
     }
-    if seenGroup, !current.isEmpty { sections.append(current.joined(separator: "\n")) }
-    return sections
+
+    // Flush any open section that had no ##[endgroup] (malformed but handle gracefully)
+    if let name = currentName, !currentBody.isEmpty {
+        sections.append(LogSection(name: name, body: currentBody.joined(separator: "\n")))
+    }
+
+    // Epilogue: every line after the last ##[endgroup]
+    let epilogueLines: [String]
+    if let endIdx = lastEndgroupIdx, endIdx + 1 < lines.count {
+        epilogueLines = Array(lines[(endIdx + 1)...])
+    } else {
+        epilogueLines = []
+    }
+
+    return ParsedLog(
+        sections: sections,
+        preamble: preambleLines.joined(separator: "\n"),
+        epilogue: epilogueLines.joined(separator: "\n")
+    )
 }
 
 /// Removes ANSI escape sequences from `input` using the pre-compiled `ansiRegex`.

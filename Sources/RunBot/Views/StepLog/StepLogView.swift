@@ -268,6 +268,7 @@ struct StepLogView: View {
         isLoading = true
         let jobID = job.id
         let stepNum = step.number
+        let stepName = step.name
         let scope: String = {
             let primary = repoScopeForFetch
             if !primary.isEmpty { return primary }
@@ -278,7 +279,7 @@ struct StepLogView: View {
         loadTask = Task {
             defer { Task { @MainActor in isLoading = false } }
             guard !Task.isCancelled else { return }
-            let text = await fetchStepLog(jobID: jobID, stepNumber: stepNum, scope: scope)
+            let text = await fetchStepLog(jobID: jobID, stepNumber: stepNum, stepName: stepName, scope: scope)
             guard !Task.isCancelled else { return }
             await MainActor.run {
                 logText = text ?? ""
