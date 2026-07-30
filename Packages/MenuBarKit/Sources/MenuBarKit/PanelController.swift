@@ -84,21 +84,15 @@
 //
 //   Signal: KVO on hostingController.preferredContentSize.
 //   NSHostingController writes preferredContentSize after every layout pass
-//   that produces a new ideal size under an unspecified proposal. KVO fires
-//   only when the value actually changes.
+//   that produces a new ideal size under an unspecified proposal — but only
+//   when sizingOptions = .preferredContentSize is set. Without it, AppKit
+//   never populates the property and KVO never fires.
 //
-//   WHY NOT onGeometryChange:
-//   rootView is stored as AnyView. AnyView erases the concrete type. SwiftUI
-//   cannot compute ideal height through AnyView — .fixedSize on an AnyView
-//   child always resolves to 0. onGeometryChange on the inner VStack therefore
-//   always reports only the arrow placeholder height.
-//
-//   ❌ sizingOptions = [.preferredContentSize]  — DO NOT USE.
-//   With .preferredContentSize AppKit drives the hosting view's size via its
-//   own intrinsic-size constraints, which fight the required bottom pin.
-//   sizingOptions = [] makes preferredContentSize a pure output.
-//
-//   ✅ sizingOptions = []  — required.
+//   WHY NOT onGeometryChange (historical):
+//   When rootView was wrapped in AnyView, SwiftUI could not compute ideal
+//   height through the type erasure barrier. Now that rootView is a concrete
+//   type (RootEnvView), .preferredContentSize works correctly. The bottom-pin
+//   constraint provides the measured height back to SwiftUI for re-proposal.
 //
 //   ✅ Four-edge AL pins (leading + trailing + top + bottom)  — all required.
 //   After applyMeasuredSize resizes the window, the bottom pin re-proposes
@@ -274,9 +268,10 @@ enum MBKPanelControllerConstants {
         let hc = NSHostingController(
             rootView: MBKPanelContentView(limits: limits, metrics: metrics, content: rootView)
         )
-        // sizingOptions = [] is load-bearing — see SIZING PIPELINE in the file header.
-        // ❌ DO NOT change to .preferredContentSize — it fights the bottom pin.
-        hc.sizingOptions = []
+        // sizingOptions = .preferredContentSize — see SIZING PIPELINE in the file header.
+        // With a concrete root-view type (RootEnvView) SwiftUI computes ideal height
+        // correctly. AppKit writes preferredContentSize only when this option is set.
+        hc.sizingOptions = .preferredContentSize
         let hv = hc.view
         hv.translatesAutoresizingMaskIntoConstraints = false
         hv.wantsLayer = true
