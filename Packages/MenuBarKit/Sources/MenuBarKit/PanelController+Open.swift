@@ -178,8 +178,10 @@ extension MBKPanelController {
         // removed BEFORE teardown() is called (see forceClose() above), so by the
         // time this reset runs no overlay is alive to race against it. The reset
         // is therefore always safe on both close paths.
-        overlayGate.hasActiveOverlay = false
-        overlayGate.hasFilePickerOverlay = false
+        // Guarded to avoid firing didSet (and its mbkLog) spuriously when the
+        // gate is already clear — which is always the case on the performClose path.
+        if overlayGate.hasActiveOverlay { overlayGate.hasActiveOverlay = false }
+        if overlayGate.hasFilePickerOverlay { overlayGate.hasFilePickerOverlay = false }
         onWillCloseFired = false
         lastContentSize = nil
         mbkLog("PanelController", "panel closed wasForced=\(wasForced)")

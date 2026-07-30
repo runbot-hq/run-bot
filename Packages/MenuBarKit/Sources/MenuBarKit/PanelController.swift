@@ -360,7 +360,11 @@ public final class MBKPanelController<Content: View>: NSObject, MBKPanelControll
         // an AppKit main-thread property; reading it off-actor is a data race under
         // Swift 6 strict concurrency. Both log lines are therefore inside the Task.
         ) { [weak self] _, change in
-            guard let self, let newSize = change.newValue else { return }
+            // Only newSize (a value type) is read here — no @MainActor state is
+            // touched before the Task hop. guard let self is deliberately omitted:
+            // re-strengthening self on an AppKit background thread would be a
+            // data-race footgun for any future off-Task log line added here.
+            guard let newSize = change.newValue else { return }
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 mbkLog(
@@ -387,13 +391,12 @@ public final class MBKPanelController<Content: View>: NSObject, MBKPanelControll
     /// Rounds the underlying NSThemeFrame corners to match the bubble shape.
     private func clipWindowFrameBacking(_ panel: MBKPanel, cornerRadius: CGFloat) {
         guard let frameView = panel.contentView?.superview else { return }
-        #if DEBUG
-        assert(
-            NSStringFromClass(type(of: frameView)).contains("ThemeFrame"),
-            "clipWindowFrameBacking: contentView.superview is \(NSStringFromClass(type(of: frameView))),"
-            + " expected NSThemeFrame."
-        )
-        #endif
+        if !NSStringFromClass(type(of: frameView)).contains("ThemeFrame") {
+            mbkLog("PanelController",
+                "⚠️ clipWindowFrameBacking: contentView.superview is \(NSStringFromClass(type(of: frameView))),"
+                + " expected NSThemeFrame — corner rounding may not apply correctly."
+            )
+        }
         frameView.wantsLayer = true
         frameView.layer?.backgroundColor = NSColor.clear.cgColor
         frameView.layer?.cornerRadius = cornerRadius
