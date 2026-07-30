@@ -122,6 +122,10 @@ public struct LogSection {
 /// - `preamble`: Lines before the first `##[group]` marker (e.g. "Set up job" runner output).
 /// - `epilogue`: Lines after the last `##[endgroup]` marker, including any inter-group lines
 ///   that appeared between consecutive `##[endgroup]`/`##[group]` pairs during the run.
+///
+/// **Visibility**: internal (no explicit modifier) rather than private so that future tests
+/// can call `buildParsedLog` directly to verify structural parsing independently of
+/// `parseStepLog`'s matching logic. It is not part of the public API.
 struct ParsedLog {
     let sections: [LogSection]
     let preamble: String
@@ -315,8 +319,11 @@ func buildParsedLog(from cleaned: String) -> ParsedLog {
 
     for line in lines {
         if line.hasPrefix("##[group]") {
-            // Flush previous open section (handles back-to-back groups without endgroup)
-            if let name = currentName, !currentBody.isEmpty {
+            // Flush previous open section (handles back-to-back groups without endgroup).
+            // Invariant: currentBody is always non-empty when currentName != nil because
+            // currentBody is initialised with [line] (the ##[group] marker) when a group opens.
+            if let name = currentName {
+                assert(!currentBody.isEmpty, "currentBody must not be empty when currentName is set")
                 sections.append(LogSection(name: name, body: currentBody.joined(separator: "\n")))
             }
             seenFirstGroup = true
@@ -340,8 +347,10 @@ func buildParsedLog(from cleaned: String) -> ParsedLog {
         }
     }
 
-    // Flush any open section that had no ##[endgroup] (malformed but handle gracefully)
-    if let name = currentName, !currentBody.isEmpty {
+    // Flush any open section that had no ##[endgroup] (malformed but handle gracefully).
+    // Invariant: currentBody is always non-empty when currentName != nil (see above).
+    if let name = currentName {
+        assert(!currentBody.isEmpty, "currentBody must not be empty when currentName is set")
         sections.append(LogSection(name: name, body: currentBody.joined(separator: "\n")))
     }
 

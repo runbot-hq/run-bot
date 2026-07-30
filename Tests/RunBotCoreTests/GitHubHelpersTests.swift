@@ -10,6 +10,8 @@
 //   synthetic: Set up job                   — test_setUpJob_returnsPreamble
 //   synthetic: Complete job                 — test_completeJob_returnsEpilogue
 //   synthetic: Post Run X                   — test_postRunStep_returnsEpilogue
+//   user step named "Post <X>" (no Run prefix in group header)
+//                                           — test_postPrefixUserStep_matchesSectionNotEpilogue
 //   no match → full log fallback            — test_noMatch_returnsFullLog
 //   unclosed group                          — test_unclosedGroup_stillMatches
 //   inter-group lines preserved             — test_interGroupLines_notDropped
@@ -133,6 +135,29 @@ final class GitHubHelpersTests: XCTestCase {
         let result = parseStepLog(raw, stepName: "Post Run actions/checkout@v4", stepNumber: 5, logger: nil)
         XCTAssertNotNil(result)
         XCTAssert(result!.contains("Post-run cleanup line"))
+        XCTAssertFalse(result!.contains("checkout output"),
+            "Synthetic Post-prefix step must return epilogue, not the section body or full log")
+    }
+
+    func test_postPrefixUserStep_matchesSectionNotEpilogue() {
+        // A real user step named "Post deploy" with a ##[group]Post deploy section must be
+        // matched by stage 1 (exact name match) and must NOT be redirected to the epilogue
+        // by the stage-3 synthetic heuristic. This guards the ordering guarantee documented
+        // in parseStepLog: stages 1–2 run before stage 3.
+        let raw = makeLog(
+            sections: [
+                (name: "Post deploy", body: ["deploying to production"]),
+                (name: "Run tests", body: ["test output"])
+            ],
+            epilogue: ["epilogue content"]
+        )
+        let result = parseStepLog(raw, stepName: "Post deploy", stepNumber: 3, logger: nil)
+        XCTAssertNotNil(result)
+        XCTAssert(result!.contains("deploying to production"),
+            "User step \"Post deploy\" must match its ##[group] section via stage 1")
+        XCTAssertFalse(result!.contains("epilogue content"),
+            "Stage-3 synthetic heuristic must not fire when stage 1 already matched")
+        XCTAssertFalse(result!.contains("test output"))
     }
 
     func test_noMatch_returnsFullLog() {
