@@ -51,7 +51,14 @@ extension MBKPanelController {
             anchorX = visibleFrame.maxX - metrics.screenMargin
         }
 
-        let topY = hidden ? visibleFrame.maxY : (buttonWindow?.frame.minY ?? visibleFrame.maxY)
+        let topY: CGFloat
+        if hidden {
+            topY = visibleFrame.maxY
+        } else if let window = buttonWindow, window.frame.minY > 0 {
+            topY = window.frame.minY
+        } else {
+            topY = visibleFrame.maxY
+        }
         return MBKAnchorReading(
             anchorX: anchorX,
             topY: topY,
