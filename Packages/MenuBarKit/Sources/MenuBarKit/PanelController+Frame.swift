@@ -21,16 +21,23 @@ import AppKit
 
 /// Live anchor reading: where the panel must attach for one frame computation.
 struct MBKAnchorReading {
+    /// The horizontal centre of the status item button in screen coordinates.
     let anchorX: CGFloat
+    /// The Y coordinate of the menu bar's bottom edge (top of panel attachment).
     let topY: CGFloat
+    /// The visible frame of the screen containing the status item.
     let visibleFrame: CGRect
+    /// Whether the menu bar is currently hidden or the button has no screen.
     let menuBarHidden: Bool
 }
 
+/// Frame computation and application for MBKPanelController.
 extension MBKPanelController {
 
     // MARK: - Anchor
 
+    /// Reads the current anchor position from the live status item button.
+    /// Returns nil only if there is no button and no fallback screen.
     func readAnchor() -> MBKAnchorReading? {
         guard let button = statusItem?.button else {
             mbkLog("PanelController", "readAnchor -- NO BUTTON")
@@ -77,12 +84,15 @@ extension MBKPanelController {
         )
     }
 
+    /// Returns the visible frame of the screen currently hosting the status item,
+    /// falling back to NSScreen.main, then a safe default.
     private func liveVisibleFrame() -> CGRect {
         statusItem?.button?.window?.screen?.visibleFrame
             ?? NSScreen.main?.visibleFrame
             ?? CGRect(x: 0, y: 0, width: 1440, height: 900)
     }
 
+    /// Returns the maximum content height the panel may occupy on the current screen.
     func liveMaxContentHeight() -> CGFloat {
         let visible = liveVisibleFrame()
         let topY = readAnchor()?.topY ?? visible.maxY
@@ -94,6 +104,7 @@ extension MBKPanelController {
         )
     }
 
+    /// Returns the maximum content width the panel may occupy on the current screen.
     func liveMaxContentWidth() -> CGFloat {
         MBKPanelGeometry.maxContentWidth(visibleFrame: liveVisibleFrame(), metrics: metrics)
     }
@@ -116,7 +127,8 @@ extension MBKPanelController {
             mbkLog("PanelController", "SKIP -- degenerate preferredContentSize (\(measured.width),\(measured.height))")
             return
         }
-        mbkLog("PanelController", "applyMeasuredSize -- measured=(\(measured.width),\(measured.height)) isShown=\(isShown) lastContentSize=\(lastContentSize.map { "(\($0.width),\($0.height))" } ?? "nil")")
+        let lastStr = lastContentSize.map { "(\($0.width),\($0.height))" } ?? "nil"
+        mbkLog("PanelController", "applyMeasuredSize -- measured=(\(measured.width),\(measured.height)) isShown=\(isShown) lastContentSize=\(lastStr)")
 
         let anchor = readAnchor()
         let visibleFrame = anchor?.visibleFrame ?? liveVisibleFrame()
@@ -138,7 +150,7 @@ extension MBKPanelController {
             "applyMeasuredSize CLAMPED -- content=(\(content.width),\(content.height)) cap=\(cap)"
         )
 
-        mbkLog("PanelController", "applyMeasuredSize DEDUP -- last=\(lastContentSize.map { "(\($0.width),\($0.height))" } ?? "nil") new=(\(content.width),\(content.height))")
+        mbkLog("PanelController", "applyMeasuredSize DEDUP -- last=\(lastStr) new=(\(content.width),\(content.height))")
         if let last = lastContentSize,
            abs(last.width - content.width) < 1, abs(last.height - content.height) < 1 {
             mbkLog("PanelController", "SKIP -- content unchanged (\(content.width),\(content.height)) lastContentSize=\(lastContentSize.map { "(\($0.width),\($0.height))" } ?? "nil") SUPPRESSED")
@@ -150,6 +162,8 @@ extension MBKPanelController {
 
     // MARK: - Apply
 
+    /// Writes the panel frame derived from `content` and the live anchor.
+    /// This is the **only** permitted call site for `panel.setFrame`.
     func applyFrame(content: CGSize, anchor: MBKAnchorReading? = nil, reason: String) {
         mbkLog("PanelController", "applyFrame ENTER -- content=(\(content.width),\(content.height)) reason=\(reason)")
         guard let panel, let limits, hasOpenedOnce else { return }
@@ -185,6 +199,8 @@ extension MBKPanelController {
         )
     }
 
+    /// Called by the screen observer when display parameters change.
+    /// Recomputes the height cap and reapplies the current content size if shown.
     func refreshForScreenChange() {
         guard let limits else { return }
         let cap = liveMaxContentHeight()
