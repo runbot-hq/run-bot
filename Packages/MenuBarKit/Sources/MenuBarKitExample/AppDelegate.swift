@@ -12,12 +12,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panelController = MBKPanelController(
             // Width is the adopter's business — MBKPanelController has no width
             // parameter, so the range lives on the root view here.
-            rootView: AnyView(
-                RootView()
-                    .frame(minWidth: 200, maxWidth: 480)
-                    .environment(appState)
-                    .environment(overlayGate)
-            ),
+            rootView: RootView()
+                .frame(minWidth: 200, maxWidth: 480)
+                .environment(appState)
+                .environment(overlayGate),
             overlayGate: overlayGate,
             symbolName: "flask.fill",
             maxHeightFraction: 0.8
@@ -55,6 +53,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private let appState = AppState()
     private let overlayGate = MBKOverlayGate()
-    private var panelController: MBKPanelController<AnyView>?
+    private var panelController: (any MBKPanelControllerProtocol)?
     private var lastSession: AppState.SessionSnapshot?
 }

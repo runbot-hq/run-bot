@@ -159,11 +159,11 @@ import AppKit
 /// These keys are undocumented and may change in a future OS update.
 enum GlassConfig {
     /// Locks the glass compositor to its own dark intrinsic tone (value `1`).
-    static var subduedState: Int { 1 }
+    static let subduedState: Int = 1
     /// Selects the dark-glass rendering variant of the compositor (value `1`).
-    static var variant: Int { 1 }
+    static let variant: Int = 1
     /// Enables the scrim layer that reinforces the dark tone (value `1`).
-    static var scrimState: Int { 1 }
+    static let scrimState: Int = 1
 }
 import SwiftUI
 
