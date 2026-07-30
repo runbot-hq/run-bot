@@ -145,8 +145,11 @@
 import AppKit
 /// Glass configuration constants used by MBKPanelController.
 enum GlassConfig {
+    /// Subdued state value for the glass effect.
     static var subduedState: Int { 1 }
+    /// Variant value for the glass effect.
     static var variant: Int { 1 }
+    /// Scrim state value for the glass effect.
     static var scrimState: Int { 1 }
 }
 import SwiftUI
@@ -157,19 +160,29 @@ public final class MBKPanelController<Content: View>: NSObject, MBKPanelControll
 
     // MARK: - Configuration
 
+    /// Overlay gate tracking sheet and file-picker state.
     let overlayGate: MBKOverlayGate
+    /// System symbol name for the status item button image.
     private let symbolName: String
+    /// Max fraction of the screen height the panel may occupy.
     let maxHeightFraction: CGFloat
+    /// Bubble metrics (arrow size, corner radius, etc.).
     let metrics: MBKPanelMetrics
+    /// The adopter's root SwiftUI view.
     var rootView: Content
 
+    /// Called immediately before the panel opens.
     public var onWillShow: (() -> Void)?
+    /// Called after the panel opens and an initial layout pass completes.
     public var onDidShow: (() -> Void)?
+    /// Called once per close, with a boolean indicating whether the close was forced.
     public var onWillClose: ((_ wasForced: Bool) -> Void)?
 
     // MARK: - Assigned in setup()
 
+    /// The NSStatusItem, created in setup().
     var statusItem: NSStatusItem!
+    /// The custom NSPanel, created in setup().
     var panel: MBKPanel!
     /// Hosts the root SwiftUI view.
     /// sizingOptions = .preferredContentSize — AppKit writes pcs after every layout pass.
@@ -182,15 +195,23 @@ public final class MBKPanelController<Content: View>: NSObject, MBKPanelControll
 
     // MARK: - Session state
 
+    /// Whether setup() has been called.
     private(set) var isSetUp = false
 
+    /// Global event monitor for mouse clicks outside the panel.
     nonisolated(unsafe) var eventMonitor: Any?
+    /// Workspace notification observer for screen and active-space changes.
     nonisolated(unsafe) var workspaceObserver: NSObjectProtocol?
+    /// Screen-parameter change observer.
     nonisolated(unsafe) var screenObserver: NSObjectProtocol?
 
+    /// Last known arrow-anchor X offset, used to detect frame shifts.
     var lastKnownAnchorX: CGFloat?
+    /// Cached content size, used to suppress duplicate KVO applications.
     var lastContentSize: CGSize?
+    /// Prevents double-firing of onWillClose within one open session.
     var onWillCloseFired = false
+    /// True once the panel has been opened at least once.
     var hasOpenedOnce = false
 
     // MARK: - Init
@@ -201,6 +222,7 @@ public final class MBKPanelController<Content: View>: NSObject, MBKPanelControll
         togglePanelInternal()
     }
 
+    /// Creates the controller with the adopter's root view, overlay gate, and appearance options.
     public init(
         rootView: Content,
         overlayGate: MBKOverlayGate,
@@ -217,6 +239,7 @@ public final class MBKPanelController<Content: View>: NSObject, MBKPanelControll
 
     // MARK: - Setup
 
+    /// Performs one-time setup: sets activation policy, status item, panel window, and observers.
     public func setup() {
         precondition(!isSetUp, "MBKPanelController.setup() called more than once.")
         NSApp.setActivationPolicy(.accessory)
@@ -228,6 +251,7 @@ public final class MBKPanelController<Content: View>: NSObject, MBKPanelControll
         mbkLog("PanelController", "setup complete")
     }
 
+    /// Creates the panel window, glass view, hosting controller, and KVO observation.
     private func setupPanelWindow() {
         limits = MBKPanelLimits(
             maxContentHeight: liveMaxContentHeight(),
@@ -306,6 +330,7 @@ public final class MBKPanelController<Content: View>: NSObject, MBKPanelControll
         clipWindowFrameBacking(window, cornerRadius: metrics.cornerRadius)
     }
 
+    /// Rounds the underlying NSThemeFrame corners to match the bubble shape.
     private func clipWindowFrameBacking(_ panel: MBKPanel, cornerRadius: CGFloat) {
         guard let frameView = panel.contentView?.superview else { return }
         #if DEBUG
@@ -321,11 +346,12 @@ public final class MBKPanelController<Content: View>: NSObject, MBKPanelControll
         frameView.layer?.cornerCurve = .continuous
     }
 
-
+    /// Invalidates the hosting controller's intrinsic content size, triggering re-layout.
     public func invalidateContentSize() {
         hostingController.view.invalidateIntrinsicContentSize()
     }
 
+    /// Replaces the status item image with the given image.
     public func setStatusItemImage(_ image: NSImage) {
         statusItem?.button?.image = image
     }
@@ -353,6 +379,7 @@ public final class MBKPanelController<Content: View>: NSObject, MBKPanelControll
         }
     }
 
+    /// Creates the NSStatusItem, configures its button image, and wires the toggle action.
     private func setupStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = statusItem.button {

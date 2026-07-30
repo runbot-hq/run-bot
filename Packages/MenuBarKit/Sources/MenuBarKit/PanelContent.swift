@@ -53,6 +53,7 @@ final class MBKPanelLimits {
     /// Arrow centre in window-local points, from the leading edge.
     var arrowCenterX: CGFloat
 
+    /// Creates limits with the given initial height and arrow centre.
     init(maxContentHeight: CGFloat, arrowCenterX: CGFloat) {
         self.maxContentHeight = maxContentHeight
         self.arrowCenterX = arrowCenterX
@@ -67,10 +68,14 @@ final class MBKPanelLimits {
 /// controller is the sole sizing signal.
 struct MBKPanelContentView<Content: View>: View {
 
+    /// Shared limits object, observable for live maxContentHeight changes.
     let limits: MBKPanelLimits
+    /// Metrics for the bubble shape (arrow size, corner radius).
     let metrics: MBKPanelMetrics
+    /// The adopter's SwiftUI content tree.
     let content: Content
 
+    /// Bubble shape computed from the current limits and metrics.
     private var bubble: MBKBubbleShape {
         MBKBubbleShape(
             arrowCenterX: limits.arrowCenterX,
@@ -80,6 +85,7 @@ struct MBKPanelContentView<Content: View>: View {
         )
     }
 
+    /// The panel's SwiftUI body: capped, padded, and clipped to the bubble shape.
     var body: some View {
         content
             .frame(maxHeight: limits.maxContentHeight, alignment: .top)
