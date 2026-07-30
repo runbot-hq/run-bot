@@ -155,14 +155,7 @@ import SwiftUI
 @MainActor
 public final class MBKPanelController<Content: View>: NSObject, MBKPanelControllerProtocol {
 
-    // MARK: - Constants
-
-/// Non-generic container for constants used by MBKPanelController.
-enum MBKPanelControllerConstants {
-    static var fallbackContentSize: CGSize { CGSize(width: 320, height: 240) }
-}
-
-// MARK: - Configuration
+    // MARK: - Configuration
 
     let overlayGate: MBKOverlayGate
     private let symbolName: String
@@ -197,7 +190,6 @@ enum MBKPanelControllerConstants {
 
     var lastKnownAnchorX: CGFloat?
     var lastContentSize: CGSize?
-    var isApplyingFrame = false
     var onWillCloseFired = false
     var hasOpenedOnce = false
 
@@ -295,7 +287,7 @@ enum MBKPanelControllerConstants {
                 guard let self else { return }
                 mbkLog(
                     "PanelController",
-                    "KVO preferredContentSize -- new=(\(newSize.width),\(newSize.height)) isShown=\(self.isShown) hasOpenedOnce=\(self.hasOpenedOnce) isApplyingFrame=\(self.isApplyingFrame)"
+                    "KVO preferredContentSize -- new=(\(newSize.width),\(newSize.height)) isShown=\(self.isShown) hasOpenedOnce=\(self.hasOpenedOnce)"
                 )
                 self.applyMeasuredSize(newSize)
             }

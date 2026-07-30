@@ -118,7 +118,15 @@ extension MBKPanelController {
         }
         mbkLog("PanelController", "applyMeasuredSize -- measured=(\(measured.width),\(measured.height)) isShown=\(isShown) lastContentSize=\(lastContentSize.map { "(\($0.width),\($0.height))" } ?? "nil")")
 
-        let cap = liveMaxContentHeight()
+        let anchor = readAnchor()
+        let visibleFrame = anchor?.visibleFrame ?? liveVisibleFrame()
+        let topY = anchor?.topY ?? visibleFrame.maxY
+        let cap = MBKPanelGeometry.maxContentHeight(
+            topY: topY,
+            visibleFrame: visibleFrame,
+            fraction: maxHeightFraction,
+            metrics: metrics
+        )
         let content = MBKPanelGeometry.clampContent(
             CGSize(width: measured.width, height: measured.height - metrics.arrowHeight),
             minWidth: 1,
@@ -130,22 +138,22 @@ extension MBKPanelController {
             "applyMeasuredSize CLAMPED -- content=(\(content.width),\(content.height)) cap=\(cap)"
         )
 
-        mbkLog("PanelController", "applyMeasuredSize DEDUP -- last=\(lastContentSize.map { "(\($0.width),\($0.height))" } ?? "nil") new=(\(content.width),\(content.height)) willSkip=\(abs((lastContentSize?.width ?? -999) - content.width) < 1 && abs((lastContentSize?.height ?? -999) - content.height) < 1)")
+        mbkLog("PanelController", "applyMeasuredSize DEDUP -- last=\(lastContentSize.map { "(\($0.width),\($0.height))" } ?? "nil") new=(\(content.width),\(content.height))")
         if let last = lastContentSize,
            abs(last.width - content.width) < 1, abs(last.height - content.height) < 1 {
             mbkLog("PanelController", "SKIP -- content unchanged (\(content.width),\(content.height)) lastContentSize=\(lastContentSize.map { "(\($0.width),\($0.height))" } ?? "nil") SUPPRESSED")
             return
         }
         lastContentSize = content
-        applyFrame(content: content, reason: "WRITE")
+        applyFrame(content: content, anchor: anchor, reason: "WRITE")
     }
 
     // MARK: - Apply
 
-    func applyFrame(content: CGSize, reason: String) {
+    func applyFrame(content: CGSize, anchor: MBKAnchorReading? = nil, reason: String) {
         mbkLog("PanelController", "applyFrame ENTER -- content=(\(content.width),\(content.height)) reason=\(reason)")
         guard let panel, let limits, hasOpenedOnce else { return }
-        guard let anchor = readAnchor() else {
+        guard let anchor = anchor ?? readAnchor() else {
             mbkLog("PanelController", "\(reason) -- no anchor available, skipping frame")
             return
         }
@@ -159,14 +167,12 @@ extension MBKPanelController {
         )
         mbkLog("PanelController", "applyFrame LAYOUT -- layout.frame=\(layout.frame) arrowX=\(layout.arrowCenterX) wasClamped=\(layout.wasClamped)")
 
-        isApplyingFrame = true
         mbkLog("PanelController", "applyFrame PRE-SET -- current panel.frame=\(panel.frame)")
         if abs(limits.arrowCenterX - layout.arrowCenterX) >= 0.5 {
             limits.arrowCenterX = layout.arrowCenterX
         }
         panel.setFrame(layout.frame, display: true)
         panel.invalidateShadow()
-        isApplyingFrame = false
         mbkLog("PanelController", "applyFrame POST-SET -- panel.frame=\(panel.frame)")
 
         mbkLog(
