@@ -197,11 +197,9 @@ enum MBKPanelControllerConstants {
 
     var lastKnownAnchorX: CGFloat?
     var lastContentSize: CGSize?
-    var lastMeasuredSize: CGSize?
     var isApplyingFrame = false
     var onWillCloseFired = false
     var hasOpenedOnce = false
-    var didLogPreOpenSkip = false
 
     // MARK: - Init
 
@@ -333,26 +331,19 @@ enum MBKPanelControllerConstants {
 
 
     public func invalidateContentSize() {
-        mbkLog("PanelController", "invalidateContentSize -- intrinsicContentSize=(\(hostingController.view.intrinsicContentSize.width),\(hostingController.view.intrinsicContentSize.height)) preferredContentSize=(\(hostingController.preferredContentSize.width),\(hostingController.preferredContentSize.height))")
-        let size = hostingController.preferredContentSize
-        guard size.width > 0, size.height > 0 else {
-            mbkLog("PanelController", "invalidateContentSize -- degenerate size, skipping")
-            return
-        }
-        applyMeasuredSize(size)
+        hostingController.view.invalidateIntrinsicContentSize()
     }
 
     public func setStatusItemImage(_ image: NSImage) {
         statusItem?.button?.image = image
     }
 
-    /// Clears the dedup caches (`lastContentSize`, `lastMeasuredSize`) so the next
+    /// Clears the dedup caches (`lastContentSize`) so the next
     /// KVO fire on `preferredContentSize` is not suppressed by the stale size.
     /// Call this from the host app **before** a route change (e.g. settings, back,
     /// step-log) so the panel resizes to the new route's content.
     public func routeDidChange() {
         lastContentSize = nil
-        lastMeasuredSize = nil
         mbkLog("PanelController", "routeDidChange -- cache cleared")
         guard isShown else { return }
         // Log anchor state before deferring — helps diagnose stale-buttonScreen regressions.
@@ -365,7 +356,7 @@ enum MBKPanelControllerConstants {
             guard let self, isShown else { return }
             let pcs = hostingController.preferredContentSize
             guard pcs.width > 0, pcs.height > 0 else { return }
-            mbkLog("PanelController", "routeDidChange deferred -- preferredContentSize=\(pcs) anchor=\(String(describing: readAnchor()))")
+            mbkLog("PanelController", "routeDidChange deferred -- preferredContentSize=\(pcs) buttonScreen=\(statusItem?.button?.window?.screen != nil)")
             applyMeasuredSize(pcs)
         }
     }

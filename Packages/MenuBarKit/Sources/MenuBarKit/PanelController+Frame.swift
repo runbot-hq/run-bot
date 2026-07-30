@@ -51,10 +51,13 @@ extension MBKPanelController {
         if let window = buttonWindow, window.frame.width > 0 {
             anchorX = window.frame.minX + button.frame.midX
             lastKnownAnchorX = anchorX
+            // Normal path — no log needed
         } else if let cached = lastKnownAnchorX {
             anchorX = cached
+            mbkLog("PanelController", "readAnchor -- CACHED fallback anchorX=\(anchorX)")
         } else {
             anchorX = visibleFrame.maxX - metrics.screenMargin
+            mbkLog("PanelController", "readAnchor -- FALLBACK no cache anchorX=\(anchorX)")
         }
 
         let topY: CGFloat
@@ -65,7 +68,7 @@ extension MBKPanelController {
         } else {
             topY = visibleFrame.maxY
         }
-        mbkLog("PanelController", "readAnchor -- anchorX=\(anchorX) topY=\(topY) hidden=\(hidden) buttonWindow=\(buttonWindow != nil) buttonScreen=\(buttonScreen != nil) cached=\(lastKnownAnchorX != nil)")
+        mbkLog("PanelController", "readAnchor -- anchorX=\(anchorX) topY=\(topY) hidden=\(hidden) buttonWindow=\(buttonWindow != nil) buttonScreen=\(buttonScreen != nil)")
         return MBKAnchorReading(
             anchorX: anchorX,
             topY: topY,
@@ -103,7 +106,6 @@ extension MBKPanelController {
     func applyMeasuredSize(_ measured: CGSize) {
         guard hasOpenedOnce else {
             mbkLog("PanelController", "SKIP -- not shown yet, storing for first open")
-            lastMeasuredSize = measured
             return
         }
         guard isShown else {
@@ -115,7 +117,6 @@ extension MBKPanelController {
             return
         }
         mbkLog("PanelController", "applyMeasuredSize -- measured=(\(measured.width),\(measured.height)) isShown=\(isShown) lastContentSize=\(lastContentSize.map { "(\($0.width),\($0.height))" } ?? "nil")")
-        lastMeasuredSize = measured
 
         let cap = liveMaxContentHeight()
         let content = MBKPanelGeometry.clampContent(
@@ -141,18 +142,9 @@ extension MBKPanelController {
 
     // MARK: - Apply
 
-    func frameWritesAllowed() -> Bool {
-        if hasOpenedOnce { return true }
-        if !didLogPreOpenSkip {
-            didLogPreOpenSkip = true
-            mbkLog("PanelController", "SKIP -- not opened yet")
-        }
-        return false
-    }
-
     func applyFrame(content: CGSize, reason: String) {
         mbkLog("PanelController", "applyFrame ENTER -- content=(\(content.width),\(content.height)) reason=\(reason)")
-        guard let panel, let limits, frameWritesAllowed() else { return }
+        guard let panel, let limits, hasOpenedOnce else { return }
         guard let anchor = readAnchor() else {
             mbkLog("PanelController", "\(reason) -- no anchor available, skipping frame")
             return
@@ -197,7 +189,6 @@ extension MBKPanelController {
         }
         guard isShown else { return }
         lastContentSize = nil
-        lastMeasuredSize = nil
         let size = hostingController.preferredContentSize
         if size.width > 0, size.height > 0 {
             mbkLog("PanelController", "refreshForScreenChange -- re-applying preferredContentSize=(\(size.width),\(size.height))")

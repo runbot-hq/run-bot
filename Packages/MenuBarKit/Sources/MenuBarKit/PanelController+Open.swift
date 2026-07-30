@@ -47,7 +47,6 @@ extension MBKPanelController {
         mbkLog("PanelController", "openPanel -- maxContentHeight=\(limits.maxContentHeight)")
 
         lastContentSize = nil
-        lastMeasuredSize = nil
         onWillCloseFired = false
         hasOpenedOnce = true
         mbkLog("PanelController", "openPanel -- intrinsicContentSize=(\(hostingController.view.intrinsicContentSize.width),\(hostingController.view.intrinsicContentSize.height)) preferredContentSize=(\(hostingController.preferredContentSize.width),\(hostingController.preferredContentSize.height))")
@@ -141,7 +140,6 @@ extension MBKPanelController {
         overlayGate.hasFilePickerOverlay = false
         onWillCloseFired = false
         lastContentSize = nil
-        lastMeasuredSize = nil
         mbkLog("PanelController", "panel closed wasForced=\(wasForced)")
     }
 
