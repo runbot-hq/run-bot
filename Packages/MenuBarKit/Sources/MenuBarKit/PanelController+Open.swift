@@ -55,17 +55,14 @@ extension MBKPanelController {
         onWillCloseFired = false
         hasOpenedOnce = true
         let ics = hostingController.view.intrinsicContentSize
-        let pcs2 = hostingController.preferredContentSize
-        mbkLog("PanelController", "openPanel -- intrinsicContentSize=(\(ics.width),\(ics.height)) preferredContentSize=(\(pcs2.width),\(pcs2.height))")
-
         // Use preferredContentSize if KVO already fired (e.g. pre-show layout pass).
         // Falls back to FALLBACK only if not yet populated — KVO will correct it
         // once the view lays out in the live window.
         let pcs = hostingController.preferredContentSize
-        mbkLog("PanelController", "openPanel PRE-SHOW -- preferredContentSize=\(pcs) intrinsicContentSize=\(hostingController.view.intrinsicContentSize)")
+        mbkLog("PanelController", "openPanel PRE-SHOW -- preferredContentSize=\(pcs) intrinsicContentSize=\(ics)")
         if pcs.width > 0, pcs.height > 0 {
             mbkLog("PanelController", "openPanel -- applying pre-show preferredContentSize")
-            let cap = liveMaxContentHeight()
+            let cap = limits.maxContentHeight // already set two lines above — avoid redundant screen lookup
             let content = MBKPanelGeometry.clampContent(
                 CGSize(width: pcs.width, height: pcs.height - metrics.arrowHeight),
                 minWidth: 1,
@@ -153,6 +150,16 @@ extension MBKPanelController {
         stopEventMonitor()
         setButtonHighlight(false)
         panel?.orderOut(nil)
+        // Deliberately reset both gate flags here even though they are nominally
+        // owned by MBKAnchoredSheet, mbkOpenFilePicker, and MBKAlertModifier.
+        // This is safe because every close path that reaches teardown has already
+        // closed all child windows (forceClose iterates panel.childWindows before
+        // calling teardown; performClose is gated on !overlayGate.hasActiveOverlay
+        // so it only runs when the gate is already clear). By the time teardown
+        // runs, no overlay is alive to race against this reset. The reset is a
+        // safety net for the edge case where a completion handler never fires
+        // (e.g. picker cancelled by the system), which would otherwise leave the
+        // gate permanently armed and block all future closes.
         overlayGate.hasActiveOverlay = false
         overlayGate.hasFilePickerOverlay = false
         onWillCloseFired = false

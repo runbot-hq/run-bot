@@ -268,6 +268,13 @@ public final class MBKPanelController<Content: View>: NSObject, MBKPanelControll
         let allKeysSupported = kvcKeys.allSatisfy {
             glassView.responds(to: NSSelectorFromString("set" + $0.prefix(1).uppercased() + $0.dropFirst() + ":"))
         }
+        // Values sourced from NSGlassEffectView.h (private SPI, macOS 26).
+        // _subduedState = 1 → subdued/inactive appearance (matches system panels)
+        // _variant      = 1 → default panel variant
+        // _scrimState   = 1 → scrim disabled
+        // responds(to:) above guards selector existence only — it cannot verify
+        // that enum ordinals are stable across OS versions. If glass looks wrong
+        // after an OS update, audit GlassConfig values against the updated header.
         if allKeysSupported {
             glassView.setValue(GlassConfig.subduedState, forKey: "_subduedState")
             glassView.setValue(GlassConfig.variant, forKey: "_variant")
@@ -304,9 +311,13 @@ public final class MBKPanelController<Content: View>: NSObject, MBKPanelControll
         preferredContentSizeObservation = hc.observe(
             \.preferredContentSize,
             options: [.new]
+        // KVO delivers on an unspecified AppKit thread. Only newSize (a value type
+        // captured from change.newValue) is read here — no @MainActor state is
+        // touched before the Task hop. self.isShown reads panel?.isVisible which is
+        // an AppKit main-thread property; reading it off-actor is a data race under
+        // Swift 6 strict concurrency. Both log lines are therefore inside the Task.
         ) { [weak self] _, change in
             guard let self, let newSize = change.newValue else { return }
-            mbkLog("PanelController", "KVO fired -- preferredContentSize=\(newSize) isShown=\(self.isShown)")
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 mbkLog(

@@ -116,7 +116,7 @@ extension MBKPanelController {
     /// It includes arrowHeight because MBKPanelContentView adds .padding(.top, arrowHeight).
     func applyMeasuredSize(_ measured: CGSize) {
         guard hasOpenedOnce else {
-            mbkLog("PanelController", "SKIP -- not shown yet, storing for first open")
+            mbkLog("PanelController", "SKIP -- not shown yet, discarding (KVO will re-fire after layoutSubtreeIfNeeded)")
             return
         }
         guard isShown else {
