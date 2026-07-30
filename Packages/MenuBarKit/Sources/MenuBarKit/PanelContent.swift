@@ -74,6 +74,10 @@ struct MBKPanelContentView<Content: View>: View {
     var body: some View {
         content
             .frame(maxHeight: limits.maxContentHeight, alignment: .top)
+            // Intentionally matches NSGlassEffectView.cornerRadius in setupPanelWindow(),
+            // which is also set to metrics.cornerRadius. The two must stay in sync —
+            // if one changes, change the other. Both derive from the same MBKPanelMetrics
+            // source of truth so they cannot silently diverge.
             .clipShape(RoundedRectangle(cornerRadius: metrics.cornerRadius, style: .continuous))
     }
 }

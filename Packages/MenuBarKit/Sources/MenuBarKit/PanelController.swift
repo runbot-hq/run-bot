@@ -301,6 +301,9 @@ public final class MBKPanelController<Content: View>: NSObject, MBKPanelControll
 
         let glassView = NSGlassEffectView(frame: .zero)
         glassView.style = .regular
+        // Intentionally matches the .clipShape(RoundedRectangle(cornerRadius: metrics.cornerRadius))
+        // in MBKPanelContentView.body. Both must use metrics.cornerRadius — if one changes,
+        // change the other. The SwiftUI clip and the glass layer are the same shape by design.
         glassView.cornerRadius = metrics.cornerRadius
         glassView.autoresizingMask = [.width, .height]
 
