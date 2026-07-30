@@ -351,13 +351,17 @@ enum MBKPanelControllerConstants {
     /// Call this from the host app **before** a route change (e.g. settings, back,
     /// step-log) so the panel resizes to the new route's content.
     public func routeDidChange() {
-        mbkLog("PanelController", "routeDidChange -- clearing cache")
         lastContentSize = nil
         lastMeasuredSize = nil
-        let pcs = hostingController.preferredContentSize
-        mbkLog("PanelController", "routeDidChange -- preferredContentSize=\(pcs)")
-        guard pcs.width > 0, pcs.height > 0 else { return }
-        applyMeasuredSize(pcs)
+        mbkLog("PanelController", "routeDidChange -- cache cleared")
+        guard isShown else { return }
+        Task { @MainActor [weak self] in
+            guard let self, isShown else { return }
+            let pcs = hostingController.preferredContentSize
+            guard pcs.width > 0, pcs.height > 0 else { return }
+            mbkLog("PanelController", "routeDidChange deferred -- preferredContentSize=\(pcs) anchor=\(String(describing: readAnchor()))")
+            applyMeasuredSize(pcs)
+        }
     }
 
     private func setupStatusItem() {
