@@ -151,6 +151,10 @@ extension MBKPanelController {
         )
 
         mbkLog("PanelController", "applyMeasuredSize DEDUP -- last=\(lastStr) new=(\(content.width),\(content.height))")
+        // Dedup: suppress frame writes for content changes < 1pt (KVO noise suppression).
+        // Distinct from the 0.5pt arrow threshold in applyFrame — that guards @Observable
+        // writes to limits.arrowCenterX. These operate in sequence: if this guard fires,
+        // applyFrame never runs and arrowCenterX is never touched. No desync path exists.
         if let last = lastContentSize,
            abs(last.width - content.width) < 1, abs(last.height - content.height) < 1 {
             mbkLog("PanelController", "SKIP -- content unchanged (\(content.width),\(content.height)) lastContentSize=\(lastContentSize.map { "(\($0.width),\($0.height))" } ?? "nil") SUPPRESSED")

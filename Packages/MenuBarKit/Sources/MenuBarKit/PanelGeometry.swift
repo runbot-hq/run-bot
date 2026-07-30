@@ -237,7 +237,7 @@ public enum MBKPanelGeometry {
         let rawOriginY = topY - size.height
         let clampedOriginY = max(rawOriginY, visibleFrame.minY)
         let actualHeight = topY - clampedOriginY
-        let wasClamped = abs(originX - unclampedX) > 0.5 || clampedOriginY != rawOriginY
+        let wasClamped = (maxX >= minX && abs(originX - unclampedX) > 0.5) || clampedOriginY != rawOriginY
 
         let arrowHalf = metrics.arrowWidth / 2
         let lowerBound = metrics.cornerRadius + arrowHalf

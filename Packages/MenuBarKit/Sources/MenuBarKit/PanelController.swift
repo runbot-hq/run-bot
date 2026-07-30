@@ -158,11 +158,12 @@ import AppKit
 /// context. Do NOT revert to `0` — empirically verified lighter on macOS 26.
 /// These keys are undocumented and may change in a future OS update.
 enum GlassConfig {
-    /// Locks the glass compositor to its own dark intrinsic tone (value `1`).
+    // Values observed to produce the correct Liquid Glass appearance on macOS 26.
+    // These are private SPI keys on NSGlassEffectView — exact semantics are unknown
+    // and may change in future OS releases. If the glass appearance regresses,
+    // check these values first.
     static let subduedState: Int = 1
-    /// Selects the dark-glass rendering variant of the compositor (value `1`).
     static let variant: Int = 1
-    /// Enables the scrim layer that reinforces the dark tone (value `1`).
     static let scrimState: Int = 1
 }
 import SwiftUI
@@ -257,6 +258,7 @@ public final class MBKPanelController<Content: View>: NSObject, MBKPanelControll
         precondition(!isSetUp, "MBKPanelController.setup() called more than once.")
         NSApp.setActivationPolicy(.accessory)
         setupStatusItem()
+        // statusItem must be assigned before setupPanelWindow() — readAnchor() reads statusItem?.button.
         setupPanelWindow()
         setupWorkspaceObserver()
         setupScreenObserver()

@@ -90,6 +90,13 @@ final class MBKSheetAnchorTask {
                         " inSheets=\(pw.sheets.contains(w)) title=\(title)"
                     )
                 }
+                // ⚠️ KNOWN LIMITATION: `isKeyWindow` is not guaranteed to be true yet at this
+                // point — AppKit's key-window assignment is not synchronous on all paths. If the
+                // sheet window has not yet become key when this hop fires, the predicate returns
+                // nil, the sheet is presented but never anchored to the panel, and the panel
+                // remains closable while the sheet is visible. The TOCTOU cancellation race above
+                // is separate from this timing issue. See #21 for a proper fix (track the sheet
+                // NSWindow reference directly in MBKSheetAnchorTask instead of searching by predicate).
                 guard let sheetWindow = allWindows.first(where: {
                     $0 !== pw &&
                     $0.styleMask.contains(.borderless) &&

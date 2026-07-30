@@ -71,25 +71,18 @@ extension MBKPanelController {
             )
             applyFrame(content: content, reason: "PRE-SHOW")
         } else {
-            mbkLog("PanelController", "openPanel -- FALLBACK (320.0,240.0)")
             let fallback = MBKPanelGeometry.clampContent(
                 CGSize(width: 320, height: 240),
                 minWidth: 1,
                 maxWidth: liveMaxContentWidth(),
                 maxHeight: limits.maxContentHeight  // already set at top of openPanel()
             )
+            mbkLog("PanelController", "openPanel -- FALLBACK clamped=(\(fallback.width),\(fallback.height))")
             applyFrame(content: fallback, reason: "FALLBACK")
         }
 
         setButtonHighlight(true)
         panel.orderFrontRegardless()
-        // NSApp.activate() carried over from the NSPopover era where it was required
-        // for text-field focus. On the owned MBKPanel, makeKey() below is sufficient —
-        // the panel is .nonactivatingPanel and becomesKeyOnlyIfNeeded = false, so
-        // activate() here just steals focus from the user's active app for no benefit.
-        // Commented out — remove after confirming no regression (text fields, chrome).
-        // TODO: remove NSApp.activate() if no regression after a release cycle.
-        // NSApp.activate()
         panel.makeKey()
         mbkLog("PanelController", "openPanel -- panel shown frame=\(panel!.frame)")
 
@@ -166,6 +159,10 @@ extension MBKPanelController {
         // safety net for the edge case where a completion handler never fires
         // (e.g. picker cancelled by the system), which would otherwise leave the
         // gate permanently armed and block all future closes.
+        // Note: on the performClose path this reset is always a no-op —
+        // performClose is gated on !overlayGate.hasActiveOverlay so the gate
+        // is already false before teardown runs. The safety-net purpose only
+        // applies on the forceClose path (child windows already closed above).
         overlayGate.hasActiveOverlay = false
         overlayGate.hasFilePickerOverlay = false
         onWillCloseFired = false
