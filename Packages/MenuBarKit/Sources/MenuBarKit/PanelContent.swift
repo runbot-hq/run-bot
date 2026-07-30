@@ -1,32 +1,20 @@
 // PanelContent.swift
 // MenuBarKit
 //
-// The SwiftUI side of the panel. Measurement happens via preferredContentSize
-// KVO on the NSHostingController — not here. This file only defines the view
-// hierarchy and the live chrome state.
+// The SwiftUI side of the panel. Measurement happens via onGeometryChange
+// on the content view — not via preferredContentSize KVO.
 //
-// WHY NOT onGeometryChange:
-//   rootView is stored as AnyView. SwiftUI cannot compute ideal height through
-//   AnyView — it erases the concrete type. .fixedSize on an AnyView child
-//   always resolves to 0. onGeometryChange therefore always reports only the
-//   arrow placeholder height (metrics.arrowHeight), never the content height.
-//   Making MBKPanelContentView generic does not fix this: Content resolves to
-//   AnyView at the call site (NSHostingController<MBKPanelContentView<AnyView>>)
-//   and SwiftUI still sees AnyView at layout time.
-//
-// WHY preferredContentSize KVO WORKS:
-//   NSHostingController populates preferredContentSize at the AppKit/SwiftUI
-//   bridge level under an unspecified height proposal. AnyView is not in that
-//   call path. AppKit asks SwiftUI for the ideal size directly through the
-//   renderer; the concrete list type is visible at that level.
+// WHY onGeometryChange (not preferredContentSize KVO):
+//   RootEnvView is a concrete type. SwiftUI computes ideal height correctly
+//   through a concrete type. onGeometryChange reports the actual rendered size
+//   of the content after layout, which is the true measurement signal.
 //
 // SIZING CONTRACT (see SIZING PIPELINE in PanelController.swift for full detail):
-//   sizingOptions = []          — pcs is pure output, no feedback loop
-//   four-edge AL pins           — bottom pin re-proposes after window resize
-//   KVO on preferredContentSize — sole measurement signal
+//   sizingOptions = []          — pcs is unused, no feedback loop
+//   three-edge AL pins          — no bottom pin, height is free
+//   onGeometryChange            — sole measurement signal
 //   limits.maxContentHeight     — @Observable, updated on open + screen change
 //
-// ❌ NEVER add onGeometryChange here — AnyView erases ideal size.
 // ❌ NEVER add .fixedSize() — not needed and breaks the capped scroll path.
 // ❌ NEVER add a maxContentHeight stored property here — use limits.maxContentHeight.
 // ❌ NEVER measure with GeometryReader — it sees window size, not content size.
@@ -70,6 +58,8 @@ struct MBKPanelContentView<Content: View>: View {
     let limits: MBKPanelLimits
     let metrics: MBKPanelMetrics
     let content: Content
+    /// Called when the content view's geometry changes (e.g. list grows/shrinks).
+    let onSizeChange: (CGSize) -> Void
 
     private var bubble: MBKBubbleShape {
         MBKBubbleShape(
@@ -82,8 +72,8 @@ struct MBKPanelContentView<Content: View>: View {
 
     var body: some View {
         content
-            .frame(maxHeight: limits.maxContentHeight, alignment: .top)
             .padding(.top, metrics.arrowHeight)
+            .onGeometryChange(for: CGSize.self) { $0.size } action: { onSizeChange($0) }
             .clipShape(bubble)
     }
 }
