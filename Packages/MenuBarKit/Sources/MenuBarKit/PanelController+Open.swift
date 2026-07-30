@@ -77,6 +77,10 @@ extension MBKPanelController {
         panel.makeKey()
         mbkLog("PanelController", "openPanel -- panel shown frame=\(panel!.frame)")
 
+        // Trigger first layout pass so preferredContentSize populates and KVO fires.
+        hostingController.view.layoutSubtreeIfNeeded()
+        mbkLog("PanelController", "openPanel -- layoutSubtreeIfNeeded done")
+
         startEventMonitor()
 
         Task { @MainActor [weak self] in
