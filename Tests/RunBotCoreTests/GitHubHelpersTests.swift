@@ -28,8 +28,12 @@ final class GitHubHelpersTests: XCTestCase {
     // MARK: - Helpers
 
     /// Builds a minimal raw log string with the given named sections and optional
-    /// preamble / epilogue lines. Timestamps are omitted — tests that need them
-    /// inject their own raw strings.
+    /// preamble / epilogue lines.
+    ///
+    /// Timestamps are intentionally omitted: the helper targets parser structure tests.
+    /// Tests that exercise the timestamp-stripping pipeline construct their own raw
+    /// strings with inline timestamp prefixes (see test_timestampStripping,
+    /// test_ansiAndTimestampCompose).
     private func makeLog(
         preamble: [String] = [],
         sections: [(name: String, body: [String])] = [],
@@ -153,6 +157,7 @@ final class GitHubHelpersTests: XCTestCase {
     func test_interGroupLines_notDropped() {
         // Lines between ##[endgroup] and the next ##[group] must not be silently discarded.
         // They should appear in the epilogue and therefore be visible when "Complete job" is tapped.
+        // The absent-content assertions below ensure a full-log fallback cannot silently pass.
         let raw = [
             "##[group]Run step-one",
             "step one output",
@@ -168,6 +173,10 @@ final class GitHubHelpersTests: XCTestCase {
         XCTAssert(result!.contains("runner annotation between groups"),
                   "Inter-group lines must not be dropped")
         XCTAssert(result!.contains("final cleanup line"))
+        XCTAssertFalse(result!.contains("step one output"),
+                       "Epilogue must not contain section body content")
+        XCTAssertFalse(result!.contains("step two output"),
+                       "Epilogue must not contain section body content")
     }
 
     func test_interGroupLines_noDuplication() {

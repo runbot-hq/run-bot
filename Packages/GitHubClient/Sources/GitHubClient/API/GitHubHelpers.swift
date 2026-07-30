@@ -188,6 +188,9 @@ private func fetchAndDecodeStepLog(
 
 /// Extracts the log section for `stepName` from a raw multi-group log string.
 ///
+/// **Visibility**: internal (no explicit modifier) so the test target can call it directly
+/// via `@testable import GitHubClient`. It is not part of the public API.
+///
 /// Matching strategy (in order):
 ///   1. Exact match on `step.name` against `##[group]<name>`.
 ///   2. "Run "-prefix normalisation — GitHub prepends `"Run "` to `run:` step names in the
@@ -196,12 +199,19 @@ private func fetchAndDecodeStepLog(
 ///      case-insensitive and checks only the exact two forms (with and without `"Run "`)
 ///      to avoid general prefix over-matching (e.g. "Build" must not match
 ///      "Build documentation").
-///   3. Synthetic step heuristics:
+///      **Ordering guarantee**: steps 1–2 match against *section names* and run before
+///      step 3, which matches against the *step name*. A user step named "Post deploy"
+///      whose log emits `##[group]Run Post deploy` is therefore caught by step 2
+///      (lowerSection == "run post deploy" == "run " + lowerStep) and never reaches the
+///      synthetic heuristic in step 3.
+///   3. Synthetic step heuristics (applied to `stepName`, not section names):
 ///      - "Set up job" / "Initialize containers" → preamble (lines before first group)
 ///      - Names starting with "Post " / "Complete job" / "Stop containers" → epilogue
 ///        Returning nil (not the full-log fallback) when preamble/epilogue is empty is
 ///        deliberate: it shows "Log not available" rather than dumping thousands of
 ///        unrelated lines when the synthetic step produced no output of its own.
+///        These prefixes and names match only GitHub's own synthetic steps; any real step
+///        with a matching name would have been caught by steps 1–2 first.
 ///   4. Fallback: return the full cleaned log.
 ///
 /// This replaces the old integer-index approach. `step.number` from the GitHub API counts
@@ -272,6 +282,9 @@ func parseStepLog(
 }
 
 /// Splits a cleaned log into a `ParsedLog` with named sections, a preamble, and an epilogue.
+///
+/// **Visibility**: internal (no explicit modifier) so the test target can call it directly
+/// via `@testable import GitHubClient`. It is not part of the public API.
 ///
 /// - Preamble: all lines before the first `##[group]` marker.
 /// - Sections: lines between a `##[group]<name>` and `##[endgroup]` (both markers included
