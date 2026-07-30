@@ -122,7 +122,7 @@ public struct LogSection {
 /// - `preamble`: Lines before the first `##[group]` marker (e.g. "Set up job" runner output).
 /// - `epilogue`: Lines after the last `##[endgroup]` marker, including any inter-group lines
 ///   that appeared between consecutive `##[endgroup]`/`##[group]` pairs during the run.
-private struct ParsedLog {
+struct ParsedLog {
     let sections: [LogSection]
     let preamble: String
     let epilogue: String
@@ -213,7 +213,7 @@ private func fetchAndDecodeStepLog(
 ///   2. stripAnsi  — character-based; safe on LF-only input.
 ///   3. stripTimestamps — uses .anchorsMatchLines; requires LF-only input.
 ///   4. buildParsedLog — splits on \n; requires LF-only input.
-private func parseStepLog(
+func parseStepLog(
     _ raw: String,
     stepName: String,
     stepNumber: Int,
@@ -287,7 +287,7 @@ private func parseStepLog(
 /// `hasPrefix("##[group]")` is used (not `contains`) to avoid false splits on user-emitted
 /// `echo "##[group]something"` lines — the upstream pipeline has already stripped the
 /// timestamp prefix so genuine markers are always at column 0.
-private func buildParsedLog(from cleaned: String) -> ParsedLog {
+func buildParsedLog(from cleaned: String) -> ParsedLog {
     let lines = cleaned.components(separatedBy: "\n")
     var sections: [LogSection] = []
     var preambleLines: [String] = []
