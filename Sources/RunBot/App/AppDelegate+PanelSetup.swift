@@ -78,9 +78,20 @@ extension AppDelegate {
     func setupPanel() {
         log("AppDelegate › setupPanel — begin")
 
+        // Use a temporary handle during construction — the real handle is created
+        // after panelController is assigned (see below). The temporary handle's
+        // remeasure closure is a no-op until the real handle replaces it.
+        let tempHandle = PanelControllerHandle(
+            remeasure: { /* no-op until panelController is assigned */ }
+        )
+
         let ctrl = MBKPanelController(
-            rootView: wrapEnv(
-                RootPanelView(
+            rootView: RootEnvView(
+                panelVisibilityState: panelVisibilityState,
+                appState: appState,
+                overlayGate: overlayGate,
+                panelControllerHandle: tempHandle,
+                inner: RootPanelView(
                     onSelectSettings: { [weak self] in self?.navigateToSettings() },
                     onBack: { [weak self] in self?.navigateBack() },
                     onStepBack: { [weak self] in self?.navigateBack() }
@@ -116,7 +127,7 @@ extension AppDelegate {
             panelVisibilityState.isTransientHide = false
         }
 
-        ctrl.onWillClose = { [weak self] wasForced in
+        ctrl.onWillClose = { [weak self] (wasForced: Bool) in
             guard let self else { return }
             log("AppDelegate › onWillClose wasForced=\(wasForced)")
             if wasForced {

@@ -91,7 +91,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Owns the panel lifecycle: status item, anchored NSPanel, arrow placement,
     /// size tracking, outside-click monitor, workspace observer.
     /// Replaced NSPopover + KVO as of #2262.
-    var panelController: MBKPanelController<AnyView>!
+    var panelController: MBKPanelController<RootEnvView>!
 
     /// Sheet state that must survive transient panel hides.
     /// Stays on AppDelegate (wiring concern — not domain state). See issue #2040.
@@ -102,29 +102,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// ❌ NEVER remove. ❌ NEVER remove from wrapEnv().
     let panelVisibilityState = PanelVisibilityState()
 
-    // MARK: - Environment injection
-
-    /// Wraps a SwiftUI view in the shared environment objects required by the panel.
-    /// Every view produced by a view-factory in AppDelegate+Navigation.swift must
-    /// pass through this helper.
-    /// ❌ NEVER remove `panelVisibilityState` from the environment injection here.
-    /// `PanelContainerView` and its dim overlay observe this object;
-    /// removing it causes a runtime crash on sheet dismissal.
-    func wrapEnv<V: View>(_ view: V) -> AnyView {
-        // Use the stored handle if available, otherwise create a temporary one.
-        // The temporary handle is created during initial setupPanel() before
-        // panelController is assigned — its remeasure closure is a no-op until
-        // the handle is replaced with the real one below.
-        let handle = panelControllerHandle ?? PanelControllerHandle(
-            remeasure: { /* no-op until panelController is assigned */ }
-        )
-        return AnyView(view
-            .environment(panelVisibilityState)
-            .environment(appState)
-            .environment(overlayGate)
-            .environment(handle)
-        )
-    }
+    // MARK: - Environment injection (removed)
+    //
+    // wrapEnv() was removed when the panel switched to RootEnvView — a named
+    // wrapper that passes environment objects to RootPanelView without AnyView
+    // erasure. See RootEnvView.swift.
 
     // MARK: - Close
 
