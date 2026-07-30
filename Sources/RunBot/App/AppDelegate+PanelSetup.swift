@@ -82,7 +82,9 @@ extension AppDelegate {
         // after panelController is assigned (see below). The temporary handle's
         // remeasure closure is a no-op until the real handle replaces it.
         let tempHandle = PanelControllerHandle(
-            remeasure: { /* no-op until panelController is assigned */ }
+            remeasure: { [weak self] in
+                self?.panelController?.invalidateContentSize()
+            }
         )
 
         let ctrl = MBKPanelController(
@@ -141,15 +143,7 @@ extension AppDelegate {
 
         ctrl.setup()
         panelController = ctrl
-
-        // Create the PanelControllerHandle AFTER panelController is assigned,
-        // so the remeasure closure captures a non-nil reference.
-        let handle = PanelControllerHandle(
-            remeasure: { [weak self] in
-                self?.panelController?.invalidateContentSize()
-            }
-        )
-        panelControllerHandle = handle
+        panelControllerHandle = tempHandle
 
         log("AppDelegate › setupPanel — MBKPanelController setup complete")
     }

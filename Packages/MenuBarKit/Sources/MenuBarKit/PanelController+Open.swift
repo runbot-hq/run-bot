@@ -72,7 +72,13 @@ extension MBKPanelController {
             applyFrame(content: content, reason: "PRE-SHOW")
         } else {
             mbkLog("PanelController", "openPanel -- FALLBACK (320.0,240.0)")
-            applyFrame(content: CGSize(width: 320, height: 240), reason: "FALLBACK")
+            let fallback = MBKPanelGeometry.clampContent(
+                CGSize(width: 320, height: 240),
+                minWidth: 1,
+                maxWidth: liveMaxContentWidth(),
+                maxHeight: limits.maxContentHeight  // already set at top of openPanel()
+            )
+            applyFrame(content: fallback, reason: "FALLBACK")
         }
 
         setButtonHighlight(true)
