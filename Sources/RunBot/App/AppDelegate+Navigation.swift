@@ -11,8 +11,8 @@ import SwiftUI
 // factory methods, no validatedView(for:).
 //
 // This file retains only the AppKit-wiring callbacks that RootPanelView cannot
-// call directly (makeKeyForTextInput requires NSApp.activate):
-//   • navigateToSettings() — mutates savedNavState + promotes to key
+// call directly:
+//   • navigateToSettings() — mutates savedNavState + promotes app to key
 //   • navigateBack()       — clears savedNavState + clears runner sheet
 //
 // ARCHITECTURE RULES:
@@ -32,15 +32,21 @@ extension AppDelegate {
     /// Mutates savedNavState — RootPanelView reacts and switches to the settings branch.
     /// Also promotes the app to key so TextFields in Settings receive input.
     func navigateToSettings() {
+        log("routeToggle -- BEFORE route=\(String(describing: appState.savedNavState))")
+        panelController?.routeDidChange()
         appState.savedNavState = .settings
-        makeKeyForTextInput()
+        log("routeToggle -- AFTER route=\(String(describing: appState.savedNavState))")
+        NSApp.activate()
     }
 
     /// Navigates back to main.
     /// Clears savedNavState — RootPanelView routes to the .main branch.
     /// Also clears any active runner sheet so it does not ghost on re-open.
     func navigateBack() {
+        log("routeToggle -- BEFORE route=\(String(describing: appState.savedNavState))")
+        panelController?.routeDidChange()
         appState.savedNavState = nil
+        log("routeToggle -- AFTER route=\(String(describing: appState.savedNavState))")
         panelSheetState.clearRunnerSheet()
     }
 }

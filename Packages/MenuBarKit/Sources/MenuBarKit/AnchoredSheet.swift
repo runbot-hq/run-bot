@@ -7,18 +7,18 @@ import SwiftUI
 // MARK: - Anchor task
 
 /// Spawns a two-hop async task that waits for the sheet's `NSWindow` to appear
-/// in `NSApp.windows`, then attaches it as a child of the popover window so
+/// in `NSApp.windows`, then attaches it as a child of the panel window so
 /// outside-click detection works correctly.
 ///
 /// Returns the running `MBKSheetAnchorTask` so the caller can cancel it if the
 /// sheet is dismissed before the window is found.
 @MainActor
 func mbkWaitAndAnchorSheetWindow(
-    popoverWindow: NSWindow,
+    panelWindow: NSWindow,
     label: String
 ) -> MBKSheetAnchorTask {
-    mbkLog("AnchoredSheet[\(label)]", "mbkWaitAndAnchorSheetWindow called — pw=#\(popoverWindow.windowNumber)")
-    let task = MBKSheetAnchorTask(popoverWindow: popoverWindow, label: label)
+    mbkLog("AnchoredSheet[\(label)]", "mbkWaitAndAnchorSheetWindow called — panelWindow=#\(panelWindow.windowNumber)")
+    let task = MBKSheetAnchorTask(panelWindow: panelWindow, label: label)
     task.start()
     return task
 }
@@ -31,17 +31,17 @@ func mbkWaitAndAnchorSheetWindow(
 /// Call `cancel()` if the sheet is dismissed before the anchor completes.
 @MainActor
 final class MBKSheetAnchorTask {
-    /// The popover's backing window; the sheet window will be added as its child.
-    private let popoverWindow: NSWindow
+    /// The panel's backing window; the sheet window will be added as its child.
+    private let panelWindow: NSWindow
     /// Debug label used in log output to identify which sheet this task belongs to.
     private let label: String
     /// Set to `true` by `cancel()`. Checked at the start of each hop.
     private var cancelled = false
 
     /// Creates the task. Does not start the async work — call `start()` explicitly.
-    init(popoverWindow: NSWindow, label: String) {
-        mbkLog("AnchoredSheet[\(label)]", "MBKSheetAnchorTask.init pw=#\(popoverWindow.windowNumber)")
-        self.popoverWindow = popoverWindow
+    init(panelWindow: NSWindow, label: String) {
+        mbkLog("AnchoredSheet[\(label)]", "MBKSheetAnchorTask.init panelWindow=#\(panelWindow.windowNumber)")
+        self.panelWindow = panelWindow
         self.label = label
     }
 
@@ -56,17 +56,13 @@ final class MBKSheetAnchorTask {
             }
             mbkLog("AnchoredSheet[\(self.label)]", "hop1 complete — queuing hop2")
             // TODO: GCD hop in MBKSheetAnchorTask.start() — see issue #21 for Swift 6 migration path
-            DispatchQueue.main.async { [weak self] in
+            Task { @MainActor [weak self] in
                 guard let self, !self.cancelled else {
                     mbkLog("AnchoredSheet[\(capturedLabel)]", "hop2 — cancelled/deallocated")
                     return
                 }
-                // NOTE: `cancelled` is an @MainActor-isolated property read here
-                // inside a DispatchQueue.main.async closure. This is safe at runtime
-                // because GCD main queue == main thread == MainActor executor, but the
-                // Swift type system does not verify this statically. Under Swift 6
-                // strict concurrency this pattern may require `@MainActor` annotation
-                // on the closure. The TOCTOU window between the guard check and
+                // @MainActor isolation is statically verified.
+                // The TOCTOU window between the guard check and
                 // addChildWindow is acknowledged — cancellation is best-effort once
                 // this hop is already executing.
                 //
@@ -76,34 +72,60 @@ final class MBKSheetAnchorTask {
                 //   addChildWindow(_:ordered:) on an already-closing or already-parented
                 //   window is documented as a no-op on macOS — it does not crash and
                 //   does not double-add the window.
-                //   HOWEVER: the window may remain in pw.childWindows momentarily,
+                //   HOWEVER: the window may remain in panelWindow.childWindows momentarily,
                 //   causing hasSheetChildWindow = true on the very next outside-click
                 //   event. That routes the event monitor to forceClose() instead of
                 //   performClose(), so onWillClose fires with wasForced: true on a
                 //   session that was actually a normal close. Host code that branches
                 //   on wasForced must treat it as advisory rather than authoritative.
-                let pw = self.popoverWindow
+                let panelWindow = self.panelWindow
                 let allWindows = NSApp.windows
                 mbkLog("AnchoredSheet[\(self.label)]", "hop2 — polling \(allWindows.count) windows")
-                for w in allWindows where w !== pw {
+                for w in allWindows where w !== panelWindow {
                     let title = w.title.isEmpty ? "<empty>" : w.title
                     mbkLog(
                         "AnchoredSheet[\(self.label)]",
                         "  candidate #\(w.windowNumber) styleMask=\(w.styleMask.rawValue)" +
                         " isKey=\(w.isKeyWindow) borderless=\(w.styleMask == .borderless)" +
-                        " inSheets=\(pw.sheets.contains(w)) title=\(title)"
+                        " inSheets=\(panelWindow.sheets.contains(w)) title=\(title)"
                     )
                 }
+                // ⚠️ KNOWN LIMITATION: `isKeyWindow` is not guaranteed to be true yet at this
+                // point — AppKit's key-window assignment is not synchronous on all paths. If the
+                // sheet window has not yet become key when this hop fires, the predicate returns
+                // nil, the sheet is presented but never anchored to the panel, and the panel
+                // remains closable while the sheet is visible. The TOCTOU cancellation race above
+                // is separate from this timing issue. See #21 for a proper fix (track the sheet
+                // NSWindow reference directly in MBKSheetAnchorTask instead of searching by predicate).
                 guard let sheetWindow = allWindows.first(where: {
-                    $0 !== pw &&
+                    $0 !== panelWindow &&
                     $0.styleMask.contains(.borderless) &&
                     $0.isKeyWindow
                 }) else {
                     mbkLog("AnchoredSheet[\(self.label)]", "hop2 — no matching window found (borderless+isKey)")
+                    mbkLog("AnchoredSheet[\(self.label)]", "⚠️ sheet is unanchored — panel will be closable while sheet is visible; see issue #21")
+                    #if DEBUG
+                    assertionFailure(
+                        "AnchoredSheet[\(self.label)]: hop2 found no borderless+isKey window. "
+                        + "The sheet is unanchored — the panel will be closable while the sheet is visible. "
+                        + "See issue #21 for the proper fix (track NSWindow reference directly)."
+                    )
+                    #endif
                     return
                 }
                 mbkLog("AnchoredSheet[\(self.label)]", "addChildWindow — #\(sheetWindow.windowNumber)")
-                pw.addChildWindow(sheetWindow, ordered: .above)
+                // layoutSubtreeIfNeeded() before addChildWindow() is load-bearing.
+                // addChildWindow() triggers AppKit's compositing-pass reset on any
+                // layer-backed ancestor of NSGlassEffectView — without a committed
+                // layout, the glass view's corner radius reverts to rect for the
+                // lifetime of the sheet. Forcing layout here ensures AppKit sees a
+                // fully-laid-out contentView tree before the compositing pass resets,
+                // which preserves the rounded corners on sheet open.
+                panelWindow.contentView?.layoutSubtreeIfNeeded()
+                panelWindow.addChildWindow(sheetWindow, ordered: .above)
+                // NSGlassEffectView is the direct panel.contentView — no chrome wrapper.
+                // Direct contentView survives addChildWindow() without corner regression.
+                panelWindow.invalidateShadow()
                 mbkLog("AnchoredSheet[\(self.label)]", "addChildWindow done")
             }
         }
@@ -172,7 +194,7 @@ struct MBKAnchoredSheetModifier<SheetContent: View>: ViewModifier {
     @Binding var isPresented: Bool
     /// The sheet content factory.
     let sheetContent: () -> SheetContent
-    /// The gate that blocks popover dismiss while the sheet is live.
+    /// The gate that blocks panel dismiss while the sheet is live.
     @Environment(MBKOverlayGate.self) private var overlayGate
     /// The running anchor task, held so it can be cancelled on dismiss.
     @State private var anchorTask: MBKSheetAnchorTask?
@@ -201,15 +223,21 @@ struct MBKAnchoredSheetModifier<SheetContent: View>: ViewModifier {
                 mbkLog("AnchoredSheet[isPresented]", "onChange \(oldValue)→\(newValue) windows=\(NSApp.windows.count) currentGate=\(overlayGate.hasActiveOverlay)")
                 overlayGate.hasActiveOverlay = newValue
                 if newValue {
-                    guard let popoverWindow = NSApp.windows.first(where: {
+                    // Finds the panel by .nonactivatingPanel styleMask — RunBot has exactly one
+                    // such window and MBKPanelController never creates a second. Passing the
+                    // panel reference through the SwiftUI environment would couple the view layer
+                    // to the controller internals and is not worth the added complexity for a
+                    // single-panel library. If a second .nonactivatingPanel is ever added, this
+                    // lookup must be made more specific.
+                    guard let panelWindow = NSApp.windows.first(where: {
                         $0.styleMask.contains(.nonactivatingPanel)
                     }) else {
                         mbkLog("AnchoredSheet[isPresented]", "onChange — no nonactivatingPanel, aborting")
                         return
                     }
-                    mbkLog("AnchoredSheet[isPresented]", "onChange — popoverWindow #\(popoverWindow.windowNumber), gate=true, starting task")
+                    mbkLog("AnchoredSheet[isPresented]", "onChange — panelWindow #\(panelWindow.windowNumber), gate=true, starting task")
                     anchorTask = mbkWaitAndAnchorSheetWindow(
-                        popoverWindow: popoverWindow,
+                        panelWindow: panelWindow,
                         label: "isPresented"
                     )
                 } else {
@@ -231,9 +259,9 @@ struct MBKAnchoredSheetModifier<SheetContent: View>: ViewModifier {
 struct MBKAnchoredSheetItemModifier<Item: Identifiable & Equatable, SheetContent: View>: ViewModifier {
     /// Binding to the item that drives sheet presentation; `nil` when dismissed.
     @Binding var item: Item?
-    /// The sheet content factory, called with the current non-nil item.
+    /// The sheet content factory.
     let sheetContent: (Item) -> SheetContent
-    /// The gate that blocks popover dismiss while the sheet is live.
+    /// The gate that blocks panel dismiss while the sheet is live.
     @Environment(MBKOverlayGate.self) private var overlayGate
     /// The running anchor task, held so it can be cancelled on dismiss.
     @State private var anchorTask: MBKSheetAnchorTask?
@@ -262,15 +290,21 @@ struct MBKAnchoredSheetItemModifier<Item: Identifiable & Equatable, SheetContent
                 mbkLog("AnchoredSheet[item]", "onChange isPresented=\(isPresented) windows=\(NSApp.windows.count) currentGate=\(overlayGate.hasActiveOverlay)")
                 overlayGate.hasActiveOverlay = isPresented
                 if isPresented {
-                    guard let popoverWindow = NSApp.windows.first(where: {
+                    // Finds the panel by .nonactivatingPanel styleMask — RunBot has exactly one
+                    // such window and MBKPanelController never creates a second. Passing the
+                    // panel reference through the SwiftUI environment would couple the view layer
+                    // to the controller internals and is not worth the added complexity for a
+                    // single-panel library. If a second .nonactivatingPanel is ever added, this
+                    // lookup must be made more specific.
+                    guard let panelWindow = NSApp.windows.first(where: {
                         $0.styleMask.contains(.nonactivatingPanel)
                     }) else {
                         mbkLog("AnchoredSheet[item]", "onChange — no nonactivatingPanel, aborting")
                         return
                     }
-                    mbkLog("AnchoredSheet[item]", "onChange — popoverWindow #\(popoverWindow.windowNumber), gate=true, starting task")
+                    mbkLog("AnchoredSheet[item]", "onChange — panelWindow #\(panelWindow.windowNumber), gate=true, starting task")
                     anchorTask = mbkWaitAndAnchorSheetWindow(
-                        popoverWindow: popoverWindow,
+                        panelWindow: panelWindow,
                         label: "item"
                     )
                 } else {

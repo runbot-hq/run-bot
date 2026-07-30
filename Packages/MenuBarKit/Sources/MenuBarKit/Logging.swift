@@ -5,7 +5,7 @@ import Foundation
 
 /// The active log handler. Defaults to `print` in debug builds, no-op in release.
 /// Replace to route MBK logs to your own logger (os_log, structured logger, etc.).
-/// Set this before calling `MBKPopoverController.setup()`.
+/// Set this before calling `MBKPanelController.setup()`.
 /// Isolated to `@MainActor` because all MBK log call sites are on the main actor.
 ///
 /// - Note: `deinit` log lines in `MBKSheetAnchorTask` bypass this handler and

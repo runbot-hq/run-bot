@@ -102,7 +102,7 @@ import AppKit
 ///   `.environment(overlayGate)` at your root view.
 ///
 /// - Parameters:
-///   - overlayGate: The gate owned by the enclosing `MBKPopoverController`.
+///   - overlayGate: The gate owned by the enclosing `MBKPanelController`.
 ///   - message: Optional message shown inside the panel above the file list.
 ///   - completion: Called on the `@MainActor` with the chosen `URL`, or `nil`
 ///     if the user cancelled. Called on the same run-loop turn as panel dismissal,

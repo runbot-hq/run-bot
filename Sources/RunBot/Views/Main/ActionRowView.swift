@@ -81,7 +81,7 @@ struct ActionRowView: View {
         .onAppear { applyInitialExpandState() }
         // ⚠️ DO NOT REMOVE — expandState change logger for sizing investigation.
         // Kept commented out intentionally. Re-enable when testing how row expand/collapse
-        // affects panel width reported to MBKPopoverController.
+        // affects panel width reported to MBKPanelController.
         // Remove together with LogCategory.panel when closing #2275.
         // .onChange(of: expandState) { old, new in
         //     log("【ActionRowView.expandState】id=\(group.id) \(String(describing: old)) → \(String(describing: new))", category: .general)

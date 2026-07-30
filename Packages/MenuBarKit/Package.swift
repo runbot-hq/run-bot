@@ -41,7 +41,7 @@ let package = Package(
         ),
         .testTarget(
             name: "MenuBarKitTests",
-            dependencies: ["MenuBarKit"],
+            dependencies: [.target(name: "MenuBarKit")],
             path: "Tests/MenuBarKitTests",
             swiftSettings: [
                 .swiftLanguageMode(.v6),

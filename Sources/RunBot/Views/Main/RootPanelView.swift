@@ -8,21 +8,19 @@ import SwiftUI
 // MARK: - RootPanelView
 //
 // ARCHITECTURE:
-// This is the single persistent root view passed to MBKPopoverController.
+// This is the single persistent root view passed to MBKPanelController.
 // It owns ALL route switching for the panel via a `Group { switch } .id(route)`
 // pattern copied directly from the MBK example's RootView.swift.
 //
 // WHY .id(route):
-// MBKPopoverController wraps its root view in a GeometryReader inside `wrapped()`.
-// That GeometryReader's `onAppear` and `onChange(of: geo.size)` are the ONLY
-// mechanism by which MBK learns the correct panel size. If SwiftUI considers
-// a new route structurally identical to the previous one (e.g. main → main)
-// it will NOT remount — onAppear is skipped and the size is never re-reported.
+// MBKPanelController sizes the window from its hosting view's
+// intrinsicContentSize. A route change must therefore invalidate that intrinsic
+// size, otherwise the new route is laid out inside the previous route's frame.
 // `.id(route)` forces SwiftUI to tear down and remount the routed subtree on
-// every route change, guaranteeing the GeometryReader always fires fresh.
+// every route change, which reliably produces a fresh intrinsic-size report.
 //
 // WHY NOT setRootView():
-// The old pattern called `popoverController?.setRootView(mainView())` on every
+// The old pattern called `panelController?.setRootView(mainView())` on every
 // navigation. That swaps AnyView blobs which (a) can silently skip onAppear
 // and (b) requires AppDelegate to hold factory methods for every view. Routing
 // via state mutation here removes that responsibility.
@@ -35,7 +33,7 @@ import SwiftUI
 // ❌ NEVER add .frame(maxWidth: .infinity, maxHeight: .infinity) here.
 // ❌ NEVER remove the .id(navState) modifier.
 
-/// Single persistent root view passed to `MBKPopoverController`.
+/// Single persistent root view passed to `MBKPanelController`.
 /// Owns all panel route switching via `Group { switch }.id(navState)`.
 struct RootPanelView: View {
     /// Core runner/job/action/rate-limit state, injected via `wrapEnv`.
@@ -71,10 +69,10 @@ struct RootPanelView: View {
         // ⚠️ LOGGING POLICY: This render log fires on every recompose, not just route
         // transitions. It is intentionally kept until MBK sizing behaviour is confirmed
         // stable — we need full recompose visibility to diagnose spurious re-renders and
-        // GeometryReader interaction during the fix/arrow-center-drift testing window.
+        // intrinsic-size churn during the fix/arrow-center-drift testing window.
         // onChange(of: navState) below covers route transitions only; this line covers
         // everything. Do NOT remove until #2265 is resolved and route-switching under
-        // MBKPopoverController has been verified in production builds.
+        // MBKPanelController has been verified in production builds.
         #if DEBUG
         log("【RootPanelView.body】rendered navState=\(navState)", category: .panel)
         #endif

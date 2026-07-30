@@ -15,10 +15,10 @@ import SwiftUI
 // HEIGHT CONTRACT:
 // headerBar is OUTSIDE the ScrollView — back button always visible.
 // ScrollView uses maxHeight: .infinity to fill all remaining panel space.
-// AppDelegate.resizeAndRepositionPanel() clamps the panel at 85% visibleFrame
-// via MBK's maxHeight in clamp(). That IS the hard ceiling.
-// settingsBody uses .fixedSize(horizontal: false, vertical: true) so MBK's
-// GeometryReader reports SettingsView's own natural height, not the main panel's.
+// MenuBarKit clamps the panel to a live fraction of the screen's visibleFrame
+// (AppDelegate.panelHeightMultiplier). That IS the hard ceiling.
+// settingsBody uses .fixedSize(horizontal: false, vertical: true) so the
+// measurement pass reads SettingsView's own natural height, not the main panel's.
 // sectionsStack (scroll content) uses .fixedSize(horizontal: false, vertical: true)
 // so the ScrollView knows the full content height before applying the maxHeight cap.
 // No extra cap needed here — the MBK clamp IS the scroll boundary.
@@ -376,7 +376,7 @@ struct SettingsView: View {
     /// the main panel's committed width. idealWidth is NOT used because it is only a
     /// preference and is overridden by the parent's offered width (~650pt from PanelMainView).
     /// HEIGHT CONTRACT: .fixedSize(horizontal: false, vertical: true) — Settings reports its
-    /// own natural height to MBK's GeometryReader, NOT the main panel's offered height.
+    /// own natural height to MenuBarKit's measurement pass, NOT the main panel's offered height.
     /// ❌ NEVER move headerBar inside the ScrollView.
     /// ❌ NEVER use .frame(idealWidth:) — idealWidth is a preference, not a constraint.
     /// ❌ NEVER remove .frame(width: 480) — Settings will inherit main panel width.
@@ -397,8 +397,8 @@ struct SettingsView: View {
         // ❌ NEVER change to .frame(idealWidth:) — that is a preference, not a constraint.
         .frame(width: 480)
         // HEIGHT: fixedSize(v:true) tells SwiftUI to use Settings' own natural height.
-        // Without this, MBK's GeometryReader receives the offered height from the main
-        // panel and Settings inherits the main panel's height instead of its own.
+        // Without this, MenuBarKit measures the offered height from the main panel
+        // and Settings inherits the main panel's height instead of its own.
         // ❌ NEVER remove — height-inheritance regression.
         .fixedSize(horizontal: false, vertical: true)
     }

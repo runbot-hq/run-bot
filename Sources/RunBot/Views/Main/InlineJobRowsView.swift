@@ -248,7 +248,10 @@ private struct JobRowCard: View {
                 jobHeader
                 if isExpanded { stepsContainer }
             }
-            .glassCard(cornerRadius: RBRadius.small)
+            .background {
+                RoundedRectangle(cornerRadius: RBRadius.small, style: .continuous)
+                    .strokeBorder(.white.opacity(0.25), lineWidth: 0.5)
+            }
         }
         .padding(.vertical, 1)
         .jobContextMenu(job: job, group: group)

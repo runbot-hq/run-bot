@@ -112,17 +112,9 @@ public final class AppPreferencesStore {
     @AppStorage(AppPreferencesStore.keyShowDimmedRunners)
     public var showDimmedRunners: Bool = true
 
-    /// Whether the NSPopover anchor arrow is shown.
-    ///
-    /// When `false`, the arrow is suppressed on the next popover open via the
-    /// private-but-widely-used KVC key `shouldHideAnchor` on `NSPopover`.
-    /// Default is `true` so existing users see no behaviour change on upgrade.
-    ///
-    /// Takes effect on the next `openPanel()` call — the arrow state is baked in
-    /// at `popover.show()` time and cannot be changed mid-session.
-    ///
-    /// ⚠️ Not `@Observable`-tracked — `withObservationTracking` will not re-fire.
-    /// Consume via `@Bindable`. See class-level `## @AppStorage + @ObservationIgnored`.
+    /// INERT — has no effect since PR #2305 replaced NSPopover with an owned panel.
+    /// Preserved here to avoid removing a user-visible Settings toggle in the same PR.
+    /// Either wire to something meaningful or remove in a follow-up.
     @ObservationIgnored // required — see class-level ## @AppStorage + @ObservationIgnored
     @AppStorage(AppPreferencesStore.keyShowPopoverArrow)
     public var showPopoverArrow: Bool = true
