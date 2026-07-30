@@ -39,5 +39,14 @@ let package = Package(
                 .enableUpcomingFeature("NonisolatedNonsendingByDefault")
             ]
         ),
-        ]
+        .testTarget(
+            name: "MenuBarKitTests",
+            dependencies: [.target(name: "MenuBarKit")],
+            path: "Tests/MenuBarKitTests",
+            swiftSettings: [
+                .swiftLanguageMode(.v6),
+                .enableUpcomingFeature("NonisolatedNonsendingByDefault")
+            ]
+        )
+    ]
 )
