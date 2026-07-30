@@ -179,10 +179,13 @@ enum MBKPanelControllerConstants {
     var statusItem: NSStatusItem!
     var panel: MBKPanel!
     /// Hosts the root SwiftUI view.
+    /// sizingOptions = .preferredContentSize — AppKit writes pcs after every layout pass.
     var hostingController: NSHostingController<MBKPanelContentView<Content>>!
     /// Live sizing limits. maxContentHeight is @Observable — updated on open
     /// and screen change so the SwiftUI cap is always current.
     var limits: MBKPanelLimits!
+    /// KVO token for hostingController.preferredContentSize.
+    nonisolated(unsafe) var preferredContentSizeObservation: NSKeyValueObservation?
 
     // MARK: - Session state
 
@@ -196,15 +199,6 @@ enum MBKPanelControllerConstants {
     var lastContentSize: CGSize?
     var lastMeasuredSize: CGSize?
     var isApplyingFrame = false
-    /// Stored when onGeometryChange fires before the panel is shown.
-    /// Drains in openPanel — used as the initial size instead of the fallback.
-    nonisolated(unsafe) var pendingContentSize: CGSize? {
-        didSet {
-            Task { @MainActor in
-                mbkLog("PanelController", "pendingContentSize changed → \(String(describing: pendingContentSize))")
-            }
-        }
-    }
     var onWillCloseFired = false
     var hasOpenedOnce = false
     var didLogPreOpenSkip = false
@@ -271,17 +265,12 @@ enum MBKPanelControllerConstants {
         }
 
         let hc = NSHostingController(
-            rootView: MBKPanelContentView(
-                    limits: limits,
-                    metrics: metrics,
-                    content: rootView,
-                    onSizeChange: { [weak self] size in
-                        self?.applyMeasuredSize(size)
-                    }
-                )
+            rootView: MBKPanelContentView(limits: limits, metrics: metrics, content: rootView)
         )
-        // sizingOptions = [] — onGeometryChange is the sole measurement signal.
-        hc.sizingOptions = []
+        // sizingOptions = .preferredContentSize — see SIZING PIPELINE in the file header.
+        // With a concrete root-view type (RootEnvView) SwiftUI computes ideal height
+        // correctly. AppKit writes preferredContentSize only when this option is set.
+        hc.sizingOptions = .preferredContentSize
         let hv = hc.view
         hv.translatesAutoresizingMaskIntoConstraints = false
         hv.wantsLayer = true
@@ -296,7 +285,21 @@ enum MBKPanelControllerConstants {
         ])
         mbkLog("PanelController", "setupPanelWindow -- three-edge AL pins activated (no bottom pin)")
 
-        mbkLog("PanelController", "setupPanelWindow -- onGeometryChange is the sole measurement signal (no KVO)")
+        preferredContentSizeObservation = hc.observe(
+            \.preferredContentSize,
+            options: [.new]
+        ) { [weak self] _, change in
+            guard let size = change.newValue, size.width > 0, size.height > 0 else { return }
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                mbkLog(
+                    "PanelController",
+                    "KVO preferredContentSize -- size=(\(size.width),\(size.height)) isShown=\(self.isShown)"
+                )
+                self.applyMeasuredSize(size)
+            }
+        }
+        mbkLog("PanelController", "setupPanelWindow -- KVO on preferredContentSize registered")
 
         let window = MBKPanel()
         window.contentView = glassView
@@ -353,6 +356,8 @@ enum MBKPanelControllerConstants {
     // MARK: - Deallocation
 
     deinit {
+        preferredContentSizeObservation?.invalidate()
+        preferredContentSizeObservation = nil
         if let observer = workspaceObserver {
             NSWorkspace.shared.notificationCenter.removeObserver(observer)
         }

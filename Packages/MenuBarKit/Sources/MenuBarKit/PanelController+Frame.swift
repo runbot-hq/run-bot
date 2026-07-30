@@ -90,33 +90,35 @@ extension MBKPanelController {
 
     // MARK: - Measure
 
-    /// Entry point from onGeometryChange on the content view.
-    /// `size` is the rendered size of the content after layout.
+    /// Entry point from KVO on preferredContentSize and from invalidateContentSize().
+    /// `measured` is the size AppKit read from SwiftUI under an unspecified proposal.
     /// It includes arrowHeight because MBKPanelContentView adds .padding(.top, arrowHeight).
-    func applyMeasuredSize(_ size: CGSize) {
-        mbkLog("PanelController", "applyMeasuredSize called -- size=\(size) isShown=\(isShown) hasOpenedOnce=\(hasOpenedOnce)")
+    func applyMeasuredSize(_ measured: CGSize) {
         guard hasOpenedOnce else {
-            pendingContentSize = size
-            mbkLog("PanelController", "applyMeasuredSize -- hasOpenedOnce=false, stored \(size)")
+            mbkLog("PanelController", "SKIP -- not shown yet, storing for first open")
+            lastMeasuredSize = measured
             return
         }
         guard isShown else {
-            pendingContentSize = size
-            mbkLog("PanelController", "applyMeasuredSize -- isShown=false, stored \(size)")
+            mbkLog("PanelController", "SKIP -- panel not shown, dropping post-close measurement")
             return
         }
-        mbkLog("PanelController", "applyMeasuredSize -- LIVE update size=\(size)")
+        guard measured.width > 0, measured.height > 0 else {
+            mbkLog("PanelController", "SKIP -- degenerate preferredContentSize (\(measured.width),\(measured.height))")
+            return
+        }
+        lastMeasuredSize = measured
 
         let cap = liveMaxContentHeight()
         let content = MBKPanelGeometry.clampContent(
-            CGSize(width: size.width, height: size.height - metrics.arrowHeight),
+            CGSize(width: measured.width, height: measured.height - metrics.arrowHeight),
             minWidth: 1,
             maxWidth: liveMaxContentWidth(),
             maxHeight: cap
         )
         mbkLog(
             "PanelController",
-            "MEASURE measured=(\(size.width),\(size.height)) content=(\(content.width),\(content.height)) cap=\(cap)"
+            "MEASURE measured=(\(measured.width),\(measured.height)) content=(\(content.width),\(content.height)) cap=\(cap)"
         )
 
         if let last = lastContentSize,
@@ -125,8 +127,7 @@ extension MBKPanelController {
             return
         }
         lastContentSize = content
-        lastMeasuredSize = size
-        applyFrame(content: content, reason: "LIVE")
+        applyFrame(content: content, reason: "WRITE")
     }
 
     // MARK: - Apply

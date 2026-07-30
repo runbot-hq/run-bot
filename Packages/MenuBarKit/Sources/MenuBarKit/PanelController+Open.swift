@@ -40,12 +40,7 @@ extension MBKPanelController {
 
         mbkLog("PanelController", "openPanel -- calling onWillShow")
         onWillShow?()
-        mbkLog("PanelController", "openPanel -- onWillShow done")
-
-        // Force SwiftUI to re-measure with real content
-        hostingController.view.invalidateIntrinsicContentSize()
-        hostingController.view.layoutSubtreeIfNeeded()
-        mbkLog("PanelController", "openPanel -- post-onWillShow layout done, pendingContentSize=\(String(describing: pendingContentSize))")
+        mbkLog("PanelController", "onWillShow fired")
 
         // Refresh cap for the current screen before anything is shown.
         limits.maxContentHeight = liveMaxContentHeight()
@@ -56,11 +51,24 @@ extension MBKPanelController {
         onWillCloseFired = false
         hasOpenedOnce = true
 
-        let openSize = pendingContentSize ?? CGSize(width: 320, height: 240)
-        let reason = pendingContentSize != nil ? "PRE-SHOW" : "FALLBACK"
-        pendingContentSize = nil
-        mbkLog("PanelController", "openPanel -- using \(reason) size=\(openSize)")
-        applyFrame(content: openSize, reason: reason)
+        // Use preferredContentSize if KVO already fired (e.g. pre-show layout pass).
+        // Falls back to FALLBACK only if not yet populated — KVO will correct it
+        // once the view lays out in the live window.
+        let pcs = hostingController.preferredContentSize
+        if pcs.width > 0, pcs.height > 0 {
+            mbkLog("PanelController", "openPanel -- applying pre-show preferredContentSize")
+            let cap = liveMaxContentHeight()
+            let content = MBKPanelGeometry.clampContent(
+                CGSize(width: pcs.width, height: pcs.height - metrics.arrowHeight),
+                minWidth: 1,
+                maxWidth: liveMaxContentWidth(),
+                maxHeight: cap
+            )
+            applyFrame(content: content, reason: "PRE-SHOW")
+        } else {
+            mbkLog("PanelController", "openPanel -- FALLBACK (320.0,240.0)")
+            applyFrame(content: CGSize(width: 320, height: 240), reason: "FALLBACK")
+        }
 
         setButtonHighlight(true)
         panel.orderFrontRegardless()
