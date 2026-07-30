@@ -55,6 +55,11 @@ public struct MBKPanelMetrics: Equatable, Sendable {
 
     /// The metrics MenuBarKit uses unless an adopter overrides them.
     public static let `default` = MBKPanelMetrics()
+
+    /// Fallback content size used in openPanel() when preferredContentSize is zero.
+    /// If this appears in FALLBACK log output during normal use, the measurement
+    /// pipeline has not fired before first open — that is a bug, not expected behaviour.
+    static let fallbackContentSize = CGSize(width: 320, height: 240)
 }
 
 // MARK: - Layout result
