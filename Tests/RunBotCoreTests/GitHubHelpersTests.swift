@@ -14,6 +14,7 @@
 //                                           — test_postPrefixUserStep_matchesSectionNotEpilogue
 //   user step named "Post <X>" (Run prefix in group header, stage-2 bypass)
 //                                           — test_postPrefixUserStep_matchesSectionViaRunPrefix
+//   case-insensitive exact match (stage 1)  — test_exactNameMatch_caseInsensitive
 //   no match → full log fallback            — test_noMatch_returnsFullLog
 //   unclosed group                          — test_unclosedGroup_stillMatches
 //   inter-group lines preserved             — test_interGroupLines_notDropped
@@ -38,6 +39,10 @@ final class GitHubHelpersTests: XCTestCase {
     /// Tests that exercise the timestamp-stripping pipeline construct their own raw
     /// strings with inline timestamp prefixes (see test_timestampStripping,
     /// test_ansiAndTimestampCompose).
+    ///
+    /// **Precondition**: if `epilogue` is non-empty, `sections` must also be non-empty.
+    /// If `sections` is empty and `epilogue` is non-empty, `buildParsedLog` will never
+    /// set `seenFirstGroup`, so epilogue lines will be mis-classified as preamble.
     private func makeLog(
         preamble: [String] = [],
         sections: [(name: String, body: [String])] = [],
@@ -68,6 +73,26 @@ final class GitHubHelpersTests: XCTestCase {
         XCTAssert(result!.contains("Run my-step"))
         XCTAssert(result!.contains("Hello from my-step"))
         XCTAssertFalse(result!.contains("Checking out repo"))
+    }
+
+    func test_exactNameMatch_caseInsensitive() {
+        // Stage 1 must match case-insensitively so a step name like "POST DEPLOY" matches
+        // a ##[group] header "Post deploy", preventing it from falling through to the
+        // stage-3 synthetic epilogue heuristic.
+        let raw = makeLog(
+            sections: [
+                (name: "Post deploy", body: ["deploying to production"]),
+                (name: "Run tests", body: ["test output"])
+            ],
+            epilogue: ["epilogue content"]
+        )
+        let result = parseStepLog(raw, stepName: "POST DEPLOY", stepNumber: 3, logger: nil)
+        XCTAssertNotNil(result)
+        XCTAssert(result!.contains("deploying to production"),
+            "Case-insensitive stage-1 match must find the section")
+        XCTAssertFalse(result!.contains("epilogue content"),
+            "Stage-3 synthetic heuristic must not fire when stage 1 matched")
+        XCTAssertFalse(result!.contains("test output"))
     }
 
     func test_prefixMatch_groupHasRunPrefix() {

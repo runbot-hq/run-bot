@@ -120,8 +120,10 @@ public struct LogSection {
 ///
 /// - `sections`: In-order named sections delimited by `##[group]`/`##[endgroup]` pairs.
 /// - `preamble`: Lines before the first `##[group]` marker (e.g. "Set up job" runner output).
-/// - `epilogue`: Lines after the last `##[endgroup]` marker, including any inter-group lines
-///   that appeared between consecutive `##[endgroup]`/`##[group]` pairs during the run.
+/// - `epilogue`: Content lines between consecutive `##[endgroup]`/`##[group]` pairs (inter-group)
+///   and content lines after the final `##[endgroup]`. The `##[group]` and `##[endgroup]` marker
+///   lines themselves are not included here — they are captured inside `LogSection.body` or,
+///   in the case of orphan `##[endgroup]` markers (no matching open group), silently discarded.
 ///
 /// **Visibility**: internal (no explicit modifier) rather than private so that future tests
 /// can call `buildParsedLog` directly to verify structural parsing independently of
@@ -196,7 +198,9 @@ private func fetchAndDecodeStepLog(
 /// via `@testable import GitHubClient`. It is not part of the public API.
 ///
 /// Matching strategy (in order):
-///   1. Exact match on `step.name` against `##[group]<name>`.
+///   1. Case-insensitive exact match on `stepName` against `##[group]<name>`. Using
+///      lowercased() on both sides ensures a step named "POST DEPLOY" matches a section
+///      header "Post deploy" and vice-versa, without risking a prefix over-match.
 ///   2. "Run "-prefix normalisation — GitHub prepends `"Run "` to `run:` step names in the
 ///      log group header but not in the API step name. A section named `"Run actions/checkout@v4"`
 ///      therefore matches a step named `"actions/checkout@v4"`. The comparison is
@@ -245,28 +249,29 @@ func parseStepLog(
         "parseStepLog › \(parsed.sections.count) section(s), stepName=\"\(stepName)\" stepNumber=\(stepNumber)",
         category: "transport")
 
-    // 1. Exact name match
-    if let match = parsed.sections.first(where: { $0.name == stepName }) {
+    // lowerStep is shared by stages 1 and 2.
+    let lowerStep = stepName.lowercased()
+
+    // 1. Case-insensitive exact name match.
+    if let match = parsed.sections.first(where: { $0.name.lowercased() == lowerStep }) {
         logger?.log("parseStepLog › exact match \"\(stepName)\"", category: "transport")
         return match.body
     }
 
     // 2. "Run "-prefix normalisation.
     //    GitHub's log group headers prepend "Run " to run: step names, but the API step
-    //    name does not include this prefix. Check both the bare name and the "Run "-prefixed
-    //    form with a case-insensitive exact comparison. General hasPrefix is intentionally
-    //    avoided: "Build" must not match "Build documentation".
-    let lowerStep = stepName.lowercased()
+    //    name does not include this prefix. Check the "Run "-prefixed form with a
+    //    case-insensitive exact comparison. General hasPrefix is intentionally avoided:
+    //    "Build" must not match "Build documentation".
     if let match = parsed.sections.first(where: {
-        let lowerSection = $0.name.lowercased()
-        return lowerSection == lowerStep || lowerSection == "run \(lowerStep)"
+        $0.name.lowercased() == "run \(lowerStep)"
     }) {
         logger?.log("parseStepLog › run-prefix match \"\(match.name)\" for \"\(stepName)\"", category: "transport")
         return match.body
     }
 
     // 3. Synthetic step heuristics
-    let lowerName = stepName.lowercased()
+    let lowerName = lowerStep
     if lowerName == "set up job" || lowerName == "initialize containers" {
         logger?.log("parseStepLog › synthetic preamble for \"\(stepName)\"", category: "transport")
         // Returning nil (not fallback) when empty is deliberate — see doc comment above.
@@ -301,6 +306,10 @@ func parseStepLog(
 /// Malformed logs (a `##[group]` with no matching `##[endgroup]`) are handled gracefully:
 /// the open section is flushed at end-of-input rather than silently dropped.
 ///
+/// A `##[endgroup]` with no matching open `##[group]` (orphan endgroup) is silently discarded:
+/// it is not added to preamble, epilogue, or any section. This is intentional — orphan markers
+/// are a runner artefact and carry no log content.
+///
 /// `hasPrefix("##[group]")` is used (not `contains`) to avoid false splits on user-emitted
 /// `echo "##[group]something"` lines — the upstream pipeline has already stripped the
 /// timestamp prefix so genuine markers are always at column 0.
@@ -334,6 +343,9 @@ func buildParsedLog(from cleaned: String) -> ParsedLog {
             if let name = currentName {
                 sections.append(LogSection(name: name, body: currentBody.joined(separator: "\n")))
             }
+            // If currentName == nil here, this is an orphan ##[endgroup] with no matching
+            // ##[group]. The line is intentionally discarded — not added to preamble,
+            // interGroupLines, or any section. See buildParsedLog doc comment.
             currentName = nil
             currentBody = []
         } else if currentName != nil {
