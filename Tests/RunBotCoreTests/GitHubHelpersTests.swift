@@ -48,6 +48,8 @@ final class GitHubHelpersTests: XCTestCase {
         sections: [(name: String, body: [String])] = [],
         epilogue: [String] = []
     ) -> String {
+        assert(sections.isEmpty == false || epilogue.isEmpty,
+            "makeLog precondition violated: epilogue requires at least one section")
         var lines: [String] = []
         lines += preamble
         for s in sections {

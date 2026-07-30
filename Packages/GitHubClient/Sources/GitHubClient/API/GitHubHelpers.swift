@@ -260,7 +260,7 @@ func parseStepLog(
         "parseStepLog › \(parsed.sections.count) section(s), stepName=\"\(stepName)\" stepNumber=\(stepNumber)",
         category: "transport")
 
-    // lowerStep is shared by stages 1 and 2.
+    // lowerStep is shared by stages 1, 2, and 3.
     let lowerStep = stepName.lowercased()
 
     // 1. Case-insensitive exact name match.
@@ -282,13 +282,12 @@ func parseStepLog(
     }
 
     // 3. Synthetic step heuristics
-    let lowerName = lowerStep
-    if lowerName == "set up job" || lowerName == "initialize containers" {
+    if lowerStep == "set up job" || lowerStep == "initialize containers" {
         logger?.log("parseStepLog › synthetic preamble for \"\(stepName)\"", category: "transport")
         // Returning nil (not fallback) when empty is deliberate — see doc comment above.
         return parsed.preamble.isEmpty ? nil : parsed.preamble
     }
-    if lowerName.hasPrefix("post ") || lowerName == "complete job" || lowerName == "stop containers" {
+    if lowerStep.hasPrefix("post ") || lowerStep == "complete job" || lowerStep == "stop containers" {
         logger?.log("parseStepLog › synthetic epilogue for \"\(stepName)\"", category: "transport")
         // Returning nil (not fallback) when empty is deliberate — see doc comment above.
         return parsed.epilogue.isEmpty ? nil : parsed.epilogue
