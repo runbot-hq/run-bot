@@ -67,8 +67,11 @@ extension MBKPanelController {
     }
 
     func liveMaxContentHeight() -> CGFloat {
-        MBKPanelGeometry.maxContentHeight(
-            visibleFrame: liveVisibleFrame(),
+        let visible = liveVisibleFrame()
+        let topY = readAnchor()?.topY ?? visible.maxY
+        return MBKPanelGeometry.maxContentHeight(
+            topY: topY,
+            visibleFrame: visible,
             fraction: maxHeightFraction,
             metrics: metrics
         )
@@ -80,9 +83,9 @@ extension MBKPanelController {
 
     // MARK: - Measure
 
-    /// Entry point from preferredContentSize KVO.
-    /// `measured` is the value NSHostingController reported — full panel height
-    /// including the arrow strip.
+    /// Entry point from KVO on preferredContentSize and from invalidateContentSize().
+    /// `measured` is the size AppKit read from SwiftUI under an unspecified proposal.
+    /// It includes arrowHeight because MBKPanelContentView adds .padding(.top, arrowHeight).
     func applyMeasuredSize(_ measured: CGSize) {
         guard hasOpenedOnce else {
             mbkLog("PanelController", "SKIP -- not shown yet, storing for first open")
@@ -175,7 +178,10 @@ extension MBKPanelController {
         lastMeasuredSize = nil
         let size = hostingController.preferredContentSize
         if size.width > 0, size.height > 0 {
+            mbkLog("PanelController", "refreshForScreenChange -- re-applying preferredContentSize=(\(size.width),\(size.height))")
             applyMeasuredSize(size)
+        } else {
+            mbkLog("PanelController", "refreshForScreenChange -- no pcs yet, waiting for KVO")
         }
     }
 }
