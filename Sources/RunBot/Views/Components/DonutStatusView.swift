@@ -9,7 +9,7 @@ import SwiftUI
 /// - in_progress : animated rotating shimmer arc (blue) + arc trim from 0 to progress
 /// - success     : full green circle stroke + checkmark SF Symbol
 /// - failed      : full red circle stroke + xmark SF Symbol
-/// - queued      : solid yellow circle stroke
+/// - queued      : full yellow circle stroke + pause.fill SF Symbol
 ///
 /// Animation contract:
 /// - In-progress background ring uses `@State rotationAngle` driven by
@@ -56,7 +56,7 @@ struct DonutStatusView: View {
             case .failed:
                 terminalRing(color: .rbDanger, symbol: "xmark")
             case .queued:
-                queuedRing
+                terminalRing(color: .rbWarning, symbol: "pause.fill")
             default:
                 Circle()
                     .stroke(Color.rbTextTertiary.opacity(0.3), lineWidth: strokeWidth)
@@ -106,16 +106,9 @@ struct DonutStatusView: View {
         }
     }
 
-    /// Queued state ring: solid yellow stroke with no symbol.
-    private var queuedRing: some View {
-        Circle()
-            .stroke(Color.rbWarning, lineWidth: strokeWidth)
-            .frame(width: size, height: size)
-    }
-
-    /// Terminal state (success/failed): solid colored ring + SF Symbol in the centre.
+    /// Terminal state (success/failed/queued): solid colored ring + SF Symbol in the centre.
     /// - Parameters:
-    ///   - color: The stroke and icon tint color (`.rbSuccess` or `.rbDanger`).
+    ///   - color: The stroke and icon tint color (`.rbSuccess`, `.rbDanger`, or `.rbWarning`).
     ///   - symbol: The SF Symbol name to render in the centre of the ring.
     private func terminalRing(color: Color, symbol: String) -> some View {
         ZStack {
