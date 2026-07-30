@@ -103,6 +103,7 @@ final class MBKSheetAnchorTask {
                     $0.isKeyWindow
                 }) else {
                     mbkLog("AnchoredSheet[\(self.label)]", "hop2 — no matching window found (borderless+isKey)")
+                    mbkLog("AnchoredSheet[\(self.label)]", "⚠️ sheet is unanchored — panel will be closable while sheet is visible; see issue #21")
                     #if DEBUG
                     assertionFailure(
                         "AnchoredSheet[\(self.label)]: hop2 found no borderless+isKey window. "

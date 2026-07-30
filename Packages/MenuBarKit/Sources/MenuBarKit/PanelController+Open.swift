@@ -55,6 +55,11 @@ extension MBKPanelController {
 
         lastContentSize = nil
         onWillCloseFired = false
+        // hasOpenedOnce = true must be set before applyFrame — applyFrame's guard
+        // requires it. It is set here rather than in setup() so that applyFrame
+        // silently no-ops on any spurious pre-open KVO or invalidation call.
+        // ❌ Do NOT move this assignment earlier or add a precondition in applyFrame —
+        //    the silent no-op before first open is intentional defensive behaviour.
         hasOpenedOnce = true
         let ics = hostingController.view.intrinsicContentSize
         // Use preferredContentSize if KVO already fired (e.g. pre-show layout pass).

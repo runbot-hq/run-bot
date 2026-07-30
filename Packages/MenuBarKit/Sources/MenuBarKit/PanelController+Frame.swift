@@ -52,7 +52,7 @@ extension MBKPanelController {
         let visibleFrame = screen.visibleFrame
 
         let hidden = buttonScreen == nil
-            || MBKPanelGeometry.isMenuBarHidden(screenFrame: screen.frame, visibleFrame: visibleFrame)
+            || abs(screen.frame.maxY - visibleFrame.maxY) <= 2
 
         let anchorX: CGFloat
         if let window = buttonWindow, window.frame.width > 0 {
@@ -86,9 +86,15 @@ extension MBKPanelController {
 
     /// Strips the arrow-height padding from a raw preferredContentSize measurement
     /// before passing it to MBKPanelGeometry.clampContent.
-    /// Both the KVO path (applyMeasuredSize) and the pre-show path (openPanel) must
-    /// strip this padding — use this helper at both sites so any future change to the
-    /// padding model is made in one place.
+    ///
+    /// A sub-arrowHeight input (e.g. pcs.height = 8, arrowHeight = 11) produces a
+    /// negative height here. This is intentional — clampContent clamps it to 0,
+    /// collapsing the panel to zero content height. That is the correct behaviour:
+    /// a measurement smaller than the arrow chrome means SwiftUI has not laid out
+    /// yet, and the panel should not show stale geometry. The FALLBACK path in
+    /// openPanel() handles the not-yet-measured case before this function is reached.
+    /// ❌ Do NOT add a max(h, 0) clamp or a guard here — the zero-collapse is the
+    ///    signal that measurement hasn't fired. Clamping would silently swallow it.
     func contentSize(fromMeasured size: CGSize) -> CGSize {
         CGSize(width: size.width, height: size.height - metrics.arrowHeight)
     }

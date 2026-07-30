@@ -181,7 +181,7 @@ import SwiftUI
 // - The names make the KVC semantics legible at the call site without requiring
 //   a comment on every setValue(_:forKey:) line.
 // ❌ Do NOT inline these values or dissolve this enum — the namespace is intentional.
-enum GlassConfig {
+private enum GlassConfig {
     /// Subdued/inactive appearance (matches system panels).
     static let subduedState: Int = 1
     /// Default panel variant.
