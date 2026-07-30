@@ -104,10 +104,17 @@ extension MBKPanelController {
 
     /// Returns the maximum content height the panel may occupy on the current screen.
     func liveMaxContentHeight() -> CGFloat {
+        if let anchor = readAnchor() {
+            return MBKPanelGeometry.maxContentHeight(
+                topY: anchor.topY,
+                visibleFrame: anchor.visibleFrame,
+                fraction: maxHeightFraction,
+                metrics: metrics
+            )
+        }
         let visible = liveVisibleFrame()
-        let topY = readAnchor()?.topY ?? visible.maxY
         return MBKPanelGeometry.maxContentHeight(
-            topY: topY,
+            topY: visible.maxY,
             visibleFrame: visible,
             fraction: maxHeightFraction,
             metrics: metrics
