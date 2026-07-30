@@ -41,8 +41,6 @@ extension MBKPanelController {
         onWillShow?()
         mbkLog("PanelController", "onWillShow fired")
 
-        lastContentSize = nil
-        lastMeasuredSize = nil
         onWillCloseFired = false
         hasOpenedOnce = true
 
@@ -55,12 +53,12 @@ extension MBKPanelController {
         // Force SwiftUI to settle now that the view has a window.
         // onGeometryChange fires synchronously during this pass,
         // so applyMeasuredSize will be called before we reach the FALLBACK check.
-        mbkLog("PanelController", "openPanel -- calling layoutSubtreeIfNeeded to trigger onGeometryChange")
+        mbkLog("PanelController", "openPanel -- pre-layout lastContentSize=\(String(describing: lastContentSize))")
         hostingController.view.layoutSubtreeIfNeeded()
         mbkLog("PanelController", "openPanel -- layoutSubtreeIfNeeded done, lastContentSize=\(String(describing: lastContentSize))")
 
         if lastContentSize == nil {
-            mbkLog("PanelController", "openPanel -- onGeometryChange did not fire, using FALLBACK")
+            mbkLog("PanelController", "openPanel -- FALLBACK reason: onGeometryChange did not fire during layoutSubtreeIfNeeded")
             let size = MBKPanelController.fallbackContentSize
             applyFrame(content: size, reason: "FALLBACK")
             lastContentSize = nil  // let the first real measurement override FALLBACK

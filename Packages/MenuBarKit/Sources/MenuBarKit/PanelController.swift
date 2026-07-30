@@ -147,6 +147,7 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
         var contentView = MBKPanelContentView(
             limits: limits,
             metrics: metrics,
+            maxContentHeight: liveMaxContentHeight(),
             content: rootView
         )
         contentView.onSizeChange = { [weak self] size in
@@ -211,7 +212,12 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
         guard isSetUp else { return }
         lastContentSize = nil
         lastMeasuredSize = nil
-        var contentView = MBKPanelContentView(limits: limits, metrics: metrics, content: rootView)
+        var contentView = MBKPanelContentView(
+            limits: limits,
+            metrics: metrics,
+            maxContentHeight: liveMaxContentHeight(),
+            content: rootView
+        )
         contentView.onSizeChange = { [weak self] size in
             guard let self else { return }
             mbkLog("PanelController", "onGeometryChange fired (setRootView) -- naturalSize=(\(size.width),\(size.height))")
@@ -222,8 +228,7 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
     }
 
     public func invalidateContentSize() {
-        mbkLog("PanelController", "invalidateContentSize -- forcing layout pass to re-trigger onGeometryChange")
-        hostingController.view.layoutSubtreeIfNeeded()
+        mbkLog("PanelController", "invalidateContentSize -- DEPRECATED: onGeometryChange re-fires automatically through SwiftUI render cycle")
     }
 
     public func setStatusItemImage(_ image: NSImage) {
