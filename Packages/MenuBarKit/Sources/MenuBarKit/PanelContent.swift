@@ -73,7 +73,10 @@ struct MBKPanelContentView<Content: View>: View {
     var body: some View {
         content
             .padding(.top, metrics.arrowHeight)
-            .onGeometryChange(for: CGSize.self) { $0.size } action: { onSizeChange($0) }
+            .onGeometryChange(for: CGSize.self) { $0.size } action: { size in
+                mbkLog("PanelContent", "onGeometryChange fired size=\(size)")
+                onSizeChange(size)
+            }
             .clipShape(bubble)
     }
 }

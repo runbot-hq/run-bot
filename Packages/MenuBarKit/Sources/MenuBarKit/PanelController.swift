@@ -198,7 +198,13 @@ enum MBKPanelControllerConstants {
     var isApplyingFrame = false
     /// Stored when onGeometryChange fires before the panel is shown.
     /// Drains in openPanel — used as the initial size instead of the fallback.
-    nonisolated(unsafe) var pendingContentSize: CGSize?
+    nonisolated(unsafe) var pendingContentSize: CGSize? {
+        didSet {
+            Task { @MainActor in
+                mbkLog("PanelController", "pendingContentSize changed → \(String(describing: pendingContentSize))")
+            }
+        }
+    }
     var onWillCloseFired = false
     var hasOpenedOnce = false
     var didLogPreOpenSkip = false
