@@ -277,15 +277,15 @@ public final class MBKPanelController: NSObject, MBKPanelControllerProtocol {
         hostingController = hc
 
         glassView.addSubview(hv)
-        // Four-edge pins are load-bearing — see SIZING PIPELINE in the file header.
-        // ❌ DO NOT remove the bottom pin — without it KVO fires once and goes silent.
+        let heightFloor = hv.heightAnchor.constraint(greaterThanOrEqualToConstant: 1)
+        heightFloor.priority = .init(1)
         NSLayoutConstraint.activate([
             hv.leadingAnchor.constraint(equalTo: glassView.leadingAnchor),
             hv.trailingAnchor.constraint(equalTo: glassView.trailingAnchor),
             hv.topAnchor.constraint(equalTo: glassView.topAnchor),
-            hv.bottomAnchor.constraint(equalTo: glassView.bottomAnchor),
+            heightFloor,
         ])
-        mbkLog("PanelController", "setupPanelWindow -- four-edge AL pins activated")
+        mbkLog("PanelController", "setupPanelWindow -- three-edge AL pins activated")
 
         preferredContentSizeObservation = hc.observe(
             \.preferredContentSize,
