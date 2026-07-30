@@ -56,7 +56,9 @@ struct DonutStatusView: View {
             case .failed:
                 terminalRing(color: .rbDanger, symbol: "xmark")
             case .queued:
-                terminalRing(color: .rbWarning, symbol: "pause.fill")
+                // pause.fill is blockier than checkmark/xmark; scale down slightly
+                // to avoid clipping at small diameters (size ≤ 16). (#2355)
+                terminalRing(color: .rbWarning, symbol: "pause.fill", symbolScale: 0.36)
             default:
                 Circle()
                     .stroke(Color.rbTextTertiary.opacity(0.3), lineWidth: strokeWidth)
@@ -110,13 +112,15 @@ struct DonutStatusView: View {
     /// - Parameters:
     ///   - color: The stroke and icon tint color (`.rbSuccess`, `.rbDanger`, or `.rbWarning`).
     ///   - symbol: The SF Symbol name to render in the centre of the ring.
-    private func terminalRing(color: Color, symbol: String) -> some View {
+    ///   - symbolScale: Font size multiplier relative to `size`. Defaults to `0.42`.
+    ///     Pass a smaller value (e.g. `0.36`) for wider glyphs like `pause.fill`.
+    private func terminalRing(color: Color, symbol: String, symbolScale: CGFloat = 0.42) -> some View {
         ZStack {
             Circle()
                 .stroke(color, lineWidth: strokeWidth)
                 .frame(width: size, height: size)
             Image(systemName: symbol)
-                .font(.system(size: size * 0.42, weight: .bold))
+                .font(.system(size: size * symbolScale, weight: .bold))
                 .foregroundStyle(color)
         }
     }
@@ -129,6 +133,8 @@ struct DonutStatusView: View {
         DonutStatusView(status: .success, size: 20)
         DonutStatusView(status: .failed, size: 20)
         DonutStatusView(status: .queued, size: 20)
+        DonutStatusView(status: .queued, size: 16)
+        DonutStatusView(status: .queued, size: 14)
     }
     .padding(20)
     .background(Color.rbSurface)
