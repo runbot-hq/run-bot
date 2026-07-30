@@ -84,7 +84,7 @@ extension MBKPanelController {
         )
     }
 
-/// Strips the arrow-height padding from a raw preferredContentSize measurement
+    /// Strips the arrow-height padding from a raw preferredContentSize measurement
     /// before passing it to MBKPanelGeometry.clampContent.
     /// Both the KVO path (applyMeasuredSize) and the pre-show path (openPanel) must
     /// strip this padding — use this helper at both sites so any future change to the

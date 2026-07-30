@@ -143,6 +143,7 @@
 //   PanelController+Observers.swift  — workspace, screen, mouse and key monitors
 
 import AppKit
+import SwiftUI
 /// NSGlassEffectView private KVC keys — all three set to 1 to produce dark glass.
 ///
 /// Each key controls a distinct stage of the same compositor pipeline:
@@ -171,7 +172,6 @@ enum GlassConfig {
     /// Enables the scrim layer that reinforces the dark tone.
     static let scrimState: Int = 1
 }
-import SwiftUI
 
 /// Manages the full anchored-panel and `NSStatusItem` lifecycle for a macOS menu-bar app.
 @MainActor
@@ -224,6 +224,10 @@ public final class MBKPanelController<Content: View>: NSObject, MBKPanelControll
     /// Screen-parameter change observer.
     nonisolated(unsafe) var screenObserver: NSObjectProtocol?
 
+    // Intentionally retained across close — the status item position is stable between
+    // sessions. Only used as a fallback when buttonWindow.frame.width == 0, which is a
+    // transient AppKit condition. Risk of a stale value is very low; if the user moves
+    // the status item between opens, the next successful anchor read overwrites it.
     /// Last known arrow-anchor X offset, used to detect frame shifts.
     var lastKnownAnchorX: CGFloat?
     /// Cached content size, used to suppress duplicate KVO applications.
