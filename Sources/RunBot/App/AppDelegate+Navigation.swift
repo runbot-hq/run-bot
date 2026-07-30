@@ -32,6 +32,7 @@ extension AppDelegate {
     /// Mutates savedNavState — RootPanelView reacts and switches to the settings branch.
     /// Also promotes the app to key so TextFields in Settings receive input.
     func navigateToSettings() {
+        panelController?.routeDidChange()
         appState.savedNavState = .settings
         NSApp.activate()
     }
@@ -40,6 +41,7 @@ extension AppDelegate {
     /// Clears savedNavState — RootPanelView routes to the .main branch.
     /// Also clears any active runner sheet so it does not ghost on re-open.
     func navigateBack() {
+        panelController?.routeDidChange()
         appState.savedNavState = nil
         panelSheetState.clearRunnerSheet()
     }

@@ -344,6 +344,15 @@ enum MBKPanelControllerConstants {
         statusItem?.button?.image = image
     }
 
+    /// Clears the dedup caches (`lastContentSize`, `lastMeasuredSize`) so the next
+    /// KVO fire on `preferredContentSize` is not suppressed by the stale size.
+    /// Call this from the host app **before** a route change (e.g. settings, back,
+    /// step-log) so the panel resizes to the new route's content.
+    public func routeDidChange() {
+        lastContentSize = nil
+        lastMeasuredSize = nil
+    }
+
     private func setupStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = statusItem.button {
