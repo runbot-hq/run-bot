@@ -142,6 +142,9 @@ extension MBKPanelController {
             mbkLog("PanelController", "SKIP -- degenerate preferredContentSize (\(measured.width),\(measured.height))")
             return
         }
+        if measured.height <= metrics.arrowHeight {
+            mbkLog("PanelController", "⚠️ measured.height=\(measured.height) <= arrowHeight=\(metrics.arrowHeight) — content will collapse to zero; SwiftUI has not laid out yet")
+        }
         let lastStr = lastContentSize.map { "(\($0.width),\($0.height))" } ?? "nil"
         mbkLog("PanelController", "applyMeasuredSize -- measured=(\(measured.width),\(measured.height)) isShown=\(isShown) lastContentSize=\(lastStr)")
 
