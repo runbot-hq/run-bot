@@ -414,5 +414,14 @@ struct InlineJobRowsView: View {
                 .padding(.bottom, RBSpacing.xs)
             }
         }
+        // Fix #2349/#2354: when the active row collapses back to partial expand
+        // (fullExpand transitions false→true→false), InlineJobRowsView stays mounted
+        // because expandState is set to `false` rather than `nil` for .inProgress rows.
+        // This means expandedJobIDs persists and steps appear expanded after collapse.
+        // Clearing expandedJobIDs here resets all job cards to their default closed
+        // state, matching the expected "active row state" on collapse.
+        .onChange(of: fullExpand) { _, newValue in
+            if !newValue { expandedJobIDs.removeAll() }
+        }
     }
 }
