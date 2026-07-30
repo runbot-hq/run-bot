@@ -94,29 +94,39 @@ extension MBKPanelController {
     /// `size` is the rendered size of the content after layout.
     /// It includes arrowHeight because MBKPanelContentView adds .padding(.top, arrowHeight).
     func applyMeasuredSize(_ size: CGSize) {
-        mbkLog("PanelController", "applyMeasuredSize ENTER -- size=\(size) panel.isVisible=\(panel.isVisible) isShown=\(isShown) hasOpenedOnce=\(hasOpenedOnce)")
-
-        guard size.width > 0, size.height > 0 else {
-            mbkLog("PanelController", "applyMeasuredSize -- SKIP degenerate size")
+        mbkLog("PanelController", "applyMeasuredSize called -- size=\(size) isShown=\(isShown) hasOpenedOnce=\(hasOpenedOnce)")
+        guard hasOpenedOnce else {
+            pendingContentSize = size
+            mbkLog("PanelController", "applyMeasuredSize -- hasOpenedOnce=false, stored \(size)")
             return
         }
-
-        guard panel.isVisible else {
-            mbkLog("PanelController", "applyMeasuredSize -- panel not visible, calling setContentSize")
-            panel.setContentSize(NSSize(width: size.width, height: size.height))
-            mbkLog("PanelController", "applyMeasuredSize -- setContentSize done, panel.frame=\(panel.frame)")
+        guard isShown else {
+            pendingContentSize = size
+            mbkLog("PanelController", "applyMeasuredSize -- isShown=false, stored \(size)")
             return
         }
+        mbkLog("PanelController", "applyMeasuredSize -- LIVE update size=\(size)")
 
-        mbkLog("PanelController", "applyMeasuredSize -- visible, calling clampContent")
-        let clamped = MBKPanelGeometry.clampContent(
-            size,
+        let cap = liveMaxContentHeight()
+        let content = MBKPanelGeometry.clampContent(
+            CGSize(width: size.width, height: size.height - metrics.arrowHeight),
             minWidth: 1,
             maxWidth: liveMaxContentWidth(),
-            maxHeight: liveMaxContentHeight()
+            maxHeight: cap
         )
-        mbkLog("PanelController", "applyMeasuredSize -- clamped=\(clamped) maxW=\(liveMaxContentWidth()) maxH=\(liveMaxContentHeight())")
-        applyFrame(content: clamped, reason: "MEASURE")
+        mbkLog(
+            "PanelController",
+            "MEASURE measured=(\(size.width),\(size.height)) content=(\(content.width),\(content.height)) cap=\(cap)"
+        )
+
+        if let last = lastContentSize,
+           abs(last.width - content.width) < 1, abs(last.height - content.height) < 1 {
+            mbkLog("PanelController", "SKIP -- content unchanged (\(content.width),\(content.height))")
+            return
+        }
+        lastContentSize = content
+        lastMeasuredSize = size
+        applyFrame(content: content, reason: "LIVE")
     }
 
     // MARK: - Apply

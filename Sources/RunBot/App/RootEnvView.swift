@@ -37,15 +37,10 @@ struct RootEnvView: View {
 
     /// The composed view body: passes environment objects to the inner view.
     var body: some View {
-        _ = mbkLog("RootEnvView", "body evaluated")
-        return inner
+        inner
             .environment(panelVisibilityState)
             .environment(appState)
             .environment(overlayGate)
             .environment(panelControllerHandle)
-            .onAppear { mbkLog("RootEnvView", "onAppear") }
-            .onChange(of: panelVisibilityState.isOpen) { _, new in
-                mbkLog("RootEnvView", "panelVisibilityState.isOpen → \(new)")
-            }
     }
 }
