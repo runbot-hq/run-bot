@@ -52,7 +52,7 @@ extension MBKPanelController {
         let visibleFrame = screen.visibleFrame
 
         let hidden = buttonScreen == nil
-            || abs(screen.frame.maxY - visibleFrame.maxY) <= 2
+            || MBKPanelGeometry.isMenuBarHidden(screenFrame: screen.frame, visibleFrame: visibleFrame)
 
         let anchorX: CGFloat
         if let window = buttonWindow, window.frame.width > 0 {
@@ -86,20 +86,13 @@ extension MBKPanelController {
 
     /// Strips the arrow-height padding from a raw preferredContentSize measurement
     /// before passing it to MBKPanelGeometry.clampContent.
-    ///
-    /// A sub-arrowHeight input (e.g. pcs.height = 8, arrowHeight = 11) produces a
-    /// negative height here. This is intentional — clampContent clamps it to 0,
-    /// collapsing the panel to zero content height. That is the correct behaviour:
-    /// a measurement smaller than the arrow chrome means SwiftUI has not laid out
-    /// yet, and the panel should not show stale geometry. The FALLBACK path in
-    /// openPanel() handles the not-yet-measured case before this function is reached.
-    /// ❌ Do NOT add a max(h, 0) clamp or a guard here — the zero-collapse is the
-    ///    signal that measurement hasn't fired. Clamping would silently swallow it.
+    /// Both the KVO path (applyMeasuredSize) and the pre-show path (openPanel) must
+    /// strip this padding — use this helper at both sites so any future change to the
+    /// padding model is made in one place.
     func contentSize(fromMeasured size: CGSize) -> CGSize {
         CGSize(width: size.width, height: size.height - metrics.arrowHeight)
     }
 
-    /// Returns the visible frame of the screen currently hosting the status item,
     /// Returns the visible frame of the screen currently hosting the status item,
     /// falling back to NSScreen.main, then a safe default.
     private func liveVisibleFrame() -> CGRect {
@@ -110,17 +103,10 @@ extension MBKPanelController {
 
     /// Returns the maximum content height the panel may occupy on the current screen.
     func liveMaxContentHeight() -> CGFloat {
-        if let anchor = readAnchor() {
-            return MBKPanelGeometry.maxContentHeight(
-                topY: anchor.topY,
-                visibleFrame: anchor.visibleFrame,
-                fraction: maxHeightFraction,
-                metrics: metrics
-            )
-        }
         let visible = liveVisibleFrame()
+        let topY = readAnchor()?.topY ?? visible.maxY
         return MBKPanelGeometry.maxContentHeight(
-            topY: visible.maxY,
+            topY: topY,
             visibleFrame: visible,
             fraction: maxHeightFraction,
             metrics: metrics
@@ -180,7 +166,7 @@ extension MBKPanelController {
         // applyFrame never runs and arrowCenterX is never touched. No desync path exists.
         if let last = lastContentSize,
            abs(last.width - content.width) < 1, abs(last.height - content.height) < 1 {
-            mbkLog("PanelController", "SKIP -- content unchanged (\(content.width),\(content.height)) lastContentSize=\(lastContentSize.map { "(\($0.width),\($0.height))" } ?? "nil") SUPPRESSED")
+            mbkLog("PanelController", "SKIP -- content unchanged (\(content.width),\(content.height)) lastContentSize=\(lastContentSize.map { " (\($0.width),\($0.height))" } ?? "nil") SUPPRESSED")
             return
         }
         lastContentSize = content
