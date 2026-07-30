@@ -192,6 +192,13 @@ public enum MBKPanelGeometry {
         let rawOriginY = topY - size.height
         let clampedOriginY = max(rawOriginY, visibleFrame.minY)
         let actualHeight = topY - clampedOriginY
+        // wasClamped is true in two distinct cases:
+        //   1. The panel was wider than the inset visible area and had to be centred
+        //      (maxX < minX). The origin is still "correct" (centred), but the ideal
+        //      anchored position was not achievable — hence wasClamped = true.
+        //   2. The vertical floor was hit and originY was raised.
+        // Both cases mean "the ideal position was not achievable", which is the
+        // intended semantics. wasClamped is used only in log output.
         let wasClamped = (maxX < minX || abs(originX - unclampedX) > 0.5) || clampedOriginY != rawOriginY
 
         let frame = CGRect(x: originX, y: clampedOriginY, width: size.width, height: actualHeight)

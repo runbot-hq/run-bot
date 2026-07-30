@@ -94,6 +94,10 @@ extension MBKPanelController {
         mbkLog("PanelController", "openPanel -- panel shown frame=\(panel.frame)")
 
         // Trigger first layout pass so preferredContentSize populates and KVO fires.
+        // This intentionally runs AFTER orderFrontRegardless — the frame guarantee
+        // ("frame applied before the window appears") is satisfied above by the
+        // PRE-SHOW / FALLBACK applyFrame call. layoutSubtreeIfNeeded here is not
+        // part of the positioning path; it exists only to prime the KVO pipeline.
         hostingController.view.layoutSubtreeIfNeeded()
         mbkLog("PanelController", "openPanel -- layoutSubtreeIfNeeded done")
 
@@ -170,6 +174,10 @@ extension MBKPanelController {
         // performClose is gated on !overlayGate.hasActiveOverlay so the gate
         // is already false before teardown runs. The safety-net purpose only
         // applies on the forceClose path (child windows already closed above).
+        // Note: on the forceClose path, all child windows are explicitly closed and
+        // removed BEFORE teardown() is called (see forceClose() above), so by the
+        // time this reset runs no overlay is alive to race against it. The reset
+        // is therefore always safe on both close paths.
         overlayGate.hasActiveOverlay = false
         overlayGate.hasFilePickerOverlay = false
         onWillCloseFired = false

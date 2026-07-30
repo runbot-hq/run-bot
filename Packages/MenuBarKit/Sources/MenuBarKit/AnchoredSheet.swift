@@ -223,6 +223,12 @@ struct MBKAnchoredSheetModifier<SheetContent: View>: ViewModifier {
                 mbkLog("AnchoredSheet[isPresented]", "onChange \(oldValue)→\(newValue) windows=\(NSApp.windows.count) currentGate=\(overlayGate.hasActiveOverlay)")
                 overlayGate.hasActiveOverlay = newValue
                 if newValue {
+                    // Finds the panel by .nonactivatingPanel styleMask — RunBot has exactly one
+                    // such window and MBKPanelController never creates a second. Passing the
+                    // panel reference through the SwiftUI environment would couple the view layer
+                    // to the controller internals and is not worth the added complexity for a
+                    // single-panel library. If a second .nonactivatingPanel is ever added, this
+                    // lookup must be made more specific.
                     guard let panelWindow = NSApp.windows.first(where: {
                         $0.styleMask.contains(.nonactivatingPanel)
                     }) else {
@@ -284,6 +290,12 @@ struct MBKAnchoredSheetItemModifier<Item: Identifiable & Equatable, SheetContent
                 mbkLog("AnchoredSheet[item]", "onChange isPresented=\(isPresented) windows=\(NSApp.windows.count) currentGate=\(overlayGate.hasActiveOverlay)")
                 overlayGate.hasActiveOverlay = isPresented
                 if isPresented {
+                    // Finds the panel by .nonactivatingPanel styleMask — RunBot has exactly one
+                    // such window and MBKPanelController never creates a second. Passing the
+                    // panel reference through the SwiftUI environment would couple the view layer
+                    // to the controller internals and is not worth the added complexity for a
+                    // single-panel library. If a second .nonactivatingPanel is ever added, this
+                    // lookup must be made more specific.
                     guard let panelWindow = NSApp.windows.first(where: {
                         $0.styleMask.contains(.nonactivatingPanel)
                     }) else {
