@@ -135,6 +135,13 @@ struct ParsedLog {
     let preamble: String
     /// Content lines between consecutive group pairs (inter-group) and after the final
     /// `##[endgroup]`. Marker lines themselves are not included; see struct doc comment.
+    ///
+    /// **Known limitation**: this is a single flat bucket for the entire job. GitHub Actions
+    /// does not wrap synthetic step output ("Post Run X", "Complete job") in `##[group]`
+    /// markers, so there is no way to attribute individual inter-group lines to a specific
+    /// post-run step. All "Post X" and "Complete job" steps therefore map to the same
+    /// epilogue string. This is an inherent constraint of the `##[group]` format, not a
+    /// bug in the parser.
     let epilogue: String
 }
 
