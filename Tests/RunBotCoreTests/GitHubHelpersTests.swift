@@ -11,6 +11,7 @@
 //   synthetic: Post Run X         — test_postRunStep_returnsEpilogue
 //   no match → full log fallback  — test_noMatch_returnsFullLog
 //   unclosed group                — test_unclosedGroup_stillMatches
+//   inter-group lines preserved   — test_interGroupLines_notDropped
 //   timestamp stripping           — test_timestampStripping
 //   ANSI stripping                — test_ansiStripping
 //   ANSI + timestamp compose      — test_ansiAndTimestampCompose
@@ -53,7 +54,10 @@ final class GitHubHelpersTests: XCTestCase {
             ]
         )
         let result = parseStepLog(raw, stepName: "Run my-step", stepNumber: 99, logger: nil)
-        XCTAssertEqual(result, "##[group]Run my-step\nHello from my-step\n##[endgroup]")
+        XCTAssertNotNil(result)
+        XCTAssert(result!.contains("Run my-step"))
+        XCTAssert(result!.contains("Hello from my-step"))
+        XCTAssertFalse(result!.contains("Checking out repo"))
     }
 
     func test_prefixMatch_groupHasRunPrefix() {
@@ -116,6 +120,26 @@ final class GitHubHelpersTests: XCTestCase {
         let result = parseStepLog(raw, stepName: "Run broken-step", stepNumber: 1, logger: nil)
         XCTAssertNotNil(result)
         XCTAssert(result!.contains("some output line"))
+    }
+
+    func test_interGroupLines_notDropped() {
+        // Lines between ##[endgroup] and the next ##[group] must not be silently discarded.
+        // They should appear in the epilogue and therefore be visible when "Complete job" is tapped.
+        let raw = [
+            "##[group]Run step-one",
+            "step one output",
+            "##[endgroup]",
+            "runner annotation between groups",
+            "##[group]Run step-two",
+            "step two output",
+            "##[endgroup]",
+            "final cleanup line"
+        ].joined(separator: "\n")
+        let result = parseStepLog(raw, stepName: "Complete job", stepNumber: 99, logger: nil)
+        XCTAssertNotNil(result)
+        XCTAssert(result!.contains("runner annotation between groups"),
+                  "Inter-group lines must not be dropped")
+        XCTAssert(result!.contains("final cleanup line"))
     }
 
     // MARK: - Cleaning pipeline

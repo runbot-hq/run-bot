@@ -79,6 +79,9 @@ struct StepLogView: View {
         formatter.dateFormat = "yyyy-MM-dd"
         return formatter
     }()
+    /// ISO 8601 formatter used to parse `step.startedAt` and `step.completedAt` strings.
+    /// Cached as a static let because ISO8601DateFormatter is not cheap to allocate.
+    private static let iso8601Fmt = ISO8601DateFormatter()
 
     /// Creates a `StepLogView` for the given job step.
     /// - Parameters:
@@ -310,14 +313,14 @@ struct StepLogView: View {
     /// Formatted start time string, or `"—"` when the step has not yet started.
     private var startLabel: String {
         guard let startedAtString = step.startedAt,
-              let date = ISO8601DateFormatter().date(from: startedAtString) else { return "—" }
+              let date = Self.iso8601Fmt.date(from: startedAtString) else { return "—" }
         return Self.timeFmt.string(from: date)
     }
 
     /// Formatted end time string, or a status string when the step is still running.
     private var endLabel: String {
         guard let completedAtString = step.completedAt,
-              let dateValue = ISO8601DateFormatter().date(from: completedAtString) else {
+              let dateValue = Self.iso8601Fmt.date(from: completedAtString) else {
             return step.status == "in_progress" ? "running…" : "—"
         }
         return Self.timeFmt.string(from: dateValue)
@@ -326,7 +329,7 @@ struct StepLogView: View {
     /// Formatted date string derived from `step.startedAt`, or `"—"`.
     private var dateLabel: String {
         guard let startedAtString = step.startedAt,
-              let date = ISO8601DateFormatter().date(from: startedAtString) else { return "—" }
+              let date = Self.iso8601Fmt.date(from: startedAtString) else { return "—" }
         return Self.dateFmt.string(from: date)
     }
 
