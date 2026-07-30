@@ -7,18 +7,18 @@ import SwiftUI
 // MARK: - Anchor task
 
 /// Spawns a two-hop async task that waits for the sheet's `NSWindow` to appear
-/// in `NSApp.windows`, then attaches it as a child of the popover window so
+/// in `NSApp.windows`, then attaches it as a child of the panel window so
 /// outside-click detection works correctly.
 ///
 /// Returns the running `MBKSheetAnchorTask` so the caller can cancel it if the
 /// sheet is dismissed before the window is found.
 @MainActor
 func mbkWaitAndAnchorSheetWindow(
-    popoverWindow: NSWindow,
+    panelWindow: NSWindow,
     label: String
 ) -> MBKSheetAnchorTask {
-    mbkLog("AnchoredSheet[\(label)]", "mbkWaitAndAnchorSheetWindow called — pw=#\(popoverWindow.windowNumber)")
-    let task = MBKSheetAnchorTask(popoverWindow: popoverWindow, label: label)
+    mbkLog("AnchoredSheet[\(label)]", "mbkWaitAndAnchorSheetWindow called — pw=#\(panelWindow.windowNumber)")
+    let task = MBKSheetAnchorTask(panelWindow: panelWindow, label: label)
     task.start()
     return task
 }
@@ -31,17 +31,17 @@ func mbkWaitAndAnchorSheetWindow(
 /// Call `cancel()` if the sheet is dismissed before the anchor completes.
 @MainActor
 final class MBKSheetAnchorTask {
-    /// The popover's backing window; the sheet window will be added as its child.
-    private let popoverWindow: NSWindow
+    /// The panel's backing window; the sheet window will be added as its child.
+    private let panelWindow: NSWindow
     /// Debug label used in log output to identify which sheet this task belongs to.
     private let label: String
     /// Set to `true` by `cancel()`. Checked at the start of each hop.
     private var cancelled = false
 
     /// Creates the task. Does not start the async work — call `start()` explicitly.
-    init(popoverWindow: NSWindow, label: String) {
-        mbkLog("AnchoredSheet[\(label)]", "MBKSheetAnchorTask.init pw=#\(popoverWindow.windowNumber)")
-        self.popoverWindow = popoverWindow
+    init(panelWindow: NSWindow, label: String) {
+        mbkLog("AnchoredSheet[\(label)]", "MBKSheetAnchorTask.init pw=#\(panelWindow.windowNumber)")
+        self.panelWindow = panelWindow
         self.label = label
     }
 
@@ -78,7 +78,7 @@ final class MBKSheetAnchorTask {
                 //   performClose(), so onWillClose fires with wasForced: true on a
                 //   session that was actually a normal close. Host code that branches
                 //   on wasForced must treat it as advisory rather than authoritative.
-                let pw = self.popoverWindow
+                let pw = self.panelWindow
                 let allWindows = NSApp.windows
                 mbkLog("AnchoredSheet[\(self.label)]", "hop2 — polling \(allWindows.count) windows")
                 for w in allWindows where w !== pw {
@@ -179,7 +179,7 @@ struct MBKAnchoredSheetModifier<SheetContent: View>: ViewModifier {
     @Binding var isPresented: Bool
     /// The sheet content factory.
     let sheetContent: () -> SheetContent
-    /// The gate that blocks popover dismiss while the sheet is live.
+    /// The gate that blocks panel dismiss while the sheet is live.
     @Environment(MBKOverlayGate.self) private var overlayGate
     /// The running anchor task, held so it can be cancelled on dismiss.
     @State private var anchorTask: MBKSheetAnchorTask?
@@ -208,15 +208,15 @@ struct MBKAnchoredSheetModifier<SheetContent: View>: ViewModifier {
                 mbkLog("AnchoredSheet[isPresented]", "onChange \(oldValue)→\(newValue) windows=\(NSApp.windows.count) currentGate=\(overlayGate.hasActiveOverlay)")
                 overlayGate.hasActiveOverlay = newValue
                 if newValue {
-                    guard let popoverWindow = NSApp.windows.first(where: {
+                    guard let panelWindow = NSApp.windows.first(where: {
                         $0.styleMask.contains(.nonactivatingPanel)
                     }) else {
                         mbkLog("AnchoredSheet[isPresented]", "onChange — no nonactivatingPanel, aborting")
                         return
                     }
-                    mbkLog("AnchoredSheet[isPresented]", "onChange — popoverWindow #\(popoverWindow.windowNumber), gate=true, starting task")
+                    mbkLog("AnchoredSheet[isPresented]", "onChange — panelWindow #\(panelWindow.windowNumber), gate=true, starting task")
                     anchorTask = mbkWaitAndAnchorSheetWindow(
-                        popoverWindow: popoverWindow,
+                        panelWindow: panelWindow,
                         label: "isPresented"
                     )
                 } else {
@@ -240,7 +240,7 @@ struct MBKAnchoredSheetItemModifier<Item: Identifiable & Equatable, SheetContent
     @Binding var item: Item?
     /// The sheet content factory.
     let sheetContent: (Item) -> SheetContent
-    /// The gate that blocks popover dismiss while the sheet is live.
+    /// The gate that blocks panel dismiss while the sheet is live.
     @Environment(MBKOverlayGate.self) private var overlayGate
     /// The running anchor task, held so it can be cancelled on dismiss.
     @State private var anchorTask: MBKSheetAnchorTask?
@@ -269,15 +269,15 @@ struct MBKAnchoredSheetItemModifier<Item: Identifiable & Equatable, SheetContent
                 mbkLog("AnchoredSheet[item]", "onChange isPresented=\(isPresented) windows=\(NSApp.windows.count) currentGate=\(overlayGate.hasActiveOverlay)")
                 overlayGate.hasActiveOverlay = isPresented
                 if isPresented {
-                    guard let popoverWindow = NSApp.windows.first(where: {
+                    guard let panelWindow = NSApp.windows.first(where: {
                         $0.styleMask.contains(.nonactivatingPanel)
                     }) else {
                         mbkLog("AnchoredSheet[item]", "onChange — no nonactivatingPanel, aborting")
                         return
                     }
-                    mbkLog("AnchoredSheet[item]", "onChange — popoverWindow #\(popoverWindow.windowNumber), gate=true, starting task")
+                    mbkLog("AnchoredSheet[item]", "onChange — panelWindow #\(panelWindow.windowNumber), gate=true, starting task")
                     anchorTask = mbkWaitAndAnchorSheetWindow(
-                        popoverWindow: popoverWindow,
+                        panelWindow: panelWindow,
                         label: "item"
                     )
                 } else {
