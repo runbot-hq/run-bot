@@ -164,10 +164,13 @@ extension MBKPanelController {
     func applyFrame(content: CGSize, anchor: MBKAnchorReading? = nil, reason: String) {
         mbkLog("PanelController", "applyFrame ENTER -- content=(\(content.width),\(content.height)) reason=\(reason)")
         // Silent no-op when called before setup() or after teardown — intentional.
-        // applyFrame can be invoked from KVO during a close sequence where panel/limits
+        // applyFrame can be invoked from KVO during a close sequence where panel
         // may already be nil. Use precondition(isSetUp) only at entry points that must
         // never fire pre-setup (e.g. openPanel).
-        guard let panel, let limits, hasOpenedOnce else { return }
+        // `limits` is intentionally not bound here — it is only used for the maxContentHeight
+        // cap, which is applied upstream in applyMeasuredSize and openPanel before applyFrame
+        // is called. applyFrame is a pure frame writer that trusts its content parameter.
+        guard let panel, hasOpenedOnce else { return }
         guard let anchor = anchor ?? readAnchor() else {
             mbkLog("PanelController", "\(reason) -- no anchor available, skipping frame")
             return
