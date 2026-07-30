@@ -279,15 +279,12 @@ enum MBKPanelControllerConstants {
         hostingController = hc
 
         glassView.addSubview(hv)
-        let heightFloor = hv.heightAnchor.constraint(greaterThanOrEqualToConstant: 1)
-        heightFloor.priority = .init(1)
         NSLayoutConstraint.activate([
             hv.leadingAnchor.constraint(equalTo: glassView.leadingAnchor),
             hv.trailingAnchor.constraint(equalTo: glassView.trailingAnchor),
             hv.topAnchor.constraint(equalTo: glassView.topAnchor),
-            heightFloor,
         ])
-        mbkLog("PanelController", "setupPanelWindow -- three-edge AL pins activated")
+        mbkLog("PanelController", "setupPanelWindow -- three-edge AL pins activated (no bottom pin)")
 
         preferredContentSizeObservation = hc.observe(
             \.preferredContentSize,
