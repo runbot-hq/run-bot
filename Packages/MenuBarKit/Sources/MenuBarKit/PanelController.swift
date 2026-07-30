@@ -282,8 +282,9 @@ enum MBKPanelControllerConstants {
             hv.leadingAnchor.constraint(equalTo: glassView.leadingAnchor),
             hv.trailingAnchor.constraint(equalTo: glassView.trailingAnchor),
             hv.topAnchor.constraint(equalTo: glassView.topAnchor),
+            hv.bottomAnchor.constraint(equalTo: glassView.bottomAnchor),
         ])
-        mbkLog("PanelController", "setupPanelWindow -- three-edge AL pins activated (no bottom pin)")
+        mbkLog("PanelController", "setupPanelWindow -- four-edge AL pins activated")
 
         preferredContentSizeObservation = hc.observe(
             \.preferredContentSize,
