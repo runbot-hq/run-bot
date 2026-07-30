@@ -66,14 +66,19 @@ final class GitHubHelpersTests: XCTestCase {
         // step.name from the API: "actions/checkout@v4"
         // ##[group] header in the log: "Run actions/checkout@v4"
         // The "Run "-normalisation in step 2 must bridge this gap.
+        // A second unrelated section is included so that returning the full log
+        // (i.e. a failure to match) would cause the final XCTAssertFalse to fail.
         let raw = makeLog(
-            sections: [(name: "Run actions/checkout@v4", body: ["Fetching the repository"])]
+            sections: [
+                (name: "Run actions/checkout@v4", body: ["Fetching the repository"]),
+                (name: "Run build", body: ["unrelated build output"])
+            ]
         )
         let result = parseStepLog(raw, stepName: "actions/checkout@v4", stepNumber: 2, logger: nil)
         XCTAssertNotNil(result)
         XCTAssert(result!.contains("Fetching the repository"))
-        XCTAssertFalse(result!.contains("##[group]Run actions/checkout@v4") == false,
-            "Should return the matching section body, not the full log")
+        XCTAssertFalse(result!.contains("unrelated build output"),
+            "Run-prefix match must return only the matched section, not the full log")
     }
 
     func test_runPrefixDoesNotMatchUnrelated() {
