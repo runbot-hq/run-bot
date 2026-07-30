@@ -12,31 +12,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panelController = MBKPanelController(
             // Width is the adopter's business — MBKPanelController has no width
             // parameter, so the range lives on the root view here.
-            rootView: RootView()
-                .frame(minWidth: 200, maxWidth: 480)
-                .environment(appState)
-                .environment(overlayGate),
+            rootView: AnyView(
+                RootView()
+                    .frame(minWidth: 200, maxWidth: 480)
+                    .environment(appState)
+                    .environment(overlayGate)
+            ),
             overlayGate: overlayGate,
             symbolName: "flask.fill",
             maxHeightFraction: 0.8
         )
         mbkLog("AppDelegate", "panelController created")
-        panelController.setup()
+        panelController?.setup()
 
-        panelController.onWillShow = { [weak self] in
+        panelController?.onWillShow = { [weak self] in
             guard let self, let snap = lastSession else { return }
             mbkLog("AppDelegate", "onWillShow -- restoring route=\(snap.route)")
             appState.route = snap.route
         }
 
-        panelController.onDidShow = { [weak self] in
+        panelController?.onDidShow = { [weak self] in
             guard let self, let snap = lastSession else { return }
             mbkLog("AppDelegate", "onDidShow -- restoring isSheetPresented=\(snap.isSheetPresented)")
             lastSession = AppState.SessionSnapshot(route: snap.route, isSheetPresented: false)
             appState.isSheetPresented = snap.isSheetPresented
         }
 
-        panelController.onWillClose = { [weak self] wasForced in
+        panelController?.onWillClose = { [weak self] wasForced in
             guard let self else { return }
             let snap = appState.saveSnapshot()
             lastSession = snap
@@ -53,6 +55,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private let appState = AppState()
     private let overlayGate = MBKOverlayGate()
-    private var panelController: MBKPanelController<some View>!
+    private var panelController: MBKPanelController<AnyView>?
     private var lastSession: AppState.SessionSnapshot?
 }
