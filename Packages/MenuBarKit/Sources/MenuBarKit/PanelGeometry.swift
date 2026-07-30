@@ -16,18 +16,10 @@ import CoreGraphics
 
 /// Fixed chrome dimensions for the anchored panel.
 ///
-/// These describe the bubble we draw ourselves (see `MBKBubbleShape`). They are
-/// tuned to visually match the `NSPopover` chrome that MenuBarKit used to rely
+/// These describe the bubble we draw ourselves. They are
+/// tuned to visually match the chrome that MenuBarKit used to rely
 /// on, so the app looks unchanged after the rewrite.
 public struct MBKPanelMetrics: Equatable, Sendable {
-
-    /// Height of the arrow that points up at the status item, in points.
-    ///
-    /// Doubles as the top content inset: content starts below the arrow.
-    public var arrowHeight: CGFloat
-
-    /// Width of the arrow base, in points.
-    public var arrowWidth: CGFloat
 
     /// Corner radius of the bubble body, in points.
     public var cornerRadius: CGFloat
@@ -37,18 +29,12 @@ public struct MBKPanelMetrics: Equatable, Sendable {
 
     /// Creates a metrics value.
     /// - Parameters:
-    ///   - arrowHeight: Height of the arrow, in points.
-    ///   - arrowWidth: Width of the arrow base, in points.
     ///   - cornerRadius: Corner radius of the bubble body, in points.
     ///   - screenMargin: Minimum gap to the visible-frame edge, in points.
     public init(
-        arrowHeight: CGFloat = 11,
-        arrowWidth: CGFloat = 22,
         cornerRadius: CGFloat = 11,
         screenMargin: CGFloat = 8
     ) {
-        self.arrowHeight = arrowHeight
-        self.arrowWidth = arrowWidth
         self.cornerRadius = cornerRadius
         self.screenMargin = screenMargin
     }
@@ -67,14 +53,8 @@ public struct MBKPanelMetrics: Equatable, Sendable {
 /// The fully resolved placement of the panel for one content size.
 public struct MBKPanelLayout: Equatable, Sendable {
 
-    /// Window frame in screen coordinates, including arrow chrome.
+    /// Window frame in screen coordinates, including chrome.
     public var frame: CGRect
-
-    /// Horizontal centre of the arrow, in window-local coordinates.
-    ///
-    /// Normally `anchorX - frame.minX`, so the arrow tip stays under the status
-    /// item even when the window itself had to be pushed away from a screen edge.
-    public var arrowCenterX: CGFloat
 
     /// `true` when the window origin had to be moved to stay on screen.
     public var wasClamped: Bool
@@ -82,11 +62,9 @@ public struct MBKPanelLayout: Equatable, Sendable {
     /// Creates a layout value.
     /// - Parameters:
     ///   - frame: Window frame in screen coordinates.
-    ///   - arrowCenterX: Arrow centre in window-local coordinates.
     ///   - wasClamped: Whether the origin was moved to stay on screen.
-    public init(frame: CGRect, arrowCenterX: CGFloat, wasClamped: Bool) {
+    public init(frame: CGRect, wasClamped: Bool) {
         self.frame = frame
-        self.arrowCenterX = arrowCenterX
         self.wasClamped = wasClamped
     }
 }
@@ -104,9 +82,9 @@ public enum MBKPanelGeometry {
     /// - Parameters:
     ///   - content: Size of the SwiftUI content, excluding chrome.
     ///   - metrics: Chrome metrics.
-    /// - Returns: Window size including the arrow strip on top.
+    /// - Returns: Window size matching the content size exactly.
     public static func windowSize(forContent content: CGSize, metrics: MBKPanelMetrics) -> CGSize {
-        CGSize(width: max(content.width, 0), height: max(content.height, 0) + metrics.arrowHeight)
+        CGSize(width: max(content.width, 0), height: max(content.height, 0))
     }
 
     /// Content height cap derived live from the drawable space below `topY`.
@@ -123,7 +101,7 @@ public enum MBKPanelGeometry {
     ///   - topY: Screen Y that the top edge of the panel touches (= menu-bar bottom).
     ///   - visibleFrame: The screen's visible frame.
     ///   - fraction: Fraction of the drawable space the content may occupy.
-    ///   - metrics: Chrome metrics; the arrow strip is subtracted from the cap.
+    ///   - metrics: Chrome metrics.
     /// - Returns: Maximum content height in points, never negative.
     public static func maxContentHeight(
         topY: CGFloat,
@@ -132,7 +110,7 @@ public enum MBKPanelGeometry {
         metrics: MBKPanelMetrics
     ) -> CGFloat {
         let drawable = topY - visibleFrame.minY
-        return max(drawable * fraction - metrics.arrowHeight, 0)
+        return max(drawable * fraction, 0)
     }
 
     /// Content width cap derived live from the screen.
@@ -166,9 +144,9 @@ public enum MBKPanelGeometry {
         return CGSize(width: width, height: height)
     }
 
-    /// Resolves the window frame and arrow position for one content size.
+    /// Resolves the window frame for one content size.
     ///
-    /// Invariants, all exercised by `MBKPanelGeometryTests`:
+    /// Invariants:
     /// - The top edge is pinned: `frame.maxY == topY` for every content height,
     ///   so the panel grows downward and never detaches from the menu bar.
     /// - `frame.minY >= visibleFrame.minY` — the panel never overflows above
@@ -178,8 +156,6 @@ public enum MBKPanelGeometry {
     ///   this in practice; the clamp here is a hard safety net.)
     /// - The window stays inside `visibleFrame` inset by `metrics.screenMargin`,
     ///   unless it is wider than the inset area, in which case it is centred.
-    /// - `arrowCenterX` tracks the anchor but is kept far enough from the
-    ///   corners that the arrow never overlaps the rounded corner radius.
     ///
     /// - Parameters:
     ///   - content: Content size, already clamped by `clampContent(_:...)`.
@@ -218,17 +194,7 @@ public enum MBKPanelGeometry {
         let actualHeight = topY - clampedOriginY
         let wasClamped = (maxX < minX || abs(originX - unclampedX) > 0.5) || clampedOriginY != rawOriginY
 
-        let arrowHalf = metrics.arrowWidth / 2
-        let lowerBound = metrics.cornerRadius + arrowHalf
-        let upperBound = size.width - metrics.cornerRadius - arrowHalf
-        var arrowCenterX = anchorX - originX
-        if upperBound >= lowerBound {
-            arrowCenterX = min(max(arrowCenterX, lowerBound), upperBound)
-        } else {
-            arrowCenterX = size.width / 2
-        }
-
         let frame = CGRect(x: originX, y: clampedOriginY, width: size.width, height: actualHeight)
-        return MBKPanelLayout(frame: frame, arrowCenterX: arrowCenterX, wasClamped: wasClamped)
+        return MBKPanelLayout(frame: frame, wasClamped: wasClamped)
     }
 }

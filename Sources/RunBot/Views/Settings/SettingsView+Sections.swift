@@ -241,7 +241,7 @@ internal extension SettingsView {
     /// FIX #2174: was `Bindable(settings).showPopoverArrow` — now `$settings.showPopoverArrow`.
     ///
     /// TODO: `showPopoverArrow` is inert since PR #2305 (NSPopover replaced by owned NSPanel).
-    /// The arrow is now always drawn by `MBKBubbleShape` / `PanelChrome` and cannot be
+    /// The arrow was drawn by the now-removed `MBKBubbleShape` and cannot be
     /// suppressed without a separate layout path. Remove this toggle in a follow-up.
     /// TODO: remove when issue #2307 is resolved
     var popoverArrowRow: some View {

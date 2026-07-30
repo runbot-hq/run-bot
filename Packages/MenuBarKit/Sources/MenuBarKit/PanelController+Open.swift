@@ -71,7 +71,7 @@ extension MBKPanelController {
             mbkLog("PanelController", "openPanel -- applying pre-show preferredContentSize")
             let cap = limits.maxContentHeight // already set two lines above — avoid redundant screen lookup
             let content = MBKPanelGeometry.clampContent(
-                contentSize(fromMeasured: pcs),
+                pcs,
                 minWidth: 1,
                 maxWidth: liveMaxContentWidth(),
                 maxHeight: cap

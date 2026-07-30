@@ -30,8 +30,7 @@ The panel is a borderless, non-opaque `NSPanel` MenuBarKit owns outright — the
 | `PanelController.swift` (+`+Open`/`+Frame`/`+Observers`) | `MBKPanelController` — full `NSPanel` + `NSStatusItem` lifecycle; outside-click monitor; workspace app-switch observer; screen-parameter observer; `onWillClose(wasForced:)` callback fires before any teardown on both normal and force-close paths |
 | `PanelControllerProtocol.swift` | `MBKPanelControllerProtocol` — `@MainActor` protocol surface for `MBKPanelController`; type your host reference against this for testability/mocking |
 | `Panel.swift` | `MBKPanel` — borderless, non-activating `NSPanel` at `.statusBar` level; Escape routes through `cancelOperation(_:)` |
-| `PanelGeometry.swift` | `MBKPanelGeometry` / `MBKPanelMetrics` / `MBKPanelLayout` — pure, AppKit-free frame math: window size, screen clamping, arrow offset, live height cap. Unit-tested |
-| `PanelBubbleShape.swift` | `MBKBubbleShape` — bubble-with-arrow SwiftUI `Shape`; clips the hosted content to the same silhouette the AppKit chrome draws, from the same `arrowCenterX` |
+| `PanelGeometry.swift` | `MBKPanelGeometry` / `MBKPanelMetrics` / `MBKPanelLayout` — pure, AppKit-free frame math: window size, screen clamping, live height cap. Unit-tested |
 | `PanelController.swift` (`setupPanelWindow`) | `NSGlassEffectView` chrome — the Liquid Glass bubble is set up inline in `setupPanelWindow()`. `NSGlassEffectView` is the direct `panel.contentView`; no separate chrome file exists. (`MBKPanelChromeView` / `PanelChrome.swift` were removed; chrome is now owned by `PanelController`.) |
 | `PanelContent.swift` | `MBKPanelLimits` + `MBKPanelContentView` — the SwiftUI half of the sizing pipeline |
 | `AnchoredSheet.swift` | `.mbkSheet(isPresented:content:)` and `.mbkSheet(item:content:)` — SwiftUI sheet anchored as a child window of the panel so it survives outside-clicks and focus changes |

@@ -10,8 +10,8 @@
 //   show() time. MenuBarKit resizes its content manually after show(), and no
 //   amount of pre-seeding or re-anchoring made AppKit re-derive the arrow —
 //   it stayed clipped (#2278, #2279, PR #2289). We now own one real borderless
-//   panel and draw the bubble + arrow ourselves, so the arrow is recomputed
-//   with the frame and can never disagree with it.
+//   panel and draw the bubble ourselves, so the frame is recomputed
+//   with the content and can never disagree with it.
 //
 // HOW THE WINDOW IS LAYERED (back to front) — and why:
 //   contentView = NSGlassEffectView   (direct — no wrapper)
@@ -295,8 +295,7 @@ public final class MBKPanelController<Content: View>: NSObject, MBKPanelControll
     /// Creates the panel window, glass view, hosting controller, and KVO observation.
     private func setupPanelWindow() {
         limits = MBKPanelLimits(
-            maxContentHeight: liveMaxContentHeight(),
-            arrowCenterX: 0
+            maxContentHeight: liveMaxContentHeight()
         )
         mbkLog("PanelController", "setupPanelWindow -- limits created maxContentHeight=\(limits.maxContentHeight)")
 

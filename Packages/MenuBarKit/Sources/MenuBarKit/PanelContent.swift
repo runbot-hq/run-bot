@@ -8,10 +8,10 @@
 // WHY NOT onGeometryChange:
 //   rootView is stored as AnyView. SwiftUI cannot compute ideal height through
 //   AnyView — it erases the concrete type. .fixedSize on an AnyView child
-//   always resolves to 0. onGeometryChange therefore always reports only the
-//   arrow placeholder height (metrics.arrowHeight), never the content height.
-//   Making MBKPanelContentView generic does not fix this: Content resolves to
-//   AnyView at the call site (NSHostingController<MBKPanelContentView<AnyView>>)
+//   always resolves to 0. onGeometryChange therefore always reports just the
+//   height of the content's first layout pass, which is unreliable for scroll
+//   content. Making MBKPanelContentView generic does not fix this: Content
+//   resolves to AnyView at the call site (NSHostingController<MBKPanelContentView<AnyView>>)
 //   and SwiftUI still sees AnyView at layout time.
 //
 // WHY preferredContentSize KVO WORKS:
@@ -25,7 +25,6 @@
 //   four-edge AL pins                      — top/leading/trailing/bottom (bottom is load-bearing for KVO continuity; see PanelController.swift SIZING PIPELINE)
 //   KVO on preferredContentSize            — sole measurement signal
 //   limits.maxContentHeight                — @Observable, updated on open + screen change
-//
 // ❌ NEVER add onGeometryChange here — AnyView erases ideal size.
 // ❌ NEVER add .fixedSize() — not needed and breaks the capped scroll path.
 // ❌ NEVER add a maxContentHeight stored property here — use limits.maxContentHeight.
@@ -41,8 +40,8 @@ import SwiftUI
 /// Live sizing and chrome state handed to the SwiftUI content.
 ///
 /// Observable so that a change to `maxContentHeight` (recomputed on every open
-/// and on screen-parameter changes) or to `arrowCenterX` (recomputed on every
-/// frame apply) re-lays-out the content without rebuilding the hosting view.
+/// and on screen-parameter changes) re-lays-out the content without rebuilding
+/// the hosting view.
 @Observable
 @MainActor
 final class MBKPanelLimits {
@@ -50,19 +49,15 @@ final class MBKPanelLimits {
     /// Maximum content height in points, recomputed live from the current screen.
     var maxContentHeight: CGFloat
 
-    /// Arrow centre in window-local points, from the leading edge.
-    var arrowCenterX: CGFloat
-
-    /// Creates limits with the given initial height and arrow centre.
-    init(maxContentHeight: CGFloat, arrowCenterX: CGFloat) {
+    /// Creates limits with the given initial height.
+    init(maxContentHeight: CGFloat) {
         self.maxContentHeight = maxContentHeight
-        self.arrowCenterX = arrowCenterX
     }
 }
 
 // MARK: - Root view
 
-/// Root SwiftUI view of the panel: adopter content capped, padded, clipped.
+/// Root SwiftUI view of the panel: adopter content capped and clipped.
 ///
 /// No measurement happens here. preferredContentSize KVO on the hosting
 /// controller is the sole sizing signal.
@@ -70,26 +65,15 @@ struct MBKPanelContentView<Content: View>: View {
 
     /// Shared limits object, observable for live maxContentHeight changes.
     let limits: MBKPanelLimits
-    /// Metrics for the bubble shape (arrow size, corner radius).
+    /// Metrics for the bubble shape (corner radius).
     let metrics: MBKPanelMetrics
     /// The adopter's SwiftUI content tree.
     let content: Content
 
-    /// Bubble shape computed from the current limits and metrics.
-    private var bubble: MBKBubbleShape {
-        MBKBubbleShape(
-            arrowCenterX: limits.arrowCenterX,
-            arrowHeight: metrics.arrowHeight,
-            arrowWidth: metrics.arrowWidth,
-            cornerRadius: metrics.cornerRadius
-        )
-    }
-
-    /// The panel's SwiftUI body: capped, padded, and clipped to the bubble shape.
+    /// The panel's SwiftUI body: capped and clipped to a rounded rectangle.
     var body: some View {
         content
             .frame(maxHeight: limits.maxContentHeight, alignment: .top)
-            .padding(.top, metrics.arrowHeight)
-            .clipShape(bubble)
+            .clipShape(RoundedRectangle(cornerRadius: metrics.cornerRadius, style: .continuous))
     }
 }

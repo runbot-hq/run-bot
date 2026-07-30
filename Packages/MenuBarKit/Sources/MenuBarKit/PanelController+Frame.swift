@@ -13,8 +13,8 @@
 //
 // LOGGING CONTRACT:
 //   KVO      preferredContentSize fired with (w,h)
-//   MEASURE  measured=(w,h) content=(w,h) cap=…
-//   WRITE    content=(w,h) anchorX=… topY=… hidden=… frame=… arrowX=… clamped=…
+//   MEASURE  measured=(w,h) cap=…
+//   WRITE    content=(w,h) anchorX=… topY=… hidden=… frame=… clamped=…
 //   SKIP     -- reason
 
 import AppKit
@@ -84,21 +84,6 @@ extension MBKPanelController {
         )
     }
 
-    /// Strips the arrow-height padding from a raw preferredContentSize measurement
-    /// before passing it to MBKPanelGeometry.clampContent.
-    ///
-    /// A sub-arrowHeight input (e.g. pcs.height = 8, arrowHeight = 11) produces a
-    /// negative height here. This is intentional — clampContent clamps it to 0,
-    /// collapsing the panel to zero content height. That is the correct behaviour:
-    /// a measurement smaller than the arrow chrome means SwiftUI has not laid out
-    /// yet, and the panel should not show stale geometry. The FALLBACK path in
-    /// openPanel() handles the not-yet-measured case before this function is reached.
-    /// ❌ Do NOT add a max(h, 0) clamp or a guard here — the zero-collapse is the
-    ///    signal that measurement hasn't fired. Clamping would silently swallow it.
-    func contentSize(fromMeasured size: CGSize) -> CGSize {
-        CGSize(width: size.width, height: size.height - metrics.arrowHeight)
-    }
-
     /// Returns the visible frame of the screen currently hosting the status item,
     /// falling back to NSScreen.main, then a safe default.
     private func liveVisibleFrame() -> CGRect {
@@ -128,7 +113,6 @@ extension MBKPanelController {
 
     /// Entry point from KVO on preferredContentSize and from invalidateContentSize().
     /// `measured` is the size AppKit read from SwiftUI under an unspecified proposal.
-    /// It includes arrowHeight because MBKPanelContentView adds .padding(.top, arrowHeight).
     func applyMeasuredSize(_ measured: CGSize) {
         guard hasOpenedOnce else {
             mbkLog("PanelController", "SKIP -- not shown yet, discarding (KVO will re-fire after layoutSubtreeIfNeeded)")
@@ -141,9 +125,6 @@ extension MBKPanelController {
         guard measured.width > 0, measured.height > 0 else {
             mbkLog("PanelController", "SKIP -- degenerate preferredContentSize (\(measured.width),\(measured.height))")
             return
-        }
-        if measured.height <= metrics.arrowHeight {
-            mbkLog("PanelController", "⚠️ measured.height=\(measured.height) <= arrowHeight=\(metrics.arrowHeight) — content will collapse to zero; SwiftUI has not laid out yet")
         }
         let lastStr = lastContentSize.map { "(\($0.width),\($0.height))" } ?? "nil"
         mbkLog("PanelController", "applyMeasuredSize -- measured=(\(measured.width),\(measured.height)) isShown=\(isShown) lastContentSize=\(lastStr)")
@@ -158,7 +139,7 @@ extension MBKPanelController {
             metrics: metrics
         )
         let content = MBKPanelGeometry.clampContent(
-            contentSize(fromMeasured: measured),
+            measured,
             minWidth: 1,
             maxWidth: liveMaxContentWidth(),
             maxHeight: cap
@@ -170,9 +151,6 @@ extension MBKPanelController {
 
         mbkLog("PanelController", "applyMeasuredSize DEDUP -- last=\(lastStr) new=(\(content.width),\(content.height))")
         // Dedup: suppress frame writes for content changes < 1pt (KVO noise suppression).
-        // Distinct from the 0.5pt arrow threshold in applyFrame — that guards @Observable
-        // writes to limits.arrowCenterX. These operate in sequence: if this guard fires,
-        // applyFrame never runs and arrowCenterX is never touched. No desync path exists.
         if let last = lastContentSize,
            abs(last.width - content.width) < 1, abs(last.height - content.height) < 1 {
             mbkLog("PanelController", "SKIP -- content unchanged (\(content.width),\(content.height)) lastContentSize=\(lastContentSize.map { " (\($0.width),\($0.height))" } ?? "nil") SUPPRESSED")
@@ -205,12 +183,9 @@ extension MBKPanelController {
             visibleFrame: anchor.visibleFrame,
             metrics: metrics
         )
-        mbkLog("PanelController", "applyFrame LAYOUT -- layout.frame=\(layout.frame) arrowX=\(layout.arrowCenterX) wasClamped=\(layout.wasClamped)")
+        mbkLog("PanelController", "applyFrame LAYOUT -- layout.frame=\(layout.frame) wasClamped=\(layout.wasClamped)")
 
         mbkLog("PanelController", "applyFrame PRE-SET -- current panel.frame=\(panel.frame)")
-        if abs(limits.arrowCenterX - layout.arrowCenterX) >= 0.5 {
-            limits.arrowCenterX = layout.arrowCenterX
-        }
         panel.setFrame(layout.frame, display: true)
         panel.invalidateShadow()
         mbkLog("PanelController", "applyFrame POST-SET -- panel.frame=\(panel.frame)")
@@ -220,7 +195,7 @@ extension MBKPanelController {
             """
             \(reason) content=(\(content.width),\(content.height)) \
             anchorX=\(anchor.anchorX) topY=\(anchor.topY) hidden=\(anchor.menuBarHidden) \
-            frame=\(layout.frame) arrowX=\(layout.arrowCenterX) clamped=\(layout.wasClamped)
+            frame=\(layout.frame) clamped=\(layout.wasClamped)
             """
         )
     }
