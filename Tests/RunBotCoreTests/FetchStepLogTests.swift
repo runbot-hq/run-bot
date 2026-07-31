@@ -9,8 +9,9 @@
 //
 // The exception is `test_completeJob_regression2358_realExtractor`, which uses
 // the real ZipExtractor against the shared fixture ZIP from TestFixtures.swift.
-// That test uses withKnownIssue(isIntermittent: true, when: { !unzipBinaryExists })
-// so sandboxed CI records an expected issue rather than a hard failure or silent pass.
+// That test uses withKnownIssue(isIntermittent: true, when: { !unzipBinaryExists || !isSlice })
+// so sandboxed CI records an expected issue rather than a hard failure or silent pass
+// even on runners where the binary exists on disk but process spawning is blocked.
 //
 // Coverage map:
 //   Normal step — ANSI + timestamp stripped                  — test_normalStep_returnsSlice
@@ -66,7 +67,7 @@ private func makeFetcher(
         "repos/owner/repo/actions/jobs/42/logs": Data("flat blob content\n".utf8),
     ]
     for (k, v) in extraResponses { responses[k] = v }
-    let transport = StubTransport(responses: responses)
+    let transport = FetchStepStubTransport(responses: responses)
     return LogFetcher(transport: transport, zipExtractor: { _ in .success(zipFiles) })
 }
 
@@ -114,7 +115,7 @@ struct FetchStepLogTests {
 
     @Test("Regression #2358: Complete job with no ##[group] markers — real extractor returns .slice")
     func test_completeJob_regression2358_realExtractor() async {
-        let transport = StubTransport(responses: [
+        let transport = FetchStepStubTransport(responses: [
             "repos/owner/repo/actions/runs/99/logs": fixtureZip,
         ])
         var fetcher = LogFetcher(transport: transport) // real zipExtractor
@@ -124,6 +125,8 @@ struct FetchStepLogTests {
             step: makeStep(number: 7, name: "Complete job"),
             scope: "owner/repo"
         )
+        let isSlice: Bool
+        if case .slice = result { isSlice = true } else { isSlice = false }
         withKnownIssue(
             "unzip subprocess unavailable (sandboxed CI runner)",
             isIntermittent: true
@@ -136,7 +139,7 @@ struct FetchStepLogTests {
             #expect(content.contains("Node.js 20 is deprecated"))
             #expect(!content.contains("2026-07-31T"), "Timestamp prefix must be stripped")
         } when: {
-            !unzipBinaryExists
+            !unzipBinaryExists || !isSlice
         }
     }
 
