@@ -447,6 +447,12 @@ public actor RunnerPoller {
     // next fetch uses a fresh activeScopes snapshot. start() is called here — after
     // applyFetchResult has fully returned — so its cache-clear runs after notification
     // dispatch is complete. No ordering constraint inside applyFetchResult is required.
+    //
+    // No actor-state is written after this point. start() cancels the current poll
+    // Task (this Task) via pollLoop.setPollTask and spawns a new one; the old task
+    // exits normally when fetchInternal returns. Swift actor exclusivity ensures the
+    // new task cannot begin executing until this call stack unwinds — there is no
+    // window in which both tasks mutate actor state concurrently.
     if didPickUp { await start() }
   }
 

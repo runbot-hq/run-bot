@@ -30,10 +30,16 @@ extension RunnerPoller {
     /// This avoids any interaction between `start()`'s cache-clear and the state
     /// written earlier in this function.
     ///
-    /// A read-only `activeScopes` re-read with no downstream write was considered
-    /// and rejected: `scopesSnapshot` is captured once at the top of `fetchInternal()`
-    /// and cannot be patched mid-cycle. `start()` is the only mechanism that produces
-    /// a fetch cycle with a fresh snapshot. This mirrors the `startObservingScopes()`
+    /// **Pickup detection is not gated on notification authorisation.** A runner
+    /// picking up work returns `true` (and `fetchInternal` will call `start()`) even
+    /// when the `guard isAuthorized` block takes the early-return path. The early
+    /// return exits only the `if !newlyCompleted.isEmpty` block — not the whole
+    /// function — and `newlyPickedUp(prev:current:)` is called on both exit paths.
+    ///
+    /// **Why `start()` rather than a scoped re-read of `activeScopes`:**
+    /// `scopesSnapshot` is captured once at the top of `fetchInternal()` and cannot
+    /// be patched mid-cycle. `start()` is the only mechanism that produces a fetch
+    /// cycle with a truly fresh snapshot. This mirrors the `startObservingScopes()`
     /// → `start()` path that already fires on scope changes.
     ///
     /// **Function body length:** 70 non-comment lines (below the 90-line `swiftlint`
@@ -97,9 +103,10 @@ extension RunnerPoller {
         // It is valid for these to disagree transiently (e.g. a runner is busy but
         // the job API hasn't surfaced it yet). In that case the active ladder is
         // entered only when hasActiveWork is true — intentional per #2069 design.
-        // `enrichedRunners` is used here (not `self.runners`) because the values are
-        // identical — `enrichedRunners` is exactly what setDisplayState wrote above —
-        // so this is spec-equivalent to `runners.filter { $0.busy }.count`.
+        // `enrichedRunners` is used here rather than `self.runners` because
+        // setDisplayState wrote enrichedRunners into self.runners in the call above —
+        // they are identical at this point. Using enrichedRunners directly avoids a
+        // redundant property indirection and makes the value origin explicit.
         let busyCount = enrichedRunners.filter { $0.busy }.count
         let activeWork = hasActiveWork()
         let newIdleTicks = updateAdaptiveCounters(hasActiveWork: activeWork, busyRunnerCount: busyCount)
