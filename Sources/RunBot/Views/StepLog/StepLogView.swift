@@ -68,6 +68,11 @@ struct StepLogView: View {
     /// Handle for the in-flight log fetch task; cancelled in `onDisappear` and at the
     /// top of `loadLog()` to prevent races if `onAppear` fires more than once.
     @State private var loadTask: Task<Void, Never>?
+    /// Shared `LogFetcher` instance for the lifetime of this view.
+    /// Must be `@State` (not a local) so the ZIP cache in `zipCache` survives
+    /// across step taps — creating a new `LogFetcher()` inside `loadLog()` would
+    /// discard the cache on every call and re-download the ZIP each time.
+    @State private var logFetcher = LogFetcher()
 
     // MARK: - Formatters (static to avoid re-allocation per render)
     /// `HH:mm:ss` formatter used for start/end time labels in the meta row.
@@ -309,11 +314,15 @@ struct StepLogView: View {
             // disabled) per #1515 policy exception — saved repo preferred over unrelated active repo.
             return scopeStore.entries.first(where: { $0.scope.contains("/") })?.scope ?? ""
         }()
+        // Capture a copy of the fetcher so the mutating fetchStepLog call (which updates
+        // zipCache) is legal inside the Task. After the call we write the updated copy
+        // back to `logFetcher` on the MainActor so the cache is preserved for the next tap.
+        let fetcherSnapshot = logFetcher
         loadTask = Task {
             defer { Task { @MainActor in isLoading = false } }
             guard !Task.isCancelled else { return }
-            var fetcher = LogFetcher()
-            let result = await fetcher.fetchStepLog(
+            var localFetcher = fetcherSnapshot
+            let result = await localFetcher.fetchStepLog(
                 runID: runID,
                 startedAt: startedAt,
                 jobID: jobID,
@@ -323,6 +332,7 @@ struct StepLogView: View {
             )
             guard !Task.isCancelled else { return }
             await MainActor.run {
+                logFetcher = localFetcher  // persist updated zipCache back to view state
                 logResult = result
                 logText = result.text ?? ""
                 onLogLoaded?()

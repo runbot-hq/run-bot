@@ -185,7 +185,10 @@ public struct LogFetcher: Sendable {
         step: GitHubStep,
         scope: String
     ) async -> StepLogResult {
-        guard scope.contains("/") else { return .fetchFailed }
+        guard scope.contains("/") else {
+            log("fetchStepLog › invalid scope '\(scope)' — must be owner/repo", category: .services)
+            return .fetchFailed
+        }
 
         func clean(_ text: String) -> String { cleanLogText(text) }
 
@@ -262,7 +265,7 @@ func sanitizeJobNameForZIP(_ name: String) -> String {
     return s
 }
 
-// MARK: - ZIP extraction (uses /usr/bin/unzip — always available on macOS) (uses /usr/bin/unzip — always available on macOS)
+// MARK: - ZIP extraction (uses /usr/bin/unzip — always available on macOS)
 
 /// Extracts all `.txt` files from a ZIP blob and returns `(name, text)` pairs.
 ///
