@@ -266,16 +266,22 @@ public struct LogFetcher: Sendable {
 ///    `String.Substring(0, 90)` which counts UTF-16 `Char` objects. Swift `.count` counts
 ///    Unicode scalars, not UTF-16 code units — emoji and CJK characters truncate at a
 ///    different offset without this step.
+/// 4. Trim leading/trailing whitespace — the C# server calls `.Trim()` after truncation
+///    (and the `gh` CLI does `strings.TrimSpace`). Truncation can expose a trailing space
+///    that was previously interior.
 func sanitizeJobNameForZIP(_ name: String) -> String {
     let stripped = name
         .replacingOccurrences(of: "/", with: "")
         .replacingOccurrences(of: ":", with: "")
-    guard stripped.utf16.count > 90 else { return stripped }
+    guard stripped.utf16.count > 90 else { return stripped.trimmingCharacters(in: .whitespaces) }
     var units = Array(stripped.utf16.prefix(90))
     if let last = units.last, (0xD800...0xDBFF).contains(last) {
         units.removeLast()
     }
-    return String(decoding: units, as: UTF16.self)
+    // Mirror the C# server's `.Trim()` call (and the gh CLI's `strings.TrimSpace`) which
+    // both trim the result after truncation. Truncation can expose a trailing space that
+    // was previously interior.
+    return String(decoding: units, as: UTF16.self).trimmingCharacters(in: .whitespaces)
 }
 
 // MARK: - ZIP extraction (uses /usr/bin/unzip — always available on macOS)
