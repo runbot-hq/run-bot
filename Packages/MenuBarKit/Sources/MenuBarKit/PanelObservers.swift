@@ -24,13 +24,21 @@ import AppKit
 /// without holding a reference to the generic concrete type.
 @MainActor
 protocol MBKPanelObserverTarget: AnyObject {
+    /// Whether the panel is currently visible.
     var isShown: Bool { get }
+    /// Gate that tracks active overlays (sheets, pickers, alerts).
     var overlayGate: MBKOverlayGate { get }
+    /// Whether the panel currently has a sheet child window attached.
     var hasSheetChildWindow: Bool { get }
+    /// Performs a normal close of the panel.
     func performClose()
+    /// Force-closes the panel, dismissing any active overlay.
     func forceClose()
+    /// Refreshes layout and frame after a display-topology change.
     func refreshForScreenChange()
+    /// Applies a new measured content size to the panel frame.
     func applyMeasuredSize(_ size: CGSize)
+    /// Whether the panel has been opened at least once since setup.
     var hasOpenedOnce: Bool { get }
 }
 
@@ -42,12 +50,17 @@ protocol MBKPanelObserverTarget: AnyObject {
 @MainActor
 final class MBKPanelObservers {
 
+    /// The controller this observer set acts on behalf of.
     weak var controller: (any MBKPanelObserverTarget)?
 
+    /// Token for the workspace active-application notification observer.
     nonisolated(unsafe) var workspaceObserver: NSObjectProtocol?
+    /// Token for the screen-parameters change notification observer.
     nonisolated(unsafe) var screenObserver: NSObjectProtocol?
+    /// Token for the global mouse-down event monitor.
     nonisolated(unsafe) var eventMonitor: Any?
 
+    /// Creates an observer manager for the given controller.
     init(controller: any MBKPanelObserverTarget) {
         self.controller = controller
     }
