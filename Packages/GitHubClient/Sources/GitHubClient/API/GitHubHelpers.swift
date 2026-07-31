@@ -103,20 +103,25 @@ private let timestampRegex: NSRegularExpression? = try? NSRegularExpression(
 ///
 /// Produced by `buildParsedLog`. The `name` is the exact text that follows the `##[group]`
 /// marker (e.g. `"Run actions/checkout@v4"`). The `body` is the cleaned content between
-/// the group and endgroup markers, with the marker lines themselves included so callers
-/// can render them as section boundaries if needed.
+/// the group and endgroup markers, with the marker lines themselves included.
 ///
 /// Read-only by design; construction is intentionally internal to GitHubHelpers.
 public struct LogSection {
     /// The name extracted from the `##[group]<name>` marker line.
     public let name: String
-    /// Cleaned body lines between (and including) the ##[group] and ##[endgroup] markers.
-    /// The marker lines are intentionally retained so the UI can render them as visible
-    /// section boundaries in the monospaced log view without a separate stripping pass.
+    /// Cleaned body lines between (and including) the `##[group]` and `##[endgroup]` markers.
     ///
-    /// For sections closed by a back-to-back ##[group] (no explicit ##[endgroup] in the
+    /// **Marker lines are intentionally included and are expected to appear in the rendered log.**
+    /// `##[group]<name>` and `##[endgroup]` are plain-text control directives emitted by the
+    /// GitHub Actions runner into the raw log file. They are not stripped here because they
+    /// are normal content that developers expect to see in a raw log view — exactly as they
+    /// appear in the downloaded `.zip` log archive or in `curl`-fetched raw log output.
+    /// `StepLogView` renders `body` directly in a monospaced `Text` view without any
+    /// additional filtering, and that is the intended and correct behaviour.
+    ///
+    /// For sections closed by a back-to-back `##[group]` (no explicit `##[endgroup]` in the
     /// source log), a synthetic `##[endgroup]` line is appended before flushing so that
-    /// the body always contains both markers regardless of how the section was closed.
+    /// `body` always contains both markers regardless of how the section was closed.
     public let body: String
 }
 
@@ -232,6 +237,12 @@ private func fetchAndDecodeStepLog(
 ///      GitHub Actions always adds "Run " in the log group header and never in the API
 ///      step name. Handling the inverse would require a second, asymmetric check that
 ///      serves no real case and would risk false matches.
+///      **Stage-2 is only reached when stage 1 has already failed**, meaning no section
+///      is named exactly `stepName` (case-insensitively). Therefore, if `stepName` itself
+///      starts with `"run "` (e.g. `"run build"`), stage 1 has already checked for a section
+///      named `"run build"` and found none. Stage 2 then constructs `"run run build"` as
+///      the candidate, which will not match any real section and falls through to stage 3.
+///      This edge is harmless: it produces no false match, only an extra no-op lookup.
 ///      **Ordering guarantee**: steps 1–2 match against *section names* and run before
 ///      step 3, which matches against the *step name*. A user step named "Post deploy"
 ///      whose log emits `##[group]Run Post deploy` is therefore caught by step 2
@@ -290,9 +301,14 @@ func parseStepLog(
     //    case-insensitive exact comparison. General hasPrefix is intentionally avoided:
     //    "Build" must not match "Build documentation".
     //    This normalisation is intentionally one-directional and the design is complete —
-    //    see the doc comment above for the full rationale. The inverse direction (step
-    //    named "Run X", section header "X" without the "Run " prefix) is not handled
-    //    because it does not arise in practice.
+    //    see the doc comment above for the full rationale.
+    //
+    //    Edge case — stepName already starts with "run " (e.g. "run build"):
+    //    Stage 1 already performed an exact case-insensitive check for a section named
+    //    "run build" and found none (otherwise we would have returned above). Stage 2
+    //    therefore constructs "run run build" as the candidate, which will not match any
+    //    real GitHub Actions section header and falls through to stage 3 harmlessly.
+    //    No false match is possible; it is simply one extra no-op lookup.
     if let match = parsed.sections.first(where: {
         $0.name.lowercased() == "run \(lowerStep)"
     }) {
