@@ -4,6 +4,10 @@
 // Non-generic @MainActor class that owns the three observer/monitor registrations
 // for MBKPanelController.
 //
+// Escape is handled by MBKPanel.cancelOperation(_:), not by a monitor — the
+// panel takes key status, so Escape reaches the responder chain normally.
+// See PanelController.swift file header for full design notes.
+//
 // WHY THIS EXISTS:
 //   The observer closures previously lived in an extension on the generic class
 //   MBKPanelController<Content: View>. Any `Task { @MainActor [weak self] }` in
