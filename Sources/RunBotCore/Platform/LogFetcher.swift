@@ -315,13 +315,18 @@ func unzipLogsTyped(_ zipData: Data) async -> UnzipResult {
     guard let enumerator = fileManager.enumerator(at: tmp, includingPropertiesForKeys: nil) else { return .ioError }
     let txtURLs = enumerator.compactMap { $0 as? URL }.filter { $0.pathExtension == "txt" }
     var results: [(name: String, text: String)] = []
+    // Resolve symlinks on the tmp prefix so that the /tmp → /private/tmp alias
+    // on macOS does not cause the prefix-stripping below to silently no-op,
+    // leaving absolute paths (e.g. "/privaterelease/2_Checkout") in the names.
+    let tmpResolved = tmp.resolvingSymlinksInPath().path
     for url in txtURLs {
         // Strip the tmp directory prefix to get the archive-relative path, then
         // drop the .txt extension. Using NSString.deletingPathExtension rather than
         // URL(fileURLWithPath:).deletingPathExtension().path avoids the leading-slash
         // bug: URL(fileURLWithPath:) treats its argument as absolute, prepending "/"
         // to relative strings and breaking the hasPrefix("jobName/") lookup downstream.
-        let relative = url.path.replacingOccurrences(of: tmp.path + "/", with: "")
+        let resolved = url.resolvingSymlinksInPath().path
+        let relative = resolved.replacingOccurrences(of: tmpResolved + "/", with: "")
         let name = (relative as NSString).deletingPathExtension
         if let text = try? String(contentsOf: url, encoding: .utf8) {
             results.append((name: name, text: text))
