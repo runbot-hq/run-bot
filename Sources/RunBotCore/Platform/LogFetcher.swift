@@ -139,7 +139,16 @@ public struct LogFetcher: Sendable {
                         log("fetchActionLogs › run \(runID) — transport.raw returned nil, skipping", category: .services)
                         return []
                     }
-                    return await unzipLogs(data)
+                    switch await unzipLogsTyped(data) {
+                    case .success(let files):
+                        return files
+                    case .processFailed(let exitCode):
+                        log("fetchActionLogs › run \(runID) — unzip exited \(exitCode)", category: .services)
+                        return []
+                    case .ioError:
+                        log("fetchActionLogs › run \(runID) — unzip I/O error", category: .services)
+                        return []
+                    }
                 }
             }
             var collected: [(name: String, text: String)] = []
@@ -223,8 +232,8 @@ public struct LogFetcher: Sendable {
 
         // Exclude top-level blob files. Only entries with a "/" in the name are per-step
         // slices (e.g. "release/2_Checkout.txt" → name "release/2_Checkout"). Top-level
-        // entries like a hypothetical root-level `.txt` file are filtered here. `logs.zip`
-        // itself is already excluded by the explicit `url != zipFile` guard in `unzipLogsTyped`.
+        // entries like a hypothetical root-level `.txt` file are filtered here.
+        // `logs.zip` is already excluded in `unzipLogsTyped` (extension + explicit URL guard).
         let stepFiles = allFiles.filter { $0.name.contains("/") }
         let sanitised = sanitizeJobNameForZIP(jobName)
         let hasStepFiles = stepFiles.contains { $0.name.hasPrefix("\(sanitised)/") }
@@ -336,13 +345,14 @@ func unzipLogsTyped(_ zipData: Data) async -> UnzipResult {
     // exit code 2 and above indicate a genuine extraction failure.
     guard result.exitCode <= 1 else { return .processFailed(exitCode: result.exitCode) }
     guard let enumerator = fileManager.enumerator(at: tmp, includingPropertiesForKeys: nil) else { return .ioError }
-    // Explicitly exclude the archive itself: `logs.zip` is written into `tmp` before
-    // extraction, so the enumerator would otherwise return it as a candidate entry.
-    // The `.pathExtension == "txt"` check is a second guard, but naming the temp file
-    // `logs.zip` would only be safe by accident if we relied solely on extension filtering.
+    // Keep only .txt files and exclude the archive itself.
+    // `logs.zip` is written into `tmp` before extraction so the enumerator sees it;
+    // the `.pathExtension == "txt"` check is the primary guard ("zip" ≠ "txt"), and
+    // the explicit URL comparison is belt-and-suspenders against a future rename of
+    // the temp file to a .txt name.
     let zipFileResolved = zipFile.resolvingSymlinksInPath()
     let txtURLs = enumerator.compactMap { $0 as? URL }.filter {
-        $0.resolvingSymlinksInPath() != zipFileResolved && $0.pathExtension == "txt"
+        $0.pathExtension == "txt" && $0.resolvingSymlinksInPath() != zipFileResolved
     }
     var results: [(name: String, text: String)] = []
     // Resolve symlinks on the tmp prefix so that the /tmp → /private/tmp alias
