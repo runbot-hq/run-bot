@@ -232,6 +232,9 @@ public struct LogFetcher: Sendable {
                 return .fetchFailed
             }
             let parsed = parseStepLog(raw, stepName: step.name, stepNumber: step.number, logger: transport.logger)
+            if parsed == nil {
+                log("fetchStepLog › parseStepLog returned nil for step \(step.number) '\(step.name)' job \(jobID) run \(runID) — serving full raw job log via flatBlobFallback", category: .services)
+            }
             return .flatBlobFallback(content: parsed ?? clean(raw))
         }
 
@@ -321,7 +324,10 @@ func unzipLogsTyped(_ zipData: Data) async -> UnzipResult {
         executableURL: URL(fileURLWithPath: unzipBinaryPath),
         arguments: ["-q", zipFile.path, "-d", tmp.path]
     )
-    guard result.exitCode == 0 else { return .processFailed(exitCode: result.exitCode) }
+    // Exit code 0 = success. Exit code 1 = success with warnings (e.g. extra bytes
+    // prepended to the ZIP — which GitHub's log API occasionally produces). Only
+    // exit code 2 and above indicate a genuine extraction failure.
+    guard result.exitCode <= 1 else { return .processFailed(exitCode: result.exitCode) }
     // Materialise the enumerator into a plain [URL] array before any suspension
     // point — FileManager.DirectoryEnumerator.makeIterator is unavailable from
     // async contexts (Swift concurrency restriction).
