@@ -46,12 +46,6 @@ private func makeStep(number: Int, name: String) -> GitHubStep {
 }
 
 /// Builds a `LogFetcher` with a stub transport and a no-subprocess extractor.
-///
-/// - `zipFiles`: The entries the extractor returns directly (bypasses unzip).
-/// - `rawResponses`: URL-prefix → Data map forwarded to `StubTransport`.
-///   A default ZIP-endpoint entry (`repos/owner/repo/actions/runs/99/logs`) is
-///   always included so the transport guard never trips. The content is irrelevant
-///   because the injected `zipExtractor` ignores the raw bytes entirely.
 private func makeFetcher(
     zipFiles: [(name: String, text: String)],
     extraResponses: [String: Data] = [:]
@@ -109,20 +103,6 @@ struct FetchStepLogTests {
         #expect(content.contains("Cleaning up orphan processes"))
     }
 
-    /// THE #2358 REGRESSION TEST — real unzip subprocess, real fixture ZIP.
-    ///
-    /// Unlike `test_completeJob_regression2358` (stub extractor), this test runs
-    /// the actual /usr/bin/unzip subprocess against the committed fixture in
-    /// TestFixtures.swift. It exercises the full pipeline:
-    ///   transport → raw ZIP bytes → unzip subprocess → file enumeration
-    ///   → cleanLogText (strip timestamps + ANSI) → StepLogResult.slice
-    ///
-    /// If this test fails while the stub test passes, the regression is in
-    /// the extraction layer (unzipLogs / file enumeration), not in routing logic.
-    ///
-    /// Sandboxed CI: withKnownIssue(when: !checkUnzipAvailable()) marks this as an
-    /// expected issue rather than a hard failure. If the sandbox is lifted,
-    /// withKnownIssue surfaces a real failure because the issue no longer reproduces.
     @Test("Regression #2358: Complete job with no ##[group] markers — real extractor returns .slice")
     func test_completeJob_regression2358_realExtractor() async {
         let transport = StubTransport(responses: [
@@ -137,10 +117,7 @@ struct FetchStepLogTests {
         )
         withKnownIssue("unzip subprocess unavailable (sandboxed CI runner)") {
             guard case .slice(let content) = result else {
-                Issue.record(
-                    "REGRESSION #2358 (real extractor): Expected .slice for 'Complete job', got \(result). " +
-                    "This step has no ##[group] markers — the ZIP per-step lookup must still succeed."
-                )
+                Issue.record("REGRESSION #2358 (real extractor): Expected .slice for 'Complete job', got \(result). This step has no ##[group] markers — the ZIP per-step lookup must still succeed.")
                 return
             }
             #expect(content.contains("Cleaning up orphan processes"))
