@@ -60,6 +60,13 @@ public struct ActiveJob: Identifiable, Equatable, Sendable {
     public var runnerName: String? { raw.runnerName }
     /// Steps array forwarded from `raw.steps`.
     public var steps: [GitHubStep] { raw.steps }
+    /// The workflow run ID this job belongs to. Forwarded from `raw.runID`.
+    public var runID: Int { raw.runID }
+    /// The raw ISO 8601 start timestamp. Forwarded from `raw.startedAt`.
+    /// Used as the cache-key discriminator in `fetchStepLog` — do not use `startDate` (a parsed
+    /// `Date`) for this purpose; re-runs of the same `runID` share the same integer but have
+    /// different `startedAt` strings, so the cache key must be `"\(runID)-\(startedAt ?? "")"` .
+    public var startedAt: String? { raw.startedAt }
 
     // MARK: Overridable fields
 

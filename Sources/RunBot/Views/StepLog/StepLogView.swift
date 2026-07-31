@@ -59,12 +59,25 @@ struct StepLogView: View {
     /// Defaults to the live singleton so all existing call sites require no changes.
     var scopeStore: any ScopeStoreProtocol = ScopeStore.shared
     /// `nil` = not yet fetched; `""` = fetch returned empty; non-empty = log text.
+    /// Kept for `LogCopyButton` compatibility — mirrors `logResult.text`.
     @State private var logText: String?
+    /// The typed result of the last step log fetch. Drives the scroll-view rendering.
+    @State private var logResult: StepLogResult?
     /// `true` while the background fetch is in-flight.
     @State private var isLoading = true
     /// Handle for the in-flight log fetch task; cancelled in `onDisappear` and at the
     /// top of `loadLog()` to prevent races if `onAppear` fires more than once.
     @State private var loadTask: Task<Void, Never>?
+    /// Bound to the `AppState`-owned `LogFetcher` so the ZIP cache survives
+    /// across step taps. `@State` would be discarded on every `.id(navState)`
+    /// remount in `RootPanelView` (SwiftUI tears down the full state tree when
+    /// the identity key changes, which happens on every step tap). By owning
+    /// `LogFetcher` in `AppState` and threading it down via `@Binding`, the
+    /// ZIP cache persists for the lifetime of the panel session: the second
+    /// step tap in the same run hits the cache and skips the network call.
+    /// The snapshot/writeback pattern in `loadLog()` propagates cache updates
+    /// back to `AppState` through this binding on the MainActor after each fetch.
+    @Binding var logFetcher: LogFetcher
 
     // MARK: - Formatters (static to avoid re-allocation per render)
     /// `HH:mm:ss` formatter used for start/end time labels in the meta row.
@@ -93,12 +106,14 @@ struct StepLogView: View {
     init(
         job: ActiveJob,
         step: GitHubStep,
+        logFetcher: Binding<LogFetcher> = .constant(LogFetcher()), // preview/test only — production callers must pass AppState's @Binding; .constant writes are silently dropped
         onBack: @escaping () -> Void,
         onLogLoaded: (() -> Void)? = nil,
         scopeStore: any ScopeStoreProtocol = ScopeStore.shared
     ) {
         self.job = job
         self.step = step
+        self._logFetcher = logFetcher
         self.onBack = onBack
         self.onLogLoaded = onLogLoaded
         self.scopeStore = scopeStore
@@ -206,17 +221,42 @@ struct StepLogView: View {
                         ProgressView().controlSize(.small).padding(.vertical, 20)
                         Spacer()
                     }
-                } else if let text = logText, !text.isEmpty {
-                    Text(text)
-                        .font(.system(size: 11, design: .monospaced))
-                        .foregroundColor(Color.rbTextPrimary)
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, RBSpacing.md).padding(.vertical, 6)
                 } else {
-                    Text("Log not available")
-                        .font(.caption).foregroundColor(Color.rbTextSecondary)
-                        .padding(.horizontal, RBSpacing.md).padding(.vertical, 8)
+                    switch logResult {
+                    case .slice(let content):
+                        Text(content)
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundColor(Color.rbTextPrimary)
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, RBSpacing.md).padding(.vertical, 6)
+                    case .flatBlobFallback(let content):
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("⚠️ Per-step logs unavailable for this run — showing full job log")
+                                .font(.caption).foregroundColor(Color.rbWarning)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.horizontal, RBSpacing.md).padding(.top, 6)
+                            Divider().padding(.horizontal, RBSpacing.md)
+                            Text(content)
+                                .font(.system(size: 11, design: .monospaced))
+                                .foregroundColor(Color.rbTextPrimary)
+                                .textSelection(.enabled)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.horizontal, RBSpacing.md).padding(.bottom, 6)
+                        }
+                    case .syntheticEmpty(let name):
+                        Text("No output recorded for \"\(name)\"")
+                            .font(.caption).foregroundColor(Color.rbTextSecondary)
+                            .padding(.horizontal, RBSpacing.md).padding(.vertical, 8)
+                    case .fetchFailed:
+                        Text("Failed to fetch log")
+                            .font(.caption).foregroundColor(Color.rbDanger)
+                            .padding(.horizontal, RBSpacing.md).padding(.vertical, 8)
+                    case nil:
+                        Text("Log not available")
+                            .font(.caption).foregroundColor(Color.rbTextSecondary)
+                            .padding(.horizontal, RBSpacing.md).padding(.vertical, 8)
+                    }
                 }
             }
             // ⚠️ REQUIRED -- caps preferredContentSize.height. Prevents panel growing off-screen.
@@ -270,8 +310,10 @@ struct StepLogView: View {
         loadTask?.cancel() // Signals cancellation; does NOT abort in-flight network I/O.
         isLoading = true
         let jobID = job.id
-        let stepNum = step.number
-        let stepName = step.name
+        let runID = job.runID
+        let startedAt = job.startedAt
+        let jobName = job.name
+        let capturedStep = step
         let scope: String = {
             let primary = repoScopeForFetch
             if !primary.isEmpty { return primary }
@@ -279,13 +321,33 @@ struct StepLogView: View {
             // disabled) per #1515 policy exception — saved repo preferred over unrelated active repo.
             return scopeStore.entries.first(where: { $0.scope.contains("/") })?.scope ?? ""
         }()
+        // Capture a copy of the fetcher so the mutating fetchStepLog call (which updates
+        // zipCache) is legal inside the Task. After the call we write the updated copy
+        // back to `logFetcher` on the MainActor so the cache is preserved for the next tap.
+        let fetcherSnapshot = logFetcher
         loadTask = Task {
-            defer { Task { @MainActor in isLoading = false } }
+            // Do NOT use `defer` for `isLoading = false`: a `defer` fires even on the
+            // early-cancel `guard` returns below, which would clear the spinner while a
+            // *new* task is still in flight, briefly flashing "Log not available" to the
+            // user. Instead, clear `isLoading` only on the two paths that actually settle
+            // the view: the cancellation bailout after the fetch (where we do nothing and
+            // the new task owns loading state), and the successful write-back path.
             guard !Task.isCancelled else { return }
-            let text = await fetchStepLog(jobID: jobID, stepNumber: stepNum, stepName: stepName, scope: scope)
+            var localFetcher = fetcherSnapshot
+            let result = await localFetcher.fetchStepLog(
+                runID: runID,
+                startedAt: startedAt,
+                jobID: jobID,
+                jobName: jobName,
+                step: capturedStep,
+                scope: scope
+            )
             guard !Task.isCancelled else { return }
             await MainActor.run {
-                logText = text ?? ""
+                logFetcher = localFetcher  // persist updated zipCache back to view state
+                logResult = result
+                logText = result.text ?? ""
+                isLoading = false
                 onLogLoaded?()
             }
         }
