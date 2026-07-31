@@ -24,6 +24,10 @@
 //   ANSI + timestamp compose (ANSI-after-Z) — test_ansiAndTimestampCompose
 //   CRLF normalisation                      — test_crlfNormalisation
 //   bare CR normalisation                   — test_bareCrNormalisation
+//   buildParsedLog structural: sections, preamble, epilogue
+//                                           — test_buildParsedLog_structure
+//   buildParsedLog structural: orphan endgroup discarded
+//                                           — test_buildParsedLog_orphanEndgroup_discarded
 import Foundation
 @testable import GitHubClient
 import XCTest
@@ -297,6 +301,82 @@ final class GitHubHelpersTests: XCTestCase {
         let finalCount = text.components(separatedBy: "final cleanup line").count - 1
         XCTAssertEqual(annotationCount, 1, "inter-group annotation must appear exactly once")
         XCTAssertEqual(finalCount, 1, "final cleanup line must appear exactly once")
+    }
+
+    // MARK: - buildParsedLog structural tests
+
+    func test_buildParsedLog_structure() {
+        // Directly asserts the structural output of buildParsedLog: sections contain only
+        // their own body lines, preamble contains only pre-group lines, and epilogue contains
+        // both inter-group lines and the post-final-endgroup tail — with no cross-contamination.
+        // This is more precise than the black-box tests above, which go through parseStepLog
+        // and could survive a refactor that merges or reorders epilogue buckets.
+        let cleaned = [
+            "preamble line",
+            "##[group]Run step-one",
+            "step one body",
+            "##[endgroup]",
+            "inter-group line",
+            "##[group]Run step-two",
+            "step two body",
+            "##[endgroup]",
+            "final tail line"
+        ].joined(separator: "\n")
+        let parsed = buildParsedLog(from: cleaned)
+
+        // Sections
+        XCTAssertEqual(parsed.sections.count, 2)
+        XCTAssert(parsed.sections[0].name == "Run step-one")
+        XCTAssert(parsed.sections[0].body.contains("step one body"))
+        XCTAssertFalse(parsed.sections[0].body.contains("inter-group line"),
+            "Section body must not contain inter-group lines")
+        XCTAssert(parsed.sections[1].name == "Run step-two")
+        XCTAssert(parsed.sections[1].body.contains("step two body"))
+
+        // Preamble
+        XCTAssert(parsed.preamble.contains("preamble line"))
+        XCTAssertFalse(parsed.preamble.contains("step one body"),
+            "Preamble must not contain section body content")
+
+        // Epilogue: must contain both inter-group and final-tail lines
+        XCTAssert(parsed.epilogue.contains("inter-group line"),
+            "Epilogue must contain inter-group lines")
+        XCTAssert(parsed.epilogue.contains("final tail line"),
+            "Epilogue must contain post-final-endgroup tail")
+        XCTAssertFalse(parsed.epilogue.contains("step one body"),
+            "Epilogue must not contain section body content")
+        XCTAssertFalse(parsed.epilogue.contains("step two body"),
+            "Epilogue must not contain section body content")
+        XCTAssertFalse(parsed.epilogue.contains("preamble line"),
+            "Epilogue must not contain preamble content")
+    }
+
+    func test_buildParsedLog_orphanEndgroup_discarded() {
+        // An orphan ##[endgroup] (no matching open ##[group]) must be silently discarded:
+        // it must not appear in preamble, epilogue, or any section body.
+        // This directly asserts the doc-comment contract for the refactored endgroup branch.
+        let cleaned = [
+            "##[endgroup]",
+            "##[group]Run step-one",
+            "step one body",
+            "##[endgroup]",
+            "##[endgroup]"
+        ].joined(separator: "\n")
+        let parsed = buildParsedLog(from: cleaned)
+
+        XCTAssertEqual(parsed.sections.count, 1)
+        XCTAssertFalse(parsed.preamble.contains("##[endgroup]"),
+            "Orphan endgroup must not appear in preamble")
+        XCTAssertFalse(parsed.epilogue.contains("##[endgroup]"),
+            "Orphan endgroup must not appear in epilogue")
+        XCTAssertFalse(parsed.sections[0].body.contains("##[endgroup]##[endgroup]"),
+            "Only one endgroup marker (the section close) must appear in the section body")
+        // The section's own closing ##[endgroup] is included in the body by design — verify
+        // it appears exactly once.
+        let endgroupCount = parsed.sections[0].body
+            .components(separatedBy: "##[endgroup]").count - 1
+        XCTAssertEqual(endgroupCount, 1,
+            "Section body must contain exactly one ##[endgroup] (the section close)")
     }
 
     // MARK: - Cleaning pipeline

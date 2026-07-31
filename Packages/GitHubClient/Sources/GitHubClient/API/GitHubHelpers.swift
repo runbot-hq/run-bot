@@ -369,15 +369,15 @@ func buildParsedLog(from cleaned: String) -> ParsedLog {
             currentName = String(line.dropFirst("##[group]".count))
             currentBody = [line]
         } else if line.hasPrefix("##[endgroup]") {
-            currentBody.append(line)
             if let name = currentName {
+                // Normal close: append the endgroup marker to the section body, flush the section.
+                currentBody.append(line)
                 sections.append(LogSection(name: name, body: currentBody.joined(separator: "\n")))
+                currentName = nil
+                currentBody = []
             }
-            // If currentName == nil here, this is an orphan ##[endgroup] with no matching
-            // ##[group]. The line is intentionally discarded — not added to preamble,
-            // interGroupLines, or any section. See buildParsedLog doc comment.
-            currentName = nil
-            currentBody = []
+            // Orphan ##[endgroup] (currentName == nil): intentionally discarded — not added
+            // to preamble, interGroupLines, or any section. See buildParsedLog doc comment.
         } else if currentName != nil {
             currentBody.append(line)
         } else if !seenFirstGroup {
