@@ -11,8 +11,8 @@
 //
 // The exception is `test_completeJob_regression2358_realExtractor`, which uses
 // the real ZipExtractor against the shared fixture ZIP from TestFixtures.swift.
-// This is the only test that exercises the actual unzip → cleanLogText pipeline
-// end-to-end.
+// That test wraps its assertions with withKnownIssue(when: !unzipAvailable) so
+// sandboxed CI produces an expected issue rather than a hard failure or silent pass.
 //
 // Coverage map:
 //   Normal step — ANSI + timestamp stripped                  — test_normalStep_returnsSlice
@@ -119,6 +119,10 @@ struct FetchStepLogTests {
     ///
     /// If this test fails while the stub test passes, the regression is in
     /// the extraction layer (unzipLogs / file enumeration), not in routing logic.
+    ///
+    /// Sandboxed CI: withKnownIssue(when: !unzipAvailable) marks this as an
+    /// expected issue rather than a hard failure. If the sandbox is lifted,
+    /// withKnownIssue surfaces a real failure because the issue no longer reproduces.
     @Test("Regression #2358: Complete job with no ##[group] markers — real extractor returns .slice")
     func test_completeJob_regression2358_realExtractor() async {
         let transport = StubTransport(responses: [
@@ -131,19 +135,23 @@ struct FetchStepLogTests {
             step: makeStep(number: 7, name: "Complete job"),
             scope: "owner/repo"
         )
-        guard case .slice(let content) = result else {
-            Issue.record(
-                """
-                REGRESSION #2358 (real extractor): Expected .slice for 'Complete job', got \(result).
-                This step has no ##[group] markers — the ZIP per-step lookup must still succeed.
-                If you see .fetchFailed, the unzip subprocess may be sandboxed in this environment.
-                """
-            )
-            return
+        withKnownIssue(
+            "unzip subprocess unavailable (sandboxed CI runner)",
+            isIntermittent: true
+        ) {
+            guard case .slice(let content) = result else {
+                Issue.record(
+                    "REGRESSION #2358 (real extractor): Expected .slice for 'Complete job', got \(result). " +
+                    "This step has no ##[group] markers — the ZIP per-step lookup must still succeed."
+                )
+                return
+            }
+            #expect(content.contains("Cleaning up orphan processes"))
+            #expect(content.contains("Node.js 20 is deprecated"))
+            #expect(!content.contains("2026-07-31T"), "Timestamp prefix must be stripped")
+        } when: {
+            !unzipAvailable
         }
-        #expect(content.contains("Cleaning up orphan processes"))
-        #expect(content.contains("Node.js 20 is deprecated"))
-        #expect(!content.contains("2026-07-31T"), "Timestamp prefix must be stripped")
     }
 
     @Test("Prefix match succeeds when ZIP filename differs from step.name")

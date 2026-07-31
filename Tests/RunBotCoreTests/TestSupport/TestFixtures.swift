@@ -45,6 +45,33 @@ internal var fixtureZip: Data {
     Data(base64Encoded: fixtureZipBase64, options: .ignoreUnknownCharacters)!
 }
 
+// MARK: - Subprocess availability probe
+
+/// Returns `true` when `/usr/bin/unzip` exists and can be launched in this process sandbox.
+///
+/// Evaluated lazily once per test run. Used by `UnzipLogsTests` and
+/// `test_completeJob_regression2358_realExtractor` to gate real-subprocess assertions
+/// with `withKnownIssue(when:)` so sandboxed CI environments produce an expected issue
+/// rather than a hard failure or a silent pass.
+///
+/// `isIntermittent: true` is used at each call site because the subprocess IS available
+/// in local development — only certain CI runners sandbox process spawning.
+internal let unzipAvailable: Bool = {
+    guard FileManager.default.fileExists(atPath: "/usr/bin/unzip") else { return false }
+    let probe = Process()
+    probe.executableURL = URL(fileURLWithPath: "/usr/bin/unzip")
+    probe.arguments = ["-v"]
+    probe.standardOutput = FileHandle.nullDevice
+    probe.standardError  = FileHandle.nullDevice
+    do {
+        try probe.run()
+        probe.waitUntilExit()
+        return probe.terminationStatus == 0
+    } catch {
+        return false
+    }
+}()
+
 // MARK: - Factories
 
 /// Creates a `RunnerModel` with sensible defaults for display-status and status-colour tests.
