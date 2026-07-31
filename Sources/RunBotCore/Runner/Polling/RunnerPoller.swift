@@ -239,6 +239,11 @@ public actor RunnerPoller {
     // is called from fetchInternal() after applyFetchResult() returns, so the caches
     // written by applyFetchResult are no longer needed at the point of the restart —
     // notification dispatch has already completed before applyFetchResult returned.
+    // Known constraint: jobs completing in the narrow window between this clear and
+    // the next cycle's API response cannot be notified, because the "was it live last
+    // cycle?" baseline (prevLiveJobs) is now empty. This is a pre-existing behaviour
+    // shared with the startObservingScopes() → start() scope-change path and is
+    // intentionally accepted — the window is one API round-trip wide.
     prevLiveJobs = [:]
     completedCache = [:]
     let scopes = await MainActor.run { scopeStore.activeScopes }
