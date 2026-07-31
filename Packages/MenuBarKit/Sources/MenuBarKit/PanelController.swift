@@ -116,9 +116,12 @@
 //   When a sheet (or file picker) is live, the panel stays open on app-switch
 //   and outside-click. Every close path consults `overlayGate.hasActiveOverlay`.
 //
-// WORKSPACE OBSERVER — why queue: nil + Task { @MainActor } (not queue: .main):
-//   queue: nil delivers on the poster's thread; Task { @MainActor } is the
-//   Swift 6-correct hop to the main actor — compiler-enforced, not asserted.
+// WORKSPACE OBSERVER — why closures live in MBKPanelObservers (not here):
+//   Task { @MainActor [weak self] } in a generic class captures self as
+//   MBKPanelController<Content>, causing a spurious [#SendableMetatypes]
+//   warning for Content.Type even when Content is never used in the body.
+//   Moving the closures into the non-generic MBKPanelObservers eliminates
+//   the generic metatype from every capture list. See PanelObservers.swift.
 //
 // IMPLICIT-UNWRAPPED OPTIONALS (statusItem, panel, hostingController, limits):
 //   Assigned in setup(), not init(). Safe because setup() is called from
@@ -234,12 +237,11 @@ public final class MBKPanelController<Content: View>: NSObject, MBKPanelControll
     /// Whether setup() has been called.
     private(set) var isSetUp = false
 
-    /// Global event monitor for mouse clicks outside the panel.
-    nonisolated(unsafe) var eventMonitor: Any?
-    /// Workspace notification observer for screen and active-space changes.
-    nonisolated(unsafe) var workspaceObserver: NSObjectProtocol?
-    /// Screen-parameter change observer.
-    nonisolated(unsafe) var screenObserver: NSObjectProtocol?
+    /// Owns all observer/monitor registrations. Non-generic to avoid spurious
+    /// [#SendableMetatypes] warnings — see PanelObservers.swift for details.
+    /// `nonisolated(unsafe)` so deinit (which is nonisolated) can read the
+    /// observer tokens directly without a MainActor hop.
+    nonisolated(unsafe) var observers: MBKPanelObservers!
 
     // Intentionally retained across close — the status item position is stable between
     // sessions. Only used as a fallback when buttonWindow.frame.width == 0, which is a
@@ -282,6 +284,7 @@ public final class MBKPanelController<Content: View>: NSObject, MBKPanelControll
     /// Performs one-time setup: sets activation policy, status item, panel window, and observers.
     public func setup() {
         precondition(!isSetUp, "MBKPanelController.setup() called more than once.")
+        observers = MBKPanelObservers(controller: self)
         NSApp.setActivationPolicy(.accessory)
         setupStatusItem()
         // statusItem must be assigned before setupPanelWindow() — readAnchor() reads statusItem?.button.
@@ -351,27 +354,24 @@ public final class MBKPanelController<Content: View>: NSObject, MBKPanelControll
         ])
         mbkLog("PanelController", "setupPanelWindow -- four-edge AL pins activated")
 
-        preferredContentSizeObservation = hc.observe(
+        // Upcast to NSViewController (non-generic) before observing so the KVO
+        // closure's capture context carries no generic type parameter. Observing
+        // directly on `hc: NSHostingController<Content>` would make the closure
+        // @Sendable in a generic context, causing a spurious [#SendableMetatypes]
+        // warning for Content.Type even though Content is never used in the body.
+        // preferredContentSize is declared on NSViewController (AppKit 10.10+),
+        // so the keypath and semantics are identical after the upcast.
+        let vcForKVO: NSViewController = hc
+        preferredContentSizeObservation = vcForKVO.observe(
             \.preferredContentSize,
             options: [.new]
         // KVO delivers on an unspecified AppKit thread. Only newSize (a value type
-        // captured from change.newValue) is read here — no @MainActor state is
-        // touched before the Task hop. self.isShown reads panel?.isVisible which is
-        // an AppKit main-thread property; reading it off-actor is a data race under
-        // Swift 6 strict concurrency. Both log lines are therefore inside the Task.
-        ) { [weak self] _, change in
-            // Only newSize (a value type) is read here — no @MainActor state is
-            // touched before the Task hop. guard let self is deliberately omitted:
-            // re-strengthening self on an AppKit background thread would be a
-            // data-race footgun for any future off-Task log line added here.
+        // from change.newValue) is read before the Task hop — no @MainActor state
+        // is accessed off-actor.
+        ) { [weak observers] _, change in
             guard let newSize = change.newValue else { return }
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                mbkLog(
-                    "PanelController",
-                    "KVO preferredContentSize -- new=(\(newSize.width),\(newSize.height)) isShown=\(self.isShown) hasOpenedOnce=\(self.hasOpenedOnce)"
-                )
-                self.applyMeasuredSize(newSize)
+            Task { @MainActor [weak observers] in
+                observers?.handlePreferredContentSizeChange(newSize)
             }
         }
         mbkLog("PanelController", "setupPanelWindow -- KVO on preferredContentSize registered")
@@ -457,13 +457,13 @@ public final class MBKPanelController<Content: View>: NSObject, MBKPanelControll
     deinit {
         preferredContentSizeObservation?.invalidate()
         preferredContentSizeObservation = nil
-        if let observer = workspaceObserver {
+        if let observer = observers.workspaceObserver {
             NSWorkspace.shared.notificationCenter.removeObserver(observer)
         }
-        if let observer = screenObserver {
+        if let observer = observers.screenObserver {
             NotificationCenter.default.removeObserver(observer)
         }
-        if let monitor = eventMonitor {
+        if let monitor = observers.eventMonitor {
             NSEvent.removeMonitor(monitor)
         }
     }
