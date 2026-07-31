@@ -223,8 +223,8 @@ public struct LogFetcher: Sendable {
 
         // Exclude top-level blob files (e.g. `logs.zip` itself, which the enumerator picks up
         // from the same tmp directory). Only entries with a "/" in the name are per-step slices.
-        // This filter is load-bearing: it is the only guard preventing the self-overlapping
-        // extraction path from returning the archive itself as a candidate step file.
+        // The `.txt` extension filter in `unzipLogsTyped` excludes `logs.zip` first; this filter
+        // is the second guard that ensures only archive-relative step entries remain here.
         let stepFiles = allFiles.filter { $0.name.contains("/") }
         let sanitised = sanitizeJobNameForZIP(jobName)
         let hasStepFiles = stepFiles.contains { $0.name.hasPrefix("\(sanitised)/") }
@@ -266,14 +266,14 @@ public struct LogFetcher: Sendable {
 ///    `String.Substring(0, 90)` which counts UTF-16 `Char` objects. Swift `.count` counts
 ///    Unicode scalars, not UTF-16 code units — emoji and CJK characters truncate at a
 ///    different offset without this step.
-/// 4. Trim leading/trailing whitespace — the C# server calls `.Trim()` after truncation
-///    (and the `gh` CLI does `strings.TrimSpace`). Truncation can expose a trailing space
-///    that was previously interior.
+/// 4. Trim leading/trailing whitespace/newlines — the C# server calls `.Trim()` after truncation
+///    (and the `gh` CLI does `strings.TrimSpace`). Truncation can expose trailing
+///    whitespace that was previously interior.
 func sanitizeJobNameForZIP(_ name: String) -> String {
     let stripped = name
         .replacingOccurrences(of: "/", with: "")
         .replacingOccurrences(of: ":", with: "")
-    guard stripped.utf16.count > 90 else { return stripped.trimmingCharacters(in: .whitespaces) }
+    guard stripped.utf16.count > 90 else { return stripped.trimmingCharacters(in: .whitespacesAndNewlines) }
     var units = Array(stripped.utf16.prefix(90))
     // Guard against splitting a surrogate pair at the 90-unit boundary.
     // Swift strings are always well-formed, so surrogates only appear as
@@ -288,9 +288,9 @@ func sanitizeJobNameForZIP(_ name: String) -> String {
         units.removeLast()
     }
     // Mirror the C# server's `.Trim()` call (and the gh CLI's `strings.TrimSpace`) which
-    // both trim the result after truncation. Truncation can expose a trailing space that
-    // was previously interior.
-    return String(decoding: units, as: UTF16.self).trimmingCharacters(in: .whitespaces)
+    // both trim the result after truncation. Truncation can expose trailing whitespace
+    // that was previously interior.
+    return String(decoding: units, as: UTF16.self).trimmingCharacters(in: .whitespacesAndNewlines)
 }
 
 // MARK: - ZIP extraction (uses /usr/bin/unzip — always available on macOS)

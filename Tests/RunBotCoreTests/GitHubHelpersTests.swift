@@ -142,6 +142,54 @@ final class GitHubHelpersTests: XCTestCase {
         XCTAssert(result!.contains("test line"))
     }
 
+    /// Verifies that buildParsedLog ignores a stray `##[endgroup]` before the first
+    /// `##[group]` header rather than emitting an empty synthetic section or crashing.
+    func test_buildParsedLog_orphanEndgroup_isIgnored() {
+        let raw = [
+            "preamble",
+            "##[endgroup]",
+            "##[group]Build",
+            "build line",
+            "##[endgroup]"
+        ].joined(separator: "\n")
+        let parsed = buildParsedLog(from: raw)
+        // Orphan ##[endgroup] must not generate a section; only the real Build section exists.
+        XCTAssertEqual(parsed.sections.count, 1,
+            "A stray endgroup before the first group must be ignored")
+        XCTAssertEqual(parsed.sections.first?.name, "Build")
+        // body includes the ##[group] header line + body lines + ##[endgroup] marker.
+        XCTAssert(parsed.sections.first?.body.contains("build line") == true,
+            "Build section body must contain the body line")
+        XCTAssertFalse(parsed.sections.first?.body.contains("preamble") == true,
+            "Preamble must not bleed into the Build section body")
+        XCTAssertEqual(parsed.epilogue, "",
+            "No epilogue should be synthesised from an orphan endgroup")
+    }
+
+    /// Verifies that back-to-back `##[group]` headers flush the previous open section
+    /// before starting the next one, even if the first header forgot its `##[endgroup]`.
+    func test_buildParsedLog_backToBackGroups_flushPreviousSection() {
+        let raw = [
+            "##[group]Build",
+            "build line",
+            "##[group]Test",
+            "test line",
+            "##[endgroup]"
+        ].joined(separator: "\n")
+        let parsed = buildParsedLog(from: raw)
+        // A second ##[group] must flush the first section with a synthetic ##[endgroup].
+        XCTAssertEqual(parsed.sections.count, 2,
+            "A second group header must flush the previous open section")
+        XCTAssertEqual(parsed.sections[0].name, "Build")
+        XCTAssert(parsed.sections[0].body.contains("build line"),
+            "Build section body must contain its body line")
+        XCTAssertFalse(parsed.sections[0].body.contains("test line"),
+            "Test section body must not bleed into Build section")
+        XCTAssertEqual(parsed.sections[1].name, "Test")
+        XCTAssert(parsed.sections[1].body.contains("test line"),
+            "Test section body must contain its body line")
+    }
+
     // MARK: - cleanLogText pipeline
 
     /// Verifies that ISO-8601 timestamp prefixes (`2026-…Z`) are stripped,
