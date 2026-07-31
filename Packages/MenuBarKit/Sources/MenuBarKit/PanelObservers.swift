@@ -24,8 +24,10 @@ import AppKit
 
 // MARK: - Observer target protocol
 
-/// Internal protocol that `MBKPanelObservers` uses to call back into the controller
-/// without holding a reference to the generic concrete type.
+/// Internal coordination protocol between `MBKPanelObservers` and `MBKPanelController`.
+/// **Not part of the public API.** Internal access is intentional — this protocol is a
+/// private seam that lets the non-generic observer manager call back into the generic
+/// controller without capturing its generic type parameter. Do not make it public.
 @MainActor
 protocol MBKPanelObserverTarget: AnyObject {
     /// Whether the panel is currently visible.
@@ -67,8 +69,20 @@ final class MBKPanelObservers {
         self.controller = controller
     }
 
-    /// Removes all registered observers and monitors.
-    /// Called automatically when `MBKPanelController` releases its `observers` reference.
+    /// Removes all registered observers and monitors when the controller releases this instance.
+    ///
+    /// TEARDOWN PATHS — two mutually exclusive routes, no double-remove risk:
+    ///   • Normal close: `stopEventMonitor()` removes and nils `eventMonitor` on @MainActor
+    ///     before the controller could ever be deallocated (panel must be closed first).
+    ///     When deinit subsequently fires, all three guards (`if let`) are nil — no-ops.
+    ///   • Teardown while open (e.g. app termination with panel visible): `stopEventMonitor()`
+    ///     was never called, so `eventMonitor` is non-nil and deinit removes it here.
+    ///
+    /// There is no race: `stopEventMonitor()` and this deinit both execute on @MainActor
+    /// (deinit is triggered by the controller’s release, which only happens on @MainActor).
+    /// `nonisolated(unsafe)` on the token vars is safe for the same reason — every live
+    /// read/write is actor-isolated; `nonisolated` is required only to satisfy the compiler
+    /// for the deinit context.
     nonisolated
     deinit {
         if let observer = workspaceObserver {
@@ -177,6 +191,8 @@ final class MBKPanelObservers {
     // MARK: - KVO handler
 
     /// Called on `@MainActor` when `NSHostingController.preferredContentSize` changes.
+    /// A nil `controller` here means the controller was released before this KVO fire
+    /// arrived — intentional silent-drop during teardown.
     func handlePreferredContentSizeChange(_ newSize: CGSize) {
         guard let controller else { return }
         mbkLog(
