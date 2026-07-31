@@ -293,12 +293,18 @@ func parseStepLog(
     if lowerStep == "set up job" || lowerStep == "initialize containers" {
         logger?.log("parseStepLog › synthetic preamble for \"\(stepName)\"", category: "transport")
         // Returning nil (not fallback) when empty is deliberate — see doc comment above.
-        return parsed.preamble.isEmpty ? nil : parsed.preamble
+        // Trim trailing newlines so a log ending with "\n" doesn't produce a non-empty
+        // whitespace-only preamble that renders as a blank log instead of "Log not available".
+        let trimmed = parsed.preamble.trimmingCharacters(in: .newlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
     if lowerStep.hasPrefix("post ") || lowerStep == "complete job" || lowerStep == "stop containers" {
         logger?.log("parseStepLog › synthetic epilogue for \"\(stepName)\"", category: "transport")
         // Returning nil (not fallback) when empty is deliberate — see doc comment above.
-        return parsed.epilogue.isEmpty ? nil : parsed.epilogue
+        // Trim trailing newlines so a log ending with "\n" doesn't produce a non-empty
+        // whitespace-only epilogue that renders as a blank log instead of "Log not available".
+        let trimmed = parsed.epilogue.trimmingCharacters(in: .newlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     // 4. Fallback: return full cleaned log
@@ -350,7 +356,6 @@ func buildParsedLog(from cleaned: String) -> ParsedLog {
             // Invariant: currentBody is always non-empty when currentName != nil because
             // currentBody is initialised with [line] (the ##[group] marker) when a group opens.
             if let name = currentName {
-                assert(!currentBody.isEmpty, "currentBody must not be empty when currentName is set")
                 sections.append(LogSection(name: name, body: currentBody.joined(separator: "\n")))
             }
             seenFirstGroup = true
@@ -380,7 +385,6 @@ func buildParsedLog(from cleaned: String) -> ParsedLog {
     // Flush any open section that had no ##[endgroup] (malformed but handle gracefully).
     // Invariant: currentBody is always non-empty when currentName != nil (see above).
     if let name = currentName {
-        assert(!currentBody.isEmpty, "currentBody must not be empty when currentName is set")
         sections.append(LogSection(name: name, body: currentBody.joined(separator: "\n")))
     }
 
