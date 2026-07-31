@@ -42,8 +42,6 @@ protocol MBKPanelObserverTarget: AnyObject {
     func refreshForScreenChange()
     /// Applies a new measured content size to the panel frame.
     func applyMeasuredSize(_ size: CGSize)
-    /// Whether the panel has been opened at least once since setup.
-    var hasOpenedOnce: Bool { get }
 }
 
 // MARK: - Observer manager
@@ -183,7 +181,7 @@ final class MBKPanelObservers {
         guard let controller else { return }
         mbkLog(
             "PanelController",
-            "KVO preferredContentSize -- new=(\(newSize.width),\(newSize.height)) isShown=\(controller.isShown) hasOpenedOnce=\(controller.hasOpenedOnce)"
+            "KVO preferredContentSize -- new=(\(newSize.width),\(newSize.height)) isShown=\(controller.isShown)"
         )
         controller.applyMeasuredSize(newSize)
     }
