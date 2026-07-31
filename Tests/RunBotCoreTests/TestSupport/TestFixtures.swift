@@ -50,13 +50,14 @@ internal var fixtureZip: Data {
 /// Returns `true` when `/usr/bin/unzip` exists and can be launched in this sandbox.
 ///
 /// Called at each `withKnownIssue(when:)` site in `UnzipLogsTests` and
-/// `test_completeJob_regression2358_realExtractor` instead of a module-level
-/// `let` — a global lazy closure that captures `Process` is rejected by Swift 6
-/// strict concurrency because `Process` is not `Sendable`.
+/// `test_completeJob_regression2358_realExtractor` instead of a module-level `let` —
+/// a global lazy closure that captures `Process` is rejected by Swift 6 strict
+/// concurrency because `Process` is not `Sendable`.
 ///
-/// Calling this synchronously inside a test body is safe: the probe is cheap
-/// (single exec + waitUntilExit) and runs on the test's own executor.
-nonisolated func checkUnzipAvailable() -> Bool {
+/// Note: `nonisolated` is intentionally absent — it is only valid on type/instance
+/// members, not top-level free functions. A free function is already callable from
+/// any isolation context in Swift 6 without the keyword.
+func checkUnzipAvailable() -> Bool {
     guard FileManager.default.fileExists(atPath: "/usr/bin/unzip") else { return false }
     let probe = Process()
     probe.executableURL = URL(fileURLWithPath: "/usr/bin/unzip")
@@ -138,7 +139,7 @@ extension WorkflowActionGroup {
             name: workflowName,
             status: .completed,
             conclusion: conclusion,
-            htmlUrl: "https://github.com/owner/repo/actions/runs/999"
+            htmlUrl: "https://github.com/runbot-hq/run-bot/actions/runs/999"
         )
         return WorkflowActionGroup(
             headSha: "abc123def456abc123def456abc123def456abc1",
