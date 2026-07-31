@@ -22,10 +22,11 @@ extension RunnerPoller {
     /// jobs that concluded this cycle and fires a `UNUserNotificationCenter` request
     /// for each one, gated by `notificationPreferences.shouldNotify(conclusion:)`.
     ///
-    /// Also detects runners that became busy this cycle (picked up work) and
-    /// re-reads `scopeStore.activeScopes` on the main actor when that happens,
-    /// ensuring the scope snapshot stays current without waiting for the next poll.
-    /// See #2327 / #2365 for rationale.
+    /// Also detects runners that became busy this cycle (picked up work) and calls
+    /// `start()` to restart the poll loop with a fresh `activeScopes` snapshot,
+    /// fulfilling the "fetch scopes and update main" contract from #2327 / #2365.
+    /// `start()` cancels the current poll task before launching a new one, so this
+    /// is a clean restart, not an additive one.
     ///
     /// **Function body length:** 70 non-comment lines (below the 90-line `swiftlint`
     /// warning threshold and 150-line error threshold). The notification-dispatch
@@ -103,28 +104,33 @@ extension RunnerPoller {
             if state.fetchError != nil { state.fetchError = nil }
         }
 
-        // MARK: - Runner pickup → re-fetch scopes (#2327)
+        // MARK: - Runner pickup → restart poll with fresh scopes (#2327)
         //
         // When one or more runners became busy this cycle (transitioned from idle to
-        // busy since the previous poll), re-read activeScopes from the main actor so
-        // the scope snapshot is always current at the moment work is picked up.
+        // busy since the previous poll), call start() to restart the poll loop.
+        // start() re-reads scopeStore.activeScopes as its first act, so the next
+        // fetch cycle uses a guaranteed-fresh scope snapshot — fulfilling the
+        // "fetch scopes and update main" contract from #2327.
         //
-        // This does NOT restart the poll loop — it is a lightweight read-only refresh.
-        // If scopeStore.activeScopes actually changed, startObservingScopes() will
-        // already have queued a start() restart via AsyncStream; this block is a
-        // belt-and-suspenders scope-currency guarantee for the current cycle only.
+        // start() cancels the existing poll task via pollLoop.setPollTask before
+        // launching a new one, so this is a clean restart, not additive.
         //
-        // Double-trigger safety: the guard on newlyPickedUp.isEmpty means the
-        // MainActor hop is skipped on every idle cycle, keeping the common path free
-        // of unnecessary actor hops.
+        // This mirrors the existing startObservingScopes() → start() path that fires
+        // when ScopeStore.activeScopes changes; runner pickup is a parallel trigger
+        // using the same mechanism.
+        //
+        // Double-trigger safety: the guard on newlyPickedUp.isEmpty means start() is
+        // only called when at least one runner actually became busy this cycle,
+        // keeping the common (idle) path free of any restart overhead.
         let newBusyIds = Set(enrichedRunners.filter { $0.busy }.map { $0.id })
         let newlyPickedUp = newBusyIds.subtracting(prevBusyIds)
         if !newlyPickedUp.isEmpty {
             let freshScopes = await MainActor.run { scopeStore.activeScopes }
             log(
-                "RunnerPoller › runner(s) picked up work (ids=\(newlyPickedUp)) — re-fetched activeScopes count=\(freshScopes.count)",
+                "RunnerPoller › runner(s) picked up work (ids=\(newlyPickedUp.sorted())) — restarting poll with fresh activeScopes count=\(freshScopes.count)",
                 category: .runner
             )
+            await start()
         }
 
         // MARK: - Notification dispatch
