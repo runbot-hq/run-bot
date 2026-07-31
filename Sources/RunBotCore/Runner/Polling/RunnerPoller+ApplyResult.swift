@@ -122,8 +122,7 @@ extension RunnerPoller {
         if !newlyPickedUp.isEmpty {
             let freshScopes = await MainActor.run { scopeStore.activeScopes }
             log(
-                // swiftlint:disable:next line_length
-                "RunnerPoller › runner(s) picked up work (ids=\(newlyPickedUp)) — re-fetched activeScopes=\(freshScopes)",
+                "RunnerPoller › runner(s) picked up work (ids=\(newlyPickedUp)) — re-fetched activeScopes count=\(freshScopes.count)",
                 category: .runner
             )
         }
