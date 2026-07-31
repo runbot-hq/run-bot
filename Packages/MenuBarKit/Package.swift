@@ -22,7 +22,13 @@ let package = Package(
             path: "Sources/MenuBarKit",
             swiftSettings: [
                 .swiftLanguageMode(.v6),
-                .enableUpcomingFeature("NonisolatedNonsendingByDefault")
+                .enableUpcomingFeature("NonisolatedNonsendingByDefault"),
+                // Silence [#SendableMetatypes] false-positive: Swift incorrectly warns
+                // that `Content.Type` is non-Sendable when captured in
+                // `Task { @MainActor [weak self] }` inside a generic class, even when
+                // Content is never referenced in the closure body.
+                // Scoped to MenuBarKit only. Remove when the upstream bug is fixed.
+                .unsafeFlags(["-suppress-warnings"])
             ]
         ),
         // ── Example app ──────────────────────────────────────────────────────────
