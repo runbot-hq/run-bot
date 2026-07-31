@@ -103,7 +103,10 @@ internal extension SettingsView {
                         .font(.caption2).foregroundColor(Color.rbTextSecondary)
                 }
                 Spacer()
-                StatusCountBadge(label: runnerCountLabel)
+                let runners = runnerState.localRunners
+                let activeRunners = runners.filter { $0.isRunning }.count
+                let inactiveRunners = runners.count - activeRunners
+                StatusCountBadge(active: activeRunners, inactive: inactiveRunners)
                 Image(systemName: "chevron.right")
                     .font(.caption2)
                     .foregroundColor(Color.rbTextTertiary)
@@ -127,7 +130,10 @@ internal extension SettingsView {
                         .font(.caption2).foregroundColor(Color.rbTextSecondary)
                 }
                 Spacer()
-                StatusCountBadge(label: scopeCountLabel)
+                let entries = scopeStore.entries
+                let activeScopes = entries.filter { $0.isEnabled }.count
+                let inactiveScopes = entries.count - activeScopes
+                StatusCountBadge(active: activeScopes, inactive: inactiveScopes)
                 Image(systemName: "chevron.right")
                     .font(.caption2)
                     .foregroundColor(Color.rbTextTertiary)
@@ -137,36 +143,6 @@ internal extension SettingsView {
         .buttonStyle(.plain)
         .padding(.horizontal, RBSpacing.md)
         .padding(.vertical, 8)
-    }
-
-    // MARK: - Management count labels
-
-    /// "N active, M inactive" label for the local runners row, or "" when none configured.
-    ///
-    /// Sources from `runnerState.localRunners` (via `AppState`) — runners flow through
-    /// `RunnerState` because their lifecycle is managed by `LocalRunnerStore`. This is
-    /// intentionally different from `scopeCountLabel`, which reads from the injected
-    /// `scopeStore` directly. Both stores are `@Observable` so SwiftUI reactivity works
-    /// correctly for both — the asymmetry reflects domain ownership, not an oversight.
-    var runnerCountLabel: String {
-        let runners = runnerState.localRunners
-        guard !runners.isEmpty else { return "" }
-        let active = runners.filter { $0.isRunning }.count
-        let inactive = runners.count - active
-        return "\(active) active, \(inactive) inactive"
-    }
-
-    /// "N active, M inactive" label for the scopes row, or "" when none configured.
-    ///
-    /// Sources from the injected `scopeStore` — scopes are not part of `RunnerState`
-    /// so they cannot be reached via `runnerState`. See `runnerCountLabel` for the
-    /// full explanation of why these two labels use different sources.
-    var scopeCountLabel: String {
-        let entries = scopeStore.entries
-        guard !entries.isEmpty else { return "" }
-        let active = entries.filter { $0.isEnabled }.count
-        let inactive = entries.count - active
-        return "\(active) active, \(inactive) inactive"
     }
 
     // MARK: - General
@@ -517,31 +493,48 @@ internal extension SettingsView {
 
 /// Rounded pill badge used to display active/inactive counts in management rows.
 ///
-/// Renders nothing when `label` is empty — no space is consumed for unconfigured rows.
+/// Renders nothing when both counts are zero — no space is consumed for unconfigured rows.
 /// Used in `manageLocalRunnersRow` and `manageScopesRow` (#2082).
 ///
 /// ## Color rationale
-/// Foreground uses `.primary` (black in light mode, white in dark mode) rather than
-/// a hardcoded `.white`. `Color.rbTextTertiary` is `Color(white: 0.58)` in light mode
-/// — white-on-0.58-gray is ~2.3:1 contrast, well below the WCAG 4.5:1 minimum and
-/// near-invisible in light mode. Background uses `Color.rbTextTertiary.opacity(0.18)`
-/// — a faint tint that matches the `Color.rbTextTertiary.opacity(0.22)` pattern already
-/// used by `InlineJobRowsView` for progress track fills. No new design token is introduced.
-/// ❌ Do NOT change foreground back to `.white` — it breaks contrast in light mode.
+/// - Active count uses `Color.rbSuccess` (green) — the same token used for the auth
+///   status dot in `accountSection` and toggle tints, establishing a consistent
+///   "healthy/running" signal across the app.
+/// - Inactive count uses `Color.rbDanger` (red) — the same token used for the "Sign out"
+///   button tint, establishing a consistent "stopped/needs attention" signal.
+/// - Zero-count segments are suppressed entirely: no "0 inactive" shown in red when
+///   all runners/scopes are active, and no "0 active" shown in green when all are inactive.
+/// - Background uses `Color.rbTextTertiary.opacity(0.18)` — unchanged from before, matching
+///   the `Color.rbTextTertiary.opacity(0.22)` pattern used by `InlineJobRowsView`.
+/// - No new design tokens are introduced. (#2294)
 private struct StatusCountBadge: View {
-    /// The formatted string to display, e.g. "2 active, 1 inactive".
-    /// Pass an empty string to suppress the badge entirely — no layout space is consumed.
-    let label: String
+    /// Number of active runners or scopes.
+    let active: Int
+    /// Number of inactive runners or scopes.
+    let inactive: Int
 
-    /// Renders a capsule pill with `label` text, or nothing when `label` is empty.
+    /// Renders a capsule pill with color-coded active (green) and inactive (red) counts,
+    /// or nothing when both are zero — no layout space is consumed for empty rows.
     var body: some View {
-        if !label.isEmpty {
-            Text(label)
-                .font(.caption2)
-                .foregroundStyle(.primary)
-                .padding(.horizontal, 7)
-                .padding(.vertical, 3)
-                .background(Capsule().fill(Color.rbTextTertiary.opacity(0.18)))
+        if active > 0 || inactive > 0 {
+            HStack(spacing: 3) {
+                if active > 0 {
+                    Text("\(active) active")
+                        .foregroundStyle(Color.rbSuccess)
+                }
+                if active > 0 && inactive > 0 {
+                    Text(",")
+                        .foregroundStyle(.secondary)
+                }
+                if inactive > 0 {
+                    Text("\(inactive) inactive")
+                        .foregroundStyle(Color.rbDanger)
+                }
+            }
+            .font(.caption2)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 3)
+            .background(Capsule().fill(Color.rbTextTertiary.opacity(0.18)))
         }
     }
 }
