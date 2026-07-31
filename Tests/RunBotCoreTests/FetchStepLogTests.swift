@@ -24,36 +24,36 @@
 //   Cache hit: zero extra network calls                      — test_cacheHit_zeroAdditionalNetworkCalls
 
 import Foundation
+import GitHubClient
 import Testing
 @testable import RunBotCore
 
-// MARK: - StubTransport
+// MARK: - FetchStepStubTransport
 
-private final class StubTransport: GitHubTransporting, @unchecked Sendable {
+private struct FetchStepStubTransport: GitHubTransportProtocol {
     let responses: [String: Data]
-    private(set) var rawCallCount = 0
-    init(responses: [String: Data]) { self.responses = responses }
-    func data(for request: URLRequest) async throws -> (Data, URLResponse) {
-        rawCallCount += 1
-        let url = request.url?.absoluteString ?? ""
-        for (key, data) in responses where url.contains(key) {
-            let response = HTTPURLResponse(url: request.url!, statusCode: 200,
-                                          httpVersion: nil, headerFields: nil)!
-            return (data, response)
-        }
-        throw URLError(.badServerResponse)
+    init(responses: [String: Data] = [:]) { self.responses = responses }
+    var decoder: JSONDecoder { JSONDecoder() }
+    var logger: (any GitHubLogger)? { nil }
+    func apiAsync(_ endpoint: String, timeout _: TimeInterval) async -> Data? {
+        responses.first(where: { endpoint.hasPrefix($0.key) })?.value
     }
+    func apiPaginated(_: String, timeout _: TimeInterval) async -> Data? { nil }
+    func raw(_ endpoint: String, timeout _: TimeInterval) async -> Data? {
+        responses.first(where: { endpoint.hasPrefix($0.key) })?.value
+    }
+    func post(_: String, body _: Data?, timeout _: TimeInterval) async -> Data? { nil }
+    func put(_: String, body _: Data, timeout _: TimeInterval) async -> Data? { nil }
+    func delete(_: String, timeout _: TimeInterval) async -> Bool { false }
+    func cancelRun(runID _: Int, scope _: String) async -> Bool { false }
+    func patchRunnerLabels(scope _: String, runnerID _: Int, labels _: [String]) async -> [String]? { nil }
+    func fetchRegistrationToken(scope _: String) async -> String? { nil }
+    func fetchRemovalToken(scope _: String) async -> String? { nil }
+    func deleteRunnerByID(scope _: String, runnerID _: Int) async -> Bool { false }
 }
 
 private func makeStep(number: Int, name: String) -> GitHubStep {
-    GitHubStep(
-        number: number,
-        name: name,
-        status: .completed,
-        conclusion: .success,
-        startedAt: nil,
-        completedAt: nil
-    )
+    GitHubStep(id: number, name: name, status: "completed", conclusion: "success")
 }
 
 /// Builds a `LogFetcher` with a stub transport and a no-subprocess extractor.
