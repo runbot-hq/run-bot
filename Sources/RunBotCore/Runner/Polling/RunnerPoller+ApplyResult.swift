@@ -28,6 +28,11 @@ extension RunnerPoller {
     /// `start()` cancels the current poll task before launching a new one, so this
     /// is a clean restart, not an additive one.
     ///
+    /// **Ordering constraint:** notification dispatch runs before the runner-pickup
+    /// block. `start()` clears `prevLiveJobs` and `completedCache`; dispatching
+    /// notifications first ensures jobs that completed in the same cycle a runner
+    /// picks up work are never silently dropped.
+    ///
     /// **Function body length:** 70 non-comment lines (below the 90-line `swiftlint`
     /// warning threshold and 150-line error threshold). The notification-dispatch
     /// block (~20 code lines inside `if !newlyCompleted.isEmpty`) is intentionally
@@ -104,36 +109,11 @@ extension RunnerPoller {
             if state.fetchError != nil { state.fetchError = nil }
         }
 
-        // MARK: - Runner pickup → restart poll with fresh scopes (#2327)
-        //
-        // When one or more runners became busy this cycle (transitioned from idle to
-        // busy since the previous poll), call start() to restart the poll loop.
-        // start() re-reads scopeStore.activeScopes as its first act, so the next
-        // fetch cycle uses a guaranteed-fresh scope snapshot — fulfilling the
-        // "fetch scopes and update main" contract from #2327.
-        //
-        // start() cancels the existing poll task via pollLoop.setPollTask before
-        // launching a new one, so this is a clean restart, not additive.
-        //
-        // This mirrors the existing startObservingScopes() → start() path that fires
-        // when ScopeStore.activeScopes changes; runner pickup is a parallel trigger
-        // using the same mechanism.
-        //
-        // Double-trigger safety: the guard on newlyPickedUp.isEmpty means start() is
-        // only called when at least one runner actually became busy this cycle,
-        // keeping the common (idle) path free of any restart overhead.
-        let newBusyIds = Set(enrichedRunners.filter { $0.busy }.map { $0.id })
-        let newlyPickedUp = newBusyIds.subtracting(prevBusyIds)
-        if !newlyPickedUp.isEmpty {
-            let freshScopes = await MainActor.run { scopeStore.activeScopes }
-            log(
-                "RunnerPoller › runner(s) picked up work (ids=\(newlyPickedUp.sorted())) — restarting poll with fresh activeScopes count=\(freshScopes.count)",
-                category: .runner
-            )
-            await start()
-        }
-
         // MARK: - Notification dispatch
+        //
+        // NOTE: This block runs before the runner-pickup block below. start() clears
+        // prevLiveJobs and completedCache; dispatching notifications first ensures jobs
+        // that completed in the same cycle a runner picks up work are never dropped.
         //
         // Find jobs that concluded this cycle: they were live last poll (prevLive)
         // but are now in newCache. Because prevLiveJobs only contains in-flight jobs
@@ -215,6 +195,39 @@ extension RunnerPoller {
                         category: .runner)
                 }
             }
+        }
+
+        // MARK: - Runner pickup → restart poll with fresh scopes (#2327)
+        //
+        // NOTE: This block runs after notification dispatch (above). start() clears
+        // prevLiveJobs and completedCache; notifications must fire first so same-cycle
+        // job completions are not silently dropped when a runner also picks up work.
+        //
+        // When one or more runners became busy this cycle (transitioned from idle to
+        // busy since the previous poll), call start() to restart the poll loop.
+        // start() re-reads scopeStore.activeScopes as its first act, so the next
+        // fetch cycle uses a guaranteed-fresh scope snapshot — fulfilling the
+        // "fetch scopes and update main" contract from #2327.
+        //
+        // start() cancels the existing poll task via pollLoop.setPollTask before
+        // launching a new one, so this is a clean restart, not additive.
+        //
+        // This mirrors the existing startObservingScopes() → start() path that fires
+        // when ScopeStore.activeScopes changes; runner pickup is a parallel trigger
+        // using the same mechanism.
+        //
+        // Double-trigger safety: the guard on newlyPickedUp.isEmpty means start() is
+        // only called when at least one runner actually became busy this cycle,
+        // keeping the common (idle) path free of any restart overhead.
+        let newBusyIds = Set(enrichedRunners.filter { $0.busy }.map { $0.id })
+        let newlyPickedUp = newBusyIds.subtracting(prevBusyIds)
+        if !newlyPickedUp.isEmpty {
+            let freshScopes = await MainActor.run { scopeStore.activeScopes }
+            log(
+                "RunnerPoller › runner(s) picked up work (ids=\(newlyPickedUp.sorted())) — restarting poll with fresh activeScopes count=\(freshScopes.count)",
+                category: .runner
+            )
+            await start()
         }
     }
 
