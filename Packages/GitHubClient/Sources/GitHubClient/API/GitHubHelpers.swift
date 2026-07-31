@@ -73,7 +73,7 @@ private let ansiRegex: NSRegularExpression? = try? NSRegularExpression(
 /// Every line from the Actions log API is prefixed with an ISO 8601 timestamp + optional space,
 /// e.g. `2026-07-29T03:11:15.4722230Z ` (content line) or `2026-07-29T03:11:15.0000000Z` (blank line).
 ///
-/// **Fractional seconds (`\.\d+`)?** — The group is optional (`?`) to cover whole-second
+/// **Fractional seconds (`\.\\d+`)?** — The group is optional (`?`) to cover whole-second
 /// timestamps (e.g. `2026-07-29T03:11:15Z`) that self-hosted or future runners may emit.
 /// The digit count is intentionally **not** constrained to `{1,6}` or `{1,9}`: GitHub Actions
 /// currently emits 7-digit precision and some runners emit nanoseconds; constraining the
@@ -304,17 +304,17 @@ func parseStepLog(
     if lowerStep == "set up job" || lowerStep == "initialize containers" {
         logger?.log("parseStepLog › synthetic preamble for \"\(stepName)\"", category: "transport")
         // Returning nil (not fallback) when empty is deliberate — see doc comment above.
-        // Trim trailing newlines so a log ending with "\n" doesn't produce a non-empty
-        // whitespace-only preamble that renders as a blank log instead of "Log not available".
-        let trimmed = parsed.preamble.trimmingCharacters(in: .newlines)
+        // Use .whitespacesAndNewlines so a preamble consisting only of blank/space-padded
+        // lines doesn't reach the UI as a non-empty but visually blank log.
+        let trimmed = parsed.preamble.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
     }
     if lowerStep.hasPrefix("post ") || lowerStep == "complete job" || lowerStep == "stop containers" {
         logger?.log("parseStepLog › synthetic epilogue for \"\(stepName)\"", category: "transport")
         // Returning nil (not fallback) when empty is deliberate — see doc comment above.
-        // Trim trailing newlines so a log ending with "\n" doesn't produce a non-empty
-        // whitespace-only epilogue that renders as a blank log instead of "Log not available".
-        let trimmed = parsed.epilogue.trimmingCharacters(in: .newlines)
+        // Use .whitespacesAndNewlines so an epilogue consisting only of blank/space-padded
+        // lines doesn't reach the UI as a non-empty but visually blank log.
+        let trimmed = parsed.epilogue.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
     }
 
