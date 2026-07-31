@@ -49,12 +49,12 @@ internal var fixtureZip: Data {
 
 /// `true` when the `/usr/bin/unzip` binary is present on disk.
 ///
-/// Used as a fast pre-check in `withKnownIssue(when:)` closures. The actual
-/// observable consequence of the sandbox blocking the spawn is `unzipLogs`
-/// returning `[]`, so tests additionally gate on `files.isEmpty` at runtime.
-internal var unzipBinaryExists: Bool {
-    FileManager.default.fileExists(atPath: "/usr/bin/unzip")
-}
+/// Evaluated once at process start — the binary is either present or absent for
+/// the lifetime of a test run. Declared `let` to match `fixtureZip` and avoid
+/// repeated `FileManager` calls in `withKnownIssue(when:)` closures.
+/// Tests additionally gate on `files.isEmpty` (or `!isSlice`) at runtime to catch
+/// the sandboxed-spawn case where the binary exists but `Process.run()` is blocked.
+internal let unzipBinaryExists: Bool = FileManager.default.fileExists(atPath: "/usr/bin/unzip")
 
 // MARK: - Factories
 

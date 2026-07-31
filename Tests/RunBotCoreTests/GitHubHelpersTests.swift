@@ -6,7 +6,8 @@
 //
 // ## What was deleted and why (PR #2370)
 // All parseStepLog / buildParsedLog tests that used the synthetic makeLog()
-// helper were deleted because parseStepLog is now fallback-only after #2362:
+// helper were deleted (makeLog itself is retained — see below). parseStepLog
+// is now fallback-only after #2362:
 // the primary code path fetches per-step files from the run ZIP and never
 // calls parseStepLog. Tests for its ##[group] parsing logic no longer reflect
 // the primary production path.
