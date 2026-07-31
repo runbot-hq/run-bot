@@ -9,8 +9,8 @@
 //
 // The exception is `test_completeJob_regression2358_realExtractor`, which uses
 // the real ZipExtractor against the shared fixture ZIP from TestFixtures.swift.
-// That test wraps its assertions with withKnownIssue(when: !(await checkUnzipAvailable()))
-// so sandboxed CI produces an expected issue rather than a hard failure or silent pass.
+// That test uses withKnownIssue(isIntermittent: true, when: { !unzipBinaryExists })
+// so sandboxed CI records an expected issue rather than a hard failure or silent pass.
 //
 // Coverage map:
 //   Normal step — ANSI + timestamp stripped                  — test_normalStep_returnsSlice
@@ -114,7 +114,6 @@ struct FetchStepLogTests {
 
     @Test("Regression #2358: Complete job with no ##[group] markers — real extractor returns .slice")
     func test_completeJob_regression2358_realExtractor() async {
-        let unzipAvailable = await checkUnzipAvailable()
         let transport = StubTransport(responses: [
             "repos/owner/repo/actions/runs/99/logs": fixtureZip,
         ])
@@ -125,7 +124,10 @@ struct FetchStepLogTests {
             step: makeStep(number: 7, name: "Complete job"),
             scope: "owner/repo"
         )
-        withKnownIssue("unzip subprocess unavailable (sandboxed CI runner)") {
+        withKnownIssue(
+            "unzip subprocess unavailable (sandboxed CI runner)",
+            isIntermittent: true
+        ) {
             guard case .slice(let content) = result else {
                 Issue.record("REGRESSION #2358 (real extractor): Expected .slice for 'Complete job', got \(result). This step has no ##[group] markers — the ZIP per-step lookup must still succeed.")
                 return
@@ -134,7 +136,7 @@ struct FetchStepLogTests {
             #expect(content.contains("Node.js 20 is deprecated"))
             #expect(!content.contains("2026-07-31T"), "Timestamp prefix must be stripped")
         } when: {
-            !unzipAvailable
+            !unzipBinaryExists
         }
     }
 

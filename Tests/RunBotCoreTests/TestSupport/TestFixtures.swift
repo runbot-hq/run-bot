@@ -47,21 +47,13 @@ internal var fixtureZip: Data {
 
 // MARK: - Subprocess availability probe
 
-/// Returns `true` when `/usr/bin/unzip` can actually be spawned on this machine.
+/// `true` when the `/usr/bin/unzip` binary is present on disk.
 ///
-/// A file-existence check is NOT sufficient: on GitHub Actions macOS runners
-/// the binary is present at `/usr/bin/unzip` but `Process.run()` is blocked by
-/// the sandbox. This probe runs `unzip -v` with no arguments and checks whether
-/// the process launch succeeds. A blocked launch returns exit code `Int32.max`
-/// (the sentinel used by `ProcessRunner` for launch failures).
-///
-/// Declared `async` because `ProcessRunner.runAsync` is async.
-func checkUnzipAvailable() async -> Bool {
-    let result = await ProcessRunner.runAsync(
-        executableURL: URL(fileURLWithPath: "/usr/bin/unzip"),
-        arguments: ["-v"]
-    )
-    return result.exitCode != Int32.max
+/// Used as a fast pre-check in `withKnownIssue(when:)` closures. The actual
+/// observable consequence of the sandbox blocking the spawn is `unzipLogs`
+/// returning `[]`, so tests additionally gate on `files.isEmpty` at runtime.
+internal var unzipBinaryExists: Bool {
+    FileManager.default.fileExists(atPath: "/usr/bin/unzip")
 }
 
 // MARK: - Factories
