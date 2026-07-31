@@ -104,6 +104,44 @@ final class GitHubHelpersTests: XCTestCase {
             "Body of an unrelated section must not bleed into the epilogue result")
     }
 
+    /// Verifies that stage-1 matching is case-insensitive: a step name that
+    /// differs only in casing from the `##[group]` header must still match.
+    /// This path was a real prior regression — case-sensitive matching caused
+    /// steps like "Set up job" (API) vs "set up job" (log header) to miss.
+    func test_fallback_exactNameMatch_caseInsensitive() {
+        let raw = makeLog(sections: [
+            (name: "Set Up Job", body: ["runner provisioned"]),
+            (name: "Build",      body: ["build output"])
+        ])
+        let result = parseStepLog(raw, stepName: "set up job", stepNumber: 1, logger: nil)
+        XCTAssertNotNil(result, "Case-insensitive match must find the section")
+        XCTAssert(result!.contains("runner provisioned"))
+        XCTAssertFalse(result!.contains("build output"),
+            "Only the matched section must be returned")
+    }
+
+    /// Verifies that lines between `##[group]` blocks are not duplicated in the
+    /// matched section. A prior regression caused inter-group orphan lines to
+    /// be appended to the *next* matched section, inflating its output.
+    func test_fallback_interGroupLines_noDuplication() {
+        // Raw log: orphan line lives between two groups.
+        let orphanLine = "2026-01-01T00:00:00Z orphan line between groups"
+        let raw = [
+            "2026-01-01T00:00:00Z ##[group]Build",
+            "2026-01-01T00:00:00Z build line",
+            "2026-01-01T00:00:00Z ##[endgroup]",
+            orphanLine,
+            "2026-01-01T00:00:00Z ##[group]Test",
+            "2026-01-01T00:00:00Z test line",
+            "2026-01-01T00:00:00Z ##[endgroup]"
+        ].joined(separator: "\n")
+        let result = parseStepLog(raw, stepName: "Test", stepNumber: 2, logger: nil)
+        XCTAssertNotNil(result, "Test section must be found")
+        XCTAssertFalse(result!.contains("orphan line between groups"),
+            "Inter-group orphan lines must not bleed into the following section")
+        XCTAssert(result!.contains("test line"))
+    }
+
     // MARK: - cleanLogText pipeline
 
     /// Verifies that ISO-8601 timestamp prefixes (`2026-…Z`) are stripped,

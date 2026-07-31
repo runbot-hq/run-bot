@@ -122,7 +122,7 @@ extension WorkflowActionGroup {
             name: workflowName,
             status: .completed,
             conclusion: conclusion,
-            htmlUrl: "https://github.com/runbot-hq/run-bot/actions/runs/999"
+            htmlUrl: "https://github.com/owner/repo/actions/runs/999"
         )
         return WorkflowActionGroup(
             headSha: "abc123def456abc123def456abc123def456abc1",

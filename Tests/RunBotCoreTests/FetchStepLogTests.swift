@@ -60,11 +60,14 @@ private struct FetchStepStubTransport: GitHubTransportProtocol {
 /// Wraps `FetchStepStubTransport` and counts every `raw(_:timeout:)` call.
 /// Used by `test_cacheHit_zeroAdditionalNetworkCalls` to assert that the ZIP
 /// is fetched exactly once and never again for the same `runID+startedAt` key.
-// @unchecked Sendable is safe here: all tests drive `fetchStepLog` serially (one await at a
-// time) so `rawCallCount` is never mutated from concurrent contexts. No actor isolation needed.
+// `rawCallCount` is declared `nonisolated(unsafe)` rather than a plain `var` because
+// `CountingTransport` must be `Sendable` (the protocol requires it) and the mutation
+// always happens serially in tests (one `await` at a time). The annotation makes the
+// invariant explicit to the compiler and prevents a future data-race if the transport
+// is ever passed into a concurrent context.
 private final class CountingTransport: GitHubTransportProtocol, @unchecked Sendable {
     private let inner: FetchStepStubTransport
-    private(set) var rawCallCount: Int = 0
+    nonisolated(unsafe) private(set) var rawCallCount: Int = 0
 
     init(responses: [String: Data]) {
         self.inner = FetchStepStubTransport(responses: responses)
