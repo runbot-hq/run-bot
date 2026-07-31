@@ -218,6 +218,10 @@ private func fetchAndDecodeStepLog(
 ///      case-insensitive and checks only the exact two forms (with and without `"Run "`)
 ///      to avoid general prefix over-matching (e.g. "Build" must not match
 ///      "Build documentation").
+///      The inverse direction (step named "Run X", section header "X" without the
+///      "Run " prefix) is intentionally not handled: GitHub Actions always adds "Run "
+///      in the log group header and never in the API step name, so this case does not
+///      arise in practice.
 ///      **Ordering guarantee**: steps 1–2 match against *section names* and run before
 ///      step 3, which matches against the *step name*. A user step named "Post deploy"
 ///      whose log emits `##[group]Run Post deploy` is therefore caught by step 2
@@ -274,6 +278,10 @@ func parseStepLog(
     //    name does not include this prefix. Check the "Run "-prefixed form with a
     //    case-insensitive exact comparison. General hasPrefix is intentionally avoided:
     //    "Build" must not match "Build documentation".
+    //    The inverse direction (step named "Run X", section header "X" without the
+    //    "Run " prefix) is intentionally not handled: GitHub Actions always adds "Run "
+    //    in the log group header and never in the API step name, so this case does not
+    //    arise in practice.
     if let match = parsed.sections.first(where: {
         $0.name.lowercased() == "run \(lowerStep)"
     }) {
