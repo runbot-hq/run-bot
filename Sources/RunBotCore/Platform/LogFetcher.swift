@@ -195,6 +195,10 @@ public struct LogFetcher: Sendable {
 
         func clean(_ text: String) -> String { cleanLogText(text) }
 
+        // Cache lookup — single-entry policy: `zipCache` is replaced wholesale on every miss
+        // (not appended) to bound memory. A single decompressed ZIP can be tens of MB; keeping
+        // more than one live simultaneously would balloon the process footprint for no benefit,
+        // since the UI only ever shows one run's logs at a time.
         let cacheKey = "\(runID)-\(startedAt ?? "")"
         let allFiles: [(name: String, text: String)]
         if let cached = zipCache[cacheKey] {
@@ -217,6 +221,10 @@ public struct LogFetcher: Sendable {
             }
         }
 
+        // Exclude top-level blob files (e.g. `logs.zip` itself, which the enumerator picks up
+        // from the same tmp directory). Only entries with a "/" in the name are per-step slices.
+        // This filter is load-bearing: it is the only guard preventing the self-overlapping
+        // extraction path from returning the archive itself as a candidate step file.
         let stepFiles = allFiles.filter { $0.name.contains("/") }
         let sanitised = sanitizeJobNameForZIP(jobName)
         let hasStepFiles = stepFiles.contains { $0.name.hasPrefix("\(sanitised)/") }

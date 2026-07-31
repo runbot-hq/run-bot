@@ -60,6 +60,8 @@ private struct FetchStepStubTransport: GitHubTransportProtocol {
 /// Wraps `FetchStepStubTransport` and counts every `raw(_:timeout:)` call.
 /// Used by `test_cacheHit_zeroAdditionalNetworkCalls` to assert that the ZIP
 /// is fetched exactly once and never again for the same `runID+startedAt` key.
+// @unchecked Sendable is safe here: all tests drive `fetchStepLog` serially (one await at a
+// time) so `rawCallCount` is never mutated from concurrent contexts. No actor isolation needed.
 private final class CountingTransport: GitHubTransportProtocol, @unchecked Sendable {
     private let inner: FetchStepStubTransport
     private(set) var rawCallCount: Int = 0
@@ -315,15 +317,14 @@ struct FetchStepLogTests {
         // The first fetch must have cost exactly one network call.
         #expect(transport.rawCallCount == 1,
             "ZIP must be fetched exactly once for same runID+startedAt")
-        let callsAfterFirst = transport.rawCallCount
         _ = await fetcher.fetchStepLog(
             runID: 99, startedAt: "2026-01-01T00:00:00Z",
             jobID: 42, jobName: "release",
             step: makeStep(number: 1, name: "Build"),
             scope: "owner/repo"
         )
-        // The second fetch must not have triggered any additional network calls.
-        #expect(transport.rawCallCount == callsAfterFirst,
+        // Still exactly one: the cache must absorb the second call with zero additional fetches.
+        #expect(transport.rawCallCount == 1,
             "Cache hit must make zero additional network calls")
     }
 }
