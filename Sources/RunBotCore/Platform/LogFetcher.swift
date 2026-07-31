@@ -221,10 +221,10 @@ public struct LogFetcher: Sendable {
             }
         }
 
-        // Exclude top-level blob files (e.g. `logs.zip` itself, which the enumerator picks up
-        // from the same tmp directory). Only entries with a "/" in the name are per-step slices.
-        // The `.txt` extension filter in `unzipLogsTyped` excludes `logs.zip` first; this filter
-        // is the second guard that ensures only archive-relative step entries remain here.
+        // Exclude top-level blob files. Only entries with a "/" in the name are per-step
+        // slices (e.g. "release/2_Checkout.txt" → name "release/2_Checkout"). Top-level
+        // entries like a hypothetical root-level `.txt` file are filtered here. `logs.zip`
+        // itself is already excluded by the explicit `url != zipFile` guard in `unzipLogsTyped`.
         let stepFiles = allFiles.filter { $0.name.contains("/") }
         let sanitised = sanitizeJobNameForZIP(jobName)
         let hasStepFiles = stepFiles.contains { $0.name.hasPrefix("\(sanitised)/") }
@@ -336,7 +336,14 @@ func unzipLogsTyped(_ zipData: Data) async -> UnzipResult {
     // exit code 2 and above indicate a genuine extraction failure.
     guard result.exitCode <= 1 else { return .processFailed(exitCode: result.exitCode) }
     guard let enumerator = fileManager.enumerator(at: tmp, includingPropertiesForKeys: nil) else { return .ioError }
-    let txtURLs = enumerator.compactMap { $0 as? URL }.filter { $0.pathExtension == "txt" }
+    // Explicitly exclude the archive itself: `logs.zip` is written into `tmp` before
+    // extraction, so the enumerator would otherwise return it as a candidate entry.
+    // The `.pathExtension == "txt"` check is a second guard, but naming the temp file
+    // `logs.zip` would only be safe by accident if we relied solely on extension filtering.
+    let zipFileResolved = zipFile.resolvingSymlinksInPath()
+    let txtURLs = enumerator.compactMap { $0 as? URL }.filter {
+        $0.resolvingSymlinksInPath() != zipFileResolved && $0.pathExtension == "txt"
+    }
     var results: [(name: String, text: String)] = []
     // Resolve symlinks on the tmp prefix so that the /tmp → /private/tmp alias
     // on macOS does not cause the prefix-stripping below to silently no-op,
