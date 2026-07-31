@@ -368,6 +368,13 @@ struct SanitizeJobNameTests {
 
     @Test("Drops dangling high surrogate when 90-unit cut splits an emoji pair")
     func test_sanitize_surrogateAtBoundary_dropsHighSurrogate() {
+        // 🚀 encodes as a surrogate pair (2 UTF-16 units). Placing it at positions
+        // 89–90 means the 90-unit cut lands between the high and low surrogate —
+        // the high (pos 89, 0xD83D) is a dangling high surrogate and must be
+        // removed to keep the output valid UTF-16.
+        // A low-surrogate-at-boundary case is unreachable from well-formed Swift
+        // strings: Swift normalises malformed UTF-16 to U+FFFD on decode, so a
+        // lone low surrogate can never reach this guard.
         let input = String(repeating: "a", count: 89) + "🚀"
         let result = sanitizeJobNameForZIP(input)
         #expect(result == String(repeating: "a", count: 89),

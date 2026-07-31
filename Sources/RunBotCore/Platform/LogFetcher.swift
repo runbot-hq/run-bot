@@ -275,6 +275,15 @@ func sanitizeJobNameForZIP(_ name: String) -> String {
         .replacingOccurrences(of: ":", with: "")
     guard stripped.utf16.count > 90 else { return stripped.trimmingCharacters(in: .whitespaces) }
     var units = Array(stripped.utf16.prefix(90))
+    // Guard against splitting a surrogate pair at the 90-unit boundary.
+    // Swift strings are always well-formed, so surrogates only appear as
+    // high+low pairs. The only reachable split is a high surrogate at position
+    // 89 (0xD800–0xDBFF) whose low partner was at 90 and is now dropped —
+    // remove the dangling high to keep the output valid.
+    // A lone low surrogate (0xDC00–0xDFFF) at the boundary cannot arise from a
+    // well-formed Swift String: the high surrogate at 88 would still be present,
+    // keeping the pair intact. Malformed UTF-16 fed via String(decoding:as:UTF16.self)
+    // is normalised to U+FFFD before we ever see it, so no guard is needed.
     if let last = units.last, (0xD800...0xDBFF).contains(last) {
         units.removeLast()
     }
