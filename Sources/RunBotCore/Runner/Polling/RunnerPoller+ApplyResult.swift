@@ -22,6 +22,11 @@ extension RunnerPoller {
     /// jobs that concluded this cycle and fires a `UNUserNotificationCenter` request
     /// for each one, gated by `notificationPreferences.shouldNotify(conclusion:)`.
     ///
+    /// Also detects runners that became busy this cycle (picked up work) and
+    /// re-reads `scopeStore.activeScopes` on the main actor when that happens,
+    /// ensuring the scope snapshot stays current without waiting for the next poll.
+    /// See #2327 / #2365 for rationale.
+    ///
     /// **Function body length:** 70 non-comment lines (below the 90-line `swiftlint`
     /// warning threshold and 150-line error threshold). The notification-dispatch
     /// block (~20 code lines inside `if !newlyCompleted.isEmpty`) is intentionally
@@ -38,6 +43,11 @@ extension RunnerPoller {
         // Capture the pre-update prevLiveJobs snapshot before writing new state.
         // Jobs that were live last cycle but are now in newCache concluded this cycle.
         let prevLive = prevLiveJobs
+
+        // Capture busy-runner IDs before setDisplayState overwrites self.runners,
+        // so we can diff against enrichedRunners afterwards to detect newly-busy runners.
+        // (#2327) Must be captured here — after setDisplayState self.runners == enrichedRunners.
+        let prevBusyIds = Set(runners.filter { $0.busy }.map { $0.id })
 
         let rateLimitSnapshot = await ghRateLimitSnapshot()
         completedCache = jobResult.newCache
@@ -91,6 +101,31 @@ extension RunnerPoller {
             state.isRateLimited = rateLimitSnapshot.isLimited
             state.rateLimitResetDate = rateLimitSnapshot.resetDate
             if state.fetchError != nil { state.fetchError = nil }
+        }
+
+        // MARK: - Runner pickup → re-fetch scopes (#2327)
+        //
+        // When one or more runners became busy this cycle (transitioned from idle to
+        // busy since the previous poll), re-read activeScopes from the main actor so
+        // the scope snapshot is always current at the moment work is picked up.
+        //
+        // This does NOT restart the poll loop — it is a lightweight read-only refresh.
+        // If scopeStore.activeScopes actually changed, startObservingScopes() will
+        // already have queued a start() restart via AsyncStream; this block is a
+        // belt-and-suspenders scope-currency guarantee for the current cycle only.
+        //
+        // Double-trigger safety: the guard on newlyPickedUp.isEmpty means the
+        // MainActor hop is skipped on every idle cycle, keeping the common path free
+        // of unnecessary actor hops.
+        let newBusyIds = Set(enrichedRunners.filter { $0.busy }.map { $0.id })
+        let newlyPickedUp = newBusyIds.subtracting(prevBusyIds)
+        if !newlyPickedUp.isEmpty {
+            let freshScopes = await MainActor.run { scopeStore.activeScopes }
+            log(
+                // swiftlint:disable:next line_length
+                "RunnerPoller › runner(s) picked up work (ids=\(newlyPickedUp)) — re-fetched activeScopes=\(freshScopes)",
+                category: .runner
+            )
         }
 
         // MARK: - Notification dispatch
