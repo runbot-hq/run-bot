@@ -28,10 +28,18 @@ extension RunnerPoller {
     /// `start()` cancels the current poll task before launching a new one, so this
     /// is a clean restart, not an additive one.
     ///
+    /// A read-only `activeScopes` re-read with no downstream write was considered
+    /// and rejected: `scopesSnapshot` is captured once at the top of `fetchInternal()`
+    /// and cannot be patched mid-cycle. `start()` is the only mechanism that produces
+    /// a fetch cycle with a fresh snapshot. This mirrors the `startObservingScopes()`
+    /// → `start()` path that already fires on scope changes.
+    ///
     /// **Ordering constraint:** notification dispatch runs before the runner-pickup
     /// block. `start()` clears `prevLiveJobs` and `completedCache`; dispatching
     /// notifications first ensures jobs that completed in the same cycle a runner
-    /// picks up work are never silently dropped.
+    /// picks up work are never silently dropped. The runner-pickup block is not
+    /// extracted into a helper — its ordering relative to notification dispatch is
+    /// load-bearing and would be obscured by indirection.
     ///
     /// **Function body length:** 70 non-comment lines (below the 90-line `swiftlint`
     /// warning threshold and 150-line error threshold). The notification-dispatch
@@ -53,6 +61,10 @@ extension RunnerPoller {
         // Capture busy-runner IDs before setDisplayState overwrites self.runners,
         // so we can diff against enrichedRunners afterwards to detect newly-busy runners.
         // (#2327) Must be captured here — after setDisplayState self.runners == enrichedRunners.
+        //
+        // Not a duplication of the newBusyIds expression below: these two Set(filter…map…)
+        // expressions operate on different collections (self.runners vs enrichedRunners) at
+        // different lifecycle points (pre- vs post-setDisplayState) and cannot be unified.
         let prevBusyIds = Set(runners.filter { $0.busy }.map { $0.id })
 
         let rateLimitSnapshot = await ghRateLimitSnapshot()
@@ -145,12 +157,12 @@ extension RunnerPoller {
                 log(
                     "RunnerPoller › notifications skipped — permission denied (status=\(settings.authorizationStatus.rawValue))",
                     category: .runner)
-                // NOTE: This return appears to exit the whole function, but it only exits the
-                // notification block — there is no code after `if !newlyCompleted.isEmpty` in
-                // `applyFetchResult` (the next statement is the closing `}` of the function).
-                // All state writes (completedCache, prevLiveJobs, MainActor.run state.*) happen
-                // before this point. If future code is added after the notification block, this
-                // return must be scoped (e.g. extract the block into a private helper method).
+                // NOTE: This return exits only the `if !newlyCompleted.isEmpty` block —
+                // NOT the whole function. The runner-pickup block (MARK below) runs after
+                // this `if` closes and is unaffected by this return. All state writes
+                // (completedCache, prevLiveJobs, MainActor.run state.*) happen before this
+                // point. If future code is added inside this `if` block after the guard,
+                // that code will also be skipped — keep any additions outside this block.
                 return
             }
             for job in newlyCompleted {
@@ -209,12 +221,20 @@ extension RunnerPoller {
         // fetch cycle uses a guaranteed-fresh scope snapshot — fulfilling the
         // "fetch scopes and update main" contract from #2327.
         //
+        // A read-only activeScopes re-read with no downstream write was considered and
+        // rejected: scopesSnapshot is captured once at the top of fetchInternal() and
+        // cannot be patched mid-cycle. start() is the only mechanism that produces a
+        // fetch cycle with a fresh snapshot.
+        //
         // start() cancels the existing poll task via pollLoop.setPollTask before
         // launching a new one, so this is a clean restart, not additive.
         //
         // This mirrors the existing startObservingScopes() → start() path that fires
         // when ScopeStore.activeScopes changes; runner pickup is a parallel trigger
         // using the same mechanism.
+        //
+        // Not extracted into a helper: ordering relative to notification dispatch is
+        // load-bearing (see NOTE above); extraction would obscure that constraint.
         //
         // Double-trigger safety: the guard on newlyPickedUp.isEmpty means start() is
         // only called when at least one runner actually became busy this cycle,
@@ -253,6 +273,11 @@ extension RunnerPoller {
     /// means `setDisplayState` leaves those actor-local properties at their last-successful-
     /// cycle values. Views therefore show stale data alongside the error banner rather than
     /// an empty list.
+    ///
+    /// Intentionally does **not** detect runner pickup or call `start()`. On error cycles
+    /// `enrichedRunners` is unavailable — there is no valid basis for a busy-runner diff.
+    /// Restarting on a failed cycle would also risk thrashing during sustained connectivity
+    /// loss. The scope-freshness guarantee from #2327 applies to successful cycles only.
     ///
     /// `consecutiveIdleTicks`, `lastBusyRunnerCount`, and `rateLimitRemaining` are also
     /// intentionally not updated here — all three counters hold their last-successful-cycle
