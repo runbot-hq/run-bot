@@ -10,8 +10,9 @@
 // returns pre-built tuples directly — no subprocess, no filesystem.
 //
 // The exception is `test_completeJob_regression2358_realExtractor`, which uses
-// the real ZipExtractor against a committed binary fixture. This is the only test
-// that exercises the actual unzip → cleanLogText pipeline end-to-end.
+// the real ZipExtractor against the shared fixture ZIP from TestFixtures.swift.
+// This is the only test that exercises the actual unzip → cleanLogText pipeline
+// end-to-end.
 //
 // Coverage map:
 //   Normal step — ANSI + timestamp stripped                  — test_normalStep_returnsSlice
@@ -56,10 +57,7 @@ private func makeFetcher(
     extraResponses: [String: Data] = [:]
 ) -> LogFetcher {
     var responses: [String: Data] = [
-        // Sentinel: transport returns non-nil so the nil-guard in fetchStepLog passes.
-        // Actual bytes don't matter — zipExtractor is injected and ignores them.
         "repos/owner/repo/actions/runs/99/logs": Data("ZIP".utf8),
-        // Flat-blob fallback endpoint used by the flatBlobFallback test.
         "repos/owner/repo/actions/jobs/42/logs": Data("flat blob content\n".utf8),
     ]
     for (k, v) in extraResponses { responses[k] = v }
@@ -70,34 +68,10 @@ private func makeFetcher(
     )
 }
 
-// MARK: - Real-extractor fixture
-//
-// Used only by test_completeJob_regression2358_realExtractor.
-// Generated once from /tmp/release — see UnzipLogsTests.swift for the shell commands.
-// The fixture contains:
-//   release/2_Checkout.txt        — timestamp + ANSI
-//   release/7_Complete job.txt    — synthetic step, no ##[group] markers
-
-private let fixtureZipBase64 =
-    "UEsDBBQAAAAIACp7/1zH8jSbMgAAADYAAAAWAAAAcmVsZWFzZS8yX0NoZWNrb3V0LnR4dDMyMD" +
-    "LTNTDXNTYMMTCxMjaxMjLQM4CAKAXpaGOjXOeM1OTs/NISBSAuKC2RjjbI5QIAUEsDBBQAAAAI" +
-    "ACp7/1x94DpHeAAAAKQAAAAaAAAAcmVsZWFzZS83X0NvbXBsZXRlIGpvYi50eHR1zbEKgzAURuH" +
-    "dp/jB2RATacG1eycnS4dgbjUl5IbciK9fpEOnnv3jGG0unb52tp/0MNphNFbpbzNukVwKacWewS" +
-    "VvLiEXXkiEpDF/ZT+jbR+HK6d93tmTeguMRhB4yoUWV8krTBvhxTHycT7cUgMnQXVlpYofaz5Q" +
-    "SwECFAMUAAAACAAqe/9cx/I0mzIAAAA2AAAAFgAAAAAAAAAAAAAAgAEAAAAAcmVsZWFzZS8yX0No" +
-    "ZWNrb3V0LnR4dFBLAQIUAxQAAAAIACp7/1x94DpHeAAAAKQAAAAaAAAAAAAAAAAAAACAAWYAAABy" +
-    "ZWxlYXNlLzdfQ29tcGxldGUgam9iLnR4dFBLBQYAAAAAAgACAIwAAAAWAQAAAAA="
-
-private var fixtureZip: Data {
-    Data(base64Encoded: fixtureZipBase64, options: .ignoreUnknownCharacters)!
-}
-
 // MARK: - LogFetcher.fetchStepLog tests
 
 @Suite("LogFetcher.fetchStepLog")
 struct FetchStepLogTests {
-
-    // MARK: Normal slice
 
     @Test("Normal step: returns .slice with ANSI and timestamps stripped")
     func test_normalStep_returnsSlice() async {
@@ -118,8 +92,6 @@ struct FetchStepLogTests {
         #expect(!content.contains("\u{1B}"), "ANSI codes must be stripped")
     }
 
-    // MARK: Regression #2358 (stub)
-
     @Test("Regression #2358: synthetic Complete job step returns .slice, not .syntheticEmpty")
     func test_completeJob_regression2358() async {
         var fetcher = makeFetcher(zipFiles: [
@@ -131,31 +103,24 @@ struct FetchStepLogTests {
             step: makeStep(number: 7, name: "Complete job"), scope: "owner/repo"
         )
         guard case .slice(let content) = result else {
-            Issue.record(
-                "REGRESSION #2358: Expected .slice for synthetic step, got \(result)"
-            )
+            Issue.record("REGRESSION #2358: Expected .slice for synthetic step, got \(result)")
             return
         }
         #expect(content.contains("Cleaning up orphan processes"))
     }
 
-    // MARK: Regression #2358 — real extractor
-
     /// THE #2358 REGRESSION TEST — real unzip subprocess, real fixture ZIP.
     ///
-    /// Unlike `test_completeJob_regression2358` (which uses a stub extractor),
-    /// this test runs the actual /usr/bin/unzip subprocess against committed
-    /// binary fixture bytes. It exercises the full pipeline:
+    /// Unlike `test_completeJob_regression2358` (stub extractor), this test runs
+    /// the actual /usr/bin/unzip subprocess against the committed fixture in
+    /// TestFixtures.swift. It exercises the full pipeline:
     ///   transport → raw ZIP bytes → unzip subprocess → file enumeration
     ///   → cleanLogText (strip timestamps + ANSI) → StepLogResult.slice
     ///
     /// If this test fails while the stub test passes, the regression is in
-    /// the extraction layer (unzipLogs / unzipLogsTyped / file enumeration),
-    /// not in fetchStepLog's routing logic.
+    /// the extraction layer (unzipLogs / file enumeration), not in routing logic.
     @Test("Regression #2358: Complete job with no ##[group] markers — real extractor returns .slice")
     func test_completeJob_regression2358_realExtractor() async {
-        // Serve the fixture ZIP from the stub transport; use the real ZipExtractor
-        // (no injection) so the unzip subprocess is actually invoked.
         let transport = StubTransport(responses: [
             "repos/owner/repo/actions/runs/99/logs": fixtureZip,
         ])
@@ -176,15 +141,10 @@ struct FetchStepLogTests {
             )
             return
         }
-        #expect(content.contains("Cleaning up orphan processes"),
-            "'Cleaning up orphan processes' must survive timestamp stripping")
-        #expect(content.contains("Node.js 20 is deprecated"),
-            "##[warning] body text must survive directive and timestamp stripping")
-        #expect(!content.contains("2026-07-31T"),
-            "Timestamp prefix must be stripped by cleanLogText")
+        #expect(content.contains("Cleaning up orphan processes"))
+        #expect(content.contains("Node.js 20 is deprecated"))
+        #expect(!content.contains("2026-07-31T"), "Timestamp prefix must be stripped")
     }
-
-    // MARK: Prefix match
 
     @Test("Prefix match succeeds when ZIP filename differs from step.name")
     func test_sanitisedFilenameDiffers_prefixMatchSucceeds() async {
@@ -203,8 +163,6 @@ struct FetchStepLogTests {
         #expect(content.contains("checkout output"))
     }
 
-    // MARK: Synthetic empty
-
     @Test("Whitespace-only step content returns .syntheticEmpty")
     func test_emptyContent_returnsSyntheticEmpty() async {
         var fetcher = makeFetcher(zipFiles: [
@@ -222,15 +180,11 @@ struct FetchStepLogTests {
         #expect(name == "Checkout")
     }
 
-    // MARK: Flat-blob fallback
-
     @Test("ZIP with only top-level blobs returns .flatBlobFallback")
     func test_onlyTopLevelBlobs_returnsFlatBlobFallback() async {
-        // Name has no '/' — treated as a top-level flat blob, not a per-step file.
         var fetcher = makeFetcher(
             zipFiles: [(name: "0_release", text: "whole job blob\n")],
             extraResponses: [
-                // Flat-blob fallback calls fetchJobLog — register its endpoint.
                 "repos/owner/repo/actions/jobs/1/logs": Data("2026-01-01T00:00:01.000Z ##[group]Checkout\nout\n##[endgroup]\n".utf8),
             ]
         )
@@ -245,11 +199,8 @@ struct FetchStepLogTests {
         }
     }
 
-    // MARK: Job name sanitisation
-
     @Test("Job name with / and : is sanitised before ZIP lookup")
     func test_jobNameWithSlashAndColon_sanitised() async {
-        // "org/action:job" → sanitised → "orgactionjob"
         var fetcher = makeFetcher(zipFiles: [
             (name: "orgactionjob/1_Build", text: "build output\n"),
         ])
@@ -265,11 +216,8 @@ struct FetchStepLogTests {
         #expect(content.contains("build output"))
     }
 
-    // MARK: UTF-16 truncation
-
     @Test("Job name > 90 UTF-16 code units is truncated before ZIP lookup")
     func test_jobNameExceeds90UTF16Units_truncated() async {
-        // 95 ASCII chars → 95 UTF-16 units → truncated to 90.
         let longName  = String(repeating: "a", count: 95)
         let truncated = String(repeating: "a", count: 90)
         var fetcher = makeFetcher(zipFiles: [
@@ -287,11 +235,8 @@ struct FetchStepLogTests {
         #expect(content.contains("build output"))
     }
 
-    // MARK: Cache hit
-
     @Test("Cache hit: second call for same runID+startedAt makes zero extra network calls")
     func test_cacheHit_zeroAdditionalNetworkCalls() async {
-        // StubTransport.rawCallCount is the ground truth for network activity.
         let transport = StubTransport(responses: [
             "repos/owner/repo/actions/runs/99/logs": Data("ZIP".utf8),
         ])
@@ -335,7 +280,6 @@ struct SanitizeJobNameTests {
 
     @Test("Truncates to 90 UTF-16 code units")
     func test_sanitize_truncatesAt90UTF16() {
-        // Each emoji is 2 UTF-16 units. 45 emoji = 90 units (no truncation). 46 = 92 → truncated.
         let fortyFive = String(repeating: "\u{1F600}", count: 45)
         let fortySix  = String(repeating: "\u{1F600}", count: 46)
         #expect(sanitizeJobNameForZIP(fortyFive) == fortyFive)
@@ -348,10 +292,6 @@ struct SanitizeJobNameTests {
         #expect(sanitizeJobNameForZIP("") == "")
     }
 
-    /// 89 ASCII chars + one emoji (U+1F680 ROCKET = 2 UTF-16 units) = 91 UTF-16
-    /// units total. The 90-unit cut lands on the high surrogate of the emoji
-    /// pair. The sanitiser must drop the dangling high surrogate and return
-    /// exactly the 89 ASCII chars — never a broken surrogate pair.
     @Test("Drops dangling high surrogate when 90-unit cut splits an emoji pair")
     func test_sanitize_surrogateAtBoundary_dropsHighSurrogate() {
         let input = String(repeating: "a", count: 89) + "🚀"

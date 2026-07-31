@@ -10,6 +10,41 @@ import RunBotCore
 /// Stable install path used across test fixtures to avoid repeating a hardcoded URI literal.
 internal let testRunnerInstallPath = "/tmp/runner" // NOSONAR — test-only fixture path
 
+// MARK: - ZIP log fixture (issue #2369)
+//
+// Two-file ZIP mirroring the exact structure of the failing job from #2358:
+//   release/2_Checkout.txt        — timestamp prefix + ANSI colour codes
+//   release/7_Complete job.txt    — synthetic step, no ##[group] markers
+//
+// Generation (run once; commit the output as fixtureZipBase64 below):
+//   mkdir -p /tmp/release
+//   printf '2026-07-31T04:34:20.0000000Z \033[32mCheckout output\033[0m\n' \
+//     > "/tmp/release/2_Checkout.txt"
+//   printf '2026-07-31T04:34:23.0000000Z Cleaning up orphan processes\n' \
+//     > "/tmp/release/7_Complete job.txt"
+//   printf '2026-07-31T04:34:23.0000001Z ##[warning]Node.js 20 is deprecated.\n' \
+//     >> "/tmp/release/7_Complete job.txt"
+//   cd /tmp && zip -r logs.zip release/
+//   base64 logs.zip | pbcopy
+
+/// Base64-encoded ZIP of the two-file test fixture.
+/// Shared by `UnzipLogsTests` and `FetchStepLogTests` — update here to regenerate everywhere.
+internal let fixtureZipBase64 =
+    "UEsDBBQAAAAIACp7/1zH8jSbMgAAADYAAAAWAAAAcmVsZWFzZS8yX0NoZWNrb3V0LnR4dDMyMD" +
+    "LTNTDXNTYMMTCxMjaxMjLQM4CAKAXpaGOjXOeM1OTs/NISBSAuKC2RjjbI5QIAUEsDBBQAAAAI" +
+    "ACp7/1x94DpHeAAAAKQAAAAaAAAAcmVsZWFzZS83X0NvbXBsZXRlIGpvYi50eHR1zbEKgzAURuH" +
+    "dp/jB2RATacG1eycnS4dgbjUl5IbciK9fpEOnnv3jGG0unb52tp/0MNphNFbpbzNukVwKacWewS" +
+    "VvLiEXXkiEpDF/ZT+jbR+HK6d93tmTeguMRhB4yoUWV8krTBvhxTHycT7cUgMnQXVlpYofaz5Q" +
+    "SwECFAMUAAAACAAqe/9cx/I0mzIAAAA2AAAAFgAAAAAAAAAAAAAAgAEAAAAAcmVsZWFzZS8yX0No" +
+    "ZWNrb3V0LnR4dFBLAQIUAxQAAAAIACp7/1x94DpHeAAAAKQAAAAaAAAAAAAAAAAAAACAAWYAAABy" +
+    "ZWxlYXNlLzdfQ29tcGxldGUgam9iLnR4dFBLBQYAAAAAAgACAIwAAAAWAQAAAAA="
+
+/// Decoded bytes of the fixture ZIP. Force-unwrap is intentional: a decode failure
+/// means the committed constant is corrupt, which must be caught immediately.
+internal var fixtureZip: Data {
+    Data(base64Encoded: fixtureZipBase64, options: .ignoreUnknownCharacters)!
+}
+
 // MARK: - Factories
 
 /// Creates a `RunnerModel` with sensible defaults for display-status and status-colour tests.
