@@ -11,8 +11,8 @@
 //
 // ## Sandbox behaviour
 // On GitHub Actions runners that block process spawning, unzipLogs returns [].
-// Each test wraps its assertions in withKnownIssue(when: !unzipAvailable) so
-// sandboxed CI produces an expected issue rather than a hard failure or a
+// Each test wraps its assertions in withKnownIssue(when: !checkUnzipAvailable())
+// so sandboxed CI produces an expected issue rather than a hard failure or a
 // silent pass. If the sandbox is lifted, withKnownIssue surfaces a test
 // failure because the known issue no longer reproduces.
 
@@ -37,7 +37,7 @@ struct UnzipLogsTests {
             #expect(files.contains(where: { $0.name == "release/7_Complete job" }),
                 "release/7_Complete job must be present after extraction")
         } when: {
-            !unzipAvailable
+            !checkUnzipAvailable()
         }
     }
 
@@ -59,7 +59,7 @@ struct UnzipLogsTests {
             #expect(checkout?.text.contains("\u{1B}[") == true,
                 "ANSI escape sequence must survive extraction unchanged")
         } when: {
-            !unzipAvailable
+            !checkUnzipAvailable()
         }
     }
 
@@ -78,7 +78,7 @@ struct UnzipLogsTests {
             #expect(completeJob?.text.contains("##[warning]") == true,
                 "##[warning] directive must survive extraction unchanged")
         } when: {
-            !unzipAvailable
+            !checkUnzipAvailable()
         }
     }
 }

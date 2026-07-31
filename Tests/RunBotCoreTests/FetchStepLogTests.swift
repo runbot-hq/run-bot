@@ -11,8 +11,8 @@
 //
 // The exception is `test_completeJob_regression2358_realExtractor`, which uses
 // the real ZipExtractor against the shared fixture ZIP from TestFixtures.swift.
-// That test wraps its assertions with withKnownIssue(when: !unzipAvailable) so
-// sandboxed CI produces an expected issue rather than a hard failure or silent pass.
+// That test wraps its assertions with withKnownIssue(when: !checkUnzipAvailable())
+// so sandboxed CI produces an expected issue rather than a hard failure or silent pass.
 //
 // Coverage map:
 //   Normal step — ANSI + timestamp stripped                  — test_normalStep_returnsSlice
@@ -120,7 +120,7 @@ struct FetchStepLogTests {
     /// If this test fails while the stub test passes, the regression is in
     /// the extraction layer (unzipLogs / file enumeration), not in routing logic.
     ///
-    /// Sandboxed CI: withKnownIssue(when: !unzipAvailable) marks this as an
+    /// Sandboxed CI: withKnownIssue(when: !checkUnzipAvailable()) marks this as an
     /// expected issue rather than a hard failure. If the sandbox is lifted,
     /// withKnownIssue surfaces a real failure because the issue no longer reproduces.
     @Test("Regression #2358: Complete job with no ##[group] markers — real extractor returns .slice")
@@ -150,7 +150,7 @@ struct FetchStepLogTests {
             #expect(content.contains("Node.js 20 is deprecated"))
             #expect(!content.contains("2026-07-31T"), "Timestamp prefix must be stripped")
         } when: {
-            !unzipAvailable
+            !checkUnzipAvailable()
         }
     }
 

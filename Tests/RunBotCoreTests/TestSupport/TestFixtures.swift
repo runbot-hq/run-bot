@@ -47,16 +47,16 @@ internal var fixtureZip: Data {
 
 // MARK: - Subprocess availability probe
 
-/// Returns `true` when `/usr/bin/unzip` exists and can be launched in this process sandbox.
+/// Returns `true` when `/usr/bin/unzip` exists and can be launched in this sandbox.
 ///
-/// Evaluated lazily once per test run. Used by `UnzipLogsTests` and
-/// `test_completeJob_regression2358_realExtractor` to gate real-subprocess assertions
-/// with `withKnownIssue(when:)` so sandboxed CI environments produce an expected issue
-/// rather than a hard failure or a silent pass.
+/// Called at each `withKnownIssue(when:)` site in `UnzipLogsTests` and
+/// `test_completeJob_regression2358_realExtractor` instead of a module-level
+/// `let` — a global lazy closure that captures `Process` is rejected by Swift 6
+/// strict concurrency because `Process` is not `Sendable`.
 ///
-/// `isIntermittent: true` is used at each call site because the subprocess IS available
-/// in local development — only certain CI runners sandbox process spawning.
-internal let unzipAvailable: Bool = {
+/// Calling this synchronously inside a test body is safe: the probe is cheap
+/// (single exec + waitUntilExit) and runs on the test's own executor.
+nonisolated func checkUnzipAvailable() -> Bool {
     guard FileManager.default.fileExists(atPath: "/usr/bin/unzip") else { return false }
     let probe = Process()
     probe.executableURL = URL(fileURLWithPath: "/usr/bin/unzip")
@@ -70,7 +70,7 @@ internal let unzipAvailable: Bool = {
     } catch {
         return false
     }
-}()
+}
 
 // MARK: - Factories
 
