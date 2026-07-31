@@ -9,9 +9,14 @@
 // via ProcessRunner, which the test-sandbox blocks. Tests inject a closure that
 // returns pre-built tuples directly — no subprocess, no filesystem.
 //
+// The exception is `test_completeJob_regression2358_realExtractor`, which uses
+// the real ZipExtractor against a committed binary fixture. This is the only test
+// that exercises the actual unzip → cleanLogText pipeline end-to-end.
+//
 // Coverage map:
 //   Normal step — ANSI + timestamp stripped                  — test_normalStep_returnsSlice
-//   Regression #2358 — synthetic "Complete job" step         — test_completeJob_regression2358
+//   Regression #2358 — synthetic "Complete job" step (stub)  — test_completeJob_regression2358
+//   Regression #2358 — real extractor against fixture ZIP    — test_completeJob_regression2358_realExtractor
 //   Prefix match when filename differs from step.name        — test_sanitisedFilenameDiffers_prefixMatchSucceeds
 //   Whitespace-only content → .syntheticEmpty                — test_emptyContent_returnsSyntheticEmpty
 //   Only top-level blobs (no '/') → .flatBlobFallback        — test_onlyTopLevelBlobs_returnsFlatBlobFallback
@@ -65,6 +70,28 @@ private func makeFetcher(
     )
 }
 
+// MARK: - Real-extractor fixture
+//
+// Used only by test_completeJob_regression2358_realExtractor.
+// Generated once from /tmp/release — see UnzipLogsTests.swift for the shell commands.
+// The fixture contains:
+//   release/2_Checkout.txt        — timestamp + ANSI
+//   release/7_Complete job.txt    — synthetic step, no ##[group] markers
+
+private let fixtureZipBase64 =
+    "UEsDBBQAAAAIACp7/1zH8jSbMgAAADYAAAAWAAAAcmVsZWFzZS8yX0NoZWNrb3V0LnR4dDMyMD" +
+    "LTNTDXNTYMMTCxMjaxMjLQM4CAKAXpaGOjXOeM1OTs/NISBSAuKC2RjjbI5QIAUEsDBBQAAAAI" +
+    "ACp7/1x94DpHeAAAAKQAAAAaAAAAcmVsZWFzZS83X0NvbXBsZXRlIGpvYi50eHR1zbEKgzAURuH" +
+    "dp/jB2RATacG1eycnS4dgbjUl5IbciK9fpEOnnv3jGG0unb52tp/0MNphNFbpbzNukVwKacWewS" +
+    "VvLiEXXkiEpDF/ZT+jbR+HK6d93tmTeguMRhB4yoUWV8krTBvhxTHycT7cUgMnQXVlpYofaz5Q" +
+    "SwECFAMUAAAACAAqe/9cx/I0mzIAAAA2AAAAFgAAAAAAAAAAAAAAgAEAAAAAcmVsZWFzZS8yX0No" +
+    "ZWNrb3V0LnR4dFBLAQIUAxQAAAAIACp7/1x94DpHeAAAAKQAAAAaAAAAAAAAAAAAAACAAWYAAABy" +
+    "ZWxlYXNlLzdfQ29tcGxldGUgam9iLnR4dFBLBQYAAAAAAgACAIwAAAAWAQAAAAA="
+
+private var fixtureZip: Data {
+    Data(base64Encoded: fixtureZipBase64, options: .ignoreUnknownCharacters)!
+}
+
 // MARK: - LogFetcher.fetchStepLog tests
 
 @Suite("LogFetcher.fetchStepLog")
@@ -91,7 +118,7 @@ struct FetchStepLogTests {
         #expect(!content.contains("\u{1B}"), "ANSI codes must be stripped")
     }
 
-    // MARK: Regression #2358
+    // MARK: Regression #2358 (stub)
 
     @Test("Regression #2358: synthetic Complete job step returns .slice, not .syntheticEmpty")
     func test_completeJob_regression2358() async {
@@ -110,6 +137,51 @@ struct FetchStepLogTests {
             return
         }
         #expect(content.contains("Cleaning up orphan processes"))
+    }
+
+    // MARK: Regression #2358 — real extractor
+
+    /// THE #2358 REGRESSION TEST — real unzip subprocess, real fixture ZIP.
+    ///
+    /// Unlike `test_completeJob_regression2358` (which uses a stub extractor),
+    /// this test runs the actual /usr/bin/unzip subprocess against committed
+    /// binary fixture bytes. It exercises the full pipeline:
+    ///   transport → raw ZIP bytes → unzip subprocess → file enumeration
+    ///   → cleanLogText (strip timestamps + ANSI) → StepLogResult.slice
+    ///
+    /// If this test fails while the stub test passes, the regression is in
+    /// the extraction layer (unzipLogs / unzipLogsTyped / file enumeration),
+    /// not in fetchStepLog's routing logic.
+    @Test("Regression #2358: Complete job with no ##[group] markers — real extractor returns .slice")
+    func test_completeJob_regression2358_realExtractor() async {
+        // Serve the fixture ZIP from the stub transport; use the real ZipExtractor
+        // (no injection) so the unzip subprocess is actually invoked.
+        let transport = StubTransport(responses: [
+            "repos/owner/repo/actions/runs/99/logs": fixtureZip,
+        ])
+        var fetcher = LogFetcher(transport: transport) // real zipExtractor
+        let result = await fetcher.fetchStepLog(
+            runID: 99, startedAt: "2026-07-31T04:34:20Z",
+            jobID: 1, jobName: "release",
+            step: makeStep(number: 7, name: "Complete job"),
+            scope: "owner/repo"
+        )
+        guard case .slice(let content) = result else {
+            Issue.record(
+                """
+                REGRESSION #2358 (real extractor): Expected .slice for 'Complete job', got \(result).
+                This step has no ##[group] markers — the ZIP per-step lookup must still succeed.
+                If you see .fetchFailed, the unzip subprocess may be sandboxed in this environment.
+                """
+            )
+            return
+        }
+        #expect(content.contains("Cleaning up orphan processes"),
+            "'Cleaning up orphan processes' must survive timestamp stripping")
+        #expect(content.contains("Node.js 20 is deprecated"),
+            "##[warning] body text must survive directive and timestamp stripping")
+        #expect(!content.contains("2026-07-31T"),
+            "Timestamp prefix must be stripped by cleanLogText")
     }
 
     // MARK: Prefix match
