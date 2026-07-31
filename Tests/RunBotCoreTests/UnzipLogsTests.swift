@@ -1,5 +1,5 @@
 // UnzipLogsTests.swift
-// RunBotCoreTests
+// RunBot
 //
 // Tests for unzipLogs / unzipLogsTyped against real ZIP bytes (issue #2369).
 //
@@ -15,13 +15,16 @@
 // so sandboxed CI records an expected issue rather than a hard failure, and a
 // local run where unzip succeeds passes normally.
 // isIntermittent: true means the issue is not expected to reproduce on every run
-// — it suppresses the “known issue did not reproduce” error that would otherwise
+// — it suppresses the "known issue did not reproduce" error that would otherwise
 // fire on unsandboxed machines where the test passes cleanly.
 
 import Foundation
-import Testing
 @testable import RunBotCore
+import Testing
 
+/// Exercises `unzipLogs` against real ZIP bytes using the actual `/usr/bin/unzip` subprocess.
+/// Tests are gated with `withKnownIssue(isIntermittent: true)` so sandboxed CI runners
+/// record an expected issue instead of a hard failure.
 @Suite("unzipLogs — real subprocess")
 struct UnzipLogsTests {
 
