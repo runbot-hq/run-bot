@@ -22,24 +22,19 @@ extension RunnerPoller {
     /// jobs that concluded this cycle and fires a `UNUserNotificationCenter` request
     /// for each one, gated by `notificationPreferences.shouldNotify(conclusion:)`.
     ///
-    /// Also detects runners that became busy this cycle (picked up work) and calls
-    /// `start()` to restart the poll loop with a fresh `activeScopes` snapshot,
-    /// fulfilling the "fetch scopes and update main" contract from #2327 / #2365.
-    /// `start()` cancels the current poll task before launching a new one, so this
-    /// is a clean restart, not an additive one.
+    /// Also detects runners that became busy this cycle (picked up work) and returns
+    /// `true` so the call site (`fetchInternal`) can call `start()` with a fresh
+    /// `activeScopes` snapshot — fulfilling the "fetch scopes and update main" contract
+    /// from #2327 / #2365. `start()` is called at the `fetchInternal` level, not here,
+    /// so it runs after this function returns and its stack frame is fully unwound.
+    /// This avoids any interaction between `start()`'s cache-clear and the state
+    /// written earlier in this function.
     ///
     /// A read-only `activeScopes` re-read with no downstream write was considered
     /// and rejected: `scopesSnapshot` is captured once at the top of `fetchInternal()`
     /// and cannot be patched mid-cycle. `start()` is the only mechanism that produces
     /// a fetch cycle with a fresh snapshot. This mirrors the `startObservingScopes()`
     /// → `start()` path that already fires on scope changes.
-    ///
-    /// **Ordering constraint:** notification dispatch runs before the runner-pickup
-    /// block. `start()` clears `prevLiveJobs` and `completedCache`; dispatching
-    /// notifications first ensures jobs that completed in the same cycle a runner
-    /// picks up work are never silently dropped. The runner-pickup block is not
-    /// extracted into a helper — its ordering relative to notification dispatch is
-    /// load-bearing and would be obscured by indirection.
     ///
     /// **Function body length:** 70 non-comment lines (below the 90-line `swiftlint`
     /// warning threshold and 150-line error threshold). The notification-dispatch
@@ -49,11 +44,15 @@ extension RunnerPoller {
     /// additional async actor hop boundary — the inline code is simpler and
     /// stays under the limit. Any future addition that risks exceeding 90 lines
     /// should extract the notification block into a private helper method.
+    ///
+    /// - Returns: `true` if one or more runners transitioned from idle to busy this
+    ///   cycle; `false` otherwise. The caller is responsible for acting on this signal.
+    @discardableResult
     func applyFetchResult(
         enrichedRunners: [GitHubRunner],
         jobResult: JobPollResult,
         groupResult: GroupPollResult
-    ) async {
+    ) async -> Bool {
         // Capture the pre-update prevLiveJobs snapshot before writing new state.
         // Jobs that were live last cycle but are now in newCache concluded this cycle.
         let prevLive = prevLiveJobs
@@ -123,10 +122,6 @@ extension RunnerPoller {
 
         // MARK: - Notification dispatch
         //
-        // NOTE: This block runs before the runner-pickup block below. start() clears
-        // prevLiveJobs and completedCache; dispatching notifications first ensures jobs
-        // that completed in the same cycle a runner picks up work are never dropped.
-        //
         // Find jobs that concluded this cycle: they were live last poll (prevLive)
         // but are now in newCache. Because prevLiveJobs only contains in-flight jobs
         // (never already-cached ones), no additional cross-check against the old
@@ -158,12 +153,9 @@ extension RunnerPoller {
                     "RunnerPoller › notifications skipped — permission denied (status=\(settings.authorizationStatus.rawValue))",
                     category: .runner)
                 // NOTE: This return exits only the `if !newlyCompleted.isEmpty` block —
-                // NOT the whole function. The runner-pickup block (MARK below) runs after
-                // this `if` closes and is unaffected by this return. All state writes
-                // (completedCache, prevLiveJobs, MainActor.run state.*) happen before this
-                // point. If future code is added inside this `if` block after the guard,
-                // that code will also be skipped — keep any additions outside this block.
-                return
+                // not the whole function. The runner-pickup Bool is computed and returned
+                // below, after this block closes, regardless of notification auth status.
+                return newlyPickedUp(prev: prevBusyIds, current: enrichedRunners)
             }
             for job in newlyCompleted {
                 let conclusion = job.jobConclusion ?? .neutral
@@ -209,46 +201,28 @@ extension RunnerPoller {
             }
         }
 
-        // MARK: - Runner pickup → restart poll with fresh scopes (#2327)
-        //
-        // NOTE: This block runs after notification dispatch (above). start() clears
-        // prevLiveJobs and completedCache; notifications must fire first so same-cycle
-        // job completions are not silently dropped when a runner also picks up work.
-        //
-        // When one or more runners became busy this cycle (transitioned from idle to
-        // busy since the previous poll), call start() to restart the poll loop.
-        // start() re-reads scopeStore.activeScopes as its first act, so the next
-        // fetch cycle uses a guaranteed-fresh scope snapshot — fulfilling the
-        // "fetch scopes and update main" contract from #2327.
-        //
-        // A read-only activeScopes re-read with no downstream write was considered and
-        // rejected: scopesSnapshot is captured once at the top of fetchInternal() and
-        // cannot be patched mid-cycle. start() is the only mechanism that produces a
-        // fetch cycle with a fresh snapshot.
-        //
-        // start() cancels the existing poll task via pollLoop.setPollTask before
-        // launching a new one, so this is a clean restart, not additive.
-        //
-        // This mirrors the existing startObservingScopes() → start() path that fires
-        // when ScopeStore.activeScopes changes; runner pickup is a parallel trigger
-        // using the same mechanism.
-        //
-        // Not extracted into a helper: ordering relative to notification dispatch is
-        // load-bearing (see NOTE above); extraction would obscure that constraint.
-        //
-        // Double-trigger safety: the guard on newlyPickedUp.isEmpty means start() is
-        // only called when at least one runner actually became busy this cycle,
-        // keeping the common (idle) path free of any restart overhead.
+        return newlyPickedUp(prev: prevBusyIds, current: enrichedRunners)
+    }
+
+    /// Returns `true` and logs if any runner transitioned from idle to busy since the
+    /// previous cycle; `false` (no log) otherwise.
+    ///
+    /// Extracted from `applyFetchResult` to keep the guard-return path in the
+    /// notification block readable: both early-exit and normal-exit converge on the
+    /// same call rather than duplicating the diff logic inline.
+    ///
+    /// - Parameters:
+    ///   - prev: Busy-runner IDs captured before `setDisplayState` ran this cycle.
+    ///   - current: The enriched runner list written by `setDisplayState` this cycle.
+    private func newlyPickedUp(prev prevBusyIds: Set<Int>, current enrichedRunners: [GitHubRunner]) -> Bool {
         let newBusyIds = Set(enrichedRunners.filter { $0.busy }.map { $0.id })
-        let newlyPickedUp = newBusyIds.subtracting(prevBusyIds)
-        if !newlyPickedUp.isEmpty {
-            let freshScopes = await MainActor.run { scopeStore.activeScopes }
-            log(
-                "RunnerPoller › runner(s) picked up work (ids=\(newlyPickedUp.sorted())) — restarting poll with fresh activeScopes count=\(freshScopes.count)",
-                category: .runner
-            )
-            await start()
-        }
+        let pickedUp = newBusyIds.subtracting(prevBusyIds)
+        guard !pickedUp.isEmpty else { return false }
+        log(
+            "RunnerPoller › runner(s) picked up work (ids=\(pickedUp.sorted())) — signalling fetchInternal to restart poll with fresh activeScopes",
+            category: .runner
+        )
+        return true
     }
 
     /// Surfaces a fetch failure to the `RunnerState` read model.
