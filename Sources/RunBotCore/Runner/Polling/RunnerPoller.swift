@@ -233,8 +233,17 @@ public actor RunnerPoller {
     // would suppress the headroom-cooldown branch for an entire extra window.
     consecutiveIdleTicks = 0
     lastBusyRunnerCount = 0
-    // Clear prevLiveJobs and completedCache so stale entries from the previous
-    // scope do not trigger duplicate notifications after a scope-change restart.
+    // Clear prevLiveJobs and completedCache so stale entries from the previous scope
+    // do not trigger duplicate notifications after a scope-change restart.
+    // This clear is also correct for the runner-pickup restart path (#2327): start()
+    // is called from fetchInternal() after applyFetchResult() returns, so the caches
+    // written by applyFetchResult are no longer needed at the point of the restart —
+    // notification dispatch has already completed before applyFetchResult returned.
+    // Known constraint: jobs completing in the narrow window between this clear and
+    // the next cycle's API response cannot be notified, because the "was it live last
+    // cycle?" baseline (prevLiveJobs) is now empty. This is a pre-existing behaviour
+    // shared with the startObservingScopes() → start() scope-change path and is
+    // intentionally accepted — the window is one API round-trip wide.
     prevLiveJobs = [:]
     completedCache = [:]
     let scopes = await MainActor.run { scopeStore.activeScopes }
@@ -429,11 +438,22 @@ public actor RunnerPoller {
       jobCache: jobResult.newCache,
       scopes: scopesSnapshot
     )
-    await applyFetchResult(
+    let didPickUp = await applyFetchResult(
       enrichedRunners: enrichedRunners,
       jobResult: jobResult,
       groupResult: groupResult
     )
+    // (#2327) If any runner picked up work this cycle, restart the poll loop so the
+    // next fetch uses a fresh activeScopes snapshot. start() is called here — after
+    // applyFetchResult has fully returned — so its cache-clear runs after notification
+    // dispatch is complete. No ordering constraint inside applyFetchResult is required.
+    //
+    // No actor-state is written after this point. start() cancels the current poll
+    // Task (this Task) via pollLoop.setPollTask and spawns a new one; the old task
+    // exits normally when fetchInternal returns. Swift actor exclusivity ensures the
+    // new task cannot begin executing until this call stack unwinds — there is no
+    // window in which both tasks mutate actor state concurrently.
+    if didPickUp { await start() }
   }
 
   /// Derives extra org scopes from local runner `gitHubUrl` values that are not

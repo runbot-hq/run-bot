@@ -22,6 +22,26 @@ extension RunnerPoller {
     /// jobs that concluded this cycle and fires a `UNUserNotificationCenter` request
     /// for each one, gated by `notificationPreferences.shouldNotify(conclusion:)`.
     ///
+    /// Also detects runners that became busy this cycle (picked up work) and returns
+    /// `true` so the call site (`fetchInternal`) can call `start()` with a fresh
+    /// `activeScopes` snapshot — fulfilling the "fetch scopes and update main" contract
+    /// from #2327 / #2365. `start()` is called at the `fetchInternal` level, not here,
+    /// so it runs after this function returns and its stack frame is fully unwound.
+    /// This avoids any interaction between `start()`'s cache-clear and the state
+    /// written earlier in this function.
+    ///
+    /// **Pickup detection is not gated on notification authorisation.** A runner
+    /// picking up work returns `true` (and `fetchInternal` will call `start()`) even
+    /// when the `guard isAuthorized` block takes the early-return path. The early
+    /// return exits only the `if !newlyCompleted.isEmpty` block — not the whole
+    /// function — and `newlyPickedUp(prev:current:)` is called on both exit paths.
+    ///
+    /// **Why `start()` rather than a scoped re-read of `activeScopes`:**
+    /// `scopesSnapshot` is captured once at the top of `fetchInternal()` and cannot
+    /// be patched mid-cycle. `start()` is the only mechanism that produces a fetch
+    /// cycle with a truly fresh snapshot. This mirrors the `startObservingScopes()`
+    /// → `start()` path that already fires on scope changes.
+    ///
     /// **Function body length:** 70 non-comment lines (below the 90-line `swiftlint`
     /// warning threshold and 150-line error threshold). The notification-dispatch
     /// block (~20 code lines inside `if !newlyCompleted.isEmpty`) is intentionally
@@ -30,14 +50,27 @@ extension RunnerPoller {
     /// additional async actor hop boundary — the inline code is simpler and
     /// stays under the limit. Any future addition that risks exceeding 90 lines
     /// should extract the notification block into a private helper method.
+    ///
+    /// - Returns: `true` if one or more runners transitioned from idle to busy this
+    ///   cycle; `false` otherwise. The caller is responsible for acting on this signal.
+    @discardableResult
     func applyFetchResult(
         enrichedRunners: [GitHubRunner],
         jobResult: JobPollResult,
         groupResult: GroupPollResult
-    ) async {
+    ) async -> Bool {
         // Capture the pre-update prevLiveJobs snapshot before writing new state.
         // Jobs that were live last cycle but are now in newCache concluded this cycle.
         let prevLive = prevLiveJobs
+
+        // Capture busy-runner IDs before setDisplayState overwrites self.runners,
+        // so we can diff against enrichedRunners afterwards to detect newly-busy runners.
+        // (#2327) Must be captured here — after setDisplayState self.runners == enrichedRunners.
+        //
+        // Not a duplication of the newBusyIds expression below: these two Set(filter…map…)
+        // expressions operate on different collections (self.runners vs enrichedRunners) at
+        // different lifecycle points (pre- vs post-setDisplayState) and cannot be unified.
+        let prevBusyIds = Set(runners.filter { $0.busy }.map { $0.id })
 
         let rateLimitSnapshot = await ghRateLimitSnapshot()
         completedCache = jobResult.newCache
@@ -70,9 +103,10 @@ extension RunnerPoller {
         // It is valid for these to disagree transiently (e.g. a runner is busy but
         // the job API hasn't surfaced it yet). In that case the active ladder is
         // entered only when hasActiveWork is true — intentional per #2069 design.
-        // `enrichedRunners` is used here (not `self.runners`) because the values are
-        // identical — `enrichedRunners` is exactly what setDisplayState wrote above —
-        // so this is spec-equivalent to `runners.filter { $0.busy }.count`.
+        // `enrichedRunners` is used here rather than `self.runners` because
+        // setDisplayState wrote enrichedRunners into self.runners in the call above —
+        // they are identical at this point. Using enrichedRunners directly avoids a
+        // redundant property indirection and makes the value origin explicit.
         let busyCount = enrichedRunners.filter { $0.busy }.count
         let activeWork = hasActiveWork()
         let newIdleTicks = updateAdaptiveCounters(hasActiveWork: activeWork, busyRunnerCount: busyCount)
@@ -125,13 +159,10 @@ extension RunnerPoller {
                 log(
                     "RunnerPoller › notifications skipped — permission denied (status=\(settings.authorizationStatus.rawValue))",
                     category: .runner)
-                // NOTE: This return appears to exit the whole function, but it only exits the
-                // notification block — there is no code after `if !newlyCompleted.isEmpty` in
-                // `applyFetchResult` (the next statement is the closing `}` of the function).
-                // All state writes (completedCache, prevLiveJobs, MainActor.run state.*) happen
-                // before this point. If future code is added after the notification block, this
-                // return must be scoped (e.g. extract the block into a private helper method).
-                return
+                // NOTE: This return exits only the `if !newlyCompleted.isEmpty` block —
+                // not the whole function. The runner-pickup Bool is computed and returned
+                // below, after this block closes, regardless of notification auth status.
+                return newlyPickedUp(prev: prevBusyIds, current: enrichedRunners)
             }
             for job in newlyCompleted {
                 let conclusion = job.jobConclusion ?? .neutral
@@ -176,6 +207,29 @@ extension RunnerPoller {
                 }
             }
         }
+
+        return newlyPickedUp(prev: prevBusyIds, current: enrichedRunners)
+    }
+
+    /// Returns `true` and logs if any runner transitioned from idle to busy since the
+    /// previous cycle; `false` (no log) otherwise.
+    ///
+    /// Extracted from `applyFetchResult` to keep the guard-return path in the
+    /// notification block readable: both early-exit and normal-exit converge on the
+    /// same call rather than duplicating the diff logic inline.
+    ///
+    /// - Parameters:
+    ///   - prev: Busy-runner IDs captured before `setDisplayState` ran this cycle.
+    ///   - current: The enriched runner list written by `setDisplayState` this cycle.
+    private func newlyPickedUp(prev prevBusyIds: Set<Int>, current enrichedRunners: [GitHubRunner]) -> Bool {
+        let newBusyIds = Set(enrichedRunners.filter { $0.busy }.map { $0.id })
+        let pickedUp = newBusyIds.subtracting(prevBusyIds)
+        guard !pickedUp.isEmpty else { return false }
+        log(
+            "RunnerPoller › runner(s) picked up work (ids=\(pickedUp.sorted())) — signalling fetchInternal to restart poll with fresh activeScopes",
+            category: .runner
+        )
+        return true
     }
 
     /// Surfaces a fetch failure to the `RunnerState` read model.
@@ -200,6 +254,11 @@ extension RunnerPoller {
     /// means `setDisplayState` leaves those actor-local properties at their last-successful-
     /// cycle values. Views therefore show stale data alongside the error banner rather than
     /// an empty list.
+    ///
+    /// Intentionally does **not** detect runner pickup or call `start()`. On error cycles
+    /// `enrichedRunners` is unavailable — there is no valid basis for a busy-runner diff.
+    /// Restarting on a failed cycle would also risk thrashing during sustained connectivity
+    /// loss. The scope-freshness guarantee from #2327 applies to successful cycles only.
     ///
     /// `consecutiveIdleTicks`, `lastBusyRunnerCount`, and `rateLimitRemaining` are also
     /// intentionally not updated here — all three counters hold their last-successful-cycle
