@@ -262,16 +262,21 @@ public struct LogFetcher: Sendable {
 ///    Unicode scalars, not UTF-16 code units — emoji and CJK characters truncate at a
 ///    different offset without this step.
 func sanitizeJobNameForZIP(_ name: String) -> String {
-    var result = name
+    let stripped = name
         .replacingOccurrences(of: "/", with: "")
         .replacingOccurrences(of: ":", with: "")
-    let utf16 = result.utf16
-    if utf16.count > 90,
-       let endIndex = utf16.index(utf16.startIndex, offsetBy: 90, limitedBy: utf16.endIndex),
-       let truncated = String(utf16[utf16.startIndex..<endIndex]) {
-        result = truncated
+    guard stripped.utf16.count > 90 else { return stripped }
+    var units = Array(stripped.utf16.prefix(90))
+    // Guard against splitting a surrogate pair at the boundary. Swift strings
+    // are always well-formed (no isolated surrogates), so a high surrogate at
+    // position 89 means position 90 held its low-surrogate pair partner — now
+    // dropped by the prefix. Removing the dangling high surrogate ensures the
+    // result is valid UTF-16 and matches GitHub’s own truncation behaviour
+    // (which would also never emit a broken surrogate pair).
+    if let last = units.last, (0xD800...0xDBFF).contains(last) {
+        units.removeLast()
     }
-    return result
+    return String(decoding: units, as: UTF16.self)
 }
 
 // MARK: - ZIP extraction (uses /usr/bin/unzip — always available on macOS)

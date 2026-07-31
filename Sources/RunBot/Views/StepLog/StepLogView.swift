@@ -68,11 +68,16 @@ struct StepLogView: View {
     /// Handle for the in-flight log fetch task; cancelled in `onDisappear` and at the
     /// top of `loadLog()` to prevent races if `onAppear` fires more than once.
     @State private var loadTask: Task<Void, Never>?
-    /// Shared `LogFetcher` instance for the lifetime of this view.
-    /// Must be `@State` (not a local) so the ZIP cache in `zipCache` survives
-    /// across step taps — creating a new `LogFetcher()` inside `loadLog()` would
-    /// discard the cache on every call and re-download the ZIP each time.
-    @State private var logFetcher = LogFetcher()
+    /// Bound to the `AppState`-owned `LogFetcher` so the ZIP cache survives
+    /// across step taps. `@State` would be discarded on every `.id(navState)`
+    /// remount in `RootPanelView` (SwiftUI tears down the full state tree when
+    /// the identity key changes, which happens on every step tap). By owning
+    /// `LogFetcher` in `AppState` and threading it down via `@Binding`, the
+    /// ZIP cache persists for the lifetime of the panel session: the second
+    /// step tap in the same run hits the cache and skips the network call.
+    /// The snapshot/writeback pattern in `loadLog()` propagates cache updates
+    /// back to `AppState` through this binding on the MainActor after each fetch.
+    @Binding var logFetcher: LogFetcher
 
     // MARK: - Formatters (static to avoid re-allocation per render)
     /// `HH:mm:ss` formatter used for start/end time labels in the meta row.
@@ -101,12 +106,14 @@ struct StepLogView: View {
     init(
         job: ActiveJob,
         step: GitHubStep,
+        logFetcher: Binding<LogFetcher> = .constant(LogFetcher()),
         onBack: @escaping () -> Void,
         onLogLoaded: (() -> Void)? = nil,
         scopeStore: any ScopeStoreProtocol = ScopeStore.shared
     ) {
         self.job = job
         self.step = step
+        self._logFetcher = logFetcher
         self.onBack = onBack
         self.onLogLoaded = onLogLoaded
         self.scopeStore = scopeStore

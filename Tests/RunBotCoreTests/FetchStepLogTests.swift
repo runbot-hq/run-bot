@@ -275,4 +275,16 @@ struct SanitizeJobNameTests {
         #expect(sanitizeJobNameForZIP("Build") == "Build")
         #expect(sanitizeJobNameForZIP("") == "")
     }
+
+    /// 89 ASCII chars + one emoji (U+1F680 ROCKET = 2 UTF-16 units) = 91 UTF-16
+    /// units total. The 90-unit cut lands on the high surrogate of the emoji
+    /// pair. The sanitiser must drop the dangling high surrogate and return
+    /// exactly the 89 ASCII chars — never a broken surrogate pair.
+    @Test("Drops dangling high surrogate when 90-unit cut splits an emoji pair")
+    func test_sanitize_surrogateAtBoundary_dropsHighSurrogate() {
+        let input = String(repeating: "a", count: 89) + "🚀"
+        let result = sanitizeJobNameForZIP(input)
+        #expect(result == String(repeating: "a", count: 89))
+        #expect(result.utf16.count == 89)
+    }
 }

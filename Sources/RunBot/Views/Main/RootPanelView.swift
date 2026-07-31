@@ -141,9 +141,13 @@ struct RootPanelView: View {
     /// was removed in a prior PR — not by #2263. `StepLogView.swift` is untouched by
     /// this PR; the file SHA is identical between this branch and main.
     @ViewBuilder private func stepLogBranch(job: ActiveJob, step: GitHubStep) -> some View {
+        // `@Environment` properties from `@Observable` types don't expose `$` projected
+        // binding syntax directly. `Bindable` wraps the reference and provides it.
+        @Bindable var bindableState = appState
         StepLogView(
             job: job,
             step: step,
+            logFetcher: $bindableState.logFetcher,
             onBack: onStepBack
         )
     }
