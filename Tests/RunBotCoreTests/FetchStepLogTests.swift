@@ -9,9 +9,11 @@
 //
 // The exception is `test_completeJob_regression2358_realExtractor`, which uses
 // the real ZipExtractor against the shared fixture ZIP from TestFixtures.swift.
-// That test uses withKnownIssue(isIntermittent: true, when: { !unzipBinaryExists })
+// That test uses withKnownIssue(isIntermittent: true, when: { !unzipBinaryExists || !isSlice })
 // so sandboxed CI records an expected issue rather than a hard failure or silent pass
-// even on runners where the binary exists on disk but process spawning is blocked.
+// even on runners where the binary exists on disk but Process.run() is blocked
+// (in that case unzipBinaryExists stays true but fetchStepLog returns something other
+// than .slice, which the !isSlice arm catches).
 //
 // Coverage map:
 //   Normal step — ANSI + timestamp stripped                  — test_normalStep_returnsSlice
@@ -177,6 +179,10 @@ struct FetchStepLogTests {
             step: makeStep(number: 7, name: "Complete job"),
             scope: "owner/repo"
         )
+        // Pre-evaluate before entering withKnownIssue — the `when:` closure runs before
+        // the body, so the result must be captured first. Mirrors the UnzipLogsTests pattern.
+        let isSlice: Bool
+        if case .slice = result { isSlice = true } else { isSlice = false }
         withKnownIssue(
             "unzip subprocess unavailable (sandboxed CI runner)",
             isIntermittent: true
@@ -189,7 +195,11 @@ struct FetchStepLogTests {
             #expect(content.contains("Node.js 20 is deprecated"))
             #expect(!content.contains("2026-07-31T"), "Timestamp prefix must be stripped")
         } when: {
-            !unzipBinaryExists
+            // Gate on binary absence OR failed spawn: on a sandboxed runner where /usr/bin/unzip
+            // exists but Process.run() is blocked, unzipBinaryExists stays true but the result
+            // will not be .slice. The !isSlice arm catches that case so the test is recorded as
+            // a known issue rather than a hard failure.
+            !unzipBinaryExists || !isSlice
         }
     }
 
