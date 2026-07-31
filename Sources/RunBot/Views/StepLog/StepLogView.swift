@@ -59,7 +59,10 @@ struct StepLogView: View {
     /// Defaults to the live singleton so all existing call sites require no changes.
     var scopeStore: any ScopeStoreProtocol = ScopeStore.shared
     /// `nil` = not yet fetched; `""` = fetch returned empty; non-empty = log text.
+    /// Kept for `LogCopyButton` compatibility — mirrors `logResult.text`.
     @State private var logText: String?
+    /// The typed result of the last step log fetch. Drives the scroll-view rendering.
+    @State private var logResult: StepLogResult?
     /// `true` while the background fetch is in-flight.
     @State private var isLoading = true
     /// Handle for the in-flight log fetch task; cancelled in `onDisappear` and at the
@@ -206,17 +209,42 @@ struct StepLogView: View {
                         ProgressView().controlSize(.small).padding(.vertical, 20)
                         Spacer()
                     }
-                } else if let text = logText, !text.isEmpty {
-                    Text(text)
-                        .font(.system(size: 11, design: .monospaced))
-                        .foregroundColor(Color.rbTextPrimary)
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, RBSpacing.md).padding(.vertical, 6)
                 } else {
-                    Text("Log not available")
-                        .font(.caption).foregroundColor(Color.rbTextSecondary)
-                        .padding(.horizontal, RBSpacing.md).padding(.vertical, 8)
+                    switch logResult {
+                    case .slice(let content):
+                        Text(content)
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundColor(Color.rbTextPrimary)
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, RBSpacing.md).padding(.vertical, 6)
+                    case .flatBlobFallback(let content):
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("⚠️ Per-step logs unavailable for this run — showing full job log")
+                                .font(.caption).foregroundColor(Color.rbWarning)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.horizontal, RBSpacing.md).padding(.top, 6)
+                            Divider().padding(.horizontal, RBSpacing.md)
+                            Text(content)
+                                .font(.system(size: 11, design: .monospaced))
+                                .foregroundColor(Color.rbTextPrimary)
+                                .textSelection(.enabled)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.horizontal, RBSpacing.md).padding(.bottom, 6)
+                        }
+                    case .syntheticEmpty(let name):
+                        Text("No output recorded for \"\(name)\"")
+                            .font(.caption).foregroundColor(Color.rbTextSecondary)
+                            .padding(.horizontal, RBSpacing.md).padding(.vertical, 8)
+                    case .fetchFailed:
+                        Text("Failed to fetch log")
+                            .font(.caption).foregroundColor(Color.rbDanger)
+                            .padding(.horizontal, RBSpacing.md).padding(.vertical, 8)
+                    case nil:
+                        Text("Log not available")
+                            .font(.caption).foregroundColor(Color.rbTextSecondary)
+                            .padding(.horizontal, RBSpacing.md).padding(.vertical, 8)
+                    }
                 }
             }
             // ⚠️ REQUIRED -- caps preferredContentSize.height. Prevents panel growing off-screen.
@@ -270,8 +298,10 @@ struct StepLogView: View {
         loadTask?.cancel() // Signals cancellation; does NOT abort in-flight network I/O.
         isLoading = true
         let jobID = job.id
-        let stepNum = step.number
-        let stepName = step.name
+        let runID = job.runID
+        let startedAt = job.startedAt
+        let jobName = job.name
+        let capturedStep = step
         let scope: String = {
             let primary = repoScopeForFetch
             if !primary.isEmpty { return primary }
@@ -282,10 +312,19 @@ struct StepLogView: View {
         loadTask = Task {
             defer { Task { @MainActor in isLoading = false } }
             guard !Task.isCancelled else { return }
-            let text = await fetchStepLog(jobID: jobID, stepNumber: stepNum, stepName: stepName, scope: scope)
+            var fetcher = LogFetcher()
+            let result = await fetcher.fetchStepLog(
+                runID: runID,
+                startedAt: startedAt,
+                jobID: jobID,
+                jobName: jobName,
+                step: capturedStep,
+                scope: scope
+            )
             guard !Task.isCancelled else { return }
             await MainActor.run {
-                logText = text ?? ""
+                logResult = result
+                logText = result.text ?? ""
                 onLogLoaded?()
             }
         }

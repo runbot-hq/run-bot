@@ -9,6 +9,43 @@ import os
 /// Absolute path to the system `unzip` binary, always present on macOS.
 private let unzipBinaryPath = "/usr/bin/unzip" // NOSONAR — fixed OS path
 
+// MARK: - StepLogResult
+
+/// Typed result from step log extraction.
+/// Every case is distinct — wrong content can never silently look like correct content.
+public enum StepLogResult: Equatable, Sendable {
+    /// ZIP file found and matched by {sanitisedJobName}/{stepNumber}_*.txt.
+    case slice(content: String)
+    /// ZIP contained no per-step files for this job — flat blob used instead.
+    /// StepLogView MUST render a visible degradation notice for this case.
+    case flatBlobFallback(content: String)
+    /// Step produced no output (ZIP file present but empty, or step not found).
+    case syntheticEmpty(stepName: String)
+    /// Network failure, ZIP parse failure, or subprocess failure.
+    case fetchFailed
+
+    /// The log text to display, or nil if there is nothing to show.
+    public var text: String? {
+        switch self {
+        case .slice(let c), .flatBlobFallback(let c): return c
+        case .syntheticEmpty, .fetchFailed: return nil
+        }
+    }
+}
+
+// MARK: - UnzipResult
+
+/// Typed result from `unzipLogs(_:)` — distinguishes subprocess failure from empty archive.
+public enum UnzipResult: Sendable {
+    case success([(name: String, text: String)])
+    case processFailed(exitCode: Int32)
+    case ioError
+}
+
+/// A closure that extracts a ZIP archive (`Data`) into named text file entries.
+/// The default implementation spawns `/usr/bin/unzip`; tests inject a stub.
+public typealias ZipExtractor = @Sendable (Data) async -> UnzipResult
+
 // MARK: - LogFetcher
 
 /// Injectable fetcher for GitHub Actions job and workflow-run logs.
@@ -26,14 +63,31 @@ private let unzipBinaryPath = "/usr/bin/unzip" // NOSONAR — fixed OS path
 public struct LogFetcher: Sendable {
     /// The injected GitHub transport used for all network access.
     private let transport: any GitHubTransportProtocol
+    /// In-memory cache of ZIP file listings keyed by `"runID-startedAt"`. Populated on first
+    /// fetch; subsequent taps in the same session cost zero network calls.
+    /// Keyed by `runID-startedAt` (not `runID` alone) so re-runs of the same workflow
+    /// do not return stale log files.
+    private var zipCache: [String: [(name: String, text: String)]] = [:]
+    /// Closure that extracts a ZIP archive into named text entries.
+    /// Defaults to the real `unzipLogsTyped` subprocess path.
+    /// Tests inject a stub that returns pre-built tuples directly, avoiding any
+    /// filesystem or process access (which the test sandbox blocks).
+    var zipExtractor: ZipExtractor
 
     /// Creates a fetcher backed by the given transport.
     ///
-    /// - Parameter transport: Defaults to `currentTransport` — the live `@TaskLocal`
-    ///   read path wired by `GitHubClient.init`. Tests can override via
-    ///   `withTransport(_:operation:)` without touching any global.
-    public init(transport: any GitHubTransportProtocol = currentTransport) {
+    /// - Parameters:
+    ///   - transport: Defaults to `currentTransport` — the live `@TaskLocal`
+    ///     read path wired by `GitHubClient.init`. Tests can override via
+    ///     `withTransport(_:operation:)` without touching any global.
+    ///   - zipExtractor: Defaults to the real `/usr/bin/unzip`-based path.
+    ///     Pass a custom closure in tests to bypass subprocess spawning.
+    public init(
+        transport: any GitHubTransportProtocol = currentTransport,
+        zipExtractor: ZipExtractor? = nil
+    ) {
         self.transport = transport
+        self.zipExtractor = zipExtractor ?? { data in await unzipLogsTyped(data) }
     }
 
     // MARK: - Job log (plain text, 1 call)
@@ -98,9 +152,117 @@ public struct LogFetcher: Sendable {
             .map { "=== \($0.name) ===\n\($0.text)" }
             .joined(separator: "\n\n")
     }
+
+    // MARK: - Step log via ZIP per-step files (root-cause fix for #2358)
+
+    /// Fetches the log for a single step using the run-level ZIP archive.
+    ///
+    /// GitHub pre-splits the ZIP into per-step files named `{sanitisedJobName}/{stepNumber}_*.txt`.
+    /// Every step — including synthetic steps (`Set up job`, `Post *`, `Complete job`) — gets
+    /// its own file, making heuristic parsing unnecessary.
+    ///
+    /// ## Cache
+    /// The ZIP is cached in `zipCache` keyed by `"runID-startedAt"`. Subsequent calls for
+    /// steps in the same job (same `runID` + `startedAt`) cost zero network calls.
+    ///
+    /// ## Fallback
+    /// When the ZIP contains no per-step files for the requested job, falls back to the existing
+    /// flat blob + `parseStepLog` path and returns `.flatBlobFallback`. This keeps the old
+    /// heuristic path alive as a degraded path without deleting it.
+    ///
+    /// - Parameters:
+    ///   - runID: The GitHub workflow run ID (from `job.runID`).
+    ///   - startedAt: Raw ISO 8601 start string used as cache-key discriminator (from `job.startedAt`).
+    ///   - jobName: The job display name (from `job.name`). Sanitised before ZIP lookup.
+    ///   - step: The `GitHubStep` whose log is requested.
+    ///   - scope: The `owner/repo` string identifying the repository.
+    /// - Returns: A `StepLogResult` — never silent about failure or wrong content.
+    public mutating func fetchStepLog(
+        runID: Int,
+        startedAt: String?,
+        jobID: Int,
+        jobName: String,
+        step: GitHubStep,
+        scope: String
+    ) async -> StepLogResult {
+        guard scope.contains("/") else { return .fetchFailed }
+
+        func clean(_ text: String) -> String { cleanLogText(text) }
+
+        // Cache lookup
+        let cacheKey = "\(runID)-\(startedAt ?? "")"
+        let allFiles: [(name: String, text: String)]
+        if let cached = zipCache[cacheKey] {
+            allFiles = cached
+        } else {
+            guard let data = await transport.raw("repos/\(scope)/actions/runs/\(runID)/logs") else {
+                return .fetchFailed
+            }
+            switch await zipExtractor(data) {
+            case .success(let files):
+                zipCache[cacheKey] = files
+                allFiles = files
+            case .processFailed, .ioError:
+                return .fetchFailed
+            }
+        }
+
+        // Exclude top-level blob files (no '/' in name)
+        let stepFiles = allFiles.filter { $0.name.contains("/") }
+
+        // Check if ZIP has any per-step files for this job at all
+        let sanitised = sanitizeJobNameForZIP(jobName)
+        let hasStepFiles = stepFiles.contains { $0.name.hasPrefix("\(sanitised)/") }
+
+        guard hasStepFiles else {
+            // ZIP has no per-step files for this job — fall back to flat blob
+            guard let raw = await fetchJobLog(jobID: jobID, scope: scope) else {
+                return .fetchFailed
+            }
+            let parsed = parseStepLog(raw, stepName: step.name, stepNumber: step.number, logger: transport.logger)
+            return .flatBlobFallback(content: parsed ?? clean(raw))
+        }
+
+        // Single prefix match: {sanitisedJobName}/{stepNumber}_*
+        let prefix = "\(sanitised)/\(step.number)_"
+        guard let match = stepFiles.first(where: { $0.name.hasPrefix(prefix) }) else {
+            return .syntheticEmpty(stepName: step.name)
+        }
+
+        let cleaned = clean(match.text)
+        if cleaned.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return .syntheticEmpty(stepName: step.name)
+        }
+        return .slice(content: cleaned)
+    }
 }
 
-// MARK: - ZIP extraction (uses /usr/bin/unzip — always available on macOS)
+// MARK: - Job name sanitisation for ZIP lookup
+
+/// Sanitises a GitHub job name for use as a ZIP folder prefix.
+///
+/// Applies three rules in order, matching the logic in `getJobNameForLogFilename` in the
+/// `gh` CLI ([`logs.go`](https://github.com/cli/cli/blob/trunk/pkg/cmd/run/view/logs.go)):
+/// 1. Strip `/` — composite action jobs contain slashes in the API name.
+/// 2. Strip `:` — reusable workflow jobs contain colons.
+/// 3. Truncate to **90 UTF-16 code units** — the GitHub server (C#) truncates using
+///    `String.Substring(0, 90)` which counts UTF-16 `Char` objects. Swift `.count` counts
+///    Unicode scalars, not UTF-16 code units — emoji and CJK characters truncate at a
+///    different offset without this step.
+func sanitizeJobNameForZIP(_ name: String) -> String {
+    var s = name
+        .replacingOccurrences(of: "/", with: "")
+        .replacingOccurrences(of: ":", with: "")
+    let utf16 = s.utf16
+    if utf16.count > 90,
+       let endIndex = utf16.index(utf16.startIndex, offsetBy: 90, limitedBy: utf16.endIndex),
+       let truncated = String(utf16[utf16.startIndex..<endIndex]) {
+        s = truncated
+    }
+    return s
+}
+
+// MARK: - ZIP extraction (uses /usr/bin/unzip — always available on macOS) (uses /usr/bin/unzip — always available on macOS)
 
 /// Extracts all `.txt` files from a ZIP blob and returns `(name, text)` pairs.
 ///
@@ -118,6 +280,18 @@ public struct LogFetcher: Sendable {
 ///   `text` is the file content. Returns `[]` if the write, unzip, or enumeration
 ///   step fails.
 func unzipLogs(_ zipData: Data) async -> [(name: String, text: String)] {
+    switch await unzipLogsTyped(zipData) {
+    case .success(let files): return files
+    case .processFailed, .ioError: return []
+    }
+}
+
+/// Typed variant of `unzipLogs` that distinguishes subprocess failure from an empty archive.
+///
+/// Returns `.processFailed(exitCode:)` when `/usr/bin/unzip` exits non-zero (so
+/// `fetchStepLog` can map it to `.fetchFailed` rather than `.syntheticEmpty`).
+/// Returns `.ioError` when the temp directory or ZIP file cannot be created.
+func unzipLogsTyped(_ zipData: Data) async -> UnzipResult {
     let fileManager = FileManager.default
     let tmp = fileManager.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     let zipFile = tmp.appendingPathComponent("logs.zip")
@@ -125,16 +299,16 @@ func unzipLogs(_ zipData: Data) async -> [(name: String, text: String)] {
     do {
         try fileManager.createDirectory(at: tmp, withIntermediateDirectories: true)
         try zipData.write(to: zipFile)
-    } catch { return [] }
+    } catch { return .ioError }
     let result = await ProcessRunner.runAsync(
         executableURL: URL(fileURLWithPath: unzipBinaryPath),
         arguments: ["-q", zipFile.path, "-d", tmp.path]
     )
-    guard result.exitCode == 0 else { return [] }
+    guard result.exitCode == 0 else { return .processFailed(exitCode: result.exitCode) }
     // Materialise the enumerator into a plain [URL] array before any suspension
     // point — FileManager.DirectoryEnumerator.makeIterator is unavailable from
     // async contexts (Swift concurrency restriction).
-    guard let enumerator = fileManager.enumerator(at: tmp, includingPropertiesForKeys: nil) else { return [] }
+    guard let enumerator = fileManager.enumerator(at: tmp, includingPropertiesForKeys: nil) else { return .ioError }
     let txtURLs = enumerator.compactMap { $0 as? URL }.filter { $0.pathExtension == "txt" }
     var results: [(name: String, text: String)] = []
     for url in txtURLs {
@@ -144,5 +318,5 @@ func unzipLogs(_ zipData: Data) async -> [(name: String, text: String)] {
             results.append((name: name, text: text))
         }
     }
-    return results
+    return .success(results)
 }

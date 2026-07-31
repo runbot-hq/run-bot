@@ -99,119 +99,22 @@ private let timestampRegex: NSRegularExpression? = try? NSRegularExpression(
     options: .anchorsMatchLines
 )
 
-/// A parsed section of a GitHub Actions log, keyed by the group name from `##[group]<name>`.
-///
-/// Produced by `buildParsedLog`. The `name` is the exact text that follows the `##[group]`
-/// marker (e.g. `"Run actions/checkout@v4"`). The `body` is the cleaned content between
-/// the group and endgroup markers, with the marker lines themselves included.
-///
-/// Read-only by design; construction is intentionally internal to GitHubHelpers.
-public struct LogSection {
-    /// The name extracted from the `##[group]<name>` marker line.
-    public let name: String
-    /// Cleaned body lines between (and including) the `##[group]` and `##[endgroup]` markers.
-    ///
-    /// **Marker lines are intentionally included and are expected to appear in the rendered log.**
-    /// `##[group]<name>` and `##[endgroup]` are plain-text control directives emitted by the
-    /// GitHub Actions runner into the raw log file. They are not stripped here because they
-    /// are normal content that developers expect to see in a raw log view — exactly as they
-    /// appear in the downloaded `.zip` log archive or in `curl`-fetched raw log output.
-    /// `StepLogView` renders `body` directly in a monospaced `Text` view without any
-    /// additional filtering, and that is the intended and correct behaviour.
-    ///
-    /// For sections closed by a back-to-back `##[group]` (no explicit `##[endgroup]` in the
-    /// source log), a synthetic `##[endgroup]` line is appended before flushing so that
-    /// `body` always contains both markers regardless of how the section was closed.
-    public let body: String
+// MARK: - Internal log-parsing types (used by parseStepLog / buildParsedLog for flat-blob fallback)
+
+/// A named section of a GitHub Actions log delimited by `##[group]`/`##[endgroup]` markers.
+/// Internal only — not part of the public API. Used by `buildParsedLog` and `parseStepLog`
+/// for the flat-blob fallback path in `LogFetcher.fetchStepLog`.
+struct LogSection {
+    let name: String
+    let body: String
 }
 
-/// Full parse result for a GitHub Actions log: named sections plus ungrouped regions.
-///
-/// - `sections`: In-order named sections delimited by `##[group]`/`##[endgroup]` pairs.
-/// - `preamble`: Lines before the first `##[group]` marker (e.g. "Set up job" runner output).
-/// - `epilogue`: Content lines between consecutive `##[endgroup]`/`##[group]` pairs (inter-group)
-///   and content lines after the final `##[endgroup]`. The `##[group]` and `##[endgroup]` marker
-///   lines themselves are not included here — they are captured inside `LogSection.body` or,
-///   in the case of orphan `##[endgroup]` markers (no matching open group), silently discarded.
-///
-/// **Visibility**: internal (no explicit modifier) rather than private so that future tests
-/// can call `buildParsedLog` directly to verify structural parsing independently of
-/// `parseStepLog`'s matching logic. It is not part of the public API.
+/// Full parse result from `buildParsedLog`: named sections, preamble, and epilogue.
+/// Internal only — not part of the public API.
 struct ParsedLog {
-    /// In-order named sections delimited by `##[group]`/`##[endgroup]` pairs.
     let sections: [LogSection]
-    /// Lines before the first `##[group]` marker (e.g. runner version, OS info).
     let preamble: String
-    /// Content lines between consecutive group pairs (inter-group) and after the final
-    /// `##[endgroup]`. Marker lines themselves are not included; see struct doc comment.
-    ///
-    /// **Known limitation — single flat bucket, not a per-step bucket**: GitHub Actions
-    /// does not emit any `##[group]` markers around synthetic step output ("Post Run X",
-    /// "Complete job"). There is therefore no structured data in the raw log that
-    /// distinguishes one post-run step's output from another's. All "Post X" and
-    /// "Complete job" steps map to this same epilogue string. This is an inherent
-    /// constraint of the `##[group]` log format, not a bug or an oversight in the parser.
-    /// A future GitHub Actions change that adds per-step markers for synthetic steps would
-    /// be required to fix this at the source; no client-side change can work around it.
     let epilogue: String
-}
-
-/// Fetches the log for a single step via the transport layer's `raw()` method.
-@concurrent
-public func fetchStepLog(
-    jobID: Int,
-    stepNumber: Int,
-    stepName: String,
-    scope scopeString: String,
-    transport: any GitHubTransportProtocol = currentTransport
-) async -> String? {
-    guard let scope = Scope.parse(scopeString) else {
-        transport.logger?.log("fetchStepLog › invalid scope: \(scopeString)", category: "transport")
-        return nil
-    }
-    guard case .repo = scope else {
-        transport.logger?.log(
-            "fetchStepLog › skipped: org-scoped logs not supported (scope=\(scopeString))",
-            category: "transport")
-        return nil
-    }
-    let endpoint = "\(scope.apiPrefix)/actions/jobs/\(jobID)/logs"
-    transport.logger?.log("fetchStepLog › fetching \(endpoint) step=\(stepNumber) name=\(stepName)", category: "transport")
-    guard let raw = await fetchAndDecodeStepLog(endpoint: endpoint, jobID: jobID, transport: transport) else {
-        return nil
-    }
-    return parseStepLog(raw, stepName: stepName, stepNumber: stepNumber, logger: transport.logger)
-}
-
-/// Fetches raw log bytes from `endpoint` and decodes them as UTF-8.
-/// GitHub's log endpoint redirects to S3; `URLSession` follows the redirect automatically
-/// and returns the raw log text. A response body starting with `{` indicates a GitHub
-/// error object was returned instead of log content and is treated as a failure.
-@concurrent
-private func fetchAndDecodeStepLog(
-    endpoint: String,
-    jobID: Int,
-    transport: any GitHubTransportProtocol
-) async -> String? {
-    guard let data = await transport.raw(endpoint) else {
-        transport.logger?.log("fetchStepLog › raw returned nil for job \(jobID)", category: "transport")
-        return nil
-    }
-    guard let raw = String(data: data, encoding: .utf8) else {
-        transport.logger?.log(
-            "fetchStepLog › UTF-8 decode failed for job \(jobID) (\(data.count) bytes)",
-            category: "transport")
-        return nil
-    }
-    guard !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-        transport.logger?.log("fetchStepLog › empty body for job \(jobID)", category: "transport")
-        return nil
-    }
-    if raw.hasPrefix("{") {
-        transport.logger?.log("fetchStepLog › error JSON returned: \(raw.prefix(120))", category: "transport")
-        return nil
-    }
-    return raw
 }
 
 /// Extracts the log section for `stepName` from a raw multi-group log string.
@@ -268,7 +171,9 @@ private func fetchAndDecodeStepLog(
 ///   2. stripAnsi  — character-based; safe on LF-only input.
 ///   3. stripTimestamps — uses .anchorsMatchLines; requires LF-only input.
 ///   4. buildParsedLog — splits on \n; requires LF-only input.
-func parseStepLog(
+/// - Note: Visibility is `public` so `LogFetcher` (in `RunBotCore`) can call it
+///   for the flat-blob fallback path without duplicating the matching logic.
+public func parseStepLog(
     _ raw: String,
     stepName: String,
     stepNumber: Int,
@@ -429,6 +334,23 @@ func buildParsedLog(from cleaned: String) -> ParsedLog {
         preamble: preambleLines.joined(separator: "\n"),
         epilogue: interGroupLines.joined(separator: "\n")
     )
+}
+
+// MARK: - Public cleaning helper (for use in RunBotCore's LogFetcher ZIP path)
+
+/// Applies the standard CR → ANSI-strip → timestamp-strip pipeline to `raw` and returns
+/// the cleaned text. Exposed as `public` so `LogFetcher.fetchStepLog` (in `RunBotCore`)
+/// can clean ZIP slice content without duplicating the regex logic.
+///
+/// Pipeline:
+///   1. CR normalisation (`\r\n` and bare `\r` → `\n`)
+///   2. ANSI escape removal
+///   3. Timestamp prefix removal
+public func cleanLogText(_ raw: String) -> String {
+    let normalised = raw
+        .replacingOccurrences(of: "\r\n", with: "\n")
+        .replacingOccurrences(of: "\r", with: "\n")
+    return stripTimestamps(stripAnsi(normalised))
 }
 
 /// Removes ANSI escape sequences from `input` using the pre-compiled `ansiRegex`.
