@@ -16,14 +16,21 @@ import AppKit
 
 // MARK: - MBKPanelObserverTarget conformance
 
+/// Declares that `MBKPanelController` satisfies the `MBKPanelObserverTarget` protocol
+/// so `MBKPanelObservers` can call back into the controller without a generic reference.
 extension MBKPanelController: MBKPanelObserverTarget {}
 
 // MARK: - Observer lifecycle bridge
 
+/// Bridges observer setup/teardown calls from `MBKPanelController` to `MBKPanelObservers`.
 extension MBKPanelController {
 
+    /// Registers the workspace active-application observer via `MBKPanelObservers`.
     func setupWorkspaceObserver() { observers.setupWorkspaceObserver() }
-    func setupScreenObserver()    { observers.setupScreenObserver() }
-    func startEventMonitor()      { observers.startEventMonitor() }
-    func stopEventMonitor()       { observers.stopEventMonitor() }
+    /// Registers the screen-parameters change observer via `MBKPanelObservers`.
+    func setupScreenObserver() { observers.setupScreenObserver() }
+    /// Installs the global outside-click event monitor via `MBKPanelObservers`.
+    func startEventMonitor() { observers.startEventMonitor() }
+    /// Removes the global outside-click event monitor via `MBKPanelObservers`.
+    func stopEventMonitor() { observers.stopEventMonitor() }
 }
