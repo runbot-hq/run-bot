@@ -47,30 +47,19 @@ internal var fixtureZip: Data {
 
 // MARK: - Subprocess availability probe
 
-/// Returns `true` when `/usr/bin/unzip` exists and can be launched in this sandbox.
+/// Returns `true` when `/usr/bin/unzip` exists on this machine.
 ///
-/// Called at each `withKnownIssue(when:)` site in `UnzipLogsTests` and
-/// `test_completeJob_regression2358_realExtractor` instead of a module-level `let` —
-/// a global lazy closure that captures `Process` is rejected by Swift 6 strict
-/// concurrency because `Process` is not `Sendable`.
+/// A file-existence check is sufficient: on macOS the binary is always present;
+/// what the sandbox blocks is `Process.run()`, not the binary itself.
+/// `withKnownIssue(isIntermittent: true)` handles the spawn-blocked case —
+/// the test records an expected issue rather than failing hard, and will surface
+/// a real failure if the sandbox is ever lifted.
 ///
-/// Note: `nonisolated` is intentionally absent — it is only valid on type/instance
-/// members, not top-level free functions. A free function is already callable from
-/// any isolation context in Swift 6 without the keyword.
+/// `Process` is `@MainActor`-isolated in the macOS 15+ SDK, so a live probe
+/// cannot be called from a synchronous non-isolated free function under
+/// Swift 6 strict concurrency without a compile error.
 func checkUnzipAvailable() -> Bool {
-    guard FileManager.default.fileExists(atPath: "/usr/bin/unzip") else { return false }
-    let probe = Process()
-    probe.executableURL = URL(fileURLWithPath: "/usr/bin/unzip")
-    probe.arguments = ["-v"]
-    probe.standardOutput = FileHandle.nullDevice
-    probe.standardError  = FileHandle.nullDevice
-    do {
-        try probe.run()
-        probe.waitUntilExit()
-        return probe.terminationStatus == 0
-    } catch {
-        return false
-    }
+    FileManager.default.fileExists(atPath: "/usr/bin/unzip")
 }
 
 // MARK: - Factories
@@ -114,7 +103,7 @@ func makeGitHubRunner(
     // GitHubRunner.labels is [GitHubRunnerLabel] (not [String]) and has no public
     // memberwise init, so we round-trip through JSON to construct a test instance.
     let json = """
-    {"id":\(id),"name":\"\(name)\",\"status\":\"\(status.rawValue)\",\"busy\":\(busy ? "true" : "false"),"labels":[]}
+    {"id":\(id),"name":"\(name)","status":"\(status.rawValue)","busy":\(busy ? "true" : "false"),"labels":[]}
     """
     return try! JSONDecoder().decode(GitHubRunner.self, from: Data(json.utf8)) // swiftlint:disable:this force_try
 }
