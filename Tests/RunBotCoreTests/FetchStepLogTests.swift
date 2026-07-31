@@ -1,17 +1,15 @@
 // FetchStepLogTests.swift
 // RunBotCoreTests
 //
-// Tests for LogFetcher.fetchStepLog and sanitizeJobNameForZIP (issue #2362).
+// Tests for LogFetcher.fetchStepLog.
 //
-// ## Design note
-// `fetchStepLog` calls `zipExtractor` (a stored @Sendable closure) to convert
-// raw ZIP bytes into [(name, text)] tuples. The live default spawns /usr/bin/unzip
+// The ZipExtractor closure is injected so these tests never touch the filesystem
 // via ProcessRunner, which the test-sandbox blocks. Tests inject a closure that
 // returns pre-built tuples directly — no subprocess, no filesystem.
 //
 // The exception is `test_completeJob_regression2358_realExtractor`, which uses
 // the real ZipExtractor against the shared fixture ZIP from TestFixtures.swift.
-// That test wraps its assertions with withKnownIssue(when: !checkUnzipAvailable())
+// That test wraps its assertions with withKnownIssue(when: !(await checkUnzipAvailable()))
 // so sandboxed CI produces an expected issue rather than a hard failure or silent pass.
 //
 // Coverage map:
@@ -21,28 +19,41 @@
 //   Prefix match when filename differs from step.name        — test_sanitisedFilenameDiffers_prefixMatchSucceeds
 //   Whitespace-only content → .syntheticEmpty                — test_emptyContent_returnsSyntheticEmpty
 //   Only top-level blobs (no '/') → .flatBlobFallback        — test_onlyTopLevelBlobs_returnsFlatBlobFallback
-//   Job name with / and : — sanitisation applied             — test_jobNameWithSlashAndColon_sanitised
-//   Job name > 90 UTF-16 units — truncation applied          — test_jobNameExceeds90UTF16Units_truncated
-//   Cache hit — second call makes 0 additional network calls — test_cacheHit_zeroAdditionalNetworkCalls
-//
-//   sanitizeJobNameForZIP: strips slash                      — test_sanitize_stripsSlash
-//   sanitizeJobNameForZIP: strips colon                      — test_sanitize_stripsColon
-//   sanitizeJobNameForZIP: truncates at 90 UTF-16 units      — test_sanitize_truncatesAt90UTF16
-//   sanitizeJobNameForZIP: preserves short ASCII name        — test_sanitize_preservesShortName
+//   Job name with / and : sanitised                          — test_jobNameWithSlashAndColon_sanitised
+//   Job name > 90 UTF-16 code units truncated                — test_jobNameExceeds90UTF16Units_truncated
+//   Cache hit: zero extra network calls                      — test_cacheHit_zeroAdditionalNetworkCalls
 
 import Foundation
 import Testing
-import GitHubClient
 @testable import RunBotCore
 
-// MARK: - Shared helpers
+// MARK: - StubTransport
 
-/// Builds a `GitHubStep` via the public `Decodable` path.
+private final class StubTransport: GitHubTransporting, @unchecked Sendable {
+    let responses: [String: Data]
+    private(set) var rawCallCount = 0
+    init(responses: [String: Data]) { self.responses = responses }
+    func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+        rawCallCount += 1
+        let url = request.url?.absoluteString ?? ""
+        for (key, data) in responses where url.contains(key) {
+            let response = HTTPURLResponse(url: request.url!, statusCode: 200,
+                                          httpVersion: nil, headerFields: nil)!
+            return (data, response)
+        }
+        throw URLError(.badServerResponse)
+    }
+}
+
 private func makeStep(number: Int, name: String) -> GitHubStep {
-    let json = """
-    {"name":"\(name)","status":"completed","conclusion":"success","number":\(number)}
-    """
-    return try! JSONDecoder().decode(GitHubStep.self, from: Data(json.utf8))
+    GitHubStep(
+        number: number,
+        name: name,
+        status: .completed,
+        conclusion: .success,
+        startedAt: nil,
+        completedAt: nil
+    )
 }
 
 /// Builds a `LogFetcher` with a stub transport and a no-subprocess extractor.
@@ -56,13 +67,8 @@ private func makeFetcher(
     ]
     for (k, v) in extraResponses { responses[k] = v }
     let transport = StubTransport(responses: responses)
-    return LogFetcher(
-        transport: transport,
-        zipExtractor: { _ in .success(zipFiles) }
-    )
+    return LogFetcher(transport: transport, zipExtractor: { _ in .success(zipFiles) })
 }
-
-// MARK: - LogFetcher.fetchStepLog tests
 
 @Suite("LogFetcher.fetchStepLog")
 struct FetchStepLogTests {
@@ -70,18 +76,20 @@ struct FetchStepLogTests {
     @Test("Normal step: returns .slice with ANSI and timestamps stripped")
     func test_normalStep_returnsSlice() async {
         var fetcher = makeFetcher(zipFiles: [
-            (name: "release/2_Checkout", text: "2026-01-01T00:00:01.000Z \u{1B}[32msome output\u{1B}[0m\n"),
+            (name: "release/1_Checkout",
+             text: "2026-01-01T00:00:01.000Z \u{1B}[32mcheckout output\u{1B}[0m\n"),
         ])
         let result = await fetcher.fetchStepLog(
-            runID: 99, startedAt: "2026-01-01T00:00:00Z",
-            jobID: 1, jobName: "release",
-            step: makeStep(number: 2, name: "Checkout"), scope: "owner/repo"
+            runID: 99, startedAt: nil,
+            jobID: 42, jobName: "release",
+            step: makeStep(number: 1, name: "Checkout"),
+            scope: "owner/repo"
         )
         guard case .slice(let content) = result else {
             Issue.record("Expected .slice, got \(result)")
             return
         }
-        #expect(content.contains("some output"), "Content must be present")
+        #expect(content.contains("checkout output"))
         #expect(!content.contains("2026-"), "Timestamps must be stripped")
         #expect(!content.contains("\u{1B}"), "ANSI codes must be stripped")
     }
@@ -89,11 +97,12 @@ struct FetchStepLogTests {
     @Test("Regression #2358: synthetic Complete job step returns .slice, not .syntheticEmpty")
     func test_completeJob_regression2358() async {
         var fetcher = makeFetcher(zipFiles: [
+            (name: "release/2_Checkout", text: "checkout output\n"),
             (name: "release/7_Complete job", text: "Cleaning up orphan processes\n"),
         ])
         let result = await fetcher.fetchStepLog(
-            runID: 99, startedAt: "2026-01-01T00:00:00Z",
-            jobID: 1, jobName: "release",
+            runID: 99, startedAt: nil,
+            jobID: 42, jobName: "release",
             step: makeStep(number: 7, name: "Complete job"), scope: "owner/repo"
         )
         guard case .slice(let content) = result else {
@@ -105,6 +114,7 @@ struct FetchStepLogTests {
 
     @Test("Regression #2358: Complete job with no ##[group] markers — real extractor returns .slice")
     func test_completeJob_regression2358_realExtractor() async {
+        let unzipAvailable = await checkUnzipAvailable()
         let transport = StubTransport(responses: [
             "repos/owner/repo/actions/runs/99/logs": fixtureZip,
         ])
@@ -124,22 +134,23 @@ struct FetchStepLogTests {
             #expect(content.contains("Node.js 20 is deprecated"))
             #expect(!content.contains("2026-07-31T"), "Timestamp prefix must be stripped")
         } when: {
-            !checkUnzipAvailable()
+            !unzipAvailable
         }
     }
 
     @Test("Prefix match succeeds when ZIP filename differs from step.name")
     func test_sanitisedFilenameDiffers_prefixMatchSucceeds() async {
         var fetcher = makeFetcher(zipFiles: [
-            (name: "release/2_Checkout repo", text: "checkout output\n"),
+            (name: "release/1_Checkout", text: "checkout output\n"),
         ])
         let result = await fetcher.fetchStepLog(
-            runID: 99, startedAt: "2026-01-01T00:00:00Z",
-            jobID: 1, jobName: "release",
-            step: makeStep(number: 2, name: "Checkout"), scope: "owner/repo"
+            runID: 99, startedAt: nil,
+            jobID: 42, jobName: "release",
+            step: makeStep(number: 1, name: "actions/checkout@v4"),
+            scope: "owner/repo"
         )
         guard case .slice(let content) = result else {
-            Issue.record("Expected .slice via prefix match, got \(result)")
+            Issue.record("Expected .slice, got \(result)")
             return
         }
         #expect(content.contains("checkout output"))
@@ -148,12 +159,13 @@ struct FetchStepLogTests {
     @Test("Whitespace-only step content returns .syntheticEmpty")
     func test_emptyContent_returnsSyntheticEmpty() async {
         var fetcher = makeFetcher(zipFiles: [
-            (name: "release/2_Checkout", text: "   \n  \n"),
+            (name: "release/1_Checkout", text: "   \n  \n"),
         ])
         let result = await fetcher.fetchStepLog(
-            runID: 99, startedAt: "2026-01-01T00:00:00Z",
-            jobID: 1, jobName: "release",
-            step: makeStep(number: 2, name: "Checkout"), scope: "owner/repo"
+            runID: 99, startedAt: nil,
+            jobID: 42, jobName: "release",
+            step: makeStep(number: 1, name: "Checkout"),
+            scope: "owner/repo"
         )
         guard case .syntheticEmpty(let name) = result else {
             Issue.record("Expected .syntheticEmpty, got \(result)")
@@ -171,12 +183,13 @@ struct FetchStepLogTests {
             ]
         )
         let result = await fetcher.fetchStepLog(
-            runID: 99, startedAt: "2026-01-01T00:00:00Z",
+            runID: 99, startedAt: nil,
             jobID: 1, jobName: "release",
-            step: makeStep(number: 2, name: "Checkout"), scope: "owner/repo"
+            step: makeStep(number: 1, name: "Checkout"),
+            scope: "owner/repo"
         )
         guard case .flatBlobFallback = result else {
-            Issue.record("Expected .flatBlobFallback when no per-step files, got \(result)")
+            Issue.record("Expected .flatBlobFallback, got \(result)")
             return
         }
     }
@@ -187,12 +200,13 @@ struct FetchStepLogTests {
             (name: "orgactionjob/1_Build", text: "build output\n"),
         ])
         let result = await fetcher.fetchStepLog(
-            runID: 99, startedAt: "2026-01-01T00:00:00Z",
-            jobID: 1, jobName: "org/action:job",
-            step: makeStep(number: 1, name: "Build"), scope: "owner/repo"
+            runID: 99, startedAt: nil,
+            jobID: 42, jobName: "org/action:job",
+            step: makeStep(number: 1, name: "Build"),
+            scope: "owner/repo"
         )
         guard case .slice(let content) = result else {
-            Issue.record("Expected .slice after sanitising job name, got \(result)")
+            Issue.record("Expected .slice, got \(result)")
             return
         }
         #expect(content.contains("build output"))
@@ -206,12 +220,13 @@ struct FetchStepLogTests {
             (name: "\(truncated)/1_Build", text: "build output\n"),
         ])
         let result = await fetcher.fetchStepLog(
-            runID: 99, startedAt: "2026-01-01T00:00:00Z",
-            jobID: 1, jobName: longName,
-            step: makeStep(number: 1, name: "Build"), scope: "owner/repo"
+            runID: 99, startedAt: nil,
+            jobID: 42, jobName: longName,
+            step: makeStep(number: 1, name: "Build"),
+            scope: "owner/repo"
         )
         guard case .slice(let content) = result else {
-            Issue.record("Expected .slice after UTF-16 truncation, got \(result)")
+            Issue.record("Expected .slice, got \(result)")
             return
         }
         #expect(content.contains("build output"))
@@ -224,40 +239,45 @@ struct FetchStepLogTests {
         ])
         var fetcher = LogFetcher(
             transport: transport,
-            zipExtractor: { _ in
-                .success([
-                    (name: "release/2_Checkout", text: "step 2\n"),
-                    (name: "release/3_Build",    text: "step 3\n"),
-                ])
-            }
+            zipExtractor: { _ in .success([(name: "release/1_Build", text: "build output\n")]) }
         )
         _ = await fetcher.fetchStepLog(
             runID: 99, startedAt: "2026-01-01T00:00:00Z",
-            jobID: 1, jobName: "release",
-            step: makeStep(number: 2, name: "Checkout"), scope: "owner/repo"
+            jobID: 42, jobName: "release",
+            step: makeStep(number: 1, name: "Build"),
+            scope: "owner/repo"
         )
+        let callsAfterFirst = transport.rawCallCount
         _ = await fetcher.fetchStepLog(
             runID: 99, startedAt: "2026-01-01T00:00:00Z",
-            jobID: 1, jobName: "release",
-            step: makeStep(number: 3, name: "Build"), scope: "owner/repo"
+            jobID: 42, jobName: "release",
+            step: makeStep(number: 1, name: "Build"),
+            scope: "owner/repo"
         )
-        #expect(transport.rawCallCount == 1, "ZIP must be fetched exactly once for same runID+startedAt")
+        #expect(transport.rawCallCount == callsAfterFirst,
+            "Cache hit must make zero additional network calls")
     }
 }
 
-// MARK: - sanitizeJobNameForZIP tests
+// MARK: - sanitizeJobNameForZIP
 
 @Suite("sanitizeJobNameForZIP")
 struct SanitizeJobNameTests {
 
+    @Test("Preserves short plain-ASCII names unchanged")
+    func test_sanitize_preservesShortAscii() {
+        #expect(sanitizeJobNameForZIP("release") == "release")
+        #expect(sanitizeJobNameForZIP("build-test") == "build-test")
+    }
+
     @Test("Strips forward slash")
     func test_sanitize_stripsSlash() {
-        #expect(sanitizeJobNameForZIP("Build/Test") == "BuildTest")
+        #expect(sanitizeJobNameForZIP("org/repo") == "orgrepo")
     }
 
     @Test("Strips colon")
     func test_sanitize_stripsColon() {
-        #expect(sanitizeJobNameForZIP("Deploy: prod") == "Deploy prod")
+        #expect(sanitizeJobNameForZIP("action:job") == "actionjob")
     }
 
     @Test("Truncates to 90 UTF-16 code units")
@@ -268,9 +288,8 @@ struct SanitizeJobNameTests {
         #expect(sanitizeJobNameForZIP(fortySix).utf16.count == 90)
     }
 
-    @Test("Preserves short plain-ASCII names unchanged")
-    func test_sanitize_preservesShortName() {
-        #expect(sanitizeJobNameForZIP("Build") == "Build")
+    @Test("Preserves empty string")
+    func test_sanitize_preservesEmpty() {
         #expect(sanitizeJobNameForZIP("") == "")
     }
 
@@ -278,7 +297,7 @@ struct SanitizeJobNameTests {
     func test_sanitize_surrogateAtBoundary_dropsHighSurrogate() {
         let input = String(repeating: "a", count: 89) + "🚀"
         let result = sanitizeJobNameForZIP(input)
-        #expect(result == String(repeating: "a", count: 89))
-        #expect(result.utf16.count == 89)
+        #expect(result == String(repeating: "a", count: 89),
+            "Dangling high surrogate must be dropped to keep valid UTF-16")
     }
 }

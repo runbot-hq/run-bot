@@ -47,19 +47,23 @@ internal var fixtureZip: Data {
 
 // MARK: - Subprocess availability probe
 
-/// Returns `true` when `/usr/bin/unzip` exists on this machine.
+/// Returns `true` when `/usr/bin/unzip` can actually be spawned on this machine.
 ///
-/// A file-existence check is sufficient: on macOS the binary is always present;
-/// what the sandbox blocks is `Process.run()`, not the binary itself.
-/// `withKnownIssue(isIntermittent: true)` handles the spawn-blocked case —
-/// the test records an expected issue rather than failing hard, and will surface
-/// a real failure if the sandbox is ever lifted.
+/// A file-existence check is NOT sufficient: on GitHub Actions macOS runners
+/// the binary is present at `/usr/bin/unzip` but `Process.run()` is blocked by
+/// the sandbox. This probe runs `unzip -v` with no arguments and checks whether
+/// the process launch succeeds (exit code 0 or non-zero is fine; what matters is
+/// that the process was not blocked at spawn time — a blocked spawn returns the
+/// sentinel exit code from `ProcessRunner.launchFailureExitCode`).
 ///
-/// `Process` is `@MainActor`-isolated in the macOS 15+ SDK, so a live probe
-/// cannot be called from a synchronous non-isolated free function under
-/// Swift 6 strict concurrency without a compile error.
-func checkUnzipAvailable() -> Bool {
-    FileManager.default.fileExists(atPath: "/usr/bin/unzip")
+/// Declared `async` because `ProcessRunner.runAsync` is async.
+func checkUnzipAvailable() async -> Bool {
+    let result = await ProcessRunner.runAsync(
+        executableURL: URL(fileURLWithPath: "/usr/bin/unzip"),
+        arguments: ["-v"],
+        inputData: nil
+    )
+    return result.exitCode != ProcessRunner.launchFailureExitCode
 }
 
 // MARK: - Factories

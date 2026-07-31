@@ -11,10 +11,14 @@
 //
 // ## Sandbox behaviour
 // On GitHub Actions runners that block process spawning, unzipLogs returns [].
-// Each test wraps its assertions in withKnownIssue(when: !checkUnzipAvailable())
+// Each test wraps its assertions in withKnownIssue(when: !(await checkUnzipAvailable()))
 // so sandboxed CI produces an expected issue rather than a hard failure or a
 // silent pass. If the sandbox is lifted, withKnownIssue surfaces a test
 // failure because the known issue no longer reproduces.
+//
+// NOTE: checkUnzipAvailable() is async (live probe via ProcessRunner.runAsync).
+// A file-existence check is NOT sufficient — the binary is present on macOS
+// runners but Process.run() is blocked by the sandbox at spawn time.
 
 import Foundation
 import Testing
@@ -27,6 +31,7 @@ struct UnzipLogsTests {
     /// The .txt extension must be stripped (unzipLogs contract: name has no extension).
     @Test("Extracts expected file names from fixture ZIP")
     func extractsExpectedFileNames() async {
+        let unzipAvailable = await checkUnzipAvailable()
         let files = await unzipLogs(fixtureZip)
         withKnownIssue("unzip subprocess unavailable (sandboxed CI runner)") {
             #expect(files.contains(where: { $0.name == "release/2_Checkout" }),
@@ -34,7 +39,7 @@ struct UnzipLogsTests {
             #expect(files.contains(where: { $0.name == "release/7_Complete job" }),
                 "release/7_Complete job must be present after extraction")
         } when: {
-            !checkUnzipAvailable()
+            !unzipAvailable
         }
     }
 
@@ -43,6 +48,7 @@ struct UnzipLogsTests {
     /// unzipLogs'. A regression here would make the stripping pipeline a silent no-op.
     @Test("Preserves raw timestamp prefix and ANSI codes (no stripping at extraction layer)")
     func preservesRawTimestampAndAnsi() async {
+        let unzipAvailable = await checkUnzipAvailable()
         let files = await unzipLogs(fixtureZip)
         let checkout = files.first(where: { $0.name == "release/2_Checkout" })
         withKnownIssue("unzip subprocess unavailable (sandboxed CI runner)") {
@@ -53,7 +59,7 @@ struct UnzipLogsTests {
             #expect(checkout?.text.contains("\u{1B}[") == true,
                 "ANSI escape sequence must survive extraction unchanged")
         } when: {
-            !checkUnzipAvailable()
+            !unzipAvailable
         }
     }
 
@@ -61,6 +67,7 @@ struct UnzipLogsTests {
     /// unzipLogs must not interpret or strip GitHub Actions directive prefixes.
     @Test("Preserves ##[warning] directive lines verbatim")
     func preservesWarningDirective() async {
+        let unzipAvailable = await checkUnzipAvailable()
         let files = await unzipLogs(fixtureZip)
         let completeJob = files.first(where: { $0.name == "release/7_Complete job" })
         withKnownIssue("unzip subprocess unavailable (sandboxed CI runner)") {
@@ -69,7 +76,7 @@ struct UnzipLogsTests {
             #expect(completeJob?.text.contains("##[warning]") == true,
                 "##[warning] directive must survive extraction unchanged")
         } when: {
-            !checkUnzipAvailable()
+            !unzipAvailable
         }
     }
 }
