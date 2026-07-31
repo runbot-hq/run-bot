@@ -52,18 +52,16 @@ internal var fixtureZip: Data {
 /// A file-existence check is NOT sufficient: on GitHub Actions macOS runners
 /// the binary is present at `/usr/bin/unzip` but `Process.run()` is blocked by
 /// the sandbox. This probe runs `unzip -v` with no arguments and checks whether
-/// the process launch succeeds (exit code 0 or non-zero is fine; what matters is
-/// that the process was not blocked at spawn time — a blocked spawn returns the
-/// sentinel exit code from `ProcessRunner.launchFailureExitCode`).
+/// the process launch succeeds. A blocked launch returns exit code `Int32.max`
+/// (the sentinel used by `ProcessRunner` for launch failures).
 ///
 /// Declared `async` because `ProcessRunner.runAsync` is async.
 func checkUnzipAvailable() async -> Bool {
     let result = await ProcessRunner.runAsync(
         executableURL: URL(fileURLWithPath: "/usr/bin/unzip"),
-        arguments: ["-v"],
-        inputData: nil
+        arguments: ["-v"]
     )
-    return result.exitCode != ProcessRunner.launchFailureExitCode
+    return result.exitCode != Int32.max
 }
 
 // MARK: - Factories
