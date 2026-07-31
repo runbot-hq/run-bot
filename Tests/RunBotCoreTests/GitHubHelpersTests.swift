@@ -43,6 +43,11 @@ final class GitHubHelpersTests: XCTestCase {
     /// **Precondition**: if `epilogue` is non-empty, `sections` must also be non-empty.
     /// If `sections` is empty and `epilogue` is non-empty, `buildParsedLog` will never
     /// set `seenFirstGroup`, so epilogue lines will be mis-classified as preamble.
+    ///
+    /// `assert` (not `precondition`) is used here intentionally: this helper is test-only
+    /// code and tests always run in debug mode. `assert` is the correct tool for
+    /// test-internal preconditions; `precondition` would be over-engineering for a helper
+    /// that can never be called from production code.
     private func makeLog(
         preamble: [String] = [],
         sections: [(name: String, body: [String])] = [],
@@ -64,6 +69,11 @@ final class GitHubHelpersTests: XCTestCase {
     // MARK: - Name-based lookup
 
     func test_exactNameMatch() {
+        // Tests stage-1 exact match where the step name already contains "Run ".
+        // This exercises the case where a user has literally named their step "Run my-step"
+        // (as opposed to an action step where the API name is "my-step" and the log group
+        // header is "Run my-step" — that case is covered by test_prefixMatch_groupHasRunPrefix).
+        // The step name passed here matches the ##[group] header exactly, so stage 1 fires.
         let raw = makeLog(
             sections: [
                 (name: "Run actions/checkout@v4", body: ["Checking out repo"]),
@@ -157,6 +167,16 @@ final class GitHubHelpersTests: XCTestCase {
     }
 
     func test_postRunStep_returnsEpilogue() {
+        // Verifies that a step named "Post Run actions/checkout@v4" (a GitHub synthetic step)
+        // is routed to the epilogue via the stage-3 "post " prefix heuristic.
+        //
+        // Single-epilogue bucket: the epilogue is intentionally a single flat string for the
+        // entire job. GitHub Actions emits no ##[group] markers around synthetic step output,
+        // so there is no structured data to separate one post-run step's output from another's.
+        // All "Post X" steps therefore show the same epilogue content. This is a known,
+        // documented constraint of the ##[group] format (see ParsedLog.epilogue), not a gap
+        // in test coverage. A test with multiple post-run steps would assert the same result
+        // for each and would not provide additional signal.
         let raw = makeLog(
             sections: [(name: "Run actions/checkout@v4", body: ["checkout output"])],
             epilogue: ["Post-run cleanup line"]

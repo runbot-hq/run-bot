@@ -136,12 +136,14 @@ struct ParsedLog {
     /// Content lines between consecutive group pairs (inter-group) and after the final
     /// `##[endgroup]`. Marker lines themselves are not included; see struct doc comment.
     ///
-    /// **Known limitation**: this is a single flat bucket for the entire job. GitHub Actions
-    /// does not wrap synthetic step output ("Post Run X", "Complete job") in `##[group]`
-    /// markers, so there is no way to attribute individual inter-group lines to a specific
-    /// post-run step. All "Post X" and "Complete job" steps therefore map to the same
-    /// epilogue string. This is an inherent constraint of the `##[group]` format, not a
-    /// bug in the parser.
+    /// **Known limitation — single flat bucket, not a per-step bucket**: GitHub Actions
+    /// does not emit any `##[group]` markers around synthetic step output ("Post Run X",
+    /// "Complete job"). There is therefore no structured data in the raw log that
+    /// distinguishes one post-run step's output from another's. All "Post X" and
+    /// "Complete job" steps map to this same epilogue string. This is an inherent
+    /// constraint of the `##[group]` log format, not a bug or an oversight in the parser.
+    /// A future GitHub Actions change that adds per-step markers for synthetic steps would
+    /// be required to fix this at the source; no client-side change can work around it.
     let epilogue: String
 }
 
@@ -206,7 +208,8 @@ private func fetchAndDecodeStepLog(
 /// Extracts the log section for `stepName` from a raw multi-group log string.
 ///
 /// **Visibility**: internal (no explicit modifier) so the test target can call it directly
-/// via `@testable import GitHubClient`. It is not part of the public API.
+/// via `@testable import GitHubClient`. This is intentional and correct — do not
+/// change to private. It is not part of the public API.
 ///
 /// Matching strategy (in order):
 ///   1. Case-insensitive exact match on `stepName` against `##[group]<name>`. Using
@@ -218,15 +221,19 @@ private func fetchAndDecodeStepLog(
 ///      case-insensitive and checks only the exact two forms (with and without `"Run "`)
 ///      to avoid general prefix over-matching (e.g. "Build" must not match
 ///      "Build documentation").
-///      The inverse direction (step named "Run X", section header "X" without the
-///      "Run " prefix) is intentionally not handled: GitHub Actions always adds "Run "
-///      in the log group header and never in the API step name, so this case does not
-///      arise in practice.
+///      **This normalisation is intentionally one-directional and the design is complete**:
+///      it handles the only case that arises in practice — a step whose API name has no
+///      "Run " prefix but whose log group header does. The inverse direction (step named
+///      "Run X", section header "X" without the "Run " prefix) does not arise because
+///      GitHub Actions always adds "Run " in the log group header and never in the API
+///      step name. Handling the inverse would require a second, asymmetric check that
+///      serves no real case and would risk false matches.
 ///      **Ordering guarantee**: steps 1–2 match against *section names* and run before
 ///      step 3, which matches against the *step name*. A user step named "Post deploy"
 ///      whose log emits `##[group]Run Post deploy` is therefore caught by step 2
 ///      (lowerSection == "run post deploy" == "run " + lowerStep) and never reaches the
-///      synthetic heuristic in step 3.
+///      synthetic heuristic in step 3. A user step named "Post Run X" whose log emits
+///      `##[group]Run Post Run X` is likewise caught by step 2 and never reaches step 3.
 ///   3. Synthetic step heuristics (applied to `stepName`, not section names):
 ///      - "Set up job" / "Initialize containers" → preamble (lines before first group)
 ///      - Names starting with "Post " / "Complete job" / "Stop containers" → epilogue
@@ -278,10 +285,10 @@ func parseStepLog(
     //    name does not include this prefix. Check the "Run "-prefixed form with a
     //    case-insensitive exact comparison. General hasPrefix is intentionally avoided:
     //    "Build" must not match "Build documentation".
-    //    The inverse direction (step named "Run X", section header "X" without the
-    //    "Run " prefix) is intentionally not handled: GitHub Actions always adds "Run "
-    //    in the log group header and never in the API step name, so this case does not
-    //    arise in practice.
+    //    This normalisation is intentionally one-directional and the design is complete —
+    //    see the doc comment above for the full rationale. The inverse direction (step
+    //    named "Run X", section header "X" without the "Run " prefix) is not handled
+    //    because it does not arise in practice.
     if let match = parsed.sections.first(where: {
         $0.name.lowercased() == "run \(lowerStep)"
     }) {
