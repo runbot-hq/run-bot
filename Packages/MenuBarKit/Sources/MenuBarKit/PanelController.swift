@@ -151,7 +151,7 @@
 //   PanelController+Open.swift       — toggle/open/close, highlight
 //   PanelController+Observers.swift  — workspace, screen, mouse and key monitors
 
-import AppKit
+@preconcurrency import AppKit
 import SwiftUI
 // NSGlassEffectView private KVC keys — all three set to 1 to produce dark glass.
 //
@@ -365,7 +365,6 @@ public final class MBKPanelController<Content: View>: NSObject, MBKPanelControll
             // re-strengthening self on an AppKit background thread would be a
             // data-race footgun for any future off-Task log line added here.
             guard let newSize = change.newValue else { return }
-            // [#SendableMetatypes] false-positive — see PanelController+Observers.swift.
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 mbkLog(
