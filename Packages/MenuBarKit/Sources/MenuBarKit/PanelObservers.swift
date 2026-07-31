@@ -78,11 +78,16 @@ final class MBKPanelObservers {
             forName: NSWorkspace.didActivateApplicationNotification,
             object: nil, queue: nil
         ) { [weak self] notification in
-            let activated = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
+            // Evaluate the NSRunningApplication comparison on the notification thread
+            // before the Task hop. NSRunningApplication is not Sendable; capturing
+            // the resulting Bool (Sendable) avoids crossing an isolation boundary
+            // with a non-Sendable type.
+            let isSelfActivation = (notification.userInfo?[NSWorkspace.applicationUserInfoKey]
+                as? NSRunningApplication) == NSRunningApplication.current
             Task { @MainActor [weak self] in
                 guard let self, let controller = self.controller else { return }
                 guard controller.isShown else { return }
-                guard activated != NSRunningApplication.current else {
+                guard !isSelfActivation else {
                     mbkLog("PanelController", "workspace observer -- self-activation, ignoring")
                     return
                 }

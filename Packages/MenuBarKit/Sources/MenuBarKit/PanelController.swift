@@ -154,7 +154,11 @@
 //   PanelController+Open.swift       — toggle/open/close, highlight
 //   PanelController+Observers.swift  — workspace, screen, mouse and key monitors
 
-@preconcurrency import AppKit
+// Plain import — @preconcurrency is not needed here since the KVO fix (upcasting
+// to NSViewController + capturing [weak observers]) removed the last Task site that
+// triggered [#SendableMetatypes]. Using @preconcurrency would blanket-suppress all
+// AppKit Sendable diagnostics in this file, hiding future regressions.
+import AppKit
 import SwiftUI
 // NSGlassEffectView private KVC keys — all three set to 1 to produce dark glass.
 //
@@ -241,7 +245,7 @@ public final class MBKPanelController<Content: View>: NSObject, MBKPanelControll
     /// [#SendableMetatypes] warnings — see PanelObservers.swift for details.
     /// `nonisolated(unsafe)` so deinit (which is nonisolated) can read the
     /// observer tokens directly without a MainActor hop.
-    nonisolated(unsafe) var observers: MBKPanelObservers!
+    nonisolated(unsafe) var observers: MBKPanelObservers?
 
     // Intentionally retained across close — the status item position is stable between
     // sessions. Only used as a fallback when buttonWindow.frame.width == 0, which is a
@@ -457,13 +461,14 @@ public final class MBKPanelController<Content: View>: NSObject, MBKPanelControll
     deinit {
         preferredContentSizeObservation?.invalidate()
         preferredContentSizeObservation = nil
-        if let observer = observers.workspaceObserver {
+        // observers is nil if deinit fires before setup() — guard all accesses.
+        if let observer = observers?.workspaceObserver {
             NSWorkspace.shared.notificationCenter.removeObserver(observer)
         }
-        if let observer = observers.screenObserver {
+        if let observer = observers?.screenObserver {
             NotificationCenter.default.removeObserver(observer)
         }
-        if let monitor = observers.eventMonitor {
+        if let monitor = observers?.eventMonitor {
             NSEvent.removeMonitor(monitor)
         }
     }
