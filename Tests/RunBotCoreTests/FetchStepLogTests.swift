@@ -135,10 +135,7 @@ struct FetchStepLogTests {
             step: makeStep(number: 7, name: "Complete job"),
             scope: "owner/repo"
         )
-        withKnownIssue(
-            "unzip subprocess unavailable (sandboxed CI runner)",
-            isIntermittent: true
-        ) {
+        withKnownIssue("unzip subprocess unavailable (sandboxed CI runner)") {
             guard case .slice(let content) = result else {
                 Issue.record(
                     "REGRESSION #2358 (real extractor): Expected .slice for 'Complete job', got \(result). " +

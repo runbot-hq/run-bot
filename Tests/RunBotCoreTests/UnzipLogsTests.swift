@@ -28,10 +28,7 @@ struct UnzipLogsTests {
     @Test("Extracts expected file names from fixture ZIP")
     func extractsExpectedFileNames() async {
         let files = await unzipLogs(fixtureZip)
-        withKnownIssue(
-            "unzip subprocess unavailable (sandboxed CI runner)",
-            isIntermittent: true
-        ) {
+        withKnownIssue("unzip subprocess unavailable (sandboxed CI runner)") {
             #expect(files.contains(where: { $0.name == "release/2_Checkout" }),
                 "release/2_Checkout must be present after extraction")
             #expect(files.contains(where: { $0.name == "release/7_Complete job" }),
@@ -48,10 +45,7 @@ struct UnzipLogsTests {
     func preservesRawTimestampAndAnsi() async {
         let files = await unzipLogs(fixtureZip)
         let checkout = files.first(where: { $0.name == "release/2_Checkout" })
-        withKnownIssue(
-            "unzip subprocess unavailable (sandboxed CI runner)",
-            isIntermittent: true
-        ) {
+        withKnownIssue("unzip subprocess unavailable (sandboxed CI runner)") {
             #expect(checkout != nil,
                 "release/2_Checkout must be present")
             #expect(checkout?.text.contains("2026-07-31T") == true,
@@ -69,10 +63,7 @@ struct UnzipLogsTests {
     func preservesWarningDirective() async {
         let files = await unzipLogs(fixtureZip)
         let completeJob = files.first(where: { $0.name == "release/7_Complete job" })
-        withKnownIssue(
-            "unzip subprocess unavailable (sandboxed CI runner)",
-            isIntermittent: true
-        ) {
+        withKnownIssue("unzip subprocess unavailable (sandboxed CI runner)") {
             #expect(completeJob != nil,
                 "release/7_Complete job must be present")
             #expect(completeJob?.text.contains("##[warning]") == true,
