@@ -104,7 +104,13 @@ internal extension SettingsView {
                 }
                 Spacer()
                 let runners = runnerState.localRunners
+                // .filter performance: localRunners is always a small array (~10 items
+                // max by design — these are self-hosted runners on a single Mac). The
+                // O(n) walk is negligible and avoids a second .filter pass for inactive.
                 let activeRunners = runners.filter { $0.isRunning }.count
+                // max(0, ...) guards against a negative result if the @Observable-backed
+                // store is mutated between the .filter read and the .count read. This is
+                // a latent race, not a crash — the floor makes the intent explicit.
                 let inactiveRunners = max(0, runners.count - activeRunners)
                 StatusCountBadge(active: activeRunners, inactive: inactiveRunners)
                 Image(systemName: "chevron.right")
@@ -131,7 +137,10 @@ internal extension SettingsView {
                 }
                 Spacer()
                 let entries = scopeStore.entries
+                // .filter performance: scopeStore.entries is a small array in practice
+                // (typical user has <20 scopes). O(n) is negligible here.
                 let activeScopes = entries.filter { $0.isEnabled }.count
+                // max(0, ...) same rationale as manageLocalRunnersRow above.
                 let inactiveScopes = max(0, entries.count - activeScopes)
                 StatusCountBadge(active: activeScopes, inactive: inactiveScopes)
                 Image(systemName: "chevron.right")
@@ -509,6 +518,15 @@ internal extension SettingsView {
 ///   fills; consistent with that pattern as a faint tint, but the values are not required
 ///   to be in sync.
 /// - No new design tokens are introduced. (#2294)
+///
+/// ## Layout rationale
+/// - `HStack(spacing: 0)` is intentional — not a mistake. A non-zero spacing value inserts
+///   a gap *before* the comma separator, producing "2 active , 3 inactive". Zero spacing
+///   lets `Text(", ")` (comma + trailing space) carry the visual gap entirely, so the comma
+///   hugs the preceding word and the space separates it from the following word.
+/// - `Text(", ")` includes a trailing space for the same reason: the space travels with
+///   the comma as a single text run rendered in `.secondary` color, keeping punctuation and
+///   spacing visually correct without introducing a separate `Spacer` or padding.
 private struct StatusCountBadge: View {
     /// Number of active runners or scopes.
     let active: Int
