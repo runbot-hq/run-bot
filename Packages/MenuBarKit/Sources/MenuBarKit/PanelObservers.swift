@@ -58,15 +58,30 @@ final class MBKPanelObservers {
     weak var controller: (any MBKPanelObserverTarget)?
 
     /// Token for the workspace active-application notification observer.
-    nonisolated(unsafe) var workspaceObserver: NSObjectProtocol?
+    private nonisolated(unsafe) var workspaceObserver: NSObjectProtocol?
     /// Token for the screen-parameters change notification observer.
-    nonisolated(unsafe) var screenObserver: NSObjectProtocol?
+    private nonisolated(unsafe) var screenObserver: NSObjectProtocol?
     /// Token for the global mouse-down event monitor.
-    nonisolated(unsafe) var eventMonitor: Any?
+    private nonisolated(unsafe) var eventMonitor: Any?
 
     /// Creates an observer manager for the given controller.
     init(controller: any MBKPanelObserverTarget) {
         self.controller = controller
+    }
+
+    /// Removes all registered observers and monitors.
+    /// Called automatically when `MBKPanelController` releases its `observers` reference.
+    nonisolated
+    deinit {
+        if let observer = workspaceObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(observer)
+        }
+        if let observer = screenObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        if let monitor = eventMonitor {
+            NSEvent.removeMonitor(monitor)
+        }
     }
 
     // MARK: - Workspace observer

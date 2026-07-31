@@ -461,15 +461,8 @@ public final class MBKPanelController<Content: View>: NSObject, MBKPanelControll
     deinit {
         preferredContentSizeObservation?.invalidate()
         preferredContentSizeObservation = nil
-        // observers is nil if deinit fires before setup() — guard all accesses.
-        if let observer = observers?.workspaceObserver {
-            NSWorkspace.shared.notificationCenter.removeObserver(observer)
-        }
-        if let observer = observers?.screenObserver {
-            NotificationCenter.default.removeObserver(observer)
-        }
-        if let monitor = observers?.eventMonitor {
-            NSEvent.removeMonitor(monitor)
-        }
+        // Workspace, screen, and event-monitor teardown is handled by
+        // MBKPanelObservers.deinit, which fires automatically when this
+        // controller releases its observers reference.
     }
 }
