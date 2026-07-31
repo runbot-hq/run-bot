@@ -105,7 +105,7 @@ internal extension SettingsView {
                 Spacer()
                 let runners = runnerState.localRunners
                 let activeRunners = runners.filter { $0.isRunning }.count
-                let inactiveRunners = runners.count - activeRunners
+                let inactiveRunners = max(0, runners.count - activeRunners)
                 StatusCountBadge(active: activeRunners, inactive: inactiveRunners)
                 Image(systemName: "chevron.right")
                     .font(.caption2)
@@ -132,7 +132,7 @@ internal extension SettingsView {
                 Spacer()
                 let entries = scopeStore.entries
                 let activeScopes = entries.filter { $0.isEnabled }.count
-                let inactiveScopes = entries.count - activeScopes
+                let inactiveScopes = max(0, entries.count - activeScopes)
                 StatusCountBadge(active: activeScopes, inactive: inactiveScopes)
                 Image(systemName: "chevron.right")
                     .font(.caption2)
