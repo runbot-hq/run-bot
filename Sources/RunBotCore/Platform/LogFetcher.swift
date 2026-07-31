@@ -27,7 +27,7 @@ public enum StepLogResult: Equatable, Sendable {
     /// The log text to display, or nil if there is nothing to show.
     public var text: String? {
         switch self {
-        case .slice(let c), .flatBlobFallback(let c): return c
+        case .slice(let content), .flatBlobFallback(let content): return content
         case .syntheticEmpty, .fetchFailed: return nil
         }
     }
@@ -37,8 +37,11 @@ public enum StepLogResult: Equatable, Sendable {
 
 /// Typed result from `unzipLogs(_:)` — distinguishes subprocess failure from empty archive.
 public enum UnzipResult: Sendable {
+    /// ZIP extracted successfully; contains (relative path, text) pairs for every `.txt` file found.
     case success([(name: String, text: String)])
+    /// `/usr/bin/unzip` exited with a non-zero status. The associated value is the raw exit code.
     case processFailed(exitCode: Int32)
+    /// A filesystem operation failed (directory creation, file write, or enumeration).
     case ioError
 }
 
@@ -253,16 +256,16 @@ public struct LogFetcher: Sendable {
 ///    Unicode scalars, not UTF-16 code units — emoji and CJK characters truncate at a
 ///    different offset without this step.
 func sanitizeJobNameForZIP(_ name: String) -> String {
-    var s = name
+    var result = name
         .replacingOccurrences(of: "/", with: "")
         .replacingOccurrences(of: ":", with: "")
-    let utf16 = s.utf16
+    let utf16 = result.utf16
     if utf16.count > 90,
        let endIndex = utf16.index(utf16.startIndex, offsetBy: 90, limitedBy: utf16.endIndex),
        let truncated = String(utf16[utf16.startIndex..<endIndex]) {
-        s = truncated
+        result = truncated
     }
-    return s
+    return result
 }
 
 // MARK: - ZIP extraction (uses /usr/bin/unzip — always available on macOS)
