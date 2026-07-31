@@ -99,7 +99,7 @@ public struct LogFetcher: Sendable {
     ///
     /// `/actions/jobs/{id}/logs` 302-redirects to a short-lived S3 URL; the transport follows it.
     /// Returns `nil` when `scope` is not in `owner/repo` form, the request fails,
-    /// or the response body looks like a JSON error object (starts with `"{"`). 
+    /// or the response body looks like a JSON error object (starts with `"{"`).
     ///
     /// - Parameters:
     ///   - jobID: The GitHub Actions job ID.
@@ -195,11 +195,6 @@ public struct LogFetcher: Sendable {
 
         func clean(_ text: String) -> String { cleanLogText(text) }
 
-        // Cache lookup — single-entry policy: only the most recently fetched run's
-        // files are kept. This covers the primary use case (a user stepping through
-        // multiple steps in the same run) while bounding memory: a decompressed run
-        // ZIP can be tens of MB, and accumulating one per run visited in a long
-        // panel session would grow without limit.
         let cacheKey = "\(runID)-\(startedAt ?? "")"
         let allFiles: [(name: String, text: String)]
         if let cached = zipCache[cacheKey] {
@@ -211,11 +206,6 @@ public struct LogFetcher: Sendable {
             }
             switch await zipExtractor(data) {
             case .success(let files):
-                // Cache the full file listing regardless of whether this job has per-step files.
-                // Without this, the flatBlobFallback path would re-download and re-extract the
-                // ZIP on every step tap in the same run (zipCache miss → fetch → hasStepFiles
-                // false → fallback → no cache write → repeat). Single-entry eviction still
-                // applies: any prior run's cache is discarded here.
                 zipCache = [cacheKey: files]
                 allFiles = files
             case .processFailed(let exitCode):
@@ -227,15 +217,11 @@ public struct LogFetcher: Sendable {
             }
         }
 
-        // Exclude top-level blob files (no '/' in name)
         let stepFiles = allFiles.filter { $0.name.contains("/") }
-
-        // Check if ZIP has any per-step files for this job at all
         let sanitised = sanitizeJobNameForZIP(jobName)
         let hasStepFiles = stepFiles.contains { $0.name.hasPrefix("\(sanitised)/") }
 
         guard hasStepFiles else {
-            // ZIP has no per-step files for this job — fall back to flat blob
             guard let raw = await fetchJobLog(jobID: jobID, scope: scope) else {
                 log("fetchStepLog › flat-blob fallback also failed for job \(jobID) scope '\(scope)'", category: .services)
                 return .fetchFailed
@@ -247,7 +233,6 @@ public struct LogFetcher: Sendable {
             return .flatBlobFallback(content: parsed ?? clean(raw))
         }
 
-        // Single prefix match: {sanitisedJobName}/{stepNumber}_*
         let prefix = "\(sanitised)/\(step.number)_"
         guard let match = stepFiles.first(where: { $0.name.hasPrefix(prefix) }) else {
             return .syntheticEmpty(stepName: step.name)
@@ -279,12 +264,6 @@ func sanitizeJobNameForZIP(_ name: String) -> String {
         .replacingOccurrences(of: ":", with: "")
     guard stripped.utf16.count > 90 else { return stripped }
     var units = Array(stripped.utf16.prefix(90))
-    // Guard against splitting a surrogate pair at the boundary. Swift strings
-    // are always well-formed (no isolated surrogates), so a high surrogate at
-    // position 89 means position 90 held its low-surrogate pair partner — now
-    // dropped by the prefix. Removing the dangling high surrogate ensures the
-    // result is valid UTF-16 and matches GitHub’s own truncation behaviour
-    // (which would also never emit a broken surrogate pair).
     if let last = units.last, (0xD800...0xDBFF).contains(last) {
         units.removeLast()
     }
@@ -299,14 +278,10 @@ func sanitizeJobNameForZIP(_ name: String) -> String {
 /// `ProcessRunner.runAsync`, then enumerates the output directory for `.txt` files.
 /// The temporary directory is always removed on return via `defer`.
 ///
-/// The directory enumeration is materialised into an `[URL]` array *before* any
-/// `await`, because `FileManager.DirectoryEnumerator.makeIterator` is unavailable
-/// from async contexts (Swift concurrency restriction).
-///
 /// - Parameter zipData: Raw ZIP archive bytes as returned by the GitHub logs API.
 /// - Returns: An array of `(name, text)` tuples where `name` is the archive-relative
-///   path without the `.txt` extension (e.g. `"1_Build"` for `1_Build.txt`) and
-///   `text` is the file content. Returns `[]` if the write, unzip, or enumeration
+///   path without the `.txt` extension (e.g. `"release/1_Build"` for `release/1_Build.txt`)
+///   and `text` is the file content. Returns `[]` if the write, unzip, or enumeration
 ///   step fails.
 func unzipLogs(_ zipData: Data) async -> [(name: String, text: String)] {
     switch await unzipLogsTyped(zipData) {
@@ -337,15 +312,17 @@ func unzipLogsTyped(_ zipData: Data) async -> UnzipResult {
     // prepended to the ZIP — which GitHub's log API occasionally produces). Only
     // exit code 2 and above indicate a genuine extraction failure.
     guard result.exitCode <= 1 else { return .processFailed(exitCode: result.exitCode) }
-    // Materialise the enumerator into a plain [URL] array before any suspension
-    // point — FileManager.DirectoryEnumerator.makeIterator is unavailable from
-    // async contexts (Swift concurrency restriction).
     guard let enumerator = fileManager.enumerator(at: tmp, includingPropertiesForKeys: nil) else { return .ioError }
     let txtURLs = enumerator.compactMap { $0 as? URL }.filter { $0.pathExtension == "txt" }
     var results: [(name: String, text: String)] = []
     for url in txtURLs {
+        // Strip the tmp directory prefix to get the archive-relative path, then
+        // drop the .txt extension. Using NSString.deletingPathExtension rather than
+        // URL(fileURLWithPath:).deletingPathExtension().path avoids the leading-slash
+        // bug: URL(fileURLWithPath:) treats its argument as absolute, prepending "/"
+        // to relative strings and breaking the hasPrefix("jobName/") lookup downstream.
         let relative = url.path.replacingOccurrences(of: tmp.path + "/", with: "")
-        let name = URL(fileURLWithPath: relative).deletingPathExtension().path
+        let name = (relative as NSString).deletingPathExtension
         if let text = try? String(contentsOf: url, encoding: .utf8) {
             results.append((name: name, text: text))
         }
