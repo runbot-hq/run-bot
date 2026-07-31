@@ -519,13 +519,13 @@ private struct StatusCountBadge: View {
     /// or nothing when both are zero — no layout space is consumed for empty rows.
     var body: some View {
         if active > 0 || inactive > 0 {
-            HStack(spacing: 3) {
+            HStack(spacing: 0) {
                 if active > 0 {
                     Text("\(active) active")
                         .foregroundStyle(Color.rbSuccess)
                 }
                 if active > 0 && inactive > 0 {
-                    Text(",")
+                    Text(", ")
                         .foregroundStyle(.secondary)
                 }
                 if inactive > 0 {
