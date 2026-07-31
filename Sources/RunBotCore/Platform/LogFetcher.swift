@@ -211,7 +211,12 @@ public struct LogFetcher: Sendable {
             }
             switch await zipExtractor(data) {
             case .success(let files):
-                zipCache = [cacheKey: files]  // single-entry eviction: discard any prior run's cache
+                // Cache the full file listing regardless of whether this job has per-step files.
+                // Without this, the flatBlobFallback path would re-download and re-extract the
+                // ZIP on every step tap in the same run (zipCache miss → fetch → hasStepFiles
+                // false → fallback → no cache write → repeat). Single-entry eviction still
+                // applies: any prior run's cache is discarded here.
+                zipCache = [cacheKey: files]
                 allFiles = files
             case .processFailed(let exitCode):
                 log("fetchStepLog › unzip failed for run \(runID) — exit code \(exitCode)", category: .services)

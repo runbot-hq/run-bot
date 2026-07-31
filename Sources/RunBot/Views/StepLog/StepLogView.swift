@@ -106,7 +106,7 @@ struct StepLogView: View {
     init(
         job: ActiveJob,
         step: GitHubStep,
-        logFetcher: Binding<LogFetcher> = .constant(LogFetcher()),
+        logFetcher: Binding<LogFetcher> = .constant(LogFetcher()), // preview/test only — production callers must pass AppState's @Binding; .constant writes are silently dropped
         onBack: @escaping () -> Void,
         onLogLoaded: (() -> Void)? = nil,
         scopeStore: any ScopeStoreProtocol = ScopeStore.shared
