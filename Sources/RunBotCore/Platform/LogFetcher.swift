@@ -195,7 +195,11 @@ public struct LogFetcher: Sendable {
 
         func clean(_ text: String) -> String { cleanLogText(text) }
 
-        // Cache lookup
+        // Cache lookup — single-entry policy: only the most recently fetched run's
+        // files are kept. This covers the primary use case (a user stepping through
+        // multiple steps in the same run) while bounding memory: a decompressed run
+        // ZIP can be tens of MB, and accumulating one per run visited in a long
+        // panel session would grow without limit.
         let cacheKey = "\(runID)-\(startedAt ?? "")"
         let allFiles: [(name: String, text: String)]
         if let cached = zipCache[cacheKey] {
@@ -207,7 +211,7 @@ public struct LogFetcher: Sendable {
             }
             switch await zipExtractor(data) {
             case .success(let files):
-                zipCache[cacheKey] = files
+                zipCache = [cacheKey: files]  // single-entry eviction: discard any prior run's cache
                 allFiles = files
             case .processFailed(let exitCode):
                 log("fetchStepLog › unzip failed for run \(runID) — exit code \(exitCode)", category: .services)

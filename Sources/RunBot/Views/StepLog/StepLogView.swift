@@ -326,7 +326,12 @@ struct StepLogView: View {
         // back to `logFetcher` on the MainActor so the cache is preserved for the next tap.
         let fetcherSnapshot = logFetcher
         loadTask = Task {
-            defer { Task { @MainActor in isLoading = false } }
+            // Do NOT use `defer` for `isLoading = false`: a `defer` fires even on the
+            // early-cancel `guard` returns below, which would clear the spinner while a
+            // *new* task is still in flight, briefly flashing "Log not available" to the
+            // user. Instead, clear `isLoading` only on the two paths that actually settle
+            // the view: the cancellation bailout after the fetch (where we do nothing and
+            // the new task owns loading state), and the successful write-back path.
             guard !Task.isCancelled else { return }
             var localFetcher = fetcherSnapshot
             let result = await localFetcher.fetchStepLog(
@@ -342,6 +347,7 @@ struct StepLogView: View {
                 logFetcher = localFetcher  // persist updated zipCache back to view state
                 logResult = result
                 logText = result.text ?? ""
+                isLoading = false
                 onLogLoaded?()
             }
         }
