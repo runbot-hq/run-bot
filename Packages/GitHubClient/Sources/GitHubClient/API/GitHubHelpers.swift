@@ -105,15 +105,20 @@ private let timestampRegex: NSRegularExpression? = try? NSRegularExpression(
 /// Internal only — not part of the public API. Used by `buildParsedLog` and `parseStepLog`
 /// for the flat-blob fallback path in `LogFetcher.fetchStepLog`.
 struct LogSection {
+    /// The `##[group]` header text for this section.
     let name: String
+    /// The log lines between `##[group]` and `##[endgroup]`.
     let body: String
 }
 
 /// Full parse result from `buildParsedLog`: named sections, preamble, and epilogue.
 /// Internal only — not part of the public API.
 struct ParsedLog {
+    /// All named `##[group]` sections found in the log.
     let sections: [LogSection]
+    /// Log lines that appear before the first `##[group]` marker.
     let preamble: String
+    /// Log lines that appear after the last `##[endgroup]` marker.
     let epilogue: String
 }
 
