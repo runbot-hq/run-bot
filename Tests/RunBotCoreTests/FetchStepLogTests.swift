@@ -11,7 +11,9 @@
 // the real ZipExtractor against the shared fixture ZIP from TestFixtures.swift.
 // That test uses withKnownIssue(isIntermittent: true, when: { !unzipBinaryExists || !isSlice })
 // so sandboxed CI records an expected issue rather than a hard failure or silent pass
-// even on runners where the binary exists on disk but process spawning is blocked.
+// even on runners where the binary exists on disk but Process.run() is blocked
+// (in that case unzipBinaryExists stays true but fetchStepLog returns something other
+// than .slice, which the !isSlice arm catches).
 //
 // Coverage map:
 //   Normal step — ANSI + timestamp stripped                  — test_normalStep_returnsSlice
@@ -51,6 +53,58 @@ private struct FetchStepStubTransport: GitHubTransportProtocol {
     func fetchRegistrationToken(scope _: String) async -> String? { nil }
     func fetchRemovalToken(scope _: String) async -> String? { nil }
     func deleteRunnerByID(scope _: String, runnerID _: Int) async -> Bool { false }
+}
+
+// MARK: - CountingTransport
+
+/// Wraps `FetchStepStubTransport` and counts every `raw(_:timeout:)` call.
+/// Used by `test_cacheHit_zeroAdditionalNetworkCalls` to assert that the ZIP
+/// is fetched exactly once and never again for the same `runID+startedAt` key.
+private final class CountingTransport: GitHubTransportProtocol, @unchecked Sendable {
+    private let inner: FetchStepStubTransport
+    private(set) var rawCallCount: Int = 0
+
+    init(responses: [String: Data]) {
+        self.inner = FetchStepStubTransport(responses: responses)
+    }
+
+    var decoder: JSONDecoder { inner.decoder }
+    var logger: (any GitHubLogger)? { inner.logger }
+
+    func apiAsync(_ endpoint: String, timeout t: TimeInterval) async -> Data? {
+        await inner.apiAsync(endpoint, timeout: t)
+    }
+    func apiPaginated(_ endpoint: String, timeout t: TimeInterval) async -> Data? {
+        await inner.apiPaginated(endpoint, timeout: t)
+    }
+    func raw(_ endpoint: String, timeout t: TimeInterval) async -> Data? {
+        rawCallCount += 1
+        return await inner.raw(endpoint, timeout: t)
+    }
+    func post(_ endpoint: String, body: Data?, timeout t: TimeInterval) async -> Data? {
+        await inner.post(endpoint, body: body, timeout: t)
+    }
+    func put(_ endpoint: String, body: Data, timeout t: TimeInterval) async -> Data? {
+        await inner.put(endpoint, body: body, timeout: t)
+    }
+    func delete(_ endpoint: String, timeout t: TimeInterval) async -> Bool {
+        await inner.delete(endpoint, timeout: t)
+    }
+    func cancelRun(runID: Int, scope: String) async -> Bool {
+        await inner.cancelRun(runID: runID, scope: scope)
+    }
+    func patchRunnerLabels(scope: String, runnerID: Int, labels: [String]) async -> [String]? {
+        await inner.patchRunnerLabels(scope: scope, runnerID: runnerID, labels: labels)
+    }
+    func fetchRegistrationToken(scope: String) async -> String? {
+        await inner.fetchRegistrationToken(scope: scope)
+    }
+    func fetchRemovalToken(scope: String) async -> String? {
+        await inner.fetchRemovalToken(scope: scope)
+    }
+    func deleteRunnerByID(scope: String, runnerID: Int) async -> Bool {
+        await inner.deleteRunnerByID(scope: scope, runnerID: runnerID)
+    }
 }
 
 private func makeStep(number: Int, name: String) -> GitHubStep {
@@ -125,6 +179,8 @@ struct FetchStepLogTests {
             step: makeStep(number: 7, name: "Complete job"),
             scope: "owner/repo"
         )
+        // Pre-evaluate before entering withKnownIssue — the `when:` closure runs before
+        // the body, so the result must be captured first. Mirrors the UnzipLogsTests pattern.
         let isSlice: Bool
         if case .slice = result { isSlice = true } else { isSlice = false }
         withKnownIssue(
@@ -139,6 +195,10 @@ struct FetchStepLogTests {
             #expect(content.contains("Node.js 20 is deprecated"))
             #expect(!content.contains("2026-07-31T"), "Timestamp prefix must be stripped")
         } when: {
+            // Gate on binary absence OR failed spawn: on a sandboxed runner where /usr/bin/unzip
+            // exists but Process.run() is blocked, unzipBinaryExists stays true but the result
+            // will not be .slice. The !isSlice arm catches that case so the test is recorded as
+            // a known issue rather than a hard failure.
             !unzipBinaryExists || !isSlice
         }
     }
@@ -239,7 +299,7 @@ struct FetchStepLogTests {
 
     @Test("Cache hit: second call for same runID+startedAt makes zero extra network calls")
     func test_cacheHit_zeroAdditionalNetworkCalls() async {
-        let transport = StubTransport(responses: [
+        let transport = CountingTransport(responses: [
             "repos/owner/repo/actions/runs/99/logs": Data("ZIP".utf8),
         ])
         var fetcher = LogFetcher(
@@ -252,6 +312,9 @@ struct FetchStepLogTests {
             step: makeStep(number: 1, name: "Build"),
             scope: "owner/repo"
         )
+        // The first fetch must have cost exactly one network call.
+        #expect(transport.rawCallCount == 1,
+            "ZIP must be fetched exactly once for same runID+startedAt")
         let callsAfterFirst = transport.rawCallCount
         _ = await fetcher.fetchStepLog(
             runID: 99, startedAt: "2026-01-01T00:00:00Z",
@@ -259,6 +322,7 @@ struct FetchStepLogTests {
             step: makeStep(number: 1, name: "Build"),
             scope: "owner/repo"
         )
+        // The second fetch must not have triggered any additional network calls.
         #expect(transport.rawCallCount == callsAfterFirst,
             "Cache hit must make zero additional network calls")
     }

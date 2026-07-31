@@ -41,9 +41,9 @@ internal let fixtureZipBase64 =
 
 /// Decoded bytes of the fixture ZIP. Force-unwrap is intentional: a decode failure
 /// means the committed constant is corrupt, which must be caught immediately.
-internal var fixtureZip: Data {
+/// Declared as `let` so the base64 decode runs once per process, not once per test access.
+internal let fixtureZip: Data =
     Data(base64Encoded: fixtureZipBase64, options: .ignoreUnknownCharacters)!
-}
 
 // MARK: - Subprocess availability probe
 
