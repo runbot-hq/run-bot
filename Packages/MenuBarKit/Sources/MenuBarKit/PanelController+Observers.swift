@@ -23,6 +23,9 @@ extension MBKPanelController {
             object: nil, queue: nil
         ) { [weak self] notification in
             let activated = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
+            // [#SendableMetatypes] false-positive: compiler flags Content.Type as
+            // non-Sendable in the capture list even though Content is never used
+            // inside this Task body. Upstream bug — safe to ignore.
             Task { @MainActor [weak self] in
                 guard let self, self.isShown else { return }
                 guard activated != NSRunningApplication.current else {
@@ -48,6 +51,7 @@ extension MBKPanelController {
             forName: NSApplication.didChangeScreenParametersNotification,
             object: nil, queue: nil
         ) { [weak self] _ in
+            // [#SendableMetatypes] false-positive — see setupWorkspaceObserver.
             Task { @MainActor [weak self] in
                 self?.refreshForScreenChange()
             }
