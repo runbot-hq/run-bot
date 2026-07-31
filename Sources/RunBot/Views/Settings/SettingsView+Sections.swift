@@ -504,8 +504,10 @@ internal extension SettingsView {
 ///   button tint, establishing a consistent "stopped/needs attention" signal.
 /// - Zero-count segments are suppressed entirely: no "0 inactive" shown in red when
 ///   all runners/scopes are active, and no "0 active" shown in green when all are inactive.
-/// - Background uses `Color.rbTextTertiary.opacity(0.18)` — unchanged from before, matching
-///   the `Color.rbTextTertiary.opacity(0.22)` pattern used by `InlineJobRowsView`.
+/// - Background uses `Color.rbTextTertiary.opacity(0.18)` — intentionally lighter than the
+///   `Color.rbTextTertiary.opacity(0.22)` used by `InlineJobRowsView` for progress track
+///   fills; consistent with that pattern as a faint tint, but the values are not required
+///   to be in sync.
 /// - No new design tokens are introduced. (#2294)
 private struct StatusCountBadge: View {
     /// Number of active runners or scopes.
