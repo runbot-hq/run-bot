@@ -202,13 +202,18 @@ public struct LogFetcher: Sendable {
             allFiles = cached
         } else {
             guard let data = await transport.raw("repos/\(scope)/actions/runs/\(runID)/logs") else {
+                log("fetchStepLog › network failure fetching ZIP for run \(runID) scope '\(scope)'", category: .services)
                 return .fetchFailed
             }
             switch await zipExtractor(data) {
             case .success(let files):
                 zipCache[cacheKey] = files
                 allFiles = files
-            case .processFailed, .ioError:
+            case .processFailed(let exitCode):
+                log("fetchStepLog › unzip failed for run \(runID) — exit code \(exitCode)", category: .services)
+                return .fetchFailed
+            case .ioError:
+                log("fetchStepLog › I/O error writing or reading ZIP tmp dir for run \(runID)", category: .services)
                 return .fetchFailed
             }
         }
@@ -223,6 +228,7 @@ public struct LogFetcher: Sendable {
         guard hasStepFiles else {
             // ZIP has no per-step files for this job — fall back to flat blob
             guard let raw = await fetchJobLog(jobID: jobID, scope: scope) else {
+                log("fetchStepLog › flat-blob fallback also failed for job \(jobID) scope '\(scope)'", category: .services)
                 return .fetchFailed
             }
             let parsed = parseStepLog(raw, stepName: step.name, stepNumber: step.number, logger: transport.logger)
