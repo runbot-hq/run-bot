@@ -113,6 +113,10 @@ public struct LogSection {
     /// Cleaned body lines between (and including) the ##[group] and ##[endgroup] markers.
     /// The marker lines are intentionally retained so the UI can render them as visible
     /// section boundaries in the monospaced log view without a separate stripping pass.
+    ///
+    /// For sections closed by a back-to-back ##[group] (no explicit ##[endgroup] in the
+    /// source log), a synthetic `##[endgroup]` line is appended before flushing so that
+    /// the body always contains both markers regardless of how the section was closed.
     public let body: String
 }
 
@@ -337,6 +341,12 @@ func parseStepLog(
 /// Malformed logs (a `##[group]` with no matching `##[endgroup]`) are handled gracefully:
 /// the open section is flushed at end-of-input rather than silently dropped.
 ///
+/// Back-to-back `##[group]` markers (second group arrives while the first is still open):
+/// the open section is flushed immediately. A synthetic `##[endgroup]` line is appended to
+/// the body before flushing so that `LogSection.body` always contains both the opening and
+/// closing markers, honouring the documented body contract regardless of how the section
+/// was closed.
+///
 /// A `##[endgroup]` with no matching open `##[group]` (orphan endgroup) is silently discarded:
 /// it is not added to preamble, epilogue, or any section. This is intentional — orphan markers
 /// are a runner artefact and carry no log content.
@@ -360,9 +370,10 @@ func buildParsedLog(from cleaned: String) -> ParsedLog {
     for line in lines {
         if line.hasPrefix("##[group]") {
             // Flush previous open section (handles back-to-back groups without endgroup).
-            // Invariant: currentBody is always non-empty when currentName != nil because
-            // currentBody is initialised with [line] (the ##[group] marker) when a group opens.
+            // A synthetic ##[endgroup] is appended before flushing so that LogSection.body
+            // always contains both markers, honouring the documented body contract.
             if let name = currentName {
+                currentBody.append("##[endgroup]")
                 sections.append(LogSection(name: name, body: currentBody.joined(separator: "\n")))
             }
             seenFirstGroup = true
@@ -390,7 +401,9 @@ func buildParsedLog(from cleaned: String) -> ParsedLog {
     }
 
     // Flush any open section that had no ##[endgroup] (malformed but handle gracefully).
-    // Invariant: currentBody is always non-empty when currentName != nil (see above).
+    // No synthetic ##[endgroup] is appended here: the end-of-input flush is for truly
+    // unclosed groups (the log was truncated), and callers inspecting body for a trailing
+    // marker should treat absence of ##[endgroup] as a signal that the log was cut short.
     if let name = currentName {
         sections.append(LogSection(name: name, body: currentBody.joined(separator: "\n")))
     }

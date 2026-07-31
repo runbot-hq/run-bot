@@ -4,7 +4,10 @@
 // Tests for parseStepLog / buildParsedLog in GitHubHelpers.swift.
 //
 // Coverage map:
-//   exact name match                        — test_exactNameMatch
+//   plain exact name match (no "Run " on either side)
+//                                           — test_plainExactNameMatch
+//   exact name match (step name contains "Run ")
+//                                           — test_exactNameMatch
 //   prefix match ("Run X" vs X)             — test_prefixMatch_groupHasRunPrefix
 //   run-prefix does not over-match          — test_runPrefixDoesNotMatchUnrelated
 //   synthetic: Set up job                   — test_setUpJob_returnsPreamble
@@ -28,6 +31,8 @@
 //                                           — test_buildParsedLog_structure
 //   buildParsedLog structural: orphan endgroup discarded
 //                                           — test_buildParsedLog_orphanEndgroup_discarded
+//   buildParsedLog structural: back-to-back groups get synthetic endgroup in body
+//                                           — test_buildParsedLog_backToBackGroups_syntheticEndgroup
 import Foundation
 @testable import GitHubClient
 import XCTest
@@ -71,6 +76,26 @@ final class GitHubHelpersTests: XCTestCase {
     }
 
     // MARK: - Name-based lookup
+
+    func test_plainExactNameMatch() {
+        // The simplest stage-1 case: step name matches the ##[group] header with no
+        // "Run " prefix on either side. This guards against a regression where stage 1
+        // accidentally required a "Run "-prefixed name to match — such a bug would leave
+        // this test failing while test_exactNameMatch (which uses "Run my-step" on both
+        // sides) continued to pass.
+        let raw = makeLog(
+            sections: [
+                (name: "Build", body: ["build output"]),
+                (name: "Test", body: ["test output"])
+            ]
+        )
+        let result = parseStepLog(raw, stepName: "Build", stepNumber: 1, logger: nil)
+        XCTAssertNotNil(result)
+        XCTAssert(result!.contains("build output"),
+            "Stage-1 exact match must find the section when no \"Run \" prefix is involved")
+        XCTAssertFalse(result!.contains("test output"),
+            "Stage-1 exact match must return only the matched section")
+    }
 
     func test_exactNameMatch() {
         // Tests stage-1 exact match where the step name already contains "Run ".
@@ -377,6 +402,36 @@ final class GitHubHelpersTests: XCTestCase {
             .components(separatedBy: "##[endgroup]").count - 1
         XCTAssertEqual(endgroupCount, 1,
             "Section body must contain exactly one ##[endgroup] (the section close)")
+    }
+
+    func test_buildParsedLog_backToBackGroups_syntheticEndgroup() {
+        // When a second ##[group] arrives while the first is still open (no ##[endgroup]
+        // in between), the first section must be flushed with a synthetic ##[endgroup]
+        // appended to its body, so that LogSection.body always contains both markers
+        // as documented. The second section must be parsed normally.
+        let cleaned = [
+            "##[group]Run step-one",
+            "step one body",
+            "##[group]Run step-two",
+            "step two body",
+            "##[endgroup]"
+        ].joined(separator: "\n")
+        let parsed = buildParsedLog(from: cleaned)
+
+        XCTAssertEqual(parsed.sections.count, 2,
+            "Both sections must be present")
+
+        // First section: flushed by back-to-back ##[group]; body must contain synthetic endgroup.
+        XCTAssert(parsed.sections[0].name == "Run step-one")
+        XCTAssert(parsed.sections[0].body.contains("step one body"))
+        XCTAssert(parsed.sections[0].body.contains("##[endgroup]"),
+            "Back-to-back flush must append a synthetic ##[endgroup] to the first section's body")
+
+        // Second section: closed normally by the explicit ##[endgroup].
+        XCTAssert(parsed.sections[1].name == "Run step-two")
+        XCTAssert(parsed.sections[1].body.contains("step two body"))
+        XCTAssert(parsed.sections[1].body.contains("##[endgroup]"),
+            "Second section must contain its own ##[endgroup] from the normal close path")
     }
 
     // MARK: - Cleaning pipeline
