@@ -63,6 +63,13 @@ struct StepLogView: View {
     @State private var logText: String?
     /// The typed result of the last step log fetch. Drives the scroll-view rendering.
     @State private var logResult: StepLogResult?
+    /// Parsed log lines produced by `parseLogLines` after a successful fetch.
+    /// Empty until `loadLog` completes. Drives the `LazyVStack` in the scroll view.
+    @State private var parsedLines: [LogLine] = []
+    /// IDs of `groupHeader` lines whose child rows are currently hidden.
+    /// All groups start collapsed (matching GitHub.com behaviour) and are toggled by
+    /// tapping the group header row.
+    @State private var collapsedGroups: Set<Int> = []
     /// `true` while the background fetch is in-flight.
     @State private var isLoading = true
     /// Handle for the in-flight log fetch task; cancelled in `onDisappear` and at the
@@ -223,26 +230,16 @@ struct StepLogView: View {
                     }
                 } else {
                     switch logResult {
-                    case .slice(let content):
-                        Text(content)
-                            .font(.system(size: 11, design: .monospaced))
-                            .foregroundColor(Color.rbTextPrimary)
-                            .textSelection(.enabled)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.horizontal, RBSpacing.md).padding(.vertical, 6)
-                    case .flatBlobFallback(let content):
+                    case .slice:
+                        logBodyView
+                    case .flatBlobFallback:
                         VStack(alignment: .leading, spacing: 4) {
                             Text("⚠️ Per-step logs unavailable for this run — showing full job log")
                                 .font(.caption).foregroundColor(Color.rbWarning)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .padding(.horizontal, RBSpacing.md).padding(.top, 6)
                             Divider().padding(.horizontal, RBSpacing.md)
-                            Text(content)
-                                .font(.system(size: 11, design: .monospaced))
-                                .foregroundColor(Color.rbTextPrimary)
-                                .textSelection(.enabled)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(.horizontal, RBSpacing.md).padding(.bottom, 6)
+                            logBodyView
                         }
                     case .syntheticEmpty(let name, let reason):
                         VStack(alignment: .leading, spacing: 4) {
@@ -285,7 +282,6 @@ struct StepLogView: View {
         .onDisappear { loadTask?.cancel() }
     }
 
-    // MARK: - Log loading
     /// Kicks off a background fetch of the step log and publishes the result to `logText`.
     ///
     /// Cancels any in-flight `loadTask` before spawning a new one — prevents a stale
@@ -351,14 +347,57 @@ struct StepLogView: View {
                 scope: scope
             )
             guard !Task.isCancelled else { return }
+            // Parse on the background task — keep MainActor free for long logs.
+            let parsed = result.text.map { parseLogLines($0) } ?? []
+            let defaultCollapsed = Set(parsed.compactMap { line -> Int? in
+                if case .groupHeader(let id, _) = line { return id } else { return nil }
+            })
             await MainActor.run {
                 logFetcher = localFetcher  // persist updated zipCache back to view state
                 logResult = result
                 logText = result.text ?? ""
+                parsedLines = parsed
+                collapsedGroups = defaultCollapsed
                 isLoading = false
                 onLogLoaded?()
             }
         }
+    }
+
+    // MARK: - Log body
+
+    /// The `LazyVStack` rendering of `parsedLines`.
+    ///
+    /// Shared by both the `.slice` and `.flatBlobFallback` cases so the group/annotation
+    /// rendering is identical regardless of which log source was used.
+    /// `LazyVStack` is required (not `VStack`) — logs can be thousands of lines.
+    @ViewBuilder
+    private var logBodyView: some View {
+        LazyVStack(alignment: .leading, spacing: 0) {
+            ForEach(parsedLines) { line in
+                switch line {
+                case .plain(_, let text):
+                    LogPlainLine(text: text)
+                case .groupHeader(let id, let title):
+                    LogGroupHeader(
+                        title: title,
+                        isCollapsed: collapsedGroups.contains(id),
+                        onToggle: {
+                            if collapsedGroups.contains(id) { collapsedGroups.remove(id) } else { collapsedGroups.insert(id) }
+                        }
+                    )
+                case .groupedLine(_, let text, let groupID):
+                    if !collapsedGroups.contains(groupID) {
+                        LogPlainLine(text: text)
+                            .padding(.leading, 12)
+                    }
+                case .annotation(_, let level, let text):
+                    LogAnnotationLine(level: level, text: text)
+                }
+            }
+        }
+        .textSelection(.enabled)
+        .padding(.horizontal, RBSpacing.md).padding(.vertical, 6)
     }
 
     // MARK: - Derived repo scope

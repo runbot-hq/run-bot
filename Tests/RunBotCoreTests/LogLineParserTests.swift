@@ -1,0 +1,136 @@
+// LogLineParserTests.swift
+// RunBotCoreTests
+import Testing
+@testable import RunBotCore
+
+@Suite("parseLogLines")
+struct LogLineParserTests {
+
+    // MARK: - Plain lines
+
+    @Test("Plain lines are returned as .plain")
+    func test_plainLines() {
+        let result = parseLogLines("hello\nworld")
+        #expect(result.count == 2)
+        guard case .plain(_, let t1) = result[0] else { Issue.record("Expected .plain at [0]"); return }
+        guard case .plain(_, let t2) = result[1] else { Issue.record("Expected .plain at [1]"); return }
+        #expect(t1 == "hello")
+        #expect(t2 == "world")
+    }
+
+    @Test("Trailing newline does not produce a blank plain line")
+    func test_trailingNewline_notBlankLine() {
+        let result = parseLogLines("hello\n")
+        #expect(result.count == 1)
+        guard case .plain(_, let t) = result[0] else { Issue.record("Expected .plain"); return }
+        #expect(t == "hello")
+    }
+
+    // MARK: - Group directives
+
+    @Test("##[group] produces .groupHeader with correct title")
+    func test_groupHeader_title() {
+        let result = parseLogLines("##[group]Set up job")
+        #expect(result.count == 1)
+        guard case .groupHeader(_, let title) = result[0] else { Issue.record("Expected .groupHeader"); return }
+        #expect(title == "Set up job")
+    }
+
+    @Test("Lines between ##[group] and ##[endgroup] are .groupedLine with correct groupID")
+    func test_groupedLines_haveGroupID() {
+        let raw = "##[group]Build\nline one\nline two\n##[endgroup]\nafter"
+        let result = parseLogLines(raw)
+        #expect(result.count == 4)
+        guard case .groupHeader(let gid, _) = result[0] else { Issue.record("Expected .groupHeader at [0]"); return }
+        guard case .groupedLine(_, let t1, let g1) = result[1] else { Issue.record("Expected .groupedLine at [1]"); return }
+        guard case .groupedLine(_, let t2, let g2) = result[2] else { Issue.record("Expected .groupedLine at [2]"); return }
+        guard case .plain(_, let after) = result[3] else { Issue.record("Expected .plain at [3]"); return }
+        #expect(t1 == "line one")
+        #expect(t2 == "line two")
+        #expect(g1 == gid)
+        #expect(g2 == gid)
+        #expect(after == "after")
+    }
+
+    @Test("##[endgroup] with no open group is ignored")
+    func test_endgroup_withNoOpenGroup_isIgnored() {
+        let result = parseLogLines("##[endgroup]\nplain")
+        #expect(result.count == 1)
+        guard case .plain(_, let t) = result[0] else { Issue.record("Expected .plain"); return }
+        #expect(t == "plain")
+    }
+
+    @Test("Second ##[group] implicitly closes the previous group")
+    func test_implicitGroupClose() {
+        let raw = "##[group]First\ninside first\n##[group]Second\ninside second"
+        let result = parseLogLines(raw)
+        #expect(result.count == 4)
+        guard case .groupHeader(let gid1, let t1) = result[0] else { Issue.record("Expected .groupHeader at [0]"); return }
+        guard case .groupedLine(_, _, let g1) = result[1] else { Issue.record("Expected .groupedLine at [1]"); return }
+        guard case .groupHeader(let gid2, let t2) = result[2] else { Issue.record("Expected .groupHeader at [2]"); return }
+        guard case .groupedLine(_, _, let g2) = result[3] else { Issue.record("Expected .groupedLine at [3]"); return }
+        #expect(t1 == "First")
+        #expect(t2 == "Second")
+        #expect(g1 == gid1)
+        #expect(g2 == gid2)
+        #expect(gid1 != gid2)
+    }
+
+    // MARK: - Annotation directives
+
+    @Test("##[warning] produces .annotation with .warning level")
+    func test_warningAnnotation() {
+        let result = parseLogLines("##[warning]Low disk space")
+        #expect(result.count == 1)
+        guard case .annotation(_, let level, let text) = result[0] else { Issue.record("Expected .annotation"); return }
+        #expect(level == .warning)
+        #expect(text == "Low disk space")
+    }
+
+    @Test("##[error] produces .annotation with .error level")
+    func test_errorAnnotation() {
+        let result = parseLogLines("##[error]Build failed")
+        #expect(result.count == 1)
+        guard case .annotation(_, let level, let text) = result[0] else { Issue.record("Expected .annotation"); return }
+        #expect(level == .error)
+        #expect(text == "Build failed")
+    }
+
+    @Test("##[notice] produces .annotation with .notice level")
+    func test_noticeAnnotation() {
+        let result = parseLogLines("##[notice]Cache miss")
+        #expect(result.count == 1)
+        guard case .annotation(_, let level, let text) = result[0] else { Issue.record("Expected .annotation"); return }
+        #expect(level == .notice)
+        #expect(text == "Cache miss")
+    }
+
+    // MARK: - IDs
+
+    @Test("IDs are unique and monotonically increasing across all line types")
+    func test_ids_areUniqueAndMonotonic() {
+        let raw = "##[group]G\nline\n##[endgroup]\n##[warning]W\nplain"
+        let result = parseLogLines(raw)
+        let ids = result.map { $0.id }
+        #expect(ids == Array(0..<ids.count), "IDs must be 0-based and contiguous")
+    }
+
+    // MARK: - Default collapsed groups
+
+    @Test("All groupHeader IDs are collectable into a Set for default-collapsed state")
+    func test_defaultCollapsedSet() {
+        let raw = "##[group]A\nline\n##[endgroup]\n##[group]B\nline2"
+        let result = parseLogLines(raw)
+        let collapsedIDs = Set(result.compactMap { line -> Int? in
+            if case .groupHeader(let id, _) = line { return id } else { return nil }
+        })
+        #expect(collapsedIDs.count == 2)
+    }
+
+    // MARK: - Empty input
+
+    @Test("Empty string returns empty array")
+    func test_emptyInput() {
+        #expect(parseLogLines("").isEmpty)
+    }
+}
