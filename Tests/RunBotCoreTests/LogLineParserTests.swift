@@ -427,5 +427,41 @@ struct LogLineParserTests {
         guard case .section(_, _, _) = result[0] else { Issue.record("Expected .section at [0]"); return }
         guard case .plain(_, _) = result[1] else { Issue.record("Expected .plain at [1]"); return }
     }
+
+    // MARK: - decodeActionsEscapes (via parseAnnotationParams)
+
+    @Test("Percent-encoded colon in title is decoded (%3A → :)")
+    func test_annotationParams_percentEncodedColon() {
+        let params = parseAnnotationParams("title=Build Error%3A missing")
+        #expect(params?.title == "Build Error: missing")
+    }
+
+    @Test("Percent-encoded comma in title is decoded (%2C → ,)")
+    func test_annotationParams_percentEncodedComma() {
+        let params = parseAnnotationParams("title=Build%2C deploy")
+        #expect(params?.title == "Build, deploy")
+    }
+
+    @Test("Percent-encoded newline in title is decoded (%0A → newline)")
+    func test_annotationParams_percentEncodedNewline() {
+        let params = parseAnnotationParams("title=Line1%0ALine2")
+        #expect(params?.title == "Line1\nLine2")
+    }
+
+    @Test("Percent-encoded percent itself is decoded last (%25 → %)")
+    func test_annotationParams_percentEncodedPercent() {
+        // %25 must decode to %, and a literal %25 in source must not double-decode
+        let params = parseAnnotationParams("title=50%25 done")
+        #expect(params?.title == "50% done")
+    }
+
+    @Test("::warning with percent-encoded title decodes end-to-end")
+    func test_colonWarning_percentEncodedTitle_endToEnd() {
+        let result = parseLogLines("::warning title=Build Error%3A missing,file=src/main.swift::file not found")
+        guard case .annotation(_, _, let text, let params, _) = result[0] else { Issue.record("Expected .annotation"); return }
+        #expect(text == "file not found")
+        #expect(params?.title == "Build Error: missing")
+        #expect(params?.file == "src/main.swift")
+    }
 }
 

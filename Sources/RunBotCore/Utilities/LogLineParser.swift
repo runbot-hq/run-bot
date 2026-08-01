@@ -140,6 +140,7 @@ private func decodeActionsEscapes(_ encoded: String) -> String {
 ///
 /// - Parameter block: The raw parameter substring, e.g. `"file=app.js,line=12,title=Lint Error"`.
 /// - Returns: An `AnnotationParams` if at least one recognised key is present, otherwise `nil`.
+///   Also returns `nil` when `block` is empty (the bare `::level::message` format has no param block).
 public func parseAnnotationParams(_ block: String) -> AnnotationParams? {
     guard !block.isEmpty else { return nil }
     var title: String?
