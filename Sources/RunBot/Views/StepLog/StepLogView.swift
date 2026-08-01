@@ -63,11 +63,23 @@ struct StepLogView: View {
     @State private var logText: String?
     /// The typed result of the last step log fetch. Drives the scroll-view rendering.
     @State private var logResult: StepLogResult?
+    /// Parsed log lines produced by `parseLogLines` after a successful fetch.
+    /// Empty until `loadLog` completes. Drives the `LazyVStack` in the scroll view.
+    @State private var parsedLines: [LogLine] = []
+    /// IDs of `groupHeader` lines whose child rows are currently hidden.
+    /// All groups start collapsed (matching GitHub.com behaviour) and are toggled by
+    /// tapping the group header row.
+    @State private var collapsedGroups: Set<Int> = []
     /// `true` while the background fetch is in-flight.
     @State private var isLoading = true
     /// Handle for the in-flight log fetch task; cancelled in `onDisappear` and at the
     /// top of `loadLog()` to prevent races if `onAppear` fires more than once.
     @State private var loadTask: Task<Void, Never>?
+    /// Monotonically incremented each time `loadLog()` starts a new fetch.
+    /// Captured into the task and checked inside `MainActor.run` so a superseded
+    /// (cancelled) task can never commit stale state even when `Task.isCancelled`
+    /// hasn't propagated yet.
+    @State private var loadGeneration: Int = 0
     /// Bound to the `AppState`-owned `LogFetcher` so the ZIP cache survives
     /// across step taps. `@State` would be discarded on every `.id(navState)`
     /// remount in `RootPanelView` (SwiftUI tears down the full state tree when
@@ -223,26 +235,16 @@ struct StepLogView: View {
                     }
                 } else {
                     switch logResult {
-                    case .slice(let content):
-                        Text(content)
-                            .font(.system(size: 11, design: .monospaced))
-                            .foregroundColor(Color.rbTextPrimary)
-                            .textSelection(.enabled)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.horizontal, RBSpacing.md).padding(.vertical, 6)
-                    case .flatBlobFallback(let content):
+                    case .slice:
+                        logBodyView
+                    case .flatBlobFallback:
                         VStack(alignment: .leading, spacing: 4) {
                             Text("⚠️ Per-step logs unavailable for this run — showing full job log")
                                 .font(.caption).foregroundColor(Color.rbWarning)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .padding(.horizontal, RBSpacing.md).padding(.top, 6)
                             Divider().padding(.horizontal, RBSpacing.md)
-                            Text(content)
-                                .font(.system(size: 11, design: .monospaced))
-                                .foregroundColor(Color.rbTextPrimary)
-                                .textSelection(.enabled)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(.horizontal, RBSpacing.md).padding(.bottom, 6)
+                            logBodyView
                         }
                     case .syntheticEmpty(let name, let reason):
                         VStack(alignment: .leading, spacing: 4) {
@@ -285,7 +287,6 @@ struct StepLogView: View {
         .onDisappear { loadTask?.cancel() }
     }
 
-    // MARK: - Log loading
     /// Kicks off a background fetch of the step log and publishes the result to `logText`.
     ///
     /// Cancels any in-flight `loadTask` before spawning a new one — prevents a stale
@@ -316,6 +317,7 @@ struct StepLogView: View {
     /// each URLSession suspension point) to fully close this race.
     private func loadLog() {
         loadTask?.cancel() // Signals cancellation; does NOT abort in-flight network I/O.
+        loadGeneration += 1
         isLoading = true
         let jobID = job.id
         let runID = job.runID
@@ -333,6 +335,7 @@ struct StepLogView: View {
         // zipCache) is legal inside the Task. After the call we write the updated copy
         // back to `logFetcher` on the MainActor so the cache is preserved for the next tap.
         let fetcherSnapshot = logFetcher
+        let generation = loadGeneration
         loadTask = Task {
             // Do NOT use `defer` for `isLoading = false`: a `defer` fires even on the
             // early-cancel `guard` returns below, which would clear the spinner while a
@@ -351,14 +354,110 @@ struct StepLogView: View {
                 scope: scope
             )
             guard !Task.isCancelled else { return }
-            await MainActor.run {
+            // Offload the synchronous parse to a detached task so the main thread
+            // stays free. `Task { }` inherits @MainActor from loadLog's caller and
+            // would run parseLogLines there — a real jank source on 10k-line logs.
+            let (parsed, defaultCollapsed) = await Task.detached(priority: .userInitiated) {
+                let lines = result.text.map { parseLogLines($0) } ?? []
+                let collapsed = Set(lines.compactMap { line -> Int? in
+                    if case .groupHeader(let id, _) = line { return id } else { return nil }
+                })
+                return (lines, collapsed)
+            }.value
+            guard !Task.isCancelled else { return }
+            await MainActor.run { [generation] in
+                // Generation check: if loadLog() has been called again since this task
+                // was created, our result is stale — discard it silently.
+                guard self.loadGeneration == generation else { return }
                 logFetcher = localFetcher  // persist updated zipCache back to view state
                 logResult = result
+                // logText nil/empty distinction: nil = not yet fetched, "" = fetch returned
+                // no text. The ?? "" coalesces both, which is pre-existing behaviour; the
+                // LogCopyButton disable check handles both correctly via isEmpty.
                 logText = result.text ?? ""
+                // Preserve any groups the user manually expanded across re-fetches (e.g.
+                // live-step auto-refresh). Group identity is keyed on title, not on the
+                // parse-local integer ID — IDs are not stable across separate parse calls
+                // (the doc comment on LogLine makes this explicit).
+                //
+                // Strategy: build a title→id map for the new parse. Any title the user
+                // had manually expanded (i.e. whose old ID was absent from collapsedGroups)
+                // is removed from collapsedGroups using the new ID. Titles that are brand
+                // new to this parse start collapsed by default (their IDs are in
+                // defaultCollapsed and we leave them there).
+                let previousTitles: [String: Int] = Dictionary(
+                    uniqueKeysWithValues: parsedLines.compactMap { line -> (String, Int)? in
+                        if case .groupHeader(let id, let title) = line { return (title, id) } else { return nil }
+                    }
+                )
+                // Titles the user had expanded in the previous parse (ID was NOT in collapsedGroups).
+                let userExpandedTitles = Set(
+                    previousTitles.compactMap { title, id in collapsedGroups.contains(id) ? nil : title }
+                )
+                if collapsedGroups.isEmpty {
+                    // First load — apply GitHub-matching default (all groups collapsed).
+                    collapsedGroups = defaultCollapsed
+                } else {
+                    // Re-fetch — start from the new default-collapsed set, then re-open
+                    // any group whose title the user had previously expanded.
+                    collapsedGroups = defaultCollapsed
+                    for line in parsed {
+                        if case .groupHeader(let id, let title) = line, userExpandedTitles.contains(title) {
+                            collapsedGroups.remove(id)
+                        }
+                    }
+                }
+                parsedLines = parsed
                 isLoading = false
                 onLogLoaded?()
             }
         }
+    }
+
+    // MARK: - Log body
+
+    /// The `LazyVStack` rendering of `parsedLines`.
+    ///
+    /// Shared by both the `.slice` and `.flatBlobFallback` cases so the group/annotation
+    /// rendering is identical regardless of which log source was used.
+    /// `LazyVStack` is required (not `VStack`) — logs can be thousands of lines.
+    @ViewBuilder
+    private var logBodyView: some View {
+        LazyVStack(alignment: .leading, spacing: 0) {
+            ForEach(parsedLines) { line in
+                switch line {
+                case .plain(_, let text):
+                    LogPlainLine(text: text)
+                case .groupHeader(let id, let title):
+                    LogGroupHeader(
+                        title: title,
+                        isCollapsed: collapsedGroups.contains(id),
+                        onToggle: {
+                            if collapsedGroups.contains(id) { collapsedGroups.remove(id) } else { collapsedGroups.insert(id) }
+                        }
+                    )
+                case .groupedLine(_, let text, let groupID):
+                    // NOTE: collapsed groupedLine rows are absent from the view tree entirely,
+                    // so a copy-all selection on the ScrollView will silently omit their content.
+                    // This matches GitHub.com behaviour (collapsed sections aren't copy-selectable)
+                    // and is acceptable; a future improvement could use hidden() instead.
+                    if !collapsedGroups.contains(groupID) {
+                        LogPlainLine(text: text)
+                            .padding(.leading, 12)
+                    }
+                case .annotation(_, let level, let text, let groupID):
+                    if !(groupID.map { collapsedGroups.contains($0) } ?? false) {
+                        LogAnnotationLine(level: level, text: text)
+                    }
+                case .dimmed(_, let text, let groupID):
+                    if !(groupID.map { collapsedGroups.contains($0) } ?? false) {
+                        LogDimmedLine(text: text)
+                    }
+                }
+            }
+        }
+        .textSelection(.enabled)
+        .padding(.horizontal, RBSpacing.md).padding(.vertical, 6)
     }
 
     // MARK: - Derived repo scope
