@@ -23,17 +23,16 @@ let package = Package(
         .package(path: "Packages/GitHubClient"),
         // Local path — source of truth is now Packages/MenuBarKit in this repo.
         .package(path: "Packages/MenuBarKit"),
-        // Tracks main — resolves to HEAD on every CI run. Do not pin to a revision.
-        .package(url: "https://github.com/LiYanan2004/MarkdownView", branch: "main"),
-        // Tracks main — resolves to HEAD on every CI run. Do not pin to a revision.
-        // Direct dep of RunBotCore for MarkdownDetector (testable, UI-free scoring).
-        // swift-markdown also arrives transitively via MarkdownView → RunBot, but SPM
-        // access rules require an explicit entry for RunBotCore to import it directly.
-        // ⚠️ Must use the swiftlang mirror URL to avoid the SPM identity conflict
-        // warning that arises when apple/swift-markdown and swiftlang/swift-markdown
-        // are treated as different packages pointing to the same identity.
-        // MarkdownView pulls from swiftlang/swift-markdown, so we match it here.
-        .package(url: "https://github.com/swiftlang/swift-markdown", branch: "main"),
+        // Pinned to a specific revision — third-party external dep (not runbot-hq org).
+        // branch: "main" is reserved for internal runbot-hq packages only.
+        // To update: resolve the new HEAD SHA from Package.resolved after `swift package update`,
+        // then bump the revision here. Do not switch back to branch: "main".
+        .package(url: "https://github.com/LiYanan2004/MarkdownView", revision: "454625f199e5224109a275b8ef4d8a7202c704f2"),
+        // Pinned to a specific revision — third-party external dep (swiftlang mirror, not runbot-hq org).
+        // Must use the swiftlang mirror URL to match MarkdownView's transitive dep and avoid
+        // the SPM identity conflict warning that arises from apple/ vs swiftlang/ being
+        // treated as different packages pointing to the same identity.
+        .package(url: "https://github.com/swiftlang/swift-markdown", revision: "27b7fc1a19068bcea3d2072db0ce86360d1400ed"),
     ],
     targets: [
         .target(

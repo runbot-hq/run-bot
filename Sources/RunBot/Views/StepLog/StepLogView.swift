@@ -87,6 +87,11 @@ struct StepLogView: View {
     /// Whether markdown rendering is active for this log.
     /// Auto-enabled when looksLikeMarkdown passes the normalized gate; user can toggle off.
     @State private var isMarkdownMode: Bool = false
+    /// Guards auto-enable so it fires at most once per log identity.
+    /// `isMarkdownMode` alone can't distinguish "never set" from "user toggled off" —
+    /// both are `false`. This flag is reset to `false` in `loadLog()` at the top of each
+    /// new fetch (i.e. when step identity changes), so auto-enable re-runs on navigation.
+    @State private var hasAutoEnabledMarkdown: Bool = false
     /// Bound to the `AppState`-owned `LogFetcher` so the ZIP cache survives
     /// across step taps. `@State` would be discarded on every `.id(navState)`
     /// remount in `RootPanelView` (SwiftUI tears down the full state tree when
@@ -351,6 +356,10 @@ struct StepLogView: View {
         loadTask?.cancel() // Signals cancellation; does NOT abort in-flight network I/O.
         loadGeneration += 1
         isLoading = true
+        // Reset auto-enable guard so the new log's content gets a fresh detection pass.
+        // This must happen before the detached task runs — step navigation calls loadLog()
+        // with a new step identity, so auto-enable should re-run from scratch.
+        hasAutoEnabledMarkdown = false
         let jobID = job.id
         let runID = job.runID
         let startedAt = job.startedAt
@@ -389,8 +398,9 @@ struct StepLogView: View {
             // Offload the synchronous parse to a detached task so the main thread
             // stays free. `Task { }` inherits @MainActor from loadLog's caller and
             // would run parseLogLines there — a real jank source on 10k-line logs.
-            // Markdown detection runs here too: both confidence() and looksLikeMarkdown()
-            // call Document(parsing:) which is synchronous and should not block the main thread.
+            // Markdown detection runs here too: detect(_:) performs a single Document(parsing:)
+            // call and returns both the score and the boolean — avoids the double-parse that
+            // calling confidence() + looksLikeMarkdown() separately would cause.
             // Input is the same cleanLogText already processed upstream (ANSI-stripped today;
             // see §7 of #2394 for what changes when #2379 Item 5 lands).
             let (parsed, defaultCollapsed, mdScore, mdAuto) = await Task.detached(priority: .userInitiated) {
@@ -399,9 +409,8 @@ struct StepLogView: View {
                     if case .groupHeader(let id, _) = line { return id } else { return nil }
                 })
                 let text = result.text ?? ""
-                let score = MarkdownDetector.confidence(text)
-                let isMarkdown = MarkdownDetector.looksLikeMarkdown(text)
-                return (lines, collapsed, score, isMarkdown)
+                let detected = MarkdownDetector.detect(text)
+                return (lines, collapsed, detected.score, detected.looksLikeMarkdown)
             }.value
             guard !Task.isCancelled else { return }
             await MainActor.run { [generation] in
@@ -415,11 +424,18 @@ struct StepLogView: View {
                 // LogCopyButton disable check handles both correctly via isEmpty.
                 logText = result.text ?? ""
                 // Markdown state: score drives badge visibility, boolean drives auto-enable.
-                // Both computed on the detached task above; do NOT re-derive score >= 6 inline.
+                // Both computed from a single detect(_:) call on the detached task above;
+                // do NOT re-derive score >= 6 inline.
                 markdownScore = mdScore
-                // Only auto-enable on initial load (not re-fetches), so a user who toggled
-                // off doesn't get the mode flipped back on by a live-step refresh.
-                if !isMarkdownMode { isMarkdownMode = mdAuto }
+                // Auto-enable fires at most once per log identity (guarded by hasAutoEnabledMarkdown,
+                // not isMarkdownMode). isMarkdownMode alone can't distinguish "never set" from
+                // "user toggled off" — both are false, causing live-step re-fetches to re-flip
+                // a user's manual toggle-off. hasAutoEnabledMarkdown is reset at the top of
+                // loadLog() on each new fetch so auto-enable re-runs on step navigation.
+                if !hasAutoEnabledMarkdown {
+                    hasAutoEnabledMarkdown = true
+                    if mdAuto { isMarkdownMode = true }
+                }
                 // Preserve any groups the user manually expanded across re-fetches (e.g.
                 // live-step auto-refresh). Group identity is keyed on title, not on the
                 // parse-local integer ID — IDs are not stable across separate parse calls

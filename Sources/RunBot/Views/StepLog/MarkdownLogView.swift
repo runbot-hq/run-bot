@@ -17,8 +17,10 @@ import SwiftUI
 ///   so this does not block the main thread — but confirm against the actual
 ///   library implementation before shipping. (§5 of #2394)
 struct MarkdownLogView: View {
+    /// The markdown string to render.
     let text: String
 
+    /// The rendered view — `MarkdownView` themed to RunBot design tokens.
     var body: some View {
         MarkdownView(text)
             .markdownFontGroup(RunBotMarkdownFontGroup())
