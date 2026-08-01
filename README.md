@@ -87,7 +87,7 @@ rm -rf .build && swift package clean && swift package purge-cache
 >    ```
 >
 > 2. **Audit your actions** — every `uses:` action runs arbitrary code with
->    access to your secrets and `GITHUB_TOKEN`. Only use actions you trust,
+>    access to your scoped secrets and temporary "minted" `GITHUB_TOKEN`. Only use actions you trust,
 >    including anything they call downstream. This applies equally to
 >    self-hosted and cloud runners.
 >
