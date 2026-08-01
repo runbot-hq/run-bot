@@ -201,8 +201,8 @@ public func parseLogLines(_ raw: String) -> [LogLine] {
             } else if line.hasPrefix("::debug::") {
                 let text = String(line.dropFirst("::debug::".count)).trimmingCharacters(in: .whitespaces)
                 result.append(.dimmed(id: makeID(), text: text, groupID: currentGroupID))
-            } else if let (level, params, text) = parseColonAnnotation(line) {
-                result.append(.annotation(id: makeID(), level: level, text: text, params: params, groupID: currentGroupID))
+            } else if let annotation = parseColonAnnotation(line) {
+                result.append(.annotation(id: makeID(), level: annotation.level, text: annotation.text, params: annotation.params, groupID: currentGroupID))
             } else {
                 // Unknown :: directive — dimmed.
                 result.append(.dimmed(id: makeID(), text: line, groupID: currentGroupID))
@@ -219,19 +219,31 @@ public func parseLogLines(_ raw: String) -> [LogLine] {
     return result
 }
 
+// MARK: - ColonAnnotation (internal)
+
+/// Parsed result of a `::warning`, `::error`, or `::notice` annotation line.
+private struct ColonAnnotation {
+    /// The severity level derived from the directive keyword.
+    let level: LogLine.AnnotationLevel
+    /// Optional structured metadata parsed from the param block, or `nil` when absent.
+    let params: AnnotationParams?
+    /// The message text following the closing `::` separator.
+    let text: String
+}
+
 // MARK: - parseColonAnnotation (internal)
 
 /// Attempts to parse a `::warning`, `::error`, or `::notice` annotation line.
 ///
 /// Expected format: `::level params::message` or `::level::message`.
 ///
-/// - Returns: A tuple of `(level, params, messageText)` on success, or `nil` if
-///   the line does not match a known annotation level.
-private func parseColonAnnotation(_ line: String) -> (LogLine.AnnotationLevel, AnnotationParams?, String)? {
+/// - Returns: A `ColonAnnotation` on success, or `nil` if the line does not
+///   match a known annotation level.
+private func parseColonAnnotation(_ line: String) -> ColonAnnotation? {
     let levelMap: [(String, LogLine.AnnotationLevel)] = [
         ("::warning", .warning),
-        ("::error",   .error),
-        ("::notice",  .notice),
+        ("::error", .error),
+        ("::notice", .notice),
     ]
     for (prefix, level) in levelMap {
         guard line.hasPrefix(prefix) else { continue }
@@ -244,7 +256,7 @@ private func parseColonAnnotation(_ line: String) -> (LogLine.AnnotationLevel, A
         let text = String(afterLevel[separatorRange.upperBound...])
             .trimmingCharacters(in: .whitespaces)
         let params = parseAnnotationParams(paramBlock)
-        return (level, params, text)
+        return ColonAnnotation(level: level, params: params, text: text)
     }
     return nil
 }

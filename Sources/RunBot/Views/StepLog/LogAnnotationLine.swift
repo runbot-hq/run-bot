@@ -18,8 +18,12 @@ struct LogAnnotationLine: View {
     /// The annotation message text (directive prefix already stripped).
     let text: String
     /// Optional structured metadata from the `::name params::message` wire format.
-    var params: AnnotationParams? = nil
+    ///
+    /// When non-nil, `title` is rendered bold above the message and `file:line`
+    /// is rendered as a small secondary badge. Falls back gracefully when nil.
+    var params: AnnotationParams?
 
+    /// The view body.
     var body: some View {
         HStack(spacing: 0) {
             // 3pt coloured left border

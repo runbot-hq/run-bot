@@ -11,6 +11,7 @@ struct LogSectionHeader: View {
     /// The section title extracted from the `##[section]Title` directive.
     let title: String
 
+    /// The view body.
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             Divider()
