@@ -303,6 +303,52 @@ struct FetchStepLogTests {
         #expect(content.contains("build output"))
     }
 
+    @Test("Skipped step returns .syntheticEmpty with isSkipped == true")
+    func test_skippedStep_returnsSyntheticEmptyWithIsSkipped() async {
+        // A skipped step has conclusion "skipped". The server never writes a ZIP entry
+        // for it, so the prefix lookup misses. The result must be .syntheticEmpty with
+        // isSkipped == true — NOT an error-toned "no file matched" message.
+        var fetcher = makeFetcher(zipFiles: [
+            (name: "release/1_Setup", text: "setup output\n"),
+            // step 2 is absent — it was skipped
+        ])
+        let skippedStep = GitHubStep(id: 2, name: "Deploy", status: "completed", conclusion: "skipped")
+        let result = await fetcher.fetchStepLog(
+            runID: 99, startedAt: nil,
+            jobID: 42, jobName: "release",
+            step: skippedStep,
+            scope: "owner/repo"
+        )
+        guard case .syntheticEmpty(let name, _) = result else {
+            Issue.record("Expected .syntheticEmpty, got \(result)")
+            return
+        }
+        #expect(name == "Deploy")
+        #expect(result.isSkipped, "isSkipped must be true for a skipped step")
+    }
+
+    @Test("__MACOSX metadata entries in ZIP are excluded from results")
+    func test_macosxEntries_areFiltered() async {
+        // macOS's zip tool injects __MACOSX/ AppleDouble entries. These must never
+        // appear in allFiles or skew stepCount / diagnostic logs.
+        var fetcher = makeFetcher(zipFiles: [
+            (name: "release/1_Build", text: "build output\n"),
+            (name: "__MACOSX/release/._1_Build", text: "\u{0000}"),  // fake AppleDouble
+        ])
+        let result = await fetcher.fetchStepLog(
+            runID: 99, startedAt: nil,
+            jobID: 42, jobName: "release",
+            step: makeStep(number: 1, name: "Build"),
+            scope: "owner/repo"
+        )
+        // The __MACOSX entry must not pollute the result — the real slice is returned.
+        guard case .slice(let content) = result else {
+            Issue.record("Expected .slice, got \(result)")
+            return
+        }
+        #expect(content.contains("build output"))
+    }
+
     @Test("Cache hit: second call for same runID+startedAt makes zero extra network calls")
     func test_cacheHit_zeroAdditionalNetworkCalls() async {
         let transport = CountingTransport(responses: [

@@ -246,7 +246,7 @@ struct StepLogView: View {
                         }
                     case .syntheticEmpty(let name, let reason):
                         VStack(alignment: .leading, spacing: 4) {
-                            Text("No output recorded for \"\(name)\"")
+                            Text(logResult?.isSkipped == true ? "Step skipped" : "No output recorded for \"\(name)\"")
                                 .font(.caption).foregroundColor(Color.rbTextSecondary)
                             Text(reason)
                                 .font(.caption2).foregroundColor(Color.rbTextSecondary)
