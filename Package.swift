@@ -23,15 +23,23 @@ let package = Package(
         .package(path: "Packages/GitHubClient"),
         // Local path — source of truth is now Packages/MenuBarKit in this repo.
         .package(path: "Packages/MenuBarKit"),
-        // Pinned to a specific revision — third-party external dep (not runbot-hq org).
-        // branch: "main" is reserved for internal runbot-hq packages only.
-        // To update: resolve the new HEAD SHA from Package.resolved after `swift package update`,
-        // then bump the revision here. Do not switch back to branch: "main".
+        // ⚠️ DEPENDENCY POLICY — external (non-runbot-hq) packages MUST use revision: SHA.
+        // branch: "main" is reserved for internal runbot-hq packages only (they are
+        // owned by this org and changes are reviewed before landing on main).
+        // External packages can push breaking changes to main at any time and would
+        // silently break the next `swift package update` run in CI.
+        //
+        // TO UPDATE THESE DEPS:
+        //   1. Run `swift package update` locally.
+        //   2. Copy the new SHA from Package.resolved for the target package.
+        //   3. Bump the revision: value here.
+        //   4. Commit both Package.swift and Package.resolved changes together.
+        //   ❌ Do NOT switch back to branch: "main" for either of these packages.
         .package(url: "https://github.com/LiYanan2004/MarkdownView", revision: "454625f199e5224109a275b8ef4d8a7202c704f2"),
-        // Pinned to a specific revision — third-party external dep (swiftlang mirror, not runbot-hq org).
-        // Must use the swiftlang mirror URL to match MarkdownView's transitive dep and avoid
-        // the SPM identity conflict warning that arises from apple/ vs swiftlang/ being
-        // treated as different packages pointing to the same identity.
+        // swiftlang mirror required — must match MarkdownView's transitive dep URL exactly.
+        // apple/swift-markdown and swiftlang/swift-markdown are treated as different SPM
+        // identities even though they point to the same repo, causing an identity conflict
+        // warning if the wrong mirror is used here.
         .package(url: "https://github.com/swiftlang/swift-markdown", revision: "27b7fc1a19068bcea3d2072db0ce86360d1400ed"),
     ],
     targets: [

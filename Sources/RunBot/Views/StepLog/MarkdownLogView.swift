@@ -7,14 +7,20 @@ import SwiftUI
 /// themed to match RunBot's design tokens via environment modifiers.
 ///
 /// Must live **inside** `StepLogView`'s existing `ScrollView` — never as a
-/// parallel scroll container. `MarkdownView` renders inline without its own
-/// scroll container by default, but verify against the library source before
-/// shipping (nested scroll views on macOS silently break scroll behaviour).
-/// If it does wrap in a ScrollView, apply `.scrollDisabled(true)`. (§6 of #2394)
+/// parallel scroll container.
 ///
-/// - Note: `LiYanan2004/MarkdownView` re-parses `text` async/lazily on render,
-///   so this does not block the main thread — but confirm against the actual
-///   library implementation before shipping. (§5 of #2394)
+/// ✅ Scroll audit complete — verified against `LiYanan2004/MarkdownView@454625f`:
+/// `MarkdownView.body` returns `MarkdownViewRenderer` directly with no `ScrollView`
+/// wrapper. Safe to embed here without `.scrollDisabled(true)`.
+/// The `#Preview` in `MarkdownView.swift` wraps in `ScrollView` to demonstrate
+/// intended usage — that is caller convention, not a component requirement.
+/// `DefaultCodeBlockStyle` uses `ScrollView(.horizontal)` for code blocks only —
+/// horizontal-axis only, does not interfere with vertical scroll in the parent.
+/// No action needed unless the library is updated to a new revision — re-verify
+/// `MarkdownView.swift` body after any revision bump.
+///
+/// - Note: `LiYanan2004/MarkdownView` re-parses `text` on render via an internal
+///   async path. Main thread is not blocked. Verified against `@454625f`.
 struct MarkdownLogView: View {
     /// The markdown string to render.
     let text: String

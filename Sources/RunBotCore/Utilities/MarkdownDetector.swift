@@ -81,6 +81,11 @@ public enum MarkdownDetector {
     ///
     /// - Note: Prefer `detect(_:)` when you need both the score and the boolean
     ///   in the same call site — it avoids a redundant `Document(parsing:)` call.
+    ///   ⚠️ There is NO double-parse when `confidence(_:)` and `looksLikeMarkdown(_:)`
+    ///   are called separately from an external caller — each delegates to `detect(_:)`
+    ///   which calls `Document(parsing:)` once. The redundancy only occurs if a single
+    ///   call site calls both in sequence; `StepLogView.loadLog()` avoids this by
+    ///   calling `detect(_:)` directly.
     public static func confidence(_ text: String) -> Int {
         detect(text).score
     }
