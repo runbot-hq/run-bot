@@ -18,6 +18,7 @@ public struct AnnotationParams: Equatable, Sendable {
     /// The `endLine=` param — ending line number in `file` (optional range).
     public let endLine: Int?
 
+    /// Creates an `AnnotationParams` with the given optional structured metadata fields.
     public init(title: String? = nil, file: String? = nil, line: Int? = nil, endLine: Int? = nil) {
         self.title = title
         self.file = file
@@ -111,9 +112,9 @@ public enum LogLine: Identifiable, Equatable, Sendable {
 ///
 /// This is intentionally minimal — only the sequences the toolkit actually
 /// encodes. A generic percent-decode would over-decode.
-private func decodeActionsEscapes(_ s: String) -> String {
+private func decodeActionsEscapes(_ encoded: String) -> String {
     // Decode %25 last to avoid double-decoding a literal "%25" in the source.
-    s
+    encoded
         .replacingOccurrences(of: "%0D", with: "\r")
         .replacingOccurrences(of: "%0A", with: "\n")
         .replacingOccurrences(of: "%3A", with: ":")
