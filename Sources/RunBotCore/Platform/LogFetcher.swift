@@ -219,6 +219,12 @@ public struct LogFetcher: Sendable {
             }
             switch await zipExtractor(data) {
             case .success(let files):
+                let stepCount = files.filter { $0.name.contains("/") }.count
+                log(
+                    "fetchStepLog › ZIP extracted \(files.count) file(s) for run \(runID) " +
+                    "(\(stepCount) with step-prefix '/')",
+                    category: .services
+                )
                 zipCache = [cacheKey: files]
                 allFiles = files
             case .processFailed(let exitCode):
@@ -252,13 +258,35 @@ public struct LogFetcher: Sendable {
 
         let prefix = "\(sanitised)/\(step.number)_"
         guard let match = stepFiles.first(where: { $0.name.hasPrefix(prefix) }) else {
+            // Diagnostic: log what we were looking for vs what was available so
+            // "no output recorded" failures can be diagnosed from the log viewer.
+            let available = stepFiles
+                .filter { $0.name.hasPrefix("\(sanitised)/") }
+                .map { $0.name }
+                .joined(separator: ", ")
+            log(
+                "fetchStepLog › no file matching prefix '\(prefix)' for step \(step.number) '\(step.name)' " +
+                "job '\(jobName)' (sanitised: '\(sanitised)') run \(runID) — " +
+                "files for this job: [\(available.isEmpty ? "<none>" : available)]",
+                category: .services
+            )
             return .syntheticEmpty(stepName: step.name)
         }
 
         let cleaned = clean(match.text)
         if cleaned.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            log(
+                "fetchStepLog › step \(step.number) '\(step.name)' job '\(jobName)' run \(runID) " +
+                "— file '\(match.name)' found but content is empty after cleaning",
+                category: .services
+            )
             return .syntheticEmpty(stepName: step.name)
         }
+        log(
+            "fetchStepLog › ✓ step \(step.number) '\(step.name)' job '\(jobName)' run \(runID) " +
+            "— matched '\(match.name)' (\(cleaned.utf8.count) bytes)",
+            category: .services
+        )
         return .slice(content: cleaned)
     }
 }
