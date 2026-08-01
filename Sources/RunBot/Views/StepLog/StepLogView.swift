@@ -358,11 +358,11 @@ struct StepLogView: View {
             // stays free. `Task { }` inherits @MainActor from loadLog's caller and
             // would run parseLogLines there — a real jank source on 10k-line logs.
             let (parsed, defaultCollapsed) = await Task.detached(priority: .userInitiated) {
-                let p = result.text.map { parseLogLines($0) } ?? []
-                let d = Set(p.compactMap { line -> Int? in
+                let lines = result.text.map { parseLogLines($0) } ?? []
+                let collapsed = Set(lines.compactMap { line -> Int? in
                     if case .groupHeader(let id, _) = line { return id } else { return nil }
                 })
-                return (p, d)
+                return (lines, collapsed)
             }.value
             guard !Task.isCancelled else { return }
             await MainActor.run { [generation] in
