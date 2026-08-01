@@ -356,6 +356,8 @@ struct StepLogView: View {
         loadTask?.cancel() // Signals cancellation; does NOT abort in-flight network I/O.
         loadGeneration += 1
         isLoading = true
+        markdownScore = 0      // Clear stale badge state so the MD button doesn't flash during load.
+        isMarkdownMode = false // Reset render mode on every new fetch; auto-enable re-arms below.
         // Reset auto-enable guard so the new log's content gets a fresh detection pass.
         // This must happen before the detached task runs — step navigation calls loadLog()
         // with a new step identity, so auto-enable should re-run from scratch.

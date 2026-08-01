@@ -1,7 +1,6 @@
 // MarkdownLogView.swift
 // RunBot
 import MarkdownView
-import RunBotCore
 import SwiftUI
 
 /// Renders a markdown string using `LiYanan2004/MarkdownView`,
