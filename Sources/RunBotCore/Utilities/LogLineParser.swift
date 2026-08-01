@@ -17,6 +17,13 @@ public struct AnnotationParams: Equatable, Sendable {
     public let line: Int?
     /// The `endLine=` param — ending line number in `file` (optional range).
     public let endLine: Int?
+
+    public init(title: String? = nil, file: String? = nil, line: Int? = nil, endLine: Int? = nil) {
+        self.title = title
+        self.file = file
+        self.line = line
+        self.endLine = endLine
+    }
 }
 
 // MARK: - LogLine
@@ -55,7 +62,10 @@ public enum LogLine: Identifiable, Equatable, Sendable {
     /// `groupID` is non-nil when the directive appears inside an open group block.
     case dimmed(id: Int, text: String, groupID: Int?)
     /// A `##[section]` directive — renders as a bold monospaced heading with a divider above.
-    case section(id: Int, title: String)
+    ///
+    /// `groupID` is non-nil when the section appears inside an open group block,
+    /// consistent with the collapse-gating contract applied to `.annotation` and `.dimmed`.
+    case section(id: Int, title: String, groupID: Int?)
 
     /// Severity level of an annotation line.
     public enum AnnotationLevel: Sendable, Equatable {
@@ -75,7 +85,7 @@ public enum LogLine: Identifiable, Equatable, Sendable {
              .groupedLine(let id, _, _),
              .annotation(let id, _, _, _, _),
              .dimmed(let id, _, _),
-             .section(let id, _):
+             .section(let id, _, _):
             return id
         }
     }
@@ -171,7 +181,7 @@ public func parseLogLines(_ raw: String) -> [LogLine] {
             currentGroupID = nil
         } else if line.hasPrefix("##[section]") {
             let title = String(line.dropFirst("##[section]".count)).trimmingCharacters(in: .whitespaces)
-            result.append(.section(id: makeID(), title: title))
+            result.append(.section(id: makeID(), title: title, groupID: currentGroupID))
         } else if line.hasPrefix("##[warning]") {
             let text = String(line.dropFirst("##[warning]".count)).trimmingCharacters(in: .whitespaces)
             result.append(.annotation(id: makeID(), level: .warning, text: text, params: nil, groupID: currentGroupID))
@@ -196,7 +206,10 @@ public func parseLogLines(_ raw: String) -> [LogLine] {
         } else if line.hasPrefix("::") {
             // Filter: these meta-commands carry no display value and must produce
             // no LogLine. ::add-mask:: must never expose the secret value.
-            if line.hasPrefix("::" + "add-mask::") || line.hasPrefix("::echo::") {
+            // Case-insensitive: the C# runner accepts any casing; the toolkit emits
+            // lowercase canonically, but a raw echo in a workflow can use any case.
+            let lower = line.lowercased()
+            if lower.hasPrefix("::add-mask::") || lower.hasPrefix("::echo::") {
                 continue
             } else if line.hasPrefix("::debug::") {
                 let text = String(line.dropFirst("::debug::".count)).trimmingCharacters(in: .whitespaces)

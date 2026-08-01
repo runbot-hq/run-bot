@@ -453,7 +453,7 @@ struct StepLogView: View {
                     if !(groupID.map { collapsedGroups.contains($0) } ?? false) {
                         LogDimmedLine(text: text)
                     }
-                case .section(_, let title):
+                case .section(_, let title, _):
                     LogSectionHeader(title: title)
                 }
             }

@@ -386,14 +386,14 @@ struct LogLineParserTests {
     func test_sectionDirective() {
         let result = parseLogLines("##[section]Diagnostic Output")
         #expect(result.count == 1)
-        guard case .section(_, let title) = result[0] else { Issue.record("Expected .section at [0]"); return }
+        guard case .section(_, let title, _) = result[0] else { Issue.record("Expected .section at [0]"); return }
         #expect(title == "Diagnostic Output")
     }
 
     @Test("##[section] with leading space in title is trimmed")
     func test_sectionDirective_leadingSpaceTrimmed() {
         let result = parseLogLines("##[section] My Section")
-        guard case .section(_, let title) = result[0] else { Issue.record("Expected .section"); return }
+        guard case .section(_, let title, _) = result[0] else { Issue.record("Expected .section"); return }
         #expect(title == "My Section")
     }
 
@@ -402,7 +402,7 @@ struct LogLineParserTests {
         let raw = "##[section]Header\nplain line"
         let result = parseLogLines(raw)
         #expect(result.count == 2)
-        guard case .section(_, _) = result[0] else { Issue.record("Expected .section at [0]"); return }
+        guard case .section(_, _, _) = result[0] else { Issue.record("Expected .section at [0]"); return }
         guard case .plain(_, _) = result[1] else { Issue.record("Expected .plain at [1]"); return }
     }
 }
