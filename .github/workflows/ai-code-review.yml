@@ -30,9 +30,3 @@ jobs:
         with:
           model: qwen3.5:9b
           maximum_response_tokens: 8192  # deep tier (>=150 reviewable lines) uses think=true and needs the headroom
-
-      - name: AI Review Output
-        if: steps.review.outputs.review_body != ''
-        env:
-          REVIEW_BODY: ${{ steps.review.outputs.review_body }}
-        run: echo "$REVIEW_BODY"
