@@ -20,6 +20,7 @@ struct LogSectionHeader: View {
                 .foregroundColor(Color.rbTextPrimary)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .fixedSize(horizontal: false, vertical: true)
+                .accessibilityAddTraits(.isHeader)
         }
         .padding(.vertical, 2)
     }

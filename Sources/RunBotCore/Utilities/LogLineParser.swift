@@ -258,10 +258,17 @@ private func parseColonAnnotation(_ line: String) -> ColonAnnotation? {
         ("::error", .error),
         ("::notice", .notice),
     ]
+    // Case-insensitive matching: ActionCommandManager.cs uses StringComparer.OrdinalIgnoreCase
+    // for its command dictionary, so ::Warning:: and ::ERROR:: are valid. We match against
+    // the lowercased line but extract text from the original to preserve message casing.
+    let lineLower = line.lowercased()
     for (prefix, level) in levelMap {
-        guard line.hasPrefix(prefix) else { continue }
-        // After the level keyword there is either a space+params block, or immediately "::"
+        guard lineLower.hasPrefix(prefix) else { continue }
+        // Word-boundary guard: the character after the level keyword must be a space
+        // (params block follows) or `:` (bare `::` separator). This prevents
+        // `::warning-extra::msg` from false-matching the `::warning` prefix.
         let afterLevel = String(line.dropFirst(prefix.count))
+        guard afterLevel.hasPrefix(" ") || afterLevel.hasPrefix(":") else { continue }
         // Find the closing "::" that separates params from message.
         // The Actions runner spec (toolkit/command.ts) requires that param values
         // must not themselves contain "::" — if they did, this range(of:) would

@@ -297,6 +297,28 @@ struct LogLineParserTests {
         #expect(groupID == nil)
     }
 
+    @Test("::WARNING:: mixed-case produces .annotation — case-insensitive per ActionCommandManager.cs OrdinalIgnoreCase")
+    func test_colonWarning_upperCase() {
+        let result = parseLogLines("::WARNING::Uppercase command")
+        #expect(result.count == 1)
+        guard case .annotation(_, let level, let text, _, _) = result[0] else {
+            Issue.record("Expected .annotation at [0]"); return
+        }
+        #expect(level == .warning)
+        #expect(text == "Uppercase command")
+    }
+
+    @Test("::warning-extra::msg does not false-match ::warning — word-boundary guard")
+    func test_colonWarning_extendedCommandName_doesNotFalseMatch() {
+        // ::warning-extra:: starts with ::warning but is a different command name.
+        // It must not be classified as a .warning annotation.
+        let result = parseLogLines("::warning-extra::some message")
+        #expect(result.count == 1)
+        guard case .dimmed = result[0] else {
+            Issue.record("Expected .dimmed at [0], not a false .annotation"); return
+        }
+    }
+
     @Test("::error:: bare format produces .annotation with .error level")
     func test_colonError_bare() {
         let result = parseLogLines("::error::Build failed")
