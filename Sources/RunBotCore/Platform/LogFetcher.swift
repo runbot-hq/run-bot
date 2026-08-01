@@ -20,9 +20,9 @@ public enum StepLogResult: Equatable, Sendable {
     /// StepLogView MUST render a visible degradation notice for this case.
     case flatBlobFallback(content: String)
     /// Step produced no output (ZIP file present but empty, or step not found).
-    case syntheticEmpty(stepName: String)
+    case syntheticEmpty(stepName: String, reason: String)
     /// Network failure, ZIP parse failure, or subprocess failure.
-    case fetchFailed
+    case fetchFailed(reason: String)
 
     /// The log text to display, or nil if there is nothing to show.
     public var text: String? {
@@ -30,6 +30,15 @@ public enum StepLogResult: Equatable, Sendable {
         case .slice(let content), .flatBlobFallback(let content): return content
         case .syntheticEmpty, .fetchFailed: return nil
         }
+    }
+
+    /// True when this result represents a step that was intentionally skipped by the runner
+    /// (as opposed to a fetch failure or a step that ran but produced no output).
+    /// StepLogView uses this to render a neutral “Step skipped” headline instead of
+    /// the error-toned “No output recorded” headline.
+    public var isSkipped: Bool {
+        guard case .syntheticEmpty(_, let reason) = self else { return false }
+        return reason.hasPrefix("This step was skipped")
     }
 }
 
@@ -99,7 +108,7 @@ public struct LogFetcher: Sendable {
     ///
     /// `/actions/jobs/{id}/logs` 302-redirects to a short-lived S3 URL; the transport follows it.
     /// Returns `nil` when `scope` is not in `owner/repo` form, the request fails,
-    /// or the response body looks like a JSON error object (starts with `"{"`). 
+    /// or the response body looks like a JSON error object (starts with `"{"`).
     ///
     /// - Parameters:
     ///   - jobID: The GitHub Actions job ID.
@@ -139,7 +148,16 @@ public struct LogFetcher: Sendable {
                         log("fetchActionLogs › run \(runID) — transport.raw returned nil, skipping", category: .services)
                         return []
                     }
-                    return await unzipLogs(data)
+                    switch await unzipLogsTyped(data) {
+                    case .success(let files):
+                        return files
+                    case .processFailed(let exitCode):
+                        log("fetchActionLogs › run \(runID) — unzip exited \(exitCode)", category: .services)
+                        return []
+                    case .ioError:
+                        log("fetchActionLogs › run \(runID) — unzip I/O error", category: .services)
+                        return []
+                    }
                 }
             }
             var collected: [(name: String, text: String)] = []
@@ -190,55 +208,37 @@ public struct LogFetcher: Sendable {
     ) async -> StepLogResult {
         guard scope.contains("/") else {
             log("fetchStepLog › invalid scope '\(scope)' — must be owner/repo", category: .services)
-            return .fetchFailed
+            return .fetchFailed(reason: "This run does not have a valid owner/repo scope, so the step log request could not be built.")
         }
 
         func clean(_ text: String) -> String { cleanLogText(text) }
 
-        // Cache lookup — single-entry policy: only the most recently fetched run's
-        // files are kept. This covers the primary use case (a user stepping through
-        // multiple steps in the same run) while bounding memory: a decompressed run
-        // ZIP can be tens of MB, and accumulating one per run visited in a long
-        // panel session would grow without limit.
+        // Cache lookup — delegates to loadZipFiles which owns the single-entry eviction policy.
         let cacheKey = "\(runID)-\(startedAt ?? "")"
         let allFiles: [(name: String, text: String)]
-        if let cached = zipCache[cacheKey] {
-            allFiles = cached
-        } else {
-            guard let data = await transport.raw("repos/\(scope)/actions/runs/\(runID)/logs") else {
-                log("fetchStepLog › network failure fetching ZIP for run \(runID) scope '\(scope)'", category: .services)
-                return .fetchFailed
-            }
-            switch await zipExtractor(data) {
-            case .success(let files):
-                // Cache the full file listing regardless of whether this job has per-step files.
-                // Without this, the flatBlobFallback path would re-download and re-extract the
-                // ZIP on every step tap in the same run (zipCache miss → fetch → hasStepFiles
-                // false → fallback → no cache write → repeat). Single-entry eviction still
-                // applies: any prior run's cache is discarded here.
-                zipCache = [cacheKey: files]
-                allFiles = files
-            case .processFailed(let exitCode):
-                log("fetchStepLog › unzip failed for run \(runID) — exit code \(exitCode)", category: .services)
-                return .fetchFailed
-            case .ioError:
-                log("fetchStepLog › I/O error writing or reading ZIP tmp dir for run \(runID)", category: .services)
-                return .fetchFailed
-            }
+        switch await loadZipFiles(cacheKey: cacheKey, runID: runID, scope: scope) {
+        case .hit(let files): allFiles = files
+        case .miss(let files): allFiles = files
+        case .failed(let result): return result
         }
 
-        // Exclude top-level blob files (no '/' in name)
-        let stepFiles = allFiles.filter { $0.name.contains("/") }
-
-        // Check if ZIP has any per-step files for this job at all
+        // Exclude top-level blob files. Only entries with a "/" in the name are per-step
+        // slices (e.g. "release/2_Checkout.txt" → name "release/2_Checkout"). Top-level
+        // entries like a hypothetical root-level `.txt` file are filtered here.
+        // `logs.zip` is already excluded in `unzipLogsTyped` (extension + explicit URL guard).
+        // Keep only per-step entries (must contain "/") and strip macOS AppleDouble
+        // metadata entries that the system zip tool injects under __MACOSX/.
+        // The __MACOSX filter is also applied in unzipLogsTyped (filesystem layer) but
+        // repeated here as defence-in-depth for stub-injected entries in tests and any
+        // future extractor that doesn't strip them at source.
+        let stepFiles = allFiles.filter { $0.name.contains("/") && !$0.name.hasPrefix("__MACOSX/") }
         let sanitised = sanitizeJobNameForZIP(jobName)
         let hasStepFiles = stepFiles.contains { $0.name.hasPrefix("\(sanitised)/") }
 
         guard hasStepFiles else {
-            // ZIP has no per-step files for this job — fall back to flat blob
             guard let raw = await fetchJobLog(jobID: jobID, scope: scope) else {
                 log("fetchStepLog › flat-blob fallback also failed for job \(jobID) scope '\(scope)'", category: .services)
-                return .fetchFailed
+                return .fetchFailed(reason: "GitHub did not provide per-step log files for this job, and the fallback full-job log request also failed.")
             }
             let parsed = parseStepLog(raw, stepName: step.name, stepNumber: step.number, logger: transport.logger)
             if parsed == nil {
@@ -247,17 +247,129 @@ public struct LogFetcher: Sendable {
             return .flatBlobFallback(content: parsed ?? clean(raw))
         }
 
-        // Single prefix match: {sanitisedJobName}/{stepNumber}_*
         let prefix = "\(sanitised)/\(step.number)_"
-        guard let match = stepFiles.first(where: { $0.name.hasPrefix(prefix) }) else {
-            return .syntheticEmpty(stepName: step.name)
+        // Primary match: case-sensitive prefix (matches well-formed ZIP entries).
+        // Fallback: case-insensitive prefix for enterprise instances where the server
+        // may produce a different-cased folder name than the API job name.
+        let prefixLower = prefix.lowercased()
+        guard let match = stepFiles.first(where: { $0.name.hasPrefix(prefix) })
+                       ?? stepFiles.first(where: { $0.name.lowercased().hasPrefix(prefixLower) })
+        else {
+            return stepMissResult(
+                step: step, prefix: prefix, jobName: jobName,
+                sanitised: sanitised, runID: runID, stepFiles: stepFiles
+            )
         }
 
         let cleaned = clean(match.text)
         if cleaned.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return .syntheticEmpty(stepName: step.name)
+            log(
+                "fetchStepLog › step \(step.number) '\(step.name)' job '\(jobName)' run \(runID) " +
+                "— file '\(match.name)' found but content is empty after cleaning",
+                category: .services
+            )
+            return .syntheticEmpty(
+                stepName: step.name,
+                reason: "The matching step log file was found (\(match.name)), but it was empty after cleanup."
+            )
         }
+        log(
+            "fetchStepLog › ✓ step \(step.number) '\(step.name)' job '\(jobName)' run \(runID) " +
+            "— matched '\(match.name)' (\(cleaned.utf8.count) bytes)",
+            category: .services
+        )
         return .slice(content: cleaned)
+    }
+
+    // MARK: - Private helpers
+
+    /// Typed result from the cache/network/unzip pipeline used by `fetchStepLog`.
+    private enum ZipLoadResult {
+        /// Files returned from the in-memory cache — no network call was made.
+        case hit([(name: String, text: String)])
+        /// Files freshly fetched and extracted — cache has been updated.
+        case miss([(name: String, text: String)])
+        /// A network, subprocess, or I/O failure occurred; the associated value is the terminal result.
+        case failed(StepLogResult)
+    }
+
+    /// Fetches and caches the ZIP file for `runID`, logging all outcomes.
+    ///
+    /// Single-entry eviction policy: `zipCache` is replaced wholesale on every cache miss
+    /// to bound memory — one decompressed ZIP can be tens of MB.
+    private mutating func loadZipFiles(
+        cacheKey: String,
+        runID: Int,
+        scope: String
+    ) async -> ZipLoadResult {
+        if let cached = zipCache[cacheKey] { return .hit(cached) }
+        guard let data = await transport.raw("repos/\(scope)/actions/runs/\(runID)/logs") else {
+            log("fetchStepLog › network failure fetching ZIP for run \(runID) scope '\(scope)'", category: .services)
+            return .failed(.fetchFailed(reason: "Could not download the run log archive from GitHub."))
+        }
+        switch await zipExtractor(data) {
+        case .success(let files):
+            let stepCount = files.filter { $0.name.contains("/") }.count
+            log(
+                "fetchStepLog › ZIP extracted \(files.count) file(s) for run \(runID) " +
+                "(\(stepCount) with step-prefix '/')",
+                category: .services
+            )
+            if stepCount == 0 {
+                let names = files.map { $0.name }.joined(separator: ", ")
+                log(
+                    "fetchStepLog › ZIP has no per-step files for run \(runID) — " +
+                    "all entries: [\(names.isEmpty ? "<empty archive>" : names)]",
+                    category: .services
+                )
+            }
+            zipCache = [cacheKey: files]
+            return .miss(files)
+        case .processFailed(let exitCode):
+            log("fetchStepLog › unzip failed for run \(runID) — exit code \(exitCode)", category: .services)
+            return .failed(.fetchFailed(reason: "GitHub returned the run log archive, but macOS could not extract it (unzip exit code \(exitCode))."))
+        case .ioError:
+            log("fetchStepLog › I/O error writing or reading ZIP tmp dir for run \(runID)", category: .services)
+            return .failed(.fetchFailed(reason: "The app could not prepare a temporary file while extracting the run log archive."))
+        }
+    }
+
+    /// Returns the `.syntheticEmpty` result for a step whose ZIP entry is missing,
+    /// after logging the available files for diagnosis.
+    ///
+    /// Returns the informational skipped-step variant when `step.stepConclusion == .skipped`,
+    /// mirroring `gh`'s silent `continue` for steps that genuinely have no ZIP entry.
+    private func stepMissResult(
+        step: GitHubStep,
+        prefix: String,
+        jobName: String,
+        sanitised: String,
+        runID: Int,
+        stepFiles: [(name: String, text: String)]
+    ) -> StepLogResult {
+        let available = stepFiles
+            .filter { $0.name.hasPrefix("\(sanitised)/") }
+            .map { $0.name }
+            .joined(separator: ", ")
+        log(
+            "fetchStepLog › no file matching prefix '\(prefix)' for step \(step.number) '\(step.name)' " +
+            "job '\(jobName)' (sanitised: '\(sanitised)') run \(runID) — " +
+            "files for this job: [\(available.isEmpty ? "<none>" : available)]",
+            category: .services
+        )
+        if step.stepConclusion == .skipped {
+            log(
+                "fetchStepLog › step \(step.number) '\(step.name)' was skipped — no ZIP entry expected",
+                category: .services
+            )
+            return .syntheticEmpty(stepName: step.name, reason: "This step was skipped and produced no log output.")
+        }
+        return .syntheticEmpty(
+            stepName: step.name,
+            reason: available.isEmpty
+                ? "This job had step log files, but none matched step \(step.number)."
+                : "This job had step log files, but none matched step \(step.number). Available files for this job: \(available)."
+        )
     }
 }
 
@@ -266,29 +378,50 @@ public struct LogFetcher: Sendable {
 /// Sanitises a GitHub job name for use as a ZIP folder prefix.
 ///
 /// Applies three rules in order, matching the logic in `getJobNameForLogFilename` in the
-/// `gh` CLI ([`logs.go`](https://github.com/cli/cli/blob/trunk/pkg/cmd/run/view/logs.go)):
-/// 1. Strip `/` — composite action jobs contain slashes in the API name.
-/// 2. Strip `:` — reusable workflow jobs contain colons.
-/// 3. Truncate to **90 UTF-16 code units** — the GitHub server (C#) truncates using
+/// `gh` CLI ([`logs.go`](https://github.com/cli/cli/blob/trunk/pkg/cmd/run/view/logs.go))
+/// and the C# server's `GetJobNameForLogFilename`:
+/// 1. Strip characters invalid in Windows file paths — the C# server (which writes the ZIP)
+///    strips `/`, `:`, `"`, `*`, `?`, `<`, `>`, `|`. Not stripping these causes a prefix
+///    mismatch when a job name contains any of them and the server has already removed them
+///    from the ZIP folder name.
+/// 2. Truncate to **90 UTF-16 code units** — the GitHub server (C#) truncates using
 ///    `String.Substring(0, 90)` which counts UTF-16 `Char` objects. Swift `.count` counts
 ///    Unicode scalars, not UTF-16 code units — emoji and CJK characters truncate at a
 ///    different offset without this step.
+/// 3. Trim leading/trailing whitespace/newlines — the C# server calls `.Trim()` after truncation
+///    (and the `gh` CLI does `strings.TrimSpace`). Truncation can expose trailing
+///    whitespace that was previously interior.
 func sanitizeJobNameForZIP(_ name: String) -> String {
+    // Strip the full set of characters the C# server considers invalid in a Windows path.
+    // The `gh` CLI only strips `/` and `:` explicitly, but the server strips all of these.
+    // Stripping only `/` and `:` causes silent misses when job names contain `"`, `*`, etc.
     let stripped = name
         .replacingOccurrences(of: "/", with: "")
         .replacingOccurrences(of: ":", with: "")
-    guard stripped.utf16.count > 90 else { return stripped }
+        .replacingOccurrences(of: "\"", with: "")
+        .replacingOccurrences(of: "*", with: "")
+        .replacingOccurrences(of: "?", with: "")
+        .replacingOccurrences(of: "<", with: "")
+        .replacingOccurrences(of: ">", with: "")
+        .replacingOccurrences(of: "|", with: "")
+    guard stripped.utf16.count > 90 else { return stripped.trimmingCharacters(in: .whitespacesAndNewlines) }
     var units = Array(stripped.utf16.prefix(90))
-    // Guard against splitting a surrogate pair at the boundary. Swift strings
-    // are always well-formed (no isolated surrogates), so a high surrogate at
-    // position 89 means position 90 held its low-surrogate pair partner — now
-    // dropped by the prefix. Removing the dangling high surrogate ensures the
-    // result is valid UTF-16 and matches GitHub’s own truncation behaviour
-    // (which would also never emit a broken surrogate pair).
+    // Guard against splitting a surrogate pair at the 90-unit boundary.
+    // Swift strings are always well-formed, so surrogates only appear as
+    // high+low pairs. The only reachable split is a high surrogate at position
+    // 89 (0xD800–0xDBFF) whose low partner was at 90 and is now dropped —
+    // remove the dangling high to keep the output valid.
+    // A lone low surrogate (0xDC00–0xDFFF) at the boundary cannot arise from a
+    // well-formed Swift String: the high surrogate at 88 would still be present,
+    // keeping the pair intact. Malformed UTF-16 fed via String(decoding:as:UTF16.self)
+    // is normalised to U+FFFD before we ever see it, so no guard is needed.
     if let last = units.last, (0xD800...0xDBFF).contains(last) {
         units.removeLast()
     }
-    return String(decoding: units, as: UTF16.self)
+    // Mirror the C# server's `.Trim()` call (and the gh CLI's `strings.TrimSpace`) which
+    // both trim the result after truncation. Truncation can expose trailing whitespace
+    // that was previously interior.
+    return String(decoding: units, as: UTF16.self).trimmingCharacters(in: .whitespacesAndNewlines)
 }
 
 // MARK: - ZIP extraction (uses /usr/bin/unzip — always available on macOS)
@@ -299,14 +432,10 @@ func sanitizeJobNameForZIP(_ name: String) -> String {
 /// `ProcessRunner.runAsync`, then enumerates the output directory for `.txt` files.
 /// The temporary directory is always removed on return via `defer`.
 ///
-/// The directory enumeration is materialised into an `[URL]` array *before* any
-/// `await`, because `FileManager.DirectoryEnumerator.makeIterator` is unavailable
-/// from async contexts (Swift concurrency restriction).
-///
 /// - Parameter zipData: Raw ZIP archive bytes as returned by the GitHub logs API.
 /// - Returns: An array of `(name, text)` tuples where `name` is the archive-relative
-///   path without the `.txt` extension (e.g. `"1_Build"` for `1_Build.txt`) and
-///   `text` is the file content. Returns `[]` if the write, unzip, or enumeration
+///   path without the `.txt` extension (e.g. `"release/1_Build"` for `release/1_Build.txt`)
+///   and `text` is the file content. Returns `[]` if the write, unzip, or enumeration
 ///   step fails.
 func unzipLogs(_ zipData: Data) async -> [(name: String, text: String)] {
     switch await unzipLogsTyped(zipData) {
@@ -318,7 +447,7 @@ func unzipLogs(_ zipData: Data) async -> [(name: String, text: String)] {
 /// Typed variant of `unzipLogs` that distinguishes subprocess failure from an empty archive.
 ///
 /// Returns `.processFailed(exitCode:)` when `/usr/bin/unzip` exits non-zero (so
-/// `fetchStepLog` can map it to `.fetchFailed` rather than `.syntheticEmpty`).
+/// `fetchStepLog` can map it to `.fetchFailed(reason: "Invalid repository scope: expected owner/repo.")` rather than `.syntheticEmpty`).
 /// Returns `.ioError` when the temp directory or ZIP file cannot be created.
 func unzipLogsTyped(_ zipData: Data) async -> UnzipResult {
     let fileManager = FileManager.default
@@ -337,15 +466,35 @@ func unzipLogsTyped(_ zipData: Data) async -> UnzipResult {
     // prepended to the ZIP — which GitHub's log API occasionally produces). Only
     // exit code 2 and above indicate a genuine extraction failure.
     guard result.exitCode <= 1 else { return .processFailed(exitCode: result.exitCode) }
-    // Materialise the enumerator into a plain [URL] array before any suspension
-    // point — FileManager.DirectoryEnumerator.makeIterator is unavailable from
-    // async contexts (Swift concurrency restriction).
     guard let enumerator = fileManager.enumerator(at: tmp, includingPropertiesForKeys: nil) else { return .ioError }
-    let txtURLs = enumerator.compactMap { $0 as? URL }.filter { $0.pathExtension == "txt" }
+    // Keep only .txt files and exclude the archive itself.
+    // `logs.zip` is written into `tmp` before extraction so the enumerator sees it;
+    // the `.pathExtension == "txt"` check is the primary guard ("zip" ≠ "txt"), and
+    // the explicit URL comparison is belt-and-suspenders against a future rename of
+    // the temp file to a .txt name.
+    let zipFileResolved = zipFile.resolvingSymlinksInPath()
+    let txtURLs = enumerator.compactMap { $0 as? URL }.filter {
+        $0.pathExtension == "txt"
+        && $0.resolvingSymlinksInPath() != zipFileResolved
+        // macOS's zip tool injects __MACOSX/ AppleDouble metadata entries into every
+        // archive it creates. These are never valid step log files and would pollute
+        // allFiles, skew stepCount, and add noise to diagnostic logs.
+        && !$0.path.contains("/__MACOSX/")
+    }
     var results: [(name: String, text: String)] = []
+    // Resolve symlinks on the tmp prefix so that the /tmp → /private/tmp alias
+    // on macOS does not cause the prefix-stripping below to silently no-op,
+    // leaving absolute paths (e.g. "/privaterelease/2_Checkout") in the names.
+    let tmpResolved = tmp.resolvingSymlinksInPath().path
     for url in txtURLs {
-        let relative = url.path.replacingOccurrences(of: tmp.path + "/", with: "")
-        let name = URL(fileURLWithPath: relative).deletingPathExtension().path
+        // Strip the tmp directory prefix to get the archive-relative path, then
+        // drop the .txt extension. Using NSString.deletingPathExtension rather than
+        // URL(fileURLWithPath:).deletingPathExtension().path avoids the leading-slash
+        // bug: URL(fileURLWithPath:) treats its argument as absolute, prepending "/"
+        // to relative strings and breaking the hasPrefix("jobName/") lookup downstream.
+        let resolved = url.resolvingSymlinksInPath().path
+        let relative = resolved.replacingOccurrences(of: tmpResolved + "/", with: "")
+        let name = (relative as NSString).deletingPathExtension
         if let text = try? String(contentsOf: url, encoding: .utf8) {
             results.append((name: name, text: text))
         }

@@ -244,13 +244,21 @@ struct StepLogView: View {
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .padding(.horizontal, RBSpacing.md).padding(.bottom, 6)
                         }
-                    case .syntheticEmpty(let name):
-                        Text("No output recorded for \"\(name)\"")
-                            .font(.caption).foregroundColor(Color.rbTextSecondary)
+                    case .syntheticEmpty(let name, let reason):
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(logResult?.isSkipped == true ? "Step skipped" : "No output recorded for \"\(name)\"")
+                                .font(.caption).foregroundColor(Color.rbTextSecondary)
+                            Text(reason)
+                                .font(.caption2).foregroundColor(Color.rbTextSecondary)
+                        }
                             .padding(.horizontal, RBSpacing.md).padding(.vertical, 8)
-                    case .fetchFailed:
-                        Text("Failed to fetch log")
-                            .font(.caption).foregroundColor(Color.rbDanger)
+                    case .fetchFailed(let reason):
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Failed to fetch log")
+                                .font(.caption).foregroundColor(Color.rbDanger)
+                            Text(reason)
+                                .font(.caption2).foregroundColor(Color.rbTextSecondary)
+                        }
                             .padding(.horizontal, RBSpacing.md).padding(.vertical, 8)
                     case nil:
                         Text("Log not available")
