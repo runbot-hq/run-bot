@@ -211,7 +211,7 @@ public func parseLogLines(_ raw: String) -> [LogLine] {
             let lower = line.lowercased()
             if lower.hasPrefix("::add-mask::") || lower.hasPrefix("::echo::") {
                 continue
-            } else if line.hasPrefix("::debug::") {
+            } else if lower.hasPrefix("::debug::") {
                 let text = String(line.dropFirst("::debug::".count)).trimmingCharacters(in: .whitespaces)
                 result.append(.dimmed(id: makeID(), text: text, groupID: currentGroupID))
             } else if let annotation = parseColonAnnotation(line) {

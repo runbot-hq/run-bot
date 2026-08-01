@@ -84,6 +84,9 @@ struct LogAnnotationLine: View {
     private var fileBadge: String? {
         guard let file = params?.file else { return nil }
         if let line = params?.line {
+            if let endLine = params?.endLine, endLine != line {
+                return "\(file):\(line)-\(endLine)"
+            }
             return "\(file):\(line)"
         }
         return file
