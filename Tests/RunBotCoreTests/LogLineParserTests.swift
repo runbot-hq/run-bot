@@ -56,7 +56,8 @@ struct LogLineParserTests {
     func test_endgroup_withNoOpenGroup_isIgnored() {
         let result = parseLogLines("##[endgroup]\nplain")
         #expect(result.count == 1)
-        guard case .plain(_, let t) = result[0] else { Issue.record("Expected .plain"); return }
+        guard result.indices.contains(0),
+              case .plain(_, let t) = result[0] else { Issue.record("Expected .plain at [0]"); return }
         #expect(t == "plain")
     }
 
@@ -200,6 +201,17 @@ struct LogLineParserTests {
         let result = parseLogLines("##[command] /usr/bin/bash")
         guard case .dimmed(_, let text, _) = result[0] else { Issue.record("Expected .dimmed"); return }
         #expect(text == "/usr/bin/bash")
+    }
+
+    @Test("##[command] inside a group retains groupID")
+    func test_commandInsideGroup_retainsGroupID() {
+        let raw = "##[group]Run step\n##[command]/usr/bin/bash -e script.sh\n##[endgroup]"
+        let result = parseLogLines(raw)
+        #expect(result.count == 2)
+        guard case .groupHeader(let gid, _) = result[0] else { Issue.record("Expected .groupHeader at [0]"); return }
+        guard case .dimmed(_, let text, let groupID) = result[1] else { Issue.record("Expected .dimmed at [1]"); return }
+        #expect(text == "/usr/bin/bash -e script.sh")
+        #expect(groupID == gid)
     }
 
     // MARK: - Empty input

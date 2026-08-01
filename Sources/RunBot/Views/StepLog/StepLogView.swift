@@ -75,6 +75,11 @@ struct StepLogView: View {
     /// Handle for the in-flight log fetch task; cancelled in `onDisappear` and at the
     /// top of `loadLog()` to prevent races if `onAppear` fires more than once.
     @State private var loadTask: Task<Void, Never>?
+    /// Monotonically incremented each time `loadLog()` starts a new fetch.
+    /// Captured into the task and checked inside `MainActor.run` so a superseded
+    /// (cancelled) task can never commit stale state even when `Task.isCancelled`
+    /// hasn't propagated yet.
+    @State private var loadGeneration: Int = 0
     /// Bound to the `AppState`-owned `LogFetcher` so the ZIP cache survives
     /// across step taps. `@State` would be discarded on every `.id(navState)`
     /// remount in `RootPanelView` (SwiftUI tears down the full state tree when
@@ -312,6 +317,7 @@ struct StepLogView: View {
     /// each URLSession suspension point) to fully close this race.
     private func loadLog() {
         loadTask?.cancel() // Signals cancellation; does NOT abort in-flight network I/O.
+        loadGeneration &+= 1
         isLoading = true
         let jobID = job.id
         let runID = job.runID
@@ -329,6 +335,7 @@ struct StepLogView: View {
         // zipCache) is legal inside the Task. After the call we write the updated copy
         // back to `logFetcher` on the MainActor so the cache is preserved for the next tap.
         let fetcherSnapshot = logFetcher
+        let generation = loadGeneration
         loadTask = Task {
             // Do NOT use `defer` for `isLoading = false`: a `defer` fires even on the
             // early-cancel `guard` returns below, which would clear the spinner while a
@@ -347,13 +354,21 @@ struct StepLogView: View {
                 scope: scope
             )
             guard !Task.isCancelled else { return }
-            // Parse on the background task — keep MainActor free for long logs.
-            let parsed = result.text.map { parseLogLines($0) } ?? []
-            let defaultCollapsed = Set(parsed.compactMap { line -> Int? in
-                if case .groupHeader(let id, _) = line { return id } else { return nil }
-            })
+            // Offload the synchronous parse to a detached task so the main thread
+            // stays free. `Task { }` inherits @MainActor from loadLog's caller and
+            // would run parseLogLines there — a real jank source on 10k-line logs.
+            let (parsed, defaultCollapsed) = await Task.detached(priority: .userInitiated) {
+                let p = result.text.map { parseLogLines($0) } ?? []
+                let d = Set(p.compactMap { line -> Int? in
+                    if case .groupHeader(let id, _) = line { return id } else { return nil }
+                })
+                return (p, d)
+            }.value
             guard !Task.isCancelled else { return }
-            await MainActor.run {
+            await MainActor.run { [generation] in
+                // Generation check: if loadLog() has been called again since this task
+                // was created, our result is stale — discard it silently.
+                guard self.loadGeneration == generation else { return }
                 logFetcher = localFetcher  // persist updated zipCache back to view state
                 logResult = result
                 logText = result.text ?? ""
