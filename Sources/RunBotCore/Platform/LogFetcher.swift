@@ -20,9 +20,9 @@ public enum StepLogResult: Equatable, Sendable {
     /// StepLogView MUST render a visible degradation notice for this case.
     case flatBlobFallback(content: String)
     /// Step produced no output (ZIP file present but empty, or step not found).
-    case syntheticEmpty(stepName: String)
+    case syntheticEmpty(stepName: String, reason: String)
     /// Network failure, ZIP parse failure, or subprocess failure.
-    case fetchFailed
+    case fetchFailed(reason: String)
 
     /// The log text to display, or nil if there is nothing to show.
     public var text: String? {
@@ -199,7 +199,7 @@ public struct LogFetcher: Sendable {
     ) async -> StepLogResult {
         guard scope.contains("/") else {
             log("fetchStepLog › invalid scope '\(scope)' — must be owner/repo", category: .services)
-            return .fetchFailed
+            return .fetchFailed(reason: "This run does not have a valid owner/repo scope, so the step log request could not be built.")
         }
 
         func clean(_ text: String) -> String { cleanLogText(text) }
@@ -215,7 +215,7 @@ public struct LogFetcher: Sendable {
         } else {
             guard let data = await transport.raw("repos/\(scope)/actions/runs/\(runID)/logs") else {
                 log("fetchStepLog › network failure fetching ZIP for run \(runID) scope '\(scope)'", category: .services)
-                return .fetchFailed
+                return .fetchFailed(reason: "Could not download the run log archive from GitHub.")
             }
             switch await zipExtractor(data) {
             case .success(let files):
@@ -229,10 +229,10 @@ public struct LogFetcher: Sendable {
                 allFiles = files
             case .processFailed(let exitCode):
                 log("fetchStepLog › unzip failed for run \(runID) — exit code \(exitCode)", category: .services)
-                return .fetchFailed
+                return .fetchFailed(reason: "GitHub returned the run log archive, but macOS could not extract it (unzip exit code \(exitCode)).")
             case .ioError:
                 log("fetchStepLog › I/O error writing or reading ZIP tmp dir for run \(runID)", category: .services)
-                return .fetchFailed
+                return .fetchFailed(reason: "The app could not prepare a temporary file while extracting the run log archive.")
             }
         }
 
@@ -247,7 +247,7 @@ public struct LogFetcher: Sendable {
         guard hasStepFiles else {
             guard let raw = await fetchJobLog(jobID: jobID, scope: scope) else {
                 log("fetchStepLog › flat-blob fallback also failed for job \(jobID) scope '\(scope)'", category: .services)
-                return .fetchFailed
+                return .fetchFailed(reason: "GitHub did not provide per-step log files for this job, and the fallback full-job log request also failed.")
             }
             let parsed = parseStepLog(raw, stepName: step.name, stepNumber: step.number, logger: transport.logger)
             if parsed == nil {
@@ -270,7 +270,12 @@ public struct LogFetcher: Sendable {
                 "files for this job: [\(available.isEmpty ? "<none>" : available)]",
                 category: .services
             )
-            return .syntheticEmpty(stepName: step.name)
+            return .syntheticEmpty(
+                stepName: step.name,
+                reason: available.isEmpty
+                    ? "This job had step log files, but none matched step \(step.number)."
+                    : "This job had step log files, but none matched step \(step.number). Available files for this job: \(available)."
+            )
         }
 
         let cleaned = clean(match.text)
@@ -280,7 +285,10 @@ public struct LogFetcher: Sendable {
                 "— file '\(match.name)' found but content is empty after cleaning",
                 category: .services
             )
-            return .syntheticEmpty(stepName: step.name)
+            return .syntheticEmpty(
+                stepName: step.name,
+                reason: "The matching step log file was found (\(match.name)), but it was empty after cleanup."
+            )
         }
         log(
             "fetchStepLog › ✓ step \(step.number) '\(step.name)' job '\(jobName)' run \(runID) " +
@@ -353,7 +361,7 @@ func unzipLogs(_ zipData: Data) async -> [(name: String, text: String)] {
 /// Typed variant of `unzipLogs` that distinguishes subprocess failure from an empty archive.
 ///
 /// Returns `.processFailed(exitCode:)` when `/usr/bin/unzip` exits non-zero (so
-/// `fetchStepLog` can map it to `.fetchFailed` rather than `.syntheticEmpty`).
+/// `fetchStepLog` can map it to `.fetchFailed(reason: "Invalid repository scope: expected owner/repo.")` rather than `.syntheticEmpty`).
 /// Returns `.ioError` when the temp directory or ZIP file cannot be created.
 func unzipLogsTyped(_ zipData: Data) async -> UnzipResult {
     let fileManager = FileManager.default

@@ -237,11 +237,12 @@ struct FetchStepLogTests {
             step: makeStep(number: 1, name: "Checkout"),
             scope: "owner/repo"
         )
-        guard case .syntheticEmpty(let name) = result else {
+        guard case .syntheticEmpty(let name, let reason) = result else {
             Issue.record("Expected .syntheticEmpty, got \(result)")
             return
         }
         #expect(name == "Checkout")
+        #expect(reason.contains("empty after cleanup"))
     }
 
     @Test("ZIP with only top-level blobs returns .flatBlobFallback")
