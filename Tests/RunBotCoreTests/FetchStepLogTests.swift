@@ -367,6 +367,17 @@ struct SanitizeJobNameTests {
         #expect(sanitizeJobNameForZIP("") == "")
     }
 
+    @Test("Strips Windows-invalid chars: \" * ? < > |")
+    func test_sanitize_stripsWindowsInvalidChars() {
+        #expect(sanitizeJobNameForZIP("job \"name\"") == "job name")
+        #expect(sanitizeJobNameForZIP("build*all") == "buildall")
+        #expect(sanitizeJobNameForZIP("what?") == "what")
+        #expect(sanitizeJobNameForZIP("<matrix>") == "matrix")
+        #expect(sanitizeJobNameForZIP("a|b") == "ab")
+        // Combined: job name containing multiple invalid chars
+        #expect(sanitizeJobNameForZIP("deploy: \"prod\" <live> | v2?") == "deploy prod live  v2")
+    }
+
     @Test("Drops dangling high surrogate when 90-unit cut splits an emoji pair")
     func test_sanitize_surrogateAtBoundary_dropsHighSurrogate() {
         // 🚀 encodes as a surrogate pair (2 UTF-16 units). Placing it at positions
