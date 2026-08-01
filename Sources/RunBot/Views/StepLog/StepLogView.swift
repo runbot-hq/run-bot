@@ -317,7 +317,7 @@ struct StepLogView: View {
     /// each URLSession suspension point) to fully close this race.
     private func loadLog() {
         loadTask?.cancel() // Signals cancellation; does NOT abort in-flight network I/O.
-        loadGeneration &+= 1
+        loadGeneration += 1
         isLoading = true
         let jobID = job.id
         let runID = job.runID
@@ -371,9 +371,27 @@ struct StepLogView: View {
                 guard self.loadGeneration == generation else { return }
                 logFetcher = localFetcher  // persist updated zipCache back to view state
                 logResult = result
+                // logText nil/empty distinction: nil = not yet fetched, "" = fetch returned
+                // no text. The ?? "" coalesces both, which is pre-existing behaviour; the
+                // LogCopyButton disable check handles both correctly via isEmpty.
                 logText = result.text ?? ""
+                // Preserve any groups the user manually expanded across re-fetches (e.g.
+                // live-step auto-refresh). On first load collapsedGroups is empty, so we
+                // apply the default-collapsed set. On subsequent loads we keep the user's
+                // expand state, only collapsing groups that are *new* in this parse
+                // (i.e. not present in the previous parsedLines).
+                let previousGroupIDs = Set(parsedLines.compactMap { line -> Int? in
+                    if case .groupHeader(let id, _) = line { return id } else { return nil }
+                })
+                if collapsedGroups.isEmpty {
+                    collapsedGroups = defaultCollapsed
+                } else {
+                    // New groups (not seen before) start collapsed; existing groups keep
+                    // whatever state the user left them in.
+                    let newGroupIDs = defaultCollapsed.subtracting(previousGroupIDs)
+                    collapsedGroups.formUnion(newGroupIDs)
+                }
                 parsedLines = parsed
-                collapsedGroups = defaultCollapsed
                 isLoading = false
                 onLogLoaded?()
             }
@@ -412,15 +430,11 @@ struct StepLogView: View {
                             .padding(.leading, 12)
                     }
                 case .annotation(_, let level, let text, let groupID):
-                    if let groupID, collapsedGroups.contains(groupID) {
-                        EmptyView()
-                    } else {
+                    if !(groupID.map { collapsedGroups.contains($0) } ?? false) {
                         LogAnnotationLine(level: level, text: text)
                     }
                 case .dimmed(_, let text, let groupID):
-                    if let groupID, collapsedGroups.contains(groupID) {
-                        EmptyView()
-                    } else {
+                    if !(groupID.map { collapsedGroups.contains($0) } ?? false) {
                         LogDimmedLine(text: text)
                     }
                 }
