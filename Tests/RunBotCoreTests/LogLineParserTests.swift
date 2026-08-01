@@ -352,6 +352,16 @@ struct LogLineParserTests {
 
     // MARK: - parseAnnotationParams
 
+    @Test("::warning with only line= (no file=) yields nil params.file and nil fileBadge-equivalent")
+    func test_colonWarning_lineOnlyNoFile() {
+        let result = parseLogLines("::warning line=42::bare line number")
+        guard case .annotation(_, _, let text, let params, _) = result[0] else { Issue.record("Expected .annotation"); return }
+        #expect(text == "bare line number")
+        #expect(params?.line == 42)
+        #expect(params?.file == nil)
+        // fileBadge suppresses the badge when file is absent — no ":42" should appear
+    }
+
     @Test("parseAnnotationParams returns nil for empty string")
     func test_parseAnnotationParams_empty() {
         #expect(parseAnnotationParams("") == nil)

@@ -250,6 +250,9 @@ private func parseColonAnnotation(_ line: String) -> ColonAnnotation? {
         // After the level keyword there is either a space+params block, or immediately "::"
         let afterLevel = String(line.dropFirst(prefix.count))
         // Find the closing "::" that separates params from message.
+        // The Actions runner spec (toolkit/command.ts) requires that param values
+        // must not themselves contain "::" — if they did, this range(of:) would
+        // find the wrong separator and silently truncate the param block.
         guard let separatorRange = afterLevel.range(of: "::") else { continue }
         let paramBlock = String(afterLevel[afterLevel.startIndex ..< separatorRange.lowerBound])
             .trimmingCharacters(in: .whitespaces)

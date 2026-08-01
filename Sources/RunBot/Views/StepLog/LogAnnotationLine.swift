@@ -76,11 +76,13 @@ struct LogAnnotationLine: View {
         }
     }
 
-    /// Formats the `file:line` badge string when either `file` or `line` is present.
+    /// Formats the `file:line` badge string.
+    ///
+    /// Per the Actions runner spec, `line=` is only meaningful alongside `file=`.
+    /// A bare line number with no filename has no useful display context, so
+    /// this returns `nil` when `file` is absent — even if `line` is present.
     private var fileBadge: String? {
-        guard let file = params?.file else {
-            return params?.line.map { ":\($0)" }
-        }
+        guard let file = params?.file else { return nil }
         if let line = params?.line {
             return "\(file):\(line)"
         }
