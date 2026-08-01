@@ -83,7 +83,7 @@ struct LogLineParserTests {
     func test_warningAnnotation() {
         let result = parseLogLines("##[warning]Low disk space")
         #expect(result.count == 1)
-        guard case .annotation(_, let level, let text, let groupID) = result[0] else { Issue.record("Expected .annotation"); return }
+        guard case .annotation(_, let level, let text, _, let groupID) = result[0] else { Issue.record("Expected .annotation"); return }
         #expect(level == .warning)
         #expect(text == "Low disk space")
         #expect(groupID == nil)
@@ -93,7 +93,7 @@ struct LogLineParserTests {
     func test_errorAnnotation() {
         let result = parseLogLines("##[error]Build failed")
         #expect(result.count == 1)
-        guard case .annotation(_, let level, let text, let groupID) = result[0] else { Issue.record("Expected .annotation"); return }
+        guard case .annotation(_, let level, let text, _, let groupID) = result[0] else { Issue.record("Expected .annotation"); return }
         #expect(level == .error)
         #expect(text == "Build failed")
         #expect(groupID == nil)
@@ -103,7 +103,7 @@ struct LogLineParserTests {
     func test_noticeAnnotation() {
         let result = parseLogLines("##[notice]Cache miss")
         #expect(result.count == 1)
-        guard case .annotation(_, let level, let text, let groupID) = result[0] else { Issue.record("Expected .annotation"); return }
+        guard case .annotation(_, let level, let text, _, let groupID) = result[0] else { Issue.record("Expected .annotation"); return }
         #expect(level == .notice)
         #expect(text == "Cache miss")
         #expect(groupID == nil)
@@ -137,7 +137,7 @@ struct LogLineParserTests {
         let result = parseLogLines(raw)
         #expect(result.count == 2)
         guard case .groupHeader(let gid, _) = result[0] else { Issue.record("Expected .groupHeader at [0]"); return }
-        guard case .annotation(_, let level, let text, let groupID) = result[1] else {
+        guard case .annotation(_, let level, let text, _, let groupID) = result[1] else {
             Issue.record("Expected .annotation at [1]")
             return
         }
@@ -158,21 +158,21 @@ struct LogLineParserTests {
     @Test("##[warning] text with leading space is trimmed")
     func test_warningAnnotation_leadingSpace_trimmed() {
         let result = parseLogLines("##[warning] Low disk space")
-        guard case .annotation(_, _, let text, _) = result[0] else { Issue.record("Expected .annotation"); return }
+        guard case .annotation(_, _, let text, _, _) = result[0] else { Issue.record("Expected .annotation"); return }
         #expect(text == "Low disk space")
     }
 
     @Test("##[error] text with leading space is trimmed")
     func test_errorAnnotation_leadingSpace_trimmed() {
         let result = parseLogLines("##[error] Build failed")
-        guard case .annotation(_, _, let text, _) = result[0] else { Issue.record("Expected .annotation"); return }
+        guard case .annotation(_, _, let text, _, _) = result[0] else { Issue.record("Expected .annotation"); return }
         #expect(text == "Build failed")
     }
 
     @Test("##[notice] text with leading space is trimmed")
     func test_noticeAnnotation_leadingSpace_trimmed() {
         let result = parseLogLines("##[notice] Cache miss")
-        guard case .annotation(_, _, let text, _) = result[0] else { Issue.record("Expected .annotation"); return }
+        guard case .annotation(_, _, let text, _, _) = result[0] else { Issue.record("Expected .annotation"); return }
         #expect(text == "Cache miss")
     }
 
@@ -241,4 +241,159 @@ struct LogLineParserTests {
     func test_emptyInput() {
         #expect(parseLogLines("").isEmpty)
     }
+
+    // MARK: - ::debug:: directive
+
+    @Test("::debug:: produces .dimmed")
+    func test_colonDebug_isDimmed() {
+        let result = parseLogLines("::debug::Set the Octocat variable")
+        #expect(result.count == 1)
+        guard case .dimmed(_, let text, let groupID) = result[0] else { Issue.record("Expected .dimmed at [0]"); return }
+        #expect(text == "Set the Octocat variable")
+        #expect(groupID == nil)
+    }
+
+    // MARK: - ::add-mask:: and ::echo:: filter
+
+    @Test("::add-mask:: is filtered out entirely — produces no LogLine")
+    func test_addMask_isFiltered() {
+        // Build the string programmatically so the runner never sees the literal
+        // ::add-mask:: token and tries to redact the argument in CI log output.
+        let line = "::" + "add-mask::supersecret"
+        let result = parseLogLines(line)
+        #expect(result.isEmpty, "::add-mask:: must produce no LogLine")
+    }
+
+    @Test("::echo:: is filtered out entirely — produces no LogLine")
+    func test_echo_isFiltered() {
+        let result = parseLogLines("::echo::on")
+        #expect(result.isEmpty, "::echo:: must produce no LogLine")
+    }
+
+    @Test("::add-mask:: between plain lines leaves plain lines intact")
+    func test_addMask_betweenPlainLines() {
+        let line = "::" + "add-mask::topsecret"
+        let raw = "before\n\(line)\nafter"
+        let result = parseLogLines(raw)
+        #expect(result.count == 2)
+        guard case .plain(_, let t0) = result[0] else { Issue.record("Expected .plain at [0]"); return }
+        guard case .plain(_, let t1) = result[1] else { Issue.record("Expected .plain at [1]"); return }
+        #expect(t0 == "before")
+        #expect(t1 == "after")
+    }
+
+    // MARK: - ::warning / ::error / ::notice (bare, no params)
+
+    @Test("::warning:: bare format produces .annotation with .warning level and nil params")
+    func test_colonWarning_bare() {
+        let result = parseLogLines("::warning::Something went wrong")
+        #expect(result.count == 1)
+        guard case .annotation(_, let level, let text, let params, let groupID) = result[0] else {
+            Issue.record("Expected .annotation at [0]"); return
+        }
+        #expect(level == .warning)
+        #expect(text == "Something went wrong")
+        #expect(params == nil)
+        #expect(groupID == nil)
+    }
+
+    @Test("::error:: bare format produces .annotation with .error level")
+    func test_colonError_bare() {
+        let result = parseLogLines("::error::Build failed")
+        #expect(result.count == 1)
+        guard case .annotation(_, let level, _, _, _) = result[0] else { Issue.record("Expected .annotation"); return }
+        #expect(level == .error)
+    }
+
+    @Test("::notice:: bare format produces .annotation with .notice level")
+    func test_colonNotice_bare() {
+        let result = parseLogLines("::notice::FYI")
+        #expect(result.count == 1)
+        guard case .annotation(_, let level, _, _, _) = result[0] else { Issue.record("Expected .annotation"); return }
+        #expect(level == .notice)
+    }
+
+    // MARK: - ::warning with params
+
+    @Test("::warning with all params parses title, file, line, endLine")
+    func test_colonWarning_allParams() {
+        let result = parseLogLines("::warning file=app.js,line=12,endLine=15,title=Lint Error::Missing semicolon")
+        #expect(result.count == 1)
+        guard case .annotation(_, let level, let text, let params, _) = result[0] else {
+            Issue.record("Expected .annotation at [0]"); return
+        }
+        #expect(level == .warning)
+        #expect(text == "Missing semicolon")
+        #expect(params?.title == "Lint Error")
+        #expect(params?.file == "app.js")
+        #expect(params?.line == 12)
+        #expect(params?.endLine == 15)
+    }
+
+    @Test("::error with file and line but no title")
+    func test_colonError_fileAndLine_noTitle() {
+        let result = parseLogLines("::error file=src/main.swift,line=42::cannot convert value")
+        guard case .annotation(_, _, let text, let params, _) = result[0] else { Issue.record("Expected .annotation"); return }
+        #expect(text == "cannot convert value")
+        #expect(params?.file == "src/main.swift")
+        #expect(params?.line == 42)
+        #expect(params?.title == nil)
+    }
+
+    @Test("::warning with only title param")
+    func test_colonWarning_onlyTitle() {
+        let result = parseLogLines("::warning title=My Title::message text")
+        guard case .annotation(_, _, let text, let params, _) = result[0] else { Issue.record("Expected .annotation"); return }
+        #expect(text == "message text")
+        #expect(params?.title == "My Title")
+        #expect(params?.file == nil)
+        #expect(params?.line == nil)
+    }
+
+    // MARK: - parseAnnotationParams
+
+    @Test("parseAnnotationParams returns nil for empty string")
+    func test_parseAnnotationParams_empty() {
+        #expect(parseAnnotationParams("") == nil)
+    }
+
+    @Test("parseAnnotationParams ignores unknown keys")
+    func test_parseAnnotationParams_unknownKeys() {
+        let params = parseAnnotationParams("col=5,unknown=foo")
+        #expect(params == nil)
+    }
+
+    @Test("parseAnnotationParams handles malformed pair gracefully")
+    func test_parseAnnotationParams_malformedPair() {
+        let params = parseAnnotationParams("title=Good,badpair,line=3")
+        #expect(params?.title == "Good")
+        #expect(params?.line == 3)
+    }
+
+    // MARK: - ##[section]
+
+    @Test("##[section] produces .section with correct title")
+    func test_sectionDirective() {
+        let result = parseLogLines("##[section]Diagnostic Output")
+        #expect(result.count == 1)
+        guard case .section(_, let title) = result[0] else { Issue.record("Expected .section at [0]"); return }
+        #expect(title == "Diagnostic Output")
+    }
+
+    @Test("##[section] with leading space in title is trimmed")
+    func test_sectionDirective_leadingSpaceTrimmed() {
+        let result = parseLogLines("##[section] My Section")
+        guard case .section(_, let title) = result[0] else { Issue.record("Expected .section"); return }
+        #expect(title == "My Section")
+    }
+
+    @Test("##[section] does not affect currentGroupID")
+    func test_sectionDirective_doesNotOpenGroup() {
+        let raw = "##[section]Header\nplain line"
+        let result = parseLogLines(raw)
+        #expect(result.count == 2)
+        guard case .section(_, _) = result[0] else { Issue.record("Expected .section at [0]"); return }
+        guard case .plain(_, _) = result[1] else { Issue.record("Expected .plain at [1]"); return }
+    }
 }
+

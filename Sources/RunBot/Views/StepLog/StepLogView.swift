@@ -445,14 +445,16 @@ struct StepLogView: View {
                         LogPlainLine(text: text)
                             .padding(.leading, 12)
                     }
-                case .annotation(_, let level, let text, let groupID):
+                case .annotation(_, let level, let text, let params, let groupID):
                     if !(groupID.map { collapsedGroups.contains($0) } ?? false) {
-                        LogAnnotationLine(level: level, text: text)
+                        LogAnnotationLine(level: level, text: text, params: params)
                     }
                 case .dimmed(_, let text, let groupID):
                     if !(groupID.map { collapsedGroups.contains($0) } ?? false) {
                         LogDimmedLine(text: text)
                     }
+                case .section(_, let title):
+                    LogSectionHeader(title: title)
                 }
             }
         }

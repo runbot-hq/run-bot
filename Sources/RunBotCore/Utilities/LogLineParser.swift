@@ -1,14 +1,35 @@
 // LogLineParser.swift
 // RunBotCore
 
+// MARK: - AnnotationParams
+
+/// Optional structured metadata attached to a `::warning`, `::error`, or `::notice`
+/// annotation line when the `::name params::message` wire format is used.
+///
+/// All fields are optional — they are omitted when the annotation uses the bare
+/// `##[warning]message` format or when the `::` param block is absent.
+public struct AnnotationParams: Equatable, Sendable {
+    /// The `title=` param — rendered as a bold prefix in the annotation row.
+    public let title: String?
+    /// The `file=` param — source file path associated with the annotation.
+    public let file: String?
+    /// The `line=` param — starting line number in `file`.
+    public let line: Int?
+    /// The `endLine=` param — ending line number in `file` (optional range).
+    public let endLine: Int?
+}
+
 // MARK: - LogLine
 
 /// A single parsed line from a GitHub Actions step log.
 ///
 /// Lines containing `##[group]`, `##[endgroup]`, `##[warning]`, `##[error]`, `##[notice]`,
-/// `##[command]`, or `##[debug]` directives are parsed into their respective cases.
-/// All other lines become `.plain`. Lines inside a group block become `.groupedLine`
-/// so the view can hide them when the group is collapsed.
+/// `##[command]`, `##[debug]`, `##[section]`, or their `::` equivalents are parsed into
+/// their respective cases. All other lines become `.plain`. Lines inside a group block
+/// become `.groupedLine` so the view can hide them when the group is collapsed.
+///
+/// `::add-mask::` and `::echo::` lines are **filtered out entirely** at parse time and
+/// produce no `LogLine` — secret values must never reach the rendered view.
 ///
 /// IDs are assigned by `parseLogLines` using a monotonic counter and are stable
 /// within a single parse pass. They are not persisted and must not be compared
@@ -21,29 +42,28 @@ public enum LogLine: Identifiable, Equatable, Sendable {
     /// A line that falls between a `##[group]` and `##[endgroup]` pair.
     /// `groupID` is the `id` of the owning `groupHeader`.
     case groupedLine(id: Int, text: String, groupID: Int)
-    /// A `##[warning]`, `##[error]`, or `##[notice]` annotation line.
+    /// A `##[warning]`, `##[error]`, `##[notice]`, `::warning`, `::error`, or `::notice`
+    /// annotation line.
     ///
+    /// `params` is non-nil when the `::name params::message` wire format is used and
+    /// carries optional `title`, `file`, and `line` metadata.
     /// `groupID` is non-nil when the annotation appears inside an open group block.
-    /// This preserves group membership so collapsing the group also hides its
-    /// annotation rows.
-    case annotation(id: Int, level: AnnotationLevel, text: String, groupID: Int?)
-    /// A `##[command]` or `##[debug]` line — rendered dimmed in secondary colour.
-    ///
-    /// `##[command]` is emitted for every `run:` step (e.g. `##[command]/usr/bin/bash …`).
-    /// `##[debug]` is emitted when runner debug logging is enabled.
-    /// Both are rendered visually de-emphasised rather than stripped, so the log remains
-    /// complete but the noise is visually subordinate to plain content.
+    case annotation(id: Int, level: AnnotationLevel, text: String, params: AnnotationParams?, groupID: Int?)
+    /// A `##[command]`, `##[debug]`, `::debug::`, or unrecognised `##[` directive line —
+    /// rendered dimmed in secondary colour.
     ///
     /// `groupID` is non-nil when the directive appears inside an open group block.
     case dimmed(id: Int, text: String, groupID: Int?)
+    /// A `##[section]` directive — renders as a bold monospaced heading with a divider above.
+    case section(id: Int, title: String)
 
     /// Severity level of an annotation line.
     public enum AnnotationLevel: Sendable, Equatable {
-        /// `##[warning]` — rendered with an amber left border.
+        /// `##[warning]` / `::warning` — rendered with an amber left border.
         case warning
-        /// `##[error]` — rendered with a red left border.
+        /// `##[error]` / `::error` — rendered with a red left border.
         case error
-        /// `##[notice]` — rendered with a secondary-colour left border.
+        /// `##[notice]` / `::notice` — rendered with a secondary-colour left border.
         case notice
     }
 
@@ -53,11 +73,49 @@ public enum LogLine: Identifiable, Equatable, Sendable {
         case .plain(let id, _),
              .groupHeader(let id, _),
              .groupedLine(let id, _, _),
-             .annotation(let id, _, _, _),
-             .dimmed(let id, _, _):
+             .annotation(let id, _, _, _, _),
+             .dimmed(let id, _, _),
+             .section(let id, _):
             return id
         }
     }
+}
+
+// MARK: - parseAnnotationParams
+
+/// Parses the `key=value,key=value` parameter block from a `::` annotation line.
+///
+/// The `::` annotation wire format is:
+/// ```
+/// ::name key=val,key=val::message
+/// ```
+/// This function receives only the param block (the substring between `::name ` and
+/// the closing `::`). Unknown keys are silently ignored.
+///
+/// - Parameter block: The raw parameter substring, e.g. `"file=app.js,line=12,title=Lint Error"`.
+/// - Returns: An `AnnotationParams` if at least one recognised key is present, otherwise `nil`.
+public func parseAnnotationParams(_ block: String) -> AnnotationParams? {
+    guard !block.isEmpty else { return nil }
+    var title: String?
+    var file: String?
+    var line: Int?
+    var endLine: Int?
+    // Params are comma-separated key=value pairs. Values may not contain commas.
+    for pair in block.components(separatedBy: ",") {
+        let parts = pair.split(separator: "=", maxSplits: 1).map(String.init)
+        guard parts.count == 2 else { continue }
+        let key = parts[0].trimmingCharacters(in: .whitespaces)
+        let value = parts[1].trimmingCharacters(in: .whitespaces)
+        switch key {
+        case "title":   title = value
+        case "file":    file = value
+        case "line":    line = Int(value)
+        case "endLine": endLine = Int(value)
+        default: break
+        }
+    }
+    guard title != nil || file != nil || line != nil || endLine != nil else { return nil }
+    return AnnotationParams(title: title, file: file, line: line, endLine: endLine)
 }
 
 // MARK: - parseLogLines
@@ -65,14 +123,21 @@ public enum LogLine: Identifiable, Equatable, Sendable {
 /// Parses a cleaned step log string into an array of typed `LogLine` values.
 ///
 /// **Input contract:** `raw` should already have been processed by `cleanLogText`
-/// (ANSI escapes and timestamps stripped). `##[group]` / `##[endgroup]` / annotation
-/// directives survive `cleanLogText` unchanged and are parsed here.
+/// (timestamps and `\r` stripped). ANSI escape sequences are also stripped by
+/// `cleanLogText` for now; they will be preserved once the ANSI renderer lands.
+///
+/// **Directive formats handled:**
+/// - `##[group]` / `##[endgroup]` — collapsible group
+/// - `##[warning]` / `##[error]` / `##[notice]` — annotation (bare format)
+/// - `::warning params::msg` / `::error params::msg` / `::notice params::msg` — annotation with params
+/// - `##[command]` / `##[debug]` / `::debug::` — dimmed runner internals
+/// - `##[section]` — bold section heading with divider
+/// - `::add-mask::` / `::echo::` — **filtered out entirely** (no `LogLine` emitted)
+/// - Any other `##[` prefix — dimmed (runner-internal noise)
 ///
 /// **Group nesting:** GitHub Actions does not support nested groups; only one group
 /// is tracked at a time. An `##[endgroup]` with no matching open group is ignored.
 /// A second `##[group]` while one is already open implicitly closes the previous one.
-/// Some older runner versions never emit `##[endgroup]`; in that case the group simply
-/// remains open until EOF, which this parser handles naturally.
 ///
 /// - Parameter raw: The cleaned log text to parse.
 /// - Returns: An array of `LogLine` values in document order, suitable for
@@ -94,6 +159,7 @@ public func parseLogLines(_ raw: String) -> [LogLine] {
     let trimmed = lines.last == "" ? lines.dropLast() : lines[...]
 
     for line in trimmed {
+        // ── ##[ directives (old runner wire format) ──────────────────────────
         if line.hasPrefix("##[group]") {
             // Implicit close of any previously open group (GitHub Actions behaviour).
             currentGroupID = nil
@@ -103,15 +169,18 @@ public func parseLogLines(_ raw: String) -> [LogLine] {
             currentGroupID = id
         } else if line.hasPrefix("##[endgroup]") {
             currentGroupID = nil
+        } else if line.hasPrefix("##[section]") {
+            let title = String(line.dropFirst("##[section]".count)).trimmingCharacters(in: .whitespaces)
+            result.append(.section(id: makeID(), title: title))
         } else if line.hasPrefix("##[warning]") {
             let text = String(line.dropFirst("##[warning]".count)).trimmingCharacters(in: .whitespaces)
-            result.append(.annotation(id: makeID(), level: .warning, text: text, groupID: currentGroupID))
+            result.append(.annotation(id: makeID(), level: .warning, text: text, params: nil, groupID: currentGroupID))
         } else if line.hasPrefix("##[error]") {
             let text = String(line.dropFirst("##[error]".count)).trimmingCharacters(in: .whitespaces)
-            result.append(.annotation(id: makeID(), level: .error, text: text, groupID: currentGroupID))
+            result.append(.annotation(id: makeID(), level: .error, text: text, params: nil, groupID: currentGroupID))
         } else if line.hasPrefix("##[notice]") {
             let text = String(line.dropFirst("##[notice]".count)).trimmingCharacters(in: .whitespaces)
-            result.append(.annotation(id: makeID(), level: .notice, text: text, groupID: currentGroupID))
+            result.append(.annotation(id: makeID(), level: .notice, text: text, params: nil, groupID: currentGroupID))
         } else if line.hasPrefix("##[command]") {
             let text = String(line.dropFirst("##[command]".count)).trimmingCharacters(in: .whitespaces)
             result.append(.dimmed(id: makeID(), text: text, groupID: currentGroupID))
@@ -119,11 +188,27 @@ public func parseLogLines(_ raw: String) -> [LogLine] {
             let text = String(line.dropFirst("##[debug]".count)).trimmingCharacters(in: .whitespaces)
             result.append(.dimmed(id: makeID(), text: text, groupID: currentGroupID))
         } else if line.hasPrefix("##[") {
-            // Catch-all for runner directives not otherwise handled:
-            // ##[add-matcher], ##[remove-matcher], ##[stop-commands], ##[start-commands], etc.
-            // These are runner-internal noise — route to .dimmed rather than .plain so they
-            // don't render as full-weight log lines.
+            // Catch-all for unrecognised ##[ directives (add-matcher, remove-matcher,
+            // stop-commands, start-commands, etc.) — route to .dimmed.
             result.append(.dimmed(id: makeID(), text: line, groupID: currentGroupID))
+
+        // ── :: directives (new runner wire format) ───────────────────────────
+        } else if line.hasPrefix("::") {
+            // Filter: these meta-commands carry no display value and must produce
+            // no LogLine. ::add-mask:: must never expose the secret value.
+            if line.hasPrefix("::" + "add-mask::") || line.hasPrefix("::echo::") {
+                continue
+            } else if line.hasPrefix("::debug::") {
+                let text = String(line.dropFirst("::debug::".count)).trimmingCharacters(in: .whitespaces)
+                result.append(.dimmed(id: makeID(), text: text, groupID: currentGroupID))
+            } else if let (level, params, text) = parseColonAnnotation(line) {
+                result.append(.annotation(id: makeID(), level: level, text: text, params: params, groupID: currentGroupID))
+            } else {
+                // Unknown :: directive — dimmed.
+                result.append(.dimmed(id: makeID(), text: line, groupID: currentGroupID))
+            }
+
+        // ── plain / grouped ──────────────────────────────────────────────────
         } else if let groupID = currentGroupID {
             result.append(.groupedLine(id: makeID(), text: line, groupID: groupID))
         } else {
@@ -132,4 +217,34 @@ public func parseLogLines(_ raw: String) -> [LogLine] {
     }
 
     return result
+}
+
+// MARK: - parseColonAnnotation (internal)
+
+/// Attempts to parse a `::warning`, `::error`, or `::notice` annotation line.
+///
+/// Expected format: `::level params::message` or `::level::message`.
+///
+/// - Returns: A tuple of `(level, params, messageText)` on success, or `nil` if
+///   the line does not match a known annotation level.
+private func parseColonAnnotation(_ line: String) -> (LogLine.AnnotationLevel, AnnotationParams?, String)? {
+    let levelMap: [(String, LogLine.AnnotationLevel)] = [
+        ("::warning", .warning),
+        ("::error",   .error),
+        ("::notice",  .notice),
+    ]
+    for (prefix, level) in levelMap {
+        guard line.hasPrefix(prefix) else { continue }
+        // After the level keyword there is either a space+params block, or immediately "::"
+        let afterLevel = String(line.dropFirst(prefix.count))
+        // Find the closing "::" that separates params from message.
+        guard let separatorRange = afterLevel.range(of: "::") else { continue }
+        let paramBlock = String(afterLevel[afterLevel.startIndex ..< separatorRange.lowerBound])
+            .trimmingCharacters(in: .whitespaces)
+        let text = String(afterLevel[separatorRange.upperBound...])
+            .trimmingCharacters(in: .whitespaces)
+        let params = parseAnnotationParams(paramBlock)
+        return (level, params, text)
+    }
+    return nil
 }
