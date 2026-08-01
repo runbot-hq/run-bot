@@ -118,6 +118,12 @@ public func parseLogLines(_ raw: String) -> [LogLine] {
         } else if line.hasPrefix("##[debug]") {
             let text = String(line.dropFirst("##[debug]".count)).trimmingCharacters(in: .whitespaces)
             result.append(.dimmed(id: makeID(), text: text, groupID: currentGroupID))
+        } else if line.hasPrefix("##[") {
+            // Catch-all for runner directives not otherwise handled:
+            // ##[add-matcher], ##[remove-matcher], ##[stop-commands], ##[start-commands], etc.
+            // These are runner-internal noise — route to .dimmed rather than .plain so they
+            // don't render as full-weight log lines.
+            result.append(.dimmed(id: makeID(), text: line, groupID: currentGroupID))
         } else if let groupID = currentGroupID {
             result.append(.groupedLine(id: makeID(), text: line, groupID: groupID))
         } else {

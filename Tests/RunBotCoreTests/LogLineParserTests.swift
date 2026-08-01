@@ -214,6 +214,22 @@ struct LogLineParserTests {
         #expect(groupID == gid)
     }
 
+    @Test("##[add-matcher] produces .dimmed")
+    func test_addMatcher_isDimmed() {
+        let result = parseLogLines("##[add-matcher].github/problem-matcher.json")
+        #expect(result.count == 1)
+        guard case .dimmed(_, let text, let groupID) = result[0] else { Issue.record("Expected .dimmed at [0]"); return }
+        #expect(text == "##[add-matcher].github/problem-matcher.json")
+        #expect(groupID == nil)
+    }
+
+    @Test("##[stop-commands] produces .dimmed")
+    func test_stopCommands_isDimmed() {
+        let result = parseLogLines("##[stop-commands]token")
+        #expect(result.count == 1)
+        guard case .dimmed(_, _, _) = result[0] else { Issue.record("Expected .dimmed at [0]"); return }
+    }
+
     // MARK: - Empty input
 
     @Test("Empty string returns empty array")

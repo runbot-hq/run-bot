@@ -376,20 +376,36 @@ struct StepLogView: View {
                 // LogCopyButton disable check handles both correctly via isEmpty.
                 logText = result.text ?? ""
                 // Preserve any groups the user manually expanded across re-fetches (e.g.
-                // live-step auto-refresh). On first load collapsedGroups is empty, so we
-                // apply the default-collapsed set. On subsequent loads we keep the user's
-                // expand state, only collapsing groups that are *new* in this parse
-                // (i.e. not present in the previous parsedLines).
-                let previousGroupIDs = Set(parsedLines.compactMap { line -> Int? in
-                    if case .groupHeader(let id, _) = line { return id } else { return nil }
-                })
+                // live-step auto-refresh). Group identity is keyed on title, not on the
+                // parse-local integer ID — IDs are not stable across separate parse calls
+                // (the doc comment on LogLine makes this explicit).
+                //
+                // Strategy: build a title→id map for the new parse. Any title the user
+                // had manually expanded (i.e. whose old ID was absent from collapsedGroups)
+                // is removed from collapsedGroups using the new ID. Titles that are brand
+                // new to this parse start collapsed by default (their IDs are in
+                // defaultCollapsed and we leave them there).
+                let previousTitles: [String: Int] = Dictionary(
+                    uniqueKeysWithValues: parsedLines.compactMap { line -> (String, Int)? in
+                        if case .groupHeader(let id, let title) = line { return (title, id) } else { return nil }
+                    }
+                )
+                // Titles the user had expanded in the previous parse (ID was NOT in collapsedGroups).
+                let userExpandedTitles = Set(
+                    previousTitles.compactMap { title, id in collapsedGroups.contains(id) ? nil : title }
+                )
                 if collapsedGroups.isEmpty {
+                    // First load — apply GitHub-matching default (all groups collapsed).
                     collapsedGroups = defaultCollapsed
                 } else {
-                    // New groups (not seen before) start collapsed; existing groups keep
-                    // whatever state the user left them in.
-                    let newGroupIDs = defaultCollapsed.subtracting(previousGroupIDs)
-                    collapsedGroups.formUnion(newGroupIDs)
+                    // Re-fetch — start from the new default-collapsed set, then re-open
+                    // any group whose title the user had previously expanded.
+                    collapsedGroups = defaultCollapsed
+                    for line in parsed {
+                        if case .groupHeader(let id, let title) = line, userExpandedTitles.contains(title) {
+                            collapsedGroups.remove(id)
+                        }
+                    }
                 }
                 parsedLines = parsed
                 isLoading = false

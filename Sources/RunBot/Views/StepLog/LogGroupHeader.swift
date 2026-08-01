@@ -32,5 +32,8 @@ struct LogGroupHeader: View {
         .buttonStyle(.plain)
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle()) // full-width tap target
+        .accessibilityLabel(title)
+        .accessibilityValue(isCollapsed ? "collapsed" : "expanded")
+        .accessibilityHint("Double-tap to \(isCollapsed ? "expand" : "collapse")")
     }
 }
