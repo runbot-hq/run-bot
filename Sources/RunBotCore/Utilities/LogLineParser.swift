@@ -91,6 +91,36 @@ public enum LogLine: Identifiable, Equatable, Sendable {
     }
 }
 
+// MARK: - decodeActionsEscapes
+
+/// Decodes the percent-escape sequences defined by the GitHub Actions toolkit
+/// wire format (`command.ts` `escapeProperty` / `escapeData`).
+///
+/// The five sequences that the toolkit encodes are decoded in the order that
+/// avoids double-decoding: `%25` (the escape character itself) must be decoded
+/// last so that a literal `%25` in the original string isn't first decoded to
+/// `%` and then re-interpreted as the start of another sequence.
+///
+/// | Encoded | Decoded |
+/// |---------|--------|
+/// | `%25`   | `%`    |
+/// | `%0D`   | `\r`   |
+/// | `%0A`   | `\n`   |
+/// | `%3A`   | `:`    |
+/// | `%2C`   | `,`    |
+///
+/// This is intentionally minimal — only the sequences the toolkit actually
+/// encodes. A generic percent-decode would over-decode.
+private func decodeActionsEscapes(_ s: String) -> String {
+    // Decode %25 last to avoid double-decoding a literal "%25" in the source.
+    s
+        .replacingOccurrences(of: "%0D", with: "\r")
+        .replacingOccurrences(of: "%0A", with: "\n")
+        .replacingOccurrences(of: "%3A", with: ":")
+        .replacingOccurrences(of: "%2C", with: ",")
+        .replacingOccurrences(of: "%25", with: "%")
+}
+
 // MARK: - parseAnnotationParams
 
 /// Parses the `key=value,key=value` parameter block from a `::` annotation line.
@@ -102,6 +132,11 @@ public enum LogLine: Identifiable, Equatable, Sendable {
 /// This function receives only the param block (the substring between `::name ` and
 /// the closing `::`). Unknown keys are silently ignored.
 ///
+/// Param values are decoded via `decodeActionsEscapes` — the toolkit's
+/// `escapeProperty` encodes `,`→`%2C`, `:`→`%3A`, `\n`→`%0A` in values, so
+/// a title like `"Build Error: missing"` arrives as `"Build Error%3A missing"`
+/// and must be decoded before display.
+///
 /// - Parameter block: The raw parameter substring, e.g. `"file=app.js,line=12,title=Lint Error"`.
 /// - Returns: An `AnnotationParams` if at least one recognised key is present, otherwise `nil`.
 public func parseAnnotationParams(_ block: String) -> AnnotationParams? {
@@ -110,15 +145,16 @@ public func parseAnnotationParams(_ block: String) -> AnnotationParams? {
     var file: String?
     var line: Int?
     var endLine: Int?
-    // Params are comma-separated key=value pairs. Values may not contain commas.
+    // Params are comma-separated key=value pairs. Values may not contain unescaped commas
+    // (the toolkit percent-encodes them as %2C), so splitting on "," is safe.
     for pair in block.components(separatedBy: ",") {
         let parts = pair.split(separator: "=", maxSplits: 1).map(String.init)
         guard parts.count == 2 else { continue }
         let key = parts[0].trimmingCharacters(in: .whitespaces)
         let value = parts[1].trimmingCharacters(in: .whitespaces)
         switch key {
-        case "title":   title = value
-        case "file":    file = value
+        case "title":   title = decodeActionsEscapes(value)
+        case "file":    file = decodeActionsEscapes(value)
         case "line":    line = Int(value)
         case "endLine": endLine = Int(value)
         default: break
@@ -250,6 +286,9 @@ private struct ColonAnnotation {
 ///
 /// Expected format: `::level params::message` or `::level::message`.
 ///
+/// The message text is decoded via `decodeActionsEscapes` — `command.ts`
+/// `escapeData` encodes `%`→`%25`, `\r`→`%0D`, `\n`→`%0A` in the message.
+///
 /// - Returns: A `ColonAnnotation` on success, or `nil` if the line does not
 ///   match a known annotation level.
 private func parseColonAnnotation(_ line: String) -> ColonAnnotation? {
@@ -276,10 +315,10 @@ private func parseColonAnnotation(_ line: String) -> ColonAnnotation? {
         guard let separatorRange = afterLevel.range(of: "::") else { continue }
         let paramBlock = String(afterLevel[afterLevel.startIndex ..< separatorRange.lowerBound])
             .trimmingCharacters(in: .whitespaces)
-        let text = String(afterLevel[separatorRange.upperBound...])
+        let rawText = String(afterLevel[separatorRange.upperBound...])
             .trimmingCharacters(in: .whitespaces)
         let params = parseAnnotationParams(paramBlock)
-        return ColonAnnotation(level: level, params: params, text: text)
+        return ColonAnnotation(level: level, params: params, text: decodeActionsEscapes(rawText))
     }
     return nil
 }
