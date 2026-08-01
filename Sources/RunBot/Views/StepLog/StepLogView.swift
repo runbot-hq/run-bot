@@ -2,6 +2,7 @@
 // RunBot
 import AppKit
 import GitHubClient
+import MarkdownView
 import RunBotCore
 import SwiftUI
 // ╔════════════════════════════════════════════════════════════════════════════╗
@@ -80,6 +81,12 @@ struct StepLogView: View {
     /// (cancelled) task can never commit stale state even when `Task.isCancelled`
     /// hasn't propagated yet.
     @State private var loadGeneration: Int = 0
+    /// Raw confidence score from MarkdownDetector — drives badge visibility (>= 6).
+    /// Computed on the background task in loadLog() alongside isMarkdownMode.
+    @State private var markdownScore: Int = 0
+    /// Whether markdown rendering is active for this log.
+    /// Auto-enabled when looksLikeMarkdown passes the normalized gate; user can toggle off.
+    @State private var isMarkdownMode: Bool = false
     /// Bound to the `AppState`-owned `LogFetcher` so the ZIP cache survives
     /// across step taps. `@State` would be discarded on every `.id(navState)`
     /// remount in `RootPanelView` (SwiftUI tears down the full state tree when
@@ -156,6 +163,23 @@ struct StepLogView: View {
                     }
                     .buttonStyle(.plain)
                     .help("Open job on GitHub")
+                }
+                if markdownScore >= 6 {
+                    Button {
+                        isMarkdownMode.toggle()
+                    } label: {
+                        HStack(spacing: 3) {
+                            Image(systemName: isMarkdownMode ? "doc.richtext" : "doc.plaintext")
+                                .font(.caption)
+                            Text("MD").font(.caption)
+                        }
+                        .foregroundColor(isMarkdownMode ? Color.rbAccent : Color.rbTextSecondary)
+                        .fixedSize()
+                    }
+                    .buttonStyle(.plain)
+                    .help(isMarkdownMode ? "Showing markdown — click for raw" : "Show as markdown")
+                    .padding(.horizontal, 5).padding(.vertical, 2)
+                    .glassCard(cornerRadius: RBRadius.small)
                 }
                 LogCopyButton(
                     fetch: { completion in
@@ -235,16 +259,24 @@ struct StepLogView: View {
                     }
                 } else {
                     switch logResult {
-                    case .slice:
-                        logBodyView
-                    case .flatBlobFallback:
+                    case .slice(let content):
+                        if isMarkdownMode {
+                            MarkdownLogView(text: content)
+                        } else {
+                            logBodyView
+                        }
+                    case .flatBlobFallback(let content):
                         VStack(alignment: .leading, spacing: 4) {
                             Text("⚠️ Per-step logs unavailable for this run — showing full job log")
                                 .font(.caption).foregroundColor(Color.rbWarning)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .padding(.horizontal, RBSpacing.md).padding(.top, 6)
                             Divider().padding(.horizontal, RBSpacing.md)
-                            logBodyView
+                            if isMarkdownMode {
+                                MarkdownLogView(text: content)
+                            } else {
+                                logBodyView
+                            }
                         }
                     case .syntheticEmpty(let name, let reason):
                         VStack(alignment: .leading, spacing: 4) {
@@ -357,12 +389,19 @@ struct StepLogView: View {
             // Offload the synchronous parse to a detached task so the main thread
             // stays free. `Task { }` inherits @MainActor from loadLog's caller and
             // would run parseLogLines there — a real jank source on 10k-line logs.
-            let (parsed, defaultCollapsed) = await Task.detached(priority: .userInitiated) {
+            // Markdown detection runs here too: both confidence() and looksLikeMarkdown()
+            // call Document(parsing:) which is synchronous and should not block the main thread.
+            // Input is the same cleanLogText already processed upstream (ANSI-stripped today;
+            // see §7 of #2394 for what changes when #2379 Item 5 lands).
+            let (parsed, defaultCollapsed, mdScore, mdAuto) = await Task.detached(priority: .userInitiated) {
                 let lines = result.text.map { parseLogLines($0) } ?? []
                 let collapsed = Set(lines.compactMap { line -> Int? in
                     if case .groupHeader(let id, _) = line { return id } else { return nil }
                 })
-                return (lines, collapsed)
+                let text = result.text ?? ""
+                let score = MarkdownDetector.confidence(text)
+                let isMarkdown = MarkdownDetector.looksLikeMarkdown(text)
+                return (lines, collapsed, score, isMarkdown)
             }.value
             guard !Task.isCancelled else { return }
             await MainActor.run { [generation] in
@@ -375,6 +414,12 @@ struct StepLogView: View {
                 // no text. The ?? "" coalesces both, which is pre-existing behaviour; the
                 // LogCopyButton disable check handles both correctly via isEmpty.
                 logText = result.text ?? ""
+                // Markdown state: score drives badge visibility, boolean drives auto-enable.
+                // Both computed on the detached task above; do NOT re-derive score >= 6 inline.
+                markdownScore = mdScore
+                // Only auto-enable on initial load (not re-fetches), so a user who toggled
+                // off doesn't get the mode flipped back on by a live-step refresh.
+                if !isMarkdownMode { isMarkdownMode = mdAuto }
                 // Preserve any groups the user manually expanded across re-fetches (e.g.
                 // live-step auto-refresh). Group identity is keyed on title, not on the
                 // parse-local integer ID — IDs are not stable across separate parse calls

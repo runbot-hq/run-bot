@@ -23,13 +23,25 @@ let package = Package(
         .package(path: "Packages/GitHubClient"),
         // Local path — source of truth is now Packages/MenuBarKit in this repo.
         .package(path: "Packages/MenuBarKit"),
+        // Tracks main — resolves to HEAD on every CI run. Do not pin to a revision.
+        .package(url: "https://github.com/LiYanan2004/MarkdownView", branch: "main"),
+        // Tracks main — resolves to HEAD on every CI run. Do not pin to a revision.
+        // Direct dep of RunBotCore for MarkdownDetector (testable, UI-free scoring).
+        // swift-markdown also arrives transitively via MarkdownView → RunBot, but SPM
+        // access rules require an explicit entry for RunBotCore to import it directly.
+        // ⚠️ Must use the swiftlang mirror URL to avoid the SPM identity conflict
+        // warning that arises when apple/swift-markdown and swiftlang/swift-markdown
+        // are treated as different packages pointing to the same identity.
+        // MarkdownView pulls from swiftlang/swift-markdown, so we match it here.
+        .package(url: "https://github.com/swiftlang/swift-markdown", branch: "main"),
     ],
     targets: [
         .target(
             name: "RunBotCore",
             dependencies: [
                 .product(name: "GitHubClient", package: "GitHubClient"),
-                .product(name: "AppUpdater", package: "AppUpdater")
+                .product(name: "AppUpdater", package: "AppUpdater"),
+                .product(name: "Markdown", package: "swift-markdown"),
             ],
             path: "Sources/RunBotCore",
             swiftSettings: [
@@ -52,6 +64,10 @@ let package = Package(
                 // No RunBot source imports MenuBarKit yet — the dependency is additive
                 // and costs nothing until the first import statement is written.
                 .product(name: "MenuBarKit", package: "MenuBarKit"),
+                // MarkdownView for rendering detected markdown in StepLogView (#2394).
+                // swift-markdown (swiftlang mirror) arrives transitively via MarkdownView
+                // and is also declared directly in RunBotCore for MarkdownDetector testability.
+                .product(name: "MarkdownView", package: "MarkdownView"),
             ],
             path: "Sources/RunBot",
             exclude: ["Resources/Assets.xcassets"],
