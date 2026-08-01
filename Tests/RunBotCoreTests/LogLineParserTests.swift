@@ -127,6 +127,61 @@ struct LogLineParserTests {
         #expect(collapsedIDs.count == 2)
     }
 
+    // MARK: - Whitespace trimming
+
+    @Test("##[group] title with leading space is trimmed")
+    func test_groupHeader_leadingSpace_trimmed() {
+        let result = parseLogLines("##[group] Set up job")
+        guard case .groupHeader(_, let title) = result[0] else { Issue.record("Expected .groupHeader"); return }
+        #expect(title == "Set up job")
+    }
+
+    @Test("##[warning] text with leading space is trimmed")
+    func test_warningAnnotation_leadingSpace_trimmed() {
+        let result = parseLogLines("##[warning] Low disk space")
+        guard case .annotation(_, _, let text) = result[0] else { Issue.record("Expected .annotation"); return }
+        #expect(text == "Low disk space")
+    }
+
+    @Test("##[error] text with leading space is trimmed")
+    func test_errorAnnotation_leadingSpace_trimmed() {
+        let result = parseLogLines("##[error] Build failed")
+        guard case .annotation(_, _, let text) = result[0] else { Issue.record("Expected .annotation"); return }
+        #expect(text == "Build failed")
+    }
+
+    @Test("##[notice] text with leading space is trimmed")
+    func test_noticeAnnotation_leadingSpace_trimmed() {
+        let result = parseLogLines("##[notice] Cache miss")
+        guard case .annotation(_, _, let text) = result[0] else { Issue.record("Expected .annotation"); return }
+        #expect(text == "Cache miss")
+    }
+
+    // MARK: - Dimmed directives
+
+    @Test("##[command] produces .dimmed")
+    func test_commandDirective_producesDimmed() {
+        let result = parseLogLines("##[command]/usr/bin/bash -e /tmp/runner-script.sh")
+        #expect(result.count == 1)
+        guard case .dimmed(_, let text) = result[0] else { Issue.record("Expected .dimmed"); return }
+        #expect(text == "/usr/bin/bash -e /tmp/runner-script.sh")
+    }
+
+    @Test("##[debug] produces .dimmed")
+    func test_debugDirective_producesDimmed() {
+        let result = parseLogLines("##[debug]Evaluating condition")
+        #expect(result.count == 1)
+        guard case .dimmed(_, let text) = result[0] else { Issue.record("Expected .dimmed"); return }
+        #expect(text == "Evaluating condition")
+    }
+
+    @Test("##[command] with leading space is trimmed")
+    func test_commandDirective_leadingSpace_trimmed() {
+        let result = parseLogLines("##[command] /usr/bin/bash")
+        guard case .dimmed(_, let text) = result[0] else { Issue.record("Expected .dimmed"); return }
+        #expect(text == "/usr/bin/bash")
+    }
+
     // MARK: - Empty input
 
     @Test("Empty string returns empty array")

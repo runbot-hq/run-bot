@@ -387,12 +387,18 @@ struct StepLogView: View {
                         }
                     )
                 case .groupedLine(_, let text, let groupID):
+                    // NOTE: collapsed groupedLine rows are absent from the view tree entirely,
+                    // so a copy-all selection on the ScrollView will silently omit their content.
+                    // This matches GitHub.com behaviour (collapsed sections aren't copy-selectable)
+                    // and is acceptable; a future improvement could use hidden() instead.
                     if !collapsedGroups.contains(groupID) {
                         LogPlainLine(text: text)
                             .padding(.leading, 12)
                     }
                 case .annotation(_, let level, let text):
                     LogAnnotationLine(level: level, text: text)
+                case .dimmed(_, let text):
+                    LogDimmedLine(text: text)
                 }
             }
         }

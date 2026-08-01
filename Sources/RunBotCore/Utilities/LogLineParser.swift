@@ -23,6 +23,13 @@ public enum LogLine: Identifiable, Equatable, Sendable {
     case groupedLine(id: Int, text: String, groupID: Int)
     /// A `##[warning]`, `##[error]`, or `##[notice]` annotation line.
     case annotation(id: Int, level: AnnotationLevel, text: String)
+    /// A `##[command]` or `##[debug]` line — rendered dimmed in secondary colour.
+    ///
+    /// `##[command]` is emitted for every `run:` step (e.g. `##[command]/usr/bin/bash …`).
+    /// `##[debug]` is emitted when runner debug logging is enabled.
+    /// Both are rendered visually de-emphasised rather than stripped, so the log remains
+    /// complete but the noise is visually subordinate to plain content.
+    case dimmed(id: Int, text: String)
 
     /// Severity level of an annotation line.
     public enum AnnotationLevel: Sendable, Equatable {
@@ -40,7 +47,8 @@ public enum LogLine: Identifiable, Equatable, Sendable {
         case .plain(let id, _),
              .groupHeader(let id, _),
              .groupedLine(let id, _, _),
-             .annotation(let id, _, _):
+             .annotation(let id, _, _),
+             .dimmed(let id, _):
             return id
         }
     }
@@ -81,21 +89,27 @@ public func parseLogLines(_ raw: String) -> [LogLine] {
         if line.hasPrefix("##[group]") {
             // Implicit close of any previously open group (GitHub Actions behaviour).
             currentGroupID = nil
-            let title = String(line.dropFirst("##[group]".count))
+            let title = String(line.dropFirst("##[group]".count)).trimmingCharacters(in: .whitespaces)
             let id = makeID()
             result.append(.groupHeader(id: id, title: title))
             currentGroupID = id
         } else if line.hasPrefix("##[endgroup]") {
             currentGroupID = nil
         } else if line.hasPrefix("##[warning]") {
-            let text = String(line.dropFirst("##[warning]".count))
+            let text = String(line.dropFirst("##[warning]".count)).trimmingCharacters(in: .whitespaces)
             result.append(.annotation(id: makeID(), level: .warning, text: text))
         } else if line.hasPrefix("##[error]") {
-            let text = String(line.dropFirst("##[error]".count))
+            let text = String(line.dropFirst("##[error]".count)).trimmingCharacters(in: .whitespaces)
             result.append(.annotation(id: makeID(), level: .error, text: text))
         } else if line.hasPrefix("##[notice]") {
-            let text = String(line.dropFirst("##[notice]".count))
+            let text = String(line.dropFirst("##[notice]".count)).trimmingCharacters(in: .whitespaces)
             result.append(.annotation(id: makeID(), level: .notice, text: text))
+        } else if line.hasPrefix("##[command]") {
+            let text = String(line.dropFirst("##[command]".count)).trimmingCharacters(in: .whitespaces)
+            result.append(.dimmed(id: makeID(), text: text))
+        } else if line.hasPrefix("##[debug]") {
+            let text = String(line.dropFirst("##[debug]".count)).trimmingCharacters(in: .whitespaces)
+            result.append(.dimmed(id: makeID(), text: text))
         } else if let groupID = currentGroupID {
             result.append(.groupedLine(id: makeID(), text: line, groupID: groupID))
         } else {

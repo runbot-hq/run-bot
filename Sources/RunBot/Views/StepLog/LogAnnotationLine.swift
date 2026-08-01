@@ -24,7 +24,7 @@ struct LogAnnotationLine: View {
                 .frame(width: 3)
             Text(text)
                 .font(.system(size: 11, design: .monospaced))
-                .foregroundColor(Color.rbTextPrimary)
+                .foregroundColor(borderColor)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, 6)
