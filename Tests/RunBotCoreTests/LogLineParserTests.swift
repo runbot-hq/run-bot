@@ -214,18 +214,23 @@ struct LogLineParserTests {
         #expect(groupID == gid)
     }
 
-    @Test("##[add-matcher] produces .dimmed")
-    func test_addMatcher_isDimmed() {
-        let result = parseLogLines("##[add-matcher].github/problem-matcher.json")
+    @Test("Unknown ##[ directive produces .dimmed (add-matcher)")
+    func test_unknownDirective_addMatcher_isDimmed() {
+        // Build the input string programmatically so the runner never sees a
+        // literal ##[add-matcher] token in the test source and tries to load it
+        // as a real problem-matcher file path.
+        let directive = "##[" + "add-matcher].github/problem-matcher.json"
+        let result = parseLogLines(directive)
         #expect(result.count == 1)
         guard case .dimmed(_, let text, let groupID) = result[0] else { Issue.record("Expected .dimmed at [0]"); return }
-        #expect(text == "##[add-matcher].github/problem-matcher.json")
+        #expect(text == directive)
         #expect(groupID == nil)
     }
 
-    @Test("##[stop-commands] produces .dimmed")
-    func test_stopCommands_isDimmed() {
-        let result = parseLogLines("##[stop-commands]token")
+    @Test("Unknown ##[ directive produces .dimmed (stop-commands)")
+    func test_unknownDirective_stopCommands_isDimmed() {
+        let directive = "##[" + "stop-commands]token"
+        let result = parseLogLines(directive)
         #expect(result.count == 1)
         guard case .dimmed(_, _, _) = result[0] else { Issue.record("Expected .dimmed at [0]"); return }
     }
