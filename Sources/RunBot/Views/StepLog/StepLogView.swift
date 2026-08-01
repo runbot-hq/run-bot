@@ -352,6 +352,7 @@ struct StepLogView: View {
             let defaultCollapsed = Set(parsed.compactMap { line -> Int? in
                 if case .groupHeader(let id, _) = line { return id } else { return nil }
             })
+            guard !Task.isCancelled else { return }
             await MainActor.run {
                 logFetcher = localFetcher  // persist updated zipCache back to view state
                 logResult = result
@@ -395,10 +396,18 @@ struct StepLogView: View {
                         LogPlainLine(text: text)
                             .padding(.leading, 12)
                     }
-                case .annotation(_, let level, let text):
-                    LogAnnotationLine(level: level, text: text)
-                case .dimmed(_, let text):
-                    LogDimmedLine(text: text)
+                case .annotation(_, let level, let text, let groupID):
+                    if let groupID, collapsedGroups.contains(groupID) {
+                        EmptyView()
+                    } else {
+                        LogAnnotationLine(level: level, text: text)
+                    }
+                case .dimmed(_, let text, let groupID):
+                    if let groupID, collapsedGroups.contains(groupID) {
+                        EmptyView()
+                    } else {
+                        LogDimmedLine(text: text)
+                    }
                 }
             }
         }

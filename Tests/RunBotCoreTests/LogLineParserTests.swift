@@ -82,27 +82,30 @@ struct LogLineParserTests {
     func test_warningAnnotation() {
         let result = parseLogLines("##[warning]Low disk space")
         #expect(result.count == 1)
-        guard case .annotation(_, let level, let text) = result[0] else { Issue.record("Expected .annotation"); return }
+        guard case .annotation(_, let level, let text, let groupID) = result[0] else { Issue.record("Expected .annotation"); return }
         #expect(level == .warning)
         #expect(text == "Low disk space")
+        #expect(groupID == nil)
     }
 
     @Test("##[error] produces .annotation with .error level")
     func test_errorAnnotation() {
         let result = parseLogLines("##[error]Build failed")
         #expect(result.count == 1)
-        guard case .annotation(_, let level, let text) = result[0] else { Issue.record("Expected .annotation"); return }
+        guard case .annotation(_, let level, let text, let groupID) = result[0] else { Issue.record("Expected .annotation"); return }
         #expect(level == .error)
         #expect(text == "Build failed")
+        #expect(groupID == nil)
     }
 
     @Test("##[notice] produces .annotation with .notice level")
     func test_noticeAnnotation() {
         let result = parseLogLines("##[notice]Cache miss")
         #expect(result.count == 1)
-        guard case .annotation(_, let level, let text) = result[0] else { Issue.record("Expected .annotation"); return }
+        guard case .annotation(_, let level, let text, let groupID) = result[0] else { Issue.record("Expected .annotation"); return }
         #expect(level == .notice)
         #expect(text == "Cache miss")
+        #expect(groupID == nil)
     }
 
     // MARK: - IDs
@@ -127,6 +130,21 @@ struct LogLineParserTests {
         #expect(collapsedIDs.count == 2)
     }
 
+    @Test("##[warning] inside a group retains groupID")
+    func test_warningInsideGroup_retainsGroupID() {
+        let raw = "##[group]Lint\n##[warning]Trailing whitespace\n##[endgroup]"
+        let result = parseLogLines(raw)
+        #expect(result.count == 2)
+        guard case .groupHeader(let gid, _) = result[0] else { Issue.record("Expected .groupHeader at [0]"); return }
+        guard case .annotation(_, let level, let text, let groupID) = result[1] else {
+            Issue.record("Expected .annotation at [1]")
+            return
+        }
+        #expect(level == .warning)
+        #expect(text == "Trailing whitespace")
+        #expect(groupID == gid)
+    }
+
     // MARK: - Whitespace trimming
 
     @Test("##[group] title with leading space is trimmed")
@@ -139,21 +157,21 @@ struct LogLineParserTests {
     @Test("##[warning] text with leading space is trimmed")
     func test_warningAnnotation_leadingSpace_trimmed() {
         let result = parseLogLines("##[warning] Low disk space")
-        guard case .annotation(_, _, let text) = result[0] else { Issue.record("Expected .annotation"); return }
+        guard case .annotation(_, _, let text, _) = result[0] else { Issue.record("Expected .annotation"); return }
         #expect(text == "Low disk space")
     }
 
     @Test("##[error] text with leading space is trimmed")
     func test_errorAnnotation_leadingSpace_trimmed() {
         let result = parseLogLines("##[error] Build failed")
-        guard case .annotation(_, _, let text) = result[0] else { Issue.record("Expected .annotation"); return }
+        guard case .annotation(_, _, let text, _) = result[0] else { Issue.record("Expected .annotation"); return }
         #expect(text == "Build failed")
     }
 
     @Test("##[notice] text with leading space is trimmed")
     func test_noticeAnnotation_leadingSpace_trimmed() {
         let result = parseLogLines("##[notice] Cache miss")
-        guard case .annotation(_, _, let text) = result[0] else { Issue.record("Expected .annotation"); return }
+        guard case .annotation(_, _, let text, _) = result[0] else { Issue.record("Expected .annotation"); return }
         #expect(text == "Cache miss")
     }
 
@@ -163,22 +181,24 @@ struct LogLineParserTests {
     func test_commandDirective_producesDimmed() {
         let result = parseLogLines("##[command]/usr/bin/bash -e /tmp/runner-script.sh")
         #expect(result.count == 1)
-        guard case .dimmed(_, let text) = result[0] else { Issue.record("Expected .dimmed"); return }
+        guard case .dimmed(_, let text, let groupID) = result[0] else { Issue.record("Expected .dimmed"); return }
         #expect(text == "/usr/bin/bash -e /tmp/runner-script.sh")
+        #expect(groupID == nil)
     }
 
     @Test("##[debug] produces .dimmed")
     func test_debugDirective_producesDimmed() {
         let result = parseLogLines("##[debug]Evaluating condition")
         #expect(result.count == 1)
-        guard case .dimmed(_, let text) = result[0] else { Issue.record("Expected .dimmed"); return }
+        guard case .dimmed(_, let text, let groupID) = result[0] else { Issue.record("Expected .dimmed"); return }
         #expect(text == "Evaluating condition")
+        #expect(groupID == nil)
     }
 
     @Test("##[command] with leading space is trimmed")
     func test_commandDirective_leadingSpace_trimmed() {
         let result = parseLogLines("##[command] /usr/bin/bash")
-        guard case .dimmed(_, let text) = result[0] else { Issue.record("Expected .dimmed"); return }
+        guard case .dimmed(_, let text, _) = result[0] else { Issue.record("Expected .dimmed"); return }
         #expect(text == "/usr/bin/bash")
     }
 

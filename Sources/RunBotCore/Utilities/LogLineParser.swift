@@ -5,10 +5,10 @@
 
 /// A single parsed line from a GitHub Actions step log.
 ///
-/// Lines containing `##[group]`, `##[endgroup]`, `##[warning]`, `##[error]`, or
-/// `##[notice]` directives are parsed into their respective cases. All other lines
-/// become `.plain`. Lines inside a group block become `.groupedLine` so the view
-/// can hide them when the group is collapsed.
+/// Lines containing `##[group]`, `##[endgroup]`, `##[warning]`, `##[error]`, `##[notice]`,
+/// `##[command]`, or `##[debug]` directives are parsed into their respective cases.
+/// All other lines become `.plain`. Lines inside a group block become `.groupedLine`
+/// so the view can hide them when the group is collapsed.
 ///
 /// IDs are assigned by `parseLogLines` using a monotonic counter and are stable
 /// within a single parse pass. They are not persisted and must not be compared
@@ -22,14 +22,20 @@ public enum LogLine: Identifiable, Equatable, Sendable {
     /// `groupID` is the `id` of the owning `groupHeader`.
     case groupedLine(id: Int, text: String, groupID: Int)
     /// A `##[warning]`, `##[error]`, or `##[notice]` annotation line.
-    case annotation(id: Int, level: AnnotationLevel, text: String)
+    ///
+    /// `groupID` is non-nil when the annotation appears inside an open group block.
+    /// This preserves group membership so collapsing the group also hides its
+    /// annotation rows.
+    case annotation(id: Int, level: AnnotationLevel, text: String, groupID: Int?)
     /// A `##[command]` or `##[debug]` line — rendered dimmed in secondary colour.
     ///
     /// `##[command]` is emitted for every `run:` step (e.g. `##[command]/usr/bin/bash …`).
     /// `##[debug]` is emitted when runner debug logging is enabled.
     /// Both are rendered visually de-emphasised rather than stripped, so the log remains
     /// complete but the noise is visually subordinate to plain content.
-    case dimmed(id: Int, text: String)
+    ///
+    /// `groupID` is non-nil when the directive appears inside an open group block.
+    case dimmed(id: Int, text: String, groupID: Int?)
 
     /// Severity level of an annotation line.
     public enum AnnotationLevel: Sendable, Equatable {
@@ -47,8 +53,8 @@ public enum LogLine: Identifiable, Equatable, Sendable {
         case .plain(let id, _),
              .groupHeader(let id, _),
              .groupedLine(let id, _, _),
-             .annotation(let id, _, _),
-             .dimmed(let id, _):
+             .annotation(let id, _, _, _),
+             .dimmed(let id, _, _):
             return id
         }
     }
@@ -65,6 +71,8 @@ public enum LogLine: Identifiable, Equatable, Sendable {
 /// **Group nesting:** GitHub Actions does not support nested groups; only one group
 /// is tracked at a time. An `##[endgroup]` with no matching open group is ignored.
 /// A second `##[group]` while one is already open implicitly closes the previous one.
+/// Some older runner versions never emit `##[endgroup]`; in that case the group simply
+/// remains open until EOF, which this parser handles naturally.
 ///
 /// - Parameter raw: The cleaned log text to parse.
 /// - Returns: An array of `LogLine` values in document order, suitable for
@@ -97,19 +105,19 @@ public func parseLogLines(_ raw: String) -> [LogLine] {
             currentGroupID = nil
         } else if line.hasPrefix("##[warning]") {
             let text = String(line.dropFirst("##[warning]".count)).trimmingCharacters(in: .whitespaces)
-            result.append(.annotation(id: makeID(), level: .warning, text: text))
+            result.append(.annotation(id: makeID(), level: .warning, text: text, groupID: currentGroupID))
         } else if line.hasPrefix("##[error]") {
             let text = String(line.dropFirst("##[error]".count)).trimmingCharacters(in: .whitespaces)
-            result.append(.annotation(id: makeID(), level: .error, text: text))
+            result.append(.annotation(id: makeID(), level: .error, text: text, groupID: currentGroupID))
         } else if line.hasPrefix("##[notice]") {
             let text = String(line.dropFirst("##[notice]".count)).trimmingCharacters(in: .whitespaces)
-            result.append(.annotation(id: makeID(), level: .notice, text: text))
+            result.append(.annotation(id: makeID(), level: .notice, text: text, groupID: currentGroupID))
         } else if line.hasPrefix("##[command]") {
             let text = String(line.dropFirst("##[command]".count)).trimmingCharacters(in: .whitespaces)
-            result.append(.dimmed(id: makeID(), text: text))
+            result.append(.dimmed(id: makeID(), text: text, groupID: currentGroupID))
         } else if line.hasPrefix("##[debug]") {
             let text = String(line.dropFirst("##[debug]".count)).trimmingCharacters(in: .whitespaces)
-            result.append(.dimmed(id: makeID(), text: text))
+            result.append(.dimmed(id: makeID(), text: text, groupID: currentGroupID))
         } else if let groupID = currentGroupID {
             result.append(.groupedLine(id: makeID(), text: line, groupID: groupID))
         } else {
