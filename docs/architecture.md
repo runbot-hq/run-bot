@@ -7,6 +7,7 @@
 - [KeyablePanel access level](#keyablepanel-access-level)
 - [Dark Mode & Light Mode Support](#dark-mode--light-mode-support)
 - [RunBotCore Library Rationale](#runbotcore-library-rationale)
+- [Log Directive Parsing — Reference Spec](#log-directive-parsing--reference-spec)
 - [GitHubClient Package](#githubclient-package-runbot-hqgithubclient)
 - [AppUpdater Package](#appupdater-package-runbot-hqappupdater)
 - [Data Model](#data-model)
@@ -181,6 +182,30 @@ Great question. Here's the full picture for your specific setup.
 ## The Net Position for Your Setup
 
 In a pure SPM / no-`.xcodeproj` codebase with GitHub Actions CI, the payoff is **high and concrete**: faster CI via `swift test`, enforced architectural boundaries, and a clean path to testing business logic without the full app build. The main cost is upfront refactoring — particularly the `RunnerStore`/`RunnerViewModel` coupling — but the files that don't have that coupling (the 13 straightforward candidates in the issue) are essentially free wins.
+
+---
+
+## Log Directive Parsing — Reference Spec
+
+`LogLineParser.swift` (`RunBotCore`) parses raw GitHub Actions step log text directly.
+This is distinct from how `gh` CLI works — `gh` fetches annotations from the REST API
+(`/check-runs/:id/annotations`) and never touches `::` wire-format strings.
+The reference sources for the wire format are:
+
+| File | Repo | What it contains |
+|---|---|---|
+| [command.ts](https://github.com/actions/toolkit/blob/main/packages/core/src/command.ts) | actions/toolkit | Canonical `::name key=val,key=val::message` wire format encoder; `escapeProperty` percent-encodes `,`→`%2C`, `:`→`%3A`, `\n`→`%0A`; `escapeData` encodes message; `issueCommand` is the emitter for all directives |
+| [utils.ts](https://github.com/actions/toolkit/blob/main/packages/core/src/utils.ts) | actions/toolkit | `toCommandProperties` maps `AnnotationProperties` to wire keys: `startLine`→`line`, `startColumn`→`col`, `endLine`→`endLine`, `endColumn`→`endColumn` |
+| [core.ts](https://github.com/actions/toolkit/blob/main/packages/core/src/core.ts) | actions/toolkit | Public `AnnotationProperties` interface: `title`, `file`, `startLine`, `endLine`, `startColumn`, `endColumn`; `warning`/`error`/`notice`/`debug`/`setSecret`/`startGroup`/`endGroup` public API |
+| [file-command.ts](https://github.com/actions/toolkit/blob/main/packages/core/src/file-command.ts) | actions/toolkit | Newer `GITHUB_ENV` / `GITHUB_OUTPUT` file-based command format using `key<<delimiter\nvalue\ndelimiter`; completely separate from `::` stream commands; never appears in step log output |
+| [ActionCommandManager.cs](https://github.com/actions/runner/blob/main/src/Runner.Worker/ActionCommandManager.cs) | actions/runner | The C# runner that actually receives and parses `::` commands; `IssueCommandProperties` defines wire keys: `file`, `line`, `endLine`, `col`, `endColumn`, `title`; `AddMaskCommandExtension` has `OmitEcho = true`; `DebugCommandExtension` also `OmitEcho = true`; `ValidateLinesAndColumns` strips `col`/`endColumn` when `line` is absent |
+| [shared.go](https://github.com/cli/cli/blob/trunk/pkg/cmd/run/shared/shared.go) | cli/cli | REST API `Annotation` struct (`annotation_level`, `start_line`, `path`); `GetAnnotations` fetches from `/check-runs/:id/annotations` — annotations sourced from REST API, separate from log stream |
+| [logs.go](https://github.com/cli/cli/blob/trunk/pkg/cmd/run/view/logs.go) | cli/cli | ZIP archive log fetcher; splits by job/step filename; streams raw text to terminal; no `::` directive parsing — annotations come from the REST API pipeline instead |
+
+**Intentional scope gaps in `AnnotationParams`:** `col` and `endColumn` are valid wire-format
+keys (emitted by `core.ts`, parsed by `ActionCommandManager.cs`) but are not modelled in
+`AnnotationParams`. They are silently ignored as unknown keys — this is by design; column
+metadata has no current display use in the log view.
 
 ---
 
@@ -852,4 +877,3 @@ re-presents the sheet automatically because the binding is still `true`.
 
 ### Design
 - liquid glass: https://gist.github.com/eonist/a8f0d160c7e9e37f634a15c3a33a8109
-
