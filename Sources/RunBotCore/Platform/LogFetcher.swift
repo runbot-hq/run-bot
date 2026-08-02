@@ -34,8 +34,8 @@ public enum StepLogResult: Equatable, Sendable {
 
     /// True when this result represents a step that was intentionally skipped by the runner
     /// (as opposed to a fetch failure or a step that ran but produced no output).
-    /// StepLogView uses this to render a neutral “Step skipped” headline instead of
-    /// the error-toned “No output recorded” headline.
+    /// StepLogView uses this to render a neutral "Step skipped" headline instead of
+    /// the error-toned "No output recorded" headline.
     public var isSkipped: Bool {
         guard case .syntheticEmpty(_, let reason) = self else { return false }
         return reason.hasPrefix("This step was skipped")
@@ -215,6 +215,10 @@ public struct LogFetcher: Sendable {
 
         // Cache lookup — delegates to loadZipFiles which owns the single-entry eviction policy.
         let cacheKey = "\(runID)-\(startedAt ?? "")"
+        log(
+            "fetchStepLog › cacheKey='\(cacheKey)' jobName='\(jobName)' sanitised='\(sanitizeJobNameForZIP(jobName))' step=\(step.number) '\(step.name)'",
+            category: .services
+        )
         let allFiles: [(name: String, text: String)]
         switch await loadZipFiles(cacheKey: cacheKey, runID: runID, scope: scope) {
         case .hit(let files): allFiles = files
@@ -302,7 +306,17 @@ public struct LogFetcher: Sendable {
         runID: Int,
         scope: String
     ) async -> ZipLoadResult {
-        if let cached = zipCache[cacheKey] { return .hit(cached) }
+        if let cached = zipCache[cacheKey] {
+            log(
+                "fetchStepLog › ZIP cache HIT for key '\(cacheKey)' — \(cached.count) file(s): [\(cached.map { $0.name }.joined(separator: ", "))]",
+                category: .services
+            )
+            return .hit(cached)
+        }
+        log(
+            "fetchStepLog › ZIP cache MISS for key '\(cacheKey)' — current cache keys: [\(zipCache.keys.joined(separator: ", "))] — downloading run \(runID)",
+            category: .services
+        )
         guard let data = await transport.raw("repos/\(scope)/actions/runs/\(runID)/logs") else {
             log("fetchStepLog › network failure fetching ZIP for run \(runID) scope '\(scope)'", category: .services)
             return .failed(.fetchFailed(reason: "Could not download the run log archive from GitHub."))
@@ -310,19 +324,12 @@ public struct LogFetcher: Sendable {
         switch await zipExtractor(data) {
         case .success(let files):
             let stepCount = files.filter { $0.name.contains("/") }.count
+            let allNames = files.map { $0.name }.joined(separator: ", ")
             log(
                 "fetchStepLog › ZIP extracted \(files.count) file(s) for run \(runID) " +
-                "(\(stepCount) with step-prefix '/')",
+                "(\(stepCount) with step-prefix '/') — all entries: [\(allNames.isEmpty ? "<empty archive>" : allNames)]",
                 category: .services
             )
-            if stepCount == 0 {
-                let names = files.map { $0.name }.joined(separator: ", ")
-                log(
-                    "fetchStepLog › ZIP has no per-step files for run \(runID) — " +
-                    "all entries: [\(names.isEmpty ? "<empty archive>" : names)]",
-                    category: .services
-                )
-            }
             zipCache = [cacheKey: files]
             return .miss(files)
         case .processFailed(let exitCode):
@@ -351,10 +358,12 @@ public struct LogFetcher: Sendable {
             .filter { $0.name.hasPrefix("\(sanitised)/") }
             .map { $0.name }
             .joined(separator: ", ")
+        let allStepFileNames = stepFiles.map { $0.name }.joined(separator: ", ")
         log(
             "fetchStepLog › no file matching prefix '\(prefix)' for step \(step.number) '\(step.name)' " +
             "job '\(jobName)' (sanitised: '\(sanitised)') run \(runID) — " +
-            "files for this job: [\(available.isEmpty ? "<none>" : available)]",
+            "files for this job: [\(available.isEmpty ? "<none>" : available)] — " +
+            "all step files in ZIP: [\(allStepFileNames.isEmpty ? "<none>" : allStepFileNames)]",
             category: .services
         )
         if step.stepConclusion == .skipped {
