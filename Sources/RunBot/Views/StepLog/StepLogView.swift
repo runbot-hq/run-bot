@@ -324,7 +324,7 @@ struct StepLogView: View {
         .frame(idealWidth: 480, maxWidth: .infinity, alignment: .top)
         .onAppear { loadLog() }
         .onDisappear {
-            log("StepLogView.onDisappear › canceling gen=\(loadGeneration) job=\(job.id) step=\(step.number) keys=[\(logFetcher.zipCacheKeys)]", category: .services)
+            log("StepLogView.onDisappear › canceling gen=\(loadGeneration) job=\(job.id) step=\(step.number)", category: .services)
             loadTask?.cancel()
         }
     }
@@ -371,9 +371,7 @@ struct StepLogView: View {
         // Capture the fetcher copy so mutating fetchStepLog is legal inside the Task.
         let fetcherSnapshot = logFetcher
         let generation = loadGeneration
-        let cacheKeys = logFetcher.zipCacheKeys.joined(separator: ", ")
-        let cacheInfo = cacheKeys.isEmpty ? "<empty>" : cacheKeys
-        log("loadLog › gen=\(loadGeneration) runID=\(runID) startedAt=\(startedAt ?? "nil") jobID=\(jobID) jobName='\(jobName)' step=\(step.number) scope='\(scope)' cacheKeys=[\(cacheInfo)]",
+        log("loadLog › gen=\(loadGeneration) runID=\(runID) startedAt=\(startedAt ?? "nil") jobID=\(jobID) jobName='\(jobName)' step=\(step.number) scope='\(scope)'",
                 category: .services)
         loadTask = Task { [loadStart = ContinuousClock.now] in
             // Do NOT use `defer` for `isLoading = false`: a `defer` fires even on early-cancel

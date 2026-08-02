@@ -146,6 +146,9 @@ public actor RunnerPoller {
   let decoder = JSONDecoder()
   /// Fetcher for workflow action groups.
   let actionGroupFetcher: any WorkflowActionGroupFetcherProtocol
+  /// Background ZIP prefetch queue — warms `ZIPLRUCache` and `DiskZIPCache` after each
+  /// poll cycle so that `fetchStepLog` calls hit cache instead of the network.
+  let zipPrefetchQueue: ZIPPrefetchQueue
 
   // MARK: - Init
 
@@ -160,6 +163,8 @@ public actor RunnerPoller {
   ///   - notificationPreferences: Notification preference store used to gate dispatch.
   ///     Pass `.shared` in production; pass an ephemeral instance in tests.
   ///   - actionGroupFetcher: Fetcher for workflow action groups.
+  ///   - zipPrefetchQueue: Background ZIP prefetch queue. Defaults to a shared instance;
+  ///     inject a stub in tests.
   public init(
     state: RunnerState,
     preferencesStore: any AppPreferencesStoreProtocol,
@@ -168,7 +173,8 @@ public actor RunnerPoller {
     applyMetrics: @escaping @Sendable (_ metrics: RunnerMetrics?, _ runnerId: Int, _ name: String)
       async -> Void,
     notificationPreferences: NotificationPreferences,
-    actionGroupFetcher: any WorkflowActionGroupFetcherProtocol = WorkflowActionGroupFetcher()
+    actionGroupFetcher: any WorkflowActionGroupFetcherProtocol = WorkflowActionGroupFetcher(),
+    zipPrefetchQueue: ZIPPrefetchQueue? = nil
   ) {
     self.state = state
     self.preferencesStore = preferencesStore
@@ -177,6 +183,11 @@ public actor RunnerPoller {
     self.applyMetrics = applyMetrics
     self.notificationPreferences = notificationPreferences
     self.actionGroupFetcher = actionGroupFetcher
+    self.zipPrefetchQueue = zipPrefetchQueue ?? ZIPPrefetchQueue(
+      memCache: ZIPLRUCache(),
+      diskCache: DiskZIPCache(),
+      transport: currentTransport
+    )
     Task(name: "RunnerPoller.init: startObservingScopes") { await self.startObservingScopes() }
   }
 
@@ -185,6 +196,8 @@ public actor RunnerPoller {
   /// Cancels all running Tasks owned by this actor before it is freed.
   isolated deinit {
     pollLoop.cancelAll()
+    let prefetchQueue = zipPrefetchQueue
+    Task { await prefetchQueue.cancelAll() }
   }
 
   // MARK: - Observation loops

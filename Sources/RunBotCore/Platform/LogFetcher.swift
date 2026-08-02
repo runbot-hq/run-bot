@@ -75,17 +75,11 @@ public typealias ZipExtractor = @Sendable (Data) async -> UnzipResult
 public struct LogFetcher: Sendable {
     /// The injected GitHub transport used for all network access.
     private let transport: any GitHubTransportProtocol
-    /// In-memory cache of ZIP file listings keyed by `"runID-startedAt"`. Populated on first
-    /// fetch; subsequent taps in the same session cost zero network calls.
-    /// Keyed by `runID-startedAt` (not `runID` alone) so re-runs of the same workflow
-    /// do not return stale log files.
-    private var zipCache: [String: [(name: String, text: String)]] = [:]
-    /// Closure that extracts a ZIP archive into named text entries.
-/// Returns the keys of the internal ZIP cache, for diagnostic logging.
-    /// The cache is keyed by `"runID-startedAt"` and holds at most one entry.
-    public var zipCacheKeys: [String] {
-        Array(zipCache.keys)
-    }
+    /// Session-level LRU cache (L2 memory) shared across all `fetchStepLog` calls.
+    /// Supersedes the old single-entry `zipCache` as the durable in-process layer.
+    let zipLRUCache: ZIPLRUCache
+    /// Persistent disk cache (L3) — survives app restarts.
+    let diskZIPCache: DiskZIPCache
     /// Defaults to the real `unzipLogsTyped` subprocess path.
     /// Tests inject a stub that returns pre-built tuples directly, avoiding any
     /// filesystem or process access (which the test sandbox blocks).
@@ -97,13 +91,19 @@ public struct LogFetcher: Sendable {
     ///   - transport: Defaults to `currentTransport` — the live `@TaskLocal`
     ///     read path wired by `GitHubClient.init`. Tests can override via
     ///     `withTransport(_:operation:)` without touching any global.
+    ///   - zipLRUCache: Session-level LRU (L2). Defaults to a fresh instance; inject in tests.
+    ///   - diskZIPCache: Persistent disk cache (L3). Defaults to a fresh instance; inject in tests.
     ///   - zipExtractor: Defaults to the real `/usr/bin/unzip`-based path.
     ///     Pass a custom closure in tests to bypass subprocess spawning.
     public init(
         transport: any GitHubTransportProtocol = currentTransport,
+        zipLRUCache: ZIPLRUCache = ZIPLRUCache(),
+        diskZIPCache: DiskZIPCache = DiskZIPCache(),
         zipExtractor: ZipExtractor? = nil
     ) {
         self.transport = transport
+        self.zipLRUCache = zipLRUCache
+        self.diskZIPCache = diskZIPCache
         self.zipExtractor = zipExtractor ?? { data in await unzipLogsTyped(data) }
     }
 
@@ -188,7 +188,7 @@ public struct LogFetcher: Sendable {
     /// its own file, making heuristic parsing unnecessary.
     ///
     /// ## Cache
-    /// The ZIP is cached in `zipCache` keyed by `"runID-startedAt"`. Subsequent calls for
+    /// The ZIP is cached in the LRU + disk layers keyed by `diskZIPCacheKey`. Subsequent calls for
     /// steps in the same job (same `runID` + `startedAt`) cost zero network calls.
     ///
     /// ## Fallback
@@ -203,7 +203,7 @@ public struct LogFetcher: Sendable {
     ///   - step: The `GitHubStep` whose log is requested.
     ///   - scope: The `owner/repo` string identifying the repository.
     /// - Returns: A `StepLogResult` — never silent about failure or wrong content.
-    public mutating func fetchStepLog(
+    public func fetchStepLog(
         runID: Int,
         startedAt: String?,
         jobID: Int,
@@ -218,15 +218,15 @@ public struct LogFetcher: Sendable {
 
         func clean(_ text: String) -> String { cleanLogText(text) }
 
-        // Cache lookup — delegates to loadZipFiles which owns the single-entry eviction policy.
-        let cacheKey = "\(runID)-\(startedAt ?? "")"
+        // Cache lookup — three-layer: LRU → disk → network.
+        let cacheKey = diskZIPCacheKey(runID: runID, startedAt: startedAt)
         let fetchStart = ContinuousClock.now
         log(
             "fetchStepLog › cacheKey='\(cacheKey)' jobName='\(jobName)' sanitised='\(sanitizeJobNameForZIP(jobName))' step=\(step.number) '\(step.name)' scope='\(scope)'",
             category: .services
         )
         let allFiles: [(name: String, text: String)]
-        switch await loadZipFiles(cacheKey: cacheKey, runID: runID, scope: scope) {
+        switch await loadZipFiles(cacheKey: cacheKey, runID: runID, startedAt: startedAt, scope: scope) {
         case .hit(let files): allFiles = files
         case .miss(let files): allFiles = files
         case .failed(let result): return result
@@ -312,34 +312,46 @@ public struct LogFetcher: Sendable {
 
     /// Typed result from the cache/network/unzip pipeline used by `fetchStepLog`.
     private enum ZipLoadResult {
-        /// Files returned from the in-memory cache — no network call was made.
+        /// Files returned from a cache layer — no network call was made.
         case hit([(name: String, text: String)])
-        /// Files freshly fetched and extracted — cache has been updated.
+        /// Files freshly fetched and extracted — both cache layers have been updated.
         case miss([(name: String, text: String)])
         /// A network, subprocess, or I/O failure occurred; the associated value is the terminal result.
         case failed(StepLogResult)
     }
 
-    /// Fetches and caches the ZIP file for `runID`, logging all outcomes.
-    ///
-    /// Single-entry eviction policy: `zipCache` is replaced wholesale on every cache miss
-    /// to bound memory — one decompressed ZIP can be tens of MB.
-    private mutating func loadZipFiles(
+    /// Fetches and caches the ZIP file for `runID` using a three-layer lookup:
+    /// 1. LRU memory cache (`ZIPLRUCache`) — zero I/O
+    /// 2. Disk cache (`DiskZIPCache`) — zero network
+    /// 3. Network download — backfills both caches on success
+    private func loadZipFiles(
         cacheKey: String,
         runID: Int,
-        scope: String
+        startedAt: String?,
+        scope: String,
+        isCompleted: Bool = true
     ) async -> ZipLoadResult {
-        if let cached = zipCache[cacheKey] {
+        // Layer 1: LRU memory cache
+        if let cached = await zipLRUCache.get(runID) {
             log(
-                "fetchStepLog › ZIP cache HIT for key '\(cacheKey)' — \(cached.count) file(s): [\(cached.map { $0.name }.joined(separator: ", "))]",
+                "fetchStepLog › LRU HIT runID=\(runID) key='\(cacheKey)' — \(cached.count) file(s)",
                 category: .services
             )
             return .hit(cached)
         }
-        let previousKeys = zipCache.keys.joined(separator: ", ")
+        // Layer 2: Disk cache
+        if let cached = await diskZIPCache.get(key: cacheKey) {
+            log(
+                "fetchStepLog › DISK HIT key='\(cacheKey)' — \(cached.count) file(s), populating LRU",
+                category: .services
+            )
+            await zipLRUCache.set(runID, files: cached)
+            return .hit(cached)
+        }
+        // Layer 3: Network
         let downloadStart = ContinuousClock.now
         log(
-            "fetchStepLog › ZIP cache MISS for key '\(cacheKey)' — current cache keys: [\(previousKeys.isEmpty ? "<none>" : previousKeys)] — downloading run \(runID)",
+            "fetchStepLog › cache MISS key='\(cacheKey)' — downloading run \(runID)",
             category: .services
         )
         guard let data = await transport.raw("repos/\(scope)/actions/runs/\(runID)/logs") else {
@@ -355,7 +367,7 @@ public struct LogFetcher: Sendable {
             let stepCount = files.filter { $0.name.contains("/") }.count
             log(
                 "fetchStepLog › ZIP extracted \(files.count) file(s) for run \(runID) " +
-                "(\(stepCount) with step-prefix '/') in \(unzipDuration)",
+                "(\(stepCount) with step-prefix '/') in \(unzipDuration) — writing to LRU + disk",
                 category: .services
             )
             if stepCount == 0 {
@@ -366,11 +378,8 @@ public struct LogFetcher: Sendable {
                     category: .services
                 )
             }
-            if !previousKeys.isEmpty && previousKeys != cacheKey {
-                log("fetchStepLog › ZIP cache EVICTING key '\(previousKeys)' to store '\(cacheKey)' — single-entry policy", category: .services)
-            }
-            zipCache = [cacheKey: files]
-            log("fetchStepLog › ZIP cache now has 1 key: '\(cacheKey)' (\(files.count) files)", category: .services)
+            await zipLRUCache.set(runID, files: files)
+            await diskZIPCache.set(key: cacheKey, value: files, isCompleted: isCompleted)
             return .miss(files)
         case .processFailed(let exitCode):
             let unzipDuration = unzipStart.duration(to: .now)

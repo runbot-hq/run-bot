@@ -127,6 +127,19 @@ extension RunnerPoller {
             if state.fetchError != nil { state.fetchError = nil }
         }
 
+        // MARK: - ZIP prefetch
+        //
+        // Enqueue background ZIP prefetches for all surfaced jobs after state is written.
+        // `enqueue` is idempotent — repeated poll cycles for the same runID are free.
+        for job in jobResult.display {
+            await zipPrefetchQueue.enqueue(
+                runID: job.runID,
+                startedAt: job.startedAt,
+                scope: job.scope ?? "",
+                isCompleted: job.jobConclusion != nil
+            )
+        }
+
         // MARK: - Notification dispatch
         //
         // Find jobs that concluded this cycle: they were live last poll (prevLive)
