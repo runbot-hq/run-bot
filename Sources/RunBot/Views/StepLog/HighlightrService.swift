@@ -77,9 +77,17 @@ final class HighlightrService {
             currentTheme = theme
         }
 
-        guard
-            let nsAttr = highlightr.highlight(code, as: language),
-            let attributed = try? AttributedString(nsAttr, including: AttributeScopes.AppKitAttributes.self)
+        guard let nsAttr = highlightr.highlight(code, as: language) else { return nil }
+        // Override the font embedded by Highlightr's theme (~14–16pt) so code blocks
+        // render at 11pt monospaced. Colour attributes (keywords, strings, comments)
+        // are preserved — only NSFont is replaced.
+        let mutable = NSMutableAttributedString(attributedString: nsAttr)
+        mutable.addAttribute(
+            .font,
+            value: NSFont.monospacedSystemFont(ofSize: 11, weight: .regular),
+            range: NSRange(location: 0, length: mutable.length)
+        )
+        guard let attributed = try? AttributedString(mutable, including: AttributeScopes.AppKitAttributes.self)
         else { return nil }
 
         if cache.count >= cacheLimit { cache.removeFirst() }

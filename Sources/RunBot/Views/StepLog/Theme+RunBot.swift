@@ -13,9 +13,9 @@
 // ┃ Node               ┃ Token                                  ┃
 // ┡━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
 // ┃ Base / paragraph   ┃ size 12 regular · rbTextPrimary        ┃
-// ┃ H1                 ┃ size 14 bold · rbTextPrimary           ┃
-// ┃ H2                 ┃ size 13 semibold · rbTextPrimary       ┃
-// ┃ H3                 ┃ size 12.5 medium · rbTextPrimary       ┃
+// ┃ H1                 ┃ size 14 bold · rbAccent                ┃
+// ┃ H2                 ┃ size 13 semibold · rbAccent            ┃
+// ┃ H3                 ┃ size 12.5 medium · rbAccent            ┃
 // ┃ H4–H6              ┃ sectionKey (12.5pt) · rbTextSecondary   ┃
 // ┃ Inline code        ┃ monoSmall 11pt · rbTextSecondary       ┃
 // ┃ Code block         ┃ monoSmall · bg rbSurfaceElevated        ┃
@@ -44,27 +44,27 @@ extension Theme {
                     .markdownTextStyle {
                         FontSize(14)
                         FontWeight(.bold)
-                        ForegroundColor(.rbTextPrimary)
+                        ForegroundColor(.rbAccent)
                     }
-                    .markdownMargin(top: 12, bottom: 4)
+                    .markdownMargin(top: 16, bottom: 8)
             }
             .heading2 { config in
                 config.label
                     .markdownTextStyle {
                         FontSize(13)
                         FontWeight(.semibold)
-                        ForegroundColor(.rbTextPrimary)
+                        ForegroundColor(.rbAccent)
                     }
-                    .markdownMargin(top: 10, bottom: 4)
+                    .markdownMargin(top: 12, bottom: 6)
             }
             .heading3 { config in
                 config.label
                     .markdownTextStyle {
                         FontSize(12.5)
                         FontWeight(.medium)
-                        ForegroundColor(.rbTextPrimary)
+                        ForegroundColor(.rbAccent)
                     }
-                    .markdownMargin(top: 8, bottom: 2)
+                    .markdownMargin(top: 10, bottom: 4)
             }
             .heading4 { config in
                 config.label
@@ -101,7 +101,7 @@ extension Theme {
                         FontWeight(.regular)
                         ForegroundColor(.rbTextPrimary)
                     }
-                    .markdownMargin(top: 0, bottom: 4)
+                    .markdownMargin(top: 0, bottom: 6)
             }
             // MARK: Inline code (.code = inline code style in swift-markdown-ui v2)
             .code {
