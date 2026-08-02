@@ -13,6 +13,12 @@ struct MarkdownDetectorTests {
         #expect(MarkdownDetector.confidence("") == 0)
     }
 
+    @Test func detect_emptyString_scoresZero() {
+        let result = MarkdownDetector.detect("")
+        #expect(result.score == 0)
+        #expect(result.looksLikeMarkdown == false)
+    }
+
     @Test("plain prose scores zero")
     func plainProseScoresZero() {
         let text = "Building target RunBot\nCompiling Sources/RunBot/main.swift\nBuild complete!"

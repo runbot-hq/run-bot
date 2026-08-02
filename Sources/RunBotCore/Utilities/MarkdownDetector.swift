@@ -33,6 +33,9 @@ public enum MarkdownDetector {
     /// - Parameter text: ANSI-stripped log text (see type-level doc for contract).
     /// - Returns: A `DetectResult` with the raw score and the boolean gate decision.
     public static func detect(_ text: String) -> DetectResult {
+        // Empty input is a valid caller-side condition (e.g. result.text == nil coalesced to "").
+        // Short-circuit before Document(parsing:) — an empty AST always scores 0.
+        guard !text.isEmpty else { return DetectResult(score: 0, looksLikeMarkdown: false) }
         let doc = Document(parsing: text)
         var score = 0
         var blockTypes = Set<String>()
