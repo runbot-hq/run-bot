@@ -200,7 +200,23 @@ public final class GitHubClient {
             onTokenSaved: { cache.invalidate() },
             onTokenDeleted: { cache.invalidate() }
         )
+        // Dedicated URLSession with no disk cache for the GitHub API transport.
+        // URLSession.shared uses a disk-backed URLCache by default. GitHub's /logs
+        // endpoints 302-redirect to short-lived S3 pre-signed URLs; without urlCache = nil,
+        // URLSession can replay a cached 302 pointing at an expired S3 URL ~20 minutes
+        // later, causing every step log fetch to silently fail after the first read.
+        // req.cachePolicy = .reloadIgnoringLocalCacheData on the request (makeRawRequest)
+        // is insufficient alone — the session-level URLCache can still serve cached
+        // redirect responses regardless of the per-request policy.
+        // OAuthService above intentionally keeps URLSession.shared — its OAuth endpoints
+        // do not redirect to S3 and benefit from connection reuse via the shared session.
+        let apiSession: URLSession = {
+            let config = URLSessionConfiguration.default
+            config.urlCache = nil
+            return URLSession(configuration: config)
+        }()
         let transport = GitHubTransport(
+            session: apiSession,
             tokenProvider: { await cache.token() },
             logger: logger
         )
