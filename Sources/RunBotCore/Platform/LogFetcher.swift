@@ -415,7 +415,7 @@ public struct LogFetcher: Sendable {
             stepName: step.name,
             reason: available.isEmpty
                 ? "This job had step log files, but none matched step \(step.number)."
-                : "This job had step log files, but none matched step \(step.number). Available files for this job: \(available)."
+                : "This job had step log files, but none matched step \(step.number). Available files for this job: \(available). Tried prefix: '\(prefix)' (sanitised job name: '\(sanitised)')."
         )
     }
 }
