@@ -323,9 +323,11 @@ struct StepLogView: View {
         // ════════════════════════════════════════════════════════════════════════
         .frame(idealWidth: 480, maxWidth: .infinity, alignment: .top)
         .onAppear { loadLog() }
-        .onDisappear { loadTask?.cancel() }
+        .onDisappear {
+            log("StepLogView.onDisappear › canceling gen=\(loadGeneration) job=\(job.id) step=\(step.number) keys=[\(logFetcher.zipCacheKeys)]", category: .services)
+            loadTask?.cancel()
+        }
     }
-
     /// Kicks off a background fetch of the step log and publishes the result to `logText`.
     ///
     /// Cancels any in-flight `loadTask` before spawning a new one — prevents a stale
@@ -340,20 +342,13 @@ struct StepLogView: View {
     ///
     /// ## Known cancellation limitation
     ///
-    /// `loadTask?.cancel()` signals cooperative cancellation but does NOT abort the
-    /// underlying network I/O inside `fetchStepLog`. Because `fetchStepLog` does not
-    /// itself check `Task.isCancelled` at suspension points, the network call runs to
-    /// completion regardless. The `guard !Task.isCancelled` below therefore does NOT
-    /// prevent a previous task's result from being committed if the task was cancelled
-    /// and then re-checked before Swift's cooperative cancellation machinery fires —
-    /// it merely reduces the window, not closes it.
+    /// `loadTask?.cancel()` signals cooperative cancellation but does NOT abort
+    /// in-flight network I/O. `fetchStepLog` now checks `Task.isCancelled` at key
+    /// suspension points and logs each guard hit, but the URLSession transport call
+    /// itself runs to completion. The `guard !Task.isCancelled` checks reduce the
+    /// stale-write window but cannot close it entirely — on fast back → forward
+    /// navigation, the old `Task.isCancelled` may still be `false` at the guard site.
     ///
-    /// Concretely: on fast back → forward navigation, `loadLog()` cancels the old handle
-    /// and stores a new one, but the old `Task` is still alive. Its `Task.isCancelled`
-    /// may still be `false` at the `guard` site, so it can write stale log content.
-    ///
-    /// TODO: make `fetchStepLog` cancellation-cooperative (check `Task.isCancelled` after
-    /// each URLSession suspension point) to fully close this race.
     private func loadLog() {
         loadTask?.cancel() // Signals cancellation; does NOT abort in-flight network I/O.
         loadGeneration += 1
@@ -361,8 +356,7 @@ struct StepLogView: View {
         markdownScore = 0      // Clear stale badge — prevents MD button flash during spinner.
         isMarkdownMode = false // Safe: loadLog() fires once per view lifetime — RootPanelView's
                                // .id() key forces full SwiftUI remount on each step nav, so
-                               // @State resets automatically. This is explicit documentation of
-                               // intent, redundant with SwiftUI's teardown. (Verified in RootPanelView.swift.)
+                               // @State resets automatically. (Verified in RootPanelView.swift.)
         let jobID = job.id
         let runID = job.runID
         let startedAt = job.startedAt
@@ -371,25 +365,24 @@ struct StepLogView: View {
         let scope: String = {
             let primary = repoScopeForFetch
             if !primary.isEmpty { return primary }
-            // ✅ Use injected scopeStore (not singleton). Falls back to any entry (including
-            // disabled) per #1515 policy exception — saved repo preferred over unrelated active repo.
+            // ✅ Use injected scopeStore (not singleton). Saved repo preferred over unrelated active repo (#1515).
             return scopeStore.entries.first(where: { $0.scope.contains("/") })?.scope ?? ""
         }()
-        // Capture a copy of the fetcher so the mutating fetchStepLog call (which updates
-        // zipCache) is legal inside the Task. After the call we write the updated copy
-        // back to `logFetcher` on the MainActor so the cache is preserved for the next tap.
+        // Capture the fetcher copy so mutating fetchStepLog is legal inside the Task.
         let fetcherSnapshot = logFetcher
         let generation = loadGeneration
-        log("loadLog › generation=\(loadGeneration) runID=\(runID) startedAt=\(startedAt ?? "nil") jobID=\(jobID) jobName='\(jobName)' step=\(step.number) '\(step.name)' scope='\(scope)'",
+        let cacheKeys = logFetcher.zipCacheKeys.joined(separator: ", ")
+        let cacheInfo = cacheKeys.isEmpty ? "<empty>" : cacheKeys
+        log("loadLog › gen=\(loadGeneration) runID=\(runID) startedAt=\(startedAt ?? "nil") jobID=\(jobID) jobName='\(jobName)' step=\(step.number) scope='\(scope)' cacheKeys=[\(cacheInfo)]",
                 category: .services)
-        loadTask = Task {
-            // Do NOT use `defer` for `isLoading = false`: a `defer` fires even on the
-            // early-cancel `guard` returns below, which would clear the spinner while a
-            // *new* task is still in flight, briefly flashing "Log not available" to the
-            // user. Instead, clear `isLoading` only on the two paths that actually settle
-            // the view: the cancellation bailout after the fetch (where we do nothing and
-            // the new task owns loading state), and the successful write-back path.
-            guard !Task.isCancelled else { return }
+        loadTask = Task { [loadStart = ContinuousClock.now] in
+            // Do NOT use `defer` for `isLoading = false`: a `defer` fires even on early-cancel
+            // guard returns, briefly flashing "Log not available" to the user while a new task
+            // is still loading. Clear `isLoading` only on the two paths that settle the view.
+            guard !Task.isCancelled else {
+                log("loadLog.guard1 › generation=\(generation) cancelled before fetchStepLog — discarding", category: .services)
+                return
+            }
             var localFetcher = fetcherSnapshot
             let result = await localFetcher.fetchStepLog(
                 runID: runID,
@@ -399,16 +392,14 @@ struct StepLogView: View {
                 step: capturedStep,
                 scope: scope
             )
-            guard !Task.isCancelled else { return }
-            log("loadLog › fetchStepLog returned: \(result)", category: .services)
-            // Offload the synchronous parse to a detached task so the main thread
-            // stays free. `Task { }` inherits @MainActor from loadLog's caller and
-            // would run parseLogLines there — a real jank source on 10k-line logs.
-            // Markdown detection runs here too: detect(_:) performs a single Document(parsing:)
-            // call and returns both the score and the boolean — avoids the double-parse that
-            // calling confidence() + looksLikeMarkdown() separately would cause.
-            // Input is the same cleanLogText already processed upstream (ANSI-stripped today;
-            // see §7 of #2394 for what changes when #2379 Item 5 lands).
+            guard !Task.isCancelled else {
+                log("loadLog.guard2 › generation=\(generation) cancelled after fetchStepLog — discarding result", category: .services)
+                return
+            }
+            let fetchDuration = loadStart.duration(to: .now)
+            log("loadLog › fetchStepLog returned: \(result) elapsed=\(fetchDuration)", category: .services)
+            // Offload parse to a detached task so the main thread stays free.
+            // Markdown detection runs here too via a single detect(_:) call.
             let (parsed, defaultCollapsed, mdScore, mdAuto) = await Task.detached(priority: .userInitiated) {
                 let lines = result.text.map { parseLogLines($0) } ?? []
                 let collapsed = Set(lines.compactMap { line -> Int? in
@@ -418,7 +409,11 @@ struct StepLogView: View {
                 let detected = MarkdownDetector.detect(text)
                 return (lines, collapsed, detected.score, detected.looksLikeMarkdown)
             }.value
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled else {
+                log("loadLog.guard3 › generation=\(generation) cancelled after parse — discarding parsed result", category: .services)
+                return
+            }
+            let totalElapsed = loadStart.duration(to: .now)
             await MainActor.run { [generation] in
                 // Generation check: if loadLog() has been called again since this task
                 // was created, our result is stale — discard it silently.
@@ -426,7 +421,7 @@ struct StepLogView: View {
                     log("loadLog › generation MISMATCH gen=\(generation) current=\(self.loadGeneration) — discarding stale result", category: .services)
                     return
                 }
-                log("loadLog › writeback generation=\(generation) result=\(String(describing: result))", category: .services)
+                log("loadLog › writeback generation=\(generation) result=\(String(describing: result)) totalElapsed=\(totalElapsed)", category: .services)
                 logFetcher = localFetcher  // persist updated zipCache back to view state
                 logResult = result
                 // logText nil/empty distinction: nil = not yet fetched, "" = fetch returned
@@ -442,16 +437,11 @@ struct StepLogView: View {
                 // user toggle-off is preserved.
                 if mdAuto { isMarkdownMode = true }
                 log("loadLog › markdown: score=\(mdScore) autoEnabled=\(mdAuto) finalMode=\(isMarkdownMode)", category: .services)
-                // Preserve any groups the user manually expanded across re-fetches (e.g.
-                // live-step auto-refresh). Group identity is keyed on title, not on the
-                // parse-local integer ID — IDs are not stable across separate parse calls
-                // (the doc comment on LogLine makes this explicit).
-                //
-                // Strategy: build a title→id map for the new parse. Any title the user
-                // had manually expanded (i.e. whose old ID was absent from collapsedGroups)
-                // is removed from collapsedGroups using the new ID. Titles that are brand
-                // new to this parse start collapsed by default (their IDs are in
-                // defaultCollapsed and we leave them there).
+                // Preserve groups the user expanded across re-fetches. Group identity is keyed
+                // on title (IDs are not stable across parse calls). Strategy: build a
+                // title→id map for the new parse. Any title the user had manually expanded
+                // (old ID absent from collapsedGroups) is removed from collapsedGroups.
+                // Brand-new titles start collapsed by default.
                 let previousTitles: [String: Int] = Dictionary(
                     uniqueKeysWithValues: parsedLines.compactMap { line -> (String, Int)? in
                         if case .groupHeader(let id, let title) = line { return (title, id) } else { return nil }
