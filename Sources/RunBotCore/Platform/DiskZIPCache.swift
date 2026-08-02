@@ -2,26 +2,27 @@
 // RunBotCore
 import Foundation
 
-/// Persistent disk cache for run-level ZIP file maps.
+/// Persistent disk cache for run-level ZIP archives.
 ///
-/// Stored in `cachesDirectory/RunBot/ZIPCache/` as JSON files. The OS may purge
-/// entries under storage pressure; that is acceptable because a purge merely
-/// causes a network re-fetch — no data loss occurs.
+/// Stored in `applicationSupportDirectory/RunBot/ZIPCache/` as raw `.zip` files
+/// named `{runID}.zip`. The OS may purge entries under storage pressure; that is
+/// acceptable because a purge merely causes a network re-fetch — no data loss occurs.
+///
+/// Unzipping is **not** performed here. The raw bytes are stored and returned as-is;
+/// callers (e.g. `LogFetcher.fetchStepLog`) unzip lazily on the read path.
 ///
 /// ## Key format
-/// `runbot-zip-{runID}-{startedAtSanitised}` — the `startedAt` discriminator
-/// prevents stale hits when the same `runID` is re-triggered (e.g. re-run workflow).
+/// Plain `runID` integer — filename is `{runID}.zip`. No `startedAt` discriminator
+/// is needed because `RunnerPoller.prefetchedRunIDs` ensures each runID is only
+/// ever written once per session.
 ///
 /// ## Write guard
 /// Only completed runs (`isCompleted == true`) are written to disk.
-/// In-progress runs stay memory-only to avoid caching a partial ZIP.
+/// In-progress runs stay memory-only to avoid persisting a partial ZIP.
 ///
 /// ## Capacity
 /// Bounded by `maxCapacity` (10 files). On every `set`, files are sorted by
 /// modification date descending and anything past index 9 is deleted.
-///
-/// ## Corruption
-/// `get` silently deletes a file whose JSON cannot be decoded and returns `nil`.
 ///
 /// ## Concurrency
 /// `actor`-isolated. All methods are safe to call from any isolation domain.
@@ -29,12 +30,12 @@ public actor DiskZIPCache {
 
     // MARK: - Capacity
 
-    /// Maximum number of JSON cache files kept on disk.
+    /// Maximum number of `.zip` cache files kept on disk.
     public static let maxCapacity = 10
 
     // MARK: - Storage
 
-    /// The filesystem directory where JSON cache files are stored.
+    /// The filesystem directory where `.zip` cache files are stored.
     private let cacheDir: URL
 
     // MARK: - Init
@@ -46,7 +47,7 @@ public actor DiskZIPCache {
             self.cacheDir = dir
         } else {
             let base = FileManager.default
-                .urls(for: .cachesDirectory, in: .userDomainMask)
+                .urls(for: .applicationSupportDirectory, in: .userDomainMask)
                 .first ?? URL(fileURLWithPath: NSTemporaryDirectory())
             self.cacheDir = base
                 .appendingPathComponent("RunBot", isDirectory: true)
@@ -63,32 +64,25 @@ public actor DiskZIPCache {
 
     // MARK: - Public API
 
-    /// Returns cached file entries for `key`, or `nil` on miss / decode failure.
-    /// Silently deletes the file if JSON decoding fails.
-    public func get(key: String) -> [(name: String, text: String)]? {
-        let file = cacheDir.appendingPathComponent("\(key).json")
-        guard FileManager.default.fileExists(atPath: file.path),
-              let data = try? Data(contentsOf: file) else { return nil }
-        do {
-            let raw = try JSONDecoder().decode([[String: String]].self, from: data)
-            return raw.compactMap { dict -> (name: String, text: String)? in
-                guard let name = dict["name"], let text = dict["text"] else { return nil }
-                return (name: name, text: text)
-            }
-        } catch {
+    /// Returns the raw ZIP `Data` for `runID`, or `nil` on miss.
+    /// Silently deletes the file if it exists but cannot be read.
+    public func get(runID: Int) -> Data? {
+        let file = cacheDir.appendingPathComponent("\(runID).zip")
+        guard FileManager.default.fileExists(atPath: file.path) else { return nil }
+        if let data = try? Data(contentsOf: file) {
+            return data
+        } else {
             try? FileManager.default.removeItem(at: file)
             return nil
         }
     }
 
-    /// Writes `value` for `key` to disk and evicts excess files.
+    /// Writes raw ZIP `Data` for `runID` to disk and evicts excess files.
     /// No-op (and no file written) when `isCompleted` is `false`.
-    public func set(key: String, value: [(name: String, text: String)], isCompleted: Bool) {
+    public func set(runID: Int, zip: Data, isCompleted: Bool) {
         guard isCompleted else { return }
-        let file = cacheDir.appendingPathComponent("\(key).json")
-        let raw = value.map { ["name": $0.name, "text": $0.text] }
-        guard let data = try? JSONEncoder().encode(raw) else { return }
-        try? data.write(to: file, options: .atomic)
+        let file = cacheDir.appendingPathComponent("\(runID).zip")
+        try? zip.write(to: file, options: .atomic)
         evictIfNeeded()
     }
 
@@ -102,7 +96,7 @@ public actor DiskZIPCache {
             options: .skipsHiddenFiles
         ) else { return }
         let sorted = contents
-            .filter { $0.pathExtension == "json" }
+            .filter { $0.pathExtension == "zip" }
             .sorted {
                 let d0 = (try? $0.resourceValues(forKeys: [.contentModificationDateKey])
                     .contentModificationDate) ?? .distantPast
@@ -114,17 +108,4 @@ public actor DiskZIPCache {
             try? FileManager.default.removeItem(at: file)
         }
     }
-}
-
-// MARK: - Cache key helper
-
-/// Builds a stable, filesystem-safe cache key for a run ZIP.
-///
-/// The `startedAt` component prevents stale hits when the same `runID` is re-triggered.
-public func diskZIPCacheKey(runID: Int, startedAt: String?) -> String {
-    let sanitised = (startedAt ?? "unknown")
-        .replacingOccurrences(of: ":", with: "-")
-        .replacingOccurrences(of: "/", with: "-")
-        .replacingOccurrences(of: " ", with: "-")
-    return "runbot-zip-\(runID)-\(sanitised)"
 }

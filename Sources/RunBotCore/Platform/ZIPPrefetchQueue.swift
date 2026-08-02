@@ -8,8 +8,6 @@ import os
 private struct PrefetchItem: Sendable {
     /// The GitHub workflow run ID to fetch.
     let runID: Int
-    /// ISO 8601 start timestamp used to form the disk cache key.
-    let startedAt: String?
     /// The `owner/repo` scope string for the GitHub API path.
     let scope: String
     /// Whether the run has completed; gates disk cache writes.
@@ -18,9 +16,12 @@ private struct PrefetchItem: Sendable {
 
 /// Manages background prefetching of run-level ZIP archives into `ZIPLRUCache` and `DiskZIPCache`.
 ///
+/// Raw ZIP bytes are stored without extraction. Unzipping is deferred to the read path
+/// (`LogFetcher.fetchStepLog`) so no CPU work is done for runs the user never opens.
+///
 /// ## Deduplication
 /// `enqueue` is idempotent per `runID`: if the run is already memory-cached, disk-cached,
-/// in-flight, or on the deny-list, the call is a no-op.
+/// or currently in-flight, the call is a no-op.
 ///
 /// ## Concurrency
 /// At most `maxConcurrent` (3) fetches run simultaneously. Additional enqueued items
@@ -30,8 +31,6 @@ private struct PrefetchItem: Sendable {
 /// - **nil response** (404, expired ZIP, or transport error): logged and dropped. The run
 ///   will not be re-enqueued because `RunnerPoller.prefetchedRunIDs` tracks every runID
 ///   that has been handed to `enqueue`, preventing duplicate calls across poll cycles.
-/// - **Unzip failure** (non-zero exit or I/O error): logged and dropped. Same re-enqueue
-///   prevention applies.
 ///
 /// ## Teardown
 /// Call `cancelAll()` when the owning poller is torn down to clear pending work
@@ -53,8 +52,6 @@ public actor ZIPPrefetchQueue {
     private let diskCache: DiskZIPCache
     /// GitHub transport used to download the ZIP archive.
     private let transport: any GitHubTransportProtocol
-    /// Unzip implementation — defaults to the real subprocess path.
-    private let zipExtractor: ZipExtractor
 
     // MARK: - State
 
@@ -75,17 +72,14 @@ public actor ZIPPrefetchQueue {
     ///   - memCache: In-process LRU cache.
     ///   - diskCache: Persistent disk cache.
     ///   - transport: GitHub transport for ZIP downloads.
-    ///   - zipExtractor: Unzip implementation. Defaults to the real subprocess path.
     public init(
         memCache: ZIPLRUCache,
         diskCache: DiskZIPCache,
-        transport: any GitHubTransportProtocol,
-        zipExtractor: ZipExtractor? = nil
+        transport: any GitHubTransportProtocol
     ) {
         self.memCache = memCache
         self.diskCache = diskCache
         self.transport = transport
-        self.zipExtractor = zipExtractor ?? { data in await unzipLogsTyped(data) }
     }
 
     // MARK: - Public API
@@ -100,10 +94,9 @@ public actor ZIPPrefetchQueue {
         guard !isCancelled else { return }
         guard !inFlight.contains(runID) else { return }
         guard !(await memCache.contains(runID)) else { return }
-        let key = diskZIPCacheKey(runID: runID, startedAt: startedAt)
-        guard await diskCache.get(key: key) == nil else { return }
+        guard await diskCache.get(runID: runID) == nil else { return }
         guard !pending.contains(where: { $0.runID == runID }) else { return }
-        pending.append(PrefetchItem(runID: runID, startedAt: startedAt, scope: scope, isCompleted: isCompleted))
+        pending.append(PrefetchItem(runID: runID, scope: scope, isCompleted: isCompleted))
         drainQueue()
     }
 
@@ -124,20 +117,19 @@ public actor ZIPPrefetchQueue {
             inFlight.insert(item.runID)
             activeFetchCount += 1
             let runID = item.runID
-            let startedAt = item.startedAt
             let scope = item.scope
             let isCompleted = item.isCompleted
             Task(priority: .background) { [weak self] in
-                await self?.fetch(runID: runID, startedAt: startedAt, scope: scope, isCompleted: isCompleted)
+                await self?.fetch(runID: runID, scope: scope, isCompleted: isCompleted)
             }
         }
     }
 
-    /// Downloads, unzips, and caches the ZIP for one `runID`.
+    /// Downloads raw ZIP bytes and writes them to both caches. No unzipping is performed.
     ///
     /// Always removes `runID` from `inFlight` and decrements `activeFetchCount` via `defer`,
     /// regardless of outcome. Calls `drainQueue()` to fill the freed slot.
-    private func fetch(runID: Int, startedAt: String?, scope: String, isCompleted: Bool) async {
+    private func fetch(runID: Int, scope: String, isCompleted: Bool) async {
         defer {
             inFlight.remove(runID)
             activeFetchCount -= 1
@@ -153,17 +145,8 @@ public actor ZIPPrefetchQueue {
             return
         }
         guard !isCancelled else { return }
-        switch await zipExtractor(data) {
-        case .success(let files):
-            guard !isCancelled else { return }
-            await memCache.set(runID, files: files)
-            let cacheKey = diskZIPCacheKey(runID: runID, startedAt: startedAt)
-            await diskCache.set(key: cacheKey, value: files, isCompleted: isCompleted)
-            log("ZIPPrefetchQueue › cached \(files.count) files for runID=\(runID)", category: .services)
-        case .processFailed(let code):
-            log("ZIPPrefetchQueue › unzip failed for runID=\(runID) exit=\(code)", category: .services)
-        case .ioError:
-            log("ZIPPrefetchQueue › I/O error for runID=\(runID)", category: .services)
-        }
+        await memCache.set(runID, zip: data)
+        await diskCache.set(runID: runID, zip: data, isCompleted: isCompleted)
+        log("ZIPPrefetchQueue › cached \(data.count) bytes for runID=\(runID)", category: .services)
     }
 }

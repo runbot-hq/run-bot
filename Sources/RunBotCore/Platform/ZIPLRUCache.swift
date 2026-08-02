@@ -1,7 +1,11 @@
 // ZIPLRUCache.swift
 // RunBotCore
 
-/// Thread-safe LRU cache for run-level ZIP file maps, keyed by `runID`.
+/// Thread-safe LRU cache for run-level ZIP archives, keyed by `runID`.
+///
+/// Values are raw ZIP `Data` bytes. Unzipping is deferred to the read path
+/// (`LogFetcher.fetchStepLog`) so prefetch never pays the extraction cost for
+/// runs the user never opens.
 ///
 /// Capacity is bounded by `maxCapacity`. When a new entry is inserted and the cache
 /// is already at capacity, the least-recently-accessed entry is evicted.
@@ -24,8 +28,8 @@ public actor ZIPLRUCache {
 
     /// Ordered by recency: index 0 = least-recently-used, last index = most-recently-used.
     private var order: [Int] = []
-    /// The actual file map storage.
-    private var store: [Int: [(name: String, text: String)]] = [:]
+    /// Raw ZIP byte storage keyed by runID.
+    private var store: [Int: Data] = [:]
 
     // MARK: - Init
 
@@ -34,23 +38,23 @@ public actor ZIPLRUCache {
 
     // MARK: - Public API
 
-    /// Returns cached files for `runID` and promotes it to most-recently-used.
+    /// Returns the raw ZIP `Data` for `runID` and promotes it to most-recently-used.
     /// Returns `nil` on a cache miss.
-    public func get(_ runID: Int) -> [(name: String, text: String)]? {
-        guard let files = store[runID] else { return nil }
+    public func get(_ runID: Int) -> Data? {
+        guard let zip = store[runID] else { return nil }
         promote(runID)
-        return files
+        return zip
     }
 
-    /// Inserts or updates `files` for `runID`.
+    /// Inserts or updates raw ZIP `Data` for `runID`.
     /// Promotes `runID` to most-recently-used. Evicts the LRU entry if over capacity.
-    public func set(_ runID: Int, files: [(name: String, text: String)]) {
+    public func set(_ runID: Int, zip: Data) {
         if store[runID] != nil {
             promote(runID)
         } else {
             order.append(runID)
         }
-        store[runID] = files
+        store[runID] = zip
         evictIfNeeded()
     }
 
