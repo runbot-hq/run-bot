@@ -215,6 +215,10 @@ public struct LogFetcher: Sendable {
 
         // Cache lookup — delegates to loadZipFiles which owns the single-entry eviction policy.
         let cacheKey = "\(runID)-\(startedAt ?? "")"
+        log(
+            "fetchStepLog › cacheKey='\(cacheKey)' jobName='\(jobName)' sanitised='\(sanitizeJobNameForZIP(jobName))' step=\(step.number) '\(step.name)'",
+            category: .services
+        )
         let allFiles: [(name: String, text: String)]
         switch await loadZipFiles(cacheKey: cacheKey, runID: runID, scope: scope) {
         case .hit(let files): allFiles = files
@@ -302,7 +306,17 @@ public struct LogFetcher: Sendable {
         runID: Int,
         scope: String
     ) async -> ZipLoadResult {
-        if let cached = zipCache[cacheKey] { return .hit(cached) }
+        if let cached = zipCache[cacheKey] {
+            log(
+                "fetchStepLog › ZIP cache HIT for key '\(cacheKey)' — \(cached.count) file(s), skipping download",
+                category: .services
+            )
+            return .hit(cached)
+        }
+        log(
+            "fetchStepLog › ZIP cache MISS for key '\(cacheKey)' — current cache keys: [\(zipCache.keys.joined(separator: ", "))] — downloading run \(runID)",
+            category: .services
+        )
         guard let data = await transport.raw("repos/\(scope)/actions/runs/\(runID)/logs") else {
             log("fetchStepLog › network failure fetching ZIP for run \(runID) scope '\(scope)'", category: .services)
             return .failed(.fetchFailed(reason: "Could not download the run log archive from GitHub."))
