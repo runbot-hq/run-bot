@@ -244,7 +244,9 @@ public struct LogFetcher: Sendable {
         // future extractor that doesn't strip them at source.
         let stepFiles = allFiles.filter { $0.name.contains("/") && !$0.name.hasPrefix("__MACOSX/") }
         let sanitised = sanitizeJobNameForZIP(jobName)
-        let hasStepFiles = stepFiles.contains { $0.name.hasPrefix("\(sanitised)/") }
+        let hasStepFiles = stepFiles.contains {
+            $0.name.hasPrefix("\(sanitised)/") && !$0.name.hasSuffix("/system")
+        }
         log("fetchStepLog › stepFiles (\(stepFiles.count)): [\(stepFiles.map { $0.name }.joined(separator: ", "))] hasStepFiles=\(hasStepFiles) sanitised='\(sanitised)'", category: .services)
 
         guard hasStepFiles else {
