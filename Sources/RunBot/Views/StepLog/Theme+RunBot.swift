@@ -13,9 +13,9 @@
 // ┃ Node               ┃ Token                                  ┃
 // ┡━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
 // ┃ Base / paragraph   ┃ size 12 regular · rbTextPrimary        ┃
-// ┃ H1                 ┃ size 14 bold · rbAccent                ┃
-// ┃ H2                 ┃ size 13 semibold · rbAccent            ┃
-// ┃ H3                 ┃ size 12.5 medium · rbAccent            ┃
+// ┃ H1                 ┃ size 14 bold · rbTextPrimary           ┃
+// ┃ H2                 ┃ size 13 semibold · rbTextPrimary       ┃
+// ┃ H3                 ┃ size 12.5 medium · rbTextPrimary       ┃
 // ┃ H4–H6              ┃ sectionKey (12.5pt) · rbTextSecondary   ┃
 // ┃ Inline code        ┃ monoSmall 11pt · rbTextSecondary       ┃
 // ┃ Code block         ┃ monoSmall · bg rbSurfaceElevated        ┃
@@ -44,7 +44,7 @@ extension Theme {
                     .markdownTextStyle {
                         FontSize(14)
                         FontWeight(.bold)
-                        ForegroundColor(.rbAccent)
+                        ForegroundColor(.rbTextPrimary)
                     }
                     .markdownMargin(top: 16, bottom: 8)
             }
@@ -53,7 +53,7 @@ extension Theme {
                     .markdownTextStyle {
                         FontSize(13)
                         FontWeight(.semibold)
-                        ForegroundColor(.rbAccent)
+                        ForegroundColor(.rbTextPrimary)
                     }
                     .markdownMargin(top: 12, bottom: 6)
             }
@@ -62,7 +62,7 @@ extension Theme {
                     .markdownTextStyle {
                         FontSize(12.5)
                         FontWeight(.medium)
-                        ForegroundColor(.rbAccent)
+                        ForegroundColor(.rbTextPrimary)
                     }
                     .markdownMargin(top: 10, bottom: 4)
             }
@@ -99,7 +99,7 @@ extension Theme {
                     .markdownTextStyle {
                         FontSize(12)
                         FontWeight(.regular)
-                        ForegroundColor(.rbTextPrimary)
+                        ForegroundColor(.rbTextPrimary.opacity(0.75))
                     }
                     .markdownMargin(top: 0, bottom: 6)
             }
