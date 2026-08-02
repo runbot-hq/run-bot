@@ -88,9 +88,6 @@ struct StepLogView: View {
     @State private var isMarkdownMode: Bool = false
     /// Guards auto-enable so it fires at most once per log identity.
     /// `isMarkdownMode` alone can't distinguish "never set" from "user toggled off" —
-    /// both are `false`. This flag is reset to `false` in `loadLog()` at the top of each
-    /// new fetch (i.e. when step identity changes), so auto-enable re-runs on navigation.
-    @State private var hasAutoEnabledMarkdown: Bool = false
     /// Bound to the `AppState`-owned `LogFetcher` so the ZIP cache survives
     /// across step taps. `@State` would be discarded on every `.id(navState)`
     /// remount in `RootPanelView` (SwiftUI tears down the full state tree when
@@ -366,8 +363,6 @@ struct StepLogView: View {
                                // .id() key forces full SwiftUI remount on each step nav, so
                                // @State resets automatically. This is explicit documentation of
                                // intent, redundant with SwiftUI's teardown. (Verified in RootPanelView.swift.)
-        hasAutoEnabledMarkdown = false // Re-arms auto-enable for the new step's content.
-                                       // Safe to reset here for the same reason as isMarkdownMode above.
         let jobID = job.id
         let runID = job.runID
         let startedAt = job.startedAt
@@ -435,14 +430,10 @@ struct StepLogView: View {
                 // Both computed from a single detect(_:) call on the detached task above;
                 // do NOT re-derive score >= 6 inline.
                 markdownScore = mdScore
-                // Auto-enable guard: fires once per loadLog() call. Only sets
-                // isMarkdownMode = true, never false — user toggle-off is preserved.
-                // hasAutoEnabledMarkdown resets at top of loadLog(), safe because
-                // loadLog() fires once per view lifetime (see isMarkdownMode comment above).
-                if !hasAutoEnabledMarkdown {
-                    hasAutoEnabledMarkdown = true
-                    if mdAuto { isMarkdownMode = true }
-                }
+                // Auto-enable: loadLog() fires exactly once per view lifetime, so this
+                // runs exactly once. Only sets isMarkdownMode = true, never false —
+                // user toggle-off is preserved.
+                if mdAuto { isMarkdownMode = true }
                 // Preserve any groups the user manually expanded across re-fetches (e.g.
                 // live-step auto-refresh). Group identity is keyed on title, not on the
                 // parse-local integer ID — IDs are not stable across separate parse calls
