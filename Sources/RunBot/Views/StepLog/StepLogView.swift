@@ -265,7 +265,7 @@ struct StepLogView: View {
                 } else {
                     switch logResult {
                     case .slice(let content):
-                        if isMarkdownMode {
+                        if isMarkdownMode && markdownScore >= 6 {
                             MarkdownLogView(text: content)
                         } else {
                             logBodyView
@@ -277,7 +277,7 @@ struct StepLogView: View {
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .padding(.horizontal, RBSpacing.md).padding(.top, 6)
                             Divider().padding(.horizontal, RBSpacing.md)
-                            if isMarkdownMode {
+                            if isMarkdownMode && markdownScore >= 6 {
                                 MarkdownLogView(text: content)
                             } else {
                                 logBodyView
