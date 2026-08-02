@@ -1,35 +1,27 @@
 // MarkdownLogView.swift
 // RunBot
-import MarkdownView
+import MarkdownUI
 import SwiftUI
 
-/// Renders a markdown string using `LiYanan2004/MarkdownView`,
-/// themed to match RunBot's design tokens via environment modifiers.
+/// Renders a markdown string using `gonzalezreal/swift-markdown-ui`,
+/// themed to match RunBot's design tokens via `Theme.runBot`.
 ///
 /// Must live **inside** `StepLogView`'s existing `ScrollView` — never as a
 /// parallel scroll container.
 ///
-/// ✅ Scroll audit complete — verified against `LiYanan2004/MarkdownView@454625f`:
-/// `MarkdownView.body` returns `MarkdownViewRenderer` directly with no `ScrollView`
-/// wrapper. Safe to embed here without `.scrollDisabled(true)`.
-/// The `#Preview` in `MarkdownView.swift` wraps in `ScrollView` to demonstrate
-/// intended usage — that is caller convention, not a component requirement.
-/// `DefaultCodeBlockStyle` uses `ScrollView(.horizontal)` for code blocks only —
-/// horizontal-axis only, does not interfere with vertical scroll in the parent.
-/// No action needed unless the library is updated to a new revision — re-verify
-/// `MarkdownView.swift` body after any revision bump.
-///
-/// - Note: `LiYanan2004/MarkdownView` re-parses `text` on render via an internal
-///   async path. Main thread is not blocked. Verified against `@454625f`.
+/// Scroll audit — `swift-markdown-ui@5f61335` (v2.4.1):
+/// `Markdown.body` renders via `MarkdownBody` which lays out blocks in a
+/// `VStack`-equivalent flow with no wrapping `ScrollView`. Safe to embed
+/// here without `.scrollDisabled(true)`.
+/// Re-verify `Markdown.swift` body after any revision bump.
 struct MarkdownLogView: View {
     /// The markdown string to render.
     let text: String
 
-    /// The rendered view — `MarkdownView` themed to RunBot design tokens.
+    /// The rendered view — `Markdown` themed to RunBot design tokens.
     var body: some View {
-        MarkdownView(text)
-            .markdownFontGroup(RunBotMarkdownFontGroup())
-            .markdownCodeBlockStyle(.default())
+        Markdown(text)
+            .markdownTheme(.runBot)
             .textSelection(.enabled)
             .padding(.horizontal, RBSpacing.md)
             .padding(.vertical, 8)

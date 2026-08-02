@@ -2,7 +2,6 @@
 // RunBot
 import AppKit
 import GitHubClient
-import MarkdownView
 import RunBotCore
 import SwiftUI
 // ╔════════════════════════════════════════════════════════════════════════════╗

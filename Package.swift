@@ -36,8 +36,10 @@ let package = Package(
         //   3. Bump the revision: value here.
         //   4. Commit both Package.swift and Package.resolved changes together.
         //   ❌ Do NOT switch back to branch: "main" for either of these packages.
-        .package(url: "https://github.com/LiYanan2004/MarkdownView", revision: "454625f199e5224109a275b8ef4d8a7202c704f2"),
-        // swiftlang mirror required — must match MarkdownView's transitive dep URL exactly.
+        // swift-markdown-ui for RunBot-native markdown rendering in StepLogView (#2398).
+        // Pinned to v2.4.1 — do NOT switch to branch: "main".
+        .package(url: "https://github.com/gonzalezreal/swift-markdown-ui", revision: "5f613358148239d0292c0cef674a3c2314737f9e"),
+        // swiftlang mirror required — must match swift-markdown-ui's transitive dep URL exactly.
         // apple/swift-markdown and swiftlang/swift-markdown are treated as different SPM
         // identities even though they point to the same repo, causing an identity conflict
         // warning if the wrong mirror is used here.
@@ -72,10 +74,10 @@ let package = Package(
                 // No RunBot source imports MenuBarKit yet — the dependency is additive
                 // and costs nothing until the first import statement is written.
                 .product(name: "MenuBarKit", package: "MenuBarKit"),
-                // MarkdownView for rendering detected markdown in StepLogView (#2394).
-                // swift-markdown (swiftlang mirror) arrives transitively via MarkdownView
+                // MarkdownUI for rendering detected markdown in StepLogView (#2398).
+                // swift-markdown (swiftlang mirror) arrives transitively via swift-markdown-ui
                 // and is also declared directly in RunBotCore for MarkdownDetector testability.
-                .product(name: "MarkdownView", package: "MarkdownView"),
+                .product(name: "MarkdownUI", package: "swift-markdown-ui"),
             ],
             path: "Sources/RunBot",
             exclude: ["Resources/Assets.xcassets"],
