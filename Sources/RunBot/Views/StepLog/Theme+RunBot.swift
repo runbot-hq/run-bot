@@ -112,31 +112,7 @@ extension Theme {
             }
             // MARK: Code block
             .codeBlock { config in
-                VStack(alignment: .leading, spacing: 0) {
-                    if let lang = config.language, !lang.isEmpty {
-                        Text(lang.uppercased())
-                            .font(RBFont.statLabel)
-                            .foregroundColor(Color.rbTextTertiary)
-                            .padding(.horizontal, RBSpacing.sm)
-                            .padding(.top, RBSpacing.xs)
-                    }
-                    config.label
-                        .markdownTextStyle {
-                            FontFamilyVariant(.monospaced)
-                            FontSize(11)
-                            ForegroundColor(.rbTextSecondary)
-                        }
-                        .relativeLineSpacing(.em(0.2))
-                        .padding(RBSpacing.sm)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .background(Color.rbSurfaceElevated)
-                .cornerRadius(RBRadius.small)
-                .overlay(
-                    RoundedRectangle(cornerRadius: RBRadius.small)
-                        .strokeBorder(Color.rbBorderSubtle, lineWidth: 0.5)
-                )
-                .markdownMargin(top: 0, bottom: 4)
+                CodeBlockView(config: config)
             }
             // MARK: Blockquote
             .blockquote { config in
@@ -186,5 +162,59 @@ extension Theme {
                 ForegroundColor(.rbAccent)
                 UnderlineStyle(.init(pattern: .solid, color: .clear))
             }
+    }
+}
+
+// MARK: - CodeBlockView
+
+/// Renders a markdown code block with syntax highlighting via `HighlightrService`.
+///
+/// Falls back to plain text if Highlightr returns `nil` (unknown language, JSCore failure).
+/// Must live outside the `Theme` extension so it can declare `@Environment(\..colorScheme)`.
+struct CodeBlockView: View {
+    /// The code block configuration supplied by `swift-markdown-ui`.
+    let config: CodeBlockConfiguration
+    /// Current colour scheme — forwarded to `HighlightrService` for theme selection.
+    @Environment(\.colorScheme) var colorScheme
+
+    /// Highlighted code block, with optional language label and plain-text fallback.
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if let lang = config.language, !lang.isEmpty {
+                Text(lang.uppercased())
+                    .font(RBFont.statLabel)
+                    .foregroundColor(Color.rbTextTertiary)
+                    .padding(.horizontal, RBSpacing.sm)
+                    .padding(.top, RBSpacing.xs)
+            }
+            Group {
+                if let attributed = HighlightrService.shared.highlight(
+                    config.content,
+                    language: config.language?.isEmpty == false ? config.language! : "plaintext",
+                    colorScheme: colorScheme
+                ) {
+                    Text(attributed)
+                } else {
+                    // Fallback: plain text with same visual layout
+                    config.label
+                        .markdownTextStyle {
+                            FontFamilyVariant(.monospaced)
+                            FontSize(11)
+                            ForegroundColor(.rbTextSecondary)
+                        }
+                }
+            }
+            .font(RBFont.monoSmall)
+            .relativeLineSpacing(.em(0.2))
+            .padding(RBSpacing.sm)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .background(Color.rbSurfaceElevated)
+        .cornerRadius(RBRadius.small)
+        .overlay(
+            RoundedRectangle(cornerRadius: RBRadius.small)
+                .strokeBorder(Color.rbBorderSubtle, lineWidth: 0.5)
+        )
+        .markdownMargin(top: 0, bottom: 4)
     }
 }

@@ -93,6 +93,26 @@ public enum MarkdownDetector {
         detect(text).score
     }
 
+    /// Extracts all fenced code blocks from `text`.
+    ///
+    /// Used by the RunBot UI layer to pre-warm the syntax-highlighting cache
+    /// without importing `Markdown` into files that already stress the
+    /// Swift type-checker (e.g. large SwiftUI view bodies).
+    ///
+    /// - Parameter text: Raw log text, ANSI-stripped.
+    /// - Returns: Array of `(code, language)` tuples; `language` is `nil` when
+    ///   no language tag was present on the fence.
+    public static func codeBlocks(in text: String) -> [(code: String, language: String?)] {
+        let doc = Document(parsing: text)
+        var results: [(code: String, language: String?)] = []
+        for child in doc.children {
+            if let block = child as? CodeBlock {
+                results.append((block.code, block.language))
+            }
+        }
+        return results
+    }
+
     /// Returns `true` when `text` is likely markdown and should auto-render.
     ///
     /// Two gates (AND):

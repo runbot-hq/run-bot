@@ -18,6 +18,9 @@ struct MarkdownLogView: View {
     /// The markdown string to render.
     let text: String
 
+    /// Current colour scheme — passed to `preWarmHighlightr` for theme selection.
+    @Environment(\.colorScheme) private var colorScheme
+
     /// The rendered view — `Markdown` themed to RunBot design tokens.
     var body: some View {
         Markdown(text)
@@ -25,5 +28,14 @@ struct MarkdownLogView: View {
             .textSelection(.enabled)
             .padding(.horizontal, RBSpacing.md)
             .padding(.vertical, 8)
+            .onAppear {
+                // Pre-warm HighlightrService cache as soon as the markdown view
+                // appears. CodeBlockView calls HighlightrService synchronously on
+                // the main actor; if the cache is already warm the highlight is
+                // instant. Pre-warming here (rather than in loadLog) avoids
+                // touching StepLogView's large Task closure which hits the Swift
+                // type-checker complexity limit when Highlightr is in the module.
+                preWarmHighlightr(text: text, colorScheme: colorScheme)
+            }
     }
 }

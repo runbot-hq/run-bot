@@ -39,6 +39,9 @@ let package = Package(
         // swift-markdown-ui for RunBot-native markdown rendering in StepLogView (#2398).
         // Pinned to v2.4.1 — do NOT switch to branch: "main".
         .package(url: "https://github.com/gonzalezreal/swift-markdown-ui", revision: "5f613358148239d0292c0cef674a3c2314737f9e"),
+        // Highlightr for syntax highlighting in markdown code blocks (#2399).
+        // Pinned to v2.3.0 — do NOT switch to branch: "main".
+        .package(url: "https://github.com/raspu/Highlightr", revision: "05e7fcc63b33925cd0c1faaa205cdd5681e7bbef"),
         // swiftlang mirror required — must match swift-markdown-ui's transitive dep URL exactly.
         // apple/swift-markdown and swiftlang/swift-markdown are treated as different SPM
         // identities even though they point to the same repo, causing an identity conflict
@@ -78,6 +81,8 @@ let package = Package(
                 // swift-markdown (swiftlang mirror) arrives transitively via swift-markdown-ui
                 // and is also declared directly in RunBotCore for MarkdownDetector testability.
                 .product(name: "MarkdownUI", package: "swift-markdown-ui"),
+                // Highlightr for syntax highlighting in markdown code blocks (#2399).
+                .product(name: "Highlightr", package: "Highlightr"),
             ],
             path: "Sources/RunBot",
             exclude: ["Resources/Assets.xcassets"],
