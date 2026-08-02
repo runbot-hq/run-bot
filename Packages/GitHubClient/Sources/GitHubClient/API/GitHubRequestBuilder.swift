@@ -15,11 +15,8 @@ public func resolveURL(_ endpoint: String) -> String {
 // MARK: - Request factories
 
 /// Builds a `URLRequest` with the Authorization and API-version headers shared by all GitHub REST calls.
-/// `reloadIgnoringLocalCacheData` prevents `URLSession` from replaying a stale cached 302
-/// redirect that points to an already-expired S3 pre-signed URL (the root cause of
-/// logs becoming unreadable after the in-memory ZIP cache entry is evicted — issue #2401).
 private func makeBaseRequest(url: URL, token: String, timeout: TimeInterval) -> URLRequest {
-    var req = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: timeout)
+    var req = URLRequest(url: url, timeoutInterval: timeout)
     req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
     req.setValue("2022-11-28", forHTTPHeaderField: "X-GitHub-Api-Version")
     return req
@@ -38,6 +35,7 @@ public func makeRequest(url: URL, token: String, timeout: TimeInterval) -> URLRe
 /// so the S3 response body is the raw bytes rather than a JSON envelope.
 public func makeRawRequest(url: URL, token: String, timeout: TimeInterval) -> URLRequest {
     var req = makeBaseRequest(url: url, token: token, timeout: timeout)
+    req.cachePolicy = .reloadIgnoringLocalCacheData
     req.setValue("application/vnd.github.v3.raw", forHTTPHeaderField: "Accept")
     return req
 }
