@@ -17,9 +17,7 @@ func preWarmHighlightr(text: String, colorScheme: ColorScheme) {
         for block in blocks {
             _ = await HighlightrService.shared.highlight(
                 block.code,
-                language: block.language?.isEmpty == false
-                    ? block.language!
-                    : "plaintext",
+                language: block.language.flatMap { $0.isEmpty ? nil : $0 } ?? "plaintext",
                 colorScheme: colorScheme
             )
         }

@@ -28,6 +28,8 @@ final class HighlightrService {
     private var cache: [(key: CacheKey, value: AttributedString)] = []
     /// Maximum number of entries before the oldest is evicted.
     private let cacheLimit = 100
+    /// The last theme name passed to `highlightr.setTheme(to:)`. Guards redundant calls.
+    private var currentTheme: String = ""
 
     // MARK: Init
 
@@ -70,7 +72,10 @@ final class HighlightrService {
 
         let theme = colorScheme == .dark ? HighlightrTheme.dark : HighlightrTheme.light
         guard let highlightr else { return nil }
-        highlightr.setTheme(to: theme)
+        if theme != currentTheme {
+            highlightr.setTheme(to: theme)
+            currentTheme = theme
+        }
 
         guard
             let nsAttr = highlightr.highlight(code, as: language),

@@ -191,7 +191,7 @@ struct CodeBlockView: View {
                 Group {
                     if let attributed = HighlightrService.shared.highlight(
                         config.content,
-                        language: config.language?.isEmpty == false ? config.language! : "plaintext",
+                        language: config.language.flatMap { $0.isEmpty ? nil : $0 } ?? "plaintext",
                         colorScheme: colorScheme
                     ) {
                         Text(attributed)
