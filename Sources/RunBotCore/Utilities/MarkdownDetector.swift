@@ -1,5 +1,5 @@
 // MarkdownDetector.swift
-// RunBotCore
+// RunBot
 import Markdown
 
 /// Scores a log string for markdown content and decides whether to auto-render it.
@@ -66,7 +66,7 @@ public enum MarkdownDetector {
         }
         if blockTypes.count >= 3 { score += 3 } // diversity bonus
 
-        let lines = max(text.components(separatedBy: .newlines).count, 1)
+        let lines = max(text.components(separatedBy: "\n").count, 1)
         let autoEnable = score >= 6 && Float(score) / Float(lines) >= 0.10
         return DetectResult(score: score, looksLikeMarkdown: autoEnable)
     }
