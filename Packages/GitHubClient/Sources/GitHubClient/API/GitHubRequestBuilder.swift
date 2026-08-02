@@ -15,8 +15,11 @@ public func resolveURL(_ endpoint: String) -> String {
 // MARK: - Request factories
 
 /// Builds a `URLRequest` with the Authorization and API-version headers shared by all GitHub REST calls.
+/// `reloadIgnoringLocalCacheData` prevents `URLSession` from replaying a stale cached 302
+/// redirect that points to an already-expired S3 pre-signed URL (the root cause of
+/// logs becoming unreadable after the in-memory ZIP cache entry is evicted — issue #2401).
 private func makeBaseRequest(url: URL, token: String, timeout: TimeInterval) -> URLRequest {
-    var req = URLRequest(url: url, timeoutInterval: timeout)
+    var req = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: timeout)
     req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
     req.setValue("2022-11-28", forHTTPHeaderField: "X-GitHub-Api-Version")
     return req
