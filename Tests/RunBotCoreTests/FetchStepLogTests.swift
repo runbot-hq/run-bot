@@ -117,6 +117,8 @@ private func makeStep(number: Int, name: String) -> GitHubStep {
 }
 
 /// Builds a `LogFetcher` with a stub transport and a no-subprocess extractor.
+/// Fresh `ZIPLRUCache` and `DiskZIPCache` instances are injected so no state
+/// leaks between tests via the shared singleton caches.
 private func makeFetcher(
     zipFiles: [(name: String, text: String)],
     extraResponses: [String: Data] = [:]
@@ -127,7 +129,13 @@ private func makeFetcher(
     ]
     for (k, v) in extraResponses { responses[k] = v }
     let transport = FetchStepStubTransport(responses: responses)
-    return LogFetcher(transport: transport, zipExtractor: { _ in .success(zipFiles) })
+    return LogFetcher(
+        transport: transport,
+        zipLRUCache: ZIPLRUCache(),
+        diskZIPCache: DiskZIPCache(cacheDir: FileManager.default.temporaryDirectory
+            .appendingPathComponent("test-disk-zip-\(UUID().uuidString)")),
+        zipExtractor: { _ in .success(zipFiles) }
+    )
 }
 
 @Suite("LogFetcher.fetchStepLog")
@@ -177,7 +185,12 @@ struct FetchStepLogTests {
         let transport = FetchStepStubTransport(responses: [
             "repos/owner/repo/actions/runs/99/logs": fixtureZip,
         ])
-        var fetcher = LogFetcher(transport: transport) // real zipExtractor
+        var fetcher = LogFetcher(
+            transport: transport,
+            zipLRUCache: ZIPLRUCache(),
+            diskZIPCache: DiskZIPCache(cacheDir: FileManager.default.temporaryDirectory
+                .appendingPathComponent("test-disk-zip-\(UUID().uuidString)"))
+        ) // real zipExtractor
         let result = await fetcher.fetchStepLog(
             runID: 99, startedAt: "2026-07-31T04:34:20Z",
             jobID: 1, jobName: "release",
@@ -356,6 +369,9 @@ struct FetchStepLogTests {
         ])
         var fetcher = LogFetcher(
             transport: transport,
+            zipLRUCache: ZIPLRUCache(),
+            diskZIPCache: DiskZIPCache(cacheDir: FileManager.default.temporaryDirectory
+                .appendingPathComponent("test-disk-zip-\(UUID().uuidString)")),
             zipExtractor: { _ in .success([(name: "release/1_Build", text: "build output\n")]) }
         )
         _ = await fetcher.fetchStepLog(
