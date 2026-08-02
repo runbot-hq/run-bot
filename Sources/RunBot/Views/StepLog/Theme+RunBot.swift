@@ -187,27 +187,30 @@ struct CodeBlockView: View {
                     .padding(.horizontal, RBSpacing.sm)
                     .padding(.top, RBSpacing.xs)
             }
-            Group {
-                if let attributed = HighlightrService.shared.highlight(
-                    config.content,
-                    language: config.language?.isEmpty == false ? config.language! : "plaintext",
-                    colorScheme: colorScheme
-                ) {
-                    Text(attributed)
-                } else {
-                    // Fallback: plain text with same visual layout
-                    config.label
-                        .markdownTextStyle {
-                            FontFamilyVariant(.monospaced)
-                            FontSize(11)
-                            ForegroundColor(.rbTextSecondary)
-                        }
+            ScrollView(.horizontal, showsIndicators: false) {
+                Group {
+                    if let attributed = HighlightrService.shared.highlight(
+                        config.content,
+                        language: config.language?.isEmpty == false ? config.language! : "plaintext",
+                        colorScheme: colorScheme
+                    ) {
+                        Text(attributed)
+                    } else {
+                        // Fallback: plain text with same visual layout
+                        config.label
+                            .markdownTextStyle {
+                                FontFamilyVariant(.monospaced)
+                                FontSize(11)
+                                ForegroundColor(.rbTextSecondary)
+                            }
+                    }
                 }
+                .font(RBFont.monoSmall)
+                .relativeLineSpacing(.em(0.2))
+                .fixedSize(horizontal: true, vertical: false)
+                .padding(RBSpacing.sm)
             }
-            .font(RBFont.monoSmall)
-            .relativeLineSpacing(.em(0.2))
-            .padding(RBSpacing.sm)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(maxWidth: .infinity)
         }
         .background(Color.rbSurfaceElevated)
         .cornerRadius(RBRadius.small)
