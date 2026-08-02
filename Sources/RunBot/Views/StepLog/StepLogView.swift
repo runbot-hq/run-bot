@@ -157,18 +157,6 @@ struct StepLogView: View {
                 }
                 .buttonStyle(.plain)
                 Spacer()
-                if let urlString = job.htmlUrl, let url = URL(string: urlString) {
-                    Button { NSWorkspace.shared.open(url) } label: {
-                        HStack(spacing: 3) {
-                            Image(systemName: "safari").font(.caption)
-                            Text("GitHub").font(.caption)
-                        }
-                        .foregroundColor(Color.rbTextSecondary)
-                        .fixedSize()
-                    }
-                    .buttonStyle(.plain)
-                    .help("Open job on GitHub")
-                }
                 if markdownScore >= 6 {
                     Button {
                         isMarkdownMode.toggle()
@@ -185,6 +173,18 @@ struct StepLogView: View {
                     .help(isMarkdownMode ? "Showing markdown — click for raw" : "Show as markdown")
                     .padding(.horizontal, 5).padding(.vertical, 2)
                     .glassCard(cornerRadius: RBRadius.small)
+                }
+                if let urlString = job.htmlUrl, let url = URL(string: urlString) {
+                    Button { NSWorkspace.shared.open(url) } label: {
+                        HStack(spacing: 3) {
+                            Image(systemName: "safari").font(.caption)
+                            Text("GitHub").font(.caption)
+                        }
+                        .foregroundColor(Color.rbTextSecondary)
+                        .fixedSize()
+                    }
+                    .buttonStyle(.plain)
+                    .help("Open job on GitHub")
                 }
                 LogCopyButton(
                     fetch: { completion in
