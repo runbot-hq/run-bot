@@ -158,14 +158,21 @@ public struct GitHubTransport: GitHubTransportProtocol {
     ) else {
       return .networkError(URLError(.badURL))
     }
+    let urlString = resolveURL(endpoint)
+    logger?.log(
+      "\(logTag) › firing request: \(urlString) raw=\(useRawAccept) cachePolicy=\(req.cachePolicy.rawValue)",
+      category: "transport")
     do {
       let (data, response) = try await session.data(for: req)
+      logger?.log(
+        "\(logTag) › response received: \(urlString) bytes=\(data.count)",
+        category: "transport")
       return await interpretHTTPResponse(
-        response, data: data, urlString: resolveURL(endpoint)
+        response, data: data, urlString: urlString, logTag: logTag
       )
     } catch {
       logger?.log(
-        "\(logTag) › \(resolveURL(endpoint)) network error: \(error.localizedDescription)",
+        "\(logTag) › \(urlString) network error: \(error.localizedDescription)",
         category: "transport")
       return .networkError(error)
     }
@@ -211,11 +218,16 @@ public struct GitHubTransport: GitHubTransportProtocol {
   private func interpretHTTPResponse(
     _ response: URLResponse,
     data: Data,
-    urlString: String
+    urlString: String,
+    logTag: String
   ) async -> ExecuteResult {
     guard let http = response as? HTTPURLResponse else {
+      logger?.log("\(logTag) › \(urlString) response was not HTTPURLResponse — treating as network error", category: "transport")
       return .networkError(URLError(.badServerResponse))
     }
+    logger?.log(
+      "\(logTag) › \(urlString) HTTP \(http.statusCode) bytes=\(data.count)",
+      category: "transport")
     if http.statusCode == 403 || http.statusCode == 429 {
       let wasRateLimited = await handleRateLimitResponse(
         statusCode: http.statusCode,
@@ -225,6 +237,9 @@ public struct GitHubTransport: GitHubTransportProtocol {
         rateLimiter: rateLimiter,
         logger: logger
       )
+      logger?.log(
+        "\(logTag) › \(urlString) HTTP \(http.statusCode) → \(wasRateLimited ? "rateLimited" : "permissionDenied")",
+        category: "transport")
       return wasRateLimited ? .rateLimited : .permissionDenied
     }
     guard (200..<300).contains(http.statusCode) else {
