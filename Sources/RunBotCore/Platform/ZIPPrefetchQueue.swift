@@ -27,9 +27,11 @@ private struct PrefetchItem: Sendable {
 /// wait in `pending` and are drained as slots free up.
 ///
 /// ## Error handling
-/// - **404** (ZIP permanently expired): `runID` is added to `denyList` and never re-fetched.
-/// - **Any other error** (503, timeout, I/O): `runID` is removed from `inFlight` via `defer`
-///   and becomes eligible for retry on the next poll cycle enqueue.
+/// - **nil response** (404, expired ZIP, or transport error): logged and dropped. The run
+///   will not be re-enqueued because `RunnerPoller.prefetchedRunIDs` tracks every runID
+///   that has been handed to `enqueue`, preventing duplicate calls across poll cycles.
+/// - **Unzip failure** (non-zero exit or I/O error): logged and dropped. Same re-enqueue
+///   prevention applies.
 ///
 /// ## Teardown
 /// Call `cancelAll()` when the owning poller is torn down to clear pending work
@@ -60,8 +62,6 @@ public actor ZIPPrefetchQueue {
     private var inFlight: Set<Int> = []
     /// Items waiting for a free fetch slot.
     private var pending: [PrefetchItem] = []
-    /// runIDs that returned HTTP 404 — ZIP is permanently expired, never re-fetch.
-    private var denyList: Set<Int> = []
     /// Number of concurrently running fetch tasks.
     private var activeFetchCount = 0
     /// Set to `true` by `cancelAll()`; prevents further work after teardown.
@@ -93,10 +93,11 @@ public actor ZIPPrefetchQueue {
     /// Enqueues a prefetch for `runID` in `scope`.
     ///
     /// No-op if the run is already present in the memory LRU cache, disk cache,
-    /// currently in-flight, or on the deny-list (permanent 404).
+    /// or currently in-flight. Callers are responsible for not calling `enqueue`
+    /// more than once per `runID` across sessions; `RunnerPoller.prefetchedRunIDs`
+    /// provides this guarantee for the production call site.
     public func enqueue(runID: Int, startedAt: String?, scope: String, isCompleted: Bool) async {
         guard !isCancelled else { return }
-        guard !denyList.contains(runID) else { return }
         guard !inFlight.contains(runID) else { return }
         guard !(await memCache.contains(runID)) else { return }
         let key = diskZIPCacheKey(runID: runID, startedAt: startedAt)
@@ -148,8 +149,7 @@ public actor ZIPPrefetchQueue {
             category: .services
         )
         guard let data = await transport.raw("repos/\(scope)/actions/runs/\(runID)/logs") else {
-            log("ZIPPrefetchQueue › 404/nil for runID=\(runID) — added to denyList", category: .services)
-            denyList.insert(runID)
+            log("ZIPPrefetchQueue › nil response for runID=\(runID) — skipping (ZIP may be expired)", category: .services)
             return
         }
         guard !isCancelled else { return }

@@ -129,15 +129,17 @@ extension RunnerPoller {
 
         // MARK: - ZIP prefetch
         //
-        // Enqueue background ZIP prefetches for all surfaced jobs after state is written.
-        // `enqueue` is idempotent — repeated poll cycles for the same runID are free.
-        for job in jobResult.display {
+        // Enqueue background ZIP prefetches for jobs not yet seen this session.
+        // `prefetchedRunIDs` is the authoritative "only once" gate; it avoids the
+        // actor-hop cost of calling `enqueue` on already-seen runIDs every poll tick.
+        for job in jobResult.display where !prefetchedRunIDs.contains(job.runID) {
             await zipPrefetchQueue.enqueue(
                 runID: job.runID,
                 startedAt: job.startedAt,
                 scope: job.scope ?? "",
                 isCompleted: job.jobConclusion != nil
             )
+            prefetchedRunIDs.insert(job.runID)
         }
 
         // MARK: - Notification dispatch

@@ -106,18 +106,18 @@ final class ZIPPrefetchQueueTests: XCTestCase {
         XCTAssertEqual(transport.callCount, 0, "Run already on disk must not trigger a fetch")
     }
 
-    // MARK: - 404 deny-listing
+    // MARK: - Nil response (expired ZIP)
 
-    func testNilResponseAddsRunIDToDenyList() async throws {
+    func testNilResponseDoesNotCrashAndLogsOnce() async throws {
         let transport = FakeTransport()
-        transport.responseData = nil // simulate 404
-        let (queue, _, _) = makeQueue(transport: transport)
+        transport.responseData = nil // simulate expired / 404 ZIP
+        let (queue, mem, _) = makeQueue(transport: transport)
         await queue.enqueue(runID: 99, startedAt: nil, scope: "o/r", isCompleted: true)
         try await Task.sleep(nanoseconds: 50_000_000)
-        // Second enqueue should be a no-op (deny-listed)
-        await queue.enqueue(runID: 99, startedAt: nil, scope: "o/r", isCompleted: true)
-        try await Task.sleep(nanoseconds: 30_000_000)
-        XCTAssertEqual(transport.callCount, 1, "After 404, runID must be deny-listed and not re-fetched")
+        // Exactly one fetch attempt; nothing written to mem cache
+        XCTAssertEqual(transport.callCount, 1, "Nil response should trigger exactly one fetch attempt")
+        let inMem = await mem.contains(99)
+        XCTAssertFalse(inMem, "Nil response must not populate mem cache")
     }
 
     // MARK: - cancelAll
