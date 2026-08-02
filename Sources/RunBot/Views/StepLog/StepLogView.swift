@@ -358,10 +358,14 @@ struct StepLogView: View {
         isLoading = true
         markdownScore = 0      // Clear stale badge — prevents MD button flash during spinner.
         isMarkdownMode = false // Safe to reset unconditionally: loadLog() is called exactly once
-                               // per step identity by the .id() key in RootPanelView, which forces
-                               // a full SwiftUI remount, resetting all @State automatically. This
-                               // reset is therefore redundant with SwiftUI's own teardown but is
-                               // kept as explicit documentation of intent. (Verified in RootPanelView.swift.)
+                               // per step identity. RootPanelView uses .id("stepLog-\(job.id)-\(step.number)")
+                               // which forces a full SwiftUI remount on every step navigation,
+                               // resetting all @State automatically. There is no live-refresh
+                               // path that re-calls loadLog() on the same mounted view instance —
+                               // onAppear fires once per .id() key, and the key is stable for the
+                               // lifetime of a given step-log session. This reset is therefore
+                               // redundant with SwiftUI's own teardown but kept as explicit
+                               // documentation of intent. (Verified in RootPanelView.swift.)
         hasAutoEnabledMarkdown = false // Re-arms auto-enable for the new step's content.
                                        // Safe to reset here for the same reason as isMarkdownMode above.
         let jobID = job.id
@@ -431,16 +435,14 @@ struct StepLogView: View {
                 // Both computed from a single detect(_:) call on the detached task above;
                 // do NOT re-derive score >= 6 inline.
                 markdownScore = mdScore
-                // Auto-enable guard: hasAutoEnabledMarkdown fires at most once per loadLog()
-                // call, preventing repeated auto-enable on any future re-fetch path.
-                // This guard only ever sets isMarkdownMode = true, never false — so a user
-                // who toggled markdown off cannot have it re-enabled by this path.
-                // A user can only toggle ON when markdownScore >= 6; mdAuto is true for any
-                // log scoring >= 6, so there is no reachable state where a manual toggle-on
-                // gets silently cleared by a subsequent loadLog() call.
-                // hasAutoEnabledMarkdown is reset at the top of loadLog() so auto-enable
-                // re-runs correctly on step navigation (view is remounted via .id() anyway,
-                // but the explicit reset documents intent).
+                // Auto-enable guard: fires at most once per loadLog() call.
+                // This block only ever sets isMarkdownMode = true, never false — a user who
+                // toggles markdown off cannot have it re-enabled by this path.
+                // A user can only see the MD badge when markdownScore >= 6, and mdAuto is true
+                // for any log scoring >= 6 — there is no reachable state where a manual
+                // toggle-on gets silently cleared by a subsequent loadLog() call.
+                // hasAutoEnabledMarkdown is reset at the top of loadLog(), which is safe because
+                // loadLog() fires exactly once per view lifetime (see isMarkdownMode comment above).
                 if !hasAutoEnabledMarkdown {
                     hasAutoEnabledMarkdown = true
                     if mdAuto { isMarkdownMode = true }
