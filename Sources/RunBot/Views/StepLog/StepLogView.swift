@@ -380,6 +380,8 @@ struct StepLogView: View {
         // back to `logFetcher` on the MainActor so the cache is preserved for the next tap.
         let fetcherSnapshot = logFetcher
         let generation = loadGeneration
+        log("loadLog › generation=\(loadGeneration) runID=\(runID) startedAt=\(startedAt ?? "nil") jobID=\(jobID) jobName='\(jobName)' step=\(step.number) '\(step.name)' scope='\(scope)'",
+                category: .services)
         loadTask = Task {
             // Do NOT use `defer` for `isLoading = false`: a `defer` fires even on the
             // early-cancel `guard` returns below, which would clear the spinner while a
@@ -398,6 +400,7 @@ struct StepLogView: View {
                 scope: scope
             )
             guard !Task.isCancelled else { return }
+            log("loadLog › fetchStepLog returned: \(result)", category: .services)
             // Offload the synchronous parse to a detached task so the main thread
             // stays free. `Task { }` inherits @MainActor from loadLog's caller and
             // would run parseLogLines there — a real jank source on 10k-line logs.
@@ -419,7 +422,11 @@ struct StepLogView: View {
             await MainActor.run { [generation] in
                 // Generation check: if loadLog() has been called again since this task
                 // was created, our result is stale — discard it silently.
-                guard self.loadGeneration == generation else { return }
+                guard self.loadGeneration == generation else {
+                    log("loadLog › generation MISMATCH gen=\(generation) current=\(self.loadGeneration) — discarding stale result", category: .services)
+                    return
+                }
+                log("loadLog › writeback generation=\(generation) result=\(String(describing: result))", category: .services)
                 logFetcher = localFetcher  // persist updated zipCache back to view state
                 logResult = result
                 // logText nil/empty distinction: nil = not yet fetched, "" = fetch returned
@@ -434,6 +441,7 @@ struct StepLogView: View {
                 // runs exactly once. Only sets isMarkdownMode = true, never false —
                 // user toggle-off is preserved.
                 if mdAuto { isMarkdownMode = true }
+                log("loadLog › markdown: score=\(mdScore) autoEnabled=\(mdAuto) finalMode=\(isMarkdownMode)", category: .services)
                 // Preserve any groups the user manually expanded across re-fetches (e.g.
                 // live-step auto-refresh). Group identity is keyed on title, not on the
                 // parse-local integer ID — IDs are not stable across separate parse calls

@@ -225,6 +225,7 @@ public struct LogFetcher: Sendable {
         case .miss(let files): allFiles = files
         case .failed(let result): return result
         }
+        log("fetchStepLog › allFiles (\(allFiles.count)): [\(allFiles.map { $0.name }.joined(separator: ", "))]", category: .services)
 
         // Exclude top-level blob files. Only entries with a "/" in the name are per-step
         // slices (e.g. "release/2_Checkout.txt" → name "release/2_Checkout"). Top-level
@@ -238,13 +239,16 @@ public struct LogFetcher: Sendable {
         let stepFiles = allFiles.filter { $0.name.contains("/") && !$0.name.hasPrefix("__MACOSX/") }
         let sanitised = sanitizeJobNameForZIP(jobName)
         let hasStepFiles = stepFiles.contains { $0.name.hasPrefix("\(sanitised)/") }
+        log("fetchStepLog › stepFiles (\(stepFiles.count)): [\(stepFiles.map { $0.name }.joined(separator: ", "))] hasStepFiles=\(hasStepFiles) sanitised='\(sanitised)'", category: .services)
 
         guard hasStepFiles else {
+            log("fetchStepLog › no step files for job '\(jobName)' — attempting flat-blob fallback via fetchJobLog jobID=\(jobID)", category: .services)
             guard let raw = await fetchJobLog(jobID: jobID, scope: scope) else {
                 log("fetchStepLog › flat-blob fallback also failed for job \(jobID) scope '\(scope)'", category: .services)
                 return .fetchFailed(reason: "GitHub did not provide per-step log files for this job, and the fallback full-job log request also failed.")
             }
             let parsed = parseStepLog(raw, stepName: step.name, stepNumber: step.number, logger: transport.logger)
+            log("fetchStepLog › flat-blob fallback result: parsed=\(parsed != nil) rawBytes=\(raw.utf8.count)", category: .services)
             if parsed == nil {
                 log("fetchStepLog › parseStepLog returned nil for step \(step.number) '\(step.name)' job \(jobID) run \(runID) — serving full raw job log via flatBlobFallback", category: .services)
             }
@@ -308,7 +312,7 @@ public struct LogFetcher: Sendable {
     ) async -> ZipLoadResult {
         if let cached = zipCache[cacheKey] {
             log(
-                "fetchStepLog › ZIP cache HIT for key '\(cacheKey)' — \(cached.count) file(s), skipping download",
+                "fetchStepLog › ZIP cache HIT for key '\(cacheKey)' — \(cached.count) file(s): [\(cached.map { $0.name }.joined(separator: ", "))]",
                 category: .services
             )
             return .hit(cached)
