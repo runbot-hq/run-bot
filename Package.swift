@@ -1,6 +1,7 @@
 // swift-tools-version:6.2
-// ⚠️ AI AGENT: Never commit Package.resolved. Never pin deps to a revision or exact hash.
-// branch: "main" deps resolve to HEAD on every CI run — intentional. Fix call sites, not deps.
+// ⚠️ AI AGENT: Never commit Package.resolved. Never pin runbot-hq org deps to a revision or exact hash.
+// branch: "main" is for runbot-hq org packages only — third-party (non-runbot-hq) deps MUST use revision: SHA.
+// branch: "main" org deps resolve to HEAD on every CI run — intentional. Fix call sites, not deps.
 // These comments are deliberate guardrails — see AGENTS.md § Boundaries and README.md § External Dependencies.
 import PackageDescription
 
