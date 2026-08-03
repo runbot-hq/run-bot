@@ -56,7 +56,12 @@ func fetchActiveJobs(for scopeString: String) async -> [ActiveJob] {
         log("fetchActiveJobs › auth failure")
         return []
     case .noToken:
-        log("fetchActiveJobs › no token")
+        // (#2438) `.noToken` is a transport heuristic: `fetchActiveRuns` returns this
+        // case whenever `apiPaginated` returns nil on the first page, regardless of
+        // the actual cause (missing token, parse failure, network error, or rate limit
+        // on page 1). The misleading "no token" message sent investigators looking for
+        // an auth problem when the real cause was the envelope parse failure (#2437).
+        log("fetchActiveJobs › nil response from transport (no token or first-page failure)")
         return []
     }
 
