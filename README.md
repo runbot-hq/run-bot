@@ -1,6 +1,6 @@
 <div align="center">
 
-<img width="140" alt="RunBot" src="logo.png">
+<img width="140" alt="RunBot" src="logo.svg">
 
 # RunBot
 
