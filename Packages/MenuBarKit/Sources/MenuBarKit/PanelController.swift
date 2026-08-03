@@ -453,9 +453,19 @@ public final class MBKPanelController<Content: View>: NSObject, MBKPanelControll
     /// the button would briefly go dark→light→dark before `openPanel()` re-asserted
     /// `highlight(true)`. Firing on mouseDown means `openPanel()` runs and locks in
     /// `highlight(true)` before AppKit's mouseUp clear cycle. See #2425.
+    ///
+    /// `object_setClass` injects `MBKStatusBarButton` immediately after the button
+    /// is created. `NSStatusBarButton` cannot be directly instantiated (AppKit
+    /// creates it internally), so this is the only way to guard AppKit-internal
+    /// `highlight(false)` calls fired from `panel.makeKey()` and app-switch —
+    /// neither of which is addressed by `sendAction(on:)` alone. See #2440.
     private func setupStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = statusItem.button {
+            // Inject MBKStatusBarButton to guard highlight(false) while panel is open.
+            // object_setClass is safe: NSStatusBarButton has no extra stored ivars,
+            // so no ivar-layout mismatch can occur. See MBKStatusBarButton.swift and #2440.
+            object_setClass(button, MBKStatusBarButton.self)
             button.image = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil)
             button.image?.isTemplate = true
             button.sendAction(on: .leftMouseDown)
