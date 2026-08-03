@@ -354,9 +354,12 @@ struct StepLogView: View {
         loadGeneration += 1
         isLoading = true
         markdownScore = 0      // Clear stale badge — prevents MD button flash during spinner.
-        isMarkdownMode = false // Safe: loadLog() fires once per view lifetime — RootPanelView's
-                               // .id() key forces full SwiftUI remount on each step nav, so
-                               // @State resets automatically. (Verified in RootPanelView.swift.)
+        // isMarkdownMode is intentionally NOT reset here: loadLog() can fire multiple
+        // times per view lifetime (`.onAppear` re-fires on live-step refresh), and
+        // resetting it would wipe the user's manual toggle-off. SwiftUI state teardown
+        // on view identity change handles the fresh-start case. The auto-enable path
+        // below (`if mdAuto { isMarkdownMode = true }`) only sets to true, never false,
+        // so a user toggle-off is preserved across re-fetches.
         let jobID = job.id
         let runID = job.runID
         let startedAt = job.startedAt
@@ -381,6 +384,7 @@ struct StepLogView: View {
                 log("loadLog.guard1 › generation=\(generation) cancelled before fetchStepLog — discarding", category: .services)
                 return
             }
+            let isStepCompleted = capturedStep.conclusion != nil
             var localFetcher = fetcherSnapshot
             let result = await localFetcher.fetchStepLog(
                 runID: runID,
@@ -388,7 +392,8 @@ struct StepLogView: View {
                 jobID: jobID,
                 jobName: jobName,
                 step: capturedStep,
-                scope: scope
+                scope: scope,
+                isCompleted: isStepCompleted
             )
             guard !Task.isCancelled else {
                 log("loadLog.guard2 › generation=\(generation) cancelled after fetchStepLog — discarding result", category: .services)
@@ -430,9 +435,9 @@ struct StepLogView: View {
                 // Both computed from a single detect(_:) call on the detached task above;
                 // do NOT re-derive score >= 6 inline.
                 markdownScore = mdScore
-                // Auto-enable: loadLog() fires exactly once per view lifetime, so this
-                // runs exactly once. Only sets isMarkdownMode = true, never false —
-                // user toggle-off is preserved.
+                // Auto-enable: `isMarkdownMode` is NOT reset in `loadLog()` (see above),
+                // so this only sets to true on first auto-detection and preserves the
+                // user's manual toggle-off across subsequent re-fetches.
                 if mdAuto { isMarkdownMode = true }
                 log("loadLog › markdown: score=\(mdScore) autoEnabled=\(mdAuto) finalMode=\(isMarkdownMode)", category: .services)
                 // Preserve groups the user expanded across re-fetches. Group identity is keyed

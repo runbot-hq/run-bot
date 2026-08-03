@@ -203,6 +203,8 @@ public struct LogFetcher: Sendable {
     ///   - jobName: The job display name (from `job.name`). Sanitised before ZIP lookup.
     ///   - step: The `GitHubStep` whose log is requested.
     ///   - scope: The `owner/repo` string identifying the repository.
+    ///   - isCompleted: Whether the run has completed. When `false`, the disk cache
+    ///     write is skipped to avoid persisting a partial ZIP for an in-progress run.
     /// - Returns: A `StepLogResult` — never silent about failure or wrong content.
     public func fetchStepLog(
         runID: Int,
@@ -210,7 +212,8 @@ public struct LogFetcher: Sendable {
         jobID: Int,
         jobName: String,
         step: GitHubStep,
-        scope: String
+        scope: String,
+        isCompleted: Bool = true
     ) async -> StepLogResult {
         guard scope.contains("/") else {
             log("fetchStepLog › invalid scope '\(scope)' — must be owner/repo", category: .services)
@@ -225,7 +228,7 @@ public struct LogFetcher: Sendable {
         )
         let zipData: Data
         let zipFromCache: Bool
-        switch await loadZipFiles(runID: runID, scope: scope) {
+        switch await loadZipFiles(runID: runID, scope: scope, isCompleted: isCompleted) {
         case .hit(let data): zipData = data; zipFromCache = true
         case .miss(let data): zipData = data; zipFromCache = false
         case .failed(let result): return result
@@ -392,7 +395,8 @@ public struct LogFetcher: Sendable {
     /// after this method returns, so the cache only stores raw bytes.
     private func loadZipFiles(
         runID: Int,
-        scope: String
+        scope: String,
+        isCompleted: Bool
     ) async -> ZipLoadResult {
         // Layer 1: LRU memory cache
         if let cached = await zipLRUCache.get(runID) {
@@ -425,7 +429,7 @@ public struct LogFetcher: Sendable {
         log("fetchStepLog › ZIP downloaded \(data.count) bytes for run \(runID) in \(downloadDuration)", category: .services)
         // Backfill both caches with raw bytes. Extraction is deferred to the caller.
         await zipLRUCache.set(runID, zip: data)
-        await diskZIPCache.set(runID: runID, zip: data, isCompleted: true)
+        await diskZIPCache.set(runID: runID, zip: data, isCompleted: isCompleted)
         return .miss(data)
     }
 
