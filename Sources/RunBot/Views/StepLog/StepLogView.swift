@@ -84,7 +84,24 @@ struct StepLogView: View {
     /// Computed on the background task in loadLog() alongside isMarkdownMode.
     @State private var markdownScore: Int = 0
     /// Whether markdown rendering is active for this log.
-    /// Auto-enabled when looksLikeMarkdown passes the normalized gate; user can toggle off.
+    ///
+    /// ## Lifecycle — read before changing this
+    ///
+    /// `StepLogView` is NOT a live-polling view. `loadLog()` runs exactly once per
+    /// view lifetime, triggered by `.onAppear`. The poller (`RunnerPoller`) is a
+    /// completely separate actor and does not call back into this view.
+    ///
+    /// The only way `loadLog()` fires a second time is if SwiftUI re-parents the view
+    /// (e.g. `.id(navState)` identity change on step navigation). In that case SwiftUI
+    /// tears down the **entire** `@State` tree — `isMarkdownMode` resets to `false`
+    /// automatically before the second `loadLog()` runs. There is therefore no
+    /// scenario where `if mdAuto { isMarkdownMode = true }` in the MainActor commit
+    /// can override a prior user toggle-off: if the user toggled off and the view
+    /// stayed alive, `loadLog()` does not run again; if the view was remounted,
+    /// state was already wiped.
+    ///
+    /// A sentinel flag (e.g. `markdownModeOverride: Bool?`) is NOT needed and would
+    /// add complexity without closing any real bug.
     @State private var isMarkdownMode: Bool = false
     /// Guards auto-enable so it fires at most once per log identity.
     /// `isMarkdownMode` alone can't distinguish "never set" from "user toggled off" —
@@ -435,9 +452,13 @@ struct StepLogView: View {
                 // Both computed from a single detect(_:) call on the detached task above;
                 // do NOT re-derive score >= 6 inline.
                 markdownScore = mdScore
-                // Auto-enable: `isMarkdownMode` is NOT reset in `loadLog()` (see above),
-                // so this only sets to true on first auto-detection and preserves the
-                // user's manual toggle-off across subsequent re-fetches.
+                // Auto-enable: safe to set unconditionally when mdAuto is true because
+                // loadLog() does not re-run while this view instance is alive (StepLogView
+                // is not polled — RunnerPoller is a separate actor with no callback into
+                // this view). The only re-fire path is SwiftUI view remount via .id()
+                // identity change, which tears down all @State before loadLog() runs
+                // again, so isMarkdownMode is already false at that point. A user
+                // toggle-off therefore cannot be overwritten here.
                 if mdAuto { isMarkdownMode = true }
                 log("loadLog › markdown: score=\(mdScore) autoEnabled=\(mdAuto) finalMode=\(isMarkdownMode)", category: .services)
                 // Preserve groups the user expanded across re-fetches. Group identity is keyed
