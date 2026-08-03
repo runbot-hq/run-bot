@@ -11,6 +11,7 @@
 import Foundation
 import GitHubClient
 
+/// Extension housing concurrent scope-fan-out helpers for jobs and action groups.
 extension RunnerPoller {
 
   // MARK: - Fetch helpers

@@ -15,6 +15,7 @@
 import Foundation
 import GitHubClient
 
+/// Extension housing one full poll cycle and its pre-fetch scope-derivation helper.
 extension RunnerPoller {
 
   // MARK: - Fetch

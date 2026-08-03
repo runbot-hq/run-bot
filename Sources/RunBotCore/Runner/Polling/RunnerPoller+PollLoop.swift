@@ -10,6 +10,8 @@
 
 import Foundation
 
+/// Extension housing the scope-observation loop, poll-loop lifecycle, adaptive-interval
+/// counters, and interval computation for `RunnerPoller`.
 extension RunnerPoller {
 
   // MARK: - Observation loops
@@ -149,7 +151,9 @@ extension RunnerPoller {
       rateLimitRemaining: rateLimitRemaining
     )
     log(
-      "RunnerPoller › nextPollInterval — \(Int(interval))s hasActive=\(hasActive) idleTick=\(consecutiveIdleTicks) busyRunners=\(lastBusyRunnerCount) rateLimited=\(isRateLimited) rateLimitRemaining=\(rateLimitRemaining)",
+      "RunnerPoller › nextPollInterval — \(Int(interval))s hasActive=\(hasActive)"
+        + " idleTick=\(consecutiveIdleTicks) busyRunners=\(lastBusyRunnerCount)"
+        + " rateLimited=\(isRateLimited) rateLimitRemaining=\(rateLimitRemaining)",
       category: .runner)
     return interval
   }
