@@ -288,6 +288,12 @@ final class MBKStatusBarButton: NSStatusBarButton {
     /// Must be called **after** `object_setClass(button, MBKStatusBarButton.self)`
     /// so the button is already `MBKStatusBarButton` when the back-reference
     /// is stored.
+    ///
+    /// ## One-time setup
+    /// Designed to be called exactly once per status item, from `setupStatusItem()`.
+    /// If the status item is torn down and a new cell vended by AppKit, this must
+    /// be called again against the new cell — the dynamic subclass is reused but
+    /// the `object_setClass` and `WeakBox` store must run on every new cell instance.
     func injectCellSubclass() {
         guard let cell = self.cell else {
             mbkLog("MBKStatusBarButton", "injectCellSubclass -- cell is nil, skipping")
@@ -322,15 +328,31 @@ final class MBKStatusBarButton: NSStatusBarButton {
                 objc_disposeClassPair(newPair)
                 return
             }
-            let typeEncoding = method_getTypeEncoding(existingMethod)
 
-            // The IMP captures nothing from the outer scope — it reads the
-            // back-reference via objc_getAssociatedObject at call time so it
-            // remains valid even if the cell outlives the controller.
+            // method_getTypeEncoding returns Optional. nil means the ObjC runtime
+            // would register the method with no type info — selector dispatch
+            // may behave unexpectedly. Guard explicitly to catch this on any
+            // future OS where the private class's encoding changes.
+            guard let typeEncoding = method_getTypeEncoding(existingMethod) else {
+                mbkLog("MBKStatusBarButton", "injectCellSubclass -- nil typeEncoding for \(sel) on \(originalClassName), aborting")
+                objc_disposeClassPair(newPair)
+                return
+            }
+
+            // IMP BLOCK CALLING CONVENTION — read before modifying this block.
             //
-            // C signature: void (*)(id self, SEL _cmd, BOOL flag, NSRect frame, NSView *view)
-            // Block signature (ObjC block IMP convention omits SEL): the runtime
-            // inserts _cmd automatically when wrapping a block as an IMP.
+            // imp_implementationWithBlock wraps an ObjC block as a C IMP.
+            // The ObjC runtime calls all IMPs as: (self, _cmd, arg1, arg2, ...)
+            // imp_implementationWithBlock handles _cmd INTERNALLY — it does NOT
+            // inject a Selector into the block's parameter list.
+            // The block therefore receives exactly: (self, arg1, arg2, ...)
+            //   → (cellSelf, flag, frame, view)   ← correct, 4 params
+            //
+            // WARNING: do NOT add a Selector parameter to this block. Doing so
+            // would shift every argument by one — flag would receive the selector
+            // value, frame would receive flag, and so on. The HighlightIMP typealias
+            // below correctly includes Selector only because it is used for the
+            // unsafeBitCast super-dispatch call, which IS a raw C IMP invocation.
             typealias HighlightIMP = @convention(c) (AnyObject, Selector, Bool, NSRect, NSView) -> Void
 
             let imp: IMP = imp_implementationWithBlock({ (cellSelf: AnyObject, flag: Bool, frame: NSRect, view: NSView) in
@@ -346,6 +368,11 @@ final class MBKStatusBarButton: NSStatusBarButton {
                 // This preserves Apple's native pill-shaped drawing on every
                 // pass-through call. Using NSButtonCell's IMP here would skip the
                 // private class's own drawing code and regress the appearance.
+                //
+                // `view` is typed NSView (non-optional) matching AppKit's documented
+                // contract for highlight(_:withFrame:in:). Internal AppKit paths are
+                // also non-null here in practice. If that ever changes, this
+                // unsafeBitCast would be the crash site — update to AnyObject then.
                 let superIMP = class_getMethodImplementation(originalClass, sel)
                 unsafeBitCast(superIMP, to: HighlightIMP.self)(cellSelf, sel, flag, frame, view)
             } as @convention(block) (AnyObject, Bool, NSRect, NSView) -> Void)

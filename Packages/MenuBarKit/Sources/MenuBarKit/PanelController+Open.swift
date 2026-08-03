@@ -1,5 +1,5 @@
 // PanelController+Open.swift
-// MenuBarKit
+// RunBot
 //
 // Open/close logic for MBKPanelController.
 // See PanelController.swift file header for full design notes.
@@ -204,6 +204,19 @@ extension MBKPanelController {
     func setButtonHighlight(_ isOn: Bool) {
         let mbkBtn = statusItem?.button as? MBKStatusBarButton
         mbkLog("PanelController", "setButtonHighlight -- isOn=\(isOn) castOK=\(mbkBtn != nil) isPanelOpen=\(mbkBtn?.isPanelOpen ?? false)")
+
+        // If the cast fails, object_setClass in setupStatusItem silently did not
+        // run (e.g. AppKit changed NSStatusBarButton's class hierarchy). The
+        // highlight guard is entirely unarmed — PATH 1 and PATH 2 both miss,
+        // and the button will flicker on every open. Surface this immediately
+        // in debug builds; in release, degrade gracefully (button flickers,
+        // no crash).
+        if mbkBtn == nil {
+            assertionFailure("setButtonHighlight: statusItem.button is not MBKStatusBarButton — object_setClass swap failed at setup. Highlight guard is disarmed.")
+            statusItem?.button?.highlight(isOn)
+            return
+        }
+
         mbkBtn?.isPanelOpen = isOn
         statusItem?.button?.highlight(isOn)
         mbkLog("PanelController", "setButtonHighlight -- done isPanelOpen=\(mbkBtn?.isPanelOpen ?? false) buttonClass=\(type(of: statusItem?.button as AnyObject))")
