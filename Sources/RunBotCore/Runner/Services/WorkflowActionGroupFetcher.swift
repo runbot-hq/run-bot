@@ -35,6 +35,37 @@ private struct ActionRunsResponse: Codable {
   }
 }
 
+/// Composite grouping key that separates workflow runs by both `head_sha` and
+/// normalised trigger event.
+///
+/// Commit-triggered runs (`push`, `pull_request`) share one bucket per SHA.
+/// Manually dispatched runs (`workflow_dispatch`) and other non-commit events
+/// each get their own bucket, even when they target the same SHA.
+private struct GroupKey: Hashable {
+  /// The full SHA of the head commit.
+  let headSha: String
+  /// The normalised trigger event (see `groupEvent(_:)`).
+  let event: String
+}
+
+/// Normalises a GitHub workflow trigger event into a grouping bucket.
+///
+/// `push` and `pull_request` are collapsed into `"commit"` so that all
+/// commit-triggered CI workflows remain in a single row. All other events
+/// (e.g. `workflow_dispatch`, `schedule`) are kept verbatim so they appear
+/// as separate rows.
+///
+/// - Parameter event: The raw `event` string from the GitHub runs API.
+/// - Returns: A normalised bucket string used as part of `GroupKey`.
+private func groupEvent(_ event: String) -> String {
+  switch event {
+  case "push", "pull_request":
+    return "commit"
+  default:
+    return event
+  }
+}
+
 /// Minimal workflow run payload used for group construction.
 ///
 /// `status` and `conclusion` are decoded directly as typed `JobStatus`/`JobConclusion`
@@ -43,6 +74,8 @@ private struct ActionRunsResponse: Codable {
 private struct RunPayload: Codable {
   /// The unique run identifier.
   let id: Int
+  /// The workflow event that triggered this run (e.g. `push`, `workflow_dispatch`).
+  let event: String
   /// The workflow name.
   let name: String
   /// The current run status.
@@ -67,6 +100,8 @@ private struct RunPayload: Codable {
   enum CodingKeys: String, CodingKey {
     /// Maps the `id` JSON field.
     case id
+    /// Maps the `event` JSON field.
+    case event
     /// Maps the `name` JSON field.
     case name
     /// Maps the `status` JSON field.
@@ -167,9 +202,10 @@ public struct WorkflowActionGroupFetcher: Sendable, WorkflowActionGroupFetcherPr
 
   // MARK: - Fetch + Group
 
-  /// Fetches active workflow runs for a repo scope, groups them by `head_sha`,
-  /// enriches each group with its flattened job list, and returns groups sorted:
-  /// in-progress first, then queued, then completed — newest first within each tier.
+  /// Fetches active workflow runs for a repo scope, groups them by composite key
+  /// `(head_sha, normalised_event)`, enriches each group with its flattened job list,
+  /// and returns groups sorted: in-progress first, then queued, then completed —
+  /// newest first within each tier.
   ///
   /// All three status fetches (in_progress, queued, completed) run concurrently.
   /// Per-run job fetches within each group also run concurrently.
@@ -205,25 +241,31 @@ public struct WorkflowActionGroupFetcher: Sendable, WorkflowActionGroupFetcherPr
       decodeRuns(from: data, into: &runPayloads, seenIDs: &seenIDs)
     }
 
-    var bySha: [String: [RunPayload]] = [:]
-    for run in runPayloads { bySha[run.headSha, default: []].append(run) }
+    var byGroupKey: [GroupKey: [RunPayload]] = [:]
+    for run in runPayloads {
+      let key = GroupKey(headSha: run.headSha, event: groupEvent(run.event))
+      byGroupKey[key, default: []].append(run)
+    }
 
-    // Phase 2: fetch recently completed runs and merge into ALL SHA groups.
+    // Phase 2: fetch recently completed runs and merge into ALL groups.
     if let data = cData {
       decodeRuns(from: data, into: &runPayloads, seenIDs: &seenIDs)
-      // Re-constructing bySha entirely is safer and cleaner than mutating the old dict
-      bySha.removeAll(keepingCapacity: true)
-      for run in runPayloads { bySha[run.headSha, default: []].append(run) }
+      // Re-constructing byGroupKey entirely is safer and cleaner than mutating the old dict
+      byGroupKey.removeAll(keepingCapacity: true)
+      for run in runPayloads {
+        let key = GroupKey(headSha: run.headSha, event: groupEvent(run.event))
+        byGroupKey[key, default: []].append(run)
+      }
     }
 
     // Build groups concurrently — index-keyed to preserve insertion order.
-    let shaEntries = Array(bySha)
-    var groups = Array(repeating: WorkflowActionGroup?.none, count: shaEntries.count)
+    let groupEntries = Array(byGroupKey)
+    var groups = Array(repeating: WorkflowActionGroup?.none, count: groupEntries.count)
     await withTaskGroup(of: (Int, WorkflowActionGroup).self) { group in
-      for (i, (sha, shaRuns)) in shaEntries.enumerated() {
+      for (i, (groupKey, groupRuns)) in groupEntries.enumerated() {
         group.addTask {
           await self.buildActionGroup(
-            index: i, sha: sha, shaRuns: shaRuns, scope: scope, cache: cache)
+            index: i, groupKey: groupKey, groupRuns: groupRuns, scope: scope, cache: cache)
         }
       }
       for await (i, actionGroup) in group { groups[i] = actionGroup }
@@ -256,29 +298,29 @@ public struct WorkflowActionGroupFetcher: Sendable, WorkflowActionGroupFetcherPr
     }
   }
 
-  /// Constructs a single `WorkflowActionGroup` for one `head_sha` bucket.
+  /// Constructs a single `WorkflowActionGroup` for one `(head_sha, event)` bucket.
   ///
   /// Extracted from the `withTaskGroup` `addTask` body so each task closure
   /// stays at depth ≤ 2 and the overall nesting score drops below the
   /// SonarCloud `FunctionNestingDepth:3` threshold.
   private func buildActionGroup(
     index: Int,
-    sha: String,
-    shaRuns: [RunPayload],
+    groupKey: GroupKey,
+    groupRuns: [RunPayload],
     scope: String,
     cache: [String: WorkflowActionGroup]
   ) async -> (Int, WorkflowActionGroup) {
-    // `shaRuns` originates from `Dictionary(grouping:)` which never produces an empty
+    // `groupRuns` originates from `Dictionary(grouping:)` which never produces an empty
     // value array, so this is expected to always succeed. The guard defends against
     // a future caller constructing the dict incorrectly rather than crashing silently.
-    guard let representative = shaRuns.max(by: { ($0.createdAt ?? "") < ($1.createdAt ?? "") })
+    guard let representative = groupRuns.max(by: { ($0.createdAt ?? "") < ($1.createdAt ?? "") })
     else {
-      assertionFailure("buildActionGroup: shaRuns must not be empty (sha: \(sha))")
+      assertionFailure("buildActionGroup: groupRuns must not be empty (key: \(groupKey))")
       return (
         index,
         WorkflowActionGroup(
-          headSha: sha, label: String(sha.prefix(7)),
-          title: sha, headBranch: nil, repo: scope, runs: [], jobs: [],
+          headSha: groupKey.headSha, label: String(groupKey.headSha.prefix(7)),
+          title: groupKey.headSha, headBranch: nil, repo: scope, runs: [], jobs: [],
           firstJobStartedAt: nil, lastJobCompletedAt: nil, createdAt: nil)
       )
     }
@@ -288,14 +330,15 @@ public struct WorkflowActionGroupFetcher: Sendable, WorkflowActionGroupFetcherPr
       ?? representative.headCommit.map { commit in
         String(commit.message.components(separatedBy: "\n").first ?? "")
       }
-      ?? String(sha.prefix(7))
+      ?? String(groupKey.headSha.prefix(7))
     let title = String(rawTitle.prefix(40))
-    let runs: [WorkflowRunRef] = shaRuns.map { run in
+    let runs: [WorkflowRunRef] = groupRuns.map { run in
       WorkflowRunRef(
         id: run.id, name: run.name, status: run.status, conclusion: run.conclusion,
         htmlUrl: run.htmlUrl)
     }
-    let allJobs = await fetchJobsForGroup(shaRuns: shaRuns, scope: scope, cache: cache, sha: sha)
+    let cacheKey = "\(groupKey.headSha):\(groupKey.event)"
+    let allJobs = await fetchJobsForGroup(groupRuns: groupRuns, scope: scope, cache: cache, cacheKey: cacheKey)
     // Route through raw string dates for min/max comparison — ActiveJob exposes
     // startDate/completedDate as parsed Date? via raw.startDate/completedDate, but
     // WorkflowActionGroup.firstJobStartedAt/lastJobCompletedAt take Date?.
@@ -311,7 +354,7 @@ public struct WorkflowActionGroupFetcher: Sendable, WorkflowActionGroupFetcherPr
     return (
       index,
       WorkflowActionGroup(
-        headSha: sha,
+        headSha: groupKey.headSha,
         label: label,
         title: title,
         headBranch: representative.headBranch,
@@ -325,20 +368,20 @@ public struct WorkflowActionGroupFetcher: Sendable, WorkflowActionGroupFetcherPr
     )
   }
 
-  /// Returns the flattened job list for all runs sharing a `head_sha`.
+  /// Returns the flattened job list for all runs sharing a `(head_sha, event)` group key.
   ///
-  /// Uses the SHA-keyed cache when all cached jobs are concluded and none have
+  /// Uses the cache when all cached jobs are concluded and none have
   /// in-progress steps, avoiding redundant API calls for finished groups.
   /// Falls back to a live fetch via `fetchJobsForRun` when the cache is stale or missing.
   ///
   /// Per-run job fetches run concurrently via `withTaskGroup`.
   private func fetchJobsForGroup(
-    shaRuns: [RunPayload],
+    groupRuns: [RunPayload],
     scope: String,
     cache: [String: WorkflowActionGroup],
-    sha: String
+    cacheKey: String
   ) async -> [ActiveJob] {
-    if let cached = cache[sha],
+    if let cached = cache[cacheKey],
       cached.repo == scope,
       !cached.jobs.isEmpty,
       // Both conditions required: a job can be concluded while one of its steps
@@ -354,7 +397,7 @@ public struct WorkflowActionGroupFetcher: Sendable, WorkflowActionGroupFetcherPr
     var fetched: [ActiveJob] = []
     var seenJobIDs = Set<Int>()
     await withTaskGroup(of: [ActiveJob].self) { group in
-      for runID in shaRuns.map({ $0.id }) {
+      for runID in groupRuns.map({ $0.id }) {
         group.addTask { await self.fetchJobsForRun(runID, scope: scope) }
       }
       for await jobs in group {
