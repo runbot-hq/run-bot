@@ -119,6 +119,15 @@ extension MBKPanelController {
             self.onDidShow?()
             mbkLog("PanelController", "onDidShow fired")
             logHighlightState("onDidShow fired")
+
+            // One-shot deferred re-check, no polling: fires once on the next runloop
+            // turn after onDidShow, which is roughly when AppKit's own mouseUp/
+            // tracking-session teardown for the triggering click would have already
+            // completed. If pill.superlayer is nil here despite pillOpacity still
+            // reading 1.0, that confirms AppKit detached/rebuilt button.layer's
+            // sublayers independently of our code -- see highlightPillLayer's
+            // "attached" check below for the exact evidence this produces.
+            logHighlightState("onDidShow +1 runloop turn (one-shot, not a timer)")
         }
     }
 
@@ -221,6 +230,15 @@ extension MBKPanelController {
     /// cornerRadius is recomputed on every call (not just at setup) in case the
     /// button's frame changed between sessions (e.g. status item resized after
     /// a screen/resolution change) — keeps the pill shape correct if that happens.
+    ///
+    /// DIAGNOSTIC (#2440, third pass): pillOpacity has consistently read 1.0
+    /// across the entire open session in every repro so far, including the
+    /// exact moment the highlight visually disappears on mouseUp/mouseExited.
+    /// That rules out our own code ever calling setButtonHighlight(false) early.
+    /// The remaining hypothesis is that AppKit detaches/rebuilds button.layer's
+    /// sublayers on its own redraw pass after mouse tracking ends, silently
+    /// orphaning this CALayer reference without ever routing through our code.
+    /// isAttached below checks pill.superlayer to test this directly.
     func setButtonHighlight(_ isOn: Bool) {
         guard let button = statusItem?.button else {
             mbkLog("PanelController", "⚠️ setButtonHighlight(\(isOn)) -- statusItem.button is nil, nothing to draw")
@@ -232,7 +250,19 @@ extension MBKPanelController {
             return
         }
         mbkLog("PanelController",
-            "setButtonHighlight(\(isOn)) -- ENTER pill.opacity(before)=\(pill.opacity) bounds=\(button.bounds)")
+            "setButtonHighlight(\(isOn)) -- ENTER pill.opacity(before)=\(pill.opacity)"
+            + " pill.superlayer(before)=\(pill.superlayer != nil) bounds=\(button.bounds)")
+
+        // If AppKit already detached our sublayer, re-attach it before mutating.
+        // This does not fix the root cause by itself -- it just guarantees the
+        // property writes below land on a layer that is actually part of the
+        // tree, and the log line right after tells us whether re-attachment
+        // was even necessary.
+        if pill.superlayer == nil {
+            mbkLog("PanelController",
+                "⚠️ setButtonHighlight(\(isOn)) -- pill.superlayer was NIL, AppKit detached it. Re-adding.")
+            button.layer?.addSublayer(pill)
+        }
 
         pill.cornerRadius = button.bounds.height / 2
         pill.backgroundColor = isOn
@@ -243,6 +273,7 @@ extension MBKPanelController {
 
         mbkLog("PanelController",
             "setButtonHighlight(\(isOn)) -- EXIT  pill.opacity(after)=\(pill.opacity)"
+            + " pill.superlayer(after)=\(pill.superlayer != nil)"
             + " pill.frame=\(pill.frame) pill.cornerRadius=\(pill.cornerRadius)"
             + " AppKit isHighlighted(unused, logged for comparison)=\(button.isHighlighted)")
     }
@@ -252,15 +283,26 @@ extension MBKPanelController {
     /// AppKit interference is visible in the log stream. Call at every
     /// significant step of the open/close sequence — cheap, DEBUG-only cost
     /// via mbkLogHandler's default no-op-in-release behaviour.
+    ///
+    /// Logs pill.superlayer attachment and button.layer's live sublayer count
+    /// so a silent AppKit-driven detach/rebuild of the sublayer tree (the
+    /// current leading hypothesis for #2440) is directly visible without
+    /// needing a debugger session or a polling timer.
     private func logHighlightState(_ context: String) {
         guard let button = statusItem?.button else {
             mbkLog("PanelController", "[highlight] \(context) -- button is nil")
             return
         }
-        let pillOpacity = highlightPillLayer?.opacity ?? -1
-        let pillColor = highlightPillLayer?.backgroundColor
+        let pill = highlightPillLayer
+        let pillOpacity = pill?.opacity ?? -1
+        let pillColor = pill?.backgroundColor
+        let isAttached = pill?.superlayer != nil
+        let liveSublayerCount = button.layer?.sublayers?.count ?? -1
+        let liveSublayerIdentitiesMatch = button.layer?.sublayers?.contains { $0 === pill } ?? false
         mbkLog("PanelController",
             "[highlight] \(context) -- pillOpacity=\(pillOpacity) pillColor=\(String(describing: pillColor))"
+            + " pillAttached=\(isAttached) liveSublayerCount=\(liveSublayerCount)"
+            + " identityMatchInLiveSublayers=\(liveSublayerIdentitiesMatch)"
             + " appkitIsHighlighted=\(button.isHighlighted) buttonBounds=\(button.bounds)")
     }
 }
