@@ -73,7 +73,7 @@ final class DiskZIPCacheTests: XCTestCase {
         for i in 1...(max + 1) {
             await cache.set(runID: i, zip: Data("content-\(i)".utf8), isCompleted: true)
             // Small sleep so mtime ordering is deterministic on fast machines
-            try await Task.sleep(nanoseconds: 1_000_000)
+            try await Task.sleep(nanoseconds: 10_000_000)
         }
         // First entry should be evicted
         let evicted = await cache.get(runID: 1)

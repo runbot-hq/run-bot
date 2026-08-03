@@ -86,6 +86,13 @@ public actor DiskZIPCache {
         evictIfNeeded()
     }
 
+    /// Removes the `.zip` file for `runID` from disk if it exists.
+    /// No-op if the file is not present.
+    public func evict(runID: Int) {
+        let file = cacheDir.appendingPathComponent("\(runID).zip")
+        try? FileManager.default.removeItem(at: file)
+    }
+
     // MARK: - Private helpers
 
     /// Sorts cache files by modification date (newest first) and removes anything past `maxCapacity`.

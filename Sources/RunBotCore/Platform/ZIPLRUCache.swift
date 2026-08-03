@@ -65,6 +65,13 @@ public actor ZIPLRUCache {
         store[runID] != nil
     }
 
+    /// Removes the entry for `runID` from both the store and the LRU order.
+    /// No-op if `runID` is not present.
+    public func evict(_ runID: Int) {
+        store.removeValue(forKey: runID)
+        order.removeAll { $0 == runID }
+    }
+
     // MARK: - Private helpers
 
     /// Moves `runID` to the most-recently-used position in `order`.

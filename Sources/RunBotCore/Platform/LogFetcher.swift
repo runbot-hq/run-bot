@@ -217,8 +217,6 @@ public struct LogFetcher: Sendable {
             return .fetchFailed(reason: "This run does not have a valid owner/repo scope, so the step log request could not be built.")
         }
 
-        func clean(_ text: String) -> String { cleanLogText(text) }
-
         // Cache lookup — three-layer: LRU → disk → network. Returns raw ZIP Data.
         let fetchStart = ContinuousClock.now
         log(
@@ -226,41 +224,24 @@ public struct LogFetcher: Sendable {
             category: .services
         )
         let zipData: Data
+        let zipFromCache: Bool
         switch await loadZipFiles(runID: runID, scope: scope) {
-        case .hit(let data): zipData = data
-        case .miss(let data): zipData = data
+        case .hit(let data): zipData = data; zipFromCache = true
+        case .miss(let data): zipData = data; zipFromCache = false
         case .failed(let result): return result
         }
         // Unzip lazily here — one entry at a time, only when the user taps a step.
-        let unzipStart = ContinuousClock.now
-        let allFiles: [(name: String, text: String)]
-        switch await zipExtractor(zipData) {
-        case .success(let files):
-            let unzipDuration = unzipStart.duration(to: .now)
-            let stepCount = files.filter { $0.name.contains("/") }.count
-            log(
-                "fetchStepLog › ZIP extracted \(files.count) file(s) for run \(runID) " +
-                "(\(stepCount) with step-prefix '/') in \(unzipDuration)",
-                category: .services
-            )
-            if stepCount == 0 {
-                let names = files.map(\.name).joined(separator: ", ")
-                log(
-                    "fetchStepLog › ZIP has no per-step files for run \(runID) — " +
-                    "all entries: [\(names.isEmpty ? "<empty archive>" : names)]",
-                    category: .services
-                )
+        // If extraction fails and the data came from the network (not a cache hit),
+        // evict it from both caches so a malformed download cannot loop forever.
+        guard let extraction = await extractZip(zipData, runID: runID) else {
+            if !zipFromCache {
+                await zipLRUCache.evict(runID)
+                await diskZIPCache.evict(runID: runID)
+                log("fetchStepLog › evicted bad ZIP for runID=\(runID) from LRU + disk after extraction failure", category: .services)
             }
-            allFiles = files
-        case .processFailed(let exitCode):
-            let unzipDuration = unzipStart.duration(to: .now)
-            log("fetchStepLog › unzip failed for run \(runID) — exit code \(exitCode) after \(unzipDuration)", category: .services)
-            return .fetchFailed(reason: "GitHub returned the run log archive, but macOS could not extract it (unzip exit code \(exitCode)).")
-        case .ioError:
-            let unzipDuration = unzipStart.duration(to: .now)
-            log("fetchStepLog › I/O error writing or reading ZIP tmp dir for run \(runID) after \(unzipDuration)", category: .services)
-            return .fetchFailed(reason: "The app could not prepare a temporary file while extracting the run log archive.")
+            return .fetchFailed(reason: "GitHub returned the run log archive, but macOS could not extract it (unzip exit code or I/O error).")
         }
+        let allFiles = extraction.files
         log("fetchStepLog › allFiles (\(allFiles.count)): [\(allFiles.map { $0.name }.joined(separator: ", "))]", category: .services)
 
         // Exclude top-level blob files. Only entries with a "/" in the name are per-step
@@ -280,27 +261,10 @@ public struct LogFetcher: Sendable {
         log("fetchStepLog › stepFiles (\(stepFiles.count)): [\(stepFiles.map { $0.name }.joined(separator: ", "))] hasStepFiles=\(hasStepFiles) sanitised='\(sanitised)'", category: .services)
 
         guard hasStepFiles else {
-            log("fetchStepLog › no step files for job '\(jobName)' — attempting flat-blob fallback via fetchJobLog jobID=\(jobID)", category: .services)
-            guard !Task.isCancelled else {
-                log("fetchStepLog › cancelled before flat-blob fallback for job \(jobID)", category: .services)
+            guard let result = await flatBlobFallback(jobID: jobID, scope: scope, step: step, runID: runID) else {
                 return .fetchFailed(reason: "Request was cancelled before flat-blob fallback could complete.")
             }
-            let blobStart = ContinuousClock.now
-            guard let raw = await fetchJobLog(jobID: jobID, scope: scope) else {
-                log("fetchStepLog › flat-blob fallback also failed for job \(jobID) scope '\(scope)' after \(blobStart.duration(to: .now))", category: .services)
-                return .fetchFailed(reason: "GitHub did not provide per-step log files for this job, and the fallback full-job log request also failed.")
-            }
-            let blobDuration = blobStart.duration(to: .now)
-            guard !Task.isCancelled else {
-                log("fetchStepLog › cancelled after flat-blob download for job \(jobID) (\(raw.utf8.count) bytes downloaded in \(blobDuration))", category: .services)
-                return .fetchFailed(reason: "Request was cancelled after flat-blob download but before result could be returned.")
-            }
-            let parsed = parseStepLog(raw, stepName: step.name, stepNumber: step.number, logger: transport.logger)
-            log("fetchStepLog › flat-blob fallback result: parsed=\(parsed != nil) rawBytes=\(raw.utf8.count) elapsed=\(blobDuration)", category: .services)
-            if parsed == nil {
-                log("fetchStepLog › parseStepLog returned nil for step \(step.number) '\(step.name)' job \(jobID) run \(runID) — serving full raw job log via flatBlobFallback", category: .services)
-            }
-            return .flatBlobFallback(content: parsed ?? clean(raw))
+            return result
         }
 
         let prefix = "\(sanitised)/\(step.number)_"
@@ -317,7 +281,7 @@ public struct LogFetcher: Sendable {
             )
         }
 
-        let cleaned = clean(match.text)
+        let cleaned = cleanLogText(match.text)
         if cleaned.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             log(
                 "fetchStepLog › step \(step.number) '\(step.name)' job '\(jobName)' run \(runID) " +
@@ -349,6 +313,74 @@ public struct LogFetcher: Sendable {
         case miss(Data)
         /// A network or I/O failure occurred; the associated value is the terminal result.
         case failed(StepLogResult)
+    }
+
+    /// Extracts ZIP `Data` via `zipExtractor` and logs diagnostic info.
+    ///
+    /// Returns the extracted files on success, or a `StepLogResult` error on failure.
+    private func extractZip(
+        _ zipData: Data,
+        runID: Int
+    ) async -> (files: [(name: String, text: String)], error: StepLogResult?)? {
+        let unzipStart = ContinuousClock.now
+        switch await zipExtractor(zipData) {
+        case .success(let files):
+            let unzipDuration = unzipStart.duration(to: .now)
+            let stepCount = files.filter { $0.name.contains("/") }.count
+            log(
+                "fetchStepLog › ZIP extracted \(files.count) file(s) for run \(runID) " +
+                "(\(stepCount) with step-prefix '/') in \(unzipDuration)",
+                category: .services
+            )
+            if stepCount == 0 {
+                let names = files.map(\.name).joined(separator: ", ")
+                log(
+                    "fetchStepLog › ZIP has no per-step files for run \(runID) — " +
+                    "all entries: [\(names.isEmpty ? "<empty archive>" : names)]",
+                    category: .services
+                )
+            }
+            return (files, nil)
+        case .processFailed(let exitCode):
+            let unzipDuration = unzipStart.duration(to: .now)
+            log("fetchStepLog › unzip failed for run \(runID) — exit code \(exitCode) after \(unzipDuration)", category: .services)
+            return nil
+        case .ioError:
+            let unzipDuration = unzipStart.duration(to: .now)
+            log("fetchStepLog › I/O error writing or reading ZIP tmp dir for run \(runID) after \(unzipDuration)", category: .services)
+            return nil
+        }
+    }
+
+    /// Performs the flat-blob fallback when the ZIP contains no per-step files.
+    /// Returns nil if the request was cancelled.
+    private func flatBlobFallback(
+        jobID: Int,
+        scope: String,
+        step: GitHubStep,
+        runID: Int
+    ) async -> StepLogResult? {
+        log("fetchStepLog › no step files for job — attempting flat-blob fallback via fetchJobLog jobID=\(jobID)", category: .services)
+        guard !Task.isCancelled else {
+            log("fetchStepLog › cancelled before flat-blob fallback for job \(jobID)", category: .services)
+            return .fetchFailed(reason: "Request was cancelled before flat-blob fallback could complete.")
+        }
+        let blobStart = ContinuousClock.now
+        guard let raw = await fetchJobLog(jobID: jobID, scope: scope) else {
+            log("fetchStepLog › flat-blob fallback also failed for job \(jobID) scope '\(scope)' after \(blobStart.duration(to: .now))", category: .services)
+            return .fetchFailed(reason: "GitHub did not provide per-step log files for this job, and the fallback full-job log request also failed.")
+        }
+        let blobDuration = blobStart.duration(to: .now)
+        guard !Task.isCancelled else {
+            log("fetchStepLog › cancelled after flat-blob download for job \(jobID) (\(raw.utf8.count) bytes downloaded in \(blobDuration))", category: .services)
+            return .fetchFailed(reason: "Request was cancelled after flat-blob download but before result could be returned.")
+        }
+        let parsed = parseStepLog(raw, stepName: step.name, stepNumber: step.number, logger: transport.logger)
+        log("fetchStepLog › flat-blob fallback result: parsed=\(parsed != nil) rawBytes=\(raw.utf8.count) elapsed=\(blobDuration)", category: .services)
+        if parsed == nil {
+            log("fetchStepLog › parseStepLog returned nil for step \(step.number) '\(step.name)' job \(jobID) run \(runID) — serving full raw job log via flatBlobFallback", category: .services)
+        }
+        return .flatBlobFallback(content: parsed ?? cleanLogText(raw))
     }
 
     /// Fetches and caches raw ZIP `Data` for `runID` using a three-layer lookup:
