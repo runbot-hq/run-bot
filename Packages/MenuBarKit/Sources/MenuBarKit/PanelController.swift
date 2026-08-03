@@ -238,6 +238,14 @@ public final class MBKPanelController<Content: View>: NSObject, MBKPanelControll
     /// The CALayer used to draw the self-managed "pressed pill" highlight on the
     /// status item button. Created once in setupStatusItem(); never touched by
     /// AppKit, so nothing outside setButtonHighlight(_:) can reset it. See #2440.
+    ///
+    /// MUST be the topmost sublayer (added last, positive/default zPosition) so it
+    /// composites ON TOP of the button's own rendered icon content. An earlier
+    /// version placed this behind the icon (zPosition = -1, insertSublayer(at: 0)),
+    /// which meant it was never actually visible — the blue seen while holding the
+    /// mouse down was AppKit's own native tracking-highlight compositing, not this
+    /// layer. On mouseUp, that native compositing ends and (since this layer was
+    /// buried) nothing visible remained, even though pillOpacity was still 1.0.
     var highlightPillLayer: CALayer?
 
     // MARK: - Session state
@@ -473,6 +481,11 @@ public final class MBKPanelController<Content: View>: NSObject, MBKPanelControll
     /// then drawn by us on `highlightPillLayer`, toggled only from
     /// `setButtonHighlight(_:)` in PanelController+Open.swift. Nothing in AppKit
     /// can touch that layer, so nothing can un-press it out from under us.
+    ///
+    /// Z-ORDER FIX (#2440, second revision): the pill layer must be added LAST
+    /// (addSublayer, not insertSublayer(at: 0)) so it composites ON TOP of the
+    /// button's own icon content. Adding it behind the icon meant it was never
+    /// visible — see highlightPillLayer's doc comment for the full story.
     private func setupStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         guard let button = statusItem.button else {
@@ -508,11 +521,18 @@ public final class MBKPanelController<Content: View>: NSObject, MBKPanelControll
         // in setButtonHighlight(_:) in case the frame changed since setup
         // (e.g. very first layout pass hasn't happened yet here).
         pill.cornerRadius = button.bounds.height / 2
-        pill.zPosition = -1 // sit behind the template-image sublayer AppKit adds
-        button.layer?.insertSublayer(pill, at: 0)
+        // addSublayer appends to the END of button.layer.sublayers, i.e. on TOP
+        // of the icon content that AppKit renders into button.layer's own
+        // backing store. This is deliberately the opposite of the removed
+        // insertSublayer(at: 0) / zPosition = -1 approach -- see highlightPillLayer
+        // doc comment. button.image is a template image (mostly transparent
+        // outside the glyph), so a semi-transparent pill on top still lets the
+        // glyph read through, matching AppKit's own native highlight look.
+        button.layer?.addSublayer(pill)
         highlightPillLayer = pill
         mbkLog("PanelController",
-            "setupStatusItem -- highlightPillLayer installed bounds=\(button.bounds) cornerRadius=\(pill.cornerRadius)")
+            "setupStatusItem -- highlightPillLayer installed as TOPMOST sublayer bounds=\(button.bounds)"
+            + " cornerRadius=\(pill.cornerRadius) sublayerCount=\(button.layer?.sublayers?.count ?? -1)")
     }
 
     // MARK: - Deallocation
