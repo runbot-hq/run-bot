@@ -122,7 +122,13 @@ struct PanelMainView: View {
     private var activeLocalRunners: [RunnerModel] {
         let inProgressActions = appState.runnerState.actions.filter { $0.groupStatus == .inProgress }
         #if DEBUG
-        log("【activeLocalRunners】 eval — actions.count=\(appState.runnerState.actions.count) inProgress=\(inProgressActions.count) localRunners.count=\(appState.runnerState.localRunners.count) runners.count=\(appState.runnerState.runners.count)", category: .panel)
+        log(
+            "【activeLocalRunners】 eval — actions=\(appState.runnerState.actions.count)"
+            + " inProgress=\(inProgressActions.count)"
+            + " localRunners=\(appState.runnerState.localRunners.count)"
+            + " runners=\(appState.runnerState.runners.count)",
+            category: .panel
+        )
         #endif
         guard !inProgressActions.isEmpty else {
             #if DEBUG
@@ -134,8 +140,17 @@ struct PanelMainView: View {
         let busyIds = Set(busyRunners.compactMap { $0.id })
         let busyNames = Set(busyRunners.map { $0.name.trimmingCharacters(in: .whitespaces).lowercased() })
         #if DEBUG
-        log("【activeLocalRunners】 busyRunners=\(busyRunners.map(\.name)) busyIds=\(busyIds)", category: .panel)
-        log("【activeLocalRunners】 localRunners isBusy states: \(appState.runnerState.localRunners.map { "\($0.runnerName)(isBusy=\($0.isBusy) apiId=\(String(describing: $0.apiId)))" })", category: .panel)
+        log(
+            "【activeLocalRunners】 busyRunners=\(busyRunners.map(\.name)) busyIds=\(busyIds)",
+            category: .panel
+        )
+        log(
+            "【activeLocalRunners】 localRunners: "
+            + appState.runnerState.localRunners
+                .map { "\($0.runnerName)(isBusy=\($0.isBusy) apiId=\(String(describing: $0.apiId)))" }
+                .joined(separator: " "),
+            category: .panel
+        )
         #endif
         let result = appState.runnerState.localRunners.filter { local in
             // 1. Primary gate: isBusy is stamped by RunnerStatusEnricher from GitHubRunner.busy.
@@ -152,7 +167,10 @@ struct PanelMainView: View {
             let normalizedName = local.runnerName.trimmingCharacters(in: .whitespaces).lowercased()
             if busyNames.contains(normalizedName) {
                 #if DEBUG
-                log("【activeLocalRunners】 INCLUDE '\(local.runnerName)' via busyNames (normalised name match)", category: .panel)
+                log(
+                    "【activeLocalRunners】 INCLUDE '\(local.runnerName)' via busyNames",
+                    category: .panel
+                )
                 #endif
                 return true
             }
@@ -164,12 +182,22 @@ struct PanelMainView: View {
                 return true
             }
             #if DEBUG
-            log("【activeLocalRunners】 EXCLUDE '\(local.runnerName)' — isBusy=\(local.isBusy) apiId=\(String(describing: local.apiId)) normalizedName='\(normalizedName)' not in busyNames=\(busyNames)", category: .panel)
+            log(
+                "【activeLocalRunners】 EXCLUDE '\(local.runnerName)'"
+                + " isBusy=\(local.isBusy)"
+                + " apiId=\(String(describing: local.apiId))"
+                + " normalizedName='\(normalizedName)'"
+                + " busyNames=\(busyNames)",
+                category: .panel
+            )
             #endif
             return false
         }
         #if DEBUG
-        log("【activeLocalRunners】 → \(result.map(\.runnerName)) (\(result.count) of \(appState.runnerState.localRunners.count))", category: .panel)
+        log(
+            "【activeLocalRunners】 → \(result.map(\.runnerName)) (\(result.count)/\(appState.runnerState.localRunners.count))",
+            category: .panel
+        )
         #endif
         return result
     }
@@ -231,7 +259,11 @@ struct PanelMainView: View {
         }
         .onChange(of: appState.runnerState.actions) { oldActions, newActions in
             #if DEBUG
-            log("【PanelMainView】 actions changed \(oldActions.count)→\(newActions.count) inProgress=\(newActions.filter { $0.groupStatus == .inProgress }.count)", category: .panel)
+            log(
+                "【PanelMainView】 actions \(oldActions.count)→\(newActions.count)"
+                + " inProgress=\(newActions.filter { $0.groupStatus == .inProgress }.count)",
+                category: .panel
+            )
             #endif
             if newActions.count < oldActions.count { visibleCount = 10 }
             panelControllerHandle.remeasure()
@@ -240,16 +272,24 @@ struct PanelMainView: View {
             // Re-trigger enrichment so local.isBusy is stamped in lock-step with
             // every new GitHub runners poll. The isScanning guard in
             // LocalRunnerStore.performRefresh() prevents concurrent cycles.
-            let busyCount = newRunners.filter { $0.busy }.count
             #if DEBUG
-            log("【PanelMainView】 runners changed — total=\(newRunners.count) busy=\(busyCount) names=\(newRunners.filter { $0.busy }.map(\.name)) — triggering localRunnerStore.refresh()", category: .panel)
+            let busyNames = newRunners.filter { $0.busy }.map(\.name)
+            log(
+                "【PanelMainView】 runners changed — total=\(newRunners.count)"
+                + " busy=\(busyNames.count) busyNames=\(busyNames) — triggering refresh()",
+                category: .panel
+            )
             #endif
             panelControllerHandle.remeasure()
             localRunnerStore.refresh()
         }
         .onChange(of: appState.runnerState.jobs) { _, newJobs in
             #if DEBUG
-            log("【PanelMainView】 jobs changed — total=\(newJobs.count) inProgress=\(newJobs.filter { $0.jobStatus == .inProgress }.count)", category: .panel)
+            log(
+                "【PanelMainView】 jobs changed — total=\(newJobs.count)"
+                + " inProgress=\(newJobs.filter { $0.jobStatus == .inProgress }.count)",
+                category: .panel
+            )
             #endif
             panelControllerHandle.remeasure()
         }
@@ -260,7 +300,11 @@ struct PanelMainView: View {
         // activeLocalRunners returns a non-empty array. (#2429 Root Cause 4)
         .onChange(of: appState.runnerState.localRunners) { _, newLocalRunners in
             #if DEBUG
-            log("【PanelMainView】 localRunners changed — count=\(newLocalRunners.count) isBusy=\(newLocalRunners.filter { $0.isBusy }.map(\.runnerName))", category: .panel)
+            log(
+                "【PanelMainView】 localRunners changed — count=\(newLocalRunners.count)"
+                + " isBusy=\(newLocalRunners.filter { $0.isBusy }.map(\.runnerName))",
+                category: .panel
+            )
             #endif
             panelControllerHandle.remeasure()
         }
