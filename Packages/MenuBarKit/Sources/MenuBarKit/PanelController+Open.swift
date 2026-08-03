@@ -119,15 +119,6 @@ extension MBKPanelController {
             self.onDidShow?()
             mbkLog("PanelController", "onDidShow fired")
             logHighlightState("onDidShow fired")
-
-            // One-shot deferred re-check, no polling: fires once on the next runloop
-            // turn after onDidShow, which is roughly when AppKit's own mouseUp/
-            // tracking-session teardown for the triggering click would have already
-            // completed. If pill.superlayer is nil here despite pillOpacity still
-            // reading 1.0, that confirms AppKit detached/rebuilt button.layer's
-            // sublayers independently of our code -- see highlightPillLayer's
-            // "attached" check below for the exact evidence this produces.
-            logHighlightState("onDidShow +1 runloop turn (one-shot, not a timer)")
         }
     }
 
@@ -215,66 +206,53 @@ extension MBKPanelController {
     /// #2440 REVISED APPROACH: we no longer call `NSButton.highlight(_:)` or
     /// `isHighlighted` at all — AppKit's own highlight mechanism is disabled via
     /// `highlightsBy = []` in `setupStatusItem()`. Instead this toggles the
-    /// opacity/color of `highlightPillLayer`, a plain `CALayer` that only this
+    /// alpha of `highlightPillView`, an `NSVisualEffectView` that only this
     /// method (and setupStatusItem's initial creation) ever touches.
     ///
-    /// Why the previous approach (subclassing + `object_setClass`, guarding
-    /// `highlight(_:)`) failed: AppKit's `panel.makeKey()` and app-switch reset
-    /// paths mutate the button *cell's* internal highlight state directly, never
-    /// routing through the public `NSButton.highlight(_:)` method our override
-    /// intercepted. There was nothing for the override to catch. By disabling
-    /// `highlightsBy` entirely and owning 100% of the pressed-appearance drawing
-    /// ourselves on a layer AppKit never references, there is no shared state
-    /// left for any AppKit-internal code path to reset out from under us.
+    /// Why the previous approaches failed, in order:
+    /// 1. Subclassing + `object_setClass` to override `NSButton.highlight(_:)` —
+    ///    AppKit's `panel.makeKey()` and app-switch reset paths mutate the button
+    ///    *cell's* internal highlight state directly, never routing through the
+    ///    public method our override intercepted. Nothing for it to catch.
+    /// 2. A plain tinted `CALayer` pill added BEHIND the icon (zPosition = -1) —
+    ///    never visible; what looked like "the highlight" was AppKit's own native
+    ///    tracking-highlight bleeding through during mouse-down.
+    /// 3. Same `CALayer` pill moved to the TOP of the sublayer stack — now visible,
+    ///    but visually duller than the OS's own press-highlight, because the
+    ///    native highlight used to stack ON TOP of our flat tint while pressed;
+    ///    releasing removed the native layer and left only our flatter tint,
+    ///    which read as "basically unhighlighted" by contrast even though its
+    ///    opacity never changed.
     ///
-    /// cornerRadius is recomputed on every call (not just at setup) in case the
-    /// button's frame changed between sessions (e.g. status item resized after
-    /// a screen/resolution change) — keeps the pill shape correct if that happens.
+    /// Current approach: `highlightPillView` is an `NSVisualEffectView` with
+    /// `material = .selection`, the same vibrancy AppKit uses for its own
+    /// active-selection chrome, so there's no more "our tint vs. their highlight"
+    /// mismatch — it *is* the same visual language, always at full vibrancy.
     ///
-    /// DIAGNOSTIC (#2440, third pass): pillOpacity has consistently read 1.0
-    /// across the entire open session in every repro so far, including the
-    /// exact moment the highlight visually disappears on mouseUp/mouseExited.
-    /// That rules out our own code ever calling setButtonHighlight(false) early.
-    /// The remaining hypothesis is that AppKit detaches/rebuilds button.layer's
-    /// sublayers on its own redraw pass after mouse tracking ends, silently
-    /// orphaning this CALayer reference without ever routing through our code.
-    /// isAttached below checks pill.superlayer to test this directly.
+    /// cornerRadius/frame are recomputed on every call (not just at setup) in
+    /// case the button's frame changed since setup (e.g. status item resized
+    /// after a screen/resolution change) — keeps the pill shape correct.
     func setButtonHighlight(_ isOn: Bool) {
         guard let button = statusItem?.button else {
             mbkLog("PanelController", "⚠️ setButtonHighlight(\(isOn)) -- statusItem.button is nil, nothing to draw")
             return
         }
-        guard let pill = highlightPillLayer else {
-            mbkLog("PanelController", "⚠️ setButtonHighlight(\(isOn)) -- highlightPillLayer is nil,"
+        guard let pill = highlightPillView else {
+            mbkLog("PanelController", "⚠️ setButtonHighlight(\(isOn)) -- highlightPillView is nil,"
                 + " was setupStatusItem() run? Falling back to no-op -- button will show no pressed state.")
             return
         }
         mbkLog("PanelController",
-            "setButtonHighlight(\(isOn)) -- ENTER pill.opacity(before)=\(pill.opacity)"
-            + " pill.superlayer(before)=\(pill.superlayer != nil) bounds=\(button.bounds)")
+            "setButtonHighlight(\(isOn)) -- ENTER pill.alphaValue(before)=\(pill.alphaValue) bounds=\(button.bounds)")
 
-        // If AppKit already detached our sublayer, re-attach it before mutating.
-        // This does not fix the root cause by itself -- it just guarantees the
-        // property writes below land on a layer that is actually part of the
-        // tree, and the log line right after tells us whether re-attachment
-        // was even necessary.
-        if pill.superlayer == nil {
-            mbkLog("PanelController",
-                "⚠️ setButtonHighlight(\(isOn)) -- pill.superlayer was NIL, AppKit detached it. Re-adding.")
-            button.layer?.addSublayer(pill)
-        }
-
-        pill.cornerRadius = button.bounds.height / 2
-        pill.backgroundColor = isOn
-            ? NSColor.selectedContentBackgroundColor.withAlphaComponent(0.22).cgColor
-            : NSColor.clear.cgColor
         pill.frame = button.bounds
-        pill.opacity = isOn ? 1 : 0
+        pill.layer?.cornerRadius = button.bounds.height / 2
+        pill.alphaValue = isOn ? 1 : 0
 
         mbkLog("PanelController",
-            "setButtonHighlight(\(isOn)) -- EXIT  pill.opacity(after)=\(pill.opacity)"
-            + " pill.superlayer(after)=\(pill.superlayer != nil)"
-            + " pill.frame=\(pill.frame) pill.cornerRadius=\(pill.cornerRadius)"
+            "setButtonHighlight(\(isOn)) -- EXIT  pill.alphaValue(after)=\(pill.alphaValue)"
+            + " pill.frame=\(pill.frame) pill.superview=\(pill.superview != nil)"
+            + " pill.cornerRadius=\(pill.layer?.cornerRadius ?? -1)"
             + " AppKit isHighlighted(unused, logged for comparison)=\(button.isHighlighted)")
     }
 
@@ -283,26 +261,16 @@ extension MBKPanelController {
     /// AppKit interference is visible in the log stream. Call at every
     /// significant step of the open/close sequence — cheap, DEBUG-only cost
     /// via mbkLogHandler's default no-op-in-release behaviour.
-    ///
-    /// Logs pill.superlayer attachment and button.layer's live sublayer count
-    /// so a silent AppKit-driven detach/rebuild of the sublayer tree (the
-    /// current leading hypothesis for #2440) is directly visible without
-    /// needing a debugger session or a polling timer.
     private func logHighlightState(_ context: String) {
         guard let button = statusItem?.button else {
             mbkLog("PanelController", "[highlight] \(context) -- button is nil")
             return
         }
-        let pill = highlightPillLayer
-        let pillOpacity = pill?.opacity ?? -1
-        let pillColor = pill?.backgroundColor
-        let isAttached = pill?.superlayer != nil
-        let liveSublayerCount = button.layer?.sublayers?.count ?? -1
-        let liveSublayerIdentitiesMatch = button.layer?.sublayers?.contains { $0 === pill } ?? false
+        let pill = highlightPillView
+        let pillAlpha = pill?.alphaValue ?? -1
+        let isAttached = pill?.superview != nil
         mbkLog("PanelController",
-            "[highlight] \(context) -- pillOpacity=\(pillOpacity) pillColor=\(String(describing: pillColor))"
-            + " pillAttached=\(isAttached) liveSublayerCount=\(liveSublayerCount)"
-            + " identityMatchInLiveSublayers=\(liveSublayerIdentitiesMatch)"
+            "[highlight] \(context) -- pillAlpha=\(pillAlpha) pillAttached=\(isAttached)"
             + " appkitIsHighlighted=\(button.isHighlighted) buttonBounds=\(button.bounds)")
     }
 }
