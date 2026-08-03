@@ -252,8 +252,8 @@ private enum OSC8Result {
 /// - `.parsed`: `idx` is positioned immediately after the ST or BEL terminator.
 ///
 /// The function recognises both ST (`\e\\`) and BEL (`\u{0007}`) terminators.
-/// The params field (`\e]8;params;url`) is correctly skipped — URL begins after
-/// the *second* semicolon.
+/// Only empty-params sequences (`\e]8;;url`) are supported. Sequences with a
+/// non-empty params field (`\e]8;id=42;url`) are returned as `.notOSC8`.
 private func parseOSC8(in text: String, from idx: inout String.Index) -> OSC8Result {
     // Require \e]8;; — 5 characters minimum.
     let endIndex = text.endIndex
@@ -282,7 +282,9 @@ private func parseOSC8(in text: String, from idx: inout String.Index) -> OSC8Res
             let url = String(text[urlStart..<scanIdx])
             text.formIndex(after: &scanIdx)  // consume BEL
             idx = scanIdx
-            return .parsed(url.isEmpty ? nil : URL(string: url))
+            if url.isEmpty { return .parsed(nil) }
+            guard let parsedURL = URL(string: url) else { return .malformed }
+            return .parsed(parsedURL)
         } else if text[scanIdx] == "\u{001B}" {
             let afterEsc = text.index(after: scanIdx)
             if afterEsc < endIndex, text[afterEsc] == "\\" {
@@ -290,7 +292,9 @@ private func parseOSC8(in text: String, from idx: inout String.Index) -> OSC8Res
                 let url = String(text[urlStart..<scanIdx])
                 text.formIndex(&scanIdx, offsetBy: 2)  // consume \e\\
                 idx = scanIdx
-                return .parsed(url.isEmpty ? nil : URL(string: url))
+                if url.isEmpty { return .parsed(nil) }
+                guard let parsedURL = URL(string: url) else { return .malformed }
+                return .parsed(parsedURL)
             }
         }
         text.formIndex(after: &scanIdx)

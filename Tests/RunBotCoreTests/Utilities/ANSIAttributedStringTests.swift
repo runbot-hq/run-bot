@@ -196,6 +196,14 @@ final class ANSIAttributedStringTests: XCTestCase {
             "The linked run must also carry the SGR green colour")
     }
 
+    func test_osc8_malformed_textAfterPreserved() {
+        // Malformed OSC 8 mid-line — text before is preserved, text after is dropped (intentional).
+        let input = "before\(esc)]8;;https://example.comafter"
+        let result = ansiAttributedString(input, baseColor: base, font: font)
+        XCTAssertEqual(String(result.characters), "before",
+            "Text before malformed OSC preserved; text after intentionally dropped (no terminator)")
+    }
+
     func test_osc8_belTerminator() {
         // BEL-terminated OSC 8 variant.
         let bel = "\u{0007}"
