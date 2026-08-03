@@ -146,7 +146,7 @@ public actor RunnerPoller {
   let decoder = JSONDecoder()
   /// Fetcher for workflow action groups.
   let actionGroupFetcher: any WorkflowActionGroupFetcherProtocol
-  /// Background ZIP prefetch queue — warms `ZIPLRUCache` and `DiskZIPCache` after each
+  /// Background ZIP prefetch queue — warms `DiskZIPCache` after each
   /// poll cycle so that `fetchStepLog` calls hit cache instead of the network.
   let zipPrefetchQueue: ZIPPrefetchQueue
   /// runIDs already handed to `zipPrefetchQueue`; prevents redundant enqueue calls
@@ -191,7 +191,6 @@ public actor RunnerPoller {
     self.notificationPreferences = notificationPreferences
     self.actionGroupFetcher = actionGroupFetcher
     self.zipPrefetchQueue = zipPrefetchQueue ?? ZIPPrefetchQueue(
-      memCache: ZIPLRUCache(),
       diskCache: DiskZIPCache(),
       transport: currentTransport
     )

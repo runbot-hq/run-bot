@@ -14,13 +14,13 @@ private struct PrefetchItem: Sendable {
     let isCompleted: Bool
 }
 
-/// Manages background prefetching of run-level ZIP archives into `ZIPLRUCache` and `DiskZIPCache`.
+/// Manages background prefetching of run-level ZIP archives into `DiskZIPCache`.
 ///
 /// Raw ZIP bytes are stored without extraction. Unzipping is deferred to the read path
 /// (`LogFetcher.fetchStepLog`) so no CPU work is done for runs the user never opens.
 ///
 /// ## Deduplication
-/// `enqueue` is idempotent per `runID`: if the run is already memory-cached, disk-cached,
+/// `enqueue` is idempotent per `runID`: if the run is already disk-cached
 /// or currently in-flight, the call is a no-op.
 ///
 /// ## Concurrency
@@ -46,8 +46,6 @@ public actor ZIPPrefetchQueue {
 
     // MARK: - Dependencies
 
-    /// In-process LRU cache populated after a successful fetch.
-    private let memCache: ZIPLRUCache
     /// Persistent disk cache populated after a successful fetch for completed runs.
     private let diskCache: DiskZIPCache
     /// GitHub transport used to download the ZIP archive.
@@ -66,18 +64,15 @@ public actor ZIPPrefetchQueue {
 
     // MARK: - Init
 
-    /// Creates a prefetch queue backed by the given caches and transport.
+    /// Creates a prefetch queue backed by the given cache and transport.
     ///
     /// - Parameters:
-    ///   - memCache: In-process LRU cache.
     ///   - diskCache: Persistent disk cache.
     ///   - transport: GitHub transport for ZIP downloads.
     public init(
-        memCache: ZIPLRUCache,
         diskCache: DiskZIPCache,
         transport: any GitHubTransportProtocol
     ) {
-        self.memCache = memCache
         self.diskCache = diskCache
         self.transport = transport
     }
@@ -86,14 +81,13 @@ public actor ZIPPrefetchQueue {
 
     /// Enqueues a prefetch for `runID` in `scope`.
     ///
-    /// No-op if the run is already present in the memory LRU cache, disk cache,
+    /// No-op if the run is already present in the disk cache
     /// or currently in-flight. Callers are responsible for not calling `enqueue`
     /// more than once per `runID` across sessions; `RunnerPoller.prefetchedRunIDs`
     /// provides this guarantee for the production call site.
     public func enqueue(runID: Int, scope: String, isCompleted: Bool) async {
         guard !isCancelled else { return }
         guard !inFlight.contains(runID) else { return }
-        guard !(await memCache.contains(runID)) else { return }
         guard await diskCache.get(runID: runID) == nil else { return }
         guard !pending.contains(where: { $0.runID == runID }) else { return }
         pending.append(PrefetchItem(runID: runID, scope: scope, isCompleted: isCompleted))
@@ -125,7 +119,7 @@ public actor ZIPPrefetchQueue {
         }
     }
 
-    /// Downloads raw ZIP bytes and writes them to both caches. No unzipping is performed.
+    /// Downloads raw ZIP bytes and writes them to disk cache. No unzipping is performed.
     ///
     /// Always removes `runID` from `inFlight` and decrements `activeFetchCount` via `defer`,
     /// regardless of outcome. Calls `drainQueue()` to fill the freed slot.
@@ -145,7 +139,6 @@ public actor ZIPPrefetchQueue {
             return
         }
         guard !isCancelled else { return }
-        await memCache.set(runID, zip: data)
         await diskCache.set(runID: runID, zip: data, isCompleted: isCompleted)
         log("ZIPPrefetchQueue › cached \(data.count) bytes for runID=\(runID)", category: .services)
     }

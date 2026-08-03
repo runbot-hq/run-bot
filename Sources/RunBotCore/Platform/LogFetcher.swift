@@ -75,9 +75,6 @@ public typealias ZipExtractor = @Sendable (Data) async -> UnzipResult
 public struct LogFetcher: Sendable {
     /// The injected GitHub transport used for all network access.
     private let transport: any GitHubTransportProtocol
-    /// Session-level LRU cache (L2 memory) shared across all `fetchStepLog` calls.
-    /// Supersedes the old single-entry `zipCache` as the durable in-process layer.
-    let zipLRUCache: ZIPLRUCache
     /// Persistent disk cache (L3) — survives app restarts.
     let diskZIPCache: DiskZIPCache
     /// Defaults to the real `unzipLogsTyped` subprocess path.
@@ -91,18 +88,15 @@ public struct LogFetcher: Sendable {
     ///   - transport: Defaults to `currentTransport` — the live `@TaskLocal`
     ///     read path wired by `GitHubClient.init`. Tests can override via
     ///     `withTransport(_:operation:)` without touching any global.
-    ///   - zipLRUCache: Session-level LRU (L2). Defaults to a fresh instance; inject in tests.
     ///   - diskZIPCache: Persistent disk cache (L3). Defaults to a fresh instance; inject in tests.
     ///   - zipExtractor: Defaults to the real `/usr/bin/unzip`-based path.
     ///     Pass a custom closure in tests to bypass subprocess spawning.
     public init(
         transport: any GitHubTransportProtocol = currentTransport,
-        zipLRUCache: ZIPLRUCache = ZIPLRUCache(),
         diskZIPCache: DiskZIPCache = DiskZIPCache(),
         zipExtractor: ZipExtractor? = nil
     ) {
         self.transport = transport
-        self.zipLRUCache = zipLRUCache
         self.diskZIPCache = diskZIPCache
         self.zipExtractor = zipExtractor ?? { data in await unzipLogsTyped(data) }
     }
@@ -188,8 +182,8 @@ public struct LogFetcher: Sendable {
     /// its own file, making heuristic parsing unnecessary.
     ///
     /// ## Cache
-    /// The ZIP is cached in the LRU + disk layers keyed by `runID`. Subsequent calls for
-    /// steps in the same job (same `runID`) cost zero network calls.
+    /// The ZIP is cached on disk keyed by `runID`. Subsequent calls for steps in the
+    /// same job (same `runID`) cost zero network calls.
     ///
     /// ## Fallback
     /// When the ZIP contains no per-step files for the requested job, falls back to the existing
@@ -220,7 +214,7 @@ public struct LogFetcher: Sendable {
             return .fetchFailed(reason: "This run does not have a valid owner/repo scope, so the step log request could not be built.")
         }
 
-        // Cache lookup — three-layer: LRU → disk → network. Returns raw ZIP Data.
+        // Cache lookup — two-layer: disk → network. Returns raw ZIP Data.
         let fetchStart = ContinuousClock.now
         log(
             "fetchStepLog › runID=\(runID) jobName='\(jobName)' sanitised='\(sanitizeJobNameForZIP(jobName))' step=\(step.number) '\(step.name)' scope='\(scope)'",
@@ -238,9 +232,8 @@ public struct LogFetcher: Sendable {
         // evict it from both caches so a malformed download cannot loop forever.
         guard let extraction = await extractZip(zipData, runID: runID) else {
             if !zipFromCache {
-                await zipLRUCache.evict(runID)
                 await diskZIPCache.evict(runID: runID)
-                log("fetchStepLog › evicted bad ZIP for runID=\(runID) from LRU + disk after extraction failure", category: .services)
+                log("fetchStepLog › evicted bad ZIP for runID=\(runID) from disk after extraction failure", category: .services)
             }
             return .fetchFailed(reason: "GitHub returned the run log archive, but macOS could not extract it (unzip exit code or I/O error).")
         }
@@ -386,10 +379,9 @@ public struct LogFetcher: Sendable {
         return .flatBlobFallback(content: parsed ?? cleanLogText(raw))
     }
 
-    /// Fetches and caches raw ZIP `Data` for `runID` using a three-layer lookup:
-    /// 1. LRU memory cache (`ZIPLRUCache`) — zero I/O
-    /// 2. Disk cache (`DiskZIPCache`) — zero network
-    /// 3. Network download — backfills both caches with raw `Data` on success
+    /// Fetches and caches raw ZIP `Data` for `runID` using a two-layer lookup:
+    /// 1. Disk cache (`DiskZIPCache`) — zero network
+    /// 2. Network download — backfills disk cache with raw `Data` on success
     ///
     /// Unzipping is **not** performed here. Callers (`fetchStepLog`) extract lazily
     /// after this method returns, so the cache only stores raw bytes.
@@ -398,24 +390,15 @@ public struct LogFetcher: Sendable {
         scope: String,
         isCompleted: Bool
     ) async -> ZipLoadResult {
-        // Layer 1: LRU memory cache
-        if let cached = await zipLRUCache.get(runID) {
-            log(
-                "fetchStepLog › LRU HIT runID=\(runID) — \(cached.count) byte(s)",
-                category: .services
-            )
-            return .hit(cached)
-        }
-        // Layer 2: Disk cache
+        // Layer 1: Disk cache
         if let cached = await diskZIPCache.get(runID: runID) {
             log(
-                "fetchStepLog › DISK HIT runID=\(runID) — \(cached.count) byte(s), populating LRU",
+                "fetchStepLog › DISK HIT runID=\(runID) — \(cached.count) byte(s)",
                 category: .services
             )
-            await zipLRUCache.set(runID, zip: cached)
             return .hit(cached)
         }
-        // Layer 3: Network
+        // Layer 2: Network
         let downloadStart = ContinuousClock.now
         log(
             "fetchStepLog › cache MISS runID=\(runID) — downloading ZIP",
@@ -427,8 +410,7 @@ public struct LogFetcher: Sendable {
         }
         let downloadDuration = downloadStart.duration(to: .now)
         log("fetchStepLog › ZIP downloaded \(data.count) bytes for run \(runID) in \(downloadDuration)", category: .services)
-        // Backfill both caches with raw bytes. Extraction is deferred to the caller.
-        await zipLRUCache.set(runID, zip: data)
+        // Backfill disk cache with raw bytes. Extraction is deferred to the caller.
         await diskZIPCache.set(runID: runID, zip: data, isCompleted: isCompleted)
         return .miss(data)
     }

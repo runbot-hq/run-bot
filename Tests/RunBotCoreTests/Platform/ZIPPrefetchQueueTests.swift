@@ -52,15 +52,13 @@ final class ZIPPrefetchQueueTests: XCTestCase {
 
     private func makeQueue(
         transport: FakeTransport
-    ) -> (ZIPPrefetchQueue, ZIPLRUCache, DiskZIPCache) {
-        let mem = ZIPLRUCache()
+    ) -> (ZIPPrefetchQueue, DiskZIPCache) {
         let disk = DiskZIPCache(cacheDir: tempDir)
         let queue = ZIPPrefetchQueue(
-            memCache: mem,
             diskCache: disk,
             transport: transport
         )
-        return (queue, mem, disk)
+        return (queue, disk)
     }
 
     // MARK: - Deduplication
@@ -68,7 +66,7 @@ final class ZIPPrefetchQueueTests: XCTestCase {
     func testEnqueueSameRunIDTwiceOnlyFetchesOnce() async throws {
         let transport = FakeTransport()
         transport.responseData = Data()
-        let (queue, _, _) = makeQueue(transport: transport)
+        let (queue, _) = makeQueue(transport: transport)
         await queue.enqueue(runID: 1, scope: "o/r", isCompleted: true)
         await queue.enqueue(runID: 1, scope: "o/r", isCompleted: true)
         // Allow background tasks to drain
@@ -76,20 +74,10 @@ final class ZIPPrefetchQueueTests: XCTestCase {
         XCTAssertEqual(transport.callCount, 1, "Duplicate enqueue must be deduplicated")
     }
 
-    func testSkipsRunIDAlreadyInMemCache() async throws {
-        let transport = FakeTransport()
-        transport.responseData = Data()
-        let (queue, mem, _) = makeQueue(transport: transport)
-        await mem.set(1, zip: Data("test".utf8))
-        await queue.enqueue(runID: 1, scope: "o/r", isCompleted: true)
-        try await Task.sleep(nanoseconds: 30_000_000)
-        XCTAssertEqual(transport.callCount, 0, "Run already in mem cache must not trigger a fetch")
-    }
-
     func testSkipsRunIDAlreadyOnDisk() async throws {
         let transport = FakeTransport()
         transport.responseData = Data()
-        let (queue, _, disk) = makeQueue(transport: transport)
+        let (queue, disk) = makeQueue(transport: transport)
         await disk.set(runID: 1, zip: Data("test".utf8), isCompleted: true)
         await queue.enqueue(runID: 1, scope: "o/r", isCompleted: true)
         try await Task.sleep(nanoseconds: 30_000_000)
@@ -101,13 +89,11 @@ final class ZIPPrefetchQueueTests: XCTestCase {
     func testNilResponseDoesNotCrashAndLogsOnce() async throws {
         let transport = FakeTransport()
         transport.responseData = nil // simulate expired / 404 ZIP
-        let (queue, mem, _) = makeQueue(transport: transport)
+        let (queue, _) = makeQueue(transport: transport)
         await queue.enqueue(runID: 99, scope: "o/r", isCompleted: true)
         try await Task.sleep(nanoseconds: 50_000_000)
-        // Exactly one fetch attempt; nothing written to mem cache
+        // Exactly one fetch attempt
         XCTAssertEqual(transport.callCount, 1, "Nil response should trigger exactly one fetch attempt")
-        let inMem = await mem.contains(99)
-        XCTAssertFalse(inMem, "Nil response must not populate mem cache")
     }
 
     // MARK: - cancelAll
@@ -115,7 +101,7 @@ final class ZIPPrefetchQueueTests: XCTestCase {
     func testCancelAllPreventsSubsequentEnqueue() async throws {
         let transport = FakeTransport()
         transport.responseData = Data()
-        let (queue, _, _) = makeQueue(transport: transport)
+        let (queue, _) = makeQueue(transport: transport)
         await queue.cancelAll()
         await queue.enqueue(runID: 5, scope: "o/r", isCompleted: true)
         try await Task.sleep(nanoseconds: 30_000_000)
@@ -124,19 +110,15 @@ final class ZIPPrefetchQueueTests: XCTestCase {
 
     // MARK: - Successful fetch populates caches
 
-    func testSuccessfulFetchPopulatesMemAndDiskCache() async throws {
+    func testSuccessfulFetchPopulatesDiskCache() async throws {
         let transport = FakeTransport()
         let zipData = Data("fake-zip-bytes".utf8)
         transport.responseData = zipData
-        let (queue, mem, disk) = makeQueue(transport: transport)
+        let (queue, disk) = makeQueue(transport: transport)
         await queue.enqueue(runID: 10, scope: "o/r", isCompleted: true)
         try await Task.sleep(nanoseconds: 100_000_000)
-        let inMem = await mem.contains(10)
         let onDisk = await disk.get(runID: 10)
-        XCTAssertTrue(inMem, "Successful fetch must populate LRU cache")
         XCTAssertNotNil(onDisk, "Successful fetch of completed run must populate disk cache")
-        // Verify the correct data was stored
-        let memData = await mem.get(10)
-        XCTAssertEqual(memData, zipData, "LRU cache must contain the exact ZIP bytes downloaded")
+        XCTAssertEqual(onDisk, zipData, "Disk cache must contain the exact ZIP bytes downloaded")
     }
 }
