@@ -10,6 +10,7 @@ import SwiftUI
 /// - success     : full green circle stroke + checkmark SF Symbol
 /// - failed      : full red circle stroke + xmark SF Symbol
 /// - queued      : full yellow circle stroke + pause.fill SF Symbol
+/// - skipped     : muted grey circle stroke + minus SF Symbol
 ///
 /// Animation contract:
 /// - In-progress background ring uses `@State rotationAngle` driven by
@@ -59,6 +60,12 @@ struct DonutStatusView: View {
                 // pause.fill is blockier than checkmark/xmark; scale down slightly
                 // to avoid clipping at small diameters (size ≤ 16). (#2355)
                 terminalRing(color: .rbWarning, symbol: "pause.fill", symbolScale: 0.36)
+            case .skipped:
+                // minus (no circle variant) pairs with the donut ring as the circular chrome.
+                // rbTextTertiary.opacity(0.3) matches the ring stroke color — low emphasis,
+                // clearly distinct from failed/queued. Default symbolScale 0.42 is correct
+                // for the slim minus glyph.
+                terminalRing(color: .rbTextTertiary.opacity(0.3), symbol: "minus")
             default:
                 Circle()
                     .stroke(Color.rbTextTertiary.opacity(0.3), lineWidth: strokeWidth)
@@ -108,9 +115,9 @@ struct DonutStatusView: View {
         }
     }
 
-    /// Terminal state (success/failed/queued): solid colored ring + SF Symbol in the centre.
+    /// Terminal state (success/failed/queued/skipped): solid colored ring + SF Symbol in the centre.
     /// - Parameters:
-    ///   - color: The stroke and icon tint color (`.rbSuccess`, `.rbDanger`, or `.rbWarning`).
+    ///   - color: The stroke and icon tint color (`.rbSuccess`, `.rbDanger`, `.rbWarning`, or `.rbTextTertiary.opacity(0.3)`).
     ///   - symbol: The SF Symbol name to render in the centre of the ring.
     ///   - symbolScale: Font size multiplier relative to `size`. Defaults to `0.42`.
     ///     Pass a smaller value (e.g. `0.36`) for wider glyphs like `pause.fill`.
@@ -133,8 +140,9 @@ struct DonutStatusView: View {
         DonutStatusView(status: .success, size: 20)
         DonutStatusView(status: .failed, size: 20)
         DonutStatusView(status: .queued, size: 20)
-        DonutStatusView(status: .queued, size: 16)
-        DonutStatusView(status: .queued, size: 14)
+        DonutStatusView(status: .skipped, size: 20)
+        DonutStatusView(status: .skipped, size: 16)
+        DonutStatusView(status: .skipped, size: 14)
     }
     .padding(20)
     .background(Color.rbSurface)
