@@ -97,6 +97,13 @@ private struct WorkflowContextMenuModifier: ViewModifier {
         } label: { Label("Show Workflow on GitHub", systemImage: "doc.text") }
         .disabled(group.runs.first?.htmlUrl == nil)
 
+        // Copy workflow URL — synchronous, no Task needed
+        Button {
+            guard let htmlUrl = group.runs.first?.htmlUrl else { return }
+            copyToPasteboard(htmlUrl)
+        } label: { Label("Copy Workflow URL", systemImage: "link") }
+        .disabled(group.runs.first?.htmlUrl == nil)
+
         Button {
             let sha = group.headSha
             let repo = group.repo
@@ -182,6 +189,13 @@ private struct JobContextMenuModifier: ViewModifier {
             guard let htmlUrl = job.htmlUrl, let url = URL(string: htmlUrl) else { return }
             NSWorkspace.shared.open(url)
         } label: { Label("Show Job on GitHub", systemImage: "doc.text") }
+        .disabled(job.htmlUrl == nil)
+
+        // Copy job URL — synchronous, no Task needed
+        Button {
+            guard let htmlUrl = job.htmlUrl else { return }
+            copyToPasteboard(htmlUrl)
+        } label: { Label("Copy Job URL", systemImage: "link") }
         .disabled(job.htmlUrl == nil)
     }
 }
