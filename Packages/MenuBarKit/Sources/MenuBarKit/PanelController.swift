@@ -446,11 +446,19 @@ public final class MBKPanelController<Content: View>: NSObject, MBKPanelControll
     }
 
     /// Creates the NSStatusItem, configures its button image, and wires the toggle action.
+    ///
+    /// `sendAction(on: .leftMouseDown)` fires the action on mouseDown rather than the
+    /// default mouseUp. This is required to prevent a highlight flicker on open:
+    /// AppKit clears `highlight(false)` on mouseUp, so if the action fired on mouseUp
+    /// the button would briefly go dark→light→dark before `openPanel()` re-asserted
+    /// `highlight(true)`. Firing on mouseDown means `openPanel()` runs and locks in
+    /// `highlight(true)` before AppKit's mouseUp clear cycle. See #2425.
     private func setupStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = statusItem.button {
             button.image = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil)
             button.image?.isTemplate = true
+            button.sendAction(on: .leftMouseDown)
             button.action = #selector(togglePanel)
             button.target = self
         }
