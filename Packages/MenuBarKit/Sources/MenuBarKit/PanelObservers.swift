@@ -44,6 +44,10 @@ protocol MBKPanelObserverTarget: AnyObject {
     func refreshForScreenChange()
     /// Applies a new measured content size to the panel frame.
     func applyMeasuredSize(_ size: CGSize)
+    /// Debug snapshot of the status item button's highlight-related state
+    /// (self-drawn pill opacity + AppKit's own isHighlighted, for comparison).
+    /// Used only for diagnostic logging around #2440 -- see PanelController+Open.swift.
+    var debugHighlightDescription: String { get }
 }
 
 // MARK: - Observer manager
@@ -113,6 +117,9 @@ final class MBKPanelObservers {
                 as? NSRunningApplication) == NSRunningApplication.current
             Task { @MainActor [weak self] in
                 guard let self, let controller = self.controller else { return }
+                mbkLog("PanelController",
+                    "[highlight] workspace observer FIRED -- isSelfActivation=\(isSelfActivation)"
+                    + " isShown=\(controller.isShown) \(controller.debugHighlightDescription)")
                 guard controller.isShown else { return }
                 guard !isSelfActivation else {
                     mbkLog("PanelController", "workspace observer -- self-activation, ignoring")
@@ -124,6 +131,8 @@ final class MBKPanelObservers {
                 }
                 mbkLog("PanelController", "workspace observer -- other app active, closing")
                 controller.performClose()
+                mbkLog("PanelController",
+                    "[highlight] workspace observer -- after performClose() \(controller.debugHighlightDescription)")
             }
         }
     }
