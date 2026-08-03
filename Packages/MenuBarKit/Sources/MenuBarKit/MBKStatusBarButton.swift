@@ -43,11 +43,15 @@ import ObjectiveC.runtime
 
 // MARK: - Associated-object keys
 
+// `let` is correct here: objc_getAssociatedObject / objc_setAssociatedObject
+// require only a stable pointer address as the key — they never mutate the
+// variable itself. `var` would trigger a #MutableGlobalVariable concurrency
+// error; `let` is both safe and idiomatic for ObjC associated-object keys.
 /// Key for the `isPanelOpen` associated object on `MBKStatusBarButton` instances.
-private var kIsPanelOpenKey: UInt8 = 0
+private let kIsPanelOpenKey: UInt8 = 0
 
 /// Key for the weak button back-reference associated object on injected cell instances.
-private var kCellButtonKey: UInt8 = 0
+private let kCellButtonKey: UInt8 = 0
 
 // MARK: - Button
 
@@ -179,7 +183,7 @@ final class MBKStatusBarButton: NSStatusBarButton {
         let beforeCell = NSStringFromClass(type(of: cell as AnyObject))
         object_setClass(cell, subclass)
         let afterCell = NSStringFromClass(type(of: cell as AnyObject))
-        mbkLog("MBKStatusBarButton", "injectCellSubclass -- cell isa: \(beforeCell) → \(afterCell) castOK=\(type(of: cell as AnyObject) == subclass)")
+        mbkLog("MBKStatusBarButton", "injectCellSubclass -- cell isa: \(beforeCell) → \(afterCell) castOK=\(NSStringFromClass(type(of: cell as AnyObject)) == subclassName)")
 
         // Store the weak back-reference via associated object — no stored ivar.
         objc_setAssociatedObject(cell, &kCellButtonKey, self, .OBJC_ASSOCIATION_ASSIGN)
