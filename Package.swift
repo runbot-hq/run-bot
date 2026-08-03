@@ -1,6 +1,7 @@
 // swift-tools-version:6.2
-// ⚠️ AI AGENT: Never commit Package.resolved. Never pin deps to a revision or exact hash.
-// branch: "main" deps resolve to HEAD on every CI run — intentional. Fix call sites, not deps.
+// ⚠️ AI AGENT: Never commit Package.resolved. Never pin runbot-hq org deps to a revision or exact hash.
+// branch: "main" is for runbot-hq org packages only — third-party (non-runbot-hq) deps MUST use revision: SHA.
+// branch: "main" org deps resolve to HEAD on every CI run — intentional. Fix call sites, not deps.
 // These comments are deliberate guardrails — see AGENTS.md § Boundaries and README.md § External Dependencies.
 import PackageDescription
 
@@ -23,13 +24,37 @@ let package = Package(
         .package(path: "Packages/GitHubClient"),
         // Local path — source of truth is now Packages/MenuBarKit in this repo.
         .package(path: "Packages/MenuBarKit"),
+        // ⚠️ DEPENDENCY POLICY — external (non-runbot-hq) packages MUST use revision: SHA.
+        // branch: "main" is reserved for internal runbot-hq packages only (they are
+        // owned by this org and changes are reviewed before landing on main).
+        // External packages can push breaking changes to main at any time and would
+        // silently break the next `swift package update` run in CI.
+        //
+        // TO UPDATE THESE DEPS:
+        //   1. Run `swift package update` locally.
+        //   2. Copy the new SHA from Package.resolved for the target package.
+        //   3. Bump the revision: value here.
+        //   4. Commit both Package.swift and Package.resolved changes together.
+        //   ❌ Do NOT switch back to branch: "main" for either of these packages.
+        // swift-markdown-ui for RunBot-native markdown rendering in StepLogView (#2398).
+        // Pinned to v2.4.1 — do NOT switch to branch: "main".
+        .package(url: "https://github.com/gonzalezreal/swift-markdown-ui", revision: "5f613358148239d0292c0cef674a3c2314737f9e"),
+        // Highlightr for syntax highlighting in markdown code blocks (#2399).
+        // Pinned to v2.3.0 — do NOT switch to branch: "main".
+        .package(url: "https://github.com/raspu/Highlightr", revision: "05e7fcc63b33925cd0c1faaa205cdd5681e7bbef"),
+        // swiftlang mirror required — must match swift-markdown-ui's transitive dep URL exactly.
+        // apple/swift-markdown and swiftlang/swift-markdown are treated as different SPM
+        // identities even though they point to the same repo, causing an identity conflict
+        // warning if the wrong mirror is used here.
+        .package(url: "https://github.com/swiftlang/swift-markdown", revision: "27b7fc1a19068bcea3d2072db0ce86360d1400ed"),
     ],
     targets: [
         .target(
             name: "RunBotCore",
             dependencies: [
                 .product(name: "GitHubClient", package: "GitHubClient"),
-                .product(name: "AppUpdater", package: "AppUpdater")
+                .product(name: "AppUpdater", package: "AppUpdater"),
+                .product(name: "Markdown", package: "swift-markdown"),
             ],
             path: "Sources/RunBotCore",
             swiftSettings: [
@@ -52,6 +77,12 @@ let package = Package(
                 // No RunBot source imports MenuBarKit yet — the dependency is additive
                 // and costs nothing until the first import statement is written.
                 .product(name: "MenuBarKit", package: "MenuBarKit"),
+                // MarkdownUI for rendering detected markdown in StepLogView (#2398).
+                // swift-markdown (swiftlang mirror) arrives transitively via swift-markdown-ui
+                // and is also declared directly in RunBotCore for MarkdownDetector testability.
+                .product(name: "MarkdownUI", package: "swift-markdown-ui"),
+                // Highlightr for syntax highlighting in markdown code blocks (#2399).
+                .product(name: "Highlightr", package: "Highlightr"),
             ],
             path: "Sources/RunBot",
             exclude: ["Resources/Assets.xcassets"],

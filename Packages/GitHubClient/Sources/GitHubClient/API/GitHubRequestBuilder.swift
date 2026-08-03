@@ -35,6 +35,7 @@ public func makeRequest(url: URL, token: String, timeout: TimeInterval) -> URLRe
 /// so the S3 response body is the raw bytes rather than a JSON envelope.
 public func makeRawRequest(url: URL, token: String, timeout: TimeInterval) -> URLRequest {
     var req = makeBaseRequest(url: url, token: token, timeout: timeout)
+    req.cachePolicy = .reloadIgnoringLocalCacheData
     req.setValue("application/vnd.github.v3.raw", forHTTPHeaderField: "Accept")
     return req
 }

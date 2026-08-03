@@ -59,7 +59,7 @@ private struct FetchStepStubTransport: GitHubTransportProtocol {
 
 /// Wraps `FetchStepStubTransport` and counts every `raw(_:timeout:)` call.
 /// Used by `test_cacheHit_zeroAdditionalNetworkCalls` to assert that the ZIP
-/// is fetched exactly once and never again for the same `runID+startedAt` key.
+/// is fetched exactly once and never again for the same `runID` (via disk cache hit).
 // `rawCallCount` is declared `nonisolated(unsafe)` rather than a plain `var` because
 // `CountingTransport` must be `Sendable` (the protocol requires it) and the mutation
 // always happens serially in tests (one `await` at a time). The annotation makes the
@@ -117,6 +117,8 @@ private func makeStep(number: Int, name: String) -> GitHubStep {
 }
 
 /// Builds a `LogFetcher` with a stub transport and a no-subprocess extractor.
+/// Fresh `DiskZIPCache` instances are injected so no state leaks between tests
+/// via the shared singleton caches.
 private func makeFetcher(
     zipFiles: [(name: String, text: String)],
     extraResponses: [String: Data] = [:]
@@ -127,7 +129,12 @@ private func makeFetcher(
     ]
     for (k, v) in extraResponses { responses[k] = v }
     let transport = FetchStepStubTransport(responses: responses)
-    return LogFetcher(transport: transport, zipExtractor: { _ in .success(zipFiles) })
+    return LogFetcher(
+        transport: transport,
+        diskZIPCache: DiskZIPCache(cacheDir: FileManager.default.temporaryDirectory
+            .appendingPathComponent("test-disk-zip-\(UUID().uuidString)")),
+        zipExtractor: { _ in .success(zipFiles) }
+    )
 }
 
 @Suite("LogFetcher.fetchStepLog")
@@ -177,7 +184,11 @@ struct FetchStepLogTests {
         let transport = FetchStepStubTransport(responses: [
             "repos/owner/repo/actions/runs/99/logs": fixtureZip,
         ])
-        var fetcher = LogFetcher(transport: transport) // real zipExtractor
+        var fetcher = LogFetcher(
+            transport: transport,
+            diskZIPCache: DiskZIPCache(cacheDir: FileManager.default.temporaryDirectory
+                .appendingPathComponent("test-disk-zip-\(UUID().uuidString)"))
+        ) // real zipExtractor
         let result = await fetcher.fetchStepLog(
             runID: 99, startedAt: "2026-07-31T04:34:20Z",
             jobID: 1, jobName: "release",
@@ -356,6 +367,8 @@ struct FetchStepLogTests {
         ])
         var fetcher = LogFetcher(
             transport: transport,
+            diskZIPCache: DiskZIPCache(cacheDir: FileManager.default.temporaryDirectory
+                .appendingPathComponent("test-disk-zip-\(UUID().uuidString)")),
             zipExtractor: { _ in .success([(name: "release/1_Build", text: "build output\n")]) }
         )
         _ = await fetcher.fetchStepLog(

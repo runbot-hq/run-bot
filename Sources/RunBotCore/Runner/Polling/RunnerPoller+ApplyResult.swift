@@ -127,6 +127,20 @@ extension RunnerPoller {
             if state.fetchError != nil { state.fetchError = nil }
         }
 
+        // MARK: - ZIP prefetch
+        //
+        // Enqueue background ZIP prefetches for jobs not yet seen this session.
+        // `prefetchedRunIDs` is the authoritative "only once" gate; it avoids the
+        // actor-hop cost of calling `enqueue` on already-seen runIDs every poll tick.
+        for job in jobResult.display where !prefetchedRunIDs.contains(job.runID) {
+            await zipPrefetchQueue.enqueue(
+                runID: job.runID,
+                scope: job.scope ?? "",
+                isCompleted: job.jobConclusion != nil
+            )
+            prefetchedRunIDs.insert(job.runID)
+        }
+
         // MARK: - Notification dispatch
         //
         // Find jobs that concluded this cycle: they were live last poll (prevLive)
