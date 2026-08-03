@@ -560,8 +560,7 @@ struct StepLogView: View {
     }
 
     // MARK: - Meta row computed properties
-
-    /// `owner/repo` slug derived from `job.htmlUrl` for the meta row.
+/// `owner/repo` slug derived from `job.htmlUrl` for the meta row.
     private var repoSlug: String { repoScopeForFetch.isEmpty ? "—" : repoScopeForFetch }
 
     /// Formatted start time string, or `"—"` when the step has not yet started.
@@ -585,44 +584,5 @@ struct StepLogView: View {
         guard let startedAtString = step.startedAt,
               let date = Self.iso8601Fmt.date(from: startedAtString) else { return "—" }
         return Self.dateFmt.string(from: date)
-    }
-
-    /// Human-readable label derived from the step's conclusion and status.
-    ///
-    /// Maps `GitHubStep.conclusion` (raw `String?`) through `JobConclusion` for
-    /// display, falling back to a running/queued label when conclusion is absent.
-    private var stepStatusLabel: String {
-        guard let raw = step.conclusion else {
-            return step.status == "in_progress" ? "▶ running" : "· queued"
-        }
-        switch JobConclusion(rawString: raw) {
-        case .success:                          return "✓ success"
-        case .failure:                          return "✗ failure"
-        case .cancelled:                        return "⊘ cancelled"
-        case .neutral:                          return "· neutral"
-        case .skipped:                          return "⊘ skipped"
-        case .timedOut:                         return "✗ timed out"
-        case .actionRequired:                   return "! action required"
-        case .stale:                            return "· stale"
-        case .startupFailure:                   return "✗ startup failure"
-        case .unknown(let raw):                 return "· \(raw)"
-        }
-    }
-
-    /// Foreground colour for the step status label.
-    ///
-    /// Maps `GitHubStep.conclusion` (raw `String?`) through `JobConclusion` for
-    /// colour selection, falling back to warning/secondary colours when absent.
-    private var stepStatusColor: Color {
-        guard let raw = step.conclusion else {
-            return step.status == "in_progress" ? Color.rbWarning : Color.rbTextSecondary
-        }
-        switch JobConclusion(rawString: raw) {
-        case .success:                          return Color.rbSuccess
-        case .failure, .timedOut,
-             .actionRequired, .startupFailure: return Color.rbDanger
-        case .skipped, .cancelled, .neutral, .stale,
-             .unknown:                         return Color.rbTextSecondary
-        }
     }
 }
