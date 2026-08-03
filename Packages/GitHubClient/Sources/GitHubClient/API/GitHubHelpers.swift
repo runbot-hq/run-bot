@@ -51,10 +51,10 @@ public func fetchUserRepos(
 /// fails, `stripAnsi` falls back to returning input unchanged — logs remain readable, just
 /// with ANSI codes present. This is the correct degradation behaviour.
 ///
-/// Note: `stripAnsi` must run **after** CR normalisation (step 2 in `parseStepLog`) and
-/// **before** `stripTimestamps`. The ANSI pattern is character-based and does not interact
-/// with line endings, but maintaining the documented pipeline order is required for
-/// `stripTimestamps` to receive clean LF-only input.
+/// Note: `stripAnsi` is no longer called by any active fetch path — ANSI sequences are
+/// preserved and rendered by `ansiAttributedString` at the UI layer. This regex and
+/// `stripAnsi` are retained for any future use or testing contexts that may need
+/// unconditional stripping.
 private let ansiRegex: NSRegularExpression? = try? NSRegularExpression(
     pattern: "\u{001B}\\[[0-9;]*[A-Za-z]"
 )
@@ -173,9 +173,12 @@ struct ParsedLog {
 ///
 /// Pipeline order (must not be reordered):
 ///   1. CR normalisation — converts \r\n and bare \r to \n.
-///   2. stripAnsi  — character-based; safe on LF-only input.
-///   3. stripTimestamps — uses .anchorsMatchLines; requires LF-only input.
-///   4. buildParsedLog — splits on \n; requires LF-only input.
+///   2. stripTimestamps — uses .anchorsMatchLines; requires LF-only input.
+///   3. buildParsedLog — splits on \n; requires LF-only input.
+///
+/// ANSI escape sequences are **preserved** and passed through to the UI layer
+/// (`ansiAttributedString` in `LogPlainLine` / `LogDimmedLine`), consistent
+/// with the `cleanLogText` pipeline. `stripAnsi` is intentionally not called.
 /// - Note: Visibility is `public` so `LogFetcher` (in `RunBotCore`) can call it
 ///   for the flat-blob fallback path without duplicating the matching logic.
 public func parseStepLog(
@@ -188,9 +191,8 @@ public func parseStepLog(
     let normalised = raw
         .replacingOccurrences(of: "\r\n", with: "\n")
         .replacingOccurrences(of: "\r", with: "\n")
-    let ansiStripped = stripAnsi(normalised)    // Step 2
-    let cleaned = stripTimestamps(ansiStripped) // Step 3
-    let parsed = buildParsedLog(from: cleaned)  // Step 4
+    let cleaned = stripTimestamps(normalised) // Step 2 (ANSI passes through)
+    let parsed = buildParsedLog(from: cleaned) // Step 3
 
     logger?.log(
         "parseStepLog › \(parsed.sections.count) section(s), stepName=\"\(stepName)\" stepNumber=\(stepNumber)",
@@ -349,8 +351,8 @@ func buildParsedLog(from cleaned: String) -> ParsedLog {
 ///
 /// ANSI escape sequences are intentionally **preserved** — they are rendered by
 /// `ansiAttributedString` in the UI layer (`LogPlainLine`, `LogDimmedLine`).
-/// Only the ZIP-path caller (`LogFetcher`) needs bare text and calls `stripAnsi`
-/// directly before writing to the flat-blob fallback.
+/// This is consistent with the `parseStepLog` pipeline; `stripAnsi` is not called
+/// on any active fetch path.
 ///
 /// Pipeline:
 ///   1. CR normalisation (`\r\n` and bare `\r` → `\n`)

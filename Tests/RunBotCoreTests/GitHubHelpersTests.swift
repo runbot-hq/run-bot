@@ -190,6 +190,22 @@ final class GitHubHelpersTests: XCTestCase {
             "Test section body must contain its body line")
     }
 
+    /// Verifies that ANSI SGR sequences are **preserved** by `parseStepLog`.
+    ///
+    /// Since #2413, ANSI is no longer stripped at parse time — it passes through
+    /// to the UI layer for rendering by `ansiAttributedString`.
+    func test_parseStepLog_ansiPassThrough() {
+        let esc = "\u{001B}"
+        let raw = makeLog(sections: [
+            (name: "Build", body: ["\(esc)[32mbuild output\(esc)[0m"])
+        ])
+        let result = parseStepLog(raw, stepName: "Build", stepNumber: 1, logger: nil)
+        XCTAssertNotNil(result)
+        XCTAssert(result!.contains(esc),
+            "parseStepLog must preserve ANSI sequences — stripping happens at the render layer")
+        XCTAssert(result!.contains("build output"))
+    }
+
     // MARK: - cleanLogText pipeline
 
     /// Verifies that ISO-8601 timestamp prefixes (`2026-…Z`) are stripped,

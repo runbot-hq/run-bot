@@ -14,7 +14,7 @@ import SwiftUI
 /// |------------|------------------------------------------|
 /// | `\e[0m`    | Reset all attributes                     |
 /// | `\e[1m`    | Bold                                     |
-/// | `\e[2m`    | Dim (secondary colour substitution)      |
+/// | `\e[2m`    | Dim (opacity 0.5 applied to resolved colour) |
 /// | `\e[31m`–`\e[36m` | Standard colours (red–cyan)     |
 /// | `\e[90m`–`\e[96m` | Bright variants                  |
 ///
@@ -68,7 +68,8 @@ public func ansiAttributedString(
         // Flush the text segment before this escape sequence.
         if segmentStart < idx {
             var seg = AttributedString(text[segmentStart..<idx])
-            seg.foregroundColor = isDim ? dimColor(baseColor) : (currentColor ?? baseColor)
+            let resolved = currentColor ?? baseColor
+            seg.foregroundColor = isDim ? resolved.opacity(0.5) : resolved
             seg.font = isBold ? boldFont(font) : font
             result += seg
         }
@@ -85,7 +86,8 @@ public func ansiAttributedString(
             // Malformed/truncated escape — flush remaining raw text as a plain segment.
             if segmentStart < text.endIndex {
                 var seg = AttributedString(text[segmentStart...])
-                seg.foregroundColor = isDim ? dimColor(baseColor) : (currentColor ?? baseColor)
+                let resolved = currentColor ?? baseColor
+                seg.foregroundColor = isDim ? resolved.opacity(0.5) : resolved
                 seg.font = isBold ? boldFont(font) : font
                 result += seg
             }
@@ -109,7 +111,8 @@ public func ansiAttributedString(
     // Flush trailing text segment.
     if segmentStart < text.endIndex {
         var seg = AttributedString(text[segmentStart...])
-        seg.foregroundColor = isDim ? dimColor(baseColor) : (currentColor ?? baseColor)
+        let resolved = currentColor ?? baseColor
+        seg.foregroundColor = isDim ? resolved.opacity(0.5) : resolved
         seg.font = isBold ? boldFont(font) : font
         result += seg
     }
@@ -149,11 +152,6 @@ private func applyANSICode(
     case 96: color = Color(red: 0.35, green: 0.90, blue: 0.95) // bright cyan
     default: break // silently ignore unknown codes
     }
-}
-
-/// Returns a dimmed version of `base` by reducing opacity.
-private func dimColor(_ base: Color) -> Color {
-    base.opacity(0.5)
 }
 
 /// Returns a bold variant of `font`.

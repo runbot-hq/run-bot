@@ -61,6 +61,27 @@ final class ANSIAttributedStringTests: XCTestCase {
         XCTAssertNotEqual(dimRun?.foregroundColor, base)
     }
 
+    func test_dimPlusColour() {
+        // \e[2m\e[32m: dim then green. The rendered colour must be green-ish
+        // (not the base colour) and must have reduced opacity (< 1.0).
+        let input = "\(esc)[2m\(esc)[32mtext\(esc)[0m"
+        let result = ansiAttributedString(input, baseColor: base, font: font)
+        XCTAssertEqual(String(result.characters), "text")
+        let runs = Array(result.runs)
+        let coloured = runs.first(where: { $0.foregroundColor != nil })
+        // Colour must not be the base colour (green, not base)
+        XCTAssertNotEqual(coloured?.foregroundColor, base,
+            "dim+colour should resolve to the ANSI colour, not base")
+        // Opacity must be reduced (dim applied as .opacity(0.5) on resolved colour)
+        if let c = coloured?.foregroundColor,
+           let resolved = c.cgColor,
+           let components = resolved.components {
+            // alpha component is the last one in RGBA
+            XCTAssertLessThan(components.last ?? 1.0, 1.0,
+                "dim must reduce opacity of the resolved colour")
+        }
+    }
+
     // MARK: - Standard colours (31–36)
 
     func test_standardColors() {
