@@ -144,16 +144,14 @@ struct PanelMainView: View {
         let unenriched = appState.runnerState.localRunners.filter { !$0.isBusy }
         let busyRunners = appState.runnerState.runners.filter { $0.busy }
         let busyIds = Set(busyRunners.compactMap { $0.id })
-        let busyNames = Set(busyRunners.map { $0.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() })
+        let busyNames = Set(busyRunners.map { $0.name.trimmingCharacters(in: .whitespaces).lowercased() })
         let activeNamesFromJobs = Set(
-            appState.runnerState.jobs
-                .filter { $0.jobStatus == .inProgress }
-                .compactMap { $0.runnerName?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+            appState.runnerState.jobs.filter { $0.jobStatus == .inProgress }.compactMap { $0.runnerName }
         )
 
         let busyViaFallback = unenriched.filter { local in
-            let normalizedName = local.runnerName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            if activeNamesFromJobs.contains(normalizedName) {
+            let normalizedName = local.runnerName.trimmingCharacters(in: .whitespaces).lowercased()
+            if activeNamesFromJobs.contains(local.runnerName) {
                 #if DEBUG
                 log("【activeLocalRunners】fallback — runner='\(local.runnerName)' matched via activeNamesFromJobs", category: .runner)
                 #endif
