@@ -79,27 +79,32 @@ public actor RunnerPoller {
 
   // MARK: - Adaptive poll-interval state
   //
-  // Written exclusively by `applyFetchResult` (success cycles only).
+  // Written exclusively by `applyFetchResult` (success cycles only) and reset by `start()`.
   // Neither counter is updated on error cycles — both hold their last-successful-cycle
   // value through any number of consecutive failures (intentional: last known good state
   // is preferable to an unknown error state for interval selection).
   // Both are reset to 0 at the top of `start()` so every restart begins from a clean state.
 
   // MARK: — Adaptive-interval counters
-  // All tick/busy counters are `private`; `rateLimitRemaining` is `internal` due to
-  // SPM cross-file actor extension rules (see its doc-comment below).
-  // The only sanctioned write path is
-  // `updateAdaptiveCounters(hasActiveWork:busyRunnerCount:)` for the tick/busy
-  // counters, and `applyFetchResult` for `rateLimitRemaining`.
-  // `updateAdaptiveCounters` is `internal` (not `private`) for the same SPM reason;
-  // the ⚠️ warning lives on that method.
+  // All three counters are `internal` (not `private`) due to SPM cross-file actor extension
+  // rules — Swift's `private` is file-scoped, so extension files in separate source files
+  // cannot access `private` members even on the same actor. The only sanctioned write paths
+  // are `start()` and `updateAdaptiveCounters(hasActiveWork:busyRunnerCount:)` in
+  // RunnerPoller+PollLoop.swift, and `applyFetchResult` for `rateLimitRemaining`.
+  // Do not write these properties from any other call site.
 
   /// Consecutive successful idle poll cycles. Drives exponential idle backoff in
   /// `PollIntervalStrategy`. Reset to 0 on every `start()` and on any active fetch.
-  private var consecutiveIdleTicks: Int = 0
+  ///
+  /// - Note: Declared `internal` (not `private`) due to SPM cross-file actor extension
+  ///   rules — written by `RunnerPoller+PollLoop.swift`. Do not promote to `public`.
+  var consecutiveIdleTicks: Int = 0
   /// Busy-runner count from the last successful fetch. Selects the active-interval
   /// tier (Fast/Mid/Slow) in `PollIntervalStrategy`.
-  private var lastBusyRunnerCount: Int = 0
+  ///
+  /// - Note: Declared `internal` (not `private`) due to SPM cross-file actor extension
+  ///   rules — written by `RunnerPoller+PollLoop.swift`. Do not promote to `public`.
+  var lastBusyRunnerCount: Int = 0
   /// Calls remaining in the current GitHub API rate-limit window.
   ///
   /// Sourced from `RateLimitSnapshot.remaining` (which in turn reads the
@@ -115,9 +120,9 @@ public actor RunnerPoller {
   var rateLimitRemaining: Int = PollIntervalStrategy.rateLimitUnavailable
 
   /// Owns the two structured `Task` handles for the poll loop.
-  /// `private` — all call sites (startObservingScopes, start(), isolated deinit)
-  /// are in this file; no extension file needs access.
-  private let pollLoop = PollLoopCoordinator()
+  /// `internal` (not `private`) — written by `RunnerPoller+PollLoop.swift` (SPM
+  /// cross-file extension rule). Do not access from any other extension or call site.
+  let pollLoop = PollLoopCoordinator()
   /// Observable read model — the source of truth for all views and AppDelegate observers.
   public let state: RunnerState
   /// Returns the current local-runner snapshot on the `@MainActor`.
