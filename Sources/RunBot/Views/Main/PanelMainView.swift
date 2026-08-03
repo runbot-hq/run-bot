@@ -120,7 +120,7 @@ struct PanelMainView: View {
         let busyNames = Set(busyRunners.map { $0.name })
         return appState.runnerState.localRunners.filter { local in
             if activeNamesFromJobs.contains(local.runnerName) { return true }
-            if let aid = local.agentId, busyIds.contains(aid) { return true }
+            if let aid = local.apiId, busyIds.contains(aid) { return true }
             if busyNames.contains(local.runnerName) { return true }
             return false
         }
