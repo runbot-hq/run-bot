@@ -255,7 +255,7 @@ public struct WorkflowActionGroupFetcher: Sendable, WorkflowActionGroupFetcherPr
 
     var byGroupKey: [GroupKey: [RunPayload]] = [:]
     for run in runPayloads {
-      let key = GroupKey(headSha: run.headSha, event: groupEvent(run.event ?? "push"))
+      let key = GroupKey(headSha: run.headSha, event: run.event.map { groupEvent($0) } ?? "commit")
       byGroupKey[key, default: []].append(run)
     }
 
@@ -265,7 +265,7 @@ public struct WorkflowActionGroupFetcher: Sendable, WorkflowActionGroupFetcherPr
       // Re-constructing byGroupKey entirely is safer and cleaner than mutating the old dict
       byGroupKey.removeAll(keepingCapacity: true)
       for run in runPayloads {
-        let key = GroupKey(headSha: run.headSha, event: groupEvent(run.event ?? "push"))
+        let key = GroupKey(headSha: run.headSha, event: run.event.map { groupEvent($0) } ?? "commit")
         byGroupKey[key, default: []].append(run)
       }
     }
