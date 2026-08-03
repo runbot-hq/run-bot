@@ -83,7 +83,8 @@ public func ansiAttributedString(
             text.formIndex(after: &idx)
         }
         guard idx < text.endIndex else {
-            break // pre-escape text already flushed above; drop partial escape
+            segmentStart = text.endIndex // suppress trailing flush — pre-escape text already in result
+            break
         }
         let codeStr = String(text[codeStart..<idx])
         text.formIndex(after: &idx)              // consume 'm'
