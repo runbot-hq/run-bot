@@ -81,7 +81,16 @@ public func ansiAttributedString(
         while idx < text.endIndex, text[idx] != "m" {
             text.formIndex(after: &idx)
         }
-        guard idx < text.endIndex else { break } // malformed — bail
+        guard idx < text.endIndex else {
+            // Malformed/truncated escape — flush remaining raw text as a plain segment.
+            if segmentStart < text.endIndex {
+                var seg = AttributedString(text[segmentStart...])
+                seg.foregroundColor = isDim ? dimColor(baseColor) : (currentColor ?? baseColor)
+                seg.font = isBold ? boldFont(font) : font
+                result += seg
+            }
+            break
+        }
         let codeStr = String(text[codeStart..<idx])
         text.formIndex(after: &idx)              // consume 'm'
         segmentStart = idx

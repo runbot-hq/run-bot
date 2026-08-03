@@ -103,6 +103,18 @@ final class ANSIAttributedStringTests: XCTestCase {
         }
     }
 
+    // MARK: - Malformed / truncated escape
+
+    func test_malformedEscape_trailingTextPreserved() {
+        // Truncated escape sequence — missing `m` terminator.
+        // Everything before the ESC must be present; the partial escape
+        // itself may be dropped, but no silent loss of preceding text.
+        let input = "hello\(esc)[31"
+        let result = ansiAttributedString(input, baseColor: base, font: font)
+        XCTAssert(String(result.characters).contains("hello"),
+            "Text preceding a truncated escape must not be silently dropped")
+    }
+
     // MARK: - Semicolon-separated codes
 
     func test_semicolonCodes_boldAndColour() {
