@@ -218,18 +218,47 @@ public struct LogFetcher: Sendable {
 
         func clean(_ text: String) -> String { cleanLogText(text) }
 
-        // Cache lookup — three-layer: LRU → disk → network.
-        let cacheKey = diskZIPCacheKey(runID: runID, startedAt: startedAt)
+        // Cache lookup — three-layer: LRU → disk → network. Returns raw ZIP Data.
         let fetchStart = ContinuousClock.now
         log(
-            "fetchStepLog › cacheKey='\(cacheKey)' jobName='\(jobName)' sanitised='\(sanitizeJobNameForZIP(jobName))' step=\(step.number) '\(step.name)' scope='\(scope)'",
+            "fetchStepLog › runID=\(runID) jobName='\(jobName)' sanitised='\(sanitizeJobNameForZIP(jobName))' step=\(step.number) '\(step.name)' scope='\(scope)'",
             category: .services
         )
-        let allFiles: [(name: String, text: String)]
-        switch await loadZipFiles(cacheKey: cacheKey, runID: runID, startedAt: startedAt, scope: scope) {
-        case .hit(let files): allFiles = files
-        case .miss(let files): allFiles = files
+        let zipData: Data
+        switch await loadZipFiles(runID: runID, scope: scope) {
+        case .hit(let data): zipData = data
+        case .miss(let data): zipData = data
         case .failed(let result): return result
+        }
+        // Unzip lazily here — one entry at a time, only when the user taps a step.
+        let unzipStart = ContinuousClock.now
+        let allFiles: [(name: String, text: String)]
+        switch await zipExtractor(zipData) {
+        case .success(let files):
+            let unzipDuration = unzipStart.duration(to: .now)
+            let stepCount = files.filter { $0.name.contains("/") }.count
+            log(
+                "fetchStepLog › ZIP extracted \(files.count) file(s) for run \(runID) " +
+                "(\(stepCount) with step-prefix '/') in \(unzipDuration)",
+                category: .services
+            )
+            if stepCount == 0 {
+                let names = files.map(\.name).joined(separator: ", ")
+                log(
+                    "fetchStepLog › ZIP has no per-step files for run \(runID) — " +
+                    "all entries: [\(names.isEmpty ? "<empty archive>" : names)]",
+                    category: .services
+                )
+            }
+            allFiles = files
+        case .processFailed(let exitCode):
+            let unzipDuration = unzipStart.duration(to: .now)
+            log("fetchStepLog › unzip failed for run \(runID) — exit code \(exitCode) after \(unzipDuration)", category: .services)
+            return .fetchFailed(reason: "GitHub returned the run log archive, but macOS could not extract it (unzip exit code \(exitCode)).")
+        case .ioError:
+            let unzipDuration = unzipStart.duration(to: .now)
+            log("fetchStepLog › I/O error writing or reading ZIP tmp dir for run \(runID) after \(unzipDuration)", category: .services)
+            return .fetchFailed(reason: "The app could not prepare a temporary file while extracting the run log archive.")
         }
         log("fetchStepLog › allFiles (\(allFiles.count)): [\(allFiles.map { $0.name }.joined(separator: ", "))]", category: .services)
 
@@ -310,13 +339,14 @@ public struct LogFetcher: Sendable {
 
     // MARK: - Private helpers
 
-    /// Typed result from the cache/network/unzip pipeline used by `fetchStepLog`.
+    /// Typed result from the cache/network pipeline used by `fetchStepLog`.
+    /// Values are raw ZIP `Data`; unzipping happens in `fetchStepLog` after this returns.
     private enum ZipLoadResult {
-        /// Files returned from a cache layer — no network call was made.
-        case hit([(name: String, text: String)])
-        /// Files freshly fetched and extracted — both cache layers have been updated.
-        case miss([(name: String, text: String)])
-        /// A network, subprocess, or I/O failure occurred; the associated value is the terminal result.
+        /// Raw ZIP bytes returned from a cache layer — no network call was made.
+        case hit(Data)
+        /// Raw ZIP bytes freshly downloaded — both cache layers have been updated.
+        case miss(Data)
+        /// A network or I/O failure occurred; the associated value is the terminal result.
         case failed(StepLogResult)
     }
 
