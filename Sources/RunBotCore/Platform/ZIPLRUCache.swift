@@ -1,5 +1,6 @@
 // ZIPLRUCache.swift
 // RunBotCore
+import Foundation
 
 /// Thread-safe LRU cache for run-level ZIP archives, keyed by `runID`.
 ///

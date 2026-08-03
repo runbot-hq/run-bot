@@ -135,7 +135,6 @@ extension RunnerPoller {
         for job in jobResult.display where !prefetchedRunIDs.contains(job.runID) {
             await zipPrefetchQueue.enqueue(
                 runID: job.runID,
-                startedAt: job.startedAt,
                 scope: job.scope ?? "",
                 isCompleted: job.jobConclusion != nil
             )

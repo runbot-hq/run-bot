@@ -188,8 +188,8 @@ public struct LogFetcher: Sendable {
     /// its own file, making heuristic parsing unnecessary.
     ///
     /// ## Cache
-    /// The ZIP is cached in the LRU + disk layers keyed by `diskZIPCacheKey`. Subsequent calls for
-    /// steps in the same job (same `runID` + `startedAt`) cost zero network calls.
+    /// The ZIP is cached in the LRU + disk layers keyed by `runID`. Subsequent calls for
+    /// steps in the same job (same `runID`) cost zero network calls.
     ///
     /// ## Fallback
     /// When the ZIP contains no per-step files for the requested job, falls back to the existing
@@ -198,7 +198,8 @@ public struct LogFetcher: Sendable {
     ///
     /// - Parameters:
     ///   - runID: The GitHub workflow run ID (from `job.runID`).
-    ///   - startedAt: Raw ISO 8601 start string used as cache-key discriminator (from `job.startedAt`).
+    ///   - startedAt: Raw ISO 8601 start string (reserved for future use — currently unused in cache key).
+    ///   - jobID: The GitHub Actions job ID used for the flat-blob fallback path.
     ///   - jobName: The job display name (from `job.name`). Sanitised before ZIP lookup.
     ///   - step: The `GitHubStep` whose log is requested.
     ///   - scope: The `owner/repo` string identifying the repository.
@@ -350,38 +351,38 @@ public struct LogFetcher: Sendable {
         case failed(StepLogResult)
     }
 
-    /// Fetches and caches the ZIP file for `runID` using a three-layer lookup:
+    /// Fetches and caches raw ZIP `Data` for `runID` using a three-layer lookup:
     /// 1. LRU memory cache (`ZIPLRUCache`) — zero I/O
     /// 2. Disk cache (`DiskZIPCache`) — zero network
-    /// 3. Network download — backfills both caches on success
+    /// 3. Network download — backfills both caches with raw `Data` on success
+    ///
+    /// Unzipping is **not** performed here. Callers (`fetchStepLog`) extract lazily
+    /// after this method returns, so the cache only stores raw bytes.
     private func loadZipFiles(
-        cacheKey: String,
         runID: Int,
-        startedAt: String?,
-        scope: String,
-        isCompleted: Bool = true
+        scope: String
     ) async -> ZipLoadResult {
         // Layer 1: LRU memory cache
         if let cached = await zipLRUCache.get(runID) {
             log(
-                "fetchStepLog › LRU HIT runID=\(runID) key='\(cacheKey)' — \(cached.count) file(s)",
+                "fetchStepLog › LRU HIT runID=\(runID) — \(cached.count) byte(s)",
                 category: .services
             )
             return .hit(cached)
         }
         // Layer 2: Disk cache
-        if let cached = await diskZIPCache.get(key: cacheKey) {
+        if let cached = await diskZIPCache.get(runID: runID) {
             log(
-                "fetchStepLog › DISK HIT key='\(cacheKey)' — \(cached.count) file(s), populating LRU",
+                "fetchStepLog › DISK HIT runID=\(runID) — \(cached.count) byte(s), populating LRU",
                 category: .services
             )
-            await zipLRUCache.set(runID, files: cached)
+            await zipLRUCache.set(runID, zip: cached)
             return .hit(cached)
         }
         // Layer 3: Network
         let downloadStart = ContinuousClock.now
         log(
-            "fetchStepLog › cache MISS key='\(cacheKey)' — downloading run \(runID)",
+            "fetchStepLog › cache MISS runID=\(runID) — downloading ZIP",
             category: .services
         )
         guard let data = await transport.raw("repos/\(scope)/actions/runs/\(runID)/logs") else {
@@ -390,36 +391,10 @@ public struct LogFetcher: Sendable {
         }
         let downloadDuration = downloadStart.duration(to: .now)
         log("fetchStepLog › ZIP downloaded \(data.count) bytes for run \(runID) in \(downloadDuration)", category: .services)
-        let unzipStart = ContinuousClock.now
-        switch await zipExtractor(data) {
-        case .success(let files):
-            let unzipDuration = unzipStart.duration(to: .now)
-            let stepCount = files.filter { $0.name.contains("/") }.count
-            log(
-                "fetchStepLog › ZIP extracted \(files.count) file(s) for run \(runID) " +
-                "(\(stepCount) with step-prefix '/') in \(unzipDuration) — writing to LRU + disk",
-                category: .services
-            )
-            if stepCount == 0 {
-                let names = files.map(\.name).joined(separator: ", ")
-                log(
-                    "fetchStepLog › ZIP has no per-step files for run \(runID) — " +
-                    "all entries: [\(names.isEmpty ? "<empty archive>" : names)]",
-                    category: .services
-                )
-            }
-            await zipLRUCache.set(runID, files: files)
-            await diskZIPCache.set(key: cacheKey, value: files, isCompleted: isCompleted)
-            return .miss(files)
-        case .processFailed(let exitCode):
-            let unzipDuration = unzipStart.duration(to: .now)
-            log("fetchStepLog › unzip failed for run \(runID) — exit code \(exitCode) after \(unzipDuration)", category: .services)
-            return .failed(.fetchFailed(reason: "GitHub returned the run log archive, but macOS could not extract it (unzip exit code \(exitCode))."))
-        case .ioError:
-            let unzipDuration = unzipStart.duration(to: .now)
-            log("fetchStepLog › I/O error writing or reading ZIP tmp dir for run \(runID) after \(unzipDuration)", category: .services)
-            return .failed(.fetchFailed(reason: "The app could not prepare a temporary file while extracting the run log archive."))
-        }
+        // Backfill both caches with raw bytes. Extraction is deferred to the caller.
+        await zipLRUCache.set(runID, zip: data)
+        await diskZIPCache.set(runID: runID, zip: data, isCompleted: true)
+        return .miss(data)
     }
 
     /// Returns the `.syntheticEmpty` result for a step whose ZIP entry is missing,

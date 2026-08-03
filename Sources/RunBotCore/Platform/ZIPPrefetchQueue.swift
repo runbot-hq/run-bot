@@ -90,7 +90,7 @@ public actor ZIPPrefetchQueue {
     /// or currently in-flight. Callers are responsible for not calling `enqueue`
     /// more than once per `runID` across sessions; `RunnerPoller.prefetchedRunIDs`
     /// provides this guarantee for the production call site.
-    public func enqueue(runID: Int, startedAt: String?, scope: String, isCompleted: Bool) async {
+    public func enqueue(runID: Int, scope: String, isCompleted: Bool) async {
         guard !isCancelled else { return }
         guard !inFlight.contains(runID) else { return }
         guard !(await memCache.contains(runID)) else { return }
