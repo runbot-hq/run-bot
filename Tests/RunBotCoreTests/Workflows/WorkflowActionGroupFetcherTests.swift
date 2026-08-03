@@ -104,12 +104,18 @@ private func withConclusion(_ d: inout [String: Any], _ conclusion: String?) {
   if let conclusion { d["conclusion"] = conclusion }
 }
 
+/// Builds a minimal workflow-run JSON fixture.
+///
+/// `event` defaults to `"push"`, which `groupEvent(_:)` normalises to `"commit"`.
+/// Pass `event: "workflow_dispatch"` (or another non-commit value) to test
+/// dispatch-triggered runs that must be placed in their own group.
 private func minimalRun(
   id: Int, sha: String, status: String = "completed",
   conclusion: String? = "success",
-  name: String = "CI"
+  name: String = "CI",
+  event: String = "push"
 ) -> [String: Any] {
-  var d: [String: Any] = ["id": id, "head_sha": sha, "status": status, "name": name]
+  var d: [String: Any] = ["id": id, "head_sha": sha, "status": status, "name": name, "event": event]
   withConclusion(&d, conclusion)
   return d
 }
@@ -219,7 +225,7 @@ struct WorkflowActionGroupFetcherTests {
 
   // MARK: - Grouping by head_sha
 
-  /// Verifies that two runs sharing the same `head_sha` are merged into a single `WorkflowActionGroup` with both runs and deduplicated jobs.
+  /// Verifies that two runs sharing the same `head_sha` and event are merged into a single `WorkflowActionGroup` with both runs and deduplicated jobs.
   @Test func fetchActionGroupsTwoRunsSameShaProducesOneGroup() async {
     let sha = "abc1234567890"
     let runs = [
@@ -259,6 +265,31 @@ struct WorkflowActionGroupFetcherTests {
     #expect(Set(r.map { $0.headSha }) == ["aaa111", "bbb222"])
   }
 
+  /// Verifies that a `workflow_dispatch` run on the same SHA as a `push` run
+  /// produces two separate groups rather than being merged into one.
+  @Test func fetchActionGroupsDispatchRunOnSameShaProducesSeparateGroup() async {
+    let sha = "shared999"
+    let t = makeTransport(with: [
+      "repos/owner/repo/actions/runs?status=completed": envelope(
+        key: "workflow_runs",
+        [
+          minimalRun(id: 1, sha: sha, status: "completed", conclusion: "success", name: "CI", event: "push"),
+          minimalRun(id: 2, sha: sha, status: "completed", conclusion: "success", name: "Publish", event: "workflow_dispatch"),
+        ]),
+      "repos/owner/repo/actions/runs/1/jobs": envelope(key: "jobs", [minimalJob(id: 10)]),
+      "repos/owner/repo/actions/runs/2/jobs": envelope(key: "jobs", [minimalJob(id: 20)]),
+    ])
+    let f = WorkflowActionGroupFetcher(transport: t)
+    let r = await f.fetch(for: "owner/repo")
+    #expect(r.count == 2, "push and workflow_dispatch runs on the same SHA must be in separate groups")
+    let pushGroup = r.first(where: { $0.runs.first?.name == "CI" })
+    let dispatchGroup = r.first(where: { $0.runs.first?.name == "Publish" })
+    #expect(pushGroup != nil)
+    #expect(dispatchGroup != nil)
+    #expect(pushGroup?.jobs.first?.id == 10)
+    #expect(dispatchGroup?.jobs.first?.id == 20)
+  }
+
   // MARK: - Sort order
 
   /// Verifies that in-progress groups are sorted before completed groups in the returned array.
@@ -288,8 +319,12 @@ struct WorkflowActionGroupFetcherTests {
   // MARK: - Cache hit
 
   /// Verifies that a concluded cache entry for a given SHA is served directly without re-fetching the `/jobs` endpoint (only 3 status calls are made).
+  ///
+  /// The cache key is `"\(sha):commit"` because the fixture run uses `event: "push"`,
+  /// which `groupEvent(_:)` normalises to `"commit"`.
   @Test func fetchActionGroupsConcludedCacheEntryJobsNotRefetched() async {
     let sha = "cachedsha"
+    let cacheKey = "\(sha):commit"
     let cached = makeCachedGroup(sha: sha)
     // No /jobs endpoints registered — fetcher must not call them.
     let t = makeTransport(with: [
@@ -300,7 +335,7 @@ struct WorkflowActionGroupFetcherTests {
         ])
     ])
     let f = WorkflowActionGroupFetcher(transport: t)
-    let r = await f.fetch(for: "owner/repo", cache: [sha: cached])
+    let r = await f.fetch(for: "owner/repo", cache: [cacheKey: cached])
     #expect(r.count == 1)
     #expect(r.first?.jobs.first?.id == 999)
     #expect(t.callCount == 3)
@@ -311,6 +346,7 @@ struct WorkflowActionGroupFetcherTests {
     // A cached entry where a job is concluded but a step is still in-progress
     // must NOT serve from cache — the stale-step guard re-fetches via API.
     let sha = "staledash"
+    let cacheKey = "\(sha):commit"
     let cached = makeCachedGroup(
       sha: sha,
       title: "Stale step commit",
@@ -320,11 +356,12 @@ struct WorkflowActionGroupFetcherTests {
     )
     let t = makeCompletedRunTransport(sha: sha)
     let f = WorkflowActionGroupFetcher(transport: t)
-    let r = await f.fetch(for: "owner/repo", cache: [sha: cached])
+    let r = await f.fetch(for: "owner/repo", cache: [cacheKey: cached])
     #expect(r.count == 1)
     // 3 status calls + 1 jobs-list call = 4 (not 3 — cache was bypassed)
     #expect(t.callCount == 4)
   }
+
   // MARK: - Refresh cap
 
   /// Verifies that individual job refresh calls are capped at `maxRefreshConcurrency` — when a run has 4 in-progress jobs, only 3 individual `/actions/jobs/{id}` calls are dispatched.
@@ -369,6 +406,7 @@ struct WorkflowActionGroupFetcherTests {
     // A concluded cache entry whose `repo` doesn't match the fetch scope must
     // NOT be served — the `cached.repo == scope` guard must fire and re-fetch.
     let sha = "crossreposha"
+    let cacheKey = "\(sha):commit"
     let cached = makeCachedGroup(
       sha: sha,
       title: "Other repo commit",
@@ -379,7 +417,7 @@ struct WorkflowActionGroupFetcherTests {
     )
     let t = makeCompletedRunTransport(sha: sha)
     let f = WorkflowActionGroupFetcher(transport: t)
-    let r = await f.fetch(for: "owner/repo", cache: [sha: cached])
+    let r = await f.fetch(for: "owner/repo", cache: [cacheKey: cached])
     #expect(r.count == 1)
     // Cache was bypassed — live job id 888 is returned, not cached id 777.
     #expect(r.first?.jobs.first?.id == 888)
