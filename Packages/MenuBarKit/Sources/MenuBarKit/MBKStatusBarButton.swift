@@ -241,7 +241,7 @@ final class MBKStatusBarButton: NSStatusBarButton {
     ///
     /// PATH 2 (cell mouse-tracking) is handled by `injectCellSubclass()`.
     override func highlight(_ flag: Bool) {
-        mbkLog("MBKStatusBarButton", "highlight(\(flag)) isPanelOpen=\(isPanelOpen) \u{2014} " + (!flag && isPanelOpen ? "SWALLOWED" : "passing to super"))
+        mbkLog("MBKStatusBarButton", "highlight(\(flag)) isPanelOpen=\(isPanelOpen) — " + (!flag && isPanelOpen ? "SWALLOWED" : "passing to super"))
         if !flag && isPanelOpen { return }
         super.highlight(flag)
     }
@@ -291,12 +291,11 @@ final class MBKStatusBarButton: NSStatusBarButton {
     ///
     /// ## One-time setup
     /// Designed to be called exactly once per status item, from `setupStatusItem()`.
-    /// If the status item is torn down and a new cell vended by AppKit, this must
-    /// be called again against the new cell — the dynamic subclass is reused but
-    /// the `object_setClass` and `WeakBox` store must run on every new cell instance.
-    /// The reuse path (when `NSClassFromString` finds the existing class) still runs
-    /// both `object_setClass` and the `WeakBox` store — this is intentional and
-    /// safe; re-swapping an already-swapped cell is a no-op at the ISA level.
+    /// If the status item is torn down and a new cell is vended by AppKit, this must
+    /// be called again on the new cell instance — the dynamic subclass (class pair)
+    /// is reused via `NSClassFromString`, but `object_setClass` and the `WeakBox`
+    /// store always run for the current cell instance regardless of which path
+    /// (new or reused class) is taken.
     func injectCellSubclass() {
         guard let cell = self.cell else {
             mbkLog("MBKStatusBarButton", "injectCellSubclass -- cell is nil, skipping")
@@ -311,13 +310,35 @@ final class MBKStatusBarButton: NSStatusBarButton {
         // allocating a new class pair each time (class pairs are never freed).
         let subclassName = "MBKStatusBarButtonCell_" + originalClassName
 
+        // IMP calling convention — applies to the block below.
+        //
+        // imp_implementationWithBlock wraps an ObjC block as a C IMP.
+        // The ObjC runtime calls all IMPs as: (self, _cmd, arg1, arg2, ...)
+        // imp_implementationWithBlock handles _cmd INTERNALLY — it does NOT
+        // inject a Selector into the block's parameter list.
+        // The block therefore receives exactly: (self, arg1, arg2, ...)
+        //   → (cellSelf, flag, frame, view)   ← correct, 4 params
+        //
+        // WARNING: do NOT add a Selector parameter to this block. Doing so
+        // would shift every argument by one — flag would receive the selector
+        // value, frame would receive flag, and so on.
+        //
+        // HighlightIMP (5 params including Selector) is used only for the
+        // unsafeBitCast super-dispatch call, which IS a raw C IMP invocation.
+        //
+        // mbkLog inside the IMP fires on every mouse-tracking tick while the
+        // button is hovered. The default mbkLogHandler is #if DEBUG-gated
+        // (see Logging.swift) so this is a no-op in release unless the host
+        // app installs a custom handler without a debug guard.
+        typealias HighlightIMP = @convention(c) (AnyObject, Selector, Bool, NSRect, NSView) -> Void
+
         let subclass: AnyClass
         if let existing = NSClassFromString(subclassName) {
-            // Reuse the already-registered dynamic subclass. The object_setClass
-            // and WeakBox store below still run — intentionally — to handle the
-            // case where a new cell instance was vended (e.g. after status item
-            // recreation). Re-swapping an already-swapped cell is a no-op at
-            // the ISA level and safe.
+            // The class pair is already registered — skip objc_allocateClassPair
+            // and class_addMethod. The object_setClass and WeakBox store below
+            // still run unconditionally: they operate on the current cell
+            // instance, not the class, so they are always required regardless
+            // of whether the class is new or reused.
             mbkLog("MBKStatusBarButton", "injectCellSubclass -- reusing existing subclass \(subclassName)")
             subclass = existing
         } else {
@@ -339,55 +360,33 @@ final class MBKStatusBarButton: NSStatusBarButton {
 
             // method_getTypeEncoding returns Optional. nil means the ObjC runtime
             // would register the method with no type info — selector dispatch
-            // may behave unexpectedly. Guard explicitly to catch this on any
-            // future OS where the private class's encoding changes.
+            // may behave unexpectedly. Guard explicitly.
             guard let typeEncoding = method_getTypeEncoding(existingMethod) else {
                 mbkLog("MBKStatusBarButton", "injectCellSubclass -- nil typeEncoding for \(sel) on \(originalClassName), aborting")
                 objc_disposeClassPair(newPair)
                 return
             }
 
-            // IMP BLOCK CALLING CONVENTION — read before modifying this block.
-            //
-            // imp_implementationWithBlock wraps an ObjC block as a C IMP.
-            // The ObjC runtime calls all IMPs as: (self, _cmd, arg1, arg2, ...)
-            // imp_implementationWithBlock handles _cmd INTERNALLY — it does NOT
-            // inject a Selector into the block's parameter list.
-            // The block therefore receives exactly: (self, arg1, arg2, ...)
-            //   → (cellSelf, flag, frame, view)   ← correct, 4 params
-            //
-            // WARNING: do NOT add a Selector parameter to this block. Doing so
-            // would shift every argument by one — flag would receive the selector
-            // value, frame would receive flag, and so on. The HighlightIMP typealias
-            // below correctly includes Selector only because it is used for the
-            // unsafeBitCast super-dispatch call, which IS a raw C IMP invocation.
-            //
-            // mbkLog inside this IMP fires on every mouse-tracking tick while the
-            // button is hovered. This is acceptable because mbkLog's default handler
-            // is #if DEBUG-gated (see Logging.swift). If a custom mbkLogHandler is
-            // installed that is NOT debug-gated, this will be high-frequency output.
-            typealias HighlightIMP = @convention(c) (AnyObject, Selector, Bool, NSRect, NSView) -> Void
-
+            let sel2 = sel  // capture for IMP block
             let imp: IMP = imp_implementationWithBlock({ (cellSelf: AnyObject, flag: Bool, frame: NSRect, view: NSView) in
                 // WeakBox.value is nil if the button was already deallocated —
                 // treat isPanelOpen as false (safe pass-through).
                 let btn = (objc_getAssociatedObject(cellSelf, &kCellButtonKey) as? WeakBox<MBKStatusBarButton>)?.value
                 let panelOpen = btn?.isPanelOpen ?? false
                 let verdict = !flag && panelOpen ? "SWALLOWED" : "passing to super"
-                mbkLog("MBKStatusBarButtonCell", "highlight(\(flag), withFrame:, in:) isPanelOpen=\(panelOpen) btn=\(btn != nil ? "ok" : "nil") \u{2014} \(verdict)")
+                mbkLog("MBKStatusBarButtonCell", "highlight(\(flag), withFrame:, in:) isPanelOpen=\(panelOpen) btn=\(btn != nil ? "ok" : "nil") — \(verdict)")
                 if !flag && panelOpen { return }
 
                 // Dispatch to the ORIGINAL private class's IMP, not NSButtonCell's.
                 // This preserves Apple's native pill-shaped drawing on every
-                // pass-through call. Using NSButtonCell's IMP here would skip the
-                // private class's own drawing code and regress the appearance.
+                // pass-through call.
                 //
-                // `view` is typed NSView (non-optional) matching AppKit's documented
-                // contract for highlight(_:withFrame:in:). Internal AppKit paths are
-                // also non-null here in practice. If that ever changes, this
-                // unsafeBitCast would be the crash site — update to AnyObject then.
-                let superIMP = class_getMethodImplementation(originalClass, sel)
-                unsafeBitCast(superIMP, to: HighlightIMP.self)(cellSelf, sel, flag, frame, view)
+                // `view` is typed NSView (non-optional) per AppKit's documented
+                // contract for highlight(_:withFrame:in:). If AppKit ever passes
+                // nil here, this unsafeBitCast call is the crash site — change
+                // NSView to AnyObject at that point.
+                let superIMP = class_getMethodImplementation(originalClass, sel2)
+                unsafeBitCast(superIMP, to: HighlightIMP.self)(cellSelf, sel2, flag, frame, view)
             } as @convention(block) (AnyObject, Bool, NSRect, NSView) -> Void)
 
             class_addMethod(newPair, sel, imp, typeEncoding)
@@ -396,11 +395,11 @@ final class MBKStatusBarButton: NSStatusBarButton {
             subclass = newPair
         }
 
-        // ISA-swap the cell to the new subclass.
+        // ISA-swap the cell to the subclass (new or reused).
         let beforeCell = NSStringFromClass(type(of: cell as AnyObject))
         object_setClass(cell, subclass)
         let afterCell = NSStringFromClass(type(of: cell as AnyObject))
-        mbkLog("MBKStatusBarButton", "injectCellSubclass -- cell isa: \(beforeCell) \u{2192} \(afterCell) castOK=\(NSStringFromClass(type(of: cell as AnyObject)) == subclassName)")
+        mbkLog("MBKStatusBarButton", "injectCellSubclass -- cell isa: \(beforeCell) → \(afterCell) castOK=\(afterCell == subclassName)")
 
         // Zeroing-weak back-reference via WeakBox retained by the associated-object
         // table. If the button is deallocated before the cell, box.value becomes nil
