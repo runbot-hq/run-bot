@@ -9,33 +9,74 @@
 // NSButton), so object_setClass carries no ivar-layout mismatch risk.
 // The override only adds behaviour; it does not change the memory layout.
 //
-// WHY NOT a notification or DispatchQueue.main.async re-assertion:
-// Both fire after AppKit has already cleared the highlight AND after
-// the frame has been committed to the display — producing a visible
-// single-frame flash. This subclass intercepts highlight(false) before
-// it reaches the cell, so nothing ever reaches the screen. See #2440.
+// WHY TWO OVERRIDES ARE NEEDED:
+//   highlight(_:) on NSButton is the public API path.
+//   highlight(_:withFrame:inView:) on NSButtonCell is the internal path
+//   AppKit calls directly — it bypasses the NSButton override entirely.
+//   Both must be guarded, confirmed by diagnostic logs showing castOK=true
+//   and isPanelOpen flipping correctly while the button was still clearing.
+//   See #2440.
 
 import AppKit
+
+// MARK: - Cell
+
+/// `NSButtonCell` subclass that guards the internal cell-level highlight
+/// path AppKit calls directly, bypassing `NSButton.highlight(_:)`.
+///
+/// Injected onto the button's existing cell via `object_setClass` inside
+/// `MBKStatusBarButton.injectCellSubclass()`. `NSButtonCell` has no extra
+/// stored ivars beyond `NSCell`, so the swap carries no ivar-layout risk.
+final class MBKStatusBarButtonCell: NSButtonCell {
+
+    /// Weak reference back to the owning button so the cell can read `isPanelOpen`
+    /// without creating a retain cycle.
+    weak var button: MBKStatusBarButton?
+
+    /// AppKit calls this directly on the cell when tracking mouse events and
+    /// during key-window transitions — it never goes through `NSButton.highlight(_:)`.
+    override func highlight(_ flag: Bool, withFrame cellFrame: NSRect, in controlView: NSView) {
+        if !flag, let btn = button, btn.isPanelOpen { return }
+        super.highlight(flag, withFrame: cellFrame, in: controlView)
+    }
+}
+
+// MARK: - Button
 
 /// `NSStatusBarButton` subclass that suppresses AppKit-internal
 /// `highlight(false)` calls while the panel is open.
 ///
-/// AppKit calls `highlight(false)` unconditionally in at least three places:
-/// - `mouseUp` end of button tracking (addressed by `sendAction(on:)` in #2428)
-/// - `panel.makeKey()` key-window transition on the status bar window
-/// - App-switch (`NSWorkspace` active-app change)
+/// Guards two call paths:
+/// 1. `NSButton.highlight(_:)` — the public API path.
+/// 2. `NSButtonCell.highlight(_:withFrame:inView:)` — the internal path
+///    AppKit uses directly during mouse tracking and key-window transitions.
 ///
-/// Setting `isPanelOpen = true` before opening the panel and
-/// `isPanelOpen = false` before calling `highlight(false)` on close
-/// ensures the button stays pressed for the full panel session.
+/// Both are required. Logs confirmed the button-level guard was working
+/// (castOK=true, isPanelOpen flipping) while the cell path remained unguarded.
+/// See #2440.
 final class MBKStatusBarButton: NSStatusBarButton {
 
     /// Set to `true` while the panel is open.
-    /// Guards against AppKit-internal `highlight(false)` calls.
+    /// Guards both the button-level and cell-level highlight paths.
     var isPanelOpen = false
 
+    // MARK: - Cell injection
+
+    /// Injects `MBKStatusBarButtonCell` onto the button's existing cell.
+    /// Must be called once after `object_setClass` swaps the button's own isa.
+    /// Safe: `NSButtonCell` has no extra stored ivars, so no ivar-layout mismatch.
+    func injectCellSubclass() {
+        guard let cell = self.cell else {
+            return
+        }
+        object_setClass(cell, MBKStatusBarButtonCell.self)
+        (cell as? MBKStatusBarButtonCell)?.button = self
+    }
+
+    // MARK: - Button-level guard
+
     override func highlight(_ flag: Bool) {
-        // Swallow AppKit-internal highlight(false) while panel is open.
+        // Guard the public NSButton path.
         // teardown() sets isPanelOpen = false BEFORE calling highlight(false),
         // so the close path always goes through to super.
         if !flag && isPanelOpen { return }
