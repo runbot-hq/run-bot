@@ -1,5 +1,5 @@
 // MBKStatusBarButton.swift
-// MenuBarKit
+// RunBot
 //
 // Keeps the status bar button visually highlighted ("pressed") while the
 // panel is open, and restores normal highlight behaviour when it closes.
@@ -69,6 +69,12 @@
 //      Only avoided crashes by luck. Appearance regressions possible.
 //      Removed in #2441.
 //
+//   8. OBJC_ASSOCIATION_ASSIGN for the cell back-reference  (pre-#2441 review)
+//      Stores a raw unretained pointer — NOT a weak reference. If the button
+//      is deallocated before the cell, the IMP's objc_getAssociatedObject
+//      call would return a dangling pointer; the subsequent as? cast does not
+//      protect against reading freed memory. Fixed by WeakBox (see below).
+//
 // ─────────────────────────────────────────────────────────────────────────────
 // CURRENT SOLUTION — TWO object_setClass SWAPS
 // ─────────────────────────────────────────────────────────────────────────────
@@ -94,8 +100,11 @@
 //       c. Injecting only highlight(_:withFrame:in:) via imp_implementationWithBlock.
 //          All other methods and the entire ivar layout are inherited unchanged.
 //       d. Calling object_setClass(cell, dynamicSubclass) to swap the isa.
-//       e. Storing a weak back-reference to the button via objc_setAssociatedObject
-//          so the IMP can read isPanelOpen without a stored ivar on the cell.
+//       e. Storing a zeroing-weak back-reference to the button via a WeakBox
+//          retained by objc_setAssociatedObject, so the IMP can read
+//          isPanelOpen without a stored ivar on the cell. If the button is
+//          deallocated before the cell (unexpected but possible in future
+//          refactors), box.value is nil and the IMP safely no-ops.
 //
 //     The IMP calls class_getMethodImplementation(originalClass, sel) to dispatch
 //     to the ORIGINAL private class's own implementation — not NSButtonCell's —
@@ -158,6 +167,21 @@
 import AppKit
 import ObjectiveC.runtime
 
+// MARK: - WeakBox
+
+/// Wraps a weak reference for storage in an associated-object value slot.
+///
+/// `objc_setAssociatedObject` with `OBJC_ASSOCIATION_RETAIN_NONATOMIC` retains
+/// the box itself; the box's `value` property is a zeroing `weak var` that
+/// ARC zeroes automatically when the referent is deallocated.
+///
+/// This pattern is required because `OBJC_ASSOCIATION_WEAK_NONATOMIC` is not
+/// reliably available through the Swift/ObjC bridge on all supported OS versions.
+final class WeakBox<T: AnyObject> {
+    weak var value: T?
+    init(_ value: T) { self.value = value }
+}
+
 // MARK: - Associated-object keys
 
 // See "WHY ASSOCIATED-OBJECT KEYS ARE nonisolated(unsafe) var" in the file
@@ -166,7 +190,7 @@ import ObjectiveC.runtime
 /// Key for the `isPanelOpen` associated object on `MBKStatusBarButton` instances.
 nonisolated(unsafe) private var kIsPanelOpenKey: UInt8 = 0
 
-/// Key for the weak button back-reference associated object on injected cell instances.
+/// Key for the `WeakBox<MBKStatusBarButton>` associated object on injected cell instances.
 nonisolated(unsafe) private var kCellButtonKey: UInt8 = 0
 
 // MARK: - Button
@@ -197,9 +221,9 @@ final class MBKStatusBarButton: NSStatusBarButton {
     ///   `highlight(false)`. See CALL-SITE CONTRACT in the file header.
     var isPanelOpen: Bool {
         get {
-            let val = objc_getAssociatedObject(self, &kIsPanelOpenKey) as? Bool ?? false
-            mbkLog("MBKStatusBarButton", "isPanelOpen.get \u{2192} \(val)")
-            return val
+            // No log here — this getter is called on every highlight(_:) and
+            // every cell mouse-tracking tick; logging would be hot-path noise.
+            return objc_getAssociatedObject(self, &kIsPanelOpenKey) as? Bool ?? false
         }
         set {
             mbkLog("MBKStatusBarButton", "isPanelOpen.set \(newValue) (was \(objc_getAssociatedObject(self, &kIsPanelOpenKey) as? Bool ?? false))")
@@ -247,15 +271,16 @@ final class MBKStatusBarButton: NSStatusBarButton {
     ///    Name is deterministic (`"MBKStatusBarButtonCell_" + originalName`)
     ///    so repeated calls reuse the same class (no class-pair leak).
     /// 3. `imp_implementationWithBlock` — build the guard IMP.
-    ///    The IMP reads `isPanelOpen` via `objc_getAssociatedObject` and either
+    ///    The IMP reads `isPanelOpen` via a retained `WeakBox` and either
     ///    returns early (swallow) or calls the **original private class's own IMP**
     ///    via `class_getMethodImplementation(originalClass, sel)` — preserving
     ///    Apple's native pill drawing on the pass-through path.
     /// 4. `class_addMethod` + `objc_registerClassPair` — register the subclass.
     /// 5. `object_setClass(cell, dynamicSubclass)` — swap the cell's isa.
-    /// 6. `objc_setAssociatedObject(cell, &kCellButtonKey, self, .OBJC_ASSOCIATION_ASSIGN)`
-    ///    — store a weak back-reference so the IMP can reach `isPanelOpen`
-    ///    without a stored ivar on the cell.
+    /// 6. Store a `WeakBox<MBKStatusBarButton>` via `OBJC_ASSOCIATION_RETAIN_NONATOMIC`
+    ///    so the IMP can reach `isPanelOpen` without a stored ivar on the cell.
+    ///    If the button is deallocated before the cell, `box.value` is `nil`
+    ///    and the IMP safely treats `isPanelOpen` as `false` (pass-through).
     ///
     /// This is the same ISA-swap technique Apple's KVO runtime uses internally.
     ///
@@ -309,7 +334,9 @@ final class MBKStatusBarButton: NSStatusBarButton {
             typealias HighlightIMP = @convention(c) (AnyObject, Selector, Bool, NSRect, NSView) -> Void
 
             let imp: IMP = imp_implementationWithBlock({ (cellSelf: AnyObject, flag: Bool, frame: NSRect, view: NSView) in
-                let btn = objc_getAssociatedObject(cellSelf, &kCellButtonKey) as? MBKStatusBarButton
+                // WeakBox.value is nil if the button was already deallocated —
+                // treat isPanelOpen as false (safe pass-through).
+                let btn = (objc_getAssociatedObject(cellSelf, &kCellButtonKey) as? WeakBox<MBKStatusBarButton>)?.value
                 let panelOpen = btn?.isPanelOpen ?? false
                 let verdict = !flag && panelOpen ? "SWALLOWED" : "passing to super"
                 mbkLog("MBKStatusBarButtonCell", "highlight(\(flag), withFrame:, in:) isPanelOpen=\(panelOpen) btn=\(btn != nil ? "ok" : "nil") \u{2014} \(verdict)")
@@ -335,9 +362,13 @@ final class MBKStatusBarButton: NSStatusBarButton {
         let afterCell = NSStringFromClass(type(of: cell as AnyObject))
         mbkLog("MBKStatusBarButton", "injectCellSubclass -- cell isa: \(beforeCell) \u{2192} \(afterCell) castOK=\(NSStringFromClass(type(of: cell as AnyObject)) == subclassName)")
 
-        // Weak back-reference — OBJC_ASSOCIATION_ASSIGN does not retain, so the
-        // button's lifetime is not extended by the cell holding this reference.
-        objc_setAssociatedObject(cell, &kCellButtonKey, self, .OBJC_ASSOCIATION_ASSIGN)
+        // Zeroing-weak back-reference via WeakBox retained by the associated-object
+        // table. If the button is deallocated before the cell, box.value becomes nil
+        // and the IMP safely no-ops rather than dereferencing a dangling pointer.
+        // OBJC_ASSOCIATION_ASSIGN is intentionally NOT used here — it stores a
+        // raw unretained pointer that does not zero on deallocation (dangling-ptr UB).
+        let box = WeakBox(self)
+        objc_setAssociatedObject(cell, &kCellButtonKey, box, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
         mbkLog("MBKStatusBarButton", "injectCellSubclass -- back-reference set btnAddr=\(UInt(bitPattern: ObjectIdentifier(self)))")
     }
 }
