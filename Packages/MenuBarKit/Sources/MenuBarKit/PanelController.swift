@@ -235,6 +235,10 @@ public final class MBKPanelController<Content: View>: NSObject, MBKPanelControll
     var limits: MBKPanelLimits!
     /// KVO token for hostingController.preferredContentSize.
     nonisolated(unsafe) var preferredContentSizeObservation: NSKeyValueObservation?
+    /// The CALayer used to draw the self-managed "pressed pill" highlight on the
+    /// status item button. Created once in setupStatusItem(); never touched by
+    /// AppKit, so nothing outside setButtonHighlight(_:) can reset it. See #2440.
+    var highlightPillLayer: CALayer?
 
     // MARK: - Session state
 
@@ -454,24 +458,61 @@ public final class MBKPanelController<Content: View>: NSObject, MBKPanelControll
     /// `highlight(true)`. Firing on mouseDown means `openPanel()` runs and locks in
     /// `highlight(true)` before AppKit's mouseUp clear cycle. See #2425.
     ///
-    /// `object_setClass` injects `MBKStatusBarButton` immediately after the button
-    /// is created. `NSStatusBarButton` cannot be directly instantiated (AppKit
-    /// creates it internally), so this is the only way to guard AppKit-internal
-    /// `highlight(false)` calls fired from `panel.makeKey()` and app-switch —
-    /// neither of which is addressed by `sendAction(on:)` alone. See #2440.
+    /// HIGHLIGHT OWNERSHIP (#2440, revised):
+    /// A prior attempt (`MBKStatusBarButton` + `object_setClass`, see git history)
+    /// tried to override `NSButton.highlight(_:)` to swallow AppKit's internal
+    /// `highlight(false)` calls fired from `panel.makeKey()` and app-switch. That
+    /// did NOT work in practice — those AppKit-internal resets mutate cell-level
+    /// highlight state directly and never route through the public
+    /// `NSButton.highlight(_:)` method, so the override never observed them.
+    ///
+    /// New approach: stop letting AppKit own the pressed appearance at all.
+    /// `highlightsBy = []` on the button cell disables AppKit's own highlight
+    /// drawing/tracking entirely -- there is no cell-level highlight state left
+    /// for `makeKey()` or app-switch to reset. The pressed "pill" appearance is
+    /// then drawn by us on `highlightPillLayer`, toggled only from
+    /// `setButtonHighlight(_:)` in PanelController+Open.swift. Nothing in AppKit
+    /// can touch that layer, so nothing can un-press it out from under us.
     private func setupStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        if let button = statusItem.button {
-            // Inject MBKStatusBarButton to guard highlight(false) while panel is open.
-            // object_setClass is safe: NSStatusBarButton has no extra stored ivars,
-            // so no ivar-layout mismatch can occur. See MBKStatusBarButton.swift and #2440.
-            object_setClass(button, MBKStatusBarButton.self)
-            button.image = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil)
-            button.image?.isTemplate = true
-            button.sendAction(on: .leftMouseDown)
-            button.action = #selector(togglePanel)
-            button.target = self
+        guard let button = statusItem.button else {
+            mbkLog("PanelController", "⚠️ setupStatusItem -- statusItem.button is nil, cannot configure highlight pill or action")
+            return
         }
+        mbkLog("PanelController", "setupStatusItem -- button created class=\(NSStringFromClass(type(of: button))) frame=\(button.frame)")
+
+        button.image = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil)
+        button.image?.isTemplate = true
+        button.sendAction(on: .leftMouseDown)
+        button.action = #selector(togglePanel)
+        button.target = self
+
+        if let cell = button.cell as? NSButtonCell {
+            let before = cell.highlightsBy
+            cell.highlightsBy = []
+            mbkLog("PanelController",
+                "setupStatusItem -- disabled AppKit cell highlighting,"
+                + " highlightsBy before=\(before.rawValue) after=\(cell.highlightsBy.rawValue)")
+        } else {
+            mbkLog("PanelController", "⚠️ setupStatusItem -- button.cell is not NSButtonCell (\(type(of: button.cell))),"
+                + " could not disable AppKit highlight drawing. Self-drawn pill will still be added"
+                + " on top but AppKit's own highlight may still flicker underneath.")
+        }
+
+        button.wantsLayer = true
+        let pill = CALayer()
+        pill.backgroundColor = NSColor.clear.cgColor
+        pill.cornerCurve = .continuous
+        // cornerRadius is set relative to the button's own height so it always
+        // renders as a true pill regardless of status-item sizing. Recomputed
+        // in setButtonHighlight(_:) in case the frame changed since setup
+        // (e.g. very first layout pass hasn't happened yet here).
+        pill.cornerRadius = button.bounds.height / 2
+        pill.zPosition = -1 // sit behind the template-image sublayer AppKit adds
+        button.layer?.insertSublayer(pill, at: 0)
+        highlightPillLayer = pill
+        mbkLog("PanelController",
+            "setupStatusItem -- highlightPillLayer installed bounds=\(button.bounds) cornerRadius=\(pill.cornerRadius)")
     }
 
     // MARK: - Deallocation
