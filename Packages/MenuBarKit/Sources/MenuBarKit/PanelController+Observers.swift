@@ -18,7 +18,16 @@ import AppKit
 // MARK: - MBKPanelObserverTarget conformance
 
 /// Observers and event monitors for `MBKPanelController`.
-extension MBKPanelController: MBKPanelObserverTarget {}
+extension MBKPanelController: MBKPanelObserverTarget {
+    /// Debug snapshot of the status item button's highlight-related state.
+    /// Used only for diagnostic logging around #2440 (see PanelController+Open.swift
+    /// and PanelObservers.swift's workspace observer).
+    var debugHighlightDescription: String {
+        guard let button = statusItem?.button else { return "button=nil" }
+        let pillOpacity = highlightPillLayer?.opacity ?? -1
+        return "pillOpacity=\(pillOpacity) appkitIsHighlighted=\(button.isHighlighted)"
+    }
+}
 
 // MARK: - Observer lifecycle bridge
 
