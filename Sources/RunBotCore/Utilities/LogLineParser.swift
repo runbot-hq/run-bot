@@ -171,8 +171,8 @@ public func parseAnnotationParams(_ block: String) -> AnnotationParams? {
 /// Parses a cleaned step log string into an array of typed `LogLine` values.
 ///
 /// **Input contract:** `raw` should already have been processed by `cleanLogText`
-/// (timestamps and `\r` stripped). ANSI escape sequences are also stripped by
-/// `cleanLogText` for now; they will be preserved once the ANSI renderer lands.
+/// (timestamps and `\r` stripped). ANSI escape sequences are preserved and passed
+/// through as-is; `ansiAttributedString` in the UI layer handles rendering them.
 ///
 /// **Directive formats handled:**
 /// - `##[group]` / `##[endgroup]` — collapsible group

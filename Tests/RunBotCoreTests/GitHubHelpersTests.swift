@@ -202,31 +202,37 @@ final class GitHubHelpersTests: XCTestCase {
         XCTAssert(result.contains("second line"))
     }
 
-    /// Verifies that ANSI SGR escape sequences are removed while the visible
-    /// text content is preserved.
-    func test_ansiStripping() {
+    /// Verifies that ANSI SGR escape sequences are **preserved** by `cleanLogText`.
+    ///
+    /// Since #2413, ANSI sequences are no longer stripped in the cleaning pipeline —
+    /// they pass through untouched and are rendered by `ansiAttributedString` in the
+    /// UI layer (`LogPlainLine`, `LogDimmedLine`).
+    func test_ansiPassThrough() {
         let esc = "\u{001B}"
         let raw = "\(esc)[32mGreen text\(esc)[0m\nplain line"
         let result = cleanLogText(raw)
-        XCTAssertFalse(result.contains(esc), "ANSI escape sequences must be stripped")
+        XCTAssert(result.contains(esc), "ANSI escape sequences must pass through cleanLogText untouched")
         XCTAssert(result.contains("Green text"))
         XCTAssert(result.contains("plain line"))
     }
 
     /// Verifies the ANSI-after-Z edge case: an ANSI escape sitting between the
-    /// timestamp `Z` sentinel and the log content. After `stripAnsi` removes the
-    /// escape, the timestamp regex must still match and strip the prefix cleanly.
-    /// Pipeline order: CRLF → stripAnsi → stripTimestamps.
+    /// timestamp `Z` sentinel and the log content.
+    ///
+    /// Since #2413, ANSI sequences are preserved by `cleanLogText`. The timestamp
+    /// prefix must still be stripped cleanly even when an ANSI escape directly
+    /// follows the `Z` sentinel.
+    /// Pipeline order: CRLF → stripTimestamps (ANSI passes through).
     func test_ansiAndTimestampCompose() {
         let esc = "\u{001B}"
         let raw = "2026-07-29T03:11:16.0000000Z \(esc)[32mcoloured output\(esc)[0m"
         let result = cleanLogText(raw)
         XCTAssertFalse(result.contains("2026-"),
             "Timestamp prefix must be stripped")
-        XCTAssertFalse(result.contains(esc),
-            "ANSI escape sequences must be stripped")
+        XCTAssert(result.contains(esc),
+            "ANSI escape sequences must pass through cleanLogText untouched")
         XCTAssert(result.contains("coloured output"),
-            "Content must survive both stripping passes")
+            "Content must survive timestamp stripping")
     }
 
     /// Verifies that Windows-style CRLF line endings are normalised to LF,
