@@ -239,28 +239,35 @@ public enum PollResultBuilder {
   /// re-runs on the same commit (same `headSha`, new group ID) and avoid returning
   /// stale cached data for them.
   ///
-  /// When two cache entries share the same `headSha` (possible if a re-run was cached
+  /// When two cache entries share the same composite key (possible if a re-run was cached
   /// before the original was evicted), the tie-break keeps the entry with the larger
   /// group ID. Group IDs are monotonically increasing — a higher ID means a newer run
-  /// — so this retains the most recent run's cache entry for each SHA.
+  /// — so this retains the most recent run's cache entry for each key.
+  ///
+  /// The composite key is `"headSha:normalizedEvent"` — the same format used by
+  /// `WorkflowActionGroupFetcher.fetchJobsForGroup` — so producer and consumer
+  /// always agree on cache identity. A pure `headSha` key would cause 100% cache
+  /// misses for completed runs when the event differs (regression from #2434).
   public static func makeShaKeyedCache(_ cache: [String: WorkflowActionGroup]) -> [String: WorkflowActionGroup] {
     Dictionary(
-      cache.values.map { ($0.headSha, $0) },
+      cache.values.map { ("\($0.headSha):\($0.normalizedEvent)", $0) },
       uniquingKeysWith: { lhs, rhs in lhs.id > rhs.id ? lhs : rhs }
     )
   }
 
-  /// Removes cache entries whose `headSha` appears in the freshly-fetched group list.
+  /// Removes cache entries whose composite key (`headSha:normalizedEvent`) appears in
+  /// the freshly-fetched group list.
   ///
   /// A re-run on the same commit produces a new group ID for the same `headSha`.
-  /// This method correctly evicts *all* cached groups for that SHA so the stale
-  /// entries cannot ghost alongside the fresh live group.
+  /// Evicting by composite key (not bare `headSha`) ensures that a fresh `push` group
+  /// does not accidentally evict a cached `workflow_dispatch` group that shares the
+  /// same SHA but belongs to a different event bucket.
   public static func evictFreshShas(
     from cache: [String: WorkflowActionGroup],
     freshGroups: [WorkflowActionGroup]
   ) -> [String: WorkflowActionGroup] {
-    let freshShas = Set(freshGroups.map { $0.headSha })
-    return cache.filter { !freshShas.contains($0.value.headSha) }
+    let freshKeys = Set(freshGroups.map { "\($0.headSha):\($0.normalizedEvent)" })
+    return cache.filter { !freshKeys.contains("\($0.value.headSha):\($0.value.normalizedEvent)") }
   }
 
   /// Freezes action groups that were live in the previous poll but have since

@@ -493,4 +493,85 @@ struct WorkflowActionGroupFetcherTests {
       group(shaCompleted)?.runs.first?.status == .completed,
       "completed bucket run must have status .completed")
   }
+
+  // MARK: - Composite cache key (#2444)
+
+  /// Verifies that a concluded cache entry keyed by the composite `"sha:event"` string
+  /// is served without re-fetching jobs (regression guard for #2444).
+  ///
+  /// Prior to the fix, `makeShaKeyedCache` keyed by bare `headSha`; the fetcher
+  /// looked up `"sha:commit"` — a 100% cache miss for any event.
+  @Test func fetchActionGroupsCompositeCacheKeyHitServesJobsWithoutAPICall() async {
+    let sha = "compositehit"
+    // Cache key must match what `buildActionGroup` passes to `fetchJobsForGroup`:
+    // `groupKey.cacheKey` == `"\(headSha):\(groupEvent(event))"`, and
+    // `groupEvent("push")` == `"commit"`.
+    let cacheKey = "\(sha):commit"
+    let cached = makeCachedGroup(sha: sha, jobID: 42)
+    let t = makeTransport(with: [
+      "repos/owner/repo/actions/runs?status=in_progress": envelope(
+        key: "workflow_runs",
+        [minimalRun(id: 1, sha: sha, status: "completed", conclusion: "success", event: "push")]),
+    ])
+    let f = WorkflowActionGroupFetcher(transport: t)
+    let r = await f.fetch(for: "owner/repo", cache: [cacheKey: cached])
+    #expect(r.count == 1)
+    // Cache was served — job id 42 (not a live fetch).
+    #expect(r.first?.jobs.first?.id == 42)
+    // 3 status calls only — no /jobs endpoint hit.
+    #expect(t.callCount == 3)
+  }
+
+  /// Verifies that a fresh `push` group does NOT evict a cached `workflow_dispatch`
+  /// group sharing the same SHA (regression guard for #2444 composite-eviction fix).
+  ///
+  /// Before the fix, `evictFreshShas` evicted by bare `headSha`, so a live `push`
+  /// run would ghost-evict an unrelated `workflow_dispatch` cached group.
+  @Test func fetchActionGroupsFreshPushDoesNotEvictDispatchCacheEntry() async {
+    let sha = "sharedsha"
+    // `workflow_dispatch` normalises to `"workflow_dispatch"` via `groupEvent`.
+    let dispatchCacheKey = "\(sha):workflow_dispatch"
+    let dispatchCached = makeCachedGroup(sha: sha, jobID: 55)
+    // Only the in-progress bucket has a run — it's a `push` event.
+    let t = makeTransport(with: [
+      "repos/owner/repo/actions/runs?status=in_progress": envelope(
+        key: "workflow_runs",
+        [minimalRun(id: 2, sha: sha, status: "in_progress", conclusion: nil, event: "push")]),
+      "repos/owner/repo/actions/runs/2/jobs": envelope(key: "jobs", [minimalJob(id: 99)]),
+    ])
+    let f = WorkflowActionGroupFetcher(transport: t)
+    // Pass both the dispatch cache entry and a placeholder push cache entry.
+    // After fetching, the push group is live; the dispatch group must still be
+    // retrievable from the returned array (two separate groups on the same SHA).
+    let pushCacheKey = "\(sha):commit"
+    let pushCached = makeCachedGroup(sha: sha, jobID: 77)
+    let r = await f.fetch(
+      for: "owner/repo",
+      cache: [dispatchCacheKey: dispatchCached, pushCacheKey: pushCached])
+    // The live push group is always present.
+    #expect(r.contains(where: { $0.normalizedEvent == "commit" && $0.headSha == sha }))
+    // The dispatch cached group must not have been evicted.
+    #expect(r.contains(where: { $0.normalizedEvent == "workflow_dispatch" && $0.headSha == sha }))
+  }
+
+  /// Verifies that a run JSON object missing the `event` key still decodes cleanly
+  /// and is grouped under the `"push"` → `"commit"` default (regression guard for #2444
+  /// secondary fix: `RunPayload.event` is now `String?`).
+  @Test func fetchActionGroupsMissingEventFieldDefaultsToCommitGroup() async {
+    let sha = "noeventsha"
+    // Build a run fixture without the "event" key — simulates an unusual API response.
+    var runDict: [String: Any] = ["id": 9, "head_sha": sha, "status": "completed", "name": "CI"]
+    runDict["conclusion"] = "success"
+    let t = makeTransport(with: [
+      "repos/owner/repo/actions/runs?status=in_progress": (
+        try? JSONSerialization.data(withJSONObject: ["workflow_runs": [runDict]])) ?? Data(),
+      "repos/owner/repo/actions/runs/9/jobs": envelope(key: "jobs", [minimalJob(id: 3)]),
+    ])
+    let f = WorkflowActionGroupFetcher(transport: t)
+    let r = await f.fetch(for: "owner/repo")
+    // Must produce one group; must not crash or return empty.
+    #expect(r.count == 1)
+    // The group is bucketed under the "push" default → normalised to "commit".
+    #expect(r.first?.normalizedEvent == "commit")
+  }
 }

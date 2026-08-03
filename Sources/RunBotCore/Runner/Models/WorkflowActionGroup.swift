@@ -88,6 +88,13 @@ public struct WorkflowActionGroup: Identifiable, Equatable, Sendable {
     public let headBranch: String?
     /// The `owner/repo` scope string for this group.
     public let repo: String
+    /// Normalised trigger event bucket, e.g. `"commit"` or `"workflow_dispatch"`.
+    ///
+    /// Derived from `groupEvent(_:)` in `WorkflowActionGroupFetcher` and stored here
+    /// so `PollResultBuilder.makeShaKeyedCache` can produce the same composite cache
+    /// key (`"headSha:normalizedEvent"`) that `WorkflowActionGroupFetcher` uses when
+    /// looking up entries — preventing the 100% cache-miss rate introduced by #2434.
+    public let normalizedEvent: String
 
     /// All sibling workflow runs sharing this `head_sha`.
     public let runs: [WorkflowRunRef]
@@ -154,6 +161,7 @@ public struct WorkflowActionGroup: Identifiable, Equatable, Sendable {
             firstJobStartedAt: firstJobStartedAt,
             lastJobCompletedAt: lastJobCompletedAt,
             createdAt: createdAt,
+            normalizedEvent: normalizedEvent,
             isDimmed: isDimmed
         )
     }
@@ -171,6 +179,7 @@ public struct WorkflowActionGroup: Identifiable, Equatable, Sendable {
             firstJobStartedAt: firstJobStartedAt,
             lastJobCompletedAt: lastJobCompletedAt,
             createdAt: createdAt,
+            normalizedEvent: normalizedEvent,
             isDimmed: isDimmed
         )
     }
@@ -192,6 +201,7 @@ public struct WorkflowActionGroup: Identifiable, Equatable, Sendable {
             firstJobStartedAt: firstJobStartedAt,
             lastJobCompletedAt: date,
             createdAt: createdAt,
+            normalizedEvent: normalizedEvent,
             isDimmed: isDimmed
         )
     }
@@ -208,6 +218,7 @@ public struct WorkflowActionGroup: Identifiable, Equatable, Sendable {
     ///   - firstJobStartedAt: Earliest job start time across all runs.
     ///   - lastJobCompletedAt: Latest job completion time across all runs.
     ///   - createdAt: Fallback creation time from the representative run.
+    ///   - normalizedEvent: Normalised trigger event bucket (e.g. `"commit"`, `"workflow_dispatch"`). Defaults to `"commit"`.
     ///   - isDimmed: `true` when frozen into the completed cache. Defaults to `false`.
     public init(
         headSha: String,
@@ -220,6 +231,7 @@ public struct WorkflowActionGroup: Identifiable, Equatable, Sendable {
         firstJobStartedAt: Date? = nil,
         lastJobCompletedAt: Date? = nil,
         createdAt: Date? = nil,
+        normalizedEvent: String = "commit",
         isDimmed: Bool = false
     ) {
         self.headSha = headSha
@@ -232,6 +244,7 @@ public struct WorkflowActionGroup: Identifiable, Equatable, Sendable {
         self.firstJobStartedAt = firstJobStartedAt
         self.lastJobCompletedAt = lastJobCompletedAt
         self.createdAt = createdAt
+        self.normalizedEvent = normalizedEvent
         self.isDimmed = isDimmed
     }
 

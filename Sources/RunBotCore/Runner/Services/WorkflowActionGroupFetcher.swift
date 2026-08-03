@@ -46,6 +46,12 @@ private struct GroupKey: Hashable {
   let headSha: String
   /// The normalised trigger event (see `groupEvent(_:)`).
   let event: String
+  /// The composite cache key shared by producer (`PollResultBuilder.makeShaKeyedCache`)
+  /// and consumer (`WorkflowActionGroupFetcher.fetchJobsForGroup`).
+  ///
+  /// Centralising the key derivation here ensures the two sides can never drift
+  /// apart: both must call `groupKey.cacheKey`, not inline their own format strings.
+  var cacheKey: String { "\(headSha):\(event)" }
 }
 
 /// Normalises a GitHub workflow trigger event into a grouping bucket.
@@ -75,7 +81,11 @@ private struct RunPayload: Codable {
   /// The unique run identifier.
   let id: Int
   /// The workflow event that triggered this run (e.g. `push`, `workflow_dispatch`).
-  let event: String
+  ///
+  /// Optional so that a run object missing the `event` key does not cause the
+  /// entire `ActionRunsResponse` page to decode to `nil` via `try?` in
+  /// `decodeRuns`. A `nil` value is treated as `"push"` at the call site.
+  let event: String?
   /// The workflow name.
   let name: String
   /// The current run status.
@@ -243,7 +253,7 @@ public struct WorkflowActionGroupFetcher: Sendable, WorkflowActionGroupFetcherPr
 
     var byGroupKey: [GroupKey: [RunPayload]] = [:]
     for run in runPayloads {
-      let key = GroupKey(headSha: run.headSha, event: groupEvent(run.event))
+      let key = GroupKey(headSha: run.headSha, event: groupEvent(run.event ?? "push"))
       byGroupKey[key, default: []].append(run)
     }
 
@@ -253,7 +263,7 @@ public struct WorkflowActionGroupFetcher: Sendable, WorkflowActionGroupFetcherPr
       // Re-constructing byGroupKey entirely is safer and cleaner than mutating the old dict
       byGroupKey.removeAll(keepingCapacity: true)
       for run in runPayloads {
-        let key = GroupKey(headSha: run.headSha, event: groupEvent(run.event))
+        let key = GroupKey(headSha: run.headSha, event: groupEvent(run.event ?? "push"))
         byGroupKey[key, default: []].append(run)
       }
     }
@@ -321,7 +331,8 @@ public struct WorkflowActionGroupFetcher: Sendable, WorkflowActionGroupFetcherPr
         WorkflowActionGroup(
           headSha: groupKey.headSha, label: String(groupKey.headSha.prefix(7)),
           title: groupKey.headSha, headBranch: nil, repo: scope, runs: [], jobs: [],
-          firstJobStartedAt: nil, lastJobCompletedAt: nil, createdAt: nil)
+          firstJobStartedAt: nil, lastJobCompletedAt: nil, createdAt: nil,
+          normalizedEvent: groupKey.event)
       )
     }
     let label = prLabel(from: representative)
@@ -337,8 +348,7 @@ public struct WorkflowActionGroupFetcher: Sendable, WorkflowActionGroupFetcherPr
         id: run.id, name: run.name, status: run.status, conclusion: run.conclusion,
         htmlUrl: run.htmlUrl)
     }
-    let cacheKey = "\(groupKey.headSha):\(groupKey.event)"
-    let allJobs = await fetchJobsForGroup(groupRuns: groupRuns, scope: scope, cache: cache, cacheKey: cacheKey)
+    let allJobs = await fetchJobsForGroup(groupRuns: groupRuns, scope: scope, cache: cache, cacheKey: groupKey.cacheKey)
     // Route through raw string dates for min/max comparison — ActiveJob exposes
     // startDate/completedDate as parsed Date? via raw.startDate/completedDate, but
     // WorkflowActionGroup.firstJobStartedAt/lastJobCompletedAt take Date?.
@@ -363,7 +373,8 @@ public struct WorkflowActionGroupFetcher: Sendable, WorkflowActionGroupFetcherPr
         jobs: allJobs,
         firstJobStartedAt: starts.min(),
         lastJobCompletedAt: ends.max(),
-        createdAt: createdAt
+        createdAt: createdAt,
+        normalizedEvent: groupKey.event
       )
     )
   }
