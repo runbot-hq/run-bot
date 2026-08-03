@@ -8,6 +8,12 @@
 // No coloured headings, no tinted surfaces beyond the grey code block background.
 // Matches the low-colour aesthetic of the rest of the app.
 //
+// Spacing convention:
+// Bottom margin owns the space between blocks. Top margin is used only for
+// headings (intentional visual break above). This prevents double-stacking
+// (e.g. bottom:6 + top:6 = 12pt gap) since swift-markdown-ui does not
+// collapse adjacent margins the way CSS does.
+//
 // Token cross-reference (#2398):
 // ┏━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
 // ┃ Node               ┃ Token                                  ┃
@@ -73,7 +79,7 @@ extension Theme {
                         FontWeight(.regular)
                         ForegroundColor(.rbTextSecondary)
                     }
-                    .markdownMargin(top: 6, bottom: 2)
+                    .markdownMargin(top: 6, bottom: 4)
             }
             .heading5 { config in
                 config.label
@@ -82,7 +88,7 @@ extension Theme {
                         FontWeight(.regular)
                         ForegroundColor(.rbTextSecondary)
                     }
-                    .markdownMargin(top: 6, bottom: 2)
+                    .markdownMargin(top: 6, bottom: 4)
             }
             .heading6 { config in
                 config.label
@@ -91,7 +97,7 @@ extension Theme {
                         FontWeight(.regular)
                         ForegroundColor(.rbTextSecondary)
                     }
-                    .markdownMargin(top: 6, bottom: 2)
+                    .markdownMargin(top: 6, bottom: 4)
             }
             // MARK: Paragraph
             .paragraph { config in
@@ -128,11 +134,12 @@ extension Theme {
                         .relativePadding(.horizontal, length: .em(0.75))
                 }
                 .fixedSize(horizontal: false, vertical: true)
+                .markdownMargin(top: 0, bottom: 6)
             }
             // MARK: List item
             .listItem { config in
                 config.label
-                    .markdownMargin(top: 2, bottom: 0)
+                    .markdownMargin(top: 2, bottom: 2)
             }
             // MARK: Table
             .table { config in
@@ -141,6 +148,7 @@ extension Theme {
                         FontSize(11)
                         ForegroundColor(.rbTextPrimary)
                     }
+                    .markdownMargin(top: 0, bottom: 6)
             }
             // MARK: Table cell
             .tableCell { config in
@@ -218,6 +226,6 @@ struct CodeBlockView: View {
             RoundedRectangle(cornerRadius: RBRadius.small)
                 .strokeBorder(Color.rbBorderSubtle, lineWidth: 0.5)
         )
-        .markdownMargin(top: 0, bottom: 4)
+        .markdownMargin(top: 0, bottom: 6)
     }
 }
