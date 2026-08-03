@@ -43,15 +43,23 @@ import ObjectiveC.runtime
 
 // MARK: - Associated-object keys
 
-// `let` is correct here: objc_getAssociatedObject / objc_setAssociatedObject
-// require only a stable pointer address as the key — they never mutate the
-// variable itself. `var` would trigger a #MutableGlobalVariable concurrency
-// error; `let` is both safe and idiomatic for ObjC associated-object keys.
+// Associated-object keys must be `var` because Swift's `&` (inout) operator
+// requires a mutable address. However, the value itself is never mutated —
+// only the address (pointer) is used by the ObjC runtime as the key.
+//
+// `nonisolated(unsafe)` suppresses the #MutableGlobalVariable concurrency
+// warning. The accesses are safe because:
+//   • The address never changes after program start.
+//   • The ObjC runtime's own internal locking protects the associated-object
+//     table — no additional synchronisation is needed on our side.
+// This is the standard pattern used throughout Apple's own Swift overlays
+// for ObjC associated-object keys.
+
 /// Key for the `isPanelOpen` associated object on `MBKStatusBarButton` instances.
-private let kIsPanelOpenKey: UInt8 = 0
+nonisolated(unsafe) private var kIsPanelOpenKey: UInt8 = 0
 
 /// Key for the weak button back-reference associated object on injected cell instances.
-private let kCellButtonKey: UInt8 = 0
+nonisolated(unsafe) private var kCellButtonKey: UInt8 = 0
 
 // MARK: - Button
 
