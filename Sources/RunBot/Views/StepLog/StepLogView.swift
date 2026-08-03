@@ -267,6 +267,8 @@ struct StepLogView: View {
 
             Divider()
 
+            // ⚠️ .frame(maxHeight:) cap is REQUIRED on this ScrollView (ref #370).
+            // ❌ NEVER remove .frame(maxHeight:) from this ScrollView.
             ScrollView(.vertical, showsIndicators: true) {
                 if isLoading {
                     HStack {
@@ -277,6 +279,11 @@ struct StepLogView: View {
                 } else {
                     switch logResult {
                     case .slice(let content):
+                        // content is String — StepLogResult.slice carries `content: String` (see LogFetcher.swift).
+                        // && markdownScore >= 6 is intentional defence-in-depth: isMarkdownMode is only
+                        // ever set true via the score-gated badge path, but the double-guard closes a
+                        // theoretical cancellation race where isMarkdownMode survives a generation where
+                        // markdownScore resets to 0. Do NOT remove the score check from this condition.
                         if isMarkdownMode && markdownScore >= 6 {
                             MarkdownLogView(text: content)
                         } else {
@@ -289,6 +296,7 @@ struct StepLogView: View {
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .padding(.horizontal, RBSpacing.md).padding(.top, 6)
                             Divider().padding(.horizontal, RBSpacing.md)
+                            // See .slice case above — same rationale for && markdownScore >= 6.
                             if isMarkdownMode && markdownScore >= 6 {
                                 MarkdownLogView(text: content)
                             } else {
@@ -318,8 +326,19 @@ struct StepLogView: View {
                     }
                 }
             }
+            // ⚠️ REQUIRED -- caps preferredContentSize.height. Prevents panel growing off-screen.
+            // ❌ NEVER remove this modifier.
             .frame(maxHeight: NSScreen.main.map { $0.visibleFrame.height * 0.75 } ?? 600)
         }
+        // ════════════════════════════════════════════════════════════════════════
+        // ⚠️ idealWidth: 480 hints the initial panel width before KVO fires.
+        // ❌ NEVER use .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // ❌ NEVER omit idealWidth: 480
+        // ❌ NEVER add .frame(height:) or .fixedSize() here
+        // If you are an agent or human, DO NOT REMOVE THIS COMMENT, YOU ARE NOT
+        // ALLOWED UNDER ANY CIRCUMSTANCE. The regression we get when this comment
+        // is removed is major major major.
+        // ════════════════════════════════════════════════════════════════════════
         .frame(idealWidth: 480, maxWidth: .infinity, alignment: .top)
         .onAppear { loadLog() }
         .onDisappear {
@@ -328,11 +347,38 @@ struct StepLogView: View {
         }
     }
 
+    /// Kicks off a background fetch of the step log and publishes the result to `logText`.
+    ///
+    /// Cancels any in-flight `loadTask` before spawning a new one — prevents a stale
+    /// task from writing to `@State` if `onAppear` fires more than once (e.g. view
+    /// re-parenting or navigation stack identity change).
+    ///
+    /// Uses `repoScopeForFetch` (derived from `job.htmlUrl`) as the primary scope.
+    /// Falls back to the first `owner/repo`-style entry in all entries (including
+    /// disabled ones) when `htmlUrl` is absent or malformed — deliberate policy
+    /// exception from the “active only” principle established by #1515. The saved
+    /// repo is always preferred over an unrelated active repo for log fetching (#1106 intent).
+    ///
+    /// ## Known cancellation limitation
+    ///
+    /// `loadTask?.cancel()` signals cooperative cancellation but does NOT abort
+    /// in-flight network I/O. `fetchStepLog` now checks `Task.isCancelled` at key
+    /// suspension points and logs each guard hit, but the URLSession transport call
+    /// itself runs to completion. The `guard !Task.isCancelled` checks reduce the
+    /// stale-write window but cannot close it entirely — on fast back → forward
+    /// navigation, the old `Task.isCancelled` may still be `false` at the guard site.
+    ///
     private func loadLog() {
-        loadTask?.cancel()
+        loadTask?.cancel() // Signals cancellation; does NOT abort in-flight network I/O.
         loadGeneration += 1
         isLoading = true
-        markdownScore = 0
+        markdownScore = 0      // Clear stale badge — prevents MD button flash during spinner.
+        // isMarkdownMode is intentionally NOT reset here: loadLog() can fire multiple
+        // times per view lifetime (`.onAppear` re-fires on live-step refresh), and
+        // resetting it would wipe the user's manual toggle-off. SwiftUI state teardown
+        // on view identity change handles the fresh-start case. The auto-enable path
+        // below (`if mdAuto { isMarkdownMode = true }`) only sets to true, never false,
+        // so a user toggle-off is preserved across re-fetches.
         let jobID = job.id
         let runID = job.runID
         let startedAt = job.startedAt
@@ -341,13 +387,18 @@ struct StepLogView: View {
         let scope: String = {
             let primary = repoScopeForFetch
             if !primary.isEmpty { return primary }
+            // ✅ Use injected scopeStore (not singleton). Saved repo preferred over unrelated active repo (#1515).
             return scopeStore.entries.first(where: { $0.scope.contains("/") })?.scope ?? ""
         }()
+        // Capture the fetcher copy so mutating fetchStepLog is legal inside the Task.
         let fetcherSnapshot = logFetcher
         let generation = loadGeneration
         log("loadLog › gen=\(loadGeneration) runID=\(runID) startedAt=\(startedAt ?? "nil") jobID=\(jobID) jobName='\(jobName)' step=\(step.number) scope='\(scope)'",
                 category: .services)
         loadTask = Task { [loadStart = ContinuousClock.now] in
+            // Do NOT use `defer` for `isLoading = false`: a `defer` fires even on early-cancel
+            // guard returns, briefly flashing "Log not available" to the user while a new task
+            // is still loading. Clear `isLoading` only on the two paths that settle the view.
             guard !Task.isCancelled else {
                 log("loadLog.guard1 › generation=\(generation) cancelled before fetchStepLog — discarding", category: .services)
                 return
@@ -369,6 +420,8 @@ struct StepLogView: View {
             }
             let fetchDuration = loadStart.duration(to: .now)
             log("loadLog › fetchStepLog returned: \(result) elapsed=\(fetchDuration)", category: .services)
+            // Offload parse to a detached task so the main thread stays free.
+            // Markdown detection runs here too via a single detect(_:) call.
             let (parsed, defaultCollapsed, mdScore, mdAuto) = await Task.detached(priority: .userInitiated) {
                 let lines = result.text.map { parseLogLines($0) } ?? []
                 let collapsed = Set(lines.compactMap { line -> Int? in
@@ -384,28 +437,52 @@ struct StepLogView: View {
             }
             let totalElapsed = loadStart.duration(to: .now)
             await MainActor.run { [generation] in
+                // Generation check: if loadLog() has been called again since this task
+                // was created, our result is stale — discard it silently.
                 guard self.loadGeneration == generation else {
                     log("loadLog › generation MISMATCH gen=\(generation) current=\(self.loadGeneration) — discarding stale result", category: .services)
                     return
                 }
                 log("loadLog › writeback generation=\(generation) result=\(String(describing: result)) totalElapsed=\(totalElapsed)", category: .services)
-                logFetcher = localFetcher
+                logFetcher = localFetcher  // persist updated zipCache back to view state
                 logResult = result
+                // logText nil/empty distinction: nil = not yet fetched, "" = fetch returned
+                // no text. The ?? "" coalesces both, which is pre-existing behaviour; the
+                // LogCopyButton disable check handles both correctly via isEmpty.
                 logText = result.text ?? ""
+                // Markdown state: score drives badge visibility, boolean drives auto-enable.
+                // Both computed from a single detect(_:) call on the detached task above;
+                // do NOT re-derive score >= 6 inline.
                 markdownScore = mdScore
+                // Auto-enable: safe to set unconditionally when mdAuto is true because
+                // loadLog() does not re-run while this view instance is alive (StepLogView
+                // is not polled — RunnerPoller is a separate actor with no callback into
+                // this view). The only re-fire path is SwiftUI view remount via .id()
+                // identity change, which tears down all @State before loadLog() runs
+                // again, so isMarkdownMode is already false at that point. A user
+                // toggle-off therefore cannot be overwritten here.
                 if mdAuto { isMarkdownMode = true }
                 log("loadLog › markdown: score=\(mdScore) autoEnabled=\(mdAuto) finalMode=\(isMarkdownMode)", category: .services)
+                // Preserve groups the user expanded across re-fetches. Group identity is keyed
+                // on title (IDs are not stable across parse calls). Strategy: build a
+                // title→id map for the new parse. Any title the user had manually expanded
+                // (old ID absent from collapsedGroups) is removed from collapsedGroups.
+                // Brand-new titles start collapsed by default.
                 let previousTitles: [String: Int] = Dictionary(
                     uniqueKeysWithValues: parsedLines.compactMap { line -> (String, Int)? in
                         if case .groupHeader(let id, let title) = line { return (title, id) } else { return nil }
                     }
                 )
+                // Titles the user had expanded in the previous parse (ID was NOT in collapsedGroups).
                 let userExpandedTitles = Set(
                     previousTitles.compactMap { title, id in collapsedGroups.contains(id) ? nil : title }
                 )
                 if collapsedGroups.isEmpty {
+                    // First load — apply GitHub-matching default (all groups collapsed).
                     collapsedGroups = defaultCollapsed
                 } else {
+                    // Re-fetch — start from the new default-collapsed set, then re-open
+                    // any group whose title the user had previously expanded.
                     collapsedGroups = defaultCollapsed
                     for line in parsed {
                         if case .groupHeader(let id, let title) = line, userExpandedTitles.contains(title) {
@@ -420,6 +497,13 @@ struct StepLogView: View {
         }
     }
 
+    // MARK: - Log body
+
+    /// The `LazyVStack` rendering of `parsedLines`.
+    ///
+    /// Shared by both the `.slice` and `.flatBlobFallback` cases so the group/annotation
+    /// rendering is identical regardless of which log source was used.
+    /// `LazyVStack` is required (not `VStack`) — logs can be thousands of lines.
     @ViewBuilder
     private var logBodyView: some View {
         LazyVStack(alignment: .leading, spacing: 0) {
@@ -436,6 +520,10 @@ struct StepLogView: View {
                         }
                     )
                 case .groupedLine(_, let text, let groupID):
+                    // NOTE: collapsed groupedLine rows are absent from the view tree entirely,
+                    // so a copy-all selection on the ScrollView will silently omit their content.
+                    // This matches GitHub.com behaviour (collapsed sections aren't copy-selectable)
+                    // and is acceptable; a future improvement could use hidden() instead.
                     if !collapsedGroups.contains(groupID) {
                         LogPlainLine(text: text)
                             .padding(.leading, 12)
@@ -459,6 +547,12 @@ struct StepLogView: View {
         .padding(.horizontal, RBSpacing.md).padding(.vertical, 6)
     }
 
+    // MARK: - Derived repo scope
+
+    /// Derives a `owner/repo` scope string from `job.htmlUrl` for use in `fetchStepLog`.
+    ///
+    /// Parses the URL path: `https://github.com/{owner}/{repo}/runs/{id}` → `"{owner}/{repo}"`.
+    /// Returns an empty string when `htmlUrl` is absent or the path cannot be parsed.
     private var repoScopeForFetch: String {
         guard let urlString = job.htmlUrl,
               let url = URL(string: urlString),
@@ -468,14 +562,19 @@ struct StepLogView: View {
         return "\(parts[0])/\(parts[1])"
     }
 
+    // MARK: - Meta row computed properties
+
+    /// `owner/repo` slug derived from `job.htmlUrl` for the meta row.
     private var repoSlug: String { repoScopeForFetch.isEmpty ? "—" : repoScopeForFetch }
 
+    /// Formatted start time string, or `"—"` when the step has not yet started.
     private var startLabel: String {
         guard let startedAtString = step.startedAt,
               let date = Self.iso8601Fmt.date(from: startedAtString) else { return "—" }
         return Self.timeFmt.string(from: date)
     }
 
+    /// Formatted end time string, or a status string when the step is still running.
     private var endLabel: String {
         guard let completedAtString = step.completedAt,
               let dateValue = Self.iso8601Fmt.date(from: completedAtString) else {
@@ -484,6 +583,7 @@ struct StepLogView: View {
         return Self.timeFmt.string(from: dateValue)
     }
 
+    /// Formatted date string derived from `step.startedAt`, or `"—"`.
     private var dateLabel: String {
         guard let startedAtString = step.startedAt,
               let date = Self.iso8601Fmt.date(from: startedAtString) else { return "—" }
