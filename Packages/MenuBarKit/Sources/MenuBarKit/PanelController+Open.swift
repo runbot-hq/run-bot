@@ -217,8 +217,12 @@ extension MBKPanelController {
             return
         }
 
+        // isPanelOpen must be set BEFORE highlight(_:) on both open and close paths.
+        // See CALL-SITE CONTRACT in MBKStatusBarButton.swift.
+        // Use mbkBtn directly — not statusItem?.button — to make the ordering
+        // contract unambiguous and avoid an unnecessary second optional chain.
         mbkBtn?.isPanelOpen = isOn
-        statusItem?.button?.highlight(isOn)
+        mbkBtn?.highlight(isOn)
         mbkLog("PanelController", "setButtonHighlight -- done isPanelOpen=\(mbkBtn?.isPanelOpen ?? false) buttonClass=\(type(of: statusItem?.button as AnyObject))")
     }
 }

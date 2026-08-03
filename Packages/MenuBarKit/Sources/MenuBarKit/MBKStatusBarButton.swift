@@ -294,6 +294,9 @@ final class MBKStatusBarButton: NSStatusBarButton {
     /// If the status item is torn down and a new cell vended by AppKit, this must
     /// be called again against the new cell — the dynamic subclass is reused but
     /// the `object_setClass` and `WeakBox` store must run on every new cell instance.
+    /// The reuse path (when `NSClassFromString` finds the existing class) still runs
+    /// both `object_setClass` and the `WeakBox` store — this is intentional and
+    /// safe; re-swapping an already-swapped cell is a no-op at the ISA level.
     func injectCellSubclass() {
         guard let cell = self.cell else {
             mbkLog("MBKStatusBarButton", "injectCellSubclass -- cell is nil, skipping")
@@ -310,6 +313,11 @@ final class MBKStatusBarButton: NSStatusBarButton {
 
         let subclass: AnyClass
         if let existing = NSClassFromString(subclassName) {
+            // Reuse the already-registered dynamic subclass. The object_setClass
+            // and WeakBox store below still run — intentionally — to handle the
+            // case where a new cell instance was vended (e.g. after status item
+            // recreation). Re-swapping an already-swapped cell is a no-op at
+            // the ISA level and safe.
             mbkLog("MBKStatusBarButton", "injectCellSubclass -- reusing existing subclass \(subclassName)")
             subclass = existing
         } else {
@@ -353,6 +361,11 @@ final class MBKStatusBarButton: NSStatusBarButton {
             // value, frame would receive flag, and so on. The HighlightIMP typealias
             // below correctly includes Selector only because it is used for the
             // unsafeBitCast super-dispatch call, which IS a raw C IMP invocation.
+            //
+            // mbkLog inside this IMP fires on every mouse-tracking tick while the
+            // button is hovered. This is acceptable because mbkLog's default handler
+            // is #if DEBUG-gated (see Logging.swift). If a custom mbkLogHandler is
+            // installed that is NOT debug-gated, this will be high-frequency output.
             typealias HighlightIMP = @convention(c) (AnyObject, Selector, Bool, NSRect, NSView) -> Void
 
             let imp: IMP = imp_implementationWithBlock({ (cellSelf: AnyObject, flag: Bool, frame: NSRect, view: NSView) in
