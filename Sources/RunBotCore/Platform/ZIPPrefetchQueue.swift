@@ -119,8 +119,8 @@ public actor ZIPPrefetchQueue {
             let runID = item.runID
             let scope = item.scope
             let isCompleted = item.isCompleted
-            Task(priority: .background) { [weak self] in
-                await self?.fetch(runID: runID, scope: scope, isCompleted: isCompleted)
+            Task(priority: .background) { [self] in
+                await self.fetch(runID: runID, scope: scope, isCompleted: isCompleted)
             }
         }
     }
