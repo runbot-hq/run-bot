@@ -235,18 +235,29 @@ public final class MBKPanelController<Content: View>: NSObject, MBKPanelControll
     var limits: MBKPanelLimits!
     /// KVO token for hostingController.preferredContentSize.
     nonisolated(unsafe) var preferredContentSizeObservation: NSKeyValueObservation?
-    /// The CALayer used to draw the self-managed "pressed pill" highlight on the
+    /// The view used to draw the self-managed "pressed pill" highlight on the
     /// status item button. Created once in setupStatusItem(); never touched by
     /// AppKit, so nothing outside setButtonHighlight(_:) can reset it. See #2440.
     ///
-    /// MUST be the topmost sublayer (added last, positive/default zPosition) so it
-    /// composites ON TOP of the button's own rendered icon content. An earlier
-    /// version placed this behind the icon (zPosition = -1, insertSublayer(at: 0)),
-    /// which meant it was never actually visible — the blue seen while holding the
-    /// mouse down was AppKit's own native tracking-highlight compositing, not this
-    /// layer. On mouseUp, that native compositing ends and (since this layer was
-    /// buried) nothing visible remained, even though pillOpacity was still 1.0.
-    var highlightPillLayer: CALayer?
+    /// #2440 THIRD REVISION: was a plain tinted CALayer (see git history). Users
+    /// reported the tint stayed visible (confirming the layer-detach hypothesis
+    /// was wrong -- it never actually disappeared) but looked visibly duller than
+    /// AppKit's own native press-highlight. That's because the native highlight
+    /// used to stack ON TOP of our tint while the mouse was down; once released,
+    /// only our flatter tint remained, reading as "basically off" by comparison.
+    ///
+    /// Fix: use NSVisualEffectView with material = .selection, state = .active,
+    /// isEmphasized = true -- the same vibrancy material/state AppKit itself uses
+    /// for active-selection chrome (e.g. selected table rows, menu highlights).
+    /// This automatically matches system accent color and light/dark mode instead
+    /// of an approximated alpha-tinted color.
+    ///
+    /// MUST be positioned BELOW the button's icon subview (positioned: .below),
+    /// the opposite ordering from the old CALayer. Vibrancy materials work by
+    /// sampling/blending with content drawn on top of them, not by painting over
+    /// it -- if placed above the icon it would occlude the (mostly transparent)
+    /// template image instead of vibrantly blending with it.
+    var highlightPillView: NSVisualEffectView?
 
     // MARK: - Session state
 
@@ -478,14 +489,16 @@ public final class MBKPanelController<Content: View>: NSObject, MBKPanelControll
     /// `highlightsBy = []` on the button cell disables AppKit's own highlight
     /// drawing/tracking entirely -- there is no cell-level highlight state left
     /// for `makeKey()` or app-switch to reset. The pressed "pill" appearance is
-    /// then drawn by us on `highlightPillLayer`, toggled only from
+    /// then drawn by us on `highlightPillView`, toggled only from
     /// `setButtonHighlight(_:)` in PanelController+Open.swift. Nothing in AppKit
-    /// can touch that layer, so nothing can un-press it out from under us.
+    /// can touch that view, so nothing can un-press it out from under us.
     ///
-    /// Z-ORDER FIX (#2440, second revision): the pill layer must be added LAST
-    /// (addSublayer, not insertSublayer(at: 0)) so it composites ON TOP of the
-    /// button's own icon content. Adding it behind the icon meant it was never
-    /// visible — see highlightPillLayer's doc comment for the full story.
+    /// Z-ORDER (#2440, third revision): highlightPillView is an NSVisualEffectView
+    /// using material = .selection -- a vibrancy material that blends with content
+    /// drawn ON TOP of it, so it is added BELOW the icon in the view hierarchy
+    /// (positioned: .below), which is the opposite of the earlier CALayer-based
+    /// pill (which had to sit on top since it was an opaque-ish tinted layer, not
+    /// a vibrancy material). See highlightPillView's doc comment for the full story.
     private func setupStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         guard let button = statusItem.button else {
@@ -509,30 +522,49 @@ public final class MBKPanelController<Content: View>: NSObject, MBKPanelControll
         } else {
             mbkLog("PanelController", "⚠️ setupStatusItem -- button.cell is not NSButtonCell (\(type(of: button.cell))),"
                 + " could not disable AppKit highlight drawing. Self-drawn pill will still be added"
-                + " on top but AppKit's own highlight may still flicker underneath.")
+                + " but AppKit's own highlight may still flicker underneath.")
         }
 
         button.wantsLayer = true
-        let pill = CALayer()
-        pill.backgroundColor = NSColor.clear.cgColor
-        pill.cornerCurve = .continuous
-        // cornerRadius is set relative to the button's own height so it always
-        // renders as a true pill regardless of status-item sizing. Recomputed
-        // in setButtonHighlight(_:) in case the frame changed since setup
-        // (e.g. very first layout pass hasn't happened yet here).
-        pill.cornerRadius = button.bounds.height / 2
-        // addSublayer appends to the END of button.layer.sublayers, i.e. on TOP
-        // of the icon content that AppKit renders into button.layer's own
-        // backing store. This is deliberately the opposite of the removed
-        // insertSublayer(at: 0) / zPosition = -1 approach -- see highlightPillLayer
-        // doc comment. button.image is a template image (mostly transparent
-        // outside the glyph), so a semi-transparent pill on top still lets the
-        // glyph read through, matching AppKit's own native highlight look.
-        button.layer?.addSublayer(pill)
-        highlightPillLayer = pill
+
+        let pill = NSVisualEffectView(frame: button.bounds)
+        // .selection + .active + isEmphasized = true reproduces the exact
+        // vibrancy AppKit uses for its own active-selection chrome (e.g.
+        // selected NSTableView rows, menu highlights) -- system accent color
+        // and light/dark mode come along for free, instead of us hardcoding
+        // an approximate blue tint.
+        pill.material = .selection
+        pill.state = .active
+        pill.isEmphasized = true
+        pill.wantsLayer = true
+        pill.layer?.cornerRadius = button.bounds.height / 2
+        pill.layer?.cornerCurve = .continuous
+        pill.autoresizingMask = [.width, .height]
+        // Hidden until setButtonHighlight(true) -- alphaValue, not isHidden, so
+        // toggling is a simple property write with no add/remove-from-superview
+        // churn on every open/close.
+        pill.alphaValue = 0
+
+        // positioned: .below places the vibrancy view BEHIND button.subviews.first
+        // (the icon), which is required for vibrancy materials to blend correctly
+        // with the glyph drawn on top of them -- see highlightPillView's doc comment.
+        if let iconView = button.subviews.first {
+            button.addSubview(pill, positioned: .below, relativeTo: iconView)
+        } else {
+            // No subview to anchor "below" yet (first layout pass hasn't happened) --
+            // adding without a relative view still inserts it in the view's own
+            // subview array, and NSButton's own icon rendering is not a subview at
+            // all on most macOS versions (it's cell-drawn), so this is expected to
+            // be hit in the common case and is not itself an error.
+            button.addSubview(pill)
+            mbkLog("PanelController", "setupStatusItem -- no existing button subview to position pill below;"
+                + " added without relative positioning (expected -- button icon is cell-drawn, not a subview)")
+        }
+
+        highlightPillView = pill
         mbkLog("PanelController",
-            "setupStatusItem -- highlightPillLayer installed as TOPMOST sublayer bounds=\(button.bounds)"
-            + " cornerRadius=\(pill.cornerRadius) sublayerCount=\(button.layer?.sublayers?.count ?? -1)")
+            "setupStatusItem -- highlightPillView installed bounds=\(button.bounds)"
+            + " cornerRadius=\(pill.layer?.cornerRadius ?? -1) material=selection state=active")
     }
 
     // MARK: - Deallocation
