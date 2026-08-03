@@ -652,6 +652,73 @@ struct PollResultBuilderGroupStateTests {
 
 }
 
+// MARK: - PollResultBuilder.evictFreshShas (#2444)
+
+@Suite("PollResultBuilder.evictFreshShas")
+struct PollResultBuilderEvictionTests {
+
+  /// Builds a minimal `WorkflowActionGroup` for eviction tests.
+  ///
+  /// `id` is used as the dictionary key in the ID-keyed cache (mirroring
+  /// `snapGroupCache` in `buildGroupState`). `event` sets `normalizedEvent`
+  /// so the value-based composite reconstruction in `evictFreshShas` produces
+  /// the expected `"headSha:normalizedEvent"` string.
+  private func makeGroup(sha: String, event: String, id: String) -> WorkflowActionGroup {
+    WorkflowActionGroup(
+      headSha: sha, label: sha, title: "commit", headBranch: nil,
+      repo: "owner/repo", runs: [], jobs: [],
+      firstJobStartedAt: nil, lastJobCompletedAt: nil, createdAt: nil,
+      normalizedEvent: event
+    )
+  }
+
+  /// Verifies that a fresh `push` (`"commit"`) group does NOT evict a cached
+  /// `workflow_dispatch` group sharing the same SHA — regression guard for #2444.
+  ///
+  /// Before #2444, `evictFreshShas` evicted by bare `headSha`, so a live `push`
+  /// run would ghost-evict an unrelated `workflow_dispatch` cache entry on the
+  /// same commit.
+  @Test func evictFreshShasDoesNotEvictDifferentEventOnSameSha() {
+    let sha = "sharedsha"
+    let dispatchGroup = makeGroup(sha: sha, event: "workflow_dispatch", id: "id-dispatch")
+    let pushGroup     = makeGroup(sha: sha, event: "commit",            id: "id-push")
+    // ID-keyed cache — mirrors snapGroupCache in buildGroupState.
+    let cache: [String: WorkflowActionGroup] = [
+      "id-dispatch": dispatchGroup,
+      "id-push":     pushGroup,
+    ]
+    // Only the push/commit group is fresh this cycle.
+    let fresh = [makeGroup(sha: sha, event: "commit", id: "id-push-new")]
+    let result = PollResultBuilder.evictFreshShas(from: cache, freshGroups: fresh)
+    // The commit entry must be evicted; the dispatch entry must survive.
+    #expect(result["id-push"] == nil,     "fresh push group must be evicted")
+    #expect(result["id-dispatch"] != nil, "dispatch group on same SHA must NOT be evicted")
+  }
+
+  /// Verifies that a fresh group evicts all cached entries sharing the same
+  /// composite identity (`headSha:normalizedEvent`), including stale entries
+  /// from a previous run on the same SHA+event.
+  @Test func evictFreshShasEvictsSameCompositeKey() {
+    let sha = "evictme"
+    let stale = makeGroup(sha: sha, event: "commit", id: "id-stale")
+    let cache: [String: WorkflowActionGroup] = ["id-stale": stale]
+    let fresh = [makeGroup(sha: sha, event: "commit", id: "id-fresh")]
+    let result = PollResultBuilder.evictFreshShas(from: cache, freshGroups: fresh)
+    #expect(result.isEmpty, "stale entry for same SHA+event must be evicted")
+  }
+
+  /// Verifies that a completely unrelated SHA is never evicted, even when multiple
+  /// fresh groups are present.
+  @Test func evictFreshShasPreservesUnrelatedSha() {
+    let keepGroup  = makeGroup(sha: "keepme",  event: "commit", id: "id-keep")
+    let freshGroup = makeGroup(sha: "freshsha", event: "commit", id: "id-fresh")
+    let cache: [String: WorkflowActionGroup] = ["id-keep": keepGroup]
+    let result = PollResultBuilder.evictFreshShas(from: cache, freshGroups: [freshGroup])
+    #expect(result["id-keep"] != nil, "unrelated SHA must not be evicted")
+  }
+
+}
+
 // MARK: - ProcessRunner.runAsync stdin
 
 @Suite("ProcessRunner.runAsync stdin")

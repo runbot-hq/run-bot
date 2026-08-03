@@ -144,7 +144,8 @@ struct WorkflowActionGroupFetcherTests {
     jobID: Int = 999,
     jobName: String = "cached-build",
     jobScope: String = "owner/repo",
-    steps: [JobStep] = []
+    steps: [JobStep] = [],
+    normalizedEvent: String = "commit"
   ) -> WorkflowActionGroup {
     WorkflowActionGroup(
       headSha: sha,
@@ -161,7 +162,8 @@ struct WorkflowActionGroupFetcherTests {
           startedAt: nil, completedAt: Date(), steps: steps
         )
       ],
-      firstJobStartedAt: nil, lastJobCompletedAt: nil, createdAt: nil
+      firstJobStartedAt: nil, lastJobCompletedAt: nil, createdAt: nil,
+      normalizedEvent: normalizedEvent
     )
   }
 
@@ -522,37 +524,11 @@ struct WorkflowActionGroupFetcherTests {
     #expect(t.callCount == 3)
   }
 
-  /// Verifies that a fresh `push` group does NOT evict a cached `workflow_dispatch`
-  /// group sharing the same SHA (regression guard for #2444 composite-eviction fix).
-  ///
-  /// Before the fix, `evictFreshShas` evicted by bare `headSha`, so a live `push`
-  /// run would ghost-evict an unrelated `workflow_dispatch` cached group.
-  @Test func fetchActionGroupsFreshPushDoesNotEvictDispatchCacheEntry() async {
-    let sha = "sharedsha"
-    // `workflow_dispatch` normalises to `"workflow_dispatch"` via `groupEvent`.
-    let dispatchCacheKey = "\(sha):workflow_dispatch"
-    let dispatchCached = makeCachedGroup(sha: sha, jobID: 55)
-    // Only the in-progress bucket has a run — it's a `push` event.
-    let t = makeTransport(with: [
-      "repos/owner/repo/actions/runs?status=in_progress": envelope(
-        key: "workflow_runs",
-        [minimalRun(id: 2, sha: sha, status: "in_progress", conclusion: nil, event: "push")]),
-      "repos/owner/repo/actions/runs/2/jobs": envelope(key: "jobs", [minimalJob(id: 99)]),
-    ])
-    let f = WorkflowActionGroupFetcher(transport: t)
-    // Pass both the dispatch cache entry and a placeholder push cache entry.
-    // After fetching, the push group is live; the dispatch group must still be
-    // retrievable from the returned array (two separate groups on the same SHA).
-    let pushCacheKey = "\(sha):commit"
-    let pushCached = makeCachedGroup(sha: sha, jobID: 77)
-    let r = await f.fetch(
-      for: "owner/repo",
-      cache: [dispatchCacheKey: dispatchCached, pushCacheKey: pushCached])
-    // The live push group is always present.
-    #expect(r.contains(where: { $0.normalizedEvent == "commit" && $0.headSha == sha }))
-    // The dispatch cached group must not have been evicted.
-    #expect(r.contains(where: { $0.normalizedEvent == "workflow_dispatch" && $0.headSha == sha }))
-  }
+  // NOTE: The cross-event eviction regression ("fresh push must not evict dispatch cache entry")
+  // is tested at the correct layer in RunBotCoreTests.swift
+  // (PollResultBuilderEvictionTests.evictFreshShasDoesNotEvictDifferentEventOnSameSha).
+  // evictFreshShas lives in PollResultBuilder and is never called by WorkflowActionGroupFetcher.fetch,
+  // so testing it through the fetcher would never catch a regression in the eviction logic.
 
   /// Verifies that a run JSON object missing the `event` key still decodes cleanly
   /// and is grouped under the `"push"` → `"commit"` default (regression guard for #2444

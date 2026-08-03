@@ -255,13 +255,23 @@ public enum PollResultBuilder {
     )
   }
 
-  /// Removes cache entries whose composite key (`headSha:normalizedEvent`) appears in
-  /// the freshly-fetched group list.
+  /// Removes cache entries whose composite identity (`headSha:normalizedEvent`) appears
+  /// in the freshly-fetched group list.
+  ///
+  /// - Parameter cache: The **ID-keyed** group cache (`snapGroupCache`). Each entry's
+  ///   composite identity is derived from its *value* fields rather than its key, because
+  ///   the cache is keyed by group ID, not by `"headSha:normalizedEvent"`.
+  /// - Parameter freshGroups: The groups returned by the current live fetch.
   ///
   /// A re-run on the same commit produces a new group ID for the same `headSha`.
-  /// Evicting by composite key (not bare `headSha`) ensures that a fresh `push` group
-  /// does not accidentally evict a cached `workflow_dispatch` group that shares the
-  /// same SHA but belongs to a different event bucket.
+  /// Evicting by composite identity (not bare `headSha`) ensures that a fresh `push`
+  /// group does not accidentally evict a cached `workflow_dispatch` group that shares
+  /// the same SHA but belongs to a different event bucket.
+  ///
+  /// Note: the value-based composite key reconstruction here is intentional — `$0.key`
+  /// cannot be used because this dict is ID-keyed, not composite-keyed. `normalizedEvent`
+  /// is a stored property on `WorkflowActionGroup` and is propagated by all mutation
+  /// paths (`withJobs`, `copying`), so the reconstruction is safe.
   public static func evictFreshShas(
     from cache: [String: WorkflowActionGroup],
     freshGroups: [WorkflowActionGroup]
