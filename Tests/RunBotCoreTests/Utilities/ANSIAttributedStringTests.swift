@@ -147,4 +147,65 @@ final class ANSIAttributedStringTests: XCTestCase {
         XCTAssertNotNil(run, "Expected a coloured run for bold-green")
         XCTAssertNotEqual(run?.font, font, "Expected bold font for bold-green")
     }
+
+    // MARK: - OSC 8 hyperlinks
+
+    func test_osc8_linkAttribute() {
+        // Basic OSC 8: \e]8;;url\e\ link text \e]8;;\e\
+        let st = "\(esc)\\"
+        let input = "\(esc)]8;;https://example.com\(st)click here\(esc)]8;;\(st)"
+        let result = ansiAttributedString(input, baseColor: base, font: font)
+        XCTAssertEqual(String(result.characters), "click here")
+        let runs = Array(result.runs)
+        let linked = runs.first(where: { $0.link != nil })
+        XCTAssertNotNil(linked, "Expected a run with .link set")
+        XCTAssertEqual(linked?.link, URL(string: "https://example.com"))
+    }
+
+    func test_osc8_closingResetsLink() {
+        // Open link, text, close link, then plain text — second run must have no link.
+        let st = "\(esc)\\"
+        let input = "\(esc)]8;;https://example.com\(st)linked\(esc)]8;;\(st)plain"
+        let result = ansiAttributedString(input, baseColor: base, font: font)
+        XCTAssertEqual(String(result.characters), "linkedplain")
+        let runs = Array(result.runs)
+        let lastRun = runs.last
+        XCTAssertNil(lastRun?.link, "Plain text after closing OSC 8 must have no link")
+    }
+
+    func test_osc8_malformed_noTerminator() {
+        // Truncated OSC 8 — no ST or BEL terminator.
+        // Text before the sequence must be preserved; no crash.
+        let input = "before\(esc)]8;;https://example.com"
+        let result = ansiAttributedString(input, baseColor: base, font: font)
+        XCTAssertEqual(String(result.characters), "before",
+            "Text before a malformed OSC 8 must be preserved; no raw ESC bytes")
+    }
+
+    func test_osc8_mixedWithSGR() {
+        // SGR green colour combined with OSC 8 link — run must have both attributes.
+        let st = "\(esc)\\"
+        let input = "\(esc)[32m\(esc)]8;;https://example.com\(st)green link\(esc)]8;;\(st)\(esc)[0m"
+        let result = ansiAttributedString(input, baseColor: base, font: font)
+        XCTAssertEqual(String(result.characters), "green link")
+        let runs = Array(result.runs)
+        let linkedRun = runs.first(where: { $0.link != nil })
+        XCTAssertNotNil(linkedRun, "Expected a run with .link set")
+        XCTAssertEqual(linkedRun?.link, URL(string: "https://example.com"))
+        XCTAssertNotEqual(linkedRun?.foregroundColor, base,
+            "The linked run must also carry the SGR green colour")
+    }
+
+    func test_osc8_belTerminator() {
+        // BEL-terminated OSC 8 variant.
+        let bel = "\u{0007}"
+        let input = "\(esc)]8;;https://example.com\(bel)click\(esc)]8;;\(bel)"
+        let result = ansiAttributedString(input, baseColor: base, font: font)
+        XCTAssertEqual(String(result.characters), "click",
+            "BEL must be consumed, not appear in output characters")
+        let runs = Array(result.runs)
+        let linked = runs.first(where: { $0.link != nil })
+        XCTAssertNotNil(linked, "Expected a run with .link set for BEL-terminated OSC 8")
+        XCTAssertEqual(linked?.link, URL(string: "https://example.com"))
+    }
 }

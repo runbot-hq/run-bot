@@ -21,11 +21,13 @@ private func ansiAdaptive(light: Color, dark: Color) -> Color {
 
 // MARK: - ansiAttributedString
 
-/// Converts a string that may contain GitHub Actions ANSI SGR escape sequences into
-/// an `AttributedString` with `.foregroundColor` and `.font` attributes applied per
-/// segment.
+/// Converts a string that may contain GitHub Actions ANSI escape sequences into
+/// an `AttributedString` with `.foregroundColor`, `.font`, and `.link` attributes
+/// applied per segment.
 ///
-/// Only the subset that GitHub's own runner emits is handled:
+/// Two escape families are handled:
+///
+/// **SGR** (`\e[…m`) — colour and style:
 ///
 /// | Code       | Effect                                   |
 /// |------------|------------------------------------------|
@@ -35,9 +37,18 @@ private func ansiAdaptive(light: Color, dark: Color) -> Color {
 /// | `\e[31m`–`\e[36m` | Standard colours (red–cyan)     |
 /// | `\e[90m`–`\e[96m` | Bright variants                  |
 ///
-/// Any code outside this set is **silently ignored** — it does not appear in the
-/// returned `AttributedString`. The `baseColor` and `font` become the container
-/// defaults, overridden per-segment by recognised ANSI codes.
+/// **OSC 8** (`\e]8;;url\e\\` or `\e]8;;url\u{0007}`) — hyperlinks:
+///
+/// | Sequence              | Effect                                |
+/// |-----------------------|---------------------------------------|
+/// | `\e]8;;url\e\\`       | Open hyperlink — sets `.link`         |
+/// | `\e]8;;\e\\`          | Close hyperlink — clears `.link`      |
+/// | BEL-terminated variant | `\e]8;;url\u{0007}` also supported   |
+///
+/// Any SGR code outside the supported set is **silently ignored**.
+/// The `baseColor` and `font` become the container defaults, overridden
+/// per-segment by recognised codes. SGR reset (`\e[0m`) does **not** clear
+/// an active link — link state is controlled exclusively by OSC 8 open/close pairs.
 ///
 /// **Fast path:** if `text` contains no ESC character (`\u{001B}`), the function
 /// returns a plain `AttributedString(text)` with container attributes applied,
@@ -70,62 +81,85 @@ public func ansiAttributedString(
     var currentColor: Color?         // nil = use baseColor
     var isBold = false
     var isDim  = false
+    var currentLink: URL?            // nil = no active hyperlink
 
     var idx = text.startIndex
     var segmentStart = idx
 
+    // Inline flush: appends text[segmentStart..<end] with current style state.
+    let flush = { (end: String.Index) in
+        guard segmentStart < end else { return }
+        var seg = AttributedString(text[segmentStart..<end])
+        let resolved = currentColor ?? baseColor
+        seg.foregroundColor = isDim ? resolved.opacity(0.5) : resolved
+        seg.font = isBold ? boldFont(font) : font
+        seg.link = currentLink
+        result += seg
+    }
+
     while idx < text.endIndex {
         guard text[idx] == "\u{001B}",
-              text.index(after: idx) < text.endIndex,
-              text[text.index(after: idx)] == "[" else {
+              text.index(after: idx) < text.endIndex else {
             text.formIndex(after: &idx)
             continue
         }
 
-        // Flush the text segment before this escape sequence.
-        if segmentStart < idx {
-            var seg = AttributedString(text[segmentStart..<idx])
-            let resolved = currentColor ?? baseColor
-            seg.foregroundColor = isDim ? resolved.opacity(0.5) : resolved
-            seg.font = isBold ? boldFont(font) : font
-            result += seg
-        }
+        let nextIdx = text.index(after: idx)
+        let nextChar = text[nextIdx]
 
-        // Advance past ESC[
-        text.formIndex(&idx, offsetBy: 2)
+        if nextChar == "[" {
+            // SGR sequence (\e[...m) — flush text before this escape.
+            flush(idx)
 
-        // Consume digits and semicolons up to the 'm' terminator.
-        let codeStart = idx
-        while idx < text.endIndex, text[idx] != "m" {
+            // Advance past ESC[
+            text.formIndex(&idx, offsetBy: 2)
+
+            // Consume digits and semicolons up to the 'm' terminator.
+            let codeStart = idx
+            while idx < text.endIndex, text[idx] != "m" {
+                text.formIndex(after: &idx)
+            }
+            guard idx < text.endIndex else {
+                segmentStart = text.endIndex // suppress trailing flush — pre-escape text already in result
+                break
+            }
+            let codeStr = String(text[codeStart..<idx])
+            text.formIndex(after: &idx)              // consume 'm'
+            segmentStart = idx
+
+            // Parse semicolon-separated codes and apply each.
+            for part in codeStr.split(separator: ";", omittingEmptySubsequences: true) {
+                guard let code = Int(part) else { continue }
+                applyANSICode(code, color: &currentColor, bold: &isBold, dim: &isDim)
+            }
+            // Empty code string (bare `\e[m`) acts as reset.
+            if codeStr.isEmpty {
+                currentColor = nil; isBold = false; isDim = false
+            }
+        } else if nextChar == "]" {
+            // MARK: OSC 8 sequence (\e]8;;url\e\ or \e]8;;url\u{0007})
+            let oscStart = idx
+            switch parseOSC8(in: text, from: &idx) {
+            case .notOSC8:
+                // Not OSC 8 — skip the ESC and keep scanning.
+                text.formIndex(after: &idx)
+                continue
+            case .malformed:
+                flush(oscStart) // flush text before malformed OSC
+                segmentStart = text.endIndex
+                // parseOSC8 already set idx = endIndex — while loop exits naturally.
+            case .parsed(let url):
+                flush(oscStart) // flush text before this OSC sequence
+                currentLink = url
+                segmentStart = idx
+            }
+        } else {
+            // Unknown ESC sequence — skip the ESC byte and keep scanning.
             text.formIndex(after: &idx)
         }
-        guard idx < text.endIndex else {
-            segmentStart = text.endIndex // suppress trailing flush — pre-escape text already in result
-            break
-        }
-        let codeStr = String(text[codeStart..<idx])
-        text.formIndex(after: &idx)              // consume 'm'
-        segmentStart = idx
-
-        // Parse semicolon-separated codes and apply each.
-        for part in codeStr.split(separator: ";", omittingEmptySubsequences: true) {
-            guard let code = Int(part) else { continue }
-            applyANSICode(code, color: &currentColor, bold: &isBold, dim: &isDim)
-        }
-        // Empty code string (bare `\e[m`) acts as reset.
-        if codeStr.isEmpty {
-            currentColor = nil; isBold = false; isDim = false
-        }
     }
 
-    // Flush trailing text segment.
-    if segmentStart < text.endIndex {
-        var seg = AttributedString(text[segmentStart...])
-        let resolved = currentColor ?? baseColor
-        seg.foregroundColor = isDim ? resolved.opacity(0.5) : resolved
-        seg.font = isBold ? boldFont(font) : font
-        result += seg
-    }
+    flush(text.endIndex) // trailing segment
 
     return result
 }
@@ -195,4 +229,74 @@ private func applyANSICode(
 /// Returns a bold variant of `font`.
 private func boldFont(_ font: Font) -> Font {
     font.bold()
+}
+
+// MARK: - OSC 8 parser
+
+/// Result of attempting to parse an OSC 8 hyperlink sequence.
+private enum OSC8Result {
+    /// The sequence at the current index is not an OSC 8 sequence — caller should skip the ESC.
+    case notOSC8
+    /// OSC 8 header was valid but no ST (`\e\\`) or BEL terminator was found before end-of-string.
+    case malformed
+    /// Successfully parsed. `url` is non-nil for an opening sequence, nil for a closing one.
+    case parsed(URL?)
+}
+
+/// Attempts to parse an OSC 8 hyperlink sequence starting at `idx` in `text`.
+///
+/// On entry `idx` points at the ESC (`\u{001B}`) of a potential OSC 8 sequence.
+/// On exit:
+/// - `.notOSC8`: `idx` is unchanged — caller advances past the ESC.
+/// - `.malformed`: `idx` is at `text.endIndex`.
+/// - `.parsed`: `idx` is positioned immediately after the ST or BEL terminator.
+///
+/// The function recognises both ST (`\e\\`) and BEL (`\u{0007}`) terminators.
+/// The params field (`\e]8;params;url`) is correctly skipped — URL begins after
+/// the *second* semicolon.
+private func parseOSC8(in text: String, from idx: inout String.Index) -> OSC8Result {
+    // Require \e]8;; — 5 characters minimum.
+    let endIndex = text.endIndex
+    let i1 = text.index(after: idx)              // ]
+    guard i1 < endIndex else { return .notOSC8 }
+    let i2 = text.index(after: i1)               // 8
+    guard i2 < endIndex else { return .notOSC8 }
+    let i3 = text.index(after: i2)               // first ;
+    guard i3 < endIndex else { return .notOSC8 }
+    let i4 = text.index(after: i3)               // second ;
+    guard i4 < endIndex else { return .notOSC8 }
+
+    guard text[i1] == "]", text[i2] == "8",
+          text[i3] == ";", text[i4] == ";" else {
+        return .notOSC8
+    }
+
+    // Advance past \e]8;; to the start of the URL.
+    var scanIdx = text.index(after: i4)
+    let urlStart = scanIdx
+
+    // Scan for ST (\e\\) or BEL.
+    while scanIdx < endIndex {
+        if text[scanIdx] == "\u{0007}" {
+            // BEL terminator.
+            let url = String(text[urlStart..<scanIdx])
+            text.formIndex(after: &scanIdx)  // consume BEL
+            idx = scanIdx
+            return .parsed(url.isEmpty ? nil : URL(string: url))
+        } else if text[scanIdx] == "\u{001B}" {
+            let afterEsc = text.index(after: scanIdx)
+            if afterEsc < endIndex, text[afterEsc] == "\\" {
+                // ST terminator.
+                let url = String(text[urlStart..<scanIdx])
+                text.formIndex(&scanIdx, offsetBy: 2)  // consume \e\\
+                idx = scanIdx
+                return .parsed(url.isEmpty ? nil : URL(string: url))
+            }
+        }
+        text.formIndex(after: &scanIdx)
+    }
+
+    // Reached end of string without finding a terminator.
+    idx = endIndex
+    return .malformed
 }
