@@ -494,13 +494,19 @@ private struct PaginationState {
   ///
   /// Side-effects: updates `allItems`, `didFailAuth`, `didRateLimit`,
   /// `didEncounterNonPartialFailure`, and `hadAtLeastOneSuccessfulPage`.
+  ///
+  /// (#2437) GitHub Actions endpoints return wrapped envelope objects
+  /// (e.g. `{"runners":[...],"total_count":N}`) rather than bare JSON arrays.
+  /// `decodePageItems` handles both shapes: it first tries bare-array decode,
+  /// then falls back to unwrapping the first array-valued key in an object envelope.
+  /// Bare-array endpoints (user orgs, repos) continue to work via the fast path.
   mutating func apply(
     _ result: ExecuteResult,
     decoder: JSONDecoder
   ) -> PaginationAction {
     switch result {
     case .success(let data, _, let linkHeader):
-      guard let page = try? decoder.decode([AnyJSON].self, from: data) else {
+      guard let page = Self.decodePageItems(from: data, decoder: decoder) else {
         didEncounterNonPartialFailure = true
         return .stop(.nonArrayBody)
       }
@@ -525,5 +531,33 @@ private struct PaginationState {
     case .networkError:
       return .stop(.networkError)
     }
+  }
+
+  /// Decodes one page of items from `data`, handling both bare-array and envelope responses.
+  ///
+  /// **Bare array** (e.g. `/user/orgs`, `/user/repos`):
+  ///   `[{...}, {...}]` → decoded directly as `[AnyJSON]`.
+  ///
+  /// **Envelope object** (e.g. `/actions/runners`, `/actions/runs`, `/actions/jobs`):
+  ///   `{"runners":[...],"total_count":N}` → the object is decoded as `[String: AnyJSON]`
+  ///   and the first value whose underlying type is an array is returned.
+  ///   This is key-agnostic: it handles `runners`, `workflow_runs`, `jobs`, and any
+  ///   future envelope keys without a hardcoded lookup table.
+  ///
+  /// Returns `nil` if neither shape decodes successfully (truly malformed response).
+  private static func decodePageItems(from data: Data, decoder: JSONDecoder) -> [AnyJSON]? {
+    // Fast path: bare JSON array (most common for non-Actions endpoints).
+    if let page = try? decoder.decode([AnyJSON].self, from: data) {
+      return page
+    }
+    // Fallback: GitHub Actions envelope object — unwrap the first array-valued key.
+    if let envelope = try? decoder.decode([String: AnyJSON].self, from: data) {
+      for value in envelope.values {
+        if case .array(let items) = value {
+          return items
+        }
+      }
+    }
+    return nil
   }
 }
