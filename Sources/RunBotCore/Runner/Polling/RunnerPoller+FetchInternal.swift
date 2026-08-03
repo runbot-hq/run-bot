@@ -57,23 +57,25 @@ extension RunnerPoller {
           category: .runner)
       #endif
     }
-    // (#2436) Filter to only runners with a resolved apiId — runners without one
-    // cannot contribute useful entries to InstallPathMap and silently pollute it.
-    // Full `localRunnersSnapshot` is still passed to `fetchAndEnrichRunners` below
-    // so newly-registered runners can have their apiId resolved on the next cycle.
-    let enabledLocalRunners = localRunnersSnapshot.filter { $0.apiId != nil }
+    // (#2436) Log how many runners have a resolved apiId for diagnostics.
+    // The full `localRunnersSnapshot` (unfiltered) is passed to both
+    // `deriveExtraOrgScopes` and `buildInstallPathMap` so that unenriched runners
+    // (apiId == nil) still contribute to byName and byAgentId submaps during the
+    // cold-start window. Only `byApiId` lookups require a resolved apiId, and
+    // `buildInstallPathMap` handles nil apiId internally. (#2433)
+    let resolvedApiIdCount = localRunnersSnapshot.filter { $0.apiId != nil }.count
     log(
-      "RunnerPoller › fetch — enabledLocalRunners.count=\(enabledLocalRunners.count) (apiId resolved; used for installPathMap) of \(localRunnersSnapshot.count) total",
+      "RunnerPoller › fetch — resolvedApiIdCount=\(resolvedApiIdCount) of \(localRunnersSnapshot.count) total",
       category: .runner)
-    if enabledLocalRunners.isEmpty && !localRunnersSnapshot.isEmpty {
+    if resolvedApiIdCount == 0 && !localRunnersSnapshot.isEmpty {
       log(
-        "RunnerPoller › ⚠️ fetch — no local runners with resolved apiId; installPathMap empty this cycle.",
+        "RunnerPoller › ⚠️ fetch — no local runners with resolved apiId; byApiId submap empty this cycle.",
         category: .runner)
     }
     // Derive extra org scopes before buildInstallPathMap so byFullKey covers
     // inferred org scopes as well as user-configured ones.
     let extraOrgScopes = deriveExtraOrgScopes(
-      from: enabledLocalRunners,
+      from: localRunnersSnapshot,
       configuredScopes: scopesSnapshot
     )
     log(
@@ -82,7 +84,7 @@ extension RunnerPoller {
     let allScopes = scopesSnapshot + extraOrgScopes
     let installPathMap = buildInstallPathMap(
       scopes: allScopes,
-      localRunners: enabledLocalRunners
+      localRunners: localRunnersSnapshot
     )
     let enrichedRunners = await fetchAndEnrichRunners(
       scopes: scopesSnapshot,

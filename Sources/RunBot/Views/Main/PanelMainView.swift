@@ -114,21 +114,29 @@ struct PanelMainView: View {
     ///
     /// Match priority (#2429):
     ///   1. `local.isBusy` — stamped by `RunnerStatusEnricher` from `GitHubRunner.busy`.
-    ///      Checked unconditionally first: isBusy is timing-independent and does not
-    ///      require an in-progress action group to be coherent. During the cold-start
-    ///      window, isBusy may already be true while actions hasn't yet received an
-    ///      .inProgress group — the guard must not run before this check.
+    ///      Fast path, but corroborated by `inProgressActions` to prevent stale "stuck
+    ///      busy" UI after teardown: if a poll clears actions/jobs before the runners
+    ///      payload arrives, isBusy is still true but inProgressActions is already empty,
+    ///      so this path correctly returns [].
     ///   2. Normalised `local.runnerName` in `busyNames` — trim+lowercase fallback for
-    ///      the window before enrichment completes. Requires inProgressActions to be
-    ///      non-empty (guard below).
+    ///      the window before enrichment completes.
     ///   3. `local.apiId` in `busyIds` — GitHub REST API id fallback (retained from #2416).
-    ///      Also guarded by inProgressActions.
     private var activeLocalRunners: [RunnerModel] {
+        // Compute inProgressActions first — used to corroborate both the isBusy fast
+        // path and the name/id fallback paths. Without the guard, isBusy can remain
+        // true for one poll tick after a job finishes (runners payload arrives after
+        // actions/jobs), showing a stale "busy" row at teardown.
+        let inProgressActions = appState.runnerState.actions.filter { $0.groupStatus == .inProgress }
+        guard !inProgressActions.isEmpty else {
+            #if DEBUG
+            log("[【activeLocalRunners】] → [] (no inProgress action groups)", category: .panel)
+            #endif
+            return []
+        }
+
         // 1. Primary gate: isBusy is stamped by RunnerStatusEnricher from GitHubRunner.busy.
-        //    Checked unconditionally — isBusy is timing-independent and does not require
-        //    an in-progress action group. During cold-start, isBusy may be true while
-        //    actions hasn't yet received an .inProgress group; the guard below must not
-        //    run before this path. (#2429 fix)
+        //    Corroborated by inProgressActions (computed above) to prevent stale "stuck busy"
+        //    state at teardown. No name/id alignment needed.
         let busyViaEnrichment = appState.runnerState.localRunners.filter { local in
             guard local.isBusy else { return false }
             #if DEBUG
@@ -137,17 +145,6 @@ struct PanelMainView: View {
             return true
         }
         if !busyViaEnrichment.isEmpty { return busyViaEnrichment }
-
-        // Fallback paths (2 & 3) require at least one in-progress action group to be
-        // coherent. Without this guard, name/id matches against stale busyRunners data
-        // could produce false positives after a job completes.
-        let inProgressActions = appState.runnerState.actions.filter { $0.groupStatus == .inProgress }
-        guard !inProgressActions.isEmpty else {
-            #if DEBUG
-            log("[【activeLocalRunners】] → [] (no isBusy runners, no inProgress action groups)", category: .panel)
-            #endif
-            return []
-        }
 
         let busyRunners = appState.runnerState.runners.filter { $0.busy }
         let busyIds = Set(busyRunners.compactMap { $0.id })
