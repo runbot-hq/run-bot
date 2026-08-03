@@ -110,18 +110,42 @@ struct PanelMainView: View {
     /// Reads GitHub-side state (`actions`, `jobs`, `runners`) and local runner state
     /// (`localRunners`) from `runnerState` — the single observable source of truth
     /// injected via the SwiftUI environment from `AppDelegate.wrapEnv`.
+    ///
+    /// Match priority (fixes #2429):
+    ///   1. `local.isBusy` — stamped by `RunnerStatusEnricher`; independent of ID alignment,
+    ///      name normalisation, and enrichment timing. Primary gate.
+    ///   2. `activeNamesFromJobs` — job runner name from in-progress jobs (cold-start fallback;
+    ///      note: GitHub Jobs API may return nil runnerName for in-progress jobs).
+    ///   3. `local.apiId` in `busyIds` — GitHub REST API id match (from #2416).
+    ///   4. Normalised `local.runnerName` in `busyNames` — trim+lowercase on both sides,
+    ///      mirroring `RunnerStatusEnricher.findPayload` (fixes raw string mismatch for
+    ///      org-scoped runners where local and GitHub names differ in casing/whitespace).
     private var activeLocalRunners: [RunnerModel] {
-        guard appState.runnerState.actions.contains(where: { $0.groupStatus == .inProgress }) else { return [] }
+        guard appState.runnerState.actions.contains(where: { $0.groupStatus == .inProgress }) else {
+            #if DEBUG
+            log("【activeLocalRunners】 guard failed — no inProgress action group (actions.count=\(appState.runnerState.actions.count))", category: .panel)
+            #endif
+            return []
+        }
         let activeNamesFromJobs = Set(
             appState.runnerState.jobs.filter { $0.jobStatus == .inProgress }.compactMap { $0.runnerName }
         )
         let busyRunners = appState.runnerState.runners.filter { $0.busy }
         let busyIds = Set(busyRunners.compactMap { $0.id })
-        let busyNames = Set(busyRunners.map { $0.name })
+        // Normalise both sides — mirrors RunnerStatusEnricher.findPayload trim+lowercase logic
+        // so org-scoped runners whose registered name differs in casing or whitespace still match.
+        let busyNames = Set(busyRunners.map { $0.name.trimmingCharacters(in: .whitespaces).lowercased() })
         return appState.runnerState.localRunners.filter { local in
+            // 1. Primary gate: RunnerStatusEnricher stamps isBusy correctly after enrichment.
+            //    Independent of ID alignment, name normalisation, and enrichment timing.
+            if local.isBusy { return true }
+            // 2. Job name match — cold-start fallback while isBusy has not yet been stamped.
             if activeNamesFromJobs.contains(local.runnerName) { return true }
+            // 3. API id match — secondary check retained from #2416.
             if let aid = local.apiId, busyIds.contains(aid) { return true }
-            if busyNames.contains(local.runnerName) { return true }
+            // 4. Normalised name match — last resort for mismatched casing/whitespace.
+            let normalizedName = local.runnerName.trimmingCharacters(in: .whitespaces).lowercased()
+            if busyNames.contains(normalizedName) { return true }
             return false
         }
     }
@@ -189,6 +213,14 @@ struct PanelMainView: View {
             panelControllerHandle.remeasure()
         }
         .onChange(of: appState.runnerState.jobs) { _, _ in
+            panelControllerHandle.remeasure()
+        }
+        // Remeasure when LocalRunnerStore pushes an enriched snapshot so the panel
+        // resizes to show the Local Runners section as soon as the data is correct.
+        // Without this watcher, panelControllerHandle.remeasure() is never called
+        // after a localRunners push and the section stays hidden even when
+        // activeLocalRunners returns a non-empty array. (#2429 Root Cause 4)
+        .onChange(of: appState.runnerState.localRunners) { _, _ in
             panelControllerHandle.remeasure()
         }
     }
