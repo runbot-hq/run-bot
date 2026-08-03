@@ -155,7 +155,7 @@ extension Theme {
             .thematicBreak {
                 Divider()
                     .overlay(Color.rbBorderSubtle)
-                    .markdownMargin(top: 4, bottom: 4)
+                    .markdownMargin(top: 12, bottom: 12)
             }
             // MARK: Link
             .link {
