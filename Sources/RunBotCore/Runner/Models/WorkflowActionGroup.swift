@@ -99,6 +99,14 @@ public struct WorkflowActionGroup: Identifiable, Equatable, Sendable {
     /// All sibling workflow runs sharing this `head_sha`.
     public let runs: [WorkflowRunRef]
 
+    /// Composite cache key used to uniquely identify this group across both
+    /// `WorkflowActionGroupFetcher` (consumer) and `PollResultBuilder` (producer).
+    ///
+    /// Format: `"headSha:normalizedEvent"` — e.g. `"abc123:commit"` or
+    /// `"abc123:workflow_dispatch"`. Defining this in the model (visible to both
+    /// files) ensures the two sides can never drift apart.
+    public var compositeCacheKey: String { "\(headSha):\(normalizedEvent)" }
+
     /// Stable unique key: highest run ID in this group.
     ///
     /// Run IDs are unique and monotonically increasing — immune to `head_sha` collisions

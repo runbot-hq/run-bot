@@ -46,11 +46,13 @@ private struct GroupKey: Hashable {
   let headSha: String
   /// The normalised trigger event (see `groupEvent(_:)`).
   let event: String
-  /// The composite cache key shared by producer (`PollResultBuilder.makeShaKeyedCache`)
-  /// and consumer (`WorkflowActionGroupFetcher.fetchJobsForGroup`).
+  /// The composite cache key for this group key, matching the format of
+  /// `WorkflowActionGroup.compositeCacheKey` (`"headSha:normalizedEvent"`).
   ///
-  /// Centralising the key derivation here ensures the two sides can never drift
-  /// apart: both must call `groupKey.cacheKey`, not inline their own format strings.
+  /// Used by `fetchJobsForGroup` to look up a cached group before hitting the API.
+  /// The format is defined canonically on `WorkflowActionGroup.compositeCacheKey`
+  /// (model layer, visible to both files); this property mirrors it for the
+  /// consumer side where no `WorkflowActionGroup` instance exists yet.
   var cacheKey: String { "\(headSha):\(event)" }
 }
 

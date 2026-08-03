@@ -244,13 +244,14 @@ public enum PollResultBuilder {
   /// group ID. Group IDs are monotonically increasing — a higher ID means a newer run
   /// — so this retains the most recent run's cache entry for each key.
   ///
-  /// The composite key is `"headSha:normalizedEvent"` — the same format used by
-  /// `WorkflowActionGroupFetcher.fetchJobsForGroup` — so producer and consumer
-  /// always agree on cache identity. A pure `headSha` key would cause 100% cache
-  /// misses for completed runs when the event differs (regression from #2434).
+  /// The composite key is `WorkflowActionGroup.compositeCacheKey` (`"headSha:normalizedEvent"`)
+  /// — defined on the model so producer (`PollResultBuilder`) and consumer
+  /// (`WorkflowActionGroupFetcher`) share a single canonical format and cannot drift.
+  /// A pure `headSha` key would cause 100% cache misses for completed runs when
+  /// the event differs (regression from #2434).
   public static func makeShaKeyedCache(_ cache: [String: WorkflowActionGroup]) -> [String: WorkflowActionGroup] {
     Dictionary(
-      cache.values.map { ("\($0.headSha):\($0.normalizedEvent)", $0) },
+      cache.values.map { ($0.compositeCacheKey, $0) },
       uniquingKeysWith: { lhs, rhs in lhs.id > rhs.id ? lhs : rhs }
     )
   }
@@ -268,16 +269,16 @@ public enum PollResultBuilder {
   /// group does not accidentally evict a cached `workflow_dispatch` group that shares
   /// the same SHA but belongs to a different event bucket.
   ///
-  /// Note: the value-based composite key reconstruction here is intentional — `$0.key`
-  /// cannot be used because this dict is ID-keyed, not composite-keyed. `normalizedEvent`
-  /// is a stored property on `WorkflowActionGroup` and is propagated by all mutation
-  /// paths (`withJobs`, `copying`), so the reconstruction is safe.
+  /// Note: `$0.value.compositeCacheKey` is used (not `$0.key`) because this dict is
+  /// ID-keyed — `$0.key` is a group ID string, not a composite key. `compositeCacheKey`
+  /// is defined on `WorkflowActionGroup` and propagated by all mutation paths
+  /// (`withJobs`, `copying`), so the value-based lookup is safe.
   public static func evictFreshShas(
     from cache: [String: WorkflowActionGroup],
     freshGroups: [WorkflowActionGroup]
   ) -> [String: WorkflowActionGroup] {
-    let freshKeys = Set(freshGroups.map { "\($0.headSha):\($0.normalizedEvent)" })
-    return cache.filter { !freshKeys.contains("\($0.value.headSha):\($0.value.normalizedEvent)") }
+    let freshKeys = Set(freshGroups.map { $0.compositeCacheKey })
+    return cache.filter { !freshKeys.contains($0.value.compositeCacheKey) }
   }
 
   /// Freezes action groups that were live in the previous poll but have since

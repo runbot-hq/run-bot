@@ -717,6 +717,33 @@ struct PollResultBuilderEvictionTests {
     #expect(result["id-keep"] != nil, "unrelated SHA must not be evicted")
   }
 
+  /// Verifies via `buildGroupState` that a cached `workflow_dispatch` group survives
+  /// when only a fresh `push`/`commit` group is returned for the same SHA.
+  ///
+  /// This is the correct-layer regression guard for #2444: `evictFreshShas` is called
+  /// inside `buildGroupState`, not inside `WorkflowActionGroupFetcher.fetch`.
+  @Test func buildGroupStateDoesNotEvictDispatchCacheEntryWhenFreshCommitArrives() async {
+    let sha = "sharedsha"
+    // normalizedEvent must be "workflow_dispatch" so evictFreshShas distinguishes
+    // this entry from the fresh commit group arriving on the same SHA.
+    let dispatchGroup = makeGroup(sha: sha, event: "workflow_dispatch", id: "id-dispatch")
+    let dispatchDimmed = dispatchGroup.copying(isDimmed: true)
+    // Fresh fetch returns only a commit group on the same SHA.
+    let freshCommit = makeGroup(sha: sha, event: "commit", id: "id-commit-new")
+    let result = await PollResultBuilder.buildGroupState(
+      snapPrevGroups: [:],
+      snapGroupCache: ["id-dispatch": dispatchDimmed],
+      fetchGroups: { _ in [freshCommit] },
+      enrichJobs: { $0 }
+    )
+    let dispatchSurvives = result.newGroupCache.values.contains {
+      $0.headSha == sha && $0.normalizedEvent == "workflow_dispatch"
+    }
+    #expect(
+      dispatchSurvives,
+      "workflow_dispatch cache entry must not be evicted by a fresh commit group on the same SHA")
+  }
+
 }
 
 // MARK: - ProcessRunner.runAsync stdin
