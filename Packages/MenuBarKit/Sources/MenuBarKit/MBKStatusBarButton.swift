@@ -32,13 +32,23 @@ final class MBKStatusBarButton: NSStatusBarButton {
 
     /// Set to `true` while the panel is open.
     /// Guards against AppKit-internal `highlight(false)` calls.
-    var isPanelOpen = false
+    var isPanelOpen = false {
+        didSet {
+            mbkLog("MBKStatusBarButton", "isPanelOpen changed \(oldValue) → \(isPanelOpen)")
+        }
+    }
 
     override func highlight(_ flag: Bool) {
-        // Swallow AppKit-internal highlight(false) while panel is open.
-        // teardown() sets isPanelOpen = false BEFORE calling highlight(false),
-        // so the close path always goes through to super.
-        if !flag && isPanelOpen { return }
+        // Capture the call stack so we can see WHO is calling highlight(false)
+        // when the panel is open — this is the key diagnostic for #2440.
+        let caller = Thread.callStackSymbols.prefix(6).joined(separator: "\n  ")
+        if !flag && isPanelOpen {
+            mbkLog("MBKStatusBarButton",
+                "🛡 highlight(false) SWALLOWED (isPanelOpen=true)\n  caller stack:\n  \(caller)")
+            return
+        }
+        mbkLog("MBKStatusBarButton",
+            "highlight(\(flag)) → super  isPanelOpen=\(isPanelOpen)\n  caller stack:\n  \(caller)")
         super.highlight(flag)
     }
 }

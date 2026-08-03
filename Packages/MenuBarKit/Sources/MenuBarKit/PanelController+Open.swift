@@ -88,9 +88,23 @@ extension MBKPanelController {
             applyFrame(content: fallback, reason: "FALLBACK")
         }
 
+        // LOG: button class identity — confirms object_setClass succeeded
+        let btnClass = statusItem?.button.map { NSStringFromClass(type(of: $0)) } ?? "nil"
+        let mbkBtn = statusItem?.button as? MBKStatusBarButton
+        mbkLog("PanelController",
+            "openPanel -- button class=\(btnClass) isMBKStatusBarButton=\(mbkBtn != nil) isPanelOpen=\(mbkBtn?.isPanelOpen ?? false)")
+
         setButtonHighlight(true)
+        mbkLog("PanelController",
+            "openPanel -- setButtonHighlight(true) done isPanelOpen=\(mbkBtn?.isPanelOpen ?? false) isHighlighted=\(statusItem?.button?.isHighlighted ?? false)")
+
         panel.orderFrontRegardless()
+        mbkLog("PanelController", "openPanel -- orderFrontRegardless done isHighlighted=\(statusItem?.button?.isHighlighted ?? false)")
+
         panel.makeKey()
+        mbkLog("PanelController",
+            "openPanel -- makeKey() done isHighlighted=\(statusItem?.button?.isHighlighted ?? false) isPanelOpen=\(mbkBtn?.isPanelOpen ?? false)")
+
         mbkLog("PanelController", "openPanel -- panel shown frame=\(panel.frame)")
 
         // Trigger first layout pass so preferredContentSize populates and KVO fires.
@@ -99,12 +113,15 @@ extension MBKPanelController {
         // PRE-SHOW / FALLBACK applyFrame call. layoutSubtreeIfNeeded here is not
         // part of the positioning path; it exists only to prime the KVO pipeline.
         hostingController.view.layoutSubtreeIfNeeded()
-        mbkLog("PanelController", "openPanel -- layoutSubtreeIfNeeded done")
+        mbkLog("PanelController", "openPanel -- layoutSubtreeIfNeeded done isHighlighted=\(statusItem?.button?.isHighlighted ?? false)")
 
         startEventMonitor()
 
         Task { @MainActor [weak self] in
             guard let self else { return }
+            let mbkBtnTask = statusItem?.button as? MBKStatusBarButton
+            mbkLog("PanelController",
+                "onDidShow Task hop -- isHighlighted=\(statusItem?.button?.isHighlighted ?? false) isPanelOpen=\(mbkBtnTask?.isPanelOpen ?? false)")
             mbkLog("PanelController", "onDidShow -- panel.frame=\(panel?.frame ?? .zero) preferredContentSize=\(hostingController.preferredContentSize)")
             mbkLog("PanelController", "onDidShow Task hop -- calling onDidShow")
             self.onDidShow?()
@@ -158,7 +175,12 @@ extension MBKPanelController {
             fireOnWillClose(wasForced: wasForced)
         }
         stopEventMonitor()
+        let mbkBtn = statusItem?.button as? MBKStatusBarButton
+        mbkLog("PanelController",
+            "teardown -- before setButtonHighlight(false) isPanelOpen=\(mbkBtn?.isPanelOpen ?? false) isHighlighted=\(statusItem?.button?.isHighlighted ?? false)")
         setButtonHighlight(false)
+        mbkLog("PanelController",
+            "teardown -- after setButtonHighlight(false) isPanelOpen=\(mbkBtn?.isPanelOpen ?? false) isHighlighted=\(statusItem?.button?.isHighlighted ?? false)")
         panel?.orderOut(nil)
         // Deliberately reset both gate flags here even though they are nominally
         // owned by MBKAnchoredSheet, mbkOpenFilePicker, and MBKAlertModifier.
@@ -202,7 +224,12 @@ extension MBKPanelController {
     /// to the cell — but is still overridden by AppKit's internal tracking callbacks,
     /// which is exactly what `MBKStatusBarButton` guards against. See #2440.
     func setButtonHighlight(_ isOn: Bool) {
-        (statusItem?.button as? MBKStatusBarButton)?.isPanelOpen = isOn
+        let mbkBtn = statusItem?.button as? MBKStatusBarButton
+        mbkLog("PanelController",
+            "setButtonHighlight(\(isOn)) -- ENTER isMBKStatusBarButton=\(mbkBtn != nil) isPanelOpen=\(mbkBtn?.isPanelOpen ?? false) isHighlighted=\(statusItem?.button?.isHighlighted ?? false)")
+        mbkBtn?.isPanelOpen = isOn
         statusItem?.button?.highlight(isOn)
+        mbkLog("PanelController",
+            "setButtonHighlight(\(isOn)) -- EXIT  isPanelOpen=\(mbkBtn?.isPanelOpen ?? false) isHighlighted=\(statusItem?.button?.isHighlighted ?? false)")
     }
 }
