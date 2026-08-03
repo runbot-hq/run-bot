@@ -69,16 +69,25 @@ struct CopyLinkButton: View {
             }
         }
         .onDisappear {
+            // Cancel the reset task and immediately return to .idle so the
+            // button is never stuck in .done/.failed if this view instance is
+            // reused without an .id() identity change on re-navigation.
             resetTask?.cancel()
+            resetTask = nil
+            phase = .idle
         }
     }
 
     /// Copies `url` to the system pasteboard and transitions to `.done` or `.failed`,
     /// then resets to `.idle` after 1.5 s. Cancels any in-flight reset task before
     /// spawning a new one.
+    ///
+    /// `clearContents()` is intentionally omitted: `setString(_:forType:)` replaces
+    /// pasteboard contents atomically on success. Calling `clearContents()` first
+    /// would destroy the user's existing clipboard even when `setString` subsequently
+    /// fails, which is user-hostile and was the pre-existing bug.
     private func copy() {
         guard phase == .idle else { return }
-        NSPasteboard.general.clearContents()
         let ok = NSPasteboard.general.setString(url, forType: .string)
         phase = ok ? .done : .failed
         resetTask?.cancel()
