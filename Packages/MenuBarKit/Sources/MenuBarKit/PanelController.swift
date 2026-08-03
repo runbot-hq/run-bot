@@ -447,6 +447,11 @@ public final class MBKPanelController<Content: View>: NSObject, MBKPanelControll
 
     /// Creates the NSStatusItem, configures its button image, and wires the toggle action.
     ///
+    /// `object_setClass` injects `MBKStatusBarButton` so that AppKit-internal
+    /// `highlight(false)` calls (from `makeKey`, `mouseUp`, and app-switch) can be
+    /// guarded while the panel is open. `NSStatusBarButton` has no extra stored ivars
+    /// so there is no ivar-layout mismatch risk. See `MBKStatusBarButton.swift` and #2440.
+    ///
     /// `sendAction(on: .leftMouseDown)` fires the action on mouseDown rather than the
     /// default mouseUp. This is required to prevent a highlight flicker on open:
     /// AppKit clears `highlight(false)` on mouseUp, so if the action fired on mouseUp
@@ -459,7 +464,10 @@ public final class MBKPanelController<Content: View>: NSObject, MBKPanelControll
             // Inject MBKStatusBarButton to guard highlight(false) while panel is open.
             // object_setClass is safe: NSStatusBarButton has no extra stored ivars,
             // so no ivar-layout mismatch can occur. See MBKStatusBarButton.swift and #2440.
+            let before = NSStringFromClass(type(of: button as AnyObject))
             object_setClass(button, MBKStatusBarButton.self)
+            let after = NSStringFromClass(type(of: button as AnyObject))
+            mbkLog("PanelController", "setupStatusItem -- object_setClass: \(before) → \(after) castOK=\((button as? MBKStatusBarButton) != nil)")
             button.image = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil)
             button.image?.isTemplate = true
             button.sendAction(on: .leftMouseDown) // keep — still needed for mouseDown dispatch

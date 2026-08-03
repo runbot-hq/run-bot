@@ -199,10 +199,13 @@ extension MBKPanelController {
     ///
     /// Uses `highlight(_:)` rather than `isHighlighted`: `isHighlighted` is reset by
     /// AppKit as soon as the panel takes key status. `highlight(_:)` writes directly
-    /// to the cell — but is still overridden by AppKit’s internal tracking callbacks,
+    /// to the cell — but is still overridden by AppKit's internal tracking callbacks,
     /// which is exactly what `MBKStatusBarButton` guards against. See #2440.
     func setButtonHighlight(_ isOn: Bool) {
-        (statusItem?.button as? MBKStatusBarButton)?.isPanelOpen = isOn
+        let mbkBtn = statusItem?.button as? MBKStatusBarButton
+        mbkLog("PanelController", "setButtonHighlight -- isOn=\(isOn) castOK=\(mbkBtn != nil) isPanelOpen=\(mbkBtn?.isPanelOpen ?? false)")
+        mbkBtn?.isPanelOpen = isOn
         statusItem?.button?.highlight(isOn)
+        mbkLog("PanelController", "setButtonHighlight -- done isPanelOpen=\(mbkBtn?.isPanelOpen ?? false) buttonClass=\(type(of: statusItem?.button as AnyObject))")
     }
 }
