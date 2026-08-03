@@ -343,19 +343,23 @@ func buildParsedLog(from cleaned: String) -> ParsedLog {
 
 // MARK: - Public cleaning helper (for use in RunBotCore's LogFetcher ZIP path)
 
-/// Applies the standard CR → ANSI-strip → timestamp-strip pipeline to `raw` and returns
+/// Applies the standard CR → timestamp-strip pipeline to `raw` and returns
 /// the cleaned text. Exposed as `public` so `LogFetcher.fetchStepLog` (in `RunBotCore`)
 /// can clean ZIP slice content without duplicating the regex logic.
 ///
+/// ANSI escape sequences are intentionally **preserved** — they are rendered by
+/// `ansiAttributedString` in the UI layer (`LogPlainLine`, `LogDimmedLine`).
+/// Only the ZIP-path caller (`LogFetcher`) needs bare text and calls `stripAnsi`
+/// directly before writing to the flat-blob fallback.
+///
 /// Pipeline:
 ///   1. CR normalisation (`\r\n` and bare `\r` → `\n`)
-///   2. ANSI escape removal
-///   3. Timestamp prefix removal
+///   2. Timestamp prefix removal
 public func cleanLogText(_ raw: String) -> String {
     let normalised = raw
         .replacingOccurrences(of: "\r\n", with: "\n")
         .replacingOccurrences(of: "\r", with: "\n")
-    return stripTimestamps(stripAnsi(normalised))
+    return stripTimestamps(normalised)
 }
 
 /// Removes ANSI escape sequences from `input` using the pre-compiled `ansiRegex`.
