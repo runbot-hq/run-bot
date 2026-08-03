@@ -5,12 +5,19 @@ import SwiftUI
 
 /// Top-bar copy-link button for GitHub URLs.
 /// States: idle -> done (1.5 s) or failed (1.5 s) -> idle.
+///
+/// - Note: `url` is expected to be non-empty. At the StepLogView call site this
+///   is guaranteed by the enclosing `if let urlString = job.htmlUrl` guard —
+///   do NOT move this button outside that guard without adding nil/empty handling.
 struct CopyLinkButton: View {
     /// URL string to copy to the system pasteboard.
     let url: String
 
     /// Current visual phase of the copy lifecycle.
     @State private var phase: Phase = .idle
+    /// Stored handle for the in-flight reset task; cancelled in `onDisappear`
+    /// so the task does not outlive the view (matches `StepLogView.loadTask` pattern).
+    @State private var resetTask: Task<Void, Never>?
 
     /// Visual states of the copy button lifecycle.
     enum Phase {
@@ -61,16 +68,23 @@ struct CopyLinkButton: View {
                 }
             }
         }
+        .onDisappear {
+            resetTask?.cancel()
+        }
     }
 
-    /// Copies `url` to the system pasteboard and transitions to `.done` or `.failed`.
+    /// Copies `url` to the system pasteboard and transitions to `.done` or `.failed`,
+    /// then resets to `.idle` after 1.5 s. Cancels any in-flight reset task before
+    /// spawning a new one.
     private func copy() {
         guard phase == .idle else { return }
         NSPasteboard.general.clearContents()
         let ok = NSPasteboard.general.setString(url, forType: .string)
         phase = ok ? .done : .failed
-        Task { @MainActor in
+        resetTask?.cancel()
+        resetTask = Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(1500))
+            guard !Task.isCancelled else { return }
             phase = .idle
         }
     }
