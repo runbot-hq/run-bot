@@ -1,6 +1,23 @@
 // ANSIAttributedString.swift
 // RunBotCore
+import AppKit
 import SwiftUI
+
+// MARK: - ansiAdaptive
+
+/// Appearance-adaptive colour resolver for the ANSI palette.
+/// Mirrors `Color.adaptive(light:dark:)` from RunBot.DesignTokens without that module's
+/// dependency on a shared logger or `darkAppearanceNames` constant. Only called with
+/// opaque sRGB values, so alpha loss through the NSColor bridge is irrelevant.
+private func ansiAdaptive(light: Color, dark: Color) -> Color {
+    Color(NSColor(name: nil) { appearance in
+        let isDark = appearance.bestMatch(from: [.darkAqua, .vibrantDark]) != nil
+        guard let ns = NSColor(isDark ? dark : light).usingColorSpace(.genericRGB) else {
+            return NSColor(isDark ? dark : light)
+        }
+        return ns
+    })
+}
 
 // MARK: - ansiAttributedString
 
@@ -128,21 +145,49 @@ private func applyANSICode(
     case 0:  color = nil; bold = false; dim = false
     case 1:  bold = true
     case 2:  dim = true
-    // Standard colours
-    case 31: color = Color(red: 0.80, green: 0.20, blue: 0.20) // red
-    case 32: color = Color(red: 0.18, green: 0.72, blue: 0.22) // green
-    case 33: color = Color(red: 0.85, green: 0.65, blue: 0.13) // yellow
-    case 34: color = Color(red: 0.24, green: 0.46, blue: 0.89) // blue
-    case 35: color = Color(red: 0.69, green: 0.29, blue: 0.80) // magenta
-    case 36: color = Color(red: 0.15, green: 0.68, blue: 0.73) // cyan
+    // Standard colours — adaptive light/dark values.
+    // Dark values match the xterm-256 terminal palette (dark-background convention).
+    // Light values are darker/more-saturated variants tuned for WCAG AA contrast on white.
+    case 31: color = ansiAdaptive(
+        light: Color(red: 0.72, green: 0.11, blue: 0.11),
+        dark: Color(red: 0.80, green: 0.20, blue: 0.20)) // red
+    case 32: color = ansiAdaptive(
+        light: Color(red: 0.08, green: 0.52, blue: 0.11),
+        dark: Color(red: 0.18, green: 0.72, blue: 0.22)) // green
+    case 33: color = ansiAdaptive(
+        light: Color(red: 0.60, green: 0.42, blue: 0.00),
+        dark: Color(red: 0.85, green: 0.65, blue: 0.13)) // yellow
+    case 34: color = ansiAdaptive(
+        light: Color(red: 0.10, green: 0.28, blue: 0.75),
+        dark: Color(red: 0.24, green: 0.46, blue: 0.89)) // blue
+    case 35: color = ansiAdaptive(
+        light: Color(red: 0.50, green: 0.10, blue: 0.62),
+        dark: Color(red: 0.69, green: 0.29, blue: 0.80)) // magenta
+    case 36: color = ansiAdaptive(
+        light: Color(red: 0.00, green: 0.48, blue: 0.54),
+        dark: Color(red: 0.15, green: 0.68, blue: 0.73)) // cyan
     // Bright variants
-    case 90: color = Color(red: 0.55, green: 0.55, blue: 0.55) // bright black (dark grey)
-    case 91: color = Color(red: 1.00, green: 0.40, blue: 0.40) // bright red
-    case 92: color = Color(red: 0.38, green: 0.92, blue: 0.42) // bright green
-    case 93: color = Color(red: 1.00, green: 0.85, blue: 0.35) // bright yellow
-    case 94: color = Color(red: 0.45, green: 0.65, blue: 1.00) // bright blue
-    case 95: color = Color(red: 0.88, green: 0.52, blue: 1.00) // bright magenta
-    case 96: color = Color(red: 0.35, green: 0.90, blue: 0.95) // bright cyan
+    case 90: color = ansiAdaptive(
+        light: Color(red: 0.35, green: 0.35, blue: 0.35),
+        dark: Color(red: 0.55, green: 0.55, blue: 0.55)) // bright black
+    case 91: color = ansiAdaptive(
+        light: Color(red: 0.80, green: 0.15, blue: 0.15),
+        dark: Color(red: 1.00, green: 0.40, blue: 0.40)) // bright red
+    case 92: color = ansiAdaptive(
+        light: Color(red: 0.10, green: 0.62, blue: 0.14),
+        dark: Color(red: 0.38, green: 0.92, blue: 0.42)) // bright green
+    case 93: color = ansiAdaptive(
+        light: Color(red: 0.55, green: 0.38, blue: 0.00),
+        dark: Color(red: 1.00, green: 0.85, blue: 0.35)) // bright yellow
+    case 94: color = ansiAdaptive(
+        light: Color(red: 0.18, green: 0.38, blue: 0.82),
+        dark: Color(red: 0.45, green: 0.65, blue: 1.00)) // bright blue
+    case 95: color = ansiAdaptive(
+        light: Color(red: 0.62, green: 0.25, blue: 0.80),
+        dark: Color(red: 0.88, green: 0.52, blue: 1.00)) // bright magenta
+    case 96: color = ansiAdaptive(
+        light: Color(red: 0.00, green: 0.55, blue: 0.62),
+        dark: Color(red: 0.35, green: 0.90, blue: 0.95)) // bright cyan
     default: break // silently ignore unknown codes
     }
 }

@@ -67,8 +67,10 @@ public func fetchUserRepos(
 /// Bare timestamp-only lines (no trailing whitespace at all) are matched via the `*`
 /// (zero repetitions).
 ///
-/// **`try?`** — Intentional; see note on `ansiRegex` above. Same degradation contract:
-/// if compilation fails, `stripTimestamps` returns input unchanged.
+/// **`try?`** — Intentional: the pattern is a static literal and will never fail to compile
+/// at runtime. The `try?` form avoids a forced-unwrap for a non-fatal feature; if
+/// compilation somehow fails, `stripTimestamps` returns input unchanged — logs remain
+/// readable, just with timestamps present.
 ///
 /// Compiled once at module load.
 private let timestampRegex: NSRegularExpression? = try? NSRegularExpression(
