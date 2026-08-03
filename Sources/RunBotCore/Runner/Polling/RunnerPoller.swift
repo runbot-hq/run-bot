@@ -407,7 +407,7 @@ public actor RunnerPoller {
     let snapGroupCache = actionGroupCache
     let localRunnersSnapshot = await MainActor.run { localRunners() }
     log(
-      "RunnerPoller › fetch — localRunners.count=\(localRunnersSnapshot.count) (used for installPathMap)",
+      "RunnerPoller › fetch — localRunners.count=\(localRunnersSnapshot.count) (total; used for enrichment)",
       category: .runner)
     if localRunnersSnapshot.isEmpty {
       log(
@@ -420,13 +420,33 @@ public actor RunnerPoller {
           category: .runner)
       #endif
     }
+    // (#2436) Filter to only runners that have been enriched by the GitHub API at least
+    // once (apiId != nil). Runners with a nil apiId have never been matched against a
+    // live GitHub API runner payload and cannot contribute a useful entry to any of the
+    // four InstallPathMap lookup maps — their byFullKey/byName/byAgentId entries would
+    // reference install paths that can never be paired with a GitHub runner in this cycle.
+    // Including them silently pollutes the maps and inflates the logged count.
+    //
+    // The full `localRunnersSnapshot` (unfiltered) is still passed to
+    // `fetchAndEnrichRunners` below so that newly-registered runners can be matched
+    // against the GitHub API and have their apiId resolved on the next enrichment cycle.
+    let enabledLocalRunners = localRunnersSnapshot.filter { $0.apiId != nil }
+    log(
+      // swiftlint:disable:next line_length
+      "RunnerPoller › fetch — enabledLocalRunners.count=\(enabledLocalRunners.count) (apiId resolved; used for installPathMap) of \(localRunnersSnapshot.count) total",
+      category: .runner)
+    if enabledLocalRunners.isEmpty && !localRunnersSnapshot.isEmpty {
+      log(
+        "RunnerPoller › ⚠️ fetch — no local runners have a resolved apiId yet; installPathMap will be empty this cycle.",
+        category: .runner)
+    }
     // Derive extra org scopes before buildInstallPathMap so byFullKey covers
     // inferred org scopes as well as user-configured ones. Without this,
     // installPathMap.byFullKey["\(extraOrgScope)/\(runnerName)"] always misses
     // in Phase 2 of fetchAndEnrichRunners, silently skipping metrics for runners
     // whose API id is unresolved and whose name is ambiguous across scopes.
     let extraOrgScopes = deriveExtraOrgScopes(
-      from: localRunnersSnapshot,
+      from: enabledLocalRunners,
       configuredScopes: scopesSnapshot
     )
     log(
@@ -435,7 +455,7 @@ public actor RunnerPoller {
     let allScopes = scopesSnapshot + extraOrgScopes
     let installPathMap = buildInstallPathMap(
       scopes: allScopes,
-      localRunners: localRunnersSnapshot
+      localRunners: enabledLocalRunners
     )
     let enrichedRunners = await fetchAndEnrichRunners(
       scopes: scopesSnapshot,
