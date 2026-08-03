@@ -110,20 +110,72 @@ struct PanelMainView: View {
     /// Reads GitHub-side state (`actions`, `jobs`, `runners`) and local runner state
     /// (`localRunners`) from `runnerState` — the single observable source of truth
     /// injected via the SwiftUI environment from `AppDelegate.wrapEnv`.
+    ///
+    /// ### Evaluation strategy
+    /// Two disjoint passes run in parallel rather than sequentially with an early-exit:
+    ///
+    /// 1. **isBusy fast path** — runners that have already been enriched by
+    ///    `RunnerStatusEnricher` have `isBusy` stamped. These are collected first.
+    ///    The `inProgressActions` guard above keeps this gate safe at teardown
+    ///    (prevents a one-tick stale-busy flash when a job ends).
+    ///
+    /// 2. **Name/id fallback** — runs only against the *unenriched* subset
+    ///    (`!isBusy`). This covers the partial-enrichment window where runner A
+    ///    has `isBusy=true` but runner B hasn't been enriched yet and would
+    ///    otherwise be silently dropped. Both tiers are unioned for the return.
     private var activeLocalRunners: [RunnerModel] {
         guard appState.runnerState.actions.contains(where: { $0.groupStatus == .inProgress }) else { return [] }
+
+        // isBusy fast path — runners already enriched by RunnerStatusEnricher.
+        // Gated by the inProgressActions guard above (teardown safety).
+        let busyViaEnrichment = appState.runnerState.localRunners.filter { $0.isBusy }
+        #if DEBUG
+        for local in appState.runnerState.localRunners {
+            log(
+                "【activeLocalRunners】isBusy pass — runner='\(local.runnerName)' isBusy=\(local.isBusy) → \(local.isBusy ? "included" : "deferred to fallback")",
+                category: .runner
+            )
+        }
+        #endif
+
+        // Fallback: name/id matching against the unenriched subset only.
+        // Running this against all localRunners would double-count isBusy runners;
+        // restricting to !isBusy keeps the two sets disjoint.
+        let unenriched = appState.runnerState.localRunners.filter { !$0.isBusy }
+        let busyRunners = appState.runnerState.runners.filter { $0.busy }
+        let busyIds = Set(busyRunners.compactMap { $0.id })
+        let busyNames = Set(busyRunners.map { $0.name.trimmingCharacters(in: .whitespaces).lowercased() })
         let activeNamesFromJobs = Set(
             appState.runnerState.jobs.filter { $0.jobStatus == .inProgress }.compactMap { $0.runnerName }
         )
-        let busyRunners = appState.runnerState.runners.filter { $0.busy }
-        let busyIds = Set(busyRunners.compactMap { $0.id })
-        let busyNames = Set(busyRunners.map { $0.name })
-        return appState.runnerState.localRunners.filter { local in
-            if activeNamesFromJobs.contains(local.runnerName) { return true }
-            if let aid = local.apiId, busyIds.contains(aid) { return true }
-            if busyNames.contains(local.runnerName) { return true }
+
+        let busyViaFallback = unenriched.filter { local in
+            let normalizedName = local.runnerName.trimmingCharacters(in: .whitespaces).lowercased()
+            if activeNamesFromJobs.contains(local.runnerName) {
+                #if DEBUG
+                log("【activeLocalRunners】fallback — runner='\(local.runnerName)' matched via activeNamesFromJobs", category: .runner)
+                #endif
+                return true
+            }
+            if busyNames.contains(normalizedName) {
+                #if DEBUG
+                log("【activeLocalRunners】fallback — runner='\(local.runnerName)' matched via busyNames", category: .runner)
+                #endif
+                return true
+            }
+            if let aid = local.apiId, busyIds.contains(aid) {
+                #if DEBUG
+                log("【activeLocalRunners】fallback — runner='\(local.runnerName)' matched via busyIds apiId=\(aid)", category: .runner)
+                #endif
+                return true
+            }
+            #if DEBUG
+            log("【activeLocalRunners】fallback — runner='\(local.runnerName)' excluded (no match)", category: .runner)
+            #endif
             return false
         }
+
+        return busyViaEnrichment + busyViaFallback
     }
 
     /// Root body -- header, optional error/rate-limit banners, local runner rows, and the scrollable actions section.
@@ -141,9 +193,10 @@ struct PanelMainView: View {
                 Divider()
             }
             if appState.runnerState.isRateLimited { rateLimitBanner; Divider() }
-            if !activeLocalRunners.isEmpty {
+            let currentActiveRunners = activeLocalRunners
+            if !currentActiveRunners.isEmpty {
                 SectionHeaderLabel(title: "Local Runners")
-                PanelLocalRunnerRow(runners: activeLocalRunners)
+                PanelLocalRunnerRow(runners: currentActiveRunners)
             }
             // Color.clear trigger for localRunnerStore.refresh() on appear.
             // Zero-size so it has no visual presence or layout impact.
