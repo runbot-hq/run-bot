@@ -35,19 +35,28 @@ private struct ActionRunsResponse: Codable {
   }
 }
 
-/// Composite grouping key for workflow runs.
+/// Composite grouping key that separates workflow runs by both `head_sha` and
+/// normalised trigger event.
 ///
-/// Groups normal commit-triggered workflows by SHA while keeping manually
-/// triggered workflows (`workflow_dispatch`) and other non-commit events separate.
+/// Commit-triggered runs (`push`, `pull_request`) share one bucket per SHA.
+/// Manually dispatched runs (`workflow_dispatch`) and other non-commit events
+/// each get their own bucket, even when they target the same SHA.
 private struct GroupKey: Hashable {
+  /// The full SHA of the head commit.
   let headSha: String
+  /// The normalised trigger event (see `groupEvent(_:)`).
   let event: String
 }
 
-/// Normalizes GitHub workflow events into grouping buckets.
+/// Normalises a GitHub workflow trigger event into a grouping bucket.
 ///
-/// Commit-related events should remain grouped together by SHA. Other events,
-/// such as `workflow_dispatch`, should stay separate from commit CI rows.
+/// `push` and `pull_request` are collapsed into `"commit"` so that all
+/// commit-triggered CI workflows remain in a single row. All other events
+/// (e.g. `workflow_dispatch`, `schedule`) are kept verbatim so they appear
+/// as separate rows.
+///
+/// - Parameter event: The raw `event` string from the GitHub runs API.
+/// - Returns: A normalised bucket string used as part of `GroupKey`.
 private func groupEvent(_ event: String) -> String {
   switch event {
   case "push", "pull_request":
@@ -65,7 +74,7 @@ private func groupEvent(_ event: String) -> String {
 private struct RunPayload: Codable {
   /// The unique run identifier.
   let id: Int
-  /// The workflow event that triggered the run.
+  /// The workflow event that triggered this run (e.g. `push`, `workflow_dispatch`).
   let event: String
   /// The workflow name.
   let name: String
@@ -193,9 +202,10 @@ public struct WorkflowActionGroupFetcher: Sendable, WorkflowActionGroupFetcherPr
 
   // MARK: - Fetch + Group
 
-  /// Fetches active workflow runs for a repo scope, groups them by composite key,
-  /// enriches each group with its flattened job list, and returns groups sorted:
-  /// in-progress first, then queued, then completed — newest first within each tier.
+  /// Fetches active workflow runs for a repo scope, groups them by composite key
+  /// `(head_sha, normalised_event)`, enriches each group with its flattened job list,
+  /// and returns groups sorted: in-progress first, then queued, then completed —
+  /// newest first within each tier.
   ///
   /// All three status fetches (in_progress, queued, completed) run concurrently.
   /// Per-run job fetches within each group also run concurrently.
@@ -237,9 +247,10 @@ public struct WorkflowActionGroupFetcher: Sendable, WorkflowActionGroupFetcherPr
       byGroupKey[key, default: []].append(run)
     }
 
-    // Phase 2: fetch recently completed runs and merge into all groups.
+    // Phase 2: fetch recently completed runs and merge into ALL groups.
     if let data = cData {
       decodeRuns(from: data, into: &runPayloads, seenIDs: &seenIDs)
+      // Re-constructing byGroupKey entirely is safer and cleaner than mutating the old dict
       byGroupKey.removeAll(keepingCapacity: true)
       for run in runPayloads {
         let key = GroupKey(headSha: run.headSha, event: groupEvent(run.event))
@@ -247,18 +258,14 @@ public struct WorkflowActionGroupFetcher: Sendable, WorkflowActionGroupFetcherPr
       }
     }
 
+    // Build groups concurrently — index-keyed to preserve insertion order.
     let groupEntries = Array(byGroupKey)
     var groups = Array(repeating: WorkflowActionGroup?.none, count: groupEntries.count)
     await withTaskGroup(of: (Int, WorkflowActionGroup).self) { group in
       for (i, (groupKey, groupRuns)) in groupEntries.enumerated() {
         group.addTask {
           await self.buildActionGroup(
-            index: i,
-            groupKey: groupKey,
-            groupRuns: groupRuns,
-            scope: scope,
-            cache: cache
-          )
+            index: i, groupKey: groupKey, groupRuns: groupRuns, scope: scope, cache: cache)
         }
       }
       for await (i, actionGroup) in group { groups[i] = actionGroup }
@@ -291,7 +298,11 @@ public struct WorkflowActionGroupFetcher: Sendable, WorkflowActionGroupFetcherPr
     }
   }
 
-  /// Constructs a single `WorkflowActionGroup` for one grouped run bucket.
+  /// Constructs a single `WorkflowActionGroup` for one `(head_sha, event)` bucket.
+  ///
+  /// Extracted from the `withTaskGroup` `addTask` body so each task closure
+  /// stays at depth ≤ 2 and the overall nesting score drops below the
+  /// SonarCloud `FunctionNestingDepth:3` threshold.
   private func buildActionGroup(
     index: Int,
     groupKey: GroupKey,
@@ -299,22 +310,18 @@ public struct WorkflowActionGroupFetcher: Sendable, WorkflowActionGroupFetcherPr
     scope: String,
     cache: [String: WorkflowActionGroup]
   ) async -> (Int, WorkflowActionGroup) {
+    // `groupRuns` originates from `Dictionary(grouping:)` which never produces an empty
+    // value array, so this is expected to always succeed. The guard defends against
+    // a future caller constructing the dict incorrectly rather than crashing silently.
     guard let representative = groupRuns.max(by: { ($0.createdAt ?? "") < ($1.createdAt ?? "") })
     else {
       assertionFailure("buildActionGroup: groupRuns must not be empty (key: \(groupKey))")
       return (
         index,
         WorkflowActionGroup(
-          headSha: groupKey.headSha,
-          label: String(groupKey.headSha.prefix(7)),
-          title: groupKey.headSha,
-          headBranch: nil,
-          repo: scope,
-          runs: [],
-          jobs: [],
-          firstJobStartedAt: nil,
-          lastJobCompletedAt: nil,
-          createdAt: nil)
+          headSha: groupKey.headSha, label: String(groupKey.headSha.prefix(7)),
+          title: groupKey.headSha, headBranch: nil, repo: scope, runs: [], jobs: [],
+          firstJobStartedAt: nil, lastJobCompletedAt: nil, createdAt: nil)
       )
     }
     let label = prLabel(from: representative)
@@ -332,8 +339,12 @@ public struct WorkflowActionGroupFetcher: Sendable, WorkflowActionGroupFetcherPr
     }
     let cacheKey = "\(groupKey.headSha):\(groupKey.event)"
     let allJobs = await fetchJobsForGroup(groupRuns: groupRuns, scope: scope, cache: cache, cacheKey: cacheKey)
+    // Route through raw string dates for min/max comparison — ActiveJob exposes
+    // startDate/completedDate as parsed Date? via raw.startDate/completedDate, but
+    // WorkflowActionGroup.firstJobStartedAt/lastJobCompletedAt take Date?.
     let starts = allJobs.compactMap { $0.raw.startDate }
     let ends = allJobs.compactMap { $0.raw.completedDate }
+    // Optional.flatMap does not accept an async closure — use if let.
     let createdAt: Date?
     if let dateStr = representative.createdAt {
       createdAt = await ISO8601DateParser.shared.parse(dateStr)
@@ -357,7 +368,13 @@ public struct WorkflowActionGroupFetcher: Sendable, WorkflowActionGroupFetcherPr
     )
   }
 
-  /// Returns the flattened job list for all runs sharing a group key.
+  /// Returns the flattened job list for all runs sharing a `(head_sha, event)` group key.
+  ///
+  /// Uses the cache when all cached jobs are concluded and none have
+  /// in-progress steps, avoiding redundant API calls for finished groups.
+  /// Falls back to a live fetch via `fetchJobsForRun` when the cache is stale or missing.
+  ///
+  /// Per-run job fetches run concurrently via `withTaskGroup`.
   private func fetchJobsForGroup(
     groupRuns: [RunPayload],
     scope: String,
@@ -367,7 +384,12 @@ public struct WorkflowActionGroupFetcher: Sendable, WorkflowActionGroupFetcherPr
     if let cached = cache[cacheKey],
       cached.repo == scope,
       !cached.jobs.isEmpty,
+      // Both conditions required: a job can be concluded while one of its steps
+      // is still marked in-progress (stale step data from a mid-poll snapshot).
+      // Serving that cache entry would show a spinning step on an already-finished job.
+      // ActiveJob exposes jobConclusion (JobConclusion?), not conclusion (String?).
       cached.jobs.allSatisfy({ $0.jobConclusion != nil }),
+      // GitHubStep.status is raw String — use stepStatus typed accessor.
       !cached.jobs.contains(where: { $0.steps.contains(where: { (step: GitHubStep) in step.stepStatus == .inProgress }) }) {
       return cached.jobs
     }
@@ -409,6 +431,8 @@ public struct WorkflowActionGroupFetcher: Sendable, WorkflowActionGroupFetcherPr
     else {
       return []
     }
+    // JobsResponse was removed in the Step 8 refactor. Use GitHubJobsWrapper which
+    // decodes the `{ "jobs": [...] }` envelope that the GitHub API returns.
     let wrapper: GitHubJobsWrapper
     do {
       wrapper = try decoder.decode(GitHubJobsWrapper.self, from: data)
@@ -425,10 +449,22 @@ public struct WorkflowActionGroupFetcher: Sendable, WorkflowActionGroupFetcherPr
       }
       var out: [ActiveJob] = []
       for await job in group { out.append(job) }
+      // Sort by id so the refresh cap below is deterministic across poll cycles.
       return out.sorted { $0.id < $1.id }
     }
 
+    // Refresh in-progress/inconclusive jobs concurrently, capped at maxRefreshConcurrency.
+    // `initial` is already sorted by job.id (above), so `.prefix(maxRefreshConcurrency)`
+    // always selects the same lowest-ID jobs needing refresh — independent of task
+    // completion order. Without the sort, a matrix run with N > maxRefreshConcurrency
+    // simultaneous jobs could starve the same job indefinitely if it consistently
+    // lands beyond position maxRefreshConcurrency in whichever order the group finishes.
+    // Note: `idx` is the position in `initial`/`result`, not the position in `needsRefresh`.
+    // The `.prefix(maxRefreshConcurrency)` reduces the number of refresh tasks, but the
+    // original enumerated indices are preserved for the `result[idx]` write-back below.
     let allNeedingRefresh = initial.enumerated().filter { (_, job: ActiveJob) in
+      // ActiveJob exposes jobConclusion (JobConclusion?), not conclusion (String?).
+      // GitHubStep.status is raw String — use stepStatus typed accessor.
       job.jobConclusion == nil || job.steps.contains(where: { (step: GitHubStep) in step.stepStatus == .inProgress })
     }
     let needsRefresh = allNeedingRefresh.prefix(maxRefreshConcurrency)
@@ -455,17 +491,32 @@ public struct WorkflowActionGroupFetcher: Sendable, WorkflowActionGroupFetcherPr
 
   /// Fetches a fresh copy of `job` from the API and returns an updated ``ActiveJob`` if the
   /// response contains meaningful new data, or `nil` if the original should be kept as-is.
+  ///
+  /// A non-`nil` return means either:
+  /// - The job now has a `conclusion` (it finished) — return the fully-fresh job, or
+  /// - The live step list is complete (non-empty, none in-progress) — merge timing fields
+  ///   from the fresh payload onto the original via `copying()` so no other fields are lost.
+  ///
+  /// See commit f8264d3 for the original bug this merge strategy guards against.
   private func refreshedJob(_ job: ActiveJob, scope: String) async -> ActiveJob? {
     guard
       let freshData = await transport.apiAsync("repos/\(scope)/actions/jobs/\(job.id)"),
+      // JobPayload was renamed to GitHubJob in the Step 8 refactor.
       let fresh = try? decoder.decode(GitHubJob.self, from: freshData)
     else { return nil }
     let freshJob = ActiveJob(raw: fresh)
     if fresh.conclusion != nil { return freshJob }
+    // GitHubStep.status is raw String — use stepStatus typed accessor.
     let hasBetterSteps =
       !freshJob.steps.isEmpty
       && !freshJob.steps.contains(where: { (step: GitHubStep) in step.stepStatus == .inProgress })
     guard hasBetterSteps else { return nil }
+    // Use copying() helpers so any future field added to ActiveJob is
+    // automatically preserved from `job` without a manual update here.
+    // Note: createdAt is `let` on GitHubJob and cannot be mutated via copying(update:);
+    // it is always preserved unchanged through withUpdatedRaw, so no explicit
+    // copying(createdAt:) call is needed here.
+    // ActiveJob has no direct startedAt/completedAt — route through raw.
     return
       job
       .copying(runnerName: freshJob.runnerName ?? job.runnerName)
