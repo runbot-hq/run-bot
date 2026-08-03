@@ -63,7 +63,8 @@ extension GitHubJob {
             switch conclusion {
             case .success: return .success
             case .failure: return .failed
-            case .cancelled, .skipped: return .unknown
+            case .skipped: return .skipped
+            case .cancelled: return .unknown
             default: return .unknown
             }
         }
