@@ -190,9 +190,19 @@ extension MBKPanelController {
     // MARK: - Highlight
 
     /// Drives the status-button's pressed appearance while the panel is open.
-    /// Uses `highlight(_:)` rather than `isHighlighted`: `isHighlighted` resets
-    /// to false the moment the panel takes key status; `highlight(_:)` persists.
+    ///
+    /// Arms/disarms the `MBKStatusBarButton.isPanelOpen` guard before calling
+    /// `highlight(_:)`. The guard must be set first on both paths:
+    /// - open (`isOn = true`): arm first → highlight(true) goes through → future
+    ///   AppKit-internal highlight(false) calls are swallowed.
+    /// - close (`isOn = false`): disarm first → highlight(false) goes through → button clears.
+    ///
+    /// Uses `highlight(_:)` rather than `isHighlighted`: `isHighlighted` is reset by
+    /// AppKit as soon as the panel takes key status. `highlight(_:)` writes directly
+    /// to the cell — but is still overridden by AppKit’s internal tracking callbacks,
+    /// which is exactly what `MBKStatusBarButton` guards against. See #2440.
     func setButtonHighlight(_ isOn: Bool) {
+        (statusItem?.button as? MBKStatusBarButton)?.isPanelOpen = isOn
         statusItem?.button?.highlight(isOn)
     }
 }
