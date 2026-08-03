@@ -456,9 +456,13 @@ public final class MBKPanelController<Content: View>: NSObject, MBKPanelControll
     private func setupStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = statusItem.button {
+            // Inject MBKStatusBarButton to guard highlight(false) while panel is open.
+            // object_setClass is safe: NSStatusBarButton has no extra stored ivars,
+            // so no ivar-layout mismatch can occur. See MBKStatusBarButton.swift and #2440.
+            object_setClass(button, MBKStatusBarButton.self)
             button.image = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil)
             button.image?.isTemplate = true
-            button.sendAction(on: .leftMouseDown)
+            button.sendAction(on: .leftMouseDown) // keep — still needed for mouseDown dispatch
             button.action = #selector(togglePanel)
             button.target = self
         }
