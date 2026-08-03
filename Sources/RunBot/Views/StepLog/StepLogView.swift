@@ -198,6 +198,7 @@ struct StepLogView: View {
                     }
                     .buttonStyle(.plain)
                     .help("Open job on GitHub")
+                    CopyLinkButton(url: urlString)
                 }
                 LogCopyButton(
                     fetch: { completion in
@@ -345,6 +346,7 @@ struct StepLogView: View {
             loadTask?.cancel()
         }
     }
+
     /// Kicks off a background fetch of the step log and publishes the result to `logText`.
     ///
     /// Cancels any in-flight `loadTask` before spawning a new one — prevents a stale
@@ -354,7 +356,7 @@ struct StepLogView: View {
     /// Uses `repoScopeForFetch` (derived from `job.htmlUrl`) as the primary scope.
     /// Falls back to the first `owner/repo`-style entry in all entries (including
     /// disabled ones) when `htmlUrl` is absent or malformed — deliberate policy
-    /// exception from the "active only" principle established by #1515. The saved
+    /// exception from the “active only” principle established by #1515. The saved
     /// repo is always preferred over an unrelated active repo for log fetching (#1106 intent).
     ///
     /// ## Known cancellation limitation
@@ -546,6 +548,7 @@ struct StepLogView: View {
     }
 
     // MARK: - Derived repo scope
+
     /// Derives a `owner/repo` scope string from `job.htmlUrl` for use in `fetchStepLog`.
     ///
     /// Parses the URL path: `https://github.com/{owner}/{repo}/runs/{id}` → `"{owner}/{repo}"`.
@@ -560,7 +563,8 @@ struct StepLogView: View {
     }
 
     // MARK: - Meta row computed properties
-/// `owner/repo` slug derived from `job.htmlUrl` for the meta row.
+
+    /// `owner/repo` slug derived from `job.htmlUrl` for the meta row.
     private var repoSlug: String { repoScopeForFetch.isEmpty ? "—" : repoScopeForFetch }
 
     /// Formatted start time string, or `"—"` when the step has not yet started.
