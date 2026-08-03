@@ -88,22 +88,16 @@ extension MBKPanelController {
             applyFrame(content: fallback, reason: "FALLBACK")
         }
 
-        // LOG: button class identity — confirms object_setClass succeeded
-        let btnClass = statusItem?.button.map { NSStringFromClass(type(of: $0)) } ?? "nil"
-        let mbkBtn = statusItem?.button as? MBKStatusBarButton
-        mbkLog("PanelController",
-            "openPanel -- button class=\(btnClass) isMBKStatusBarButton=\(mbkBtn != nil) isPanelOpen=\(mbkBtn?.isPanelOpen ?? false)")
+        logHighlightState("openPanel PRE-highlight")
 
         setButtonHighlight(true)
-        mbkLog("PanelController",
-            "openPanel -- setButtonHighlight(true) done isPanelOpen=\(mbkBtn?.isPanelOpen ?? false) isHighlighted=\(statusItem?.button?.isHighlighted ?? false)")
+        logHighlightState("openPanel -- setButtonHighlight(true) done")
 
         panel.orderFrontRegardless()
-        mbkLog("PanelController", "openPanel -- orderFrontRegardless done isHighlighted=\(statusItem?.button?.isHighlighted ?? false)")
+        logHighlightState("openPanel -- orderFrontRegardless done")
 
         panel.makeKey()
-        mbkLog("PanelController",
-            "openPanel -- makeKey() done isHighlighted=\(statusItem?.button?.isHighlighted ?? false) isPanelOpen=\(mbkBtn?.isPanelOpen ?? false)")
+        logHighlightState("openPanel -- makeKey() done")
 
         mbkLog("PanelController", "openPanel -- panel shown frame=\(panel.frame)")
 
@@ -113,19 +107,18 @@ extension MBKPanelController {
         // PRE-SHOW / FALLBACK applyFrame call. layoutSubtreeIfNeeded here is not
         // part of the positioning path; it exists only to prime the KVO pipeline.
         hostingController.view.layoutSubtreeIfNeeded()
-        mbkLog("PanelController", "openPanel -- layoutSubtreeIfNeeded done isHighlighted=\(statusItem?.button?.isHighlighted ?? false)")
+        logHighlightState("openPanel -- layoutSubtreeIfNeeded done")
 
         startEventMonitor()
 
         Task { @MainActor [weak self] in
             guard let self else { return }
-            let mbkBtnTask = statusItem?.button as? MBKStatusBarButton
-            mbkLog("PanelController",
-                "onDidShow Task hop -- isHighlighted=\(statusItem?.button?.isHighlighted ?? false) isPanelOpen=\(mbkBtnTask?.isPanelOpen ?? false)")
+            logHighlightState("onDidShow Task hop")
             mbkLog("PanelController", "onDidShow -- panel.frame=\(panel?.frame ?? .zero) preferredContentSize=\(hostingController.preferredContentSize)")
             mbkLog("PanelController", "onDidShow Task hop -- calling onDidShow")
             self.onDidShow?()
             mbkLog("PanelController", "onDidShow fired")
+            logHighlightState("onDidShow fired")
         }
     }
 
@@ -175,12 +168,9 @@ extension MBKPanelController {
             fireOnWillClose(wasForced: wasForced)
         }
         stopEventMonitor()
-        let mbkBtn = statusItem?.button as? MBKStatusBarButton
-        mbkLog("PanelController",
-            "teardown -- before setButtonHighlight(false) isPanelOpen=\(mbkBtn?.isPanelOpen ?? false) isHighlighted=\(statusItem?.button?.isHighlighted ?? false)")
+        logHighlightState("teardown -- before setButtonHighlight(false)")
         setButtonHighlight(false)
-        mbkLog("PanelController",
-            "teardown -- after setButtonHighlight(false) isPanelOpen=\(mbkBtn?.isPanelOpen ?? false) isHighlighted=\(statusItem?.button?.isHighlighted ?? false)")
+        logHighlightState("teardown -- after setButtonHighlight(false)")
         panel?.orderOut(nil)
         // Deliberately reset both gate flags here even though they are nominally
         // owned by MBKAnchoredSheet, mbkOpenFilePicker, and MBKAlertModifier.
@@ -211,25 +201,66 @@ extension MBKPanelController {
 
     // MARK: - Highlight
 
-    /// Drives the status-button's pressed appearance while the panel is open.
+    /// Drives the status-button's pressed "pill" appearance while the panel is open.
     ///
-    /// Arms/disarms the `MBKStatusBarButton.isPanelOpen` guard before calling
-    /// `highlight(_:)`. The guard must be set first on both paths:
-    /// - open (`isOn = true`): arm first → highlight(true) goes through → future
-    ///   AppKit-internal highlight(false) calls are swallowed.
-    /// - close (`isOn = false`): disarm first → highlight(false) goes through → button clears.
+    /// #2440 REVISED APPROACH: we no longer call `NSButton.highlight(_:)` or
+    /// `isHighlighted` at all — AppKit's own highlight mechanism is disabled via
+    /// `highlightsBy = []` in `setupStatusItem()`. Instead this toggles the
+    /// opacity/color of `highlightPillLayer`, a plain `CALayer` that only this
+    /// method (and setupStatusItem's initial creation) ever touches.
     ///
-    /// Uses `highlight(_:)` rather than `isHighlighted`: `isHighlighted` is reset by
-    /// AppKit as soon as the panel takes key status. `highlight(_:)` writes directly
-    /// to the cell — but is still overridden by AppKit's internal tracking callbacks,
-    /// which is exactly what `MBKStatusBarButton` guards against. See #2440.
+    /// Why the previous approach (subclassing + `object_setClass`, guarding
+    /// `highlight(_:)`) failed: AppKit's `panel.makeKey()` and app-switch reset
+    /// paths mutate the button *cell's* internal highlight state directly, never
+    /// routing through the public `NSButton.highlight(_:)` method our override
+    /// intercepted. There was nothing for the override to catch. By disabling
+    /// `highlightsBy` entirely and owning 100% of the pressed-appearance drawing
+    /// ourselves on a layer AppKit never references, there is no shared state
+    /// left for any AppKit-internal code path to reset out from under us.
+    ///
+    /// cornerRadius is recomputed on every call (not just at setup) in case the
+    /// button's frame changed between sessions (e.g. status item resized after
+    /// a screen/resolution change) — keeps the pill shape correct if that happens.
     func setButtonHighlight(_ isOn: Bool) {
-        let mbkBtn = statusItem?.button as? MBKStatusBarButton
+        guard let button = statusItem?.button else {
+            mbkLog("PanelController", "⚠️ setButtonHighlight(\(isOn)) -- statusItem.button is nil, nothing to draw")
+            return
+        }
+        guard let pill = highlightPillLayer else {
+            mbkLog("PanelController", "⚠️ setButtonHighlight(\(isOn)) -- highlightPillLayer is nil,"
+                + " was setupStatusItem() run? Falling back to no-op -- button will show no pressed state.")
+            return
+        }
         mbkLog("PanelController",
-            "setButtonHighlight(\(isOn)) -- ENTER isMBKStatusBarButton=\(mbkBtn != nil) isPanelOpen=\(mbkBtn?.isPanelOpen ?? false) isHighlighted=\(statusItem?.button?.isHighlighted ?? false)")
-        mbkBtn?.isPanelOpen = isOn
-        statusItem?.button?.highlight(isOn)
+            "setButtonHighlight(\(isOn)) -- ENTER pill.opacity(before)=\(pill.opacity) bounds=\(button.bounds)")
+
+        pill.cornerRadius = button.bounds.height / 2
+        pill.backgroundColor = isOn
+            ? NSColor.selectedContentBackgroundColor.withAlphaComponent(0.22).cgColor
+            : NSColor.clear.cgColor
+        pill.frame = button.bounds
+        pill.opacity = isOn ? 1 : 0
+
         mbkLog("PanelController",
-            "setButtonHighlight(\(isOn)) -- EXIT  isPanelOpen=\(mbkBtn?.isPanelOpen ?? false) isHighlighted=\(statusItem?.button?.isHighlighted ?? false)")
+            "setButtonHighlight(\(isOn)) -- EXIT  pill.opacity(after)=\(pill.opacity)"
+            + " pill.frame=\(pill.frame) pill.cornerRadius=\(pill.cornerRadius)"
+            + " AppKit isHighlighted(unused, logged for comparison)=\(button.isHighlighted)")
+    }
+
+    /// Debug helper: logs the self-drawn pill state alongside AppKit's own
+    /// (unused, but informative) `isHighlighted` so any divergence or unexpected
+    /// AppKit interference is visible in the log stream. Call at every
+    /// significant step of the open/close sequence — cheap, DEBUG-only cost
+    /// via mbkLogHandler's default no-op-in-release behaviour.
+    private func logHighlightState(_ context: String) {
+        guard let button = statusItem?.button else {
+            mbkLog("PanelController", "[highlight] \(context) -- button is nil")
+            return
+        }
+        let pillOpacity = highlightPillLayer?.opacity ?? -1
+        let pillColor = highlightPillLayer?.backgroundColor
+        mbkLog("PanelController",
+            "[highlight] \(context) -- pillOpacity=\(pillOpacity) pillColor=\(String(describing: pillColor))"
+            + " appkitIsHighlighted=\(button.isHighlighted) buttonBounds=\(button.bounds)")
     }
 }
