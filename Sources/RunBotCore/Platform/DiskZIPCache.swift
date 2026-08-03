@@ -21,7 +21,7 @@ import Foundation
 /// In-progress runs stay memory-only to avoid persisting a partial ZIP.
 ///
 /// ## Capacity
-/// Bounded by `maxCapacity` (10 files). On every `set`, files are sorted by
+/// Bounded by `maxCapacity` (10 files). On every successful `set`, files are sorted by
 /// modification date descending and anything past index 9 is deleted.
 ///
 /// ## Concurrency
@@ -79,10 +79,12 @@ public actor DiskZIPCache {
 
     /// Writes raw ZIP `Data` for `runID` to disk and evicts excess files.
     /// No-op (and no file written) when `isCompleted` is `false`.
+    /// Eviction is skipped when the write fails — valid cache entries are never
+    /// deleted to make room for a file that was not successfully written.
     public func set(runID: Int, zip: Data, isCompleted: Bool) {
         guard isCompleted else { return }
         let file = cacheDir.appendingPathComponent("\(runID).zip")
-        try? zip.write(to: file, options: .atomic)
+        guard (try? zip.write(to: file, options: .atomic)) != nil else { return }
         evictIfNeeded()
     }
 
