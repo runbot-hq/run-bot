@@ -308,10 +308,11 @@ final class MBKStatusBarButton: NSStatusBarButton {
             // inserts _cmd automatically when wrapping a block as an IMP.
             typealias HighlightIMP = @convention(c) (AnyObject, Selector, Bool, NSRect, NSView) -> Void
 
-            let imp: IMP = imp_implementationWithBlock({ (cellSelf: AnyObject, flag: Bool, frame: NSRect, view: NSView) -> Void in
+            let imp: IMP = imp_implementationWithBlock({ (cellSelf: AnyObject, flag: Bool, frame: NSRect, view: NSView) in
                 let btn = objc_getAssociatedObject(cellSelf, &kCellButtonKey) as? MBKStatusBarButton
                 let panelOpen = btn?.isPanelOpen ?? false
-                mbkLog("MBKStatusBarButtonCell", "highlight(\(flag), withFrame:, in:) isPanelOpen=\(panelOpen) btn=\(btn != nil ? "ok" : "nil") \u{2014} " + (!flag && panelOpen ? "SWALLOWED" : "passing to super"))
+                let verdict = !flag && panelOpen ? "SWALLOWED" : "passing to super"
+                mbkLog("MBKStatusBarButtonCell", "highlight(\(flag), withFrame:, in:) isPanelOpen=\(panelOpen) btn=\(btn != nil ? "ok" : "nil") \u{2014} \(verdict)")
                 if !flag && panelOpen { return }
 
                 // Dispatch to the ORIGINAL private class's IMP, not NSButtonCell's.
