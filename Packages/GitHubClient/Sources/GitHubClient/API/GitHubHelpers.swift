@@ -36,29 +36,6 @@ public func fetchUserRepos(
 
 // MARK: - Step log
 
-// References — ANSI stripping:
-// • laurent22/github-actions-logs-extension (Chrome/Firefox extension, converts ANSI to HTML colours):
-//   https://github.com/laurent22/github-actions-logs-extension
-// • Joplin blog — walkthrough of the extension and why raw Actions logs need client-side parsing:
-//   https://joplinapp.org/news/20230116-github-actions-log-viewer/
-
-/// Pre-compiled regular expression for stripping ANSI escape sequences from CI log output.
-/// Compiled once at module load to avoid repeated allocation on every log fetch.
-///
-/// `try?` is intentional: the pattern is a static literal and will never fail to compile
-/// at runtime. The `try?` form is consistent with `timestampRegex` below and avoids a
-/// forced-unwrap that would crash on launch for a non-fatal feature. If compilation somehow
-/// fails, `stripAnsi` falls back to returning input unchanged — logs remain readable, just
-/// with ANSI codes present. This is the correct degradation behaviour.
-///
-/// Note: `stripAnsi` must run **after** CR normalisation (step 2 in `parseStepLog`) and
-/// **before** `stripTimestamps`. The ANSI pattern is character-based and does not interact
-/// with line endings, but maintaining the documented pipeline order is required for
-/// `stripTimestamps` to receive clean LF-only input.
-private let ansiRegex: NSRegularExpression? = try? NSRegularExpression(
-    pattern: "\u{001B}\\[[0-9;]*[A-Za-z]"
-)
-
 // References — timestamp stripping:
 // • ncw/parse-actions-logs (Go CLI, functionally identical regex with optional fractional seconds):
 //   https://github.com/ncw/parse-actions-logs
@@ -84,14 +61,16 @@ private let ansiRegex: NSRegularExpression? = try? NSRegularExpression(
 /// (spaces, tabs, and any other Unicode whitespace except `\n`) after the Z. This serves
 /// two purposes: (1) it consumes the single space separator that GitHub Actions emits
 /// between the timestamp and the log content; (2) it tolerates the ANSI-after-Z case
-/// where `stripAnsi` has already removed an escape sequence that sat between Z and the
-/// space, leaving Z immediately adjacent to the content with no intervening space.
+/// where an ANSI escape sequence sits between Z and the space; the `[^\S\n]*` trailer
+/// tolerates Z immediately adjacent to content with no intervening space.
 /// Tabs after Z are therefore also matched — this is intentional and future-proof.
 /// Bare timestamp-only lines (no trailing whitespace at all) are matched via the `*`
 /// (zero repetitions).
 ///
-/// **`try?`** — Intentional; see note on `ansiRegex` above. Same degradation contract:
-/// if compilation fails, `stripTimestamps` returns input unchanged.
+/// **`try?`** — Intentional: the pattern is a static literal and will never fail to compile
+/// at runtime. The `try?` form avoids a forced-unwrap for a non-fatal feature; if
+/// compilation somehow fails, `stripTimestamps` returns input unchanged — logs remain
+/// readable, just with timestamps present.
 ///
 /// Compiled once at module load.
 private let timestampRegex: NSRegularExpression? = try? NSRegularExpression(
@@ -173,9 +152,12 @@ struct ParsedLog {
 ///
 /// Pipeline order (must not be reordered):
 ///   1. CR normalisation — converts \r\n and bare \r to \n.
-///   2. stripAnsi  — character-based; safe on LF-only input.
-///   3. stripTimestamps — uses .anchorsMatchLines; requires LF-only input.
-///   4. buildParsedLog — splits on \n; requires LF-only input.
+///   2. stripTimestamps — uses .anchorsMatchLines; requires LF-only input.
+///   3. buildParsedLog — splits on \n; requires LF-only input.
+///
+/// ANSI escape sequences are **preserved** and passed through to the UI layer
+/// (`ansiAttributedString` in `LogPlainLine` / `LogDimmedLine`), consistent
+/// with the `cleanLogText` pipeline. `stripAnsi` is intentionally not called.
 /// - Note: Visibility is `public` so `LogFetcher` (in `RunBotCore`) can call it
 ///   for the flat-blob fallback path without duplicating the matching logic.
 public func parseStepLog(
@@ -188,9 +170,8 @@ public func parseStepLog(
     let normalised = raw
         .replacingOccurrences(of: "\r\n", with: "\n")
         .replacingOccurrences(of: "\r", with: "\n")
-    let ansiStripped = stripAnsi(normalised)    // Step 2
-    let cleaned = stripTimestamps(ansiStripped) // Step 3
-    let parsed = buildParsedLog(from: cleaned)  // Step 4
+    let cleaned = stripTimestamps(normalised) // Step 2 (ANSI passes through)
+    let parsed = buildParsedLog(from: cleaned) // Step 3
 
     logger?.log(
         "parseStepLog › \(parsed.sections.count) section(s), stepName=\"\(stepName)\" stepNumber=\(stepNumber)",
@@ -343,30 +324,23 @@ func buildParsedLog(from cleaned: String) -> ParsedLog {
 
 // MARK: - Public cleaning helper (for use in RunBotCore's LogFetcher ZIP path)
 
-/// Applies the standard CR → ANSI-strip → timestamp-strip pipeline to `raw` and returns
+/// Applies the standard CR → timestamp-strip pipeline to `raw` and returns
 /// the cleaned text. Exposed as `public` so `LogFetcher.fetchStepLog` (in `RunBotCore`)
 /// can clean ZIP slice content without duplicating the regex logic.
 ///
+/// ANSI escape sequences are intentionally **preserved** — they are rendered by
+/// `ansiAttributedString` in the UI layer (`LogPlainLine`, `LogDimmedLine`).
+/// This is consistent with the `parseStepLog` pipeline; `stripAnsi` is not called
+/// on any active fetch path.
+///
 /// Pipeline:
 ///   1. CR normalisation (`\r\n` and bare `\r` → `\n`)
-///   2. ANSI escape removal
-///   3. Timestamp prefix removal
+///   2. Timestamp prefix removal
 public func cleanLogText(_ raw: String) -> String {
     let normalised = raw
         .replacingOccurrences(of: "\r\n", with: "\n")
         .replacingOccurrences(of: "\r", with: "\n")
-    return stripTimestamps(stripAnsi(normalised))
-}
-
-/// Removes ANSI escape sequences from `input` using the pre-compiled `ansiRegex`.
-/// Returns `input` unchanged if `ansiRegex` failed to compile at module load time.
-///
-/// Must be called **after** CR normalisation and **before** `stripTimestamps`.
-/// See the pipeline-order comment on `parseStepLog` for the full rationale.
-private func stripAnsi(_ input: String) -> String {
-    guard let ansiRegex else { return input }
-    let range = NSRange(input.startIndex..., in: input)
-    return ansiRegex.stringByReplacingMatches(in: input, range: range, withTemplate: "")
+    return stripTimestamps(normalised)
 }
 
 /// Removes the leading GitHub Actions timestamp prefix from every line of `input`.

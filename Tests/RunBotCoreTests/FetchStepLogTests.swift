@@ -16,7 +16,7 @@
 // than .slice, which the !isSlice arm catches).
 //
 // Coverage map:
-//   Normal step — ANSI + timestamp stripped                  — test_normalStep_returnsSlice
+//   Normal step — timestamp stripped, ANSI preserved         — test_normalStep_returnsSlice
 //   Regression #2358 — synthetic "Complete job" step (stub)  — test_completeJob_regression2358
 //   Regression #2358 — real extractor against fixture ZIP    — test_completeJob_regression2358_realExtractor
 //   Prefix match when filename differs from step.name        — test_sanitisedFilenameDiffers_prefixMatchSucceeds
@@ -140,7 +140,7 @@ private func makeFetcher(
 @Suite("LogFetcher.fetchStepLog")
 struct FetchStepLogTests {
 
-    @Test("Normal step: returns .slice with ANSI and timestamps stripped")
+    @Test("Normal step: returns .slice with timestamps stripped, ANSI preserved")
     func test_normalStep_returnsSlice() async {
         var fetcher = makeFetcher(zipFiles: [
             (name: "release/1_Checkout",
@@ -158,7 +158,7 @@ struct FetchStepLogTests {
         }
         #expect(content.contains("checkout output"))
         #expect(!content.contains("2026-"), "Timestamps must be stripped")
-        #expect(!content.contains("\u{1B}"), "ANSI codes must be stripped")
+        #expect(content.contains("\u{1B}"), "ANSI codes must pass through to the render layer")
     }
 
     @Test("Regression #2358: synthetic Complete job step returns .slice, not .syntheticEmpty")
