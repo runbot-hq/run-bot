@@ -30,11 +30,17 @@ struct CopyLinkButton: View {
     }
 
     /// Renders the button in its current phase (idle, done, or failed).
+    ///
+    /// A single `Button` wraps all phases so the control remains in the
+    /// accessibility tree throughout the feedback cycle. The button is
+    /// disabled (not replaced) in `.done`/`.failed` so VoiceOver always
+    /// sees a consistent element and users can retry immediately after
+    /// `.failed` once `.idle` is restored.
     var body: some View {
-        Group {
-            switch phase {
-            case .idle:
-                Button(action: copy) {
+        Button(action: copy) {
+            Group {
+                switch phase {
+                case .idle:
                     HStack(spacing: 4) {
                         Image(systemName: "link")
                             .font(.caption)
@@ -43,31 +49,33 @@ struct CopyLinkButton: View {
                             .fixedSize()
                     }
                     .foregroundColor(.secondary)
-                }
-                .buttonStyle(.plain)
-                .help("Copy GitHub job URL")
-            case .done:
-                HStack(spacing: 4) {
-                    Image(systemName: "checkmark")
-                        .font(.caption)
-                        .foregroundColor(.green)
-                    Text("Copied")
-                        .font(.caption)
-                        .foregroundColor(.green)
-                        .fixedSize()
-                }
-            case .failed:
-                HStack(spacing: 4) {
-                    Image(systemName: "xmark")
-                        .font(.caption)
-                        .foregroundColor(.red)
-                    Text("Failed")
-                        .font(.caption)
-                        .foregroundColor(.red)
-                        .fixedSize()
+                case .done:
+                    HStack(spacing: 4) {
+                        Image(systemName: "checkmark")
+                            .font(.caption)
+                            .foregroundColor(Color.rbSuccess)
+                        Text("Copied")
+                            .font(.caption)
+                            .foregroundColor(Color.rbSuccess)
+                            .fixedSize()
+                    }
+                case .failed:
+                    HStack(spacing: 4) {
+                        Image(systemName: "xmark")
+                            .font(.caption)
+                            .foregroundColor(Color.rbDanger)
+                        Text("Failed")
+                            .font(.caption)
+                            .foregroundColor(Color.rbDanger)
+                            .fixedSize()
+                    }
                 }
             }
         }
+        .disabled(phase != .idle)
+        .buttonStyle(.plain)
+        .help("Copy GitHub job URL")
+        .accessibilityLabel("Copy link")
         .onDisappear {
             // Cancel the reset task and immediately return to .idle so the
             // button is never stuck in .done/.failed if this view instance is
