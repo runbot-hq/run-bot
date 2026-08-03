@@ -36,29 +36,6 @@ public func fetchUserRepos(
 
 // MARK: - Step log
 
-// References — ANSI stripping:
-// • laurent22/github-actions-logs-extension (Chrome/Firefox extension, converts ANSI to HTML colours):
-//   https://github.com/laurent22/github-actions-logs-extension
-// • Joplin blog — walkthrough of the extension and why raw Actions logs need client-side parsing:
-//   https://joplinapp.org/news/20230116-github-actions-log-viewer/
-
-/// Pre-compiled regular expression for stripping ANSI escape sequences from CI log output.
-/// Compiled once at module load to avoid repeated allocation on every log fetch.
-///
-/// `try?` is intentional: the pattern is a static literal and will never fail to compile
-/// at runtime. The `try?` form is consistent with `timestampRegex` below and avoids a
-/// forced-unwrap that would crash on launch for a non-fatal feature. If compilation somehow
-/// fails, `stripAnsi` falls back to returning input unchanged — logs remain readable, just
-/// with ANSI codes present. This is the correct degradation behaviour.
-///
-/// Note: `stripAnsi` is no longer called by any active fetch path — ANSI sequences are
-/// preserved and rendered by `ansiAttributedString` at the UI layer. This regex and
-/// `stripAnsi` are retained for any future use or testing contexts that may need
-/// unconditional stripping.
-private let ansiRegex: NSRegularExpression? = try? NSRegularExpression(
-    pattern: "\u{001B}\\[[0-9;]*[A-Za-z]"
-)
-
 // References — timestamp stripping:
 // • ncw/parse-actions-logs (Go CLI, functionally identical regex with optional fractional seconds):
 //   https://github.com/ncw/parse-actions-logs
@@ -84,8 +61,8 @@ private let ansiRegex: NSRegularExpression? = try? NSRegularExpression(
 /// (spaces, tabs, and any other Unicode whitespace except `\n`) after the Z. This serves
 /// two purposes: (1) it consumes the single space separator that GitHub Actions emits
 /// between the timestamp and the log content; (2) it tolerates the ANSI-after-Z case
-/// where `stripAnsi` has already removed an escape sequence that sat between Z and the
-/// space, leaving Z immediately adjacent to the content with no intervening space.
+/// where an ANSI escape sequence sits between Z and the space; the `[^\S\n]*` trailer
+/// tolerates Z immediately adjacent to content with no intervening space.
 /// Tabs after Z are therefore also matched — this is intentional and future-proof.
 /// Bare timestamp-only lines (no trailing whitespace at all) are matched via the `*`
 /// (zero repetitions).
@@ -362,17 +339,6 @@ public func cleanLogText(_ raw: String) -> String {
         .replacingOccurrences(of: "\r\n", with: "\n")
         .replacingOccurrences(of: "\r", with: "\n")
     return stripTimestamps(normalised)
-}
-
-/// Removes ANSI escape sequences from `input` using the pre-compiled `ansiRegex`.
-/// Returns `input` unchanged if `ansiRegex` failed to compile at module load time.
-///
-/// Must be called **after** CR normalisation and **before** `stripTimestamps`.
-/// See the pipeline-order comment on `parseStepLog` for the full rationale.
-private func stripAnsi(_ input: String) -> String {
-    guard let ansiRegex else { return input }
-    let range = NSRange(input.startIndex..., in: input)
-    return ansiRegex.stringByReplacingMatches(in: input, range: range, withTemplate: "")
 }
 
 /// Removes the leading GitHub Actions timestamp prefix from every line of `input`.

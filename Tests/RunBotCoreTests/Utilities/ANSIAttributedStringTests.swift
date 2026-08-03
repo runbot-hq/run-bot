@@ -132,8 +132,8 @@ final class ANSIAttributedStringTests: XCTestCase {
         // itself may be dropped, but no silent loss of preceding text.
         let input = "hello\(esc)[31"
         let result = ansiAttributedString(input, baseColor: base, font: font)
-        XCTAssert(String(result.characters).contains("hello"),
-            "Text preceding a truncated escape must not be silently dropped")
+        XCTAssertEqual(String(result.characters), "hello",
+            "Text preceding a truncated escape must be preserved exactly — no duplication, no raw ESC bytes")
     }
 
     // MARK: - Semicolon-separated codes

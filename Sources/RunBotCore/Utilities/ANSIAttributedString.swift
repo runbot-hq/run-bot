@@ -78,20 +78,12 @@ public func ansiAttributedString(
         text.formIndex(&idx, offsetBy: 2)
 
         // Consume digits and semicolons up to the 'm' terminator.
-        var codeStart = idx
+        let codeStart = idx
         while idx < text.endIndex, text[idx] != "m" {
             text.formIndex(after: &idx)
         }
         guard idx < text.endIndex else {
-            // Malformed/truncated escape — flush remaining raw text as a plain segment.
-            if segmentStart < text.endIndex {
-                var seg = AttributedString(text[segmentStart...])
-                let resolved = currentColor ?? baseColor
-                seg.foregroundColor = isDim ? resolved.opacity(0.5) : resolved
-                seg.font = isBold ? boldFont(font) : font
-                result += seg
-            }
-            break
+            break // pre-escape text already flushed above; drop partial escape
         }
         let codeStr = String(text[codeStart..<idx])
         text.formIndex(after: &idx)              // consume 'm'
