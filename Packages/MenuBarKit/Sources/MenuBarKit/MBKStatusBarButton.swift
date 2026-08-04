@@ -232,7 +232,12 @@ final class MBKStatusBarButton: NSStatusBarButton {
             return objc_getAssociatedObject(self, &kIsPanelOpenKey) as? Bool ?? false
         }
         set {
-            mbkLog("MBKStatusBarButton", "isPanelOpen.set \(newValue) (was \(objc_getAssociatedObject(self, &kIsPanelOpenKey) as? Bool ?? false))")
+            // The old-value read is debug-only: in release mbkLog is a no-op
+            // and the objc_getAssociatedObject call would be dead work.
+            #if DEBUG
+            let oldVal = objc_getAssociatedObject(self, &kIsPanelOpenKey) as? Bool ?? false
+            mbkLog("MBKStatusBarButton", "isPanelOpen.set \(newValue) (was \(oldVal))")
+            #endif
             objc_setAssociatedObject(self, &kIsPanelOpenKey, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
         }
     }
@@ -394,6 +399,13 @@ final class MBKStatusBarButton: NSStatusBarButton {
                 // Dispatch to the ORIGINAL private class's IMP, not NSButtonCell's.
                 // This preserves Apple's native pill-shaped drawing on every
                 // pass-through call.
+                //
+                // class_getMethodImplementation returns _objc_msgForward if the
+                // method is not concretely implemented on originalClass. That would
+                // be a crash when unsafeBitCast'd and called as HighlightIMP.
+                // This is safe because NSStatusBarButtonCell.highlight(_:withFrame:in:)
+                // is a concrete method. If Apple refactors that private class and
+                // removes the concrete implementation, this is the crash site.
                 //
                 // `view` is typed NSView (non-optional) per AppKit's documented
                 // contract for highlight(_:withFrame:in:). If AppKit ever passes
