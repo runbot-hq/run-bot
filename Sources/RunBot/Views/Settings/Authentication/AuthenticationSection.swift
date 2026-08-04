@@ -56,6 +56,29 @@ struct AuthenticationSection: View {
         }
     }
 
+    /// `true` when an environment token has been discovered.
+    private var environmentIsAvailable: Bool {
+        if case .available = authentication.environmentState {
+            return true
+        }
+        return false
+    }
+
+    /// `true` when the environment toggle should be disabled.
+    ///
+    /// Always allows the user to turn Environment mode **off** (even if the
+    /// token has since disappeared). The toggle is disabled when:
+    /// - Environment is not active AND OAuth is blocking, OR
+    /// - Environment is not active AND no environment token is available
+    ///   (including while discovery is still checking).
+    private var environmentToggleDisabled: Bool {
+        if envIsActive {
+            // Always allow the user to turn Environment mode off.
+            return false
+        }
+        return oauthBlocksEnvironment || !environmentIsAvailable
+    }
+
     // MARK: - Body
 
     /// Two-card layout: environment token card on the left, OAuth card on the right.
@@ -69,16 +92,13 @@ struct AuthenticationSection: View {
                 .padding(.bottom, 4)
 
             HStack(alignment: .top, spacing: 8) {
-                // Env card: disabled while OAuth is signing in, signed in, or signing out.
-                // The toggle can still be flipped ON from any state (to switch to env),
-                // but cannot be flipped OFF while the other card's source is already active.
-                // isDisabled = oauthBlocksEnvironment blocks only the OFF tap; the toggle
-                // binding reads isActive (false when oauthBlocksEnvironment), so SwiftUI
-                // shows it as off, and the .disabled modifier prevents an errant tap.
+                // Env card: disabled when the environment toggle should be disabled
+                // (env not active and either OAuth is blocking or no env token is available).
+                // Always allows turning off if env is already active.
                 EnvironmentTokenCard(
                     envState: authentication.environmentState,
                     isActive: envIsActive,
-                    isDisabled: oauthBlocksEnvironment,
+                    isDisabled: environmentToggleDisabled,
                     onToggle: onToggleEnvironment
                 )
 
