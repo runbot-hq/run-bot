@@ -90,5 +90,6 @@ public final class GitHubAuthentication {
 
     // MARK: - Private
 
+    /// The `UserDefaults` instance used for persisting `selectedSource`.
     private let _defaults: UserDefaults
 }
