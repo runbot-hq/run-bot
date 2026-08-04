@@ -29,15 +29,6 @@ struct EnvironmentTokenCard: View {
 
     // MARK: - Derived
 
-    /// Name of the discovered env variable, or `nil` when unavailable/checking.
-    private var tokenVariableName: String? {
-        guard case .available(let variable) = envState else { return nil }
-        switch variable {
-        case .ghToken: return "GH_TOKEN"
-        case .githubToken: return "GITHUB_TOKEN"
-        }
-    }
-
     /// `true` when the card is active but the token is missing — shows red styling.
     private var isError: Bool {
         isActive && envState == .unavailable
@@ -106,12 +97,11 @@ struct EnvironmentTokenCard: View {
                 } else {
                     Text("GH_TOKEN or GITHUB_TOKEN not found")
                 }
-            case .available(let variable):
-                let name = variable == .ghToken ? "GH_TOKEN" : "GITHUB_TOKEN"
+            case .available:
                 if isActive {
-                    Text("Active · authenticated via \(name)")
+                    Text("Active · authenticated via environment token")
                 } else {
-                    Text("Available · not in use (\(name))")
+                    Text("Available · not in use")
                 }
             }
         }
@@ -124,9 +114,8 @@ struct EnvironmentTokenCard: View {
         switch envState {
         case .checking: return "\(source), \(activeText), checking"
         case .unavailable: return "\(source), \(activeText), token not found"
-        case .available(let variable):
-            let name = variable == .ghToken ? "GH_TOKEN" : "GITHUB_TOKEN"
-            return "\(source), \(activeText), \(name) found"
+        case .available:
+            return "\(source), \(activeText), token found"
         }
     }
 }

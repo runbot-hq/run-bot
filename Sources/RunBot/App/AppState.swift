@@ -576,10 +576,8 @@ final class AppState {
         // implicit actor hops on each property access inside the loop and eliminates
         // any TOCTOU window between `guard let store` and `await store.start()`.
         //
-        // OAuth sign-out transitions authentication to `.unauthenticated`.
-        // It does not activate an available environment token automatically;
-        // Environment mode must be enabled explicitly by the user.
-        //
+        // OAuth sign-out transitions to `.unauthenticated`; Environment mode must be
+        // enabled explicitly — it does not activate automatically after sign-out.
         // Why store.start() is called after sign-out (PR #1138 regression history):
         // Before #1138, polling was driven by a Timer that continued to fire after
         // sign-out. #1138 replaced the timer with a Task that loops on Task.sleep —

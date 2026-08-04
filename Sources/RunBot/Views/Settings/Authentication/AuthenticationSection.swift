@@ -117,6 +117,7 @@ struct AuthenticationSection: View {
                     onSignOut: onSignOut
                 )
             }
+            .fixedSize(horizontal: false, vertical: true)
             .padding(.horizontal, RBSpacing.md)
             .padding(.vertical, 8)
         }

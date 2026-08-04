@@ -36,8 +36,12 @@ struct AuthenticationSourceCard<Content: View>: View {
     /// Card body: content wrapped in a rounded-rect stroke + fill.
     var body: some View {
         content()
+            .frame(
+                maxWidth: .infinity,
+                maxHeight: .infinity,
+                alignment: .topLeading
+            )
             .padding(10)
-            .frame(maxWidth: .infinity, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .fill(fillColor)
