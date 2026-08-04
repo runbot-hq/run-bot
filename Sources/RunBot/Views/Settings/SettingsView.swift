@@ -169,6 +169,8 @@ struct SettingsView: View {
         case .environment:
             if case .available = authentication.environmentState { return true }
             return false
+        case .unauthenticated:
+            return false
         }
     }
 
@@ -299,23 +301,14 @@ struct SettingsView: View {
         //    changed to require auth state — if that ever changes, sequence them
         //    explicitly inside a single .task instead of relying on chaining order.
         .task {
-            // Seed .checking immediately, then resolve.
+            // Seed .checking immediately, then resolve via env-only path.
+            // This task must ALWAYS complete to .available or .unavailable so the
+            // env card never stays frozen on .checking (fix for finding 3 / #2464).
+            // We use appState.envTokenProvider.token() here — NOT appState.github.token()
+            // — so OAuth Keychain credentials do not leak into env-token discovery.
             appState.authentication.setEnvironmentState(.checking)
-            let token = await appState.github.token()
-            if token != nil {
-                // token() goes through EnvTokenProvider; if it resolved without OAuth
-                // the env var was found. We record it as .available(.ghToken) as a
-                // conservative label — full variable detection is a Phase 2 enhancement.
-                let oauthSigned: Bool
-                if case .signedIn = appState.authentication.oauthState { oauthSigned = true } else { oauthSigned = false }
-                if !oauthSigned {
-                    appState.authentication.setEnvironmentState(.available(variable: .ghToken))
-                }
-            } else {
-                if case .signedIn = appState.authentication.oauthState { } else {
-                    appState.authentication.setEnvironmentState(.unavailable)
-                }
-            }
+            let state = await appState.github.discoverEnvironmentState()
+            appState.authentication.setEnvironmentState(state)
             log("【SettingsView.task1】env token resolved — environmentState=\(appState.authentication.environmentState)", category: .general)
         }
         // TASK 2 of 2 — Update check (FIX #2223 / #2216).
@@ -443,13 +436,12 @@ struct SettingsView: View {
     /// Authentication state is now driven by `appState.authentication` (GitHubAuthentication).
     /// The sign-in / sign-out streams update oauthState on the shared model.
     private func onAppearAction() { // skipcq: SW-R1002 — reviewed; complexity acceptable for this onAppear setup
-        // Sync OAuth state from the service on re-appear.
+        // Passively re-sync OAuth state from the live Keychain on re-appear.
+        // Uses syncOAuthState() so the persisted selectedSource is never overwritten
+        // just by opening Settings (fix for finding 4 / #2464). recordOAuthSignIn()
+        // is the only path that writes .oauth to selectedSource.
         let auth = appState.authentication
-        if oauthService.isAuthenticated {
-            auth.setOAuthState(.signedIn(username: nil))
-        } else {
-            auth.setOAuthState(.signedOut)
-        }
+        auth.syncOAuthState(isAuthenticated: oauthService.isAuthenticated)
         log("【SettingsView.onAppear】oauthState=\(auth.oauthState)", category: .general)
         log("【SettingsView.onAppear】settings=\(ObjectIdentifier(settings)) betaChannel=\(settings.betaChannel)", category: .general)
 
@@ -461,7 +453,7 @@ struct SettingsView: View {
             for await success in oauthService.makeSignInStream() {
                 log("【SettingsView.signInStream】success=\(success) — updating auth state", category: .general)
                 if success {
-                    auth.setOAuthState(.signedIn(username: nil)) // source auto-selected by setOAuthState
+                    auth.recordOAuthSignIn(username: nil)
                 } else {
                     auth.setOAuthState(.failed(previous: .signedOut, message: "Sign-in was cancelled or failed."))
                 }

@@ -20,6 +20,12 @@ struct GitHubOAuthCard: View {
     let oauthState: OAuthState
     /// Whether the OAuth source is the user's currently-selected source.
     let isActive: Bool
+    /// When `true`, the Sign In button is disabled and dimmed.
+    ///
+    /// Set to `true` when the environment-token card is the active source so cards
+    /// are mutually exclusive: the user must turn env off before signing in with OAuth.
+    /// Sign-out is always enabled regardless of this flag.
+    let isSignInDisabled: Bool
     /// Called to initiate the OAuth sign-in browser flow.
     let onSignIn: () -> Void
     /// Called to sign out and remove the Keychain token.
@@ -132,8 +138,12 @@ struct GitHubOAuthCard: View {
                 Text("Sign in with GitHub").font(.caption2)
             }
             .buttonStyle(.bordered)
-            .disabled(isTransitioning)
-            .help("Authorize RunBot via GitHub OAuth and store token in Keychain")
+            .disabled(isTransitioning || isSignInDisabled)
+            .opacity(isSignInDisabled ? 0.4 : 1.0)
+            .help(isSignInDisabled
+                ? "Turn off Environment Token before signing in with OAuth"
+                : "Authorize RunBot via GitHub OAuth and store token in Keychain"
+            )
         case .signedIn:
             Button(action: onSignOut) {
                 Text("Sign out").font(.caption2)

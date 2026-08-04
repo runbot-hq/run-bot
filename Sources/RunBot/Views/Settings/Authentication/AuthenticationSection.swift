@@ -28,6 +28,16 @@ struct AuthenticationSection: View {
     /// Called when the environment toggle is flipped. `true` = activate env source.
     let onToggleEnvironment: (Bool) -> Void
 
+    // MARK: - Derived
+
+    /// `true` when environment token is the active source.
+    /// The OAuth card is disabled while env is active — cards are mutually exclusive.
+    private var envIsActive: Bool { authentication.selectedSource == .environment }
+
+    /// `true` when OAuth is the active source.
+    /// The env card toggle is disabled while OAuth is active — cards are mutually exclusive.
+    private var oauthIsActive: Bool { authentication.selectedSource == .oauth }
+
     // MARK: - Body
 
     /// Two-card layout: environment token card on the left, OAuth card on the right.
@@ -41,15 +51,26 @@ struct AuthenticationSection: View {
                 .padding(.bottom, 4)
 
             HStack(alignment: .top, spacing: 8) {
+                // Env card: disabled while OAuth is the active source.
+                // The toggle can still be flipped ON from any state (to switch to env),
+                // but cannot be flipped OFF while the other card's source is already active.
+                // isDisabled = oauthIsActive blocks only the OFF tap; the toggle binding
+                // reads isActive (false when oauthIsActive), so SwiftUI shows it as off,
+                // and the .disabled modifier prevents an errant tap from firing onToggle.
                 EnvironmentTokenCard(
                     envState: authentication.environmentState,
-                    isActive: authentication.selectedSource == .environment,
+                    isActive: envIsActive,
+                    isDisabled: oauthIsActive,
                     onToggle: onToggleEnvironment
                 )
 
+                // OAuth card: sign-in button disabled while env is the active source.
+                // The user must turn env off before switching to OAuth so the transition
+                // is always explicit. Sign-out is always available regardless of source.
                 GitHubOAuthCard(
                     oauthState: authentication.oauthState,
-                    isActive: authentication.selectedSource == .oauth,
+                    isActive: oauthIsActive,
+                    isSignInDisabled: envIsActive,
                     onSignIn: onSignIn,
                     onSignOut: onSignOut,
                     onSelect: { onSelectSource(.oauth) }

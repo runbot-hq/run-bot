@@ -32,9 +32,9 @@ internal extension SettingsView {
                         appState.authentication.setSelectedSource(.environment)
                     } else if case .signedIn = appState.authentication.oauthState {
                         appState.authentication.setSelectedSource(.oauth)
+                    } else {
+                        appState.authentication.setSelectedSource(.unauthenticated)
                     }
-                    // If not signed in via OAuth and toggling env off, stay on environment
-                    // (no silent fallback to unauthenticated — rule #5 from #2459 §4.5)
                 }
             )
             Divider().padding(.leading, RBSpacing.md)

@@ -397,6 +397,17 @@ final class AppState {
         }
         log("AppState › start — begin (LocalRunnerStore.configure already called by AppDelegate)")
 
+        // Step 0: seed GitHubAuthentication from live credential stores on cold launch.
+        // OAuth sync is synchronous so there is no `.signedOut` flash before the poll
+        // loop starts (Step 4). Env discovery runs in a detached Task (login-shell
+        // probe can take ~50–200ms). syncOAuthState — NOT recordOAuthSignIn — so the
+        // persisted `selectedSource` is never overwritten here (fix for #2464).
+        authentication.syncOAuthState(isAuthenticated: oauthService.isAuthenticated)
+        Task { @MainActor [authentication, github] in
+            authentication.setEnvironmentState(await github.discoverEnvironmentState())
+        }
+        log("AppState › start — auth seeded (oauth=\(authentication.oauthState), source=\(authentication.selectedSource))")
+
         seedStoreAndPoller()  // Step 1: kept in a helper to stay within function_body_length.
 
         // Step 2: wire domain observation tasks BEFORE any await.

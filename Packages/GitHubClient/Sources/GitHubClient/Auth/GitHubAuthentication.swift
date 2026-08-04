@@ -15,10 +15,19 @@ import Observation
 /// `selectedSource` is persisted to `UserDefaults` so the explicit choice survives
 /// relaunches. No migration is needed because no released installation has this key.
 ///
+/// ## Mutation rules
+/// - `setOAuthState(_:)` — use for **transitional** OAuth state changes (signingIn,
+///   signingOut, failed, signedOut). Does NOT touch `selectedSource`.
+/// - `recordOAuthSignIn(username:)` — use **only** when OAuth sign-in succeeds.
+///   Persists `.oauth` as `selectedSource` and clears env auth invariant.
+/// - `syncOAuthState(isAuthenticated:)` — passive re-sync on Settings appear;
+///   updates `oauthState` WITHOUT touching the persisted `selectedSource`.
+/// - `setSelectedSource(_:)` — explicit user selection; persisted immediately.
+/// - `setEnvironmentState(_:)` — updates discovery state; no source side-effects.
+///
 /// ## Usage
 /// - Inject into SwiftUI via `@Environment` or pass as a direct dependency.
-/// - Mutate only through the `set*` methods, which apply the correct side-effects
-///   (persistence, source auto-selection after OAuth success).
+/// - Mutate only through the `set*` / `record*` / `sync*` methods above.
 @MainActor
 @Observable
 public final class GitHubAuthentication {
@@ -66,26 +75,58 @@ public final class GitHubAuthentication {
 
     /// Sets the user-selected authentication source and persists it.
     ///
-    /// This is the authoritative write path — do not assign `selectedSource` directly.
+    /// This is the authoritative write path for explicit user selections.
+    /// Do not assign `selectedSource` directly.
     public func setSelectedSource(_ source: GitHubAuthSource) {
         selectedSource = source
         _defaults.set(source.rawValue, forKey: Self.defaultsKey)
     }
 
     /// Updates the environment-token discovery state.
+    ///
+    /// Pure state update — no effect on `selectedSource`.
     public func setEnvironmentState(_ state: EnvironmentTokenState) {
         environmentState = state
     }
 
-    /// Updates the OAuth state.
+    /// Updates the OAuth flow state for **transitional** changes.
     ///
-    /// When the new state is `.signedIn`, `selectedSource` is automatically
-    /// switched to `.oauth` — a successful sign-in always activates OAuth.
+    /// Use this for: `.signingIn`, `.signingOut`, `.failed`, `.signedOut`.
+    /// Does **not** touch `selectedSource` — use `recordOAuthSignIn(username:)`
+    /// when a sign-in succeeds so the persisted choice is updated correctly.
+    ///
+    /// - Important: Never call this with `.signedIn` from `onAppearAction` or
+    ///   any passive re-sync path — use `syncOAuthState(isAuthenticated:)` instead.
     public func setOAuthState(_ state: OAuthState) {
         oauthState = state
-        if case .signedIn = state {
-            setSelectedSource(.oauth)
-        }
+    }
+
+    /// Records a **successful** OAuth sign-in.
+    ///
+    /// - Sets `oauthState` to `.signedIn(username:)`.
+    /// - Persists `selectedSource` as `.oauth` — sign-in success always activates OAuth.
+    /// - Clears any env-auth invariant: environment cannot remain selected while
+    ///   OAuth is signed in.
+    ///
+    /// This is the only path that should write `.oauth` to `selectedSource` as
+    /// a side-effect of OAuth flow progression. All other OAuth state transitions
+    /// use `setOAuthState(_:)` which does not touch `selectedSource`.
+    public func recordOAuthSignIn(username: String?) {
+        oauthState = .signedIn(username: username)
+        setSelectedSource(.oauth)
+    }
+
+    /// Passively re-syncs `oauthState` from the live Keychain state.
+    ///
+    /// Called from `onAppearAction()` and `AppState.start()` to reflect the
+    /// current Keychain credential state without touching the persisted
+    /// `selectedSource`. If the user had `.environment` selected and an OAuth
+    /// credential already exists in the Keychain, this method will NOT overwrite
+    /// the persisted `.environment` choice.
+    ///
+    /// - Parameter isAuthenticated: `true` if `oauthService.isAuthenticated`.
+    public func syncOAuthState(isAuthenticated: Bool) {
+        oauthState = isAuthenticated ? .signedIn(username: nil) : .signedOut
     }
 
     // MARK: - Private

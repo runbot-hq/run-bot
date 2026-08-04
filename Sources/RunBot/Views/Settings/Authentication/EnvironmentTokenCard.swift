@@ -19,6 +19,11 @@ struct EnvironmentTokenCard: View {
     let envState: EnvironmentTokenState
     /// Whether the environment token source is the user's currently-selected source.
     let isActive: Bool
+    /// When `true`, the toggle is disabled and dimmed.
+    ///
+    /// Set to `true` when the OAuth card is the active source so the two cards are
+    /// mutually exclusive: the user must explicitly turn OAuth off before enabling env.
+    let isDisabled: Bool
     /// Called when the toggle is flipped. `true` means the user wants env token active.
     let onToggle: (Bool) -> Void
 
@@ -63,7 +68,9 @@ struct EnvironmentTokenCard: View {
                 .toggleStyle(.switch)
                 .labelsHidden()
                 .scaleEffect(0.8)
-                .opacity(isActive ? 1.0 : 0.65)
+                .disabled(isDisabled)
+                .opacity(isDisabled ? 0.35 : isActive ? 1.0 : 0.65)
+                .help(isDisabled ? "Turn off GitHub OAuth before enabling environment token" : "")
             }
         }
         .accessibilityElement(children: .combine)

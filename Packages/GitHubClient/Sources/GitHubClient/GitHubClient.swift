@@ -89,6 +89,13 @@ public final class GitHubClient {
     /// Use `cachedToken` for read-only UI status checks.
     private let _tokenCache: TokenCache
 
+    /// The env-token provider, stored separately so `discoverEnvironmentState()`
+    /// can run an env-only resolution without going through the full token-cache
+    /// chain (which also checks the Keychain and would return OAuth tokens).
+    ///
+    /// Typed to the protocol so no `EnvTokenKit` type leaks into the public API.
+    private let _envProvider: any EnvTokenProviding
+
     /// The token that the in-memory cache has already resolved, or `nil` if no
     /// `token()` call has completed yet during this process lifetime.
     ///
@@ -110,6 +117,35 @@ public final class GitHubClient {
     /// `cachedToken` synchronously for UI status checks.
     public func token() async -> String? {
         await _tokenCache.token()
+    }
+
+    /// Probes `GH_TOKEN` / `GITHUB_TOKEN` via the env-only resolution path and
+    /// returns the corresponding `EnvironmentTokenState`.
+    ///
+    /// Unlike `token()`, this method does **not** check the Keychain. It resolves
+    /// only via the `EnvTokenProvider` (process env → login-shell fallback), so
+    /// the result reflects purely whether an environment variable token is present,
+    /// regardless of OAuth sign-in state.
+    ///
+    /// Use this from `AppState.start()` and `SettingsView.task` to seed
+    /// `GitHubAuthentication.environmentState` without OAuth state leaking in.
+    ///
+    /// ## Caching
+    /// The underlying `EnvTokenProvider` caches shell results — repeated calls are
+    /// cheap once the shell path has resolved. See `EnvTokenProviding.token()` for
+    /// the full caching contract.
+    ///
+    /// ## Variable detection
+    /// Returns `.available(variable: .ghToken)` as a conservative label.
+    /// Distinguishing `GH_TOKEN` vs `GITHUB_TOKEN` requires a separate env-var
+    /// probe and is deferred to a Phase 2 enhancement (see #2459 §4.7).
+    public func discoverEnvironmentState() async -> EnvironmentTokenState {
+        let envToken = await _envProvider.token()
+        if envToken != nil {
+            return .available(variable: .ghToken)
+        } else {
+            return .unavailable
+        }
     }
 
     // MARK: - Production init
@@ -181,6 +217,7 @@ public final class GitHubClient {
         // passed into TokenCache, which only ever knows the protocol — see TokenCache Boundary
         // Rule in #74. EnvTokenProvider is the only EnvTokenKit concrete type named in this file.
         let envProvider = EnvTokenProvider(log: log)
+        self._envProvider = envProvider
         let cache = TokenCache(tokenStore: store, envProvider: envProvider, logger: logger)
         let oauth = OAuthService(
             clientID: clientID,
@@ -270,5 +307,9 @@ public final class GitHubClient {
         self.oauthService = oauthService
         self.transport = transport
         self._tokenCache = tokenCache ?? TokenCache(tokenStore: NullTokenStore())
+        // Test init always uses NullEnvTokenProvider — discoverEnvironmentState()
+        // returns .unavailable. Tests that need a custom env-discovery result
+        // should stub at the GitHubAuthentication level, not at the provider level.
+        self._envProvider = NullEnvTokenProvider()
     }
 }

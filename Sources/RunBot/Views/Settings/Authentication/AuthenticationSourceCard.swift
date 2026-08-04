@@ -23,7 +23,7 @@ struct AuthenticationSourceCard<Content: View>: View {
     private var strokeColor: Color {
         if isError { return Color.rbDanger.opacity(0.6) }
         if isActive { return Color.accentColor.opacity(0.6) }
-        return Color.rbBorder
+        return Color.rbBorderSubtle
     }
 
     /// Background fill — low-opacity accent/danger when prominent, transparent otherwise.
