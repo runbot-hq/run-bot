@@ -68,7 +68,11 @@ public struct GitHubTransport: GitHubTransportProtocol {
   /// Optional logger for diagnostic messages.
   public let logger: (any GitHubLogger)?
 
-  /// Call counter incremented once per successful HTTP round-trip (2xx response).
+  /// Call counter incremented once per completed HTTP round-trip (any status code).
+  ///
+  /// Incremented in `execute()` immediately after `session.data(for:)` returns,
+  /// before `interpretHTTPResponse` branches on status code. Network errors
+  /// (DNS failure, timeout — where no request left the machine) are excluded.
   ///
   /// Injected at init so tests can pass a mock conformer and assert call counts
   /// without touching the shared singleton. Defaults to `APICallCounter.shared`.
@@ -164,6 +168,11 @@ public struct GitHubTransport: GitHubTransportProtocol {
       category: "transport")
     do {
       let (data, response) = try await session.data(for: req)
+      // Count every completed HTTP round-trip regardless of status code.
+      // 5xx, 4xx, and 2xx all consumed a quota slot on GitHub’s side.
+      // Network errors (DNS/timeout — no bytes sent) fall through to the
+      // catch below and are correctly excluded.
+      await callCounter.record()
       logger?.log(
         "\(logTag) › response received: \(urlString) bytes=\(data.count)",
         category: "transport")
@@ -205,16 +214,8 @@ public struct GitHubTransport: GitHubTransportProtocol {
 
   /// Maps an HTTP response + body into an `ExecuteResult`, arming rate-limit back-off as needed.
   ///
-  /// Records one call-counter hit on every 2xx response.
-  ///
-  /// WHY SEQUENTIAL AWAITS (not `async let`):
-  /// The two awaits — `rateLimiter.clearIfNotLimited()` then `callCounter.record()` —
-  /// are intentionally sequential, not a missed `async let` parallelisation opportunity.
-  /// Rate-limit state must be cleared before the success counter is incremented:
-  /// if both ran concurrently, a read of `rateLimiter.isLimited` on another task
-  /// could see the old (still-limited) state while `callCounter` has already ticked,
-  /// producing a misleading call-count for a request that the rate-limiter
-  /// considers not yet cleared. Sequential ordering is the correct invariant here.
+  /// `callCounter.record()` is called in `execute()` before this method is reached —
+  /// once per completed HTTP round-trip regardless of status code.
   private func interpretHTTPResponse(
     _ response: URLResponse,
     data: Data,
@@ -246,11 +247,10 @@ public struct GitHubTransport: GitHubTransportProtocol {
       logErrorBody(data, endpoint: urlString, status: http.statusCode, logger: logger)
       return .httpError(http.statusCode)
     }
-    await rateLimiter.clearIfNotLimited()   // ← must precede callCounter.record() — see doc comment
+    await rateLimiter.clearIfNotLimited()
     if let remaining = http.value(forHTTPHeaderField: "X-RateLimit-Remaining").flatMap(Int.init) {
         await rateLimiter.updateRemaining(remaining)
     }
-    await callCounter.record()              // ← intentionally after clearIfNotLimited()
     let linkHeader = http.value(forHTTPHeaderField: "Link")
     return .success(data, statusCode: http.statusCode, linkHeader: linkHeader)
   }

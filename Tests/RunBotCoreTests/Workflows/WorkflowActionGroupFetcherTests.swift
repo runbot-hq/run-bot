@@ -137,22 +137,35 @@ private func minimalJob(
 struct WorkflowActionGroupFetcherTests {
   /// Builds a concluded `WorkflowActionGroup` cache entry for the given SHA.
   /// Callers supply only the fields that vary between tests.
+  ///
+  /// `runID` is used to seed a single `WorkflowRunRef` so that `group.id`
+  /// (derived as `runs.map { $0.id }.max() ?? 0`) is non-zero and unique per
+  /// group. Without it, every helper-constructed group would have `id == "0"`,
+  /// causing silent collisions in any future test that keys the cache by group ID.
+  ///
+  /// runs: [run] is intentional — group.id resolves to "0" for all fixtures here.
+  /// Cache lookup in these tests is keyed by the cacheKey string, not by group.id,
+  /// so identity collisions are benign. If you add tests that key by group.id,
+  /// pass an explicit runID to avoid silent collisions.
   private func makeCachedGroup(
     sha: String,
+    runID: Int = 1,
     title: String = "Cached commit",
     repo: String = "owner/repo",
     jobID: Int = 999,
     jobName: String = "cached-build",
     jobScope: String = "owner/repo",
-    steps: [JobStep] = []
+    steps: [JobStep] = [],
+    normalizedEvent: String = "commit"
   ) -> WorkflowActionGroup {
-    WorkflowActionGroup(
+    let run = WorkflowRunRef(id: runID, name: "CI", status: .completed, conclusion: .success, htmlUrl: nil)
+    return WorkflowActionGroup(
       headSha: sha,
       label: sha,
       title: title,
       headBranch: nil,
       repo: repo,
-      runs: [],
+      runs: [run],
       jobs: [
         ActiveJob(
           id: jobID, name: jobName, status: .completed, htmlUrl: nil,
@@ -161,7 +174,8 @@ struct WorkflowActionGroupFetcherTests {
           startedAt: nil, completedAt: Date(), steps: steps
         )
       ],
-      firstJobStartedAt: nil, lastJobCompletedAt: nil, createdAt: nil
+      firstJobStartedAt: nil, lastJobCompletedAt: nil, createdAt: nil,
+      normalizedEvent: normalizedEvent
     )
   }
 
@@ -492,5 +506,58 @@ struct WorkflowActionGroupFetcherTests {
     #expect(
       group(shaCompleted)?.runs.first?.status == .completed,
       "completed bucket run must have status .completed")
+  }
+
+  // MARK: - Composite cache key (#2444)
+
+  /// Verifies that a concluded cache entry keyed by the composite `"sha:event"` string
+  /// is served without re-fetching jobs (regression guard for #2444).
+  ///
+  /// Prior to the fix, `makeShaKeyedCache` keyed by bare `headSha`; the fetcher
+  /// looked up `"sha:commit"` — a 100% cache miss for any event.
+  @Test func fetchActionGroupsCompositeCacheKeyHitServesJobsWithoutAPICall() async {
+    let sha = "compositehit"
+    // Cache key must match what `buildActionGroup` passes to `fetchJobsForGroup`:
+    // `groupKey.cacheKey` == `"\(headSha):\(groupEvent(event))"`, and
+    // `groupEvent("push")` == `"commit"`.
+    let cacheKey = "\(sha):commit"
+    let cached = makeCachedGroup(sha: sha, jobID: 42)
+    let t = makeTransport(with: [
+      "repos/owner/repo/actions/runs?status=in_progress": envelope(
+        key: "workflow_runs",
+        [minimalRun(id: 1, sha: sha, status: "completed", conclusion: "success", event: "push")]),
+    ])
+    let f = WorkflowActionGroupFetcher(transport: t)
+    let r = await f.fetch(for: "owner/repo", cache: [cacheKey: cached])
+    #expect(r.count == 1)
+    // Cache was served — job id 42 (not a live fetch).
+    #expect(r.first?.jobs.first?.id == 42)
+    // 3 status calls only — no /jobs endpoint hit.
+    #expect(t.callCount == 3)
+  }
+
+  // NOTE: Cross-event eviction (fetchActionGroupsFreshPushDoesNotEvictDispatchCacheEntry)
+  // is intentionally not tested at this layer. evictFreshShas lives in PollResultBuilder,
+  // not in the fetcher — that regression is covered in PollResultBuilderEvictionTests.
+
+  /// Verifies that a run JSON object missing the `event` key still decodes cleanly
+  /// and is grouped under the `"push"` → `"commit"` default (regression guard for #2444
+  /// secondary fix: `RunPayload.event` is now `String?`).
+  @Test func fetchActionGroupsMissingEventFieldDefaultsToCommitGroup() async {
+    let sha = "noeventsha"
+    // Build a run fixture without the "event" key — simulates an unusual API response.
+    var runDict: [String: Any] = ["id": 9, "head_sha": sha, "status": "completed", "name": "CI"]
+    runDict["conclusion"] = "success"
+    let t = makeTransport(with: [
+      "repos/owner/repo/actions/runs?status=in_progress": (
+        try? JSONSerialization.data(withJSONObject: ["workflow_runs": [runDict]])) ?? Data(),
+      "repos/owner/repo/actions/runs/9/jobs": envelope(key: "jobs", [minimalJob(id: 3)]),
+    ])
+    let f = WorkflowActionGroupFetcher(transport: t)
+    let r = await f.fetch(for: "owner/repo")
+    // Must produce one group; must not crash or return empty.
+    #expect(r.count == 1)
+    // The group is bucketed under the "push" default → normalised to "commit".
+    #expect(r.first?.normalizedEvent == "commit")
   }
 }

@@ -133,6 +133,9 @@ public enum PollResultBuilder {
     // fast-path guard (existing.isDimmed && jobs >= snapshot) will skip it cleanly.
     let liveIDs = Set(liveGroups.map { $0.id })
     let now = Date()
+    // NOTE: eviction must happen before doneGroups are written into newCache.
+    // Order is load-bearing: evictFreshShas sees the pre-completion cache state.
+    // Reversing these two operations would incorrectly evict entries just completed.
     var newCache = evictFreshShas(from: snapGroupCache, freshGroups: allFetched)
     // Dim and cache every completed group that came back from fetchGroups.
     // `freezeVanishedGroups` (below) handles the complementary case: groups that
@@ -239,28 +242,49 @@ public enum PollResultBuilder {
   /// re-runs on the same commit (same `headSha`, new group ID) and avoid returning
   /// stale cached data for them.
   ///
-  /// When two cache entries share the same `headSha` (possible if a re-run was cached
+  /// When two cache entries share the same composite key (possible if a re-run was cached
   /// before the original was evicted), the tie-break keeps the entry with the larger
   /// group ID. Group IDs are monotonically increasing — a higher ID means a newer run
-  /// — so this retains the most recent run's cache entry for each SHA.
+  /// — so this retains the most recent run's cache entry for each key.
+  ///
+  /// The composite key is `WorkflowActionGroup.compositeCacheKey` (`"headSha:normalizedEvent"`)
+  /// — defined on the model so producer (`PollResultBuilder`) and consumer
+  /// (`WorkflowActionGroupFetcher`) share a single canonical format and cannot drift.
+  /// A pure `headSha` key would cause 100% cache misses for completed runs when
+  /// the event differs (regression from #2434).
   public static func makeShaKeyedCache(_ cache: [String: WorkflowActionGroup]) -> [String: WorkflowActionGroup] {
     Dictionary(
-      cache.values.map { ($0.headSha, $0) },
+      cache.values.map { ($0.compositeCacheKey, $0) },
       uniquingKeysWith: { lhs, rhs in lhs.id > rhs.id ? lhs : rhs }
     )
   }
 
-  /// Removes cache entries whose `headSha` appears in the freshly-fetched group list.
+  /// Removes cache entries whose composite identity (`headSha:normalizedEvent`) appears
+  /// in the freshly-fetched group list.
+  ///
+  /// - Parameter cache: The **ID-keyed** group cache (`snapGroupCache`). Each entry's
+  ///   composite identity is derived from its *value* fields rather than its key, because
+  ///   the cache is keyed by group ID, not by `"headSha:normalizedEvent"`.
+  /// - Parameter freshGroups: The groups returned by the current live fetch.
   ///
   /// A re-run on the same commit produces a new group ID for the same `headSha`.
-  /// This method correctly evicts *all* cached groups for that SHA so the stale
-  /// entries cannot ghost alongside the fresh live group.
+  /// Evicting by composite identity (not bare `headSha`) ensures that a fresh `push`
+  /// group does not accidentally evict a cached `workflow_dispatch` group that shares
+  /// the same SHA but belongs to a different event bucket.
+  ///
+  /// Note: `$0.value.compositeCacheKey` is used (not `$0.key`) because this dict is
+  /// ID-keyed — `$0.key` is a group ID string, not a composite key. `compositeCacheKey`
+  /// is defined on `WorkflowActionGroup` and propagated by all mutation paths
+  /// (`withJobs`, `copying`), so the value-based lookup is safe.
   public static func evictFreshShas(
     from cache: [String: WorkflowActionGroup],
     freshGroups: [WorkflowActionGroup]
   ) -> [String: WorkflowActionGroup] {
-    let freshShas = Set(freshGroups.map { $0.headSha })
-    return cache.filter { !freshShas.contains($0.value.headSha) }
+    // NOTE: This cache is ID-keyed (group.id), not composite-keyed.
+    // $0.key is a group ID string — using $0.key here would silently skip all evictions.
+    // We derive the composite key from the value instead, which is correct for this dict.
+    let freshKeys = Set(freshGroups.map { $0.compositeCacheKey })
+    return cache.filter { !freshKeys.contains($0.value.compositeCacheKey) }
   }
 
   /// Freezes action groups that were live in the previous poll but have since
