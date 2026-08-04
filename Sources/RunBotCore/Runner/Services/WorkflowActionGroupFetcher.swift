@@ -51,19 +51,13 @@ private struct GroupKey: Hashable {
   /// format as `WorkflowActionGroup.compositeCacheKey`.
   ///
   /// Used by `fetchJobsForGroup` to look up a cached group before hitting the API.
-  /// `GroupKey` is private to this file and cannot call `compositeCacheKey` directly;
-  /// this property inlines the same format. **If `WorkflowActionGroup.compositeCacheKey`
-  /// ever changes its format, this must be updated in sync.**
+  /// Mirrors the format defined canonically on `WorkflowActionGroup.compositeCacheKey`.
+  /// `GroupKey` is private to this file and cannot call `compositeCacheKey` directly,
+  /// so this property inlines the same `"headSha:normalizedEvent"` format.
+  /// NOTE: If `WorkflowActionGroup.compositeCacheKey` changes its format, this must
+  /// be updated in sync. Both sides are intentionally parallel, not delegating.
   var cacheKey: String { "\(headSha):\(event)" }
 }
-
-/// Normalises a GitHub workflow trigger event into a grouping bucket.
-///
-/// `push` and `pull_request` are collapsed into `"commit"` so that all
-/// commit-triggered CI workflows remain in a single row. All other events
-/// (e.g. `workflow_dispatch`, `schedule`) are kept verbatim so they appear
-/// as separate rows.
-///
 /// - Parameter event: The raw `event` string from the GitHub runs API.
 /// - Returns: A normalised bucket string used as part of `GroupKey`.
 private func groupEvent(_ event: String) -> String {
@@ -85,9 +79,10 @@ private struct RunPayload: Codable {
   let id: Int
   /// The workflow event that triggered this run (e.g. `push`, `workflow_dispatch`).
   ///
-  /// Optional so that a run object missing the `event` key does not cause the
-  /// entire `ActionRunsResponse` page to decode to `nil` via `try?` in
-  /// `decodeRuns`. A `nil` value is treated as `"push"` at the call site.
+  /// A `nil` value falls back to `"commit"` at the call site via
+  /// `run.event.map { groupEvent($0) } ?? "commit"`. This is equivalent
+  /// to passing `"push"` through `groupEvent(_:)`, which maps to `"commit"` —
+  /// the terminal bucket is always `"commit"`, not `"push"`.
   let event: String?
   /// The workflow name.
   let name: String

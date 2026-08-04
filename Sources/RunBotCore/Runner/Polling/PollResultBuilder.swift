@@ -133,6 +133,9 @@ public enum PollResultBuilder {
     // fast-path guard (existing.isDimmed && jobs >= snapshot) will skip it cleanly.
     let liveIDs = Set(liveGroups.map { $0.id })
     let now = Date()
+    // NOTE: eviction must happen before doneGroups are written into newCache.
+    // Order is load-bearing: evictFreshShas sees the pre-completion cache state.
+    // Reversing these two operations would incorrectly evict entries just completed.
     var newCache = evictFreshShas(from: snapGroupCache, freshGroups: allFetched)
     // Dim and cache every completed group that came back from fetchGroups.
     // `freezeVanishedGroups` (below) handles the complementary case: groups that
@@ -277,6 +280,9 @@ public enum PollResultBuilder {
     from cache: [String: WorkflowActionGroup],
     freshGroups: [WorkflowActionGroup]
   ) -> [String: WorkflowActionGroup] {
+    // NOTE: This cache is ID-keyed (group.id), not composite-keyed.
+    // $0.key is a group ID string — using $0.key here would silently skip all evictions.
+    // We derive the composite key from the value instead, which is correct for this dict.
     let freshKeys = Set(freshGroups.map { $0.compositeCacheKey })
     return cache.filter { !freshKeys.contains($0.value.compositeCacheKey) }
   }

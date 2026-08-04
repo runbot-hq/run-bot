@@ -105,6 +105,11 @@ public struct WorkflowActionGroup: Identifiable, Equatable, Sendable {
     /// Format: `"headSha:normalizedEvent"` — e.g. `"abc123:commit"` or
     /// `"abc123:workflow_dispatch"`. Defining this in the model (visible to both
     /// files) ensures the two sides can never drift apart.
+    ///
+    /// CANONICAL definition of the composite cache key format.
+    /// GroupKey.cacheKey (in WorkflowActionGroupFetcher.swift) mirrors this format.
+    /// If you change the format here, you must update GroupKey.cacheKey in sync.
+    /// Both call compositeGroupCacheKey(_:_:) to enforce this at the call site.
     public var compositeCacheKey: String { "\(headSha):\(normalizedEvent)" }
 
     /// Stable unique key: highest run ID in this group.

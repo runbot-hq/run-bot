@@ -142,6 +142,11 @@ struct WorkflowActionGroupFetcherTests {
   /// (derived as `runs.map { $0.id }.max() ?? 0`) is non-zero and unique per
   /// group. Without it, every helper-constructed group would have `id == "0"`,
   /// causing silent collisions in any future test that keys the cache by group ID.
+  ///
+  /// runs: [run] is intentional — group.id resolves to "0" for all fixtures here.
+  /// Cache lookup in these tests is keyed by the cacheKey string, not by group.id,
+  /// so identity collisions are benign. If you add tests that key by group.id,
+  /// pass an explicit runID to avoid silent collisions.
   private func makeCachedGroup(
     sha: String,
     runID: Int = 1,
@@ -153,8 +158,7 @@ struct WorkflowActionGroupFetcherTests {
     steps: [JobStep] = [],
     normalizedEvent: String = "commit"
   ) -> WorkflowActionGroup {
-    let run = WorkflowRunRef(id: runID, headSha: sha, headBranch: nil, htmlUrl: nil,
-                             createdAt: nil, status: "completed", conclusion: "success")
+    let run = WorkflowRunRef(id: runID, name: "CI", status: .completed, conclusion: .success, htmlUrl: nil)
     return WorkflowActionGroup(
       headSha: sha,
       label: sha,
@@ -532,11 +536,9 @@ struct WorkflowActionGroupFetcherTests {
     #expect(t.callCount == 3)
   }
 
-  // NOTE: The cross-event eviction regression ("fresh push must not evict dispatch cache entry")
-  // is tested at the correct layer in RunBotCoreTests.swift
-  // (PollResultBuilderEvictionTests.evictFreshShasDoesNotEvictDifferentEventOnSameSha).
-  // evictFreshShas lives in PollResultBuilder and is never called by WorkflowActionGroupFetcher.fetch,
-  // so testing it through the fetcher would never catch a regression in the eviction logic.
+  // NOTE: Cross-event eviction (fetchActionGroupsFreshPushDoesNotEvictDispatchCacheEntry)
+  // is intentionally not tested at this layer. evictFreshShas lives in PollResultBuilder,
+  // not in the fetcher — that regression is covered in PollResultBuilderEvictionTests.
 
   /// Verifies that a run JSON object missing the `event` key still decodes cleanly
   /// and is grouped under the `"push"` → `"commit"` default (regression guard for #2444
