@@ -74,6 +74,7 @@
 //      is deallocated before the cell, the IMP's objc_getAssociatedObject
 //      call would return a dangling pointer; the subsequent as? cast does not
 //      protect against reading freed memory. Fixed by WeakBox (see below).
+//      ❌ Reviewed and explicitly rejected. Do not revert to ASSIGN.
 //
 // ─────────────────────────────────────────────────────────────────────────────
 // CURRENT SOLUTION — TWO object_setClass SWAPS
@@ -215,7 +216,10 @@ final class MBKStatusBarButton: NSStatusBarButton {
     ///
     /// Backed by `objc_getAssociatedObject` / `objc_setAssociatedObject` —
     /// adds **zero stored ivars** to the class, which is required for
-    /// `object_setClass` safety. See file header for full rationale.
+    /// `object_setClass` safety. See file header "WHY isPanelOpen USES
+    /// ASSOCIATED OBJECTS" for the full rationale. Do not convert this to
+    /// a stored property — doing so would make the `object_setClass` swap
+    /// unsafe (out-of-bounds ivar write on every access).
     ///
     /// - Important: On close, set `isPanelOpen = false` **before** calling
     ///   `highlight(false)`. See CALL-SITE CONTRACT in the file header.
@@ -327,9 +331,9 @@ final class MBKStatusBarButton: NSStatusBarButton {
         // unsafeBitCast super-dispatch call, which IS a raw C IMP invocation.
         //
         // mbkLog inside the IMP fires on every mouse-tracking tick while the
-        // button is hovered. The default mbkLogHandler is #if DEBUG-gated
-        // (see Logging.swift) so this is a no-op in release unless the host
-        // app installs a custom handler without a debug guard.
+        // button is hovered. This is a no-op in release: the default
+        // mbkLogHandler is #if DEBUG-gated in Logging.swift. It is only
+        // noisy if the host app installs a custom handler without a debug guard.
         typealias HighlightIMP = @convention(c) (AnyObject, Selector, Bool, NSRect, NSView) -> Void
 
         let subclass: AnyClass
@@ -367,7 +371,7 @@ final class MBKStatusBarButton: NSStatusBarButton {
                 return
             }
 
-            let sel2 = sel  // capture for IMP block
+            let sel2 = sel  // capture by value for IMP block
             let imp: IMP = imp_implementationWithBlock({ (cellSelf: AnyObject, flag: Bool, frame: NSRect, view: NSView) in
                 // WeakBox.value is nil if the button was already deallocated —
                 // treat isPanelOpen as false (safe pass-through).
@@ -396,6 +400,10 @@ final class MBKStatusBarButton: NSStatusBarButton {
         }
 
         // ISA-swap the cell to the subclass (new or reused).
+        // Both paths (new class and reused class) reach this point — these
+        // two operations are per-instance, not per-class, and must run every
+        // time injectCellSubclass is called regardless of whether the class
+        // pair was just created or already existed.
         let beforeCell = NSStringFromClass(type(of: cell as AnyObject))
         object_setClass(cell, subclass)
         let afterCell = NSStringFromClass(type(of: cell as AnyObject))
@@ -404,8 +412,9 @@ final class MBKStatusBarButton: NSStatusBarButton {
         // Zeroing-weak back-reference via WeakBox retained by the associated-object
         // table. If the button is deallocated before the cell, box.value becomes nil
         // and the IMP safely no-ops rather than dereferencing a dangling pointer.
-        // OBJC_ASSOCIATION_ASSIGN is intentionally NOT used here — it stores a
-        // raw unretained pointer that does not zero on deallocation (dangling-ptr UB).
+        // ❌ OBJC_ASSOCIATION_ASSIGN was reviewed and explicitly rejected — it stores
+        // a raw unretained pointer with no zeroing on deallocation (dangling-ptr UB).
+        // Do not revert to ASSIGN. See approach 8 in the file header.
         let box = WeakBox(self)
         objc_setAssociatedObject(cell, &kCellButtonKey, box, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
         mbkLog("MBKStatusBarButton", "injectCellSubclass -- back-reference set btnAddr=\(UInt(bitPattern: ObjectIdentifier(self)))")
