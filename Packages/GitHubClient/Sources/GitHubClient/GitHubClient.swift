@@ -130,18 +130,23 @@ public final class GitHubClient {
     /// OAuth branch with `TokenCache.token()`: that API uses the legacy combined
     /// Keychain → environment chain and would violate the selected mode.
     public func token() async -> String? {
-        switch _authSource() {
-        case .oauth:
-            return _tokenCache.oauthToken()
-        case .environment:
-            // Env-only path: bypass the Keychain step in TokenCache so an OAuth
-            // credential that happens to be present cannot silently satisfy the
-            // request when the user has explicitly chosen environment auth.
-            return await _envProvider.token()
-        case .unauthenticated:
-            return nil
-        }
+        await _tokenProvider()
     }
+
+    /// Shared token resolution closure that routes through the selected
+    /// authentication source.
+    ///
+    /// Used by both `token()` and the transport's `tokenProvider` so the two
+    /// paths can never diverge — there is a single source of truth for how
+    /// each authentication mode maps to a credential.
+    ///
+    /// WHY STORED AS A CLOSURE (not a method):
+    /// `GitHubTransport.tokenProvider` requires a `@Sendable () async -> String?`
+    /// which is callable from any isolation context. `GitHubClient.token()` is
+    /// `@MainActor`-isolated because the class carries `@MainActor`. Storing the
+    /// closure separately lets us pass the same routing logic to the transport
+    /// without forcing a main-actor hop on every network request.
+    private let _tokenProvider: @Sendable () async -> String?
 
     /// Probes `GH_TOKEN` / `GITHUB_TOKEN` via the env-only resolution path and
     /// returns the corresponding `EnvironmentTokenState`.
@@ -267,6 +272,21 @@ public final class GitHubClient {
             onTokenSaved: { cache.invalidate() },
             onTokenDeleted: { cache.invalidate() }
         )
+        let tokenProvider: @Sendable () async -> String? = { [cache, envProvider, authSource] in
+            let source = await authSource()
+            switch source {
+            case .oauth:
+                return cache.oauthToken()
+            case .environment:
+                // Env-only path: bypass the Keychain step in TokenCache so an OAuth
+                // credential that happens to be present cannot silently satisfy the
+                // request when the user has explicitly chosen environment auth.
+                return await envProvider.token()
+            case .unauthenticated:
+                return nil
+            }
+        }
+        self._tokenProvider = tokenProvider
         // Dedicated URLSession with no disk cache for the GitHub API transport.
         // URLSession.shared uses a disk-backed URLCache by default. GitHub's /logs
         // endpoints 302-redirect to short-lived S3 pre-signed URLs; without urlCache = nil,
@@ -284,7 +304,7 @@ public final class GitHubClient {
         }()
         let transport = GitHubTransport(
             session: apiSession,
-            tokenProvider: { await cache.token() },
+            tokenProvider: tokenProvider,
             logger: logger
         )
         // NOT a dead assignment — read by free-function shims in GitHubTransportShims.swift.
@@ -344,5 +364,19 @@ public final class GitHubClient {
         // should stub at the GitHubAuthentication level, not at the provider level.
         self._envProvider = NullEnvTokenProvider()
         self._authSource = authSource
+        let capturedAuthSource = authSource
+        let capturedCache = self._tokenCache
+        let capturedEnvProvider = self._envProvider
+        self._tokenProvider = { [capturedAuthSource, capturedCache, capturedEnvProvider] in
+            let source = await capturedAuthSource()
+            switch source {
+            case .oauth:
+                return capturedCache.oauthToken()
+            case .environment:
+                return await capturedEnvProvider.token()
+            case .unauthenticated:
+                return nil
+            }
+        }
     }
 }
