@@ -160,6 +160,7 @@
 // AppKit Sendable diagnostics in this file, hiding future regressions.
 import AppKit
 import SwiftUI
+
 // NSGlassEffectView private KVC keys — all three set to 1 to produce dark glass.
 //
 // Each key controls a distinct stage of the same compositor pipeline:
@@ -445,7 +446,18 @@ public final class MBKPanelController<Content: View>: NSObject, MBKPanelControll
         }
     }
 
-    /// Creates the NSStatusItem, configures its button image, and wires the toggle action.
+    /// Creates the NSStatusItem, injects `MBKStatusBarButton` + a dynamic cell subclass,
+    /// and wires the toggle action.
+    ///
+    /// Two `object_setClass` swaps are required — one on the button, one on its cell:
+    /// - `MBKStatusBarButton.highlight(_:)` guards the public `NSButton` path.
+    /// - A dynamically created subclass of the cell's actual private runtime class
+    ///   (e.g. `NSStatusBarButtonCell`) guards the internal cell path AppKit calls
+    ///   directly during mouse tracking and key-window transitions, bypassing the
+    ///   button-level override entirely. The dynamic subclass preserves the private
+    ///   class's own ivars and drawing — only `highlight(_:withFrame:in:)` is added.
+    ///   Confirmed necessary by diagnostic logs showing the button override firing
+    ///   correctly while highlight still cleared. See #2440.
     ///
     /// `sendAction(on: .leftMouseDown)` fires the action on mouseDown rather than the
     /// default mouseUp. This is required to prevent a highlight flicker on open:
@@ -456,9 +468,32 @@ public final class MBKPanelController<Content: View>: NSObject, MBKPanelControll
     private func setupStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = statusItem.button {
+            // Inject button subclass.
+            // object_setClass is safe here: NSStatusBarButton has no extra stored ivars,
+            // and MBKStatusBarButton adds none either (isPanelOpen uses associated objects).
+            // See MBKStatusBarButton.swift and #2440.
+            let beforeBtn = NSStringFromClass(type(of: button as AnyObject))
+            object_setClass(button, MBKStatusBarButton.self)
+            let afterBtn = NSStringFromClass(type(of: button as AnyObject))
+            mbkLog("PanelController", "setupStatusItem -- button class: \(beforeBtn) → \(afterBtn) castOK=\((button as? MBKStatusBarButton) != nil)")
+
+            // Inject dynamic cell subclass and wire back-reference.
+            // Must run AFTER the button swap so the button is already MBKStatusBarButton
+            // when injectCellSubclass() stores the back-reference via associated object.
+            if let mbkButton = button as? MBKStatusBarButton {
+                let beforeCell = NSStringFromClass(type(of: button.cell as AnyObject))
+                mbkButton.injectCellSubclass()
+                let afterCell = NSStringFromClass(type(of: button.cell as AnyObject))
+                // Note: the injected subclass is named "MBKStatusBarButtonCell_<originalClass>".
+                // We check for the prefix rather than an exact type to stay resilient
+                // to the private class name changing across OS versions.
+                let cellInjected = afterCell.hasPrefix("MBKStatusBarButtonCell_")
+                mbkLog("PanelController", "setupStatusItem -- cell class: \(beforeCell) → \(afterCell) cellInjected=\(cellInjected)")
+            }
+
             button.image = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil)
             button.image?.isTemplate = true
-            button.sendAction(on: .leftMouseDown)
+            button.sendAction(on: .leftMouseDown) // keep — still needed for mouseDown dispatch
             button.action = #selector(togglePanel)
             button.target = self
         }
