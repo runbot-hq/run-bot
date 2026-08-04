@@ -99,18 +99,21 @@ public struct WorkflowActionGroup: Identifiable, Equatable, Sendable {
     /// All sibling workflow runs sharing this `head_sha`.
     public let runs: [WorkflowRunRef]
 
-    /// Composite cache key used to uniquely identify this group across both
-    /// `WorkflowActionGroupFetcher` (consumer) and `PollResultBuilder` (producer).
+    /// Static helper so both `WorkflowActionGroup.compositeCacheKey` and
+    /// `GroupKey.cacheKey` (in `WorkflowActionGroupFetcher.swift`) share a
+    /// single physical definition of the cache key format.
     ///
-    /// Format: `"headSha:normalizedEvent"` — e.g. `"abc123:commit"` or
-    /// `"abc123:workflow_dispatch"`. Defining this in the model (visible to both
-    /// files) ensures the two sides can never drift apart.
-    ///
-    /// CANONICAL definition of the composite cache key format.
-    /// GroupKey.cacheKey (in WorkflowActionGroupFetcher.swift) mirrors this format.
-    /// If you change the format here, you must update GroupKey.cacheKey in sync.
-    /// Both call compositeGroupCacheKey(_:_:) to enforce this at the call site.
-    public var compositeCacheKey: String { "\(headSha):\(normalizedEvent)" }
+    /// This is the CANONICAL definition. If the format ever changes, it changes here
+    /// and here only — both callers pick it up automatically.
+    public static func compositeCacheKey(headSha: String, normalizedEvent: String) -> String {
+        "\(headSha):\(normalizedEvent)"
+    }
+
+    /// The composite cache key for this group instance.
+    /// Delegates to the static overload — format is defined in exactly one place.
+    public var compositeCacheKey: String {
+        Self.compositeCacheKey(headSha: headSha, normalizedEvent: normalizedEvent)
+    }
 
     /// Stable unique key: highest run ID in this group.
     ///

@@ -47,16 +47,11 @@ private struct GroupKey: Hashable {
   /// The normalised trigger event, produced by `groupEvent(_:)` — equivalent to
   /// `WorkflowActionGroup.normalizedEvent` for the same run.
   let event: String
-  /// The composite cache key for this group, in the same `"headSha:normalizedEvent"`
-  /// format as `WorkflowActionGroup.compositeCacheKey`.
-  ///
-  /// Used by `fetchJobsForGroup` to look up a cached group before hitting the API.
-  /// Mirrors the format defined canonically on `WorkflowActionGroup.compositeCacheKey`.
-  /// `GroupKey` is private to this file and cannot call `compositeCacheKey` directly,
-  /// so this property inlines the same `"headSha:normalizedEvent"` format.
-  /// NOTE: If `WorkflowActionGroup.compositeCacheKey` changes its format, this must
-  /// be updated in sync. Both sides are intentionally parallel, not delegating.
-  var cacheKey: String { "\(headSha):\(event)" }
+  /// Delegates to `WorkflowActionGroup.compositeCacheKey(headSha:normalizedEvent:)`
+  /// — the single canonical definition of the cache key format.
+  /// `GroupKey` is private to this file and holds no `WorkflowActionGroup` instance,
+  /// so the static overload is used here instead of the instance property.
+  var cacheKey: String { WorkflowActionGroup.compositeCacheKey(headSha: headSha, normalizedEvent: event) }
 }
 /// - Parameter event: The raw `event` string from the GitHub runs API.
 /// - Returns: A normalised bucket string used as part of `GroupKey`.
