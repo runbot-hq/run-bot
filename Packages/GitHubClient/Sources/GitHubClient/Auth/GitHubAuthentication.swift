@@ -40,7 +40,9 @@ public final class GitHubAuthentication {
     // MARK: - Published state
 
     /// The explicit authentication source selected by the user.
-    /// Persisted across launches; defaults to `.oauth` on fresh installations.
+    /// Persisted across launches; defaults to `.unauthenticated` on fresh installations
+    /// so both the environment toggle and the OAuth sign-in button are enabled until the
+    /// user makes an explicit choice.
     public private(set) var selectedSource: GitHubAuthSource
 
     /// The current state of the environment token discovery.
@@ -66,7 +68,10 @@ public final class GitHubAuthentication {
     ) {
         self._defaults = defaults
         let raw = defaults.string(forKey: Self.defaultsKey)
-        self.selectedSource = raw.flatMap(GitHubAuthSource.init(rawValue:)) ?? .oauth
+        // Fresh installs default to .unauthenticated (not .oauth) so both the
+        // environment toggle and the OAuth sign-in button are enabled in the third
+        // UI state (#2172 / #2456). .oauth is written only by recordOAuthSignIn().
+        self.selectedSource = raw.flatMap(GitHubAuthSource.init(rawValue:)) ?? .unauthenticated
         self.environmentState = environmentState
         self.oauthState = oauthState
     }

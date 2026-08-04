@@ -96,6 +96,17 @@ public final class GitHubClient {
     /// Typed to the protocol so no `EnvTokenKit` type leaks into the public API.
     private let _envProvider: any EnvTokenProviding
 
+    /// Returns the currently selected authentication source.
+    ///
+    /// Closure-injected so `GitHubClient` (a package type) can read
+    /// `GitHubAuthentication.selectedSource` (an app-layer type) without
+    /// taking a dependency on the app module. The closure is evaluated on
+    /// every `token()` call — no caching.
+    ///
+    /// Defaults to `{ .unauthenticated }` in the test init so tests that do
+    /// not exercise source-switching get the zero-op behaviour (token() returns nil).
+    private let _authSource: @Sendable @MainActor () -> GitHubAuthSource
+
     /// The token that the in-memory cache has already resolved, or `nil` if no
     /// `token()` call has completed yet during this process lifetime.
     ///
@@ -109,14 +120,28 @@ public final class GitHubClient {
     /// (e.g. from a `.task` modifier that awaits `token()` on appear).
     public var cachedToken: String? { _tokenCache.cachedToken }
 
-    /// Resolves and returns the current token, running the full resolution chain
-    /// if needed (Keychain → environment → login-shell fallback).
+    /// Resolves and returns the current token, dispatching to the correct
+    /// credential source based on `selectedSource`.
+    ///
+    /// - `.oauth`           — resolves from the Keychain via `TokenCache`.
+    /// - `.environment`     — resolves env-var / login-shell only; Keychain is skipped.
+    /// - `.unauthenticated` — returns `nil` immediately; no I/O.
     ///
     /// This is the same path used by every authenticated API call. Call it from
     /// a `.task` modifier or other async context to warm the cache and then read
     /// `cachedToken` synchronously for UI status checks.
     public func token() async -> String? {
-        await _tokenCache.token()
+        switch _authSource() {
+        case .oauth:
+            return await _tokenCache.token()
+        case .environment:
+            // Env-only path: bypass the Keychain step in TokenCache so an OAuth
+            // credential that happens to be present cannot silently satisfy the
+            // request when the user has explicitly chosen environment auth.
+            return await _envProvider.token()
+        case .unauthenticated:
+            return nil
+        }
     }
 
     /// Probes `GH_TOKEN` / `GITHUB_TOKEN` via the env-only resolution path and
@@ -170,6 +195,11 @@ public final class GitHubClient {
     ///     Defaults to `OAuthService.defaultRedirectURI` (`runbot://oauth/callback`).
     ///     Override for staging environments, white-label builds, or a second OAuth app.
     ///     Existing call sites are unaffected — omitting this parameter preserves current behaviour.
+    ///   - authSource: Closure that returns the currently selected authentication
+    ///     source. Evaluated on every `token()` call. Pass
+    ///     `{ appState.authentication.selectedSource }` at the construction site.
+    ///     Defaults to `{ .unauthenticated }` — callers that do not need
+    ///     source-switching can omit this parameter.
     ///   - logger: Optional logger for diagnostic messages.
     @MainActor
     public init(
@@ -179,6 +209,7 @@ public final class GitHubClient {
         account: String,
         scopes: [String] = GitHubScopes.default,
         redirectURI: String = OAuthService.defaultRedirectURI,
+        authSource: @escaping @Sendable @MainActor () -> GitHubAuthSource = { .unauthenticated },
         logger: (any GitHubLogger)? = nil
     ) {
         // Bridge GitHubLogger → log closure for kit injection.
@@ -265,6 +296,7 @@ public final class GitHubClient {
         self.oauthService = oauth
         self.transport = transport
         self._tokenCache = cache
+        self._authSource = authSource
     }
 
     // MARK: - Test init
@@ -302,7 +334,8 @@ public final class GitHubClient {
     public init(
         oauthService: any OAuthServiceProtocol,
         transport: any GitHubTransportProtocol,
-        tokenCache: TokenCache? = nil
+        tokenCache: TokenCache? = nil,
+        authSource: @escaping @Sendable @MainActor () -> GitHubAuthSource = { .unauthenticated }
     ) {
         self.oauthService = oauthService
         self.transport = transport
@@ -311,5 +344,6 @@ public final class GitHubClient {
         // returns .unavailable. Tests that need a custom env-discovery result
         // should stub at the GitHubAuthentication level, not at the provider level.
         self._envProvider = NullEnvTokenProvider()
+        self._authSource = authSource
     }
 }

@@ -12,8 +12,7 @@ import RunBotCore
 // MARK: - AppState
 //
 // Single coordinator for all domain-level state that was previously scattered
-// across AppDelegate's property bag. AppDelegate is reduced to lifecycle
-// wiring after this consolidation (issue #2040).
+// across AppDelegate's property bag (issue #2040).
 //
 // OWNERSHIP RULES:
 // ✅ AppState owns: domain services, poll actors, observable read models,
@@ -31,26 +30,20 @@ import RunBotCore
 // WHY NOT AppStateProtocol?
 // SettingsView previously accepted protocol-typed service parameters so tests
 // could inject stubs. With AppState as the single injection point, tests must
-// construct a full AppState. This is an accepted trade-off: AppState's concrete
-// types (GitHubClient, AppUpdater, RunnerLifecycleService) have no side effects
-// at init time — side effects begin only when start() is called. Unit tests that
-// don't call start() get a zero-cost AppState. A protocol extraction can be
-// revisited if the test surface grows (tracked as migration debt in wrapEnv).
+// construct a full AppState — an accepted trade-off since AppState's concrete
+// types have no side effects at init time (tracked as migration debt in wrapEnv).
 //
 // THREADING:
-// @MainActor-isolated. All domain sub-objects that write observable state
-// must hop to MainActor before writing (RunnerPoller does this via
-// `await MainActor.run { }` at the end of every fetch cycle).
+// @MainActor-isolated. Domain sub-objects that write observable state hop
+// to MainActor via `await MainActor.run { }` at the end of every fetch cycle.
 //
 // STARTUP:
-// AppDelegate.applicationDidFinishLaunching calls
-// `await appState.start(onUpdateStatusIcon:)` after hydrating display names.
-// AppState.start() runs the ordered async startup sequence:
-//   seedStoreAndPoller → startObservations (BEFORE any await — prevents sign-out
-//   event drop) → refreshAsync → store.start
+// AppDelegate calls `await appState.start(onUpdateStatusIcon:)` after
+// hydrating display names. AppState.start() runs the ordered async startup:
+//   seedStoreAndPoller → startObservations → refreshAsync → store.start
 //   → checkAndHandle → scheduleBackgroundCheck
 // LocalRunnerStore.configure() is called by AppDelegate BEFORE the startup
-// Task, not inside start() — see issue #1741 for why ordering matters.
+// Task, not inside start() (issue #1741).
 //
 // Ref: issue #2040, branch feat/app-state-consolidation
 
@@ -72,13 +65,11 @@ final class AppState {
     /// name used by the pre-GitHubClient `Keychain` type. Do NOT change this
     /// value post-ship — doing so orphans any token already stored under the
     /// old coordinates and forces every signed-in user to re-authenticate.
-    let github = GitHubClient(
-        clientID: OAuthSecrets.clientID,
-        clientSecret: OAuthSecrets.clientSecret,
-        service: "run-bot",
-        account: "github-oauth-token",
-        logger: GitHubLoggerAdapter()
-    )
+    ///
+    /// Declared without a default so the inits below can capture `authentication`
+    /// in the `authSource` closure. `authentication` is a `let` on `AppState` and
+    /// is initialised before `github` in both inits, so the capture is safe.
+    let github: GitHubClient
 
     /// Forwarded from `github.oauthService` for backward-compatible access
     /// across extensions and injected views.
@@ -292,7 +283,16 @@ final class AppState {
 
     /// Creates a new `AppState` with the default production `RunnerLifecycleService`.
     /// Call `start(onUpdateStatusIcon:)` after init to begin the startup sequence.
-    init() {}
+    init() {
+        self.github = GitHubClient(
+            clientID: OAuthSecrets.clientID,
+            clientSecret: OAuthSecrets.clientSecret,
+            service: "run-bot",
+            account: "github-oauth-token",
+            authSource: { [authentication] in authentication.selectedSource },
+            logger: GitHubLoggerAdapter()
+        )
+    }
 
     /// Test-only initialiser. Injects a stub `RunnerLifecycleServiceProtocol`
     /// so unit tests can exercise `AppState` without spawning real `svc.sh`
@@ -302,6 +302,14 @@ final class AppState {
     /// - Parameter lifecycleService: A stub conforming to
     ///   `RunnerLifecycleServiceProtocol`. Pass a test double or a no-op mock.
     init(lifecycleService: any RunnerLifecycleServiceProtocol) {
+        self.github = GitHubClient(
+            clientID: OAuthSecrets.clientID,
+            clientSecret: OAuthSecrets.clientSecret,
+            service: "run-bot",
+            account: "github-oauth-token",
+            authSource: { [authentication] in authentication.selectedSource },
+            logger: GitHubLoggerAdapter()
+        )
         self.lifecycleService = lifecycleService
     }
 

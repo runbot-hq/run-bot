@@ -465,9 +465,12 @@ struct SettingsView: View {
         signOutTask = Task { @MainActor in
             for await _ in oauthService.makeSignOutStream() {
                 log("【SettingsView.signOutStream】didSignOut", category: .general)
-                // Sign-out does NOT activate environment (rule #5 from #2459 §4.5)
+                // After sign-out, revert to .unauthenticated so both the env toggle
+                // and the OAuth sign-in button are re-enabled (#2464 blocker 1).
+                // Do NOT activate environment automatically (rule #5 from #2459 §4.5).
                 auth.setOAuthState(.signedOut)
-                log("【SettingsView.signOutStream】oauthState=\(auth.oauthState)", category: .general)
+                auth.setSelectedSource(.unauthenticated)
+                log("【SettingsView.signOutStream】oauthState=\(auth.oauthState) source=\(auth.selectedSource)", category: .general)
             }
         }
     }
