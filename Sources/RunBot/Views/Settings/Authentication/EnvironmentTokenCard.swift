@@ -39,7 +39,7 @@ struct EnvironmentTokenCard: View {
     /// Card body: status dot, label, and on/off toggle.
     var body: some View {
         AuthenticationSourceCard(isActive: isActive, isError: isError) {
-            HStack(alignment: .top, spacing: 8) {
+            HStack(alignment: .center, spacing: 8) {
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 6) {
                         statusDot
