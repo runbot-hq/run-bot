@@ -1,8 +1,5 @@
 // AnchoredSheet.swift
 // MenuBarKit
-//
-// Adds mbkWaitAndAnchorSheetWindow and MBKAnchoredSheetModifier for
-// gate-managed anchored sheet presentation.
 
 import AppKit
 import SwiftUI
