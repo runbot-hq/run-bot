@@ -101,6 +101,28 @@ public final class GitHubAuthentication {
         self.oauthState = oauthState
     }
 
+    // MARK: - Derived state
+
+    /// `true` when the active authentication mode has a usable credential.
+    ///
+    /// This follows `selectedSource` strictly. Credentials belonging to an inactive
+    /// source are intentionally ignored.
+    ///
+    /// Do not replace this with `OAuthService.hasAnyToken`: that property reports
+    /// whether any credential exists, regardless of RunBot's active mode.
+    public var isAuthenticated: Bool {
+        switch selectedSource {
+        case .oauth:
+            if case .signedIn = oauthState { return true }
+            return false
+        case .environment:
+            if case .available = environmentState { return true }
+            return false
+        case .unauthenticated:
+            return false
+        }
+    }
+
     // MARK: - Mutations
 
     /// Sets the user-selected authentication source and persists it.

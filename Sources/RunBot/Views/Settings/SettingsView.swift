@@ -161,18 +161,8 @@ struct SettingsView: View {
 
     /// `true` when the app has a usable credential for the currently selected source.
     /// Used by `LocalRunnersView` to determine whether to show runner controls.
-    var isEffectivelyAuthenticated: Bool {
-        switch authentication.selectedSource {
-        case .oauth:
-            if case .signedIn = authentication.oauthState { return true }
-            return false
-        case .environment:
-            if case .available = authentication.environmentState { return true }
-            return false
-        case .unauthenticated:
-            return false
-        }
-    }
+    /// Delegates to `GitHubAuthentication.isAuthenticated` — the single source of truth.
+    var isEffectivelyAuthenticated: Bool { authentication.isAuthenticated }
 
     // MARK: - Local UI state
     //
@@ -283,7 +273,7 @@ struct SettingsView: View {
                     lifecycleService: lifecycleService
                 )
             } else if showScopes {
-                ScopesView(onBack: { showScopes = false }, oauthService: oauthService)
+                ScopesView(onBack: { showScopes = false }, authentication: authentication)
             } else {
                 settingsBody
             }
