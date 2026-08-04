@@ -26,12 +26,9 @@ internal extension SettingsView {
                 authentication: authentication,
                 onSignIn: signInWithGitHub,
                 onSignOut: signOutOfGitHub,
-                onSelectSource: { appState.authentication.setSelectedSource($0) },
                 onToggleEnvironment: { enabled in
                     if enabled {
                         appState.authentication.setSelectedSource(.environment)
-                    } else if case .signedIn = appState.authentication.oauthState {
-                        appState.authentication.setSelectedSource(.oauth)
                     } else {
                         appState.authentication.setSelectedSource(.unauthenticated)
                     }

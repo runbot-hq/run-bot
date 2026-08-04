@@ -23,20 +23,38 @@ struct AuthenticationSection: View {
     let onSignIn: () -> Void
     /// Called to sign out and remove the stored OAuth token.
     let onSignOut: () -> Void
-    /// Called when the user selects a specific source explicitly.
-    let onSelectSource: (GitHubAuthSource) -> Void
     /// Called when the environment toggle is flipped. `true` = activate env source.
     let onToggleEnvironment: (Bool) -> Void
 
     // MARK: - Derived
 
     /// `true` when environment token is the active source.
-    /// The OAuth card is disabled while env is active — cards are mutually exclusive.
+    /// The OAuth sign-in button is disabled while env is active.
     private var envIsActive: Bool { authentication.selectedSource == .environment }
 
     /// `true` when OAuth is the active source.
-    /// The env card toggle is disabled while OAuth is active — cards are mutually exclusive.
-    private var oauthIsActive: Bool { authentication.selectedSource == .oauth }
+    /// Derived from `oauthState` rather than `selectedSource` so the card
+    /// reflects the actual authentication state, not a persisted preference.
+    private var oauthIsActive: Bool {
+        switch authentication.oauthState {
+        case .signedIn, .signingOut:
+            return true
+        case .signedOut, .signingIn, .failed:
+            return false
+        }
+    }
+
+    /// `true` while an OAuth operation is in progress or authenticated.
+    /// The environment toggle is disabled so the user cannot switch away
+    /// during an active flow or while OAuth credentials are present.
+    private var oauthBlocksEnvironment: Bool {
+        switch authentication.oauthState {
+        case .signingIn, .signedIn, .signingOut:
+            return true
+        case .signedOut, .failed:
+            return false
+        }
+    }
 
     // MARK: - Body
 
@@ -51,29 +69,28 @@ struct AuthenticationSection: View {
                 .padding(.bottom, 4)
 
             HStack(alignment: .top, spacing: 8) {
-                // Env card: disabled while OAuth is the active source.
+                // Env card: disabled while OAuth is signing in, signed in, or signing out.
                 // The toggle can still be flipped ON from any state (to switch to env),
                 // but cannot be flipped OFF while the other card's source is already active.
-                // isDisabled = oauthIsActive blocks only the OFF tap; the toggle binding
-                // reads isActive (false when oauthIsActive), so SwiftUI shows it as off,
-                // and the .disabled modifier prevents an errant tap from firing onToggle.
+                // isDisabled = oauthBlocksEnvironment blocks only the OFF tap; the toggle
+                // binding reads isActive (false when oauthBlocksEnvironment), so SwiftUI
+                // shows it as off, and the .disabled modifier prevents an errant tap.
                 EnvironmentTokenCard(
                     envState: authentication.environmentState,
                     isActive: envIsActive,
-                    isDisabled: oauthIsActive,
+                    isDisabled: oauthBlocksEnvironment,
                     onToggle: onToggleEnvironment
                 )
 
                 // OAuth card: sign-in button disabled while env is the active source.
-                // The user must turn env off before switching to OAuth so the transition
+                // The user must turn env off before signing in with OAuth so the transition
                 // is always explicit. Sign-out is always available regardless of source.
                 GitHubOAuthCard(
                     oauthState: authentication.oauthState,
                     isActive: oauthIsActive,
                     isSignInDisabled: envIsActive,
                     onSignIn: onSignIn,
-                    onSignOut: onSignOut,
-                    onSelect: { onSelectSource(.oauth) }
+                    onSignOut: onSignOut
                 )
             }
             .padding(.horizontal, RBSpacing.md)

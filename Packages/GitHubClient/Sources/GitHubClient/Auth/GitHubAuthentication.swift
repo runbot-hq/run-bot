@@ -121,17 +121,31 @@ public final class GitHubAuthentication {
         setSelectedSource(.oauth)
     }
 
-    /// Passively re-syncs `oauthState` from the live Keychain state.
+    /// Passively re-syncs `oauthState` from the live Keychain state, and
+    /// reconciles `selectedSource` so that Keychain presence is authoritative.
     ///
     /// Called from `onAppearAction()` and `AppState.start()` to reflect the
-    /// current Keychain credential state without touching the persisted
-    /// `selectedSource`. If the user had `.environment` selected and an OAuth
-    /// credential already exists in the Keychain, this method will NOT overwrite
-    /// the persisted `.environment` choice.
+    /// current Keychain credential state. When a Keychain token exists,
+    /// `selectedSource` is set to `.oauth` — the Keychain is authoritative.
+    /// When no Keychain token exists, `.oauth` is reverted to `.unauthenticated`
+    /// so both methods are available, but an explicit `.environment` choice is
+    /// preserved.
     ///
     /// - Parameter isAuthenticated: `true` if `oauthService.isAuthenticated`.
     public func syncOAuthState(isAuthenticated: Bool) {
-        oauthState = isAuthenticated ? .signedIn(username: nil) : .signedOut
+        if isAuthenticated {
+            oauthState = .signedIn(username: nil)
+
+            if selectedSource != .oauth {
+                setSelectedSource(.oauth)
+            }
+        } else {
+            oauthState = .signedOut
+
+            if selectedSource == .oauth {
+                setSelectedSource(.unauthenticated)
+            }
+        }
     }
 
     // MARK: - Private

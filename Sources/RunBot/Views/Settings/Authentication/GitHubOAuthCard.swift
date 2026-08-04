@@ -30,8 +30,6 @@ struct GitHubOAuthCard: View {
     let onSignIn: () -> Void
     /// Called to sign out and remove the Keychain token.
     let onSignOut: () -> Void
-    /// Called when the user explicitly selects OAuth as the active source.
-    let onSelect: () -> Void
 
     // MARK: - Derived
 
