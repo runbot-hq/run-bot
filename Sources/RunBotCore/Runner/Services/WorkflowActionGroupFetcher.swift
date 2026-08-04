@@ -1,4 +1,4 @@
-// WorkflowActionGroupFetch.swift
+// WorkflowActionGroupFetcher.swift
 // RunBotCore
 import Foundation
 import GitHubClient
@@ -44,15 +44,16 @@ private struct ActionRunsResponse: Codable {
 private struct GroupKey: Hashable {
   /// The full SHA of the head commit.
   let headSha: String
-  /// The normalised trigger event (see `groupEvent(_:)`).
+  /// The normalised trigger event, produced by `groupEvent(_:)` — equivalent to
+  /// `WorkflowActionGroup.normalizedEvent` for the same run.
   let event: String
-  /// The composite cache key for this group key, matching the format of
-  /// `WorkflowActionGroup.compositeCacheKey` (`"headSha:normalizedEvent"`).
+  /// The composite cache key for this group, in the same `"headSha:normalizedEvent"`
+  /// format as `WorkflowActionGroup.compositeCacheKey`.
   ///
   /// Used by `fetchJobsForGroup` to look up a cached group before hitting the API.
-  /// The format is defined canonically on `WorkflowActionGroup.compositeCacheKey`
-  /// (model layer, visible to both files); this property mirrors it for the
-  /// consumer side where no `WorkflowActionGroup` instance exists yet.
+  /// `GroupKey` is private to this file and cannot call `compositeCacheKey` directly;
+  /// this property inlines the same format. **If `WorkflowActionGroup.compositeCacheKey`
+  /// ever changes its format, this must be updated in sync.**
   var cacheKey: String { "\(headSha):\(event)" }
 }
 

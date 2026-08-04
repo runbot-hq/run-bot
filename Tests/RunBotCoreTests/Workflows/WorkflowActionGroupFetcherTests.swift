@@ -137,8 +137,14 @@ private func minimalJob(
 struct WorkflowActionGroupFetcherTests {
   /// Builds a concluded `WorkflowActionGroup` cache entry for the given SHA.
   /// Callers supply only the fields that vary between tests.
+  ///
+  /// `runID` is used to seed a single `WorkflowRunRef` so that `group.id`
+  /// (derived as `runs.map { $0.id }.max() ?? 0`) is non-zero and unique per
+  /// group. Without it, every helper-constructed group would have `id == "0"`,
+  /// causing silent collisions in any future test that keys the cache by group ID.
   private func makeCachedGroup(
     sha: String,
+    runID: Int = 1,
     title: String = "Cached commit",
     repo: String = "owner/repo",
     jobID: Int = 999,
@@ -147,13 +153,15 @@ struct WorkflowActionGroupFetcherTests {
     steps: [JobStep] = [],
     normalizedEvent: String = "commit"
   ) -> WorkflowActionGroup {
-    WorkflowActionGroup(
+    let run = WorkflowRunRef(id: runID, headSha: sha, headBranch: nil, htmlUrl: nil,
+                             createdAt: nil, status: "completed", conclusion: "success")
+    return WorkflowActionGroup(
       headSha: sha,
       label: sha,
       title: title,
       headBranch: nil,
       repo: repo,
-      runs: [],
+      runs: [run],
       jobs: [
         ActiveJob(
           id: jobID, name: jobName, status: .completed, htmlUrl: nil,
