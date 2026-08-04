@@ -12,63 +12,31 @@ internal extension SettingsView {
 
     // MARK: - Account
 
-    /// GitHub sign-in / sign-out controls, authentication status, and API call counter.
+    /// Authentication source cards + API call counter (#2459).
+    ///
+    /// Replaced the old single-branch status row with `AuthenticationSection`,
+    /// which renders an `EnvironmentTokenCard` and a `GitHubOAuthCard` side-by-side.
+    /// The `APICallCounterRow` is preserved below the divider unchanged.
+    ///
+    /// DO NOT add a separate description Text sibling after `APICallCounterRow` —
+    /// it owns its title and description internally (layout bug fix #2217).
     var accountSection: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("Account").font(RBFont.sectionHeader).foregroundColor(Color.rbTextSecondary)
-                .padding(.horizontal, RBSpacing.md).padding(.top, 8).padding(.bottom, 4)
-            VStack(alignment: .leading, spacing: 4) {
-                Text("GitHub").font(.system(size: 12))
-                if isSigningIn {
-                    HStack(spacing: 6) {
-                        ProgressView().scaleEffect(0.7)
-                        Text("Waiting for browser…").font(.caption).foregroundColor(Color.rbTextSecondary)
+            AuthenticationSection(
+                authentication: authentication,
+                onSignIn: signInWithGitHub,
+                onSignOut: signOutOfGitHub,
+                onSelectSource: { appState.authentication.setSelectedSource($0) },
+                onToggleEnvironment: { enabled in
+                    if enabled {
+                        appState.authentication.setSelectedSource(.environment)
+                    } else if case .signedIn = appState.authentication.oauthState {
+                        appState.authentication.setSelectedSource(.oauth)
                     }
-                } else if isOAuthAuthenticated {
-                    HStack(spacing: 10) {
-                        HStack(spacing: 4) {
-                            Circle().fill(Color.rbSuccess).frame(width: 7, height: 7)
-                            VStack(alignment: .leading, spacing: 1) {
-                                Text("Authenticated")
-                                    .font(.caption)
-                                    .foregroundColor(Color.rbTextSecondary)
-                                Text("via OAuth")
-                                    .font(.caption2)
-                                    .foregroundColor(Color.rbTextTertiary)
-                            }
-                        }
-                        Button(action: signOutOfGitHub) { Text("Sign out").font(.caption2) }
-                            .buttonStyle(.bordered)
-                            .tint(Color.rbDanger)
-                            .help("Remove OAuth token from Keychain. GH_TOKEN / GITHUB_TOKEN env vars used as fallback if available.")
-                    }
-                } else if isCLIAuthenticated {
-                    HStack(spacing: 10) {
-                        HStack(spacing: 4) {
-                            Circle().fill(Color.rbSuccess).frame(width: 7, height: 7)
-                            // Single-line: collapsed from two stacked Text views (#2082)
-                            Text("Authenticated via env token")
-                                .font(.caption)
-                                .foregroundColor(Color.rbTextSecondary)
-                        }
-                        Spacer()
-                        Button(action: signInWithGitHub) { Text("Sign in with GitHub").font(.caption2) }
-                            .buttonStyle(.bordered)
-                            .help("Authorize RunBot via GitHub OAuth and store token in Keychain")
-                    }
-                } else {
-                    // Unauthenticated — no status dot (there is no auth state to indicate).
-                    // The Circle() indicator present in the OAuth and CLI branches is
-                    // intentionally absent here. This is not a missing element.
-                    HStack {
-                        Spacer()
-                        Button(action: signInWithGitHub) { Text("Sign in with GitHub").font(.caption2) }
-                            .buttonStyle(.bordered)
-                            .help("Authorize RunBot via GitHub OAuth and store token in Keychain")
-                    }
+                    // If not signed in via OAuth and toggling env off, stay on environment
+                    // (no silent fallback to unauthenticated — rule #5 from #2459 §4.5)
                 }
-            }
-            .padding(.horizontal, RBSpacing.md).padding(.vertical, 8)
+            )
             Divider().padding(.leading, RBSpacing.md)
             // APICallCounterRow owns its title AND description internally.
             // DO NOT add a separate description Text sibling here — that was the

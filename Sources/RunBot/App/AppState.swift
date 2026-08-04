@@ -209,6 +209,24 @@ final class AppState {
         betaChannelProvider: { AppPreferencesStore.shared.betaChannel }
     )
 
+    // MARK: - Authentication state
+
+    /// Observable authentication state model (#2459).
+    ///
+    /// Single source of truth for:
+    ///   • `selectedSource` — which credential the app uses for API requests.
+    ///   • `environmentState` — env token availability (GH_TOKEN / GITHUB_TOKEN).
+    ///   • `oauthState`  — OAuth flow lifecycle (signedOut → signingIn → signedIn).
+    ///
+    /// `selectedSource` is persisted to `UserDefaults` and survives relaunches.
+    /// Settings UI reads and mutates this model; `SettingsView.onAppearAction()`
+    /// seeds `oauthState` from `oauthService` on every re-open, and Task 1 seeds
+    /// `environmentState` via `github.token()` (login-shell fallback).
+    ///
+    /// `@ObservationIgnored` is NOT used here — SwiftUI views read from this
+    /// instance and must receive change notifications when the model mutates.
+    let authentication = GitHubAuthentication()
+
     // MARK: - Navigation state
 
     /// The last nav destination the user was on before the popover was closed
