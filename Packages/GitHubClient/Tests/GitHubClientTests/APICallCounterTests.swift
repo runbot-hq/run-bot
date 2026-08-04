@@ -10,7 +10,7 @@
 //   4. snapshot() is atomic — consistent count + limit in one hop (P10).
 //   5. APICallCounterSnapshot is Equatable and Sendable.
 //   6. snapshot() returns zero after all timestamps expire (idle-gap regression).
-//   7. GitHubTransport increments the injected callCounter on every 2xx response.
+//   7. GitHubTransport increments the injected callCounter on every completed HTTP round-trip (any status code).
 //      Each successful HTTP page counts as one hit, regardless of HTTP verb.
 //   8. record() trims buffer to hourlyLimit at >5,000 entries.
 //   9. purge() retains entries exactly at the 60-minute boundary (inclusive).
@@ -571,40 +571,50 @@ struct APICallCounterTests {
         "a 201 Created POST response must increment the counter once via interpretHTTPResponse")
     }
 
-    // MARK: non-2xx does not increment
+    // MARK: non-2xx and 5xx responses
 
-    @Test("counter is not incremented on 404 response")
-    func counterNotIncrementedOn404() async {
+    @Test("counter increments once on 404 response (request reached GitHub)")
+    func counterIncrementsOn404() async {
       let counter = MockAPICallCounter()
       let url = "\(base)orgs/\(org)/actions/runners?per_page=\(GitHubConstants.maxPageSize)"
       stubError(url, statusCode: 404)
       _ = await fetchRunners(scope: .org(org), transport: makeTransport(counter: counter))
-      #expect(await counter.recordedCount == 0)
+      #expect(await counter.recordedCount == 1)
     }
 
     // A plain 403 with no rate-limit headers maps to .permissionDenied — not .rateLimited.
-    // handleRateLimitResponse returns false, callCounter.record() is never reached.
     // For the .rateLimited 403 path (X-RateLimit-Remaining: 0), see #43.
-    @Test("counter is not incremented on 403 permission-denied response (no rate-limit headers)")
-    func counterNotIncrementedOnPermissionDenied403() async {
+    @Test("counter increments once on 403 permission-denied response (request reached GitHub)")
+    func counterIncrementsOnPermissionDenied403() async {
       let counter = MockAPICallCounter()
       let url = "\(base)orgs/\(org)/actions/runners?per_page=\(GitHubConstants.maxPageSize)"
       // stubError returns {"message":"error"} with no rate-limit headers —
       // handleRateLimitResponse returns false → .permissionDenied path.
       stubError(url, statusCode: 403)
       _ = await fetchRunners(scope: .org(org), transport: makeTransport(counter: counter))
-      #expect(await counter.recordedCount == 0)
+      #expect(await counter.recordedCount == 1)
     }
 
-    @Test("counter is not incremented on 429 response (secondary rate-limit signal)")
-    func counterNotIncrementedOn429() async {
+    @Test("counter increments once on 429 response (request reached GitHub)")
+    func counterIncrementsOn429() async {
       let counter = MockAPICallCounter()
       let url = "\(base)orgs/\(org)/actions/runners?per_page=\(GitHubConstants.maxPageSize)"
       stubError(url, statusCode: 429)
       _ = await fetchRunners(scope: .org(org), transport: makeTransport(counter: counter))
-      #expect(await counter.recordedCount == 0)
+      #expect(await counter.recordedCount == 1)
     }
 
+
+    @Test("counter increments once on 500 response (5xx consumed quota)")
+    func counterIncrementsOn500() async {
+      let counter = MockAPICallCounter()
+      let url = "\(base)orgs/\(org)/actions/runners?per_page=\(GitHubConstants.maxPageSize)"
+      stubError(url, statusCode: 500)
+      _ = await fetchRunners(scope: .org(org), transport: makeTransport(counter: counter))
+      #expect(
+        await counter.recordedCount == 1,
+        "a 5xx response must increment the counter — the request reached GitHub and consumed quota")
+    }
     // MARK: multi-page
 
     @Test("counter increments once per page for multi-page paginated responses")
