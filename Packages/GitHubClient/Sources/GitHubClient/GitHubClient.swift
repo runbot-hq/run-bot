@@ -133,7 +133,7 @@ public final class GitHubClient {
     public func token() async -> String? {
         switch _authSource() {
         case .oauth:
-            return await _tokenCache.token()
+            return _tokenCache.oauthToken()
         case .environment:
             // Env-only path: bypass the Keychain step in TokenCache so an OAuth
             // credential that happens to be present cannot silently satisfy the
