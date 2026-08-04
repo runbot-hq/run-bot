@@ -96,17 +96,6 @@ public final class GitHubClient {
     /// Typed to the protocol so no `EnvTokenKit` type leaks into the public API.
     private let _envProvider: any EnvTokenProviding
 
-    /// Returns the currently selected authentication source.
-    ///
-    /// Closure-injected so `GitHubClient` (a package type) can read
-    /// `GitHubAuthentication.selectedSource` (an app-layer type) without
-    /// taking a dependency on the app module. The closure is evaluated on
-    /// every `token()` call — no caching.
-    ///
-    /// Defaults to `{ .unauthenticated }` in the test init so tests that do
-    /// not exercise source-switching get the zero-op behaviour (token() returns nil).
-    private let _authSource: @Sendable @MainActor () -> GitHubAuthSource
-
     /// The token that the in-memory cache has already resolved, or `nil` if no
     /// `token()` call has completed yet during this process lifetime.
     ///
@@ -141,11 +130,12 @@ public final class GitHubClient {
     /// each authentication mode maps to a credential.
     ///
     /// WHY STORED AS A CLOSURE (not a method):
-    /// `GitHubTransport.tokenProvider` requires a `@Sendable () async -> String?`
-    /// which is callable from any isolation context. `GitHubClient.token()` is
-    /// `@MainActor`-isolated because the class carries `@MainActor`. Storing the
-    /// closure separately lets us pass the same routing logic to the transport
-    /// without forcing a main-actor hop on every network request.
+    /// `GitHubTransport.tokenProvider` requires a
+    /// `@Sendable () async -> String?`. Storing the resolver separately allows
+    /// `GitHubClient.token()` and the transport to share exactly the same routing
+    /// logic without capturing a partially initialized `GitHubClient`.
+    ///
+    /// Reading `authSource` still performs the required MainActor hop.
     private let _tokenProvider: @Sendable () async -> String?
 
     /// Probes `GH_TOKEN` / `GITHUB_TOKEN` via the env-only resolution path and
@@ -315,7 +305,6 @@ public final class GitHubClient {
         self.oauthService = oauth
         self.transport = transport
         self._tokenCache = cache
-        self._authSource = authSource
     }
 
     // MARK: - Test init
@@ -363,7 +352,6 @@ public final class GitHubClient {
         // returns .unavailable. Tests that need a custom env-discovery result
         // should stub at the GitHubAuthentication level, not at the provider level.
         self._envProvider = NullEnvTokenProvider()
-        self._authSource = authSource
         let capturedAuthSource = authSource
         let capturedCache = self._tokenCache
         let capturedEnvProvider = self._envProvider
