@@ -343,6 +343,11 @@ final class MBKStatusBarButton: NSStatusBarButton {
             // still run unconditionally: they operate on the current cell
             // instance, not the class, so they are always required regardless
             // of whether the class is new or reused.
+            //
+            // Note: `is MBKStatusBarButtonCell_Xyz` cannot be used here because
+            // the subclass name — and therefore the type — is only known at
+            // runtime. The NSClassFromString lookup and the afterCell string
+            // comparison below are the correct and only available checks.
             mbkLog("MBKStatusBarButton", "injectCellSubclass -- reusing existing subclass \(subclassName)")
             subclass = existing
         } else {
@@ -371,7 +376,10 @@ final class MBKStatusBarButton: NSStatusBarButton {
                 return
             }
 
-            let sel2 = sel  // capture by value for IMP block
+            // sel2 aliases sel so the IMP block captures it by value.
+            // Selector is a value type (OpaquePointer-backed); capture-by-value
+            // is safe and correct — no retain or heap allocation involved.
+            let sel2 = sel
             let imp: IMP = imp_implementationWithBlock({ (cellSelf: AnyObject, flag: Bool, frame: NSRect, view: NSView) in
                 // WeakBox.value is nil if the button was already deallocated —
                 // treat isPanelOpen as false (safe pass-through).
