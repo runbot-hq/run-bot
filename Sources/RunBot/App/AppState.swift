@@ -424,8 +424,8 @@ final class AppState {
         // checkAndHandle — which can take tens of seconds on a slow connection), any
         // sign-out event during startup would be dropped — the stream is not buffered,
         // so missed events are gone. The poll loop would continue issuing requests with
-        // a cleared Keychain token, returning 401 on every cycle, with no env-token
-        // fallback until a full app restart.
+        // a cleared Keychain token, returning 401 on every cycle, with no poll-loop
+        // restart until a full app restart.
         // MUST follow seedStoreAndPoller() (Step 1): signOutTask reads self.runnerStore,
         // which is set by seedStoreAndPoller(). The sign-out loop handles a nil
         // runnerStore gracefully via `continue`, so this ordering is safe — wiring
@@ -576,15 +576,17 @@ final class AppState {
         // implicit actor hops on each property access inside the loop and eliminates
         // any TOCTOU window between `guard let store` and `await store.start()`.
         //
+        // OAuth sign-out transitions authentication to `.unauthenticated`.
+        // It does not activate an available environment token automatically;
+        // Environment mode must be enabled explicitly by the user.
+        //
         // Why store.start() is called after sign-out (PR #1138 regression history):
-        // Before #1138, polling was driven by a Timer. After sign-out the timer fired,
-        // fetch() ran, githubToken() found the keychain cleared, and naturally fell
-        // through to the env-token fallback (GH_TOKEN / GITHUB_TOKEN).
-        // #1138 replaced the timer with a Task that loops on Task.sleep — it never
-        // calls start() again on its own, so the env-token fallback only works if
-        // start() is explicitly invoked after sign-out. That is what this loop does.
-        // ❌ Do NOT remove the store.start() call — without it, signed-out users with
-        //    a GH_TOKEN env var get a permanently stalled poll loop.
+        // Before #1138, polling was driven by a Timer that continued to fire after
+        // sign-out. #1138 replaced the timer with a Task that loops on Task.sleep —
+        // it never calls start() again on its own. Without an explicit start() here
+        // the poll loop stalls permanently after sign-out.
+        // ❌ Do NOT remove the store.start() call — without it, the poll loop stalls
+        //    after sign-out regardless of which authentication mode is later selected.
         //
         // Why this lives in AppState and not SettingsView:
         // SettingsView.signOutTask is stored in @State and is only alive while
@@ -597,7 +599,7 @@ final class AppState {
             // spinning on a stream that can never do useful work.
             guard let self else { return }
             for await _ in self.oauthService.makeSignOutStream() {
-                log("AppState › didSignOut — restarting poll loop for env-token fallback")
+                log("AppState › didSignOut — restarting poll loop after sign-out")
                 // `continue` (not `return`) for nil-store: a missing runnerStore is a
                 // transient / unexpected state, but AppState itself is still alive.
                 // Continuing lets the loop handle future sign-out events rather than

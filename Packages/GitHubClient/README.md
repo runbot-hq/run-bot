@@ -29,7 +29,7 @@ A lightweight, modern Swift GitHub API client for macOS apps. Direct REST calls 
 ## Features
 
 - 🔐 **Dual authentication** — OAuth Authorization Code flow for interactive users; `GH_TOKEN` / `GITHUB_TOKEN` env var for CI and automation. Same call site, no branching
-- 🪜 **Layered token resolution** — memory cache → Keychain → env var → login-shell fallback, resolved at call time
+- 🪜 **Mode-selected token resolution** — `.oauth` reads only the Keychain-backed `TokenStore`; `.environment` reads only `GH_TOKEN` / `GITHUB_TOKEN` (including login-shell fallback for Finder/Dock launches); `.unauthenticated` returns no token; credentials never fall back across modes
 - 🌐 **Direct REST over `URLSession`** — no code generation, no auto-generated OpenAPI types, no third-party networking layer
 - 🛡️ **Rate-limit aware** — automatic backoff and retry on 429 / 403 rate-limit responses
 - 📄 **Link-header pagination** — cursor-based pagination handled transparently
@@ -204,19 +204,20 @@ let token = await cache.token()
 
 ## Authentication
 
-### Token resolution order
+### Authentication source resolution
 
-At every API call, the token is resolved in this order — first match wins:
+`GitHubClient.token()` resolves strictly from the selected authentication mode:
 
-1. **In-memory cache** — zero I/O; warmed on first successful resolution
-2. **`TokenStore`** (Keychain by default via `KeychainTokenStore`) — synchronous `SecItemCopyMatching` read
-3. **`GH_TOKEN` environment variable** — read via `ProcessInfo.processInfo.environment` (a snapshot captured at process launch); handled by `EnvTokenProvider` in `EnvTokenKit`
-4. **`GITHUB_TOKEN` environment variable** — same; covers standard CI injection
-5. **Login-shell fallback** — spawns `/bin/zsh -l -c 'echo $GH_TOKEN'`; cold Finder/Dock launch only
+1. `.oauth` reads only the OAuth token from `TokenStore`/Keychain.
+2. `.environment` reads only `GH_TOKEN` or `GITHUB_TOKEN`, including the
+   login-shell lookup used for Finder/Dock launches.
+3. `.unauthenticated` returns no token.
 
-Steps 3–5 are handled by `EnvTokenProvider` (in `EnvTokenKit`). `TokenCache` delegates to it via the `EnvTokenProviding` protocol — it never names the concrete type directly.
+Credentials never fall back across authentication modes.
 
-> **Note — two env-var read paths:** `EnvTokenProvider` (steps 3–4 above) reads env vars via `ProcessInfo.processInfo.environment`, a snapshot fixed at process launch. `OAuthService.hasAnyToken` reads the same vars via `getenv()`, which reflects the live process environment. In production these are equivalent. In test harnesses that inject env vars after process launch (e.g. `setenv()` in test setUp), `hasAnyToken` will see the injected value but `TokenCache.token()` will not. This divergence is intentional and documented in `EnvTokenProvider.resolveFromEnvironment()`.
+`TokenCache.token()` retains its combined resolution chain (memory cache → `TokenStore` → `GH_TOKEN` → `GITHUB_TOKEN` → login-shell) as a lower-level compatibility API. `GitHubClient.token()` does not use that combined chain for mode-aware request authentication.
+
+> **Note — two env-var read paths:** `EnvTokenProvider` reads env vars via `ProcessInfo.processInfo.environment`, a snapshot fixed at process launch. `OAuthService.hasAnyToken` reads the same vars via `getenv()`, which reflects the live process environment. In production these are equivalent. In test harnesses that inject env vars after process launch (e.g. `setenv()` in test setUp), `hasAnyToken` will see the injected value but `TokenCache.token()` will not. This divergence is intentional and documented in `EnvTokenProvider.resolveFromEnvironment()`.
 
 The cache is invalidated automatically after every sign-in and sign-out via the `onTokenSaved` / `onTokenDeleted` callbacks wired in `GitHubClient.init`.
 

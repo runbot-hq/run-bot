@@ -5,7 +5,7 @@ A lightweight, modern Swift GitHub API client for macOS apps. Direct REST calls 
 ## Features
 
 - **Dual authentication** — OAuth Authorization Code flow for interactive users; `GH_TOKEN` / `GITHUB_TOKEN` env var for CI and automation. Same call site, no branching
-- **Layered token resolution** — resolved at call time from memory cache → Keychain → env var → login shell; subsequent calls served from cache
+- **Mode-selected token resolution** — `.oauth` reads only the Keychain-backed `TokenStore`; `.environment` reads only `GH_TOKEN` / `GITHUB_TOKEN` (including login-shell fallback for Finder/Dock launches); `.unauthenticated` returns no token; credentials never fall back across modes
 - **Direct REST over `URLSession`** — no code generation, no auto-generated OpenAPI types, no third-party networking layer
 - **Rate-limit aware** — automatic backoff and retry on 429 / 403 rate-limit responses
 - **Link-header pagination** — cursor-based pagination handled transparently
@@ -116,15 +116,18 @@ configuration needed — the library picks it up automatically. Common in three 
 - **Local scripts / automation** — developers export `GH_TOKEN` in their shell profile
 - **Development / testing** — skip the full OAuth flow during development
 
-### Resolution order
+### Authentication source resolution
 
-At every API call, the token is resolved in this order — first match wins:
+`GitHubClient.token()` resolves strictly from the selected authentication mode:
 
-1. In-memory cache
-2. `TokenStore` (Keychain by default)
-3. `GH_TOKEN` environment variable
-4. `GITHUB_TOKEN` environment variable
-5. Login shell subprocess (`/bin/zsh -i -l`) — Finder/Dock/login-item launches only
+1. `.oauth` reads only the OAuth token from `TokenStore`/Keychain.
+2. `.environment` reads only `GH_TOKEN` or `GITHUB_TOKEN`, including the
+   login-shell lookup used for Finder/Dock launches.
+3. `.unauthenticated` returns no token.
+
+Credentials never fall back across authentication modes. `.oauth` never falls through to environment variables; `.environment` never reads Keychain.
+
+`TokenCache.token()` retains its combined resolution chain (memory cache → `TokenStore` → `GH_TOKEN` → `GITHUB_TOKEN` → login shell) as a lower-level compatibility API. `GitHubClient.token()` does not use that combined chain for mode-aware request authentication.
 
 ### Login shell fallback (Finder / Dock launches)
 

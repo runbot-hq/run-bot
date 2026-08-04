@@ -230,7 +230,9 @@ metadata has no current display use in the log view.
 
 **Token resolution in RunBot's context:**
 
-RunBot uses the interactive OAuth flow for human users. The Keychain-backed `TokenStore` is the primary token source. `GH_TOKEN` / `GITHUB_TOKEN` env-var fallback activates automatically in CI runs, requiring no code changes.
+RunBot uses an explicitly selected authentication mode. OAuth mode resolves only from the Keychain-backed `TokenStore`. Environment mode resolves only from `GH_TOKEN` or `GITHUB_TOKEN`, including the login-shell lookup used for Finder/Dock launches. Unauthenticated mode supplies no token.
+
+Credentials never fall back across modes. Discovering an environment token only makes the Environment control available; the user must explicitly enable Environment mode.
 
 **Testing boundary:**
 
