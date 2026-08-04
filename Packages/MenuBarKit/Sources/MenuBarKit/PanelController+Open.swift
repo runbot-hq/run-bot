@@ -177,15 +177,18 @@ extension MBKPanelController {
     /// to the cell — but is still overridden by AppKit's internal tracking callbacks,
     /// which is exactly what `MBKStatusBarButton` guards against. See #2440.
     func setButtonHighlight(_ isOn: Bool) {
+        // Cast succeeds in all normal operation — setupStatusItem calls
+        // object_setClass(button, MBKStatusBarButton.self) unconditionally.
+        // Failure here means that swap silently did not run (e.g. AppKit changed
+        // NSStatusBarButton's class hierarchy). See injectCellSubclass in
+        // MBKStatusBarButton.swift for the full swap sequence.
         let mbkBtn = statusItem?.button as? MBKStatusBarButton
         mbkLog("PanelController", "setButtonHighlight -- isOn=\(isOn) castOK=\(mbkBtn != nil) isPanelOpen=\(mbkBtn?.isPanelOpen ?? false)")
 
-        // If the cast fails, object_setClass in setupStatusItem silently did not
-        // run (e.g. AppKit changed NSStatusBarButton's class hierarchy). The
-        // highlight guard is entirely unarmed — PATH 1 and PATH 2 both miss,
-        // and the button will flicker on every open. Surface this immediately
-        // in debug builds; in release, degrade gracefully (button flickers,
-        // no crash).
+        // assertionFailure traps in debug builds and continues in release.
+        // The highlight(isOn) call below it is intentional degraded-mode
+        // behaviour: the button flickers on every open/close but there is no
+        // crash. This ordering (assert, then degrade, then return) is correct.
         guard let mbkBtn else {
             assertionFailure("setButtonHighlight: statusItem.button is not MBKStatusBarButton — object_setClass swap failed at setup. Highlight guard is disarmed.")
             statusItem?.button?.highlight(isOn)
@@ -194,9 +197,12 @@ extension MBKPanelController {
 
         // isPanelOpen must be set BEFORE highlight(_:) on both open and close paths.
         // See CALL-SITE CONTRACT in MBKStatusBarButton.swift.
-        // mbkBtn is non-nil here (guard above); use it directly to make the
+        // mbkBtn is non-nil here (guard above); calling directly makes the
         // ordering contract structurally unambiguous.
         mbkBtn.isPanelOpen = isOn
+        // Dispatches to MBKStatusBarButton.highlight(_:) via ObjC dynamic
+        // dispatch — the ISA swap in setupStatusItem guarantees this even
+        // though the static type at the call site is NSStatusBarButton.
         mbkBtn.highlight(isOn)
         mbkLog("PanelController", "setButtonHighlight -- done isPanelOpen=\(mbkBtn.isPanelOpen) buttonClass=\(type(of: mbkBtn as AnyObject))")
     }
