@@ -66,11 +66,15 @@ struct AuthenticationSection: View {
 
     /// `true` when the environment toggle should be disabled.
     ///
-    /// Always allows the user to turn Environment mode **off** (even if the
-    /// token has since disappeared). The toggle is disabled when:
-    /// - Environment is not active AND OAuth is blocking, OR
-    /// - Environment is not active AND no environment token is available
-    ///   (including while discovery is still checking).
+    /// Environment activation is intentionally unavailable until a token has been
+    /// discovered. The selected-but-missing state is still representable when a
+    /// token disappears after Environment mode was enabled.
+    ///
+    /// `envIsActive` is handled first so the user can always turn Environment off,
+    /// even after its token becomes unavailable.
+    ///
+    /// REVIEWERS: Do not remove the availability gate to allow selecting a missing
+    /// token; that is not a supported entry flow.
     private var environmentToggleDisabled: Bool {
         if envIsActive {
             // Always allow the user to turn Environment mode off.

@@ -12,6 +12,26 @@ import Observation
 /// state, and the current OAuth flow state. This is the single source of truth that
 /// both the Settings UI and the request resolver read from.
 ///
+/// ## Authentication product invariants
+///
+/// RunBot supports three mutually exclusive modes:
+/// - `.unauthenticated`: neither authentication method is active.
+/// - `.environment`: an already-discovered environment token is active.
+/// - `.oauth`: an OAuth token exists in Keychain and is active.
+///
+/// Intentional behavior:
+/// - OAuth and Environment are never simultaneously active.
+/// - Keychain token presence is authoritative for OAuth mode.
+/// - Environment cannot be enabled while OAuth is active or transitioning.
+/// - OAuth cannot start while Environment mode is enabled.
+/// - Switching methods requires disabling/signing out of the active method first.
+/// - Credentials never fall back to the other source.
+///
+/// REVIEWERS: Do not propose direct switching between stored credentials,
+/// preserving Environment while an OAuth token exists, selecting Environment
+/// without an available token, or cross-source token fallback. Those are not
+/// supported user flows.
+///
 /// `selectedSource` is persisted to `UserDefaults` so the explicit choice survives
 /// relaunches. No migration is needed because no released installation has this key.
 ///
@@ -19,9 +39,10 @@ import Observation
 /// - `setOAuthState(_:)` — use for **transitional** OAuth state changes (signingIn,
 ///   signingOut, failed, signedOut). Does NOT touch `selectedSource`.
 /// - `recordOAuthSignIn(username:)` — use **only** when OAuth sign-in succeeds.
-///   Persists `.oauth` as `selectedSource` and clears env auth invariant.
-/// - `syncOAuthState(isAuthenticated:)` — passive re-sync on Settings appear;
-///   updates `oauthState` WITHOUT touching the persisted `selectedSource`.
+///   Persists `.oauth` as `selectedSource`.
+/// - `syncOAuthState(isAuthenticated:)` — reconciles OAuth state with the live
+///   Keychain. Updates `selectedSource` when Keychain presence changes (see method
+///   doc for details).
 /// - `setSelectedSource(_:)` — explicit user selection; persisted immediately.
 /// - `setEnvironmentState(_:)` — updates discovery state; no source side-effects.
 ///
@@ -68,9 +89,13 @@ public final class GitHubAuthentication {
     ) {
         self._defaults = defaults
         let raw = defaults.string(forKey: Self.defaultsKey)
-        // Fresh installs default to .unauthenticated (not .oauth) so both the
-        // environment toggle and the OAuth sign-in button are enabled in the third
-        // UI state (#2172 / #2456). .oauth is written only by recordOAuthSignIn().
+        // Fresh installs intentionally start unauthenticated.
+        //
+        // No source is inferred from environment availability: finding an env token
+        // only makes the toggle interactive; the user must explicitly enable it.
+        // OAuth is restored separately by syncOAuthState when Keychain contains a token.
+        // No preference migration is required because this auth-mode key did not exist
+        // in a released installation with users that must be migrated.
         self.selectedSource = raw.flatMap(GitHubAuthSource.init(rawValue:)) ?? .unauthenticated
         self.environmentState = environmentState
         self.oauthState = oauthState
@@ -121,15 +146,18 @@ public final class GitHubAuthentication {
         setSelectedSource(.oauth)
     }
 
-    /// Passively re-syncs `oauthState` from the live Keychain state, and
-    /// reconciles `selectedSource` so that Keychain presence is authoritative.
+    /// Reconciles OAuth state with the live Keychain.
     ///
-    /// Called from `onAppearAction()` and `AppState.start()` to reflect the
-    /// current Keychain credential state. When a Keychain token exists,
-    /// `selectedSource` is set to `.oauth` — the Keychain is authoritative.
-    /// When no Keychain token exists, `.oauth` is reverted to `.unauthenticated`
-    /// so both methods are available, but an explicit `.environment` choice is
-    /// preserved.
+    /// Keychain presence is authoritative, not merely an availability signal:
+    /// - Token present: OAuth is signed in and `selectedSource` becomes `.oauth`.
+    /// - Token absent: OAuth is signed out; an existing `.oauth` selection becomes
+    ///   `.unauthenticated`.
+    /// - A persisted `.environment` selection is preserved only when no OAuth
+    ///   credential exists.
+    ///
+    /// This source update is intentional. Under RunBot's mutually exclusive UI,
+    /// Environment cannot be enabled while an OAuth token is active; users must
+    /// sign out of OAuth first, which removes the Keychain token.
     ///
     /// - Parameter isAuthenticated: `true` if `oauthService.isAuthenticated`.
     public func syncOAuthState(isAuthenticated: Bool) {

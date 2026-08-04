@@ -120,16 +120,15 @@ public final class GitHubClient {
     /// (e.g. from a `.task` modifier that awaits `token()` on appear).
     public var cachedToken: String? { _tokenCache.cachedToken }
 
-    /// Resolves and returns the current token, dispatching to the correct
-    /// credential source based on `selectedSource`.
+    /// Resolves strictly from the selected authentication mode.
     ///
-    /// - `.oauth`           — resolves from the Keychain via `TokenCache`.
-    /// - `.environment`     — resolves env-var / login-shell only; Keychain is skipped.
-    /// - `.unauthenticated` — returns `nil` immediately; no I/O.
+    /// - `.oauth`: Keychain-only via `oauthToken()`
+    /// - `.environment`: env/login-shell-only via `_envProvider`
+    /// - `.unauthenticated`: `nil`
     ///
-    /// This is the same path used by every authenticated API call. Call it from
-    /// a `.task` modifier or other async context to warm the cache and then read
-    /// `cachedToken` synchronously for UI status checks.
+    /// There is intentionally no fallback between sources. Do not replace the
+    /// OAuth branch with `TokenCache.token()`: that API uses the legacy combined
+    /// Keychain → environment chain and would violate the selected mode.
     public func token() async -> String? {
         switch _authSource() {
         case .oauth:
