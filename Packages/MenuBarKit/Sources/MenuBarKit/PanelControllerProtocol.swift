@@ -1,5 +1,5 @@
 // PanelControllerProtocol.swift
-// MenuBarKit
+// RunBot
 //
 // Protocol surface for MBKPanelController.
 
