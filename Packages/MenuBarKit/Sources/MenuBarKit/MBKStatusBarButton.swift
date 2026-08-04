@@ -179,7 +179,9 @@ import ObjectiveC.runtime
 /// This pattern is required because `OBJC_ASSOCIATION_WEAK_NONATOMIC` is not
 /// reliably available through the Swift/ObjC bridge on all supported OS versions.
 final class WeakBox<T: AnyObject> {
+    /// The wrapped object; zeroed by ARC when the referent is deallocated.
     weak var value: T?
+    /// Creates a box holding a zeroing-weak reference to `value`.
     init(_ value: T) { self.value = value }
 }
 
