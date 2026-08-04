@@ -17,14 +17,20 @@ public struct PollIntervalStrategy: Sendable {
 
     // MARK: — Idle backoff
 
-    /// Formula base for idle backoff: `idleMin * 2^consecutiveIdleTicks`, capped at `idleMax`.
-    /// This is NOT the minimum observable production idle sleep — that is 60 s (tick 1),
-    /// because the first successful idle fetch increments `consecutiveIdleTicks` to 1 before
-    /// `nextPollInterval()` is called. Tick 0 (30 s) is only reachable on a first-fetch error.
-    /// The name `idleMin` is a slight misnomer — `idleBase` would better reflect that
-    /// this is the formula seed, not the minimum observable sleep. Kept as-is to avoid
-    /// a rename churn across tests; tracked in #2069.
-    public static let idleMin: TimeInterval = 30
+    /// Formula seed for idle backoff: `idleBase * 2^(consecutiveIdleTicks - 1)`, capped at `idleMax`.
+    /// Tick 1 (the first idle interval in normal operation) equals `idleBase` exactly:
+    ///   tick 1 →  15 s
+    ///   tick 2 →  30 s
+    ///   tick 3 →  60 s
+    ///   tick 4 → 120 s
+    ///   tick 5 → 240 s
+    ///   tick 6+ → 300 s (capped)
+    /// Tick 0 (pre-subtraction underflow → 2^-1 = 0.5 → 7.5 s) is only reachable on a
+    /// first-fetch error; `applyError` keeps counters at 0. In normal operation the first
+    /// idle fetch increments `consecutiveIdleTicks` to 1 via `updateAdaptiveCounters`
+    /// before `nextPollInterval()` is called, so the minimum observable production idle
+    /// sleep is 15 s (tick 1).
+    public static let idleBase: TimeInterval = 15
     /// Maximum idle poll interval cap (5 minutes).
     public static let idleMax: TimeInterval = 300
 
@@ -86,15 +92,11 @@ public struct PollIntervalStrategy: Sendable {
         }
 
         // --- Idle: exponential backoff ---
-        // tick 0 → 30 s, 1 → 60 s, 2 → 120 s, 3 → 240 s, 4+ → 300 s
-        // Note: tick 0 (30 s) is only reachable immediately after a start() reset
-        // followed by a first-fetch error (applyError keeps counters at 0). In normal
-        // operation the first idle fetch increments the counter to 1 via
-        // updateAdaptiveCounters, so the minimum observable production idle sleep is
-        // 60 s (tick 1), not 30 s. Tick 0 is exercised by unit tests for completeness.
+        // tick 1 → 15 s, 2 → 30 s, 3 → 60 s, 4 → 120 s, 5 → 240 s, 6+ → 300 s
+        // The exponent is (consecutiveIdleTicks - 1) so tick 1 yields idleBase exactly.
         // Overflow safety: pow(2, n) → Double.infinity for large n;
         // min(infinity, idleMax) → idleMax (300). No trap, no incorrect result.
-        let backed = idleMin * pow(2.0, Double(consecutiveIdleTicks))
+        let backed = idleBase * pow(2.0, Double(consecutiveIdleTicks - 1))
         return min(backed, idleMax)
     }
 }
