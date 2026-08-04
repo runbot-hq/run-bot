@@ -1,5 +1,5 @@
 // PanelController+Open.swift
-// RunBot
+// MenuBarKit
 //
 // Open/close logic for MBKPanelController.
 // See PanelController.swift file header for full design notes.

@@ -1,5 +1,5 @@
 // OverlayGate.swift
-// RunBot
+// MenuBarKit
 //
 // MBKOverlayGate is the single source of truth for whether any overlay
 // (SwiftUI sheet, NSOpenPanel, alert) is currently active on top of the panel.

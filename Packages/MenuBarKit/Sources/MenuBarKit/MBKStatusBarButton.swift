@@ -1,5 +1,5 @@
 // MBKStatusBarButton.swift
-// RunBot
+// MenuBarKit
 //
 // Keeps the status bar button visually highlighted ("pressed") while the
 // panel is open, and restores normal highlight behaviour when it closes.
