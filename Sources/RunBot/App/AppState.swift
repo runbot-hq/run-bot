@@ -226,14 +226,12 @@ final class AppState {
 
     /// Shared `LogFetcher` instance owned above the `.id(navState)` boundary
     /// in `RootPanelView`. Owning it here means the ZIP cache (`zipCache`)
-    /// survives across step-tap navigation: every step tap tears down and
-    /// recreates `StepLogView` (SwiftUI discards `@State` on `.id()` change),
-    /// but `AppState` is not remounted, so the cache persists for the lifetime
-    /// of the panel session. After the first step tap in a run, all subsequent
-    /// steps in that run cost a slice of the already-cached ZIP — no repeat
-    /// network call or unzip. Uses the `currentTransport` `@TaskLocal` default
-    /// — no explicit wiring to `github.transport` required.
-    var logFetcher = LogFetcher()
+    /// survives across step-tap navigation: every step tap recreates
+    /// `StepLogView`, but `AppState` is not remounted, so the cache persists
+    /// for the lifetime of the panel session.
+    ///
+    /// ⚠️ Must be constructed after `github` so the transport is already wired.
+    var logFetcher: LogFetcher
 
     // MARK: - Retained task handles
     //
@@ -292,6 +290,7 @@ final class AppState {
             authSource: { [authentication] in authentication.selectedSource },
             logger: GitHubLoggerAdapter()
         )
+        self.logFetcher = LogFetcher(transport: github.transport)
     }
 
     /// Test-only initialiser. Injects a stub `RunnerLifecycleServiceProtocol`
@@ -311,6 +310,7 @@ final class AppState {
             logger: GitHubLoggerAdapter()
         )
         self.lifecycleService = lifecycleService
+        self.logFetcher = LogFetcher(transport: github.transport)
     }
 
     deinit {
