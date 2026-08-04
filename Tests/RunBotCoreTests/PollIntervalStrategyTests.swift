@@ -23,7 +23,6 @@ struct PollIntervalStrategyTests {
 
   @Test("Rate-limited with known reset date → max(30, resetDate + 5)")
   func rateLimitedWithResetDate() {
-    // reset 100 s from now → expect 105 s (well above the 30 s floor)
     let reset = Date.fromNow(100)
     let result = PollIntervalStrategy.next(
       hasActiveWork: false,
@@ -38,12 +37,7 @@ struct PollIntervalStrategyTests {
 
   @Test("Rate-limited with reset date in the past → floor of 30 s")
   func rateLimitedWithExpiredResetDate() {
-    // Frozen date well in the past — timeIntervalSinceNow is deeply negative.
-    // max(30, <deeply negative> + 5) = 30 (the floor).
-    // Using a frozen Date(timeIntervalSince1970:) rather than Date.fromNow(-60)
-    // makes the intent explicit and removes any theoretical time-sensitivity
-    // under an unusually slow CI run.
-    let reset = Date(timeIntervalSince1970: 0)  // 1970-01-01 — always in the past
+    let reset = Date(timeIntervalSince1970: 0)
     let result = PollIntervalStrategy.next(
       hasActiveWork: false,
       consecutiveIdleTicks: 0,
@@ -72,7 +66,6 @@ struct PollIntervalStrategyTests {
 
   @Test("Headroom < 50 with known reset date → max(60, resetDate)")
   func headroomCooldownWithResetDate() {
-    // reset 200 s from now → expect 200 s (above the 60 s floor)
     let reset = Date.fromNow(200)
     let result = PollIntervalStrategy.next(
       hasActiveWork: false,
@@ -87,7 +80,7 @@ struct PollIntervalStrategyTests {
 
   @Test("Headroom < 50 with reset date producing value < 60 → floor of 60 s")
   func headroomCooldownWithNearResetDate() {
-    let reset = Date.fromNow(10)  // only 10 s away → floor kicks in
+    let reset = Date.fromNow(10)
     let result = PollIntervalStrategy.next(
       hasActiveWork: false,
       consecutiveIdleTicks: 0,
@@ -114,7 +107,6 @@ struct PollIntervalStrategyTests {
 
   @Test("Headroom boundary: remaining == 50 → headroom branch NOT taken")
   func headroomBoundaryExactly50() {
-    // With hasActiveWork=true and ≤5 busy, should be activeIntervalFast (1 s)
     let result = PollIntervalStrategy.next(
       hasActiveWork: true,
       consecutiveIdleTicks: 0,
@@ -149,16 +141,13 @@ struct PollIntervalStrategyTests {
       rateLimitResetDate: nil,
       rateLimitRemaining: 49
     )
-    #expect(result == 300)  // no reset date → 300 s
+    #expect(result == 300)
   }
 
   // MARK: - Active mode (busy runner ladder)
 
-  /// Input parameters for a single active-mode ladder test case.
   struct ActiveCase {
-    /// Number of runners currently marked busy.
     let busyRunnerCount: Int
-    /// The polling interval expected from `PollIntervalStrategy.next`.
     let expectedInterval: TimeInterval
   }
 
@@ -188,24 +177,25 @@ struct PollIntervalStrategyTests {
 
   // MARK: - Idle mode (exponential backoff)
 
-  /// Input parameters for a single idle-mode backoff test case.
   struct IdleCase {
-    /// Number of consecutive idle poll cycles completed before this interval is computed.
     let consecutiveIdleTicks: Int
-    /// The polling interval expected from `PollIntervalStrategy.next`.
     let expectedInterval: TimeInterval
   }
 
   @Test(
     "Idle mode exponential backoff",
     arguments: [
-      IdleCase(consecutiveIdleTicks: 0, expectedInterval: 30),
-      IdleCase(consecutiveIdleTicks: 1, expectedInterval: 60),
-      IdleCase(consecutiveIdleTicks: 2, expectedInterval: 120),
-      IdleCase(consecutiveIdleTicks: 3, expectedInterval: 240),
-      IdleCase(consecutiveIdleTicks: 4, expectedInterval: 300),  // capped at idleMax
-      IdleCase(consecutiveIdleTicks: 5, expectedInterval: 300),  // still capped
-      IdleCase(consecutiveIdleTicks: 99, expectedInterval: 300), // deep idle — still capped
+      // tick 0: error-only path (15 * 2^(0-1) = 15 * 0.5 = 7.5 s)
+      IdleCase(consecutiveIdleTicks: 0,  expectedInterval: 7.5),
+      // normal production curve starts at tick 1
+      IdleCase(consecutiveIdleTicks: 1,  expectedInterval: 15),
+      IdleCase(consecutiveIdleTicks: 2,  expectedInterval: 30),
+      IdleCase(consecutiveIdleTicks: 3,  expectedInterval: 60),
+      IdleCase(consecutiveIdleTicks: 4,  expectedInterval: 120),
+      IdleCase(consecutiveIdleTicks: 5,  expectedInterval: 240),
+      IdleCase(consecutiveIdleTicks: 6,  expectedInterval: 300),  // capped at idleMax
+      IdleCase(consecutiveIdleTicks: 7,  expectedInterval: 300),  // still capped
+      IdleCase(consecutiveIdleTicks: 99, expectedInterval: 300),  // deep idle — still capped
     ]
   )
   func idleModeBackoff(_ testCase: IdleCase) {
@@ -232,7 +222,7 @@ struct PollIntervalStrategyTests {
       rateLimitResetDate: nil,
       rateLimitRemaining: PollIntervalStrategy.rateLimitUnavailable
     )
-    #expect(result == 60)  // rate-limited path, not active path
+    #expect(result == 60)
   }
 
   @Test("isRateLimited takes priority over headroom cooldown")
@@ -243,7 +233,7 @@ struct PollIntervalStrategyTests {
       busyRunnerCount: 0,
       isRateLimited: true,
       rateLimitResetDate: nil,
-      rateLimitRemaining: 49  // headroom also triggered — rate-limit wins
+      rateLimitRemaining: 49
     )
     #expect(result == 60)
   }
@@ -258,14 +248,13 @@ struct PollIntervalStrategyTests {
       rateLimitResetDate: nil,
       rateLimitRemaining: 49
     )
-    #expect(result == 300)  // headroom path, not active path
+    #expect(result == 300)
   }
 
   // MARK: - Int.max passthrough (Step 9 placeholder)
 
   @Test("rateLimitRemaining == Int.max → headroom branch is no-op")
   func intMaxPassthrough() {
-    // Should fall through to active path
     let result = PollIntervalStrategy.next(
       hasActiveWork: true,
       consecutiveIdleTicks: 0,
