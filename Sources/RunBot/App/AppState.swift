@@ -480,7 +480,8 @@ final class AppState {
     /// - `statusIconTask`: observes `runnerState.aggregateStatus` and calls back
     ///   to `AppDelegate` to update the menu-bar icon (AppKit concern stays in AppDelegate).
     /// - `oauthCredentials`: reconciles Keychain state, then begins the single
-    ///   app-lifetime sign-in observation. `signOutOAuth()` restarts runner polling.
+    ///   app-lifetime sign-in observation. Runner-poll restart after sign-out is
+    ///   performed by `signOutOAuth()`, not by an observation task.
     ///
     /// `onUpdateStatusIcon` is a callback rather than a direct AppDelegate reference
     /// to avoid AppState holding a strong reference to AppDelegate.
@@ -521,7 +522,7 @@ final class AppState {
     ///
     /// 1. Deletes the OAuth token through `OAuthCredentialController.signOut()`.
     /// 2. `GitHubAuthentication` is reconciled synchronously inside `signOut()`.
-    /// 3. Runner polling is restarted so the poll loop picks up the new credential state.
+    /// 3. Runner polling is restarted — see the ❌ note at the call site below.
     @MainActor
     func signOutOAuth() async {
         oauthCredentials.signOut()
@@ -531,6 +532,12 @@ final class AppState {
             return
         }
 
+        // ❌ Do NOT remove this start() call (PR #1138 regression history):
+        // #1138 replaced the polling Timer with a Task that loops on Task.sleep and
+        // never restarts itself. Without this call the poll loop stalls permanently
+        // after sign-out, whatever auth mode is selected next. signOut() invalidated
+        // TokenCache, so the first token() here may re-spawn /bin/zsh -i -l (~50–200 ms)
+        // to recover GH_TOKEN; the result is cached, so only this cycle pays it.
         await runnerStore.start()
     }
 }
