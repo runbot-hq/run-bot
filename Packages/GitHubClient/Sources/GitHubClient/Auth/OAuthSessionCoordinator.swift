@@ -42,8 +42,8 @@ public final class OAuthSessionCoordinator {
     // and `stop()`. The read in `deinit` happens after the last strong reference
     // drops, so no concurrent write is possible at that point.
 
-    @ObservationIgnored nonisolated(unsafe) private var signInTask: Task<Void, Never>?
-    @ObservationIgnored nonisolated(unsafe) private var signOutTask: Task<Void, Never>?
+    nonisolated(unsafe) private var signInTask: Task<Void, Never>?
+    nonisolated(unsafe) private var signOutTask: Task<Void, Never>?
 
     // MARK: - Rollback state
 
@@ -150,6 +150,7 @@ public final class OAuthSessionCoordinator {
         guard isSigningIn else { return }
         log("OAuthSessionCoordinator › browserOpeningFailed")
         failSignIn("Could not open GitHub in your browser.")
+        service.cancelSignIn()
     }
 
     /// Cancels an active sign-in flow.
@@ -210,10 +211,9 @@ public final class OAuthSessionCoordinator {
 
     private func handleSignInEvent(_ success: Bool) {
         if success {
-            // `true` means OAuthService validated the callback and persisted the token.
-            // Do not gate on `.signingIn`: presentation state may have been reconciled
-            // or otherwise changed before this event is consumed. `pendingState` is
-            // in-memory so a relaunch cannot validate a prior process's nonce.
+            // `true` means OAuthService validated the callback and persisted the
+            // token. Do not gate success on `.signingIn`: presentation state may have
+            // been reconciled or otherwise changed before this event is consumed.
             authentication.recordOAuthSignIn(username: nil)
         } else if isSigningIn {
             failSignIn("Sign-in was cancelled or failed.")
