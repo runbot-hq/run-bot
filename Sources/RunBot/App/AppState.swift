@@ -535,5 +535,4 @@ final class AppState {
         oauthCredentials.reconcile()
         oauthCredentials.start()
     }
-
 }
