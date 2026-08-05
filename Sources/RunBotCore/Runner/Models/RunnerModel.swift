@@ -73,6 +73,8 @@ public struct RunnerModel: Sendable, Identifiable, Equatable {
 
     /// Launchctl / process running state.
     /// Use `copying(isRunning:)` to produce an updated value.
+    // TODO: Rename `isRunning` to `isServiceRunning` to clarify that this is
+    // the local LaunchAgent/process state, not the remote GitHub runner status.
     public let isRunning: Bool
 
     /// GitHub API-reported connectivity status. Set by `RunnerStatusEnricher`.

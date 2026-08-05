@@ -136,7 +136,8 @@ public struct RunnerStatusEnricher: RunnerStatusEnricherProtocol, Sendable {
     ///
     /// - Parameter runners: The locally-discovered runner list to enrich.
     /// - Returns: A new array with the same runners, each enriched where an API match was found.
-    /// - Note: Runners whose `gitHubUrl` is `nil` are skipped and returned unchanged.
+    /// - Note: Runners that are stopped (`isRunning == false`) or whose `gitHubUrl` is `nil`
+    ///   are skipped and returned unchanged (#2467).
     public func enrich(runners: [RunnerModel]) async -> [RunnerModel] {
         // Step 1: collect unique scope URLs and the runners belonging to each.
         let scopeToRunnerIndices = buildScopeToRunnerIndices(runners)
@@ -167,8 +168,10 @@ public struct RunnerStatusEnricher: RunnerStatusEnricherProtocol, Sendable {
 
     /// Groups runner indices by their scope URL string.
     ///
-    /// Runners whose `gitHubUrl` is `nil` are skipped and a diagnostic log entry
-    /// is emitted. Extracted from `enrich` to reduce its cyclomatic complexity.
+    /// Runners whose `isRunning` is `false` or whose `gitHubUrl` is `nil` are
+    /// skipped and a diagnostic log entry is emitted. Stopped runners are excluded
+    /// so they do not trigger GitHub API calls during enrichment (#2467).
+    /// Extracted from `enrich` to reduce its cyclomatic complexity.
     ///
     /// - Parameter runners: The full runner list passed to `enrich`.
     /// - Returns: A mapping from absolute scope URL string to the indices of runners
@@ -176,8 +179,12 @@ public struct RunnerStatusEnricher: RunnerStatusEnricherProtocol, Sendable {
     private func buildScopeToRunnerIndices(_ runners: [RunnerModel]) -> [String: [Int]] {
         var scopeToRunnerIndices: [String: [Int]] = [:]
         for (idx, runner) in runners.enumerated() {
-            guard let url = runner.gitHubUrl else {
-                log("[Enricher] SKIP '\(runner.runnerName)' — gitHubUrl is nil", category: .runner)
+            guard runner.isRunning, let url = runner.gitHubUrl else {
+                if !runner.isRunning {
+                    log("[Enricher] SKIP '\(runner.runnerName)' — isRunning is false", category: .runner)
+                } else {
+                    log("[Enricher] SKIP '\(runner.runnerName)' — gitHubUrl is nil", category: .runner)
+                }
                 continue
             }
             scopeToRunnerIndices[url.absoluteString, default: []].append(idx)
