@@ -173,7 +173,8 @@ final class AppState {
     /// Single source of truth for:
     ///   • `selectedSource` — which credential the app uses for API requests.
     ///   • `environmentState` — env token availability (GH_TOKEN / GITHUB_TOKEN).
-    ///   • `oauthState`  — OAuth flow lifecycle (signedOut → signingIn → signedIn).
+    ///   • `oauthState`  — mirrors OAuth Keychain credential presence: `.signedOut`
+    ///     when no token exists and `.signedIn` when a token exists.
     ///
     /// `selectedSource` is persisted to `UserDefaults` and survives relaunches.
     /// Settings UI reads and mutates this model; `SettingsView.onAppearAction()`
@@ -301,9 +302,8 @@ final class AppState {
     ///
     /// Sequence:
     /// 1. `seedStoreAndPoller()` — sync; seeds `_localRunnerStore` and creates `RunnerPoller`.
-    /// 2. `startObservations()` — sync; wires status-icon task BEFORE any
-    ///    await.
-    ///    MUST follow seedStoreAndPoller() — signOutOAuth() reads self.runnerStore.
+    /// 2. `startObservations()` — sync; reconciles OAuth credentials and installs
+    ///    the status-icon and app-lifetime OAuth sign-in observations before any await.
     /// 3. `refreshAsync()` — first suspension point; hydrates local runners before poll loop fires.
     /// 4. `runnerStore.start()` — begins the poll loop. The first `token()` call suspends
     ///    here on a cold Finder/Dock/login-item launch (~50–200 ms login shell) then caches
@@ -480,18 +480,11 @@ final class AppState {
     /// - `statusIconTask`: observes `runnerState.aggregateStatus` and calls back
     ///   to `AppDelegate` to update the menu-bar icon (AppKit concern stays in AppDelegate).
     /// - `oauthCredentials`: reconciles Keychain state, then begins the single
-    ///   app-lifetime sign-in observation. Runner-poll restart is wired via `didSignOut`.
+    ///   app-lifetime sign-in observation. `signOutOAuth()` restarts runner polling.
     ///
     /// `onUpdateStatusIcon` is a callback rather than a direct AppDelegate reference
     /// to avoid AppState holding a strong reference to AppDelegate.
     private func startObservations(onUpdateStatusIcon: @escaping @MainActor () -> Void) {
-        // Ordering tripwire: seedStoreAndPoller() MUST have run before this method.
-        // signOutOAuth() reads self.runnerStore (set by seedStoreAndPoller).
-        // If called out of order, the guard-let inside signOutOAuth() silently drops the
-        // first sign-out — no crash, no log, just a stalled poll loop after sign-out.
-        // The assert catches a call-order swap in DEBUG/test runs before it ships.
-        assert(runnerStore != nil, "AppState.startObservations: must be called after seedStoreAndPoller() — runnerStore is nil")
-
         // Status icon observation.
         // Wired at Step 2 — BEFORE any suspension point. This is safe because
         // Observations{} has did-set semantics: it emits once immediately with the

@@ -8,8 +8,8 @@ import OAuthTokenKit
 
 /// Narrow credential controller that owns exactly one app-lifetime sign-in observation.
 ///
-/// Replaces `OAuthSessionCoordinator`. The browser operation is not represented in
-/// application state — only Keychain token presence matters.
+/// The browser operation is not represented in application state — only Keychain
+/// token presence matters.
 ///
 /// ## Design
 /// - One task: observes `makeSignInStream()` for the lifetime of the app.
