@@ -176,7 +176,7 @@ public struct RunnerStatusEnricher: RunnerStatusEnricherProtocol, Sendable {
     /// - Parameter runners: The full runner list passed to `enrich`.
     /// - Returns: A mapping from absolute scope URL string to the indices of runners
     ///   that belong to that scope.
-    private func buildScopeToRunnerIndices(_ runners: [RunnerModel]) -> [String: [Int]] {
+    func buildScopeToRunnerIndices(_ runners: [RunnerModel]) -> [String: [Int]] {
         var scopeToRunnerIndices: [String: [Int]] = [:]
         for (idx, runner) in runners.enumerated() {
             guard runner.isRunning, let url = runner.gitHubUrl else {
