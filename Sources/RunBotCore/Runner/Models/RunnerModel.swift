@@ -71,10 +71,10 @@ public struct RunnerModel: Sendable, Identifiable, Equatable {
     /// GitHub runner group name. Populated by `RunnerStatusEnricher` via the GitHub API.
     public let runnerGroup: String?
 
-    /// Launchctl / process running state.
-    /// Use `copying(isRunning:)` to produce an updated value.
     // TODO: Rename `isRunning` to `isServiceRunning` to clarify that this is
     // the local LaunchAgent/process state, not the remote GitHub runner status.
+    /// Launchctl / process running state.
+    /// Use `copying(isRunning:)` to produce an updated value.
     public let isRunning: Bool
 
     /// GitHub API-reported connectivity status. Set by `RunnerStatusEnricher`.
