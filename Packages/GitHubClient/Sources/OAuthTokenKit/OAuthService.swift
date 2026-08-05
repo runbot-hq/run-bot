@@ -221,30 +221,6 @@ public final class OAuthService: OAuthServiceProtocol {
         return envVarIsSet("GH_TOKEN") || envVarIsSet("GITHUB_TOKEN")
     }
 
-    // MARK: - Sign-out multicast
-
-    /// Registered sign-out continuations keyed by UUID — one per active consumer.
-    /// UUID key: enables O(1) removal in `onTermination` without requiring
-    /// `Continuation` to be `Equatable` — an array would need `firstIndex(where:)`
-    /// which is unavailable on `AsyncStream.Continuation`.
-    private var signOutContinuations: [UUID: AsyncStream<Void>.Continuation] = [:]
-
-    /// Returns a new `AsyncStream` that fires once per `signOut()` call.
-    public func makeSignOutStream() -> AsyncStream<Void> {
-        let id = UUID()
-        let (stream, cont) = AsyncStream<Void>.makeStream()
-        signOutContinuations[id] = cont
-        cont.onTermination = { [weak self] _ in
-            // Weak capture: onTermination fires after the consumer releases the stream.
-            // A strong capture would keep OAuthService alive for the lifetime of any
-            // abandoned consumer. The @MainActor Task re-hop makes the nil-check safe.
-            Task { @MainActor [weak self] in
-                self?.signOutContinuations.removeValue(forKey: id)
-            }
-        }
-        return stream
-    }
-
     // MARK: - Sign-in multicast
 
     /// Registered sign-in continuations keyed by UUID — one per active consumer.
@@ -259,7 +235,9 @@ public final class OAuthService: OAuthServiceProtocol {
         let (stream, cont) = AsyncStream<Bool>.makeStream()
         signInContinuations[id] = cont
         cont.onTermination = { [weak self] _ in
-            // Weak capture: see makeSignOutStream() onTermination comment above.
+            // Weak capture: onTermination fires after the consumer releases the stream.
+            // A strong capture would keep OAuthService alive for the lifetime of any
+            // abandoned consumer. The @MainActor Task re-hop makes the nil-check safe.
             Task { @MainActor [weak self] in
                 self?.signInContinuations.removeValue(forKey: id)
             }
@@ -318,15 +296,9 @@ public final class OAuthService: OAuthServiceProtocol {
         let deleted = tokenStore.delete()
         log?("OAuthService › signOut — tokenStore.delete result=\(deleted)", "transport")
         if !deleted {
-            log?("OAuthService › signOut — tokenStore.delete failed (best-effort); proceeding with cache clear and sign-out event", "transport")
+            log?("OAuthService › signOut — tokenStore.delete failed (best-effort); proceeding with cache clear", "transport")
         }
         onTokenDeleted?()  // always called — see onTokenDeleted CONTRACT above
-        // NOTE: this log line is load-bearing for diagnostics — do not remove.
-        // It is the only place that records how many consumers receive the sign-out
-        // event. Silent sign-out failures (e.g. a stream consumer that never fires)
-        // are diagnosed by checking this count in unified logs.
-        log?("OAuthService › signOut — emitting didSignOut to \(signOutContinuations.count) consumer(s)", "transport")
-        signOutContinuations.values.forEach { $0.yield(()) }
     }
 
     // MARK: - Callback Handler

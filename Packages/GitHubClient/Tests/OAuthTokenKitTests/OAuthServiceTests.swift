@@ -191,7 +191,8 @@ struct OAuthServiceCSRFTests {
         let second = await iter2.next()
         #expect(second == false)
     }
-}
+
+    }
 
 // MARK: - exchangeCode
 
@@ -284,6 +285,27 @@ struct OAuthServiceExchangeCodeTests {
         #expect(result == false)
         #expect(savedCalled == false)
     }
+
+    @Test("Token is persisted before true is emitted to subscribers")
+    func tokenPersistedBeforeTrueEmitted() async throws {
+        let store = SpyTokenStore()
+        let session = MockURLSession()
+        session.stubbedResult = .success(successPayload())
+        let svc = makeService(store: store, session: session)
+
+        // Capture ordering: token store state at the moment the event arrives.
+        let url = try #require(svc.makeSignInURL())
+        let state = URLComponents(url: url, resolvingAgainstBaseURL: false)!
+            .queryItems!.first(where: { $0.name == "state" })!.value!
+        let stream = svc.makeSignInStream()
+        var iter = stream.makeAsyncIterator()
+        svc.handleCallback(callbackURL(code: "abc123", state: state))
+        let result = await iter.next()
+        #expect(result == true)
+        // Token must be persisted before the event fires.
+        #expect(store.load() == "ghs_test_token")
+        #expect(store.saveCallCount == 1)
+    }
 }
 
 // MARK: - signOut
@@ -297,25 +319,19 @@ struct OAuthServiceSignOutTests {
         let store = SpyTokenStore(initial: "some-token")
         var deletedCalled = false
         let svc = makeService(store: store, onTokenDeleted: { deletedCalled = true })
-        let stream = svc.makeSignOutStream()
-        var iter = stream.makeAsyncIterator()
         svc.signOut()
-        _ = await iter.next()
         #expect(store.deleteCallCount == 1)
         #expect(deletedCalled == true)
         #expect(store.load() == nil)
     }
 
-    @Test("signOut emits sign-out stream even when delete() returns false")
-    func signOutFiresStreamEvenOnDeleteFailure() async {
+    @Test("signOut fires onTokenDeleted even when delete() returns false")
+    func signOutFiresCallbackEvenOnDeleteFailure() async {
         let store = SpyTokenStore(initial: "some-token")
         store.shouldFailDelete = true
         var deletedCalled = false
         let svc = makeService(store: store, onTokenDeleted: { deletedCalled = true })
-        let stream = svc.makeSignOutStream()
-        var iter = stream.makeAsyncIterator()
         svc.signOut()
-        _ = await iter.next()  // must not hang
         #expect(deletedCalled == true)
         #expect(store.deleteCallCount == 1)
     }
@@ -344,20 +360,6 @@ struct OAuthServiceStreamTests {
         let r2 = await iter2.next()
         #expect(r1 == true)
         #expect(r2 == true)
-    }
-
-    @Test("Two makeSignOutStream consumers both receive the sign-out event")
-    func signOutStreamMulticast() async {
-        let svc = makeService()
-        let stream1 = svc.makeSignOutStream()
-        let stream2 = svc.makeSignOutStream()
-        var iter1 = stream1.makeAsyncIterator()
-        var iter2 = stream2.makeAsyncIterator()
-        svc.signOut()
-        let r1: Void? = await iter1.next()
-        let r2: Void? = await iter2.next()
-        #expect(r1 != nil)
-        #expect(r2 != nil)
     }
 }
 

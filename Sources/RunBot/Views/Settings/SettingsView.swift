@@ -140,8 +140,6 @@ struct SettingsView: View {
     // These are `internal` (bare `var`) by Swift necessity — see ACCESS LEVEL NOTE
     // at the top of this file. `private` would break SettingsView+Sections.swift.
 
-    /// Forwarded OAuth service from `appState`. Internal by necessity — see ACCESS LEVEL NOTE.
-    var oauthService: any OAuthServiceProtocol { appState.oauthService }
     /// Forwarded lifecycle service from `appState`. Internal by necessity — see ACCESS LEVEL NOTE.
     var lifecycleService: any RunnerLifecycleServiceProtocol { appState.lifecycleService }
     /// Forwarded runner state from `appState`. Internal by necessity — see ACCESS LEVEL NOTE.
@@ -167,12 +165,13 @@ struct SettingsView: View {
     // MARK: - Local UI state
     //
     // Access level split — why some are `private` and others are not:
-    //   `private`  — signInTask, signOutTask: only ever touched inside THIS file
-    //               (onAppearAction spawns them, onDisappear cancels them).
-    //               No extension file reads or writes these — private is correct.
-    //   `internal` — everything else: read or written by SettingsView+Sections.swift
+    //   `internal` — everything read or written by SettingsView+Sections.swift
     //               (launchAtLogin; navigation sections toggle showLocalRunners/showScopes).
     //               Must be internal — see ACCESS LEVEL NOTE at top of file.
+    //
+    // NOTE: All OAuth task handles have been removed from this view (issue #2474).
+    // OAuthCredentialController owns the single sign-in stream subscription.
+    // Closing Settings has no effect on sign-in or sign-out state.
 
     /// Mirrors `LoginItem.isEnabled`; toggled by the Launch at Login switch.
     /// Internal by necessity — read/written by `SettingsView+Sections.swift`. See ACCESS LEVEL NOTE.
@@ -182,23 +181,6 @@ struct SettingsView: View {
     /// Holds selectedSource, environmentState, and oauthState.
     /// Internal by necessity — read by `SettingsView+Sections.swift`. See ACCESS LEVEL NOTE.
     var authentication: GitHubAuthentication { appState.authentication }
-
-    /// `true` while the OAuth sign-in flow is in progress.
-    /// Derived from `authentication.oauthState` — no longer a separate `@State` bool.
-    var isSigningIn: Bool {
-        if case .signingIn = authentication.oauthState { return true }
-        return false
-    }
-
-    /// Retains the sign-in listener Task so it can be cancelled on disappear.
-    /// `private` — only touched inside this file (onAppearAction / onDisappear).
-    /// No extension file accesses this. See LOCAL UI STATE access-level split above.
-    @State private var signInTask: Task<Void, Never>?
-
-    /// Retains the sign-out listener Task so it can be cancelled on disappear.
-    /// `private` — only touched inside this file (onAppearAction / onDisappear).
-    /// No extension file accesses this. See LOCAL UI STATE access-level split above.
-    @State private var signOutTask: Task<Void, Never>?
 
     /// `true` while `LocalRunnersView` is displayed instead of the main settings scroll.
     /// Internal by necessity — toggled by `SettingsView+Sections.swift`. See ACCESS LEVEL NOTE.
@@ -331,21 +313,9 @@ struct SettingsView: View {
             await autoUpdater.checkAndHandle(state: runnerState)
         }
         .onDisappear {
-            log("【SettingsView.onDisappear】cancelling signInTask/signOutTask", category: .general)
-            // Cancel and unconditionally nil the sign-in task — the for-await loop
-            // exits promptly on cancellation (AsyncStream respects task cancellation)
-            // so isSigningIn will never flip back via the stream after this point.
-            // Nilling here ensures a re-opened panel never shows a stale spinner.
-            signInTask?.cancel()
-            signInTask = nil
-            signOutTask?.cancel()
-            signOutTask = nil
-            // If a sign-in was in progress when the panel closed, reset to signedOut
-            // so the next open doesn't show a stale spinner. The stream task is
-            // already cancelled above so the for-await loop will not reset it.
-            if case .signingIn = appState.authentication.oauthState {
-                appState.authentication.setOAuthState(.signedOut)
-            }
+            // OAuth session is now coordinator-owned (issue #2474).
+            // Closing Settings has no effect on sign-in or sign-out state.
+            log("【SettingsView.onDisappear】", category: .general)
         }
     }
 
@@ -408,63 +378,17 @@ struct SettingsView: View {
         .padding(.bottom, 16)
     }
 
-    /// Runs on `.onAppear`: re-syncs auth state from `oauthService` and starts sign-in /
-    /// sign-out listeners.
+    /// Runs on `.onAppear`: reconciles authentication state with live token storage.
     ///
-    /// WHY auth state is re-seeded here even though init already seeds it:
-    /// `init` seeds once at construction time. On a hide/show cycle the view is NOT
-    /// reconstructed — the same instance reappears. onAppearAction re-syncs so the
-    /// status light and sign-in button always reflect the live keychain state at the
-    /// moment the panel becomes visible, not the state at first construction.
-    /// This is not redundant — it is a deliberate re-read for the re-appear case.
+    /// Delegates to `OAuthCredentialController.reconcile()` which syncs Keychain
+    /// truth on every Settings open — safe because the new controller has no
+    /// transitional state that could be clobbered.
     ///
-    /// Update checking is intentionally NOT done here — it is owned by Task 2 of 2
-    /// in body (.task modifier), which covers both cold-open and navigation paths
-    /// (fix #2223). All tasks are cancelled before reassignment so a rapid open→open
-    /// cycle cannot leak prior stream listeners.
-    ///
-    /// Authentication state is now driven by `appState.authentication` (GitHubAuthentication).
-    /// The sign-in / sign-out streams update oauthState on the shared model.
-    private func onAppearAction() { // skipcq: SW-R1002 — reviewed; complexity acceptable for this onAppear setup
-        // Passively re-sync OAuth state from the live Keychain on re-appear.
-        // Uses syncOAuthState() so the persisted selectedSource is never overwritten
-        // just by opening Settings (fix for finding 4 / #2464). recordOAuthSignIn()
-        // is the only path that writes .oauth to selectedSource.
-        let auth = appState.authentication
-        auth.syncOAuthState(isAuthenticated: oauthService.isAuthenticated)
-        log("【SettingsView.onAppear】oauthState=\(auth.oauthState)", category: .general)
+    /// Update checking is owned by Task 2 of 2 in body (.task modifier).
+    private func onAppearAction() {
+        log("【SettingsView.onAppear】oauthState=\(appState.authentication.oauthState)", category: .general)
         log("【SettingsView.onAppear】settings=\(ObjectIdentifier(settings)) betaChannel=\(settings.betaChannel)", category: .general)
-
-        // Cancel before reassigning — guards against the rapid open→open case
-        // where the panel is re-shown without an intervening onDisappear, which
-        // would otherwise silently leak the prior task.
-        signInTask?.cancel()
-        signInTask = Task { @MainActor in
-            for await success in oauthService.makeSignInStream() {
-                log("【SettingsView.signInStream】success=\(success) — updating auth state", category: .general)
-                if success {
-                    auth.recordOAuthSignIn(username: nil)
-                } else {
-                    auth.setOAuthState(.failed(previous: .signedOut, message: "Sign-in was cancelled or failed."))
-                }
-                log("【SettingsView.signInStream】oauthState=\(auth.oauthState)", category: .general)
-            }
-        }
-
-        signOutTask?.cancel()
-        signOutTask = Task { @MainActor in
-            for await _ in oauthService.makeSignOutStream() {
-                log("【SettingsView.signOutStream】didSignOut", category: .general)
-                // OAuth sign-out always returns to `.unauthenticated`.
-                //
-                // Environment cannot be active here: the UI disables OAuth interactions while
-                // Environment mode is selected. There is therefore no inactive OAuth credential
-                // whose sign-out must preserve an active Environment selection.
-                auth.setOAuthState(.signedOut)
-                auth.setSelectedSource(.unauthenticated)
-                log("【SettingsView.signOutStream】oauthState=\(auth.oauthState) source=\(auth.selectedSource)", category: .general)
-            }
-        }
+        appState.oauthCredentials.reconcile()
     }
 
     // MARK: - Header
@@ -498,28 +422,32 @@ struct SettingsView: View {
         log("【SettingsView.applyLaunchAtLogin】result LoginItem.isEnabled=\(LoginItem.isEnabled)", category: .general)
     }
 
-    /// Initiates the OAuth sign-in flow via the injected `oauthService`.
+    /// Initiates the OAuth sign-in flow via the credential controller.
     ///
-    /// `makeSignInURL()` builds the authorization URL and stores the CSRF nonce.
-    /// Opening the browser is the app layer's responsibility — `OAuthService` (Core)
-    /// has no AppKit dependency and cannot call `NSWorkspace` directly.
+    /// Controller builds the URL and returns it. The caller opens the URL in the
+    /// system browser because `GitHubClient` must not depend on AppKit.
     func signInWithGitHub() {
-        log("【SettingsView.signInWithGitHub】setting oauthState=.signingIn", category: .general)
-        appState.authentication.setOAuthState(.signingIn)
-        if let url = oauthService.makeSignInURL() {
-            NSWorkspace.shared.open(url)
-        } else {
-            log("【SettingsView.signInWithGitHub】makeSignInURL returned nil — aborting", category: .general)
-            appState.authentication.setOAuthState(.failed(previous: .signedOut, message: "Could not build sign-in URL."))
+        log("【SettingsView.signInWithGitHub】routing to oauthCredentials.makeSignInURL()", category: .general)
+        guard let url = appState.oauthCredentials.makeSignInURL() else {
+            log("【SettingsView.signInWithGitHub】makeSignInURL returned nil", category: .general)
+            return
+        }
+        guard NSWorkspace.shared.open(url) else {
+            log("【SettingsView.signInWithGitHub】NSWorkspace.open failed", category: .general)
+            return
         }
     }
 
-    /// Signs out of GitHub via the injected `oauthService`.
+    /// Signs out of GitHub. The credential controller owns the sign-out sequence:
+    /// it deletes the token, reconciles authentication, then invokes its configured
+    /// `didSignOut` callback to restart runner polling.
     func signOutOfGitHub() {
-        log("【SettingsView.signOutOfGitHub】setting oauthState=.signingOut", category: .general)
-        let username: String?
-        if case .signedIn(let currentUsername) = appState.authentication.oauthState { username = currentUsername } else { username = nil }
-        appState.authentication.setOAuthState(.signingOut(username: username))
-        oauthService.signOut()
+        log(
+            "【SettingsView.signOutOfGitHub】routing to oauthCredentials.signOut()",
+            category: .general
+        )
+        Task { @MainActor in
+            await appState.oauthCredentials.signOut()
+        }
     }
 }

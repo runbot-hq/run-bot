@@ -3,7 +3,7 @@
 //
 // Spy/stub conforming to OAuthServiceProtocol for use in unit tests.
 // All methods are no-ops by default; tests wire behaviour via the
-// public mutation helpers (triggerSignIn, triggerSignOut).
+// public mutation helper (triggerSignIn).
 
 import Foundation
 import OAuthTokenKit
@@ -14,8 +14,11 @@ import OAuthTokenKit
 /// A test double for `OAuthServiceProtocol`.
 ///
 /// - Spy properties record every call for assertion.
-/// - `triggerSignIn(_:)` / `triggerSignOut()` push events into
-///   any live `AsyncStream` consumers.
+/// - `triggerSignIn(_:)` pushes events into **all** live `AsyncStream` consumers (multicast).
+///
+/// ## Actor safety
+/// Continuation dictionaries are `@MainActor`-isolated. Termination handlers
+/// hop back to `@MainActor` via `Task { @MainActor … }` to avoid data races.
 @MainActor
 final class MockOAuthService: OAuthServiceProtocol {
 
@@ -30,11 +33,11 @@ final class MockOAuthService: OAuthServiceProtocol {
     private(set) var signOutCallCount = 0
     private(set) var handleCallbackURLs: [URL] = []
     private(set) var makeSignInURLCallCount = 0
+    private(set) var makeSignInStreamCallCount = 0
 
-    // MARK: - Stream continuations
+    // MARK: - Multicast stream continuations
 
-    private var signInContinuation: AsyncStream<Bool>.Continuation?
-    private var signOutContinuation: AsyncStream<Void>.Continuation?
+    private var signInContinuations: [UUID: AsyncStream<Bool>.Continuation] = [:]
 
     // MARK: - OAuthServiceProtocol
 
@@ -45,7 +48,6 @@ final class MockOAuthService: OAuthServiceProtocol {
 
     func signOut() {
         signOutCallCount += 1
-        signOutContinuation?.yield(())
     }
 
     func handleCallback(_ url: URL) {
@@ -53,26 +55,25 @@ final class MockOAuthService: OAuthServiceProtocol {
     }
 
     func makeSignInStream() -> AsyncStream<Bool> {
-        AsyncStream { continuation in
-            self.signInContinuation = continuation
-        }
-    }
-
-    func makeSignOutStream() -> AsyncStream<Void> {
-        AsyncStream { continuation in
-            self.signOutContinuation = continuation
+        makeSignInStreamCallCount += 1
+        let id = UUID()
+        return AsyncStream { [weak self] continuation in
+            self?.signInContinuations[id] = continuation
+            continuation.onTermination = { [weak self] _ in
+                Task { @MainActor in
+                    self?.signInContinuations.removeValue(forKey: id)
+                }
+            }
         }
     }
 
     // MARK: - Test helpers
 
-    /// Emits a sign-in result into any active `makeSignInStream()` consumer.
+    /// Emits a sign-in result into **all** active `makeSignInStream()` consumers.
     func triggerSignIn(_ success: Bool) {
-        signInContinuation?.yield(success)
+        signInContinuations.values.forEach { $0.yield(success) }
     }
 
-    /// Emits a sign-out event into any active `makeSignOutStream()` consumer.
-    func triggerSignOut() {
-        signOutContinuation?.yield(())
-    }
+    /// Number of active sign-in stream subscribers.
+    var signInSubscriberCount: Int { signInContinuations.count }
 }

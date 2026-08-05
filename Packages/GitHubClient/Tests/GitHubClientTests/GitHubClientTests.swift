@@ -173,15 +173,4 @@ struct GitHubClientTests {
         #expect(value == true)
     }
 
-    /// `triggerSignOut()` delivers an event to an active stream consumer.
-    @Test @MainActor
-    func mockOAuth_triggerSignOut_deliversToStream() async {
-        let oauth = MockOAuthService()
-        let stream = oauth.makeSignOutStream()
-        oauth.triggerSignOut()
-        var iterator = stream.makeAsyncIterator()
-        // AsyncStream<Void>.AsyncIterator.next() returns Void? — assert non-nil to confirm delivery.
-        let value: Void? = await iterator.next()
-        #expect(value != nil)
     }
-}

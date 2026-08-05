@@ -58,61 +58,27 @@ final class AppState {
 
     // MARK: - Domain services
 
-    /// The `GitHubClient` facade — owns and wires `KeychainTokenStore`,
-    /// `TokenCache`, `OAuthService`, and `GitHubTransport`.
+    /// `GitHubClient` facade — owns `KeychainTokenStore`, `TokenCache`,
+    /// `OAuthService`, and `GitHubTransport`.
     ///
-    /// ⚠️ Backward-compat: `service: "run-bot"` matches the keychain service
-    /// name used by the pre-GitHubClient `Keychain` type. Do NOT change this
-    /// value post-ship — doing so orphans any token already stored under the
-    /// old coordinates and forces every signed-in user to re-authenticate.
-    ///
-    /// Declared without a default so the inits below can capture `authentication`
-    /// in the `authSource` closure. `authentication` is a `let` on `AppState` and
-    /// is initialised before `github` in both inits, so the capture is safe.
+    /// ⚠️ `service: "run-bot"` matches the pre-GitHubClient keychain service name.
+    /// Do NOT change — doing so orphans stored tokens and forces re-authentication.
     let github: GitHubClient
 
-    /// Forwarded from `github.oauthService` for backward-compatible access
-    /// across extensions and injected views.
-    ///
-    /// WHY `var`, not `let`: Swift requires `var` for any property with a getter
-    /// body — `let` is a syntax error for computed properties. This is a
-    /// read-only forwarding accessor; the `var` keyword carries no mutability
-    /// implication here. There is no stored backing field.
+    /// Read-only forwarding accessor to `github.oauthService`.
     var oauthService: any OAuthServiceProtocol { github.oauthService }
 
-    /// Owned lifecycle service. Typed to protocol so tests can supply a stub
-    /// without spawning real `svc.sh` processes (principle P7).
-    ///
-    /// Testability note: constructing `AppState` is zero-cost (no side effects
-    /// until `start()` is called), so a test can create `AppState()` or use
-    /// `AppState(lifecycleService:)` to inject a stub, and never call `start()`.
-    /// The protocol typing and `var` storage enable that pattern. A full
-    /// `AppStateProtocol` extraction is deferred — see WHY NOT AppStateProtocol
-    /// in the file-level comment.
+    /// Lifecycle service; protocol-typed so tests can inject a stub without
+    /// spawning real `svc.sh` processes. Zero side-effects until `start()` is called.
     var lifecycleService: any RunnerLifecycleServiceProtocol = RunnerLifecycleService()
 
-    /// Owned `LocalRunnerStore` actor.
+    /// Owned `LocalRunnerStore` actor. Backed by a private optional because
+    /// `@Observable` does not support `lazy var`.
     ///
-    /// Backed by a private optional (`_localRunnerStore`) because `@Observable`
-    /// does not support `lazy var` — the macro generates conflicting accessors.
-    /// The manual backing pattern replicates lazy semantics without the conflict.
-    ///
-    /// ❌ NEVER read `localRunnerStore` before `start()` runs. `start()` seeds
-    /// `_localRunnerStore` immediately after `configure()` is called (by AppDelegate
-    /// before the startup Task), so all accesses inside `start()` take the fast
-    /// path. The guard below is a safeguard against other early-read paths
-    /// (e.g. previews) — it is NOT expected to fire during normal startup.
-    ///
-    /// WHY THE FALLBACK PATH EXISTS (it is NOT a safe-recovery path):
-    /// Both the DEBUG and Release branches terminate the process via fatalError —
-    /// assertionFailure does NOT halt execution on its own; it only pauses
-    /// execution in a debug session (a debugger breakpoint). The fatalError
-    /// below always fires in both configurations. The #if DEBUG block adds a
-    /// readable message at the assertionFailure call site for crash symbolication,
-    /// but control always falls through to fatalError regardless of build config.
-    /// There is no silent recovery, no default value, and no retry. If you are
-    /// reading this because the assertionFailure fired, fix the early-read path
-    /// — do not remove the fallback or replace it with a nil-coalescing default.
+    /// ❌ NEVER read before `start()` runs — `start()` seeds `_localRunnerStore`
+    /// before any access. The getter below terminates via `fatalError` if reached;
+    /// both DEBUG and Release paths are fatal. If this fires, fix the early-read
+    /// path — do not replace the fatalError with a nil-coalescing default.
     var localRunnerStore: LocalRunnerStore {
         if let store = _localRunnerStore { return store }
         // ──────────────────────────────────────────────────────────────────
@@ -146,7 +112,7 @@ final class AppState {
     /// (e.g. `UI_TESTING` return, future test stubs, etc.).
     /// `@ObservationIgnored` for the same reason as `_localRunnerStore` above —
     /// write-only sentinel, never observed externally, registrar calls are no-ops.
-    /// ❌ NOT `nonisolated(unsafe)` (unlike `statusIconTask`/`signOutTask`):
+    /// ❌ NOT `nonisolated(unsafe)` (unlike `statusIconTask`):
     /// `_didStart` is only ever read/written inside `@MainActor`-isolated `start()`.
     /// `deinit` never touches it. The `nonisolated(unsafe)` annotation on the task
     /// vars exists solely because `deinit` calls `.cancel()` on them — that pattern
@@ -207,7 +173,8 @@ final class AppState {
     /// Single source of truth for:
     ///   • `selectedSource` — which credential the app uses for API requests.
     ///   • `environmentState` — env token availability (GH_TOKEN / GITHUB_TOKEN).
-    ///   • `oauthState`  — OAuth flow lifecycle (signedOut → signingIn → signedIn).
+    ///   • `oauthState`  — mirrors OAuth Keychain credential presence: `.signedOut`
+    ///     when no token exists and `.signedIn` when a token exists.
     ///
     /// `selectedSource` is persisted to `UserDefaults` and survives relaunches.
     /// Settings UI reads and mutates this model; `SettingsView.onAppearAction()`
@@ -235,47 +202,24 @@ final class AppState {
 
     // MARK: - Retained task handles
     //
-    // statusIconTask and signOutTask are co-located with AppState because they
-    // observe/drive domain state (runnerState.aggregateStatus, oauthService
-    // sign-out stream, runnerStore). Keeping them here means AppState owns
-    // the full lifecycle of the domain observation loops.
+    // statusIconTask is co-located with AppState because it observes domain state
+    // (runnerState.aggregateStatus). Keeping it here means AppState owns the full
+    // lifecycle of the status-icon observation loop.
     //
     // PanelSheetState stays on AppDelegate: clearRunnerSheet() is called from
     // closePanel() and the settings-back callback — both AppKit-level wiring
     // events, not domain events. Co-locating it with popover lifecycle is cleaner.
 
-    /// Retained handle for the status-icon observation task started in `start()`.
-    ///
-    /// Write-only by design: the value is never read after assignment. The
-    /// assignment itself is what keeps the `Task` alive — without a strong
-    /// reference the task is immediately cancelled by ARC. `periphery:ignore`
-    /// suppresses the "assigned but never read" dead-code warning.
-    ///
-    /// `@Observable` + `nonisolated(unsafe)` + `@ObservationIgnored`:
-    /// - `@ObservationIgnored`: write-only fields; nothing outside `AppState`
-    ///   reads them, so the macro's synthesised registrar calls are no-ops.
-    ///   Marking ignored suppresses that dead overhead.
-    /// - `nonisolated(unsafe)`: allows `deinit` (nonisolated in Swift 6) to
-    ///   call `.cancel()` directly. `Task.cancel()` is thread-safe; writes only
-    ///   happen on `@MainActor` inside `startObservations()`. Safe because deinit
-    ///   runs after the last strong reference drops — no concurrent write possible.
-    ///
-    /// Note: `localRunnerStore` is a *computed* property (not a stored var), so
-    /// `@Observable` does NOT synthesise registrar calls for it — neither
-    /// `@ObservationIgnored` nor `nonisolated(unsafe)` applies there.
+    /// Write-only task handle — the assignment keeps the Task alive (ARC).
+    /// `@ObservationIgnored`: never read externally, no-op registrar calls.
+    /// `nonisolated(unsafe)`: lets `deinit` call `.cancel()` safely; Task.cancel()
+    /// is thread-safe and writes only happen on @MainActor in startObservations().
     @ObservationIgnored nonisolated(unsafe) private var statusIconTask: Task<Void, Never>?
 
-    /// Retained handle for the sign-out observation task started in `start()`.
-    ///
-    /// Same write-only retention pattern as `statusIconTask` above.
-    /// Both tasks use `Task { @MainActor [weak self] in }` — the explicit
-    /// `@MainActor` annotation is intentional: both closures access
-    /// `@MainActor`-isolated `AppState` properties (`oauthService`, `runnerStore`,
-    /// `runnerState`). Without it, each property access would implicitly hop to
-    /// the main actor inside the loop body, which (a) adds noise to the threading
-    /// contract and (b) opens a TOCTOU window between `guard let store` and
-    /// `await store.start()` across actor hops.
-    @ObservationIgnored nonisolated(unsafe) private var signOutTask: Task<Void, Never>?
+    /// App-lifetime OAuth credential controller.
+    /// Owns the sign-in observer and direct sign-out sequence. AppState only
+    /// injects the runner-poll restart callback.
+    let oauthCredentials: OAuthCredentialController
 
     // MARK: - Init
 
@@ -291,6 +235,21 @@ final class AppState {
             logger: GitHubLoggerAdapter()
         )
         self.logFetcher = LogFetcher(transport: github.transport)
+
+        self.oauthCredentials = OAuthCredentialController(
+            service: github.oauthService,
+            authentication: authentication
+        )
+        self.oauthCredentials.didSignOut = { [weak self] in
+            guard let runnerStore = self?.runnerStore else {
+                log(
+                    "OAuthCredentialController › runnerStore unavailable; "
+                        + "skipping poll restart"
+                )
+                return
+            }
+            await runnerStore.start()
+        }
     }
 
     /// Test-only initialiser. Injects a stub `RunnerLifecycleServiceProtocol`
@@ -311,6 +270,21 @@ final class AppState {
         )
         self.lifecycleService = lifecycleService
         self.logFetcher = LogFetcher(transport: github.transport)
+
+        self.oauthCredentials = OAuthCredentialController(
+            service: github.oauthService,
+            authentication: authentication
+        )
+        self.oauthCredentials.didSignOut = { [weak self] in
+            guard let runnerStore = self?.runnerStore else {
+                log(
+                    "OAuthCredentialController › runnerStore unavailable; "
+                        + "skipping poll restart"
+                )
+                return
+            }
+            await runnerStore.start()
+        }
     }
 
     deinit {
@@ -327,7 +301,7 @@ final class AppState {
         // deinit ordering (deinit runs after the last strong reference drops,
         // so no concurrent write can occur at this point).
         statusIconTask?.cancel()
-        signOutTask?.cancel()
+        // oauthCredentials cancels its own signInTask in its deinit.
     }
 
     // MARK: - Startup
@@ -348,9 +322,8 @@ final class AppState {
     ///
     /// Sequence:
     /// 1. `seedStoreAndPoller()` — sync; seeds `_localRunnerStore` and creates `RunnerPoller`.
-    /// 2. `startObservations()` — sync; wires sign-out + status-icon tasks BEFORE any
-    ///    await so sign-out events during startup are never dropped (stream is unbuffered).
-    ///    MUST follow seedStoreAndPoller() — signOutTask reads self.runnerStore.
+    /// 2. `startObservations()` — sync; reconciles OAuth credentials and installs
+    ///    the status-icon and app-lifetime OAuth sign-in observations before any await.
     /// 3. `refreshAsync()` — first suspension point; hydrates local runners before poll loop fires.
     /// 4. `runnerStore.start()` — begins the poll loop. The first `token()` call suspends
     ///    here on a cold Finder/Dock/login-item launch (~50–200 ms login shell) then caches
@@ -395,10 +368,9 @@ final class AppState {
         // remain fast and network-free. AppDelegate still calls configure() before this
         // (needed for the SwiftUI env even in test runs), but the poll loop must not start.
         //
-        // Skipping startObservations() here is intentional: the sign-out observation
-        // loop and status-icon task are not started either. There is no poll loop
-        // running in UI tests, so there is nothing to restart on sign-out. UI tests
-        // test the UI — they do not simulate OAuth sign-out stream events.
+        // Skipping startObservations() here is intentional: the status-icon task
+        // is not started. There is no poll loop running in UI tests, so there is
+        // nothing to restart on sign-out.
         guard ProcessInfo.processInfo.environment["UI_TESTING"] == nil else {
             log("AppState › start — UI_TESTING detected, skipping network setup")
             return
@@ -419,23 +391,12 @@ final class AppState {
         seedStoreAndPoller()  // Step 1: kept in a helper to stay within function_body_length.
 
         // Step 2: wire domain observation tasks BEFORE any await.
-        // signOutTask subscribes to oauthService.makeSignOutStream() here. If this
-        // call were deferred until after any suspension point (refreshAsync,
-        // checkAndHandle — which can take tens of seconds on a slow connection), any
-        // sign-out event during startup would be dropped — the stream is not buffered,
-        // so missed events are gone. The poll loop would continue issuing requests with
-        // a cleared Keychain token, returning 401 on every cycle, with no poll-loop
-        // restart until a full app restart.
-        // MUST follow seedStoreAndPoller() (Step 1): signOutTask reads self.runnerStore,
-        // which is set by seedStoreAndPoller(). The sign-out loop handles a nil
-        // runnerStore gracefully via `continue`, so this ordering is safe — wiring
-        // first and seeding second would degrade sign-out on the first event only.
         // statusIconTask uses Observations{} which has did-set semantics (emits the
         // current aggregateStatus on first subscription), so wiring it here rather
         // than after store.start() is safe — any status writes that race are covered
         // by the initial emission when the loop first iterates.
         startObservations(onUpdateStatusIcon: onUpdateStatusIcon)
-        log("AppState › start — observations wired (sign-out listener active)")
+        log("AppState › start — observations wired")
 
         // Step 3: await local runner hydration before starting the poll loop.
         // refreshAsync() suspends until disk hydration completes; refresh() (the
@@ -535,21 +496,16 @@ final class AppState {
 
     // MARK: - Domain observation tasks
 
-    /// Starts the two long-lived observation tasks:
+    /// Starts the long-lived observation tasks:
     /// - `statusIconTask`: observes `runnerState.aggregateStatus` and calls back
     ///   to `AppDelegate` to update the menu-bar icon (AppKit concern stays in AppDelegate).
-    /// - `signOutTask`: listens for OAuth sign-out events and restarts the poll loop.
+    /// - `oauthCredentials`: reconciles Keychain state, then begins the single
+    ///   app-lifetime sign-in observation. Its injected `didSignOut` callback
+    ///   restarts runner polling after direct sign-out.
     ///
     /// `onUpdateStatusIcon` is a callback rather than a direct AppDelegate reference
     /// to avoid AppState holding a strong reference to AppDelegate.
     private func startObservations(onUpdateStatusIcon: @escaping @MainActor () -> Void) {
-        // Ordering tripwire: seedStoreAndPoller() MUST have run before this method.
-        // signOutTask reads self.runnerStore (set by seedStoreAndPoller). If called
-        // out of order, the guard-let inside signOutTask silently drops the first
-        // sign-out event — no crash, no log, just a stalled poll loop after sign-out.
-        // The assert catches a call-order swap in DEBUG/test runs before it ships.
-        assert(runnerStore != nil, "AppState.startObservations: must be called after seedStoreAndPoller() — runnerStore is nil")
-
         // Status icon observation.
         // Wired at Step 2 — BEFORE any suspension point. This is safe because
         // Observations{} has did-set semantics: it emits once immediately with the
@@ -570,51 +526,13 @@ final class AppState {
             }
         }
 
-        // Sign-out observation.
-        // @MainActor matches statusIconTask above — both tasks access @MainActor-isolated
-        // AppState properties (oauthService, runnerStore). Explicit annotation avoids
-        // implicit actor hops on each property access inside the loop and eliminates
-        // any TOCTOU window between `guard let store` and `await store.start()`.
-        //
-        // OAuth sign-out transitions to `.unauthenticated`; Environment mode must be
-        // enabled explicitly — it does not activate automatically after sign-out.
-        // Why store.start() is called after sign-out (PR #1138 regression history):
-        // Before #1138, polling was driven by a Timer that continued to fire after
-        // sign-out. #1138 replaced the timer with a Task that loops on Task.sleep —
-        // it never calls start() again on its own. Without an explicit start() here
-        // the poll loop stalls permanently after sign-out.
-        // ❌ Do NOT remove the store.start() call — without it, the poll loop stalls
-        //    after sign-out regardless of which authentication mode is later selected.
-        //
-        // Why this lives in AppState and not SettingsView:
-        // SettingsView.signOutTask is stored in @State and is only alive while
-        // Settings is visible. A user who signs out with Settings closed would
-        // never trigger the restart. AppState is app-lifetime, so the listener
-        // is always active regardless of which view is on screen.
-        signOutTask = Task { @MainActor [weak self] in
-            // `return` (not `continue`) for nil-self: the Task's outer loop has no
-            // meaning if AppState is gone — exit the Task entirely rather than
-            // spinning on a stream that can never do useful work.
-            guard let self else { return }
-            for await _ in self.oauthService.makeSignOutStream() {
-                log("AppState › didSignOut — restarting poll loop after sign-out")
-                // `continue` (not `return`) for nil-store: a missing runnerStore is a
-                // transient / unexpected state, but AppState itself is still alive.
-                // Continuing lets the loop handle future sign-out events rather than
-                // killing the listener permanently.
-                guard let store = self.runnerStore else {
-                    log("AppState › didSignOut — ⚠️ runnerStore nil at sign-out time; skipping start()")
-                    continue
-                }
-                // TokenCache.invalidate() is called by OAuthService before emitting
-                // on this stream, clearing both the cached token and the shellOutcome
-                // field. On a Finder/Dock/login-item launch with no Keychain token,
-                // the first token() call inside this store.start() will re-spawn
-                // /bin/zsh -i -l to recover GH_TOKEN (~50–200 ms). The result is
-                // cached immediately, so only the first poll cycle after each
-                // sign-out pays the shell cost — not every subsequent cycle.
-                await store.start()
-            }
-        }
+        // OAuth credential controller (issue #2481).
+        // reconcile() syncs Keychain truth immediately so the button reflects the
+        // correct state before the first render. start() registers the app-lifetime
+        // sign-in observer. Both calls happen before any suspension point so no
+        // browser callback can be missed between startup and the first await.
+        // Runner-poll restart after sign-out is performed by the injected didSignOut callback.
+        oauthCredentials.reconcile()
+        oauthCredentials.start()
     }
 }

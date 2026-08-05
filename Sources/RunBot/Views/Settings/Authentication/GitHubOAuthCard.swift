@@ -12,8 +12,12 @@ import SwiftUI
 /// Interaction rules from #2459 §4.5:
 ///
 /// - OAuth sign-in selects OAuth **only after success**, not when the browser opens.
-/// - Cancel / fail → previous source unchanged.
 /// - Sign-out removes the credential but does **not** activate environment.
+///
+/// ## Design
+/// Only two states are represented: `.signedOut` and `.signedIn`. The browser
+/// operation is not represented in application state — Keychain token presence
+/// is the only truth.
 struct GitHubOAuthCard: View {
 
     /// Current OAuth flow state.
@@ -31,27 +35,11 @@ struct GitHubOAuthCard: View {
     /// Called to sign out and remove the Keychain token.
     let onSignOut: () -> Void
 
-    // MARK: - Derived
-
-    /// `true` when `oauthState` is `.failed` — triggers red card styling.
-    private var isError: Bool {
-        if case .failed = oauthState { return true }
-        return false
-    }
-
-    /// `true` while a sign-in or sign-out transition is in flight.
-    private var isTransitioning: Bool {
-        switch oauthState {
-        case .signingIn, .signingOut: return true
-        default: return false
-        }
-    }
-
     // MARK: - Body
 
-    /// Card body: status dot, labels, inline error text, and action button.
+    /// Card body: status dot, labels, and action button.
     var body: some View {
-        AuthenticationSourceCard(isActive: isActive, isError: isError) {
+        AuthenticationSourceCard(isActive: isActive, isError: false) {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 8) {
                     statusDot
@@ -67,12 +55,6 @@ struct GitHubOAuthCard: View {
                     actionButton
                         .opacity(isActive ? 1.0 : 0.65)
                 }
-                if case .failed(_, let message) = oauthState {
-                    Text(message)
-                        .font(.caption2)
-                        .foregroundColor(Color.rbDanger)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
             }
         }
         .accessibilityElement(children: .combine)
@@ -81,19 +63,15 @@ struct GitHubOAuthCard: View {
 
     // MARK: - Sub-views
 
-    /// Animated dot (or spinner) reflecting the current `oauthState`.
+    /// Animated dot reflecting the current `oauthState`.
     @ViewBuilder
     private var statusDot: some View {
         switch oauthState {
-        case .signingIn, .signingOut:
-            ProgressView().scaleEffect(0.5).frame(width: 7, height: 7)
+        case .signedIn:
+            Circle().fill(Color.rbSuccess)
+                .frame(width: 7, height: 7)
         case .signedOut:
             Circle().fill(Color.rbTextTertiary).frame(width: 7, height: 7)
-        case .signedIn:
-            Circle().fill(isActive ? Color.rbSuccess : Color.rbTextSecondary)
-                .frame(width: 7, height: 7)
-        case .failed:
-            Circle().fill(Color.rbDanger).frame(width: 7, height: 7)
         }
     }
 
@@ -103,40 +81,31 @@ struct GitHubOAuthCard: View {
             switch oauthState {
             case .signedOut:
                 Text(isActive ? "Active · not authenticated" : "Not signed in")
-            case .signingIn:
-                Text("Waiting for browser…")
             case .signedIn(let username):
                 if let username {
                     Text(isActive ? "Active · @\(username)" : "Signed in as @\(username) · inactive")
                 } else {
                     Text(isActive ? "Active · authenticated" : "Authenticated · inactive")
                 }
-            case .signingOut(let username):
-                Text("Signing out\(username.map { " @\($0)" } ?? "")…")
-            case .failed:
-                Text(isActive ? "Active · sign-in failed" : "Sign-in failed")
             }
         }
     }
 
-    /// Status-line foreground color — red when failed, secondary otherwise.
+    /// Status-line foreground color — secondary always (no error state).
     private var statusLineColor: Color {
-        switch oauthState {
-        case .failed: return Color.rbDanger
-        default: return Color.rbTextSecondary
-        }
+        Color.rbTextSecondary
     }
 
-    /// Sign-in or Sign-out button, hidden during transitions.
+    /// Sign-in or Sign-out button.
     @ViewBuilder
     private var actionButton: some View {
         switch oauthState {
-        case .signedOut, .failed:
+        case .signedOut:
             Button(action: onSignIn) {
                 Text("Sign in with GitHub").font(.caption2)
             }
             .buttonStyle(.bordered)
-            .disabled(isTransitioning || isSignInDisabled)
+            .disabled(isSignInDisabled)
             .opacity(isSignInDisabled ? 0.4 : 1.0)
             .help(isSignInDisabled
                 ? "Turn off Environment Token before signing in with OAuth"
@@ -148,10 +117,7 @@ struct GitHubOAuthCard: View {
             }
             .buttonStyle(.bordered)
             .tint(Color.rbDanger)
-            .disabled(isTransitioning)
             .help("Remove OAuth token from Keychain")
-        case .signingIn, .signingOut:
-            EmptyView()
         }
     }
 
@@ -161,10 +127,7 @@ struct GitHubOAuthCard: View {
         let activeText = isActive ? "active" : "inactive"
         switch oauthState {
         case .signedOut: return "\(source), \(activeText), signed out"
-        case .signingIn: return "\(source), \(activeText), signing in"
         case .signedIn(let username): return "\(source), \(activeText), signed in\(username.map { " as @\($0)" } ?? "")"
-        case .signingOut(let username): return "\(source), \(activeText), signing out\(username.map { " @\($0)" } ?? "")"
-        case .failed(_, let message): return "\(source), \(activeText), failed: \(message)"
         }
     }
 }

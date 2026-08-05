@@ -9,8 +9,7 @@ import Foundation
 /// `@MainActor` isolation mirrors the concrete `OAuthService` — all methods are
 /// serialised on the main thread because:
 /// - `handleCallback(_:)` is delivered by `AppDelegate.application(_:open:)` on the main thread.
-/// - `makeSignInStream()` is consumed by SwiftUI views (`SettingsView`).
-/// - `makeSignOutStream()` is consumed by `AppDelegate.setupSignOutSubscription()`,
+/// - `makeSignInStream()` is consumed by `OAuthCredentialController`,
 ///   which runs on `@MainActor`.
 ///
 /// `AnyObject` constraint is required because the protocol has settable state.
@@ -39,7 +38,6 @@ import Foundation
 ///     func signOut() {}
 ///     func handleCallback(_ url: URL) {}
 ///     func makeSignInStream() -> AsyncStream<Bool> { AsyncStream { _ in } }
-///     func makeSignOutStream() -> AsyncStream<Void> { AsyncStream { _ in } }
 /// }
 /// ```
 @MainActor
@@ -92,8 +90,4 @@ public protocol OAuthServiceProtocol: AnyObject {
     /// Returns a new `AsyncStream<Bool>` that fires once per sign-in attempt.
     /// `true` = success, `false` = failure.
     func makeSignInStream() -> AsyncStream<Bool>
-
-    /// Returns a new `AsyncStream<Void>` that fires once per `signOut()` call.
-    /// Each call site must request its own stream; events are multicasted across all active streams.
-    func makeSignOutStream() -> AsyncStream<Void>
 }

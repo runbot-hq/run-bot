@@ -74,7 +74,7 @@ extension AppDelegate {
             // refreshAsync (Step 4) is the first suspension point; store.start() (Step 5)
             // follows. By the time this Task's outer continuation resumes here,
             // setupPanel() has already completed above.
-            // statusIconTask and signOutTask are registered before the first
+            // statusIconTask is registered before the first
             // applyFetchResult write because startObservations() runs before
             // store.start(), and store.start() does not write until its first
             // fetch cycle completes.
