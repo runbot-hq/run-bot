@@ -86,6 +86,9 @@ extension RunnerPoller {
             enrichJobs: { [weak self] jobs in
                 // weak: see [weak self] note above.
                 self?.enrichGroupJobs(jobs, jobCache: jobCache) ?? jobs
+            },
+            enqueueZIP: { [weak self] runID, scope, isCompleted in
+                await self?.zipPrefetchQueue.enqueue(runID: runID, scope: scope, isCompleted: isCompleted)
             }
         )
     }

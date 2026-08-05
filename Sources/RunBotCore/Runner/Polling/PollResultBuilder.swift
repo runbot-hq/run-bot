@@ -112,7 +112,8 @@ public enum PollResultBuilder {
     snapPrevGroups: [String: WorkflowActionGroup],
     snapGroupCache: [String: WorkflowActionGroup],
     fetchGroups: @escaping @Sendable ([String: WorkflowActionGroup]) async -> [WorkflowActionGroup],
-    enrichJobs: @escaping @Sendable ([ActiveJob]) async -> [ActiveJob]
+    enrichJobs: @escaping @Sendable ([ActiveJob]) async -> [ActiveJob],
+    enqueueZIP: @Sendable (Int, String, Bool) async -> Void = { _, _, _ in }
   ) async -> GroupPollResult {
     log(
       "PollResultBuilder › buildGroupState — snapPrevGroups=\(snapPrevGroups.count) snapGroupCache=\(snapGroupCache.count)",
@@ -145,6 +146,12 @@ public enum PollResultBuilder {
       log(
         "PollResultBuilder › doneGroups — groupID=\(group.id) runs=[\(runSummary)]",
         category: .runner)
+      // Enqueue a ZIP prefetch for each workflow run in this completed group.
+      // `DiskZIPCache.get(runID:)` inside `enqueue` prevents re-downloading on
+      // subsequent polls, so it is safe to call every cycle.
+      for run in group.runs {
+        await enqueueZIP(run.id, group.repo, true)
+      }
       newCache[group.id] = group.copying(isDimmed: true)
     }
     freezeVanishedGroups(snapPrev: snapPrevGroups, liveIDs: liveIDs, now: now, into: &newCache)
