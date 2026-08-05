@@ -438,11 +438,11 @@ struct SettingsView: View {
         }
     }
 
-    /// Signs out of GitHub via the credential controller.
+    /// Signs out of GitHub via the credential controller and restarts polling.
     func signOutOfGitHub() {
-        log("【SettingsView.signOutOfGitHub】routing to oauthCredentials.signOut()", category: .general)
+        log("【SettingsView.signOutOfGitHub】routing to appState.signOutOAuth()", category: .general)
         Task { @MainActor in
-            await appState.oauthCredentials.signOut()
+            await appState.signOutOAuth()
         }
     }
 }

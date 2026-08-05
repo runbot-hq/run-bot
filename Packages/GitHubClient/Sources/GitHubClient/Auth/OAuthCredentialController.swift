@@ -22,15 +22,20 @@ import OAuthTokenKit
 /// stream subscription cleanly.
 @MainActor
 public final class OAuthCredentialController {
+    /// The OAuth service used to create sign-in URLs, manage the sign-in stream, and sign out.
     private let service: any OAuthServiceProtocol
+    /// The shared authentication state model updated on sign-in / sign-out / reconcile.
     private let authentication: GitHubAuthentication
-    /// Callback invoked after a successful sign-out.
-    /// Set after init to avoid Swift init-before-use ordering issues.
-    public var didSignOut: (@MainActor () async -> Void)?
 
+    /// The long-lived sign-in stream observation task. Cancelled in `deinit`.
     nonisolated(unsafe)
     private var signInTask: Task<Void, Never>?
 
+    /// Creates a new credential controller.
+    ///
+    /// - Parameters:
+    ///   - service: The OAuth service to use for sign-in URL creation, stream registration, and sign-out.
+    ///   - authentication: The shared authentication state model to update on credential changes.
     public init(
         service: any OAuthServiceProtocol,
         authentication: GitHubAuthentication
@@ -83,14 +88,13 @@ public final class OAuthCredentialController {
         authentication.syncOAuthState(isAuthenticated: service.isAuthenticated)
     }
 
-    /// Synchronously deletes the Keychain token, reconciles authentication state,
-    /// then invokes the `didSignOut` callback (e.g. restart runner polling).
+    /// Synchronously deletes the Keychain token and reconciles authentication state.
     ///
     /// The UI changes to Sign in as soon as `service.signOut()` returns because
-    /// `syncOAuthState` immediately reflects token absence.
-    public func signOut() async {
+    /// `syncOAuthState` immediately reflects token absence. App-specific follow-up
+    /// (e.g. runner-poll restart) belongs to the caller, not this controller.
+    public func signOut() {
         service.signOut()
         authentication.syncOAuthState(isAuthenticated: service.isAuthenticated)
-        await didSignOut?()
     }
 }

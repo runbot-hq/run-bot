@@ -192,29 +192,7 @@ struct OAuthServiceCSRFTests {
         #expect(second == false)
     }
 
-    @Test("Callback after cancellation: no true, no token saved")
-    func callbackAfterCancellation() async throws {
-        let store = SpyTokenStore()
-        let session = MockURLSession()
-        session.stubbedResult = .success(successPayload())
-        let svc = makeService(store: store, session: session)
-        let url = try #require(svc.makeSignInURL())
-        let state = URLComponents(url: url, resolvingAgainstBaseURL: false)!
-            .queryItems!.first(where: { $0.name == "state" })!.value!
-
-        // Cancel the flow.
-        svc.cancelSignIn()
-
-        // Now send a callback with the old nonce.
-        let stream = svc.makeSignInStream()
-        var iter = stream.makeAsyncIterator()
-        svc.handleCallback(callbackURL(code: "abc123", state: state))
-        let result = await iter.next()
-        #expect(result == false)
-        #expect(store.load() == nil)
-        #expect(store.saveCallCount == 0)
     }
-}
 
 // MARK: - exchangeCode
 
@@ -341,25 +319,19 @@ struct OAuthServiceSignOutTests {
         let store = SpyTokenStore(initial: "some-token")
         var deletedCalled = false
         let svc = makeService(store: store, onTokenDeleted: { deletedCalled = true })
-        let stream = svc.makeSignOutStream()
-        var iter = stream.makeAsyncIterator()
         svc.signOut()
-        _ = await iter.next()
         #expect(store.deleteCallCount == 1)
         #expect(deletedCalled == true)
         #expect(store.load() == nil)
     }
 
-    @Test("signOut emits sign-out stream even when delete() returns false")
-    func signOutFiresStreamEvenOnDeleteFailure() async {
+    @Test("signOut fires onTokenDeleted even when delete() returns false")
+    func signOutFiresCallbackEvenOnDeleteFailure() async {
         let store = SpyTokenStore(initial: "some-token")
         store.shouldFailDelete = true
         var deletedCalled = false
         let svc = makeService(store: store, onTokenDeleted: { deletedCalled = true })
-        let stream = svc.makeSignOutStream()
-        var iter = stream.makeAsyncIterator()
         svc.signOut()
-        _ = await iter.next()  // must not hang
         #expect(deletedCalled == true)
         #expect(store.deleteCallCount == 1)
     }
@@ -388,98 +360,6 @@ struct OAuthServiceStreamTests {
         let r2 = await iter2.next()
         #expect(r1 == true)
         #expect(r2 == true)
-    }
-
-    @Test("signOut ordering: isAuthenticated is false when sign-out event fires")
-    func signOutOrderingIsAuthenticatedFalse() async {
-        let store = SpyTokenStore(initial: "some-token")
-        // We need to observe isAuthenticated at the moment the event fires.
-        // Use a task to capture the value as soon as the stream yields.
-        let svc = makeService(store: store)
-
-        let stream = svc.makeSignOutStream()
-        var iter = stream.makeAsyncIterator()
-
-        svc.signOut()
-
-        // At event time, isAuthenticated must be false.
-        _ = await iter.next()
-        #expect(svc.isAuthenticated == false)
-        #expect(store.load() == nil)
-    }
-
-    @Test("Two makeSignOutStream consumers both receive the sign-out event")
-    func signOutStreamMulticast() async {
-        let svc = makeService()
-        let stream1 = svc.makeSignOutStream()
-        let stream2 = svc.makeSignOutStream()
-        var iter1 = stream1.makeAsyncIterator()
-        var iter2 = stream2.makeAsyncIterator()
-        svc.signOut()
-        let r1: Void? = await iter1.next()
-        let r2: Void? = await iter2.next()
-        #expect(r1 != nil)
-        #expect(r2 != nil)
-    }
-}
-
-// MARK: - cancelSignIn
-
-@Suite("OAuthService — cancelSignIn", .serialized)
-@MainActor
-struct OAuthServiceCancelSignInTests {
-
-    @Test("Active cancellation: exactly one false event, no token saved or deleted")
-    func activeCancellation() async throws {
-        let store = SpyTokenStore()
-        let svc = makeService(store: store)
-        _ = svc.makeSignInURL()
-        let stream = svc.makeSignInStream()
-        var iter = stream.makeAsyncIterator()
-        svc.cancelSignIn()
-        let result = await iter.next()
-        #expect(result == false)
-        // No token should be saved or deleted.
-        #expect(store.load() == nil)
-        #expect(store.saveCallCount == 0)
-        #expect(store.deleteCallCount == 0)
-    }
-
-    @Test("No active cancellation: cancelSignIn with no pending flow is a no-op")
-    func noActiveCancellation() async {
-        let store = SpyTokenStore()
-        let svc = makeService(store: store)
-        let stream = svc.makeSignInStream()
-
-        svc.cancelSignIn()
-
-        // No event should be emitted — cancelSignIn with no pending state is a no-op.
-        // Verify by checking the store is untouched and that no event was produced.
-        // We run the stream consumer on a detached task with a timeout to avoid
-        // hanging the main actor.
-        let result = await Task.detached { () -> Bool? in
-            let eventTask = Task { @MainActor in
-                var iter = stream.makeAsyncIterator()
-                return await iter.next()
-            }
-            let timeoutTask = Task {
-                try? await Task.sleep(nanoseconds: 100_000_000)
-                return nil as Bool?
-            }
-            let result = await withTaskGroup(of: Bool?.self) { group -> Bool? in
-                group.addTask { await eventTask.value }
-                group.addTask { await timeoutTask.value }
-                let first = await group.next() ?? nil
-                group.cancelAll()
-                eventTask.cancel()
-                timeoutTask.cancel()
-                return first
-            }
-            return result
-        }.value
-        #expect(result == nil, "Expected no event when no pending flow")
-        #expect(store.saveCallCount == 0)
-        #expect(store.deleteCallCount == 0)
     }
 }
 

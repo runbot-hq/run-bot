@@ -81,19 +81,20 @@ struct OAuthCredentialControllerTests {
         #expect(auth.selectedSource == .oauth)
     }
 
-    // MARK: - 3. false leaves .signedOut unchanged
+    // MARK: - 3. false is ignored and a later success still signs in
 
-    @Test("false sign-in leaves .signedOut unchanged")
-    func falseSignInLeavesSignedOut() async {
+    @Test("false is ignored and a later success still signs in")
+    func falseIsIgnoredAndLaterSuccessWorks() async {
         let (controller, service, auth) = makeSUT()
         controller.start()
 
         service.triggerSignIn(false)
-        // Yield to let the stream deliver.
-        await Task.yield()
+        service.triggerSignIn(true)
 
-        #expect(auth.oauthState.isSignedOut)
-        #expect(auth.selectedSource == .unauthenticated)
+        await pollUntil { auth.oauthState.isSignedIn }
+
+        #expect(auth.oauthState.isSignedIn)
+        #expect(auth.selectedSource == .oauth)
     }
 
     // MARK: - 4. reconcile() with token present produces .signedIn
@@ -120,13 +121,11 @@ struct OAuthCredentialControllerTests {
         #expect(auth.selectedSource == .unauthenticated)
     }
 
-    // MARK: - 6. signOut() deletes token, reconciles state, and invokes didSignOut
+    // MARK: - 6. signOut() deletes token and reconciles state
 
-    @Test("signOut deletes token, reconciles state, and invokes didSignOut")
+    @Test("signOut deletes token and reconciles state")
     func signOutClearsState() async {
         let (controller, service, auth) = makeSUT(isAuthenticated: true)
-        var didSignOutCalled = false
-        controller.didSignOut = { didSignOutCalled = true }
 
         // Set up signed-in state.
         controller.reconcile()
@@ -134,11 +133,10 @@ struct OAuthCredentialControllerTests {
 
         // Sign out: clear the token on the mock.
         service.isAuthenticated = false
-        await controller.signOut()
+        controller.signOut()
 
         #expect(auth.oauthState.isSignedOut)
         #expect(auth.selectedSource == .unauthenticated)
-        #expect(didSignOutCalled)
         #expect(service.signOutCallCount == 1)
     }
 
