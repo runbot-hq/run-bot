@@ -96,4 +96,14 @@ public protocol OAuthServiceProtocol: AnyObject {
     /// Returns a new `AsyncStream<Void>` that fires once per `signOut()` call.
     /// Each call site must request its own stream; events are multicasted across all active streams.
     func makeSignOutStream() -> AsyncStream<Void>
+
+    /// Invalidates the current sign-in nonce and notifies observers that the
+    /// active flow was cancelled. Does not modify an existing OAuth token.
+    ///
+    /// Behavioural contract:
+    /// - Clears only the pending nonce; does not delete a stored token.
+    /// - A callback from the cancelled flow subsequently fails state validation.
+    /// - Emits exactly one `false` result for an active cancellation.
+    /// - Calling with no pending flow is a no-op.
+    func cancelSignIn()
 }

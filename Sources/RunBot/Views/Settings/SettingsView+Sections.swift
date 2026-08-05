@@ -26,6 +26,7 @@ internal extension SettingsView {
                 authentication: authentication,
                 onSignIn: signInWithGitHub,
                 onSignOut: signOutOfGitHub,
+                onCancelSignIn: { appState.oauthSession.cancelSignIn() },
                 onToggleEnvironment: { enabled in
                     if enabled {
                         appState.authentication.setSelectedSource(.environment)

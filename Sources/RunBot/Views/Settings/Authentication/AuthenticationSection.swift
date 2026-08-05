@@ -23,6 +23,8 @@ struct AuthenticationSection: View {
     let onSignIn: () -> Void
     /// Called to sign out and remove the stored OAuth token.
     let onSignOut: () -> Void
+    /// Called to cancel an in-progress sign-in. `nil` hides the Cancel button.
+    var onCancelSignIn: (() -> Void)?
     /// Called when the environment toggle is flipped. `true` = activate env source.
     let onToggleEnvironment: (Bool) -> Void
 
@@ -114,7 +116,8 @@ struct AuthenticationSection: View {
                     isActive: oauthIsActive,
                     isSignInDisabled: envIsActive,
                     onSignIn: onSignIn,
-                    onSignOut: onSignOut
+                    onSignOut: onSignOut,
+                    onCancelSignIn: onCancelSignIn
                 )
             }
             .fixedSize(horizontal: false, vertical: true)

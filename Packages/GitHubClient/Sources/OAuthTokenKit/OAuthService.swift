@@ -329,6 +329,23 @@ public final class OAuthService: OAuthServiceProtocol {
         signOutContinuations.values.forEach { $0.yield(()) }
     }
 
+    // MARK: - Sign-in Cancellation
+
+    /// Invalidates the current sign-in nonce and emits a `false` sign-in event.
+    ///
+    /// Safe to call from any code that needs to abandon an in-flight browser flow
+    /// without waiting for a callback. The existing multicast `fireSignIn` helper
+    /// is reused so all registered stream consumers receive the cancellation.
+    public func cancelSignIn() {
+        guard pendingState != nil else {
+            log?("OAuthService › cancelSignIn — no pending flow; no-op", "transport")
+            return
+        }
+        log?("OAuthService › cancelSignIn — clearing pendingState, emitting fireSignIn(false)", "transport")
+        pendingState = nil
+        fireSignIn(false)
+    }
+
     // MARK: - Callback Handler
 
     /// Processes the OAuth redirect URL from GitHub.

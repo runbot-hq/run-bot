@@ -221,9 +221,10 @@ final class AppState {
     /// TOCTOU window between `guard let store` and `await store.start()`.
     @ObservationIgnored nonisolated(unsafe) private var signOutTask: Task<Void, Never>?
 
-    /// App-lifetime OAuth sign-in observer (issue #2468).
-    /// Moved from `SettingsView` so the listener outlives the view.
-    @ObservationIgnored nonisolated(unsafe) private var signInTask: Task<Void, Never>?
+    /// App-lifetime OAuth session coordinator (issue #2474).
+    /// Owns both authentication stream subscriptions and all transition policy.
+    /// `AppState` only constructs, retains, and starts the coordinator.
+    let oauthSession: OAuthSessionCoordinator
 
     // MARK: - Init
 
@@ -237,6 +238,11 @@ final class AppState {
             account: "github-oauth-token",
             authSource: { [authentication] in authentication.selectedSource },
             logger: GitHubLoggerAdapter()
+        )
+        self.oauthSession = OAuthSessionCoordinator(
+            service: github.oauthService,
+            authentication: authentication,
+            log: { log($0) }
         )
         self.logFetcher = LogFetcher(transport: github.transport)
     }
@@ -258,6 +264,11 @@ final class AppState {
             logger: GitHubLoggerAdapter()
         )
         self.lifecycleService = lifecycleService
+        self.oauthSession = OAuthSessionCoordinator(
+            service: github.oauthService,
+            authentication: authentication,
+            log: { log($0) }
+        )
         self.logFetcher = LogFetcher(transport: github.transport)
     }
 
@@ -276,7 +287,10 @@ final class AppState {
         // so no concurrent write can occur at this point).
         statusIconTask?.cancel()
         signOutTask?.cancel()
-        signInTask?.cancel()
+        // oauthSession owns its own task cancellation via its deinit;
+        // do not call oauthSession.stop() here — that method is @MainActor-isolated
+        // and deinit is nonisolated. Weak task captures in the coordinator permit
+        // natural deallocation without any external cleanup call.
     }
 
     // MARK: - Startup
@@ -566,53 +580,11 @@ final class AppState {
             }
         }
 
-        // Sign-in observation (issue #2468).
-        // Moved from SettingsView so the listener outlives the view.
-        // Installed here — BEFORE any suspension point — so no OAuth callback
-        // can be missed between startup and the first await in start().
-        startSignInObservation()
-    }
-
-    // MARK: - Sign-in observation (issue #2468)
-
-    /// App-lifetime sign-in observer (issue #2468). Moved from `SettingsView` so
-    /// the listener outlives the view. Called from `startObservations()` before any
-    /// suspension point — no callback can be missed. Duplicate-flow gating is
-    /// handled by `.signingIn` disabling the Settings sign-in button.
-    ///
-    /// Dependencies are captured by value rather than via `[weak self]` to avoid
-    /// the retain cycle `AppState → signInTask → closure → AppState`. With a weak
-    /// capture, `guard let self` promotes the reference back to strong for the
-    /// entire infinite-stream loop, preventing `deinit` from running and therefore
-    /// preventing `signInTask?.cancel()` from ever executing.
-    private func startSignInObservation() {
-        signInTask?.cancel()
-
-        let oauthService = oauthService
-        let authentication = authentication
-        // Register the stream BEFORE creating the Task so that any callback
-        // dispatched between now and the Task's first suspension is already
-        // buffered in the AsyncStream and cannot be missed.
-        let stream = oauthService.makeSignInStream()
-
-        signInTask = Task { @MainActor in
-            for await success in stream {
-                guard !Task.isCancelled else { return }
-                log("AppState › signInStream — success=\(success)")
-                if success {
-                    authentication.recordOAuthSignIn(username: nil)
-                } else if case .signingIn = authentication.oauthState {
-                    // Only apply failure while a sign-in is actively in progress.
-                    // OAuthService can emit false for malformed or state-mismatched
-                    // callback URLs unrelated to any flow we initiated. Guarding on
-                    // .signingIn prevents those stray events from overwriting a
-                    // stable .signedIn / .signedOut / .failed state.
-                    authentication.setOAuthState(
-                        .failed(previous: .signedOut, message: "Sign-in was cancelled or failed.")
-                    )
-                } else { log("AppState › signInStream — ignored false event; no active sign-in (oauthState=\(authentication.oauthState))") }
-                log("AppState › signInStream — oauthState=\(authentication.oauthState)")
-            }
-        }
+        // OAuth session coordinator (issue #2474).
+        // Replaces the former startSignInObservation() / signInTask pattern.
+        // Both stream subscriptions and all transition policy now live in
+        // OAuthSessionCoordinator. Start here — BEFORE any suspension point —
+        // so no OAuth callback can be missed between startup and the first await.
+        oauthSession.start()
     }
 }

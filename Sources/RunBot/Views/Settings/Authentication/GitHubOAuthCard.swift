@@ -30,6 +30,8 @@ struct GitHubOAuthCard: View {
     let onSignIn: () -> Void
     /// Called to sign out and remove the Keychain token.
     let onSignOut: () -> Void
+    /// Called to cancel an in-progress sign-in flow. `nil` hides the Cancel button.
+    var onCancelSignIn: (() -> Void)?
 
     // MARK: - Derived
 
@@ -150,7 +152,18 @@ struct GitHubOAuthCard: View {
             .tint(Color.rbDanger)
             .disabled(isTransitioning)
             .help("Remove OAuth token from Keychain")
-        case .signingIn, .signingOut:
+        case .signingIn:
+            if let cancel = onCancelSignIn {
+                Button(action: cancel) {
+                    Text("Cancel sign-in").font(.caption2)
+                }
+                .buttonStyle(.bordered)
+                .tint(Color.rbDanger)
+                .help("Abandon the browser sign-in flow")
+            } else {
+                EmptyView()
+            }
+        case .signingOut:
             EmptyView()
         }
     }
