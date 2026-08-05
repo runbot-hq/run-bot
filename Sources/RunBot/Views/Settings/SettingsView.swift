@@ -167,12 +167,16 @@ struct SettingsView: View {
     // MARK: - Local UI state
     //
     // Access level split — why some are `private` and others are not:
-    //   `private`  — signInTask, signOutTask: only ever touched inside THIS file
-    //               (onAppearAction spawns them, onDisappear cancels them).
-    //               No extension file reads or writes these — private is correct.
+    //   `private`  — signOutTask: only ever touched inside THIS file
+    //               (onAppearAction spawns it, onDisappear cancels it).
+    //               No extension file reads or writes this — private is correct.
     //   `internal` — everything else: read or written by SettingsView+Sections.swift
     //               (launchAtLogin; navigation sections toggle showLocalRunners/showScopes).
     //               Must be internal — see ACCESS LEVEL NOTE at top of file.
+    //
+    // NOTE: signInTask was removed from this view per issue #2468 and moved to
+    // AppState.startSignInObservation(). The browser OAuth flow can complete after
+    // Settings closes; an app-lifetime listener in AppState is the correct home.
 
     /// Mirrors `LoginItem.isEnabled`; toggled by the Launch at Login switch.
     /// Internal by necessity — read/written by `SettingsView+Sections.swift`. See ACCESS LEVEL NOTE.
@@ -189,11 +193,6 @@ struct SettingsView: View {
         if case .signingIn = authentication.oauthState { return true }
         return false
     }
-
-    /// Retains the sign-in listener Task so it can be cancelled on disappear.
-    /// `private` — only touched inside this file (onAppearAction / onDisappear).
-    /// No extension file accesses this. See LOCAL UI STATE access-level split above.
-    @State private var signInTask: Task<Void, Never>?
 
     /// Retains the sign-out listener Task so it can be cancelled on disappear.
     /// `private` — only touched inside this file (onAppearAction / onDisappear).
@@ -331,21 +330,11 @@ struct SettingsView: View {
             await autoUpdater.checkAndHandle(state: runnerState)
         }
         .onDisappear {
-            log("【SettingsView.onDisappear】cancelling signInTask/signOutTask", category: .general)
-            // Cancel and unconditionally nil the sign-in task — the for-await loop
-            // exits promptly on cancellation (AsyncStream respects task cancellation)
-            // so isSigningIn will never flip back via the stream after this point.
-            // Nilling here ensures a re-opened panel never shows a stale spinner.
-            signInTask?.cancel()
-            signInTask = nil
+            log("【SettingsView.onDisappear】cancelling signOutTask", category: .general)
+            // sign-in observation is app-lifetime (AppState) — do NOT cancel it here.
+            // Closing Settings must not cancel an active OAuth browser flow (issue #2468).
             signOutTask?.cancel()
             signOutTask = nil
-            // If a sign-in was in progress when the panel closed, reset to signedOut
-            // so the next open doesn't show a stale spinner. The stream task is
-            // already cancelled above so the for-await loop will not reset it.
-            if case .signingIn = appState.authentication.oauthState {
-                appState.authentication.setOAuthState(.signedOut)
-            }
         }
     }
 
@@ -431,25 +420,26 @@ struct SettingsView: View {
         // just by opening Settings (fix for finding 4 / #2464). recordOAuthSignIn()
         // is the only path that writes .oauth to selectedSource.
         let auth = appState.authentication
-        auth.syncOAuthState(isAuthenticated: oauthService.isAuthenticated)
+        // Passively re-sync only when no active sign-in flow is in progress (#2468).
+        // Skip ONLY .signingIn: the browser flow is in flight and the "Waiting for
+        // browser…" spinner / duplicate-flow gate must be preserved.
+        //
+        // .signingOut is NOT skipped: sign-out observation is SettingsView-scoped and
+        // is cancelled when Settings closes. If sign-out completed (Keychain deleted)
+        // while Settings was closed, .signingOut can be left stuck. Allowing
+        // syncOAuthState() on re-open repairs the state from live Keychain truth.
+        switch auth.oauthState {
+        case .signingIn:
+            break
+        case .signingOut, .signedOut, .signedIn, .failed:
+            auth.syncOAuthState(isAuthenticated: oauthService.isAuthenticated)
+        }
         log("【SettingsView.onAppear】oauthState=\(auth.oauthState)", category: .general)
         log("【SettingsView.onAppear】settings=\(ObjectIdentifier(settings)) betaChannel=\(settings.betaChannel)", category: .general)
 
-        // Cancel before reassigning — guards against the rapid open→open case
-        // where the panel is re-shown without an intervening onDisappear, which
-        // would otherwise silently leak the prior task.
-        signInTask?.cancel()
-        signInTask = Task { @MainActor in
-            for await success in oauthService.makeSignInStream() {
-                log("【SettingsView.signInStream】success=\(success) — updating auth state", category: .general)
-                if success {
-                    auth.recordOAuthSignIn(username: nil)
-                } else {
-                    auth.setOAuthState(.failed(previous: .signedOut, message: "Sign-in was cancelled or failed."))
-                }
-                log("【SettingsView.signInStream】oauthState=\(auth.oauthState)", category: .general)
-            }
-        }
+        // sign-in observation is now app-lifetime in AppState (issue #2468).
+        // Do NOT start a sign-in stream listener here — AppState.startSignInObservation()
+        // owns it for the process lifetime and is installed before any startup await.
 
         signOutTask?.cancel()
         signOutTask = Task { @MainActor in
