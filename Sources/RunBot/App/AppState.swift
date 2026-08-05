@@ -233,18 +233,19 @@ final class AppState {
             authSource: { [authentication] in authentication.selectedSource },
             logger: GitHubLoggerAdapter()
         )
+        self.logFetcher = LogFetcher(transport: github.transport)
+
         self.oauthCredentials = OAuthCredentialController(
             service: github.oauthService,
-            authentication: authentication,
-            didSignOut: { [weak self] in
-                guard let store = self?.runnerStore else {
-                    log("AppState › didSignOut — ⚠️ runnerStore nil at sign-out time; skipping start()")
-                    return
-                }
-                await store.start()
-            }
+            authentication: authentication
         )
-        self.logFetcher = LogFetcher(transport: github.transport)
+        self.oauthCredentials.didSignOut = { [weak self] in
+            guard let store = self?.runnerStore else {
+                log("AppState › didSignOut — ⚠️ runnerStore nil at sign-out time; skipping start()")
+                return
+            }
+            await store.start()
+        }
     }
 
     /// Test-only initialiser. Injects a stub `RunnerLifecycleServiceProtocol`
@@ -264,18 +265,19 @@ final class AppState {
             logger: GitHubLoggerAdapter()
         )
         self.lifecycleService = lifecycleService
+        self.logFetcher = LogFetcher(transport: github.transport)
+
         self.oauthCredentials = OAuthCredentialController(
             service: github.oauthService,
-            authentication: authentication,
-            didSignOut: { [weak self] in
-                guard let store = self?.runnerStore else {
-                    log("AppState › didSignOut — ⚠️ runnerStore nil at sign-out time; skipping start()")
-                    return
-                }
-                await store.start()
-            }
+            authentication: authentication
         )
-        self.logFetcher = LogFetcher(transport: github.transport)
+        self.oauthCredentials.didSignOut = { [weak self] in
+            guard let store = self?.runnerStore else {
+                log("AppState › didSignOut — ⚠️ runnerStore nil at sign-out time; skipping start()")
+                return
+            }
+            await store.start()
+        }
     }
 
     deinit {
@@ -536,58 +538,13 @@ final class AppState {
             }
         }
 
-        // Sign-out observation.
-        // @MainActor matches statusIconTask above — both tasks access @MainActor-isolated
-        // AppState properties (oauthService, runnerStore). Explicit annotation avoids
-        // implicit actor hops on each property access inside the loop and eliminates
-        // any TOCTOU window between `guard let store` and `await store.start()`.
-        //
-        // OAuth sign-out transitions to `.unauthenticated`; Environment mode must be
-        // enabled explicitly — it does not activate automatically after sign-out.
-        // Why store.start() is called after sign-out (PR #1138 regression history):
-        // Before #1138, polling was driven by a Timer that continued to fire after
-        // sign-out. #1138 replaced the timer with a Task that loops on Task.sleep —
-        // it never calls start() again on its own. Without an explicit start() here
-        // the poll loop stalls permanently after sign-out.
-        // ❌ Do NOT remove the store.start() call — without it, the poll loop stalls
-        //    after sign-out regardless of which authentication mode is later selected.
-        //
-        // Why this lives in AppState and not SettingsView:
-        // SettingsView.signOutTask is stored in @State and is only alive while
-        // Settings is visible. A user who signs out with Settings closed would
-        // never trigger the restart. AppState is app-lifetime, so the listener
-        // is always active regardless of which view is on screen.
-        signOutTask = Task { @MainActor [weak self] in
-            // `return` (not `continue`) for nil-self: the Task's outer loop has no
-            // meaning if AppState is gone — exit the Task entirely rather than
-            // spinning on a stream that can never do useful work.
-            guard let self else { return }
-            for await _ in self.oauthService.makeSignOutStream() {
-                log("AppState › didSignOut — restarting poll loop after sign-out")
-                // `continue` (not `return`) for nil-store: a missing runnerStore is a
-                // transient / unexpected state, but AppState itself is still alive.
-                // Continuing lets the loop handle future sign-out events rather than
-                // killing the listener permanently.
-                guard let store = self.runnerStore else {
-                    log("AppState › didSignOut — ⚠️ runnerStore nil at sign-out time; skipping start()")
-                    continue
-                }
-                // TokenCache.invalidate() is called by OAuthService before emitting
-                // on this stream, clearing both the cached token and the shellOutcome
-                // field. On a Finder/Dock/login-item launch with no Keychain token,
-                // the first token() call inside this store.start() will re-spawn
-                // /bin/zsh -i -l to recover GH_TOKEN (~50–200 ms). The result is
-                // cached immediately, so only the first poll cycle after each
-                // sign-out pays the shell cost — not every subsequent cycle.
-                await store.start()
-            }
-        }
-
-        // OAuth session coordinator (issue #2474).
-        // Replaces the former startSignInObservation() / signInTask pattern.
-        // Both stream subscriptions and all transition policy now live in
-        // OAuthSessionCoordinator. Start here — BEFORE any suspension point —
-        // so no OAuth callback can be missed between startup and the first await.
-        oauthSession.start()
+        // OAuth credential controller (issue #2481).
+        // reconcile() syncs Keychain truth immediately so the button reflects the
+        // correct state before the first render. start() registers the app-lifetime
+        // sign-in observer. Both calls happen before any suspension point so no
+        // browser callback can be missed between startup and the first await.
+        // Runner-poll restart after sign-out is wired inside oauthCredentials.didSignOut.
+        oauthCredentials.reconcile()
+        oauthCredentials.start()
     }
 }

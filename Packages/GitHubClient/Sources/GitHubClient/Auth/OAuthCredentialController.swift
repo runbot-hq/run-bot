@@ -24,19 +24,19 @@ import OAuthTokenKit
 public final class OAuthCredentialController {
     private let service: any OAuthServiceProtocol
     private let authentication: GitHubAuthentication
-    private let didSignOut: @MainActor () async -> Void
+    /// Callback invoked after a successful sign-out.
+    /// Set after init to avoid Swift init-before-use ordering issues.
+    public var didSignOut: (@MainActor () async -> Void)?
 
     nonisolated(unsafe)
     private var signInTask: Task<Void, Never>?
 
     public init(
         service: any OAuthServiceProtocol,
-        authentication: GitHubAuthentication,
-        didSignOut: @escaping @MainActor () async -> Void = {}
+        authentication: GitHubAuthentication
     ) {
         self.service = service
         self.authentication = authentication
-        self.didSignOut = didSignOut
     }
 
     deinit {
@@ -91,6 +91,6 @@ public final class OAuthCredentialController {
     public func signOut() async {
         service.signOut()
         authentication.syncOAuthState(isAuthenticated: service.isAuthenticated)
-        await didSignOut()
+        await didSignOut?()
     }
 }

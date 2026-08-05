@@ -23,8 +23,6 @@ struct AuthenticationSection: View {
     let onSignIn: () -> Void
     /// Called to sign out and remove the stored OAuth token.
     let onSignOut: () -> Void
-    /// Called to cancel an in-progress sign-in. `nil` hides the Cancel button.
-    var onCancelSignIn: (() -> Void)?
     /// Called when the environment toggle is flipped. `true` = activate env source.
     let onToggleEnvironment: (Bool) -> Void
 
@@ -35,27 +33,18 @@ struct AuthenticationSection: View {
     private var envIsActive: Bool { authentication.selectedSource == .environment }
 
     /// `true` when OAuth is the active source.
-    /// Derived from `oauthState` rather than `selectedSource` so the card
-    /// reflects the actual authentication state, not a persisted preference.
+    /// Derived from `oauthState` — Keychain token presence is the only truth.
     private var oauthIsActive: Bool {
-        switch authentication.oauthState {
-        case .signedIn, .signingOut:
-            return true
-        case .signedOut, .signingIn, .failed:
-            return false
-        }
+        if case .signedIn = authentication.oauthState { return true }
+        return false
     }
 
-    /// `true` while an OAuth operation is in progress or authenticated.
+    /// `true` while an OAuth credential is present (signed in).
     /// The environment toggle is disabled so the user cannot switch away
-    /// during an active flow or while OAuth credentials are present.
+    /// while OAuth credentials are present.
     private var oauthBlocksEnvironment: Bool {
-        switch authentication.oauthState {
-        case .signingIn, .signedIn, .signingOut:
-            return true
-        case .signedOut, .failed:
-            return false
-        }
+        if case .signedIn = authentication.oauthState { return true }
+        return false
     }
 
     /// `true` when an environment token has been discovered.
@@ -116,8 +105,7 @@ struct AuthenticationSection: View {
                     isActive: oauthIsActive,
                     isSignInDisabled: envIsActive,
                     onSignIn: onSignIn,
-                    onSignOut: onSignOut,
-                    onCancelSignIn: onCancelSignIn
+                    onSignOut: onSignOut
                 )
             }
             .fixedSize(horizontal: false, vertical: true)

@@ -170,7 +170,7 @@ struct SettingsView: View {
     //               Must be internal — see ACCESS LEVEL NOTE at top of file.
     //
     // NOTE: All OAuth task handles have been removed from this view (issue #2474).
-    // OAuthSessionCoordinator owns both stream subscriptions and transition policy.
+    // OAuthCredentialController owns the single sign-in stream subscription.
     // Closing Settings has no effect on sign-in or sign-out state.
 
     /// Mirrors `LoginItem.isEnabled`; toggled by the Launch at Login switch.
@@ -181,13 +181,6 @@ struct SettingsView: View {
     /// Holds selectedSource, environmentState, and oauthState.
     /// Internal by necessity — read by `SettingsView+Sections.swift`. See ACCESS LEVEL NOTE.
     var authentication: GitHubAuthentication { appState.authentication }
-
-    /// `true` while the OAuth sign-in flow is in progress.
-    /// Derived from `authentication.oauthState` — no longer a separate `@State` bool.
-    var isSigningIn: Bool {
-        if case .signingIn = authentication.oauthState { return true }
-        return false
-    }
 
     /// `true` while `LocalRunnersView` is displayed instead of the main settings scroll.
     /// Internal by necessity — toggled by `SettingsView+Sections.swift`. See ACCESS LEVEL NOTE.
@@ -387,15 +380,15 @@ struct SettingsView: View {
 
     /// Runs on `.onAppear`: reconciles authentication state with live token storage.
     ///
-    /// Delegates to `OAuthSessionCoordinator.reconcileAuthentication()` which
-    /// preserves `.signingIn` (browser flow may be in flight) and syncs all
-    /// other states from Keychain truth.
+    /// Delegates to `OAuthCredentialController.reconcile()` which syncs Keychain
+    /// truth on every Settings open — safe because the new controller has no
+    /// transitional state that could be clobbered.
     ///
     /// Update checking is owned by Task 2 of 2 in body (.task modifier).
     private func onAppearAction() {
         log("【SettingsView.onAppear】oauthState=\(appState.authentication.oauthState)", category: .general)
         log("【SettingsView.onAppear】settings=\(ObjectIdentifier(settings)) betaChannel=\(settings.betaChannel)", category: .general)
-        appState.oauthSession.reconcileAuthentication()
+        appState.oauthCredentials.reconcile()
     }
 
     // MARK: - Header
@@ -429,27 +422,27 @@ struct SettingsView: View {
         log("【SettingsView.applyLaunchAtLogin】result LoginItem.isEnabled=\(LoginItem.isEnabled)", category: .general)
     }
 
-    /// Initiates the OAuth sign-in flow via the coordinator.
+    /// Initiates the OAuth sign-in flow via the credential controller.
     ///
-    /// Coordinator builds the URL, sets `.signingIn`, and returns the URL to open.
-    /// Browser opening stays here because `GitHubClient` must not depend on AppKit.
+    /// Controller builds the URL and returns it. The caller opens the URL in the
+    /// system browser because `GitHubClient` must not depend on AppKit.
     func signInWithGitHub() {
-        log("【SettingsView.signInWithGitHub】routing to oauthSession.beginSignIn()", category: .general)
-        switch appState.oauthSession.beginSignIn() {
-        case let .started(url):
-            guard NSWorkspace.shared.open(url) else {
-                log("【SettingsView.signInWithGitHub】NSWorkspace.open failed", category: .general)
-                appState.oauthSession.browserOpeningFailed()
-                return
-            }
-        case .alreadyInProgress, .unavailable:
-            break
+        log("【SettingsView.signInWithGitHub】routing to oauthCredentials.makeSignInURL()", category: .general)
+        guard let url = appState.oauthCredentials.makeSignInURL() else {
+            log("【SettingsView.signInWithGitHub】makeSignInURL returned nil", category: .general)
+            return
+        }
+        guard NSWorkspace.shared.open(url) else {
+            log("【SettingsView.signInWithGitHub】NSWorkspace.open failed", category: .general)
+            return
         }
     }
 
-    /// Signs out of GitHub via the coordinator.
+    /// Signs out of GitHub via the credential controller.
     func signOutOfGitHub() {
-        log("【SettingsView.signOutOfGitHub】routing to oauthSession.beginSignOut()", category: .general)
-        appState.oauthSession.beginSignOut()
+        log("【SettingsView.signOutOfGitHub】routing to oauthCredentials.signOut()", category: .general)
+        Task { @MainActor in
+            await appState.oauthCredentials.signOut()
+        }
     }
 }
