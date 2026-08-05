@@ -4,10 +4,6 @@
 // Spy/stub conforming to OAuthServiceProtocol for use in unit tests.
 // All methods are no-ops by default; tests wire behaviour via the
 // public mutation helpers (triggerSignIn, triggerSignOut).
-//
-// Upgrade from single-continuation to multicast (dictionary-per-stream) so
-// the coordinator and an app-level sign-out subscriber can coexist in the
-// same test — matching the production OAuthService pattern.
 
 import Foundation
 import OAuthTokenKit
@@ -20,6 +16,10 @@ import OAuthTokenKit
 /// - Spy properties record every call for assertion.
 /// - `triggerSignIn(_:)` / `triggerSignOut()` push events into
 ///   **all** live `AsyncStream` consumers (multicast).
+///
+/// ## Actor safety
+/// Continuation dictionaries are `@MainActor`-isolated. Termination handlers
+/// hop back to `@MainActor` via `Task { @MainActor … }` to avoid data races.
 @MainActor
 final class MockOAuthService: OAuthServiceProtocol {
 
@@ -28,6 +28,12 @@ final class MockOAuthService: OAuthServiceProtocol {
     var isAuthenticated: Bool = false
     var hasAnyToken: Bool = false
     var signInURLToReturn: URL?
+
+    // MARK: - Private pending-state tracking
+
+    /// Tracks whether a sign-in flow is pending (nonce has been generated).
+    /// Mirrors the production `OAuthService.pendingState != nil` contract.
+    private var isSignInPending = false
 
     // MARK: - Spy state
 
@@ -38,22 +44,24 @@ final class MockOAuthService: OAuthServiceProtocol {
     private(set) var makeSignInStreamCallCount = 0
     private(set) var makeSignOutStreamCallCount = 0
 
+    /// Number of times a sign-in flow was started (makeSignInURL returned non-nil).
+    private(set) var pendingSignInCount = 0
+
     // MARK: - Multicast stream continuations
 
-    // nonisolated(unsafe): the dictionaries are written from @MainActor (stream
-    // creation) and from the @Sendable onTermination callback (task cancellation).
-    // All writes happen either on MainActor or serially via Task cancellation which
-    // occurs after the last strong reference drops — no data race in practice.
-    // The unsafe annotation is intentional; adding a lock here would complicate
-    // test code for no safety benefit in a single-threaded test environment.
-    nonisolated(unsafe) private var signInContinuations: [UUID: AsyncStream<Bool>.Continuation] = [:]
-    nonisolated(unsafe) private var signOutContinuations: [UUID: AsyncStream<Void>.Continuation] = [:]
+    private var signInContinuations: [UUID: AsyncStream<Bool>.Continuation] = [:]
+    private var signOutContinuations: [UUID: AsyncStream<Void>.Continuation] = [:]
 
     // MARK: - OAuthServiceProtocol
 
     func makeSignInURL() -> URL? {
         makeSignInURLCallCount += 1
-        return signInURLToReturn
+        if let url = signInURLToReturn {
+            isSignInPending = true
+            pendingSignInCount += 1
+            return url
+        }
+        return nil
     }
 
     func signOut() {
@@ -63,6 +71,8 @@ final class MockOAuthService: OAuthServiceProtocol {
 
     func handleCallback(_ url: URL) {
         handleCallbackURLs.append(url)
+        // Clear pending state — the callback consumes the nonce.
+        isSignInPending = false
     }
 
     func makeSignInStream() -> AsyncStream<Bool> {
@@ -71,7 +81,9 @@ final class MockOAuthService: OAuthServiceProtocol {
         return AsyncStream { [weak self] continuation in
             self?.signInContinuations[id] = continuation
             continuation.onTermination = { [weak self] _ in
-                self?.signInContinuations.removeValue(forKey: id)
+                Task { @MainActor in
+                    self?.signInContinuations.removeValue(forKey: id)
+                }
             }
         }
     }
@@ -82,14 +94,21 @@ final class MockOAuthService: OAuthServiceProtocol {
         return AsyncStream { [weak self] continuation in
             self?.signOutContinuations[id] = continuation
             continuation.onTermination = { [weak self] _ in
-                self?.signOutContinuations.removeValue(forKey: id)
+                Task { @MainActor in
+                    self?.signOutContinuations.removeValue(forKey: id)
+                }
             }
         }
     }
 
     func cancelSignIn() {
         cancelSignInCallCount += 1
-        // Emit false to all active sign-in consumers, matching OAuthService behaviour.
+        guard isSignInPending else {
+            // No pending flow — no-op, matching production OAuthService contract.
+            return
+        }
+        isSignInPending = false
+        // Emit false to all active sign-in consumers.
         signInContinuations.values.forEach { $0.yield(false) }
     }
 

@@ -24,6 +24,10 @@ extension OAuthState {
         if case .signingIn = self { return true }
         return false
     }
+    var isSigningOut: Bool {
+        if case .signingOut = self { return true }
+        return false
+    }
     var isSignedOut: Bool {
         if case .signedOut = self { return true }
         return false
@@ -36,6 +40,28 @@ extension OAuthState {
         if case let .failed(_, message) = self { return message }
         return nil
     }
+}
+
+/// Bounded polling helper: awaits up to `maxIterations` async yields for
+/// `condition` to become true, calling `Task.yield()` between each check.
+/// Fails with a descriptive message if the condition never becomes true.
+///
+/// Use this instead of hardcoded `Task.yield()` repetitions to avoid flaky
+/// timing assumptions.
+@MainActor
+private func pollUntil(
+    fileID: String = #fileID,
+    filePath: String = #filePath,
+    line: Int = #line,
+    column: Int = #column,
+    maxIterations: Int = 20,
+    _ condition: @MainActor () -> Bool
+) async {
+    for _ in 0..<maxIterations where !condition() {
+        await Task.yield()
+    }
+    // The first #expect already failed on the condition above; this is a final check.
+    #expect(condition(), sourceLocation: SourceLocation(fileID: fileID, filePath: filePath, line: line, column: column))
 }
 
 // MARK: - Suite
@@ -62,14 +88,24 @@ struct OAuthSessionCoordinatorTests {
         return (coordinator, service, auth)
     }
 
+    /// Helper: start the coordinator, begin a sign-in flow, and assert it started.
+    @discardableResult
+    func beginSignIn(
+        coordinator: OAuthSessionCoordinator,
+        service: MockOAuthService
+    ) -> OAuthSignInStartResult {
+        coordinator.start()
+        let result = coordinator.beginSignIn()
+        return result
+    }
+
     // MARK: - 1. Task-pair invariant
 
     @Test("start() installs one subscription per stream")
     func startInstallsOneSubscriptionPerStream() async {
         let (coordinator, service, _) = makeSUT()
         coordinator.start()
-        await Task.yield()
-        await Task.yield()
+        await pollUntil { service.makeSignInStreamCallCount == 1 }
         #expect(service.makeSignInStreamCallCount == 1)
         #expect(service.makeSignOutStreamCallCount == 1)
     }
@@ -81,7 +117,7 @@ struct OAuthSessionCoordinatorTests {
         let (coordinator, service, _) = makeSUT()
         coordinator.start()
         coordinator.start()
-        await Task.yield()
+        await pollUntil { service.makeSignInStreamCallCount == 1 }
         #expect(service.makeSignInStreamCallCount == 1)
         #expect(service.makeSignOutStreamCallCount == 1)
     }
@@ -99,19 +135,15 @@ struct OAuthSessionCoordinatorTests {
 
     // MARK: - 4. Successful sign-in
 
-    @Test("active triggerSignIn(true) produces .signedIn")
+    @Test("active triggerSignIn(true) produces .signedIn and selectedSource == .oauth")
     func successfulSignInProducesSignedIn() async {
         let (coordinator, service, auth) = makeSUT()
         coordinator.start()
-        await Task.yield()
-        await Task.yield()
-
-        auth.setOAuthState(.signingIn)
         service.triggerSignIn(true)
-        await Task.yield()
-        await Task.yield()
+        await pollUntil { auth.oauthState.isSignedIn }
 
         #expect(auth.oauthState.isSignedIn)
+        #expect(auth.selectedSource == .oauth)
     }
 
     // MARK: - 5. Authoritative true outside .signingIn
@@ -120,151 +152,148 @@ struct OAuthSessionCoordinatorTests {
     func authoritativeTrueFromSignedOut() async {
         let (coordinator, service, auth) = makeSUT()
         coordinator.start()
-        await Task.yield()
-        await Task.yield()
 
         // State is .signedOut — service validates callback and emits true.
         service.triggerSignIn(true)
-        await Task.yield()
-        await Task.yield()
+        await pollUntil { auth.oauthState.isSignedIn }
 
         #expect(auth.oauthState.isSignedIn)
+        #expect(auth.selectedSource == .oauth)
     }
 
-    // MARK: - 6. Active false uses captured previous state
-
-    @Test("active false restores the captured previous state in .failed")
-    func activeFailureRestoresPreviousState() async {
-        let (coordinator, service, auth) = makeSUT()
-        coordinator.start()
-        await Task.yield()
-        await Task.yield()
-
-        // Start from .signedOut, begin sign-in, then fail.
-        let result = coordinator.beginSignIn()
-        guard case .started = result else {
-            Issue.record("Expected .started, got \(result)")
-            return
-        }
-
-        service.triggerSignIn(false)
-        await Task.yield()
-        await Task.yield()
-
-        #expect(auth.oauthState.isFailed)
-        #expect(auth.oauthState.failedPreviousState == .signedOut)
-    }
-
-    // MARK: - 7. Re-auth failure preserves .signedIn previous state
-
-    @Test("failure during re-auth preserves .signedIn(username:) as previous")
-    func reAuthFailurePreservesSignedInPrevious() async {
+    @Test("valid true from .signedIn(username:) is accepted as authoritative")
+    func authoritativeTrueFromSignedIn() async {
         let (coordinator, service, auth) = makeSUT(isAuthenticated: true)
         coordinator.start()
+
+        // Seed signed-in state, then begin re-auth and emit true.
+        auth.recordOAuthSignIn(username: "original")
+        _ = coordinator.beginSignIn()
+
+        service.triggerSignIn(true)
+        await pollUntil { auth.oauthState.isSignedIn }
+
+        #expect(auth.oauthState.isSignedIn)
+        #expect(auth.selectedSource == .oauth)
+    }
+
+    // MARK: - 6. Stray false
+
+    @Test("stray false from .signedIn is ignored (stable state preserved)")
+    func strayFalseIsIgnoredWhenSignedIn() async {
+        let (coordinator, service, auth) = makeSUT(isAuthenticated: true)
+        coordinator.start()
+
         // Seed signed-in state.
         auth.recordOAuthSignIn(username: "testuser")
-        await Task.yield()
-        await Task.yield()
-
-        let result = coordinator.beginSignIn()
-        guard case .started = result else {
-            Issue.record("Expected .started")
-            return
-        }
 
         service.triggerSignIn(false)
         await Task.yield()
-        await Task.yield()
 
-        #expect(auth.oauthState.isFailed)
-        if case .signedIn(let username) = auth.oauthState.failedPreviousState {
+        // Stray false should not change stable state.
+        #expect(auth.oauthState.isSignedIn)
+        if case .signedIn(let username) = auth.oauthState {
             #expect(username == "testuser")
-        } else {
-            Issue.record("Expected .signedIn previous state, got \(String(describing: auth.oauthState.failedPreviousState))")
         }
     }
 
-    // MARK: - 8. Stray false callback
-
-    @Test("stray false in stable state leaves state unchanged")
-    func strayFalseIsIgnored() async {
+    @Test("stray false from .signedOut is ignored (stable state preserved)")
+    func strayFalseIsIgnoredWhenSignedOut() async {
         let (coordinator, service, auth) = makeSUT()
         coordinator.start()
-        await Task.yield()
-        await Task.yield()
 
-        // No active sign-in — false is stray.
+        // State is .signedOut — emit false without a signing-in flow.
         service.triggerSignIn(false)
-        await Task.yield()
         await Task.yield()
 
         #expect(auth.oauthState.isSignedOut)
     }
 
-    // MARK: - 9. Duplicate sign-in intent gated
+    // MARK: - 7. False during .signingIn
 
-    @Test("concurrent beginSignIn() returns .alreadyInProgress")
-    func duplicateSignInIsGated() async {
-        let (coordinator, _, _) = makeSUT()
+    @Test("false during .signingIn produces .failed(.signedOut)")
+    func falseDuringSigningInProducesFailed() async {
+        let (coordinator, service, auth) = makeSUT()
         coordinator.start()
+        _ = coordinator.beginSignIn()
 
-        let first = coordinator.beginSignIn()
-        let second = coordinator.beginSignIn()
+        service.triggerSignIn(false)
+        await pollUntil { auth.oauthState.isFailed }
 
-        guard case .started = first else {
-            Issue.record("Expected first .started")
-            return
-        }
-        #expect(second == .alreadyInProgress)
-    }
-
-    // MARK: - 10. URL unavailable
-
-    @Test("URL generation failure returns .unavailable and records .failed with correct previous state")
-    func urlUnavailableReturnsUnavailableAndFails() async {
-        let (coordinator, _, auth) = makeSUT(signInURL: nil)
-        coordinator.start()
-
-        let result = coordinator.beginSignIn()
-
-        #expect(result == .unavailable)
         #expect(auth.oauthState.isFailed)
         #expect(auth.oauthState.failedPreviousState == .signedOut)
     }
 
+    // MARK: - 8. True during .signingIn
+
+    @Test("true during .signingIn produces .signedIn")
+    func trueDuringSigningInProducesSignedIn() async {
+        let (coordinator, service, auth) = makeSUT()
+        coordinator.start()
+        _ = coordinator.beginSignIn()
+
+        service.triggerSignIn(true)
+        await pollUntil { auth.oauthState.isSignedIn }
+
+        #expect(auth.oauthState.isSignedIn)
+        #expect(auth.selectedSource == .oauth)
+    }
+
+    // MARK: - 9. Cancel during .signingIn
+
+    @Test("cancelSignIn during .signingIn produces .failed(.signedOut)")
+    func cancelDuringSigningInProducesFailed() async {
+        let (coordinator, service, auth) = makeSUT()
+        coordinator.start()
+        _ = coordinator.beginSignIn()
+
+        coordinator.cancelSignIn()
+
+        #expect(service.cancelSignInCallCount == 1)
+        #expect(auth.oauthState.isFailed)
+        #expect(auth.oauthState.failedPreviousState == .signedOut)
+    }
+
+    // MARK: - 10. Cancel during re-auth
+
+    @Test("cancelSignIn during re-auth preserves .signedIn(username:) as previous state")
+    func cancelDuringReAuthPreservesPrevious() async {
+        let (coordinator, service, auth) = makeSUT(isAuthenticated: true)
+        coordinator.start()
+        auth.recordOAuthSignIn(username: "testuser")
+        _ = coordinator.beginSignIn()
+
+        coordinator.cancelSignIn()
+
+        #expect(service.cancelSignInCallCount == 1)
+        #expect(auth.oauthState.isFailed)
+        #expect(auth.oauthState.failedPreviousState == .signedIn(username: "testuser"))
+    }
+
     // MARK: - 11. Browser open failure
 
-    @Test("browserOpeningFailed() transitions to .failed with correct previous state")
-    func browserOpeningFailedTransitionsToFailed() async {
-        let (coordinator, _, auth) = makeSUT()
+    @Test("browserOpeningFailed during .signingIn produces .failed(.signedOut)")
+    func browserOpeningFailedProducesFailed() async {
+        let (coordinator, service, auth) = makeSUT()
         coordinator.start()
-
-        let result = coordinator.beginSignIn()
-        guard case .started = result else {
-            Issue.record("Expected .started")
-            return
-        }
+        _ = coordinator.beginSignIn()
 
         coordinator.browserOpeningFailed()
 
+        #expect(service.cancelSignInCallCount == 1)
         #expect(auth.oauthState.isFailed)
         #expect(auth.oauthState.failedPreviousState == .signedOut)
     }
 
     // MARK: - 12. Reconcile during sign-in
 
-    @Test("reconcileAuthentication() preserves .signingIn")
+    @Test("reconcileAuthentication preserves .signingIn during active flow")
     func reconcilePreservesSigningIn() async {
         let (coordinator, service, auth) = makeSUT()
         coordinator.start()
+        _ = coordinator.beginSignIn()
+
         service.isAuthenticated = false
-
-        let result = coordinator.beginSignIn()
-        guard case .started = result else {
-            Issue.record("Expected .started")
-            return
-        }
-
         coordinator.reconcileAuthentication()
 
         #expect(auth.oauthState.isSigningIn)
@@ -272,146 +301,172 @@ struct OAuthSessionCoordinatorTests {
 
     // MARK: - 13. Sign-out ordering
 
-    @Test("token is absent when sign-out event is handled")
-    func signOutOrderingTokenAbsent() async {
+    @Test("sign-out event sets .signedOut and selectedSource becomes .unauthenticated")
+    func signOutEventSetsSignedOut() async {
         let (coordinator, service, auth) = makeSUT(isAuthenticated: true)
         coordinator.start()
-        auth.recordOAuthSignIn(username: nil)
-        await Task.yield()
-        await Task.yield()
 
-        // signOut() deletes token before emitting; service.isAuthenticated → false.
+        // Seed signed-in state.
+        auth.recordOAuthSignIn(username: "testuser")
+        #expect(auth.oauthState.isSignedIn)
+        #expect(auth.selectedSource == .oauth)
+
+        // The sign-out stream handler calls syncOAuthState(isAuthenticated: false).
         service.isAuthenticated = false
         service.triggerSignOut()
-        await Task.yield()
-        await Task.yield()
+        await pollUntil { auth.oauthState.isSignedOut }
 
+        #expect(auth.oauthState.isSignedOut)
+        #expect(auth.selectedSource == .unauthenticated)
+    }
+
+    // MARK: - 14. cancelSignIn() — no pending flow
+
+    @Test("cancelSignIn outside .signingIn is a no-op")
+    func cancelSignInOutsideSigningInIsNoOp() async {
+        let (coordinator, service, auth) = makeSUT()
+        coordinator.start()
+
+        #expect(auth.oauthState.isSignedOut)
+
+        coordinator.cancelSignIn()
+
+        // State unchanged, service not called.
+        #expect(service.cancelSignInCallCount == 0)
         #expect(auth.oauthState.isSignedOut)
     }
 
-    // MARK: - 14. cancelSignIn()
+    // MARK: - 15. Cancel during .signingIn — callback false event ignored
 
-    @Test("cancelSignIn() immediately exits .signingIn")
-    func cancelSignInExitsSigningIn() async {
-        let (coordinator, _, auth) = makeSUT()
-        coordinator.start()
-
-        let result = coordinator.beginSignIn()
-        guard case .started = result else {
-            Issue.record("Expected .started")
-            return
-        }
-
-        coordinator.cancelSignIn()
-
-        #expect(auth.oauthState.isFailed)
-        #expect(auth.oauthState.failedMessage?.contains("cancelled") == true)
-    }
-
-    // MARK: - 15. Callback after cancelSignIn cannot sign in
-
-    @Test("callback arriving after cancelSignIn() is ignored")
-    func callbackAfterCancelIsIgnored() async {
+    @Test("cancelSignIn produces immediate .failed; service false event does not overwrite cancellation")
+    func cancelProducesFailedAndStrayFalseIsIgnored() async {
         let (coordinator, service, auth) = makeSUT()
         coordinator.start()
-        await Task.yield()
-        await Task.yield()
+        _ = coordinator.beginSignIn()
 
-        let result = coordinator.beginSignIn()
-        guard case .started = result else {
-            Issue.record("Expected .started")
-            return
-        }
-
+        // Cancel — coordinator transitions to .failed immediately.
         coordinator.cancelSignIn()
-        // The service emits false from cancelSignIn(); state is already .failed.
-        // A belated true must not sign the user in.
-        service.triggerSignIn(true)
-        await Task.yield()
+
+        #expect(service.cancelSignInCallCount == 1)
+        #expect(auth.oauthState.isFailed)
+        #expect(auth.oauthState.failedPreviousState == .signedOut)
+        #expect(auth.oauthState.failedMessage == "Sign-in was cancelled.")
+
+        // The service emits false (from cancelSignIn). Coordinator ignores it
+        // because state is already .failed (not .signingIn).
+        // Simulate the false event arriving.
+        service.triggerSignIn(false)
         await Task.yield()
 
-        // Already .failed; true callback after cancel must not produce .signedIn.
-        // Per policy: true is authoritative ONLY when OAuthService validated the nonce.
-        // After cancelSignIn() clears pendingState the service would reject a real
-        // callback as a state mismatch. In tests we verify the coordinator does not
-        // re-enter .signingIn before the true arrives.
-        #expect(auth.oauthState.isFailed || auth.oauthState.isSignedIn)
-        // The critical invariant: cancelSignIn leaves a non-.signingIn state.
-        #expect(!auth.oauthState.isSigningIn)
+        // State should remain .failed with the correct previous state.
+        #expect(auth.oauthState.isFailed)
+        #expect(auth.oauthState.failedPreviousState == .signedOut)
+        #expect(auth.oauthState.failedMessage == "Sign-in was cancelled.")
     }
 
     // MARK: - 16. Multicast: coordinator and AppState sign-out subscriber both receive sign-out
 
-    @Test("coordinator and a second simulated subscriber both receive sign-out")
-    func multicastSignOutDeliveredToBothSubscribers() async {
+    @Test("sign-out stream is multicast — coordinator and subscriber both receive event")
+    func signOutStreamMulticast() async {
         let (coordinator, service, auth) = makeSUT(isAuthenticated: true)
         coordinator.start()
-        auth.recordOAuthSignIn(username: nil)
-        await Task.yield()
-        await Task.yield()
 
-        // Simulate a second subscriber (AppState sign-out polling restart).
-        var secondSubscriberFired = false
-        let secondStream = service.makeSignOutStream()
-        let secondTask = Task { @MainActor in
-            for await _ in secondStream {
-                secondSubscriberFired = true
-            }
-        }
-        defer { secondTask.cancel() }
-        await Task.yield()
-        await Task.yield()
+        // Seed signed-in state.
+        auth.recordOAuthSignIn(username: "testuser")
+
+        // Also create an app-level subscriber.
+        let appStream = service.makeSignOutStream()
+        var appIter = appStream.makeAsyncIterator()
 
         service.isAuthenticated = false
         service.triggerSignOut()
-        await Task.yield()
-        await Task.yield()
 
+        // Both should receive the event.
+        let appReceived: Void? = await appIter.next()
+        #expect(appReceived != nil)
+        await pollUntil { auth.oauthState.isSignedOut }
         #expect(auth.oauthState.isSignedOut)
-        #expect(secondSubscriberFired)
     }
 
     // MARK: - 17. Stop / restart
 
-    @Test("stop() is idempotent and permits a new start()")
-    func stopAndRestart() async {
-        let (coordinator, service, auth) = makeSUT()
+    @Test("stop removes both subscriptions")
+    func stopRemovesSubscriptions() async {
+        let (coordinator, service, _) = makeSUT()
         coordinator.start()
-        await Task.yield()
-        await Task.yield()
+        await pollUntil { service.signInSubscriberCount == 1 }
 
         coordinator.stop()
-        // Task cancellation triggers onTermination asynchronously; yield several
-        // times so the termination handlers run and remove continuations.
-        for _ in 0..<5 { await Task.yield() }
+
+        // Allow onTermination handlers (which hop to MainActor via Task) to complete.
+        await pollUntil(maxIterations: 5) { service.signInSubscriberCount == 0 }
+        await pollUntil(maxIterations: 5) { service.signOutSubscriberCount == 0 }
+
         #expect(service.signInSubscriberCount == 0)
         #expect(service.signOutSubscriberCount == 0)
+    }
 
+    @Test("second stop is harmless")
+    func secondStopIsHarmless() async {
+        let (coordinator, service, _) = makeSUT()
         coordinator.start()
-        await Task.yield()
-        await Task.yield()
+        await pollUntil { service.signInSubscriberCount == 1 }
 
-        // Fresh subscription after restart.
-        #expect(service.makeSignInStreamCallCount == 2)
-        #expect(service.makeSignOutStreamCallCount == 2)
+        coordinator.stop()
+        coordinator.stop()
 
-        // Events still delivered after restart.
-        auth.setOAuthState(.signingIn)
+        // Allow onTermination handlers (which hop to MainActor via Task) to complete.
+        await pollUntil(maxIterations: 5) { service.signInSubscriberCount == 0 }
+        await pollUntil(maxIterations: 5) { service.signOutSubscriberCount == 0 }
+
+        #expect(service.signInSubscriberCount == 0)
+        #expect(service.signOutSubscriberCount == 0)
+    }
+
+    @Test("restart installs one fresh subscription per stream")
+    func restartInstallsFreshSubscriptions() async {
+        let (coordinator, service, _) = makeSUT()
+        coordinator.start()
+        await pollUntil { service.signInSubscriberCount == 1 }
+
+        let initialStreamCallCount = service.makeSignInStreamCallCount
+
+        coordinator.stop()
+        coordinator.start()
+        await pollUntil { service.signInSubscriberCount == 1 }
+
+        // Fresh subscriptions were created.
+        #expect(service.makeSignInStreamCallCount == initialStreamCallCount + 1)
+        #expect(service.makeSignOutStreamCallCount == initialStreamCallCount + 1)
+    }
+
+    @Test("events are delivered after restart")
+    func eventsDeliveredAfterRestart() async {
+        let (coordinator, service, auth) = makeSUT()
+        coordinator.start()
+        await pollUntil { service.signInSubscriberCount == 1 }
+
+        // Stop and restart.
+        coordinator.stop()
+        coordinator.start()
+        await pollUntil { service.signInSubscriberCount == 1 }
+
+        // Emit a sign-in event after restart.
         service.triggerSignIn(true)
-        await Task.yield()
-        await Task.yield()
+        await pollUntil { auth.oauthState.isSignedIn }
+
         #expect(auth.oauthState.isSignedIn)
+        #expect(auth.selectedSource == .oauth)
     }
 
     // MARK: - 18. Natural teardown (weak captures)
 
-    @Test("releasing coordinator without calling stop() deallocates it")
-    func naturalTeardownDeallocates() async {
+    @Test("coordinator releases without retain cycle")
+    func naturalTeardown() async {
         let service = MockOAuthService()
-        service.signInURLToReturn = URL(string: "https://github.com")
         let auth = GitHubAuthentication(defaults: UserDefaults())
-
         weak var weakCoordinator: OAuthSessionCoordinator?
+
         do {
             let coordinator = OAuthSessionCoordinator(
                 service: service,
@@ -419,51 +474,92 @@ struct OAuthSessionCoordinatorTests {
             )
             weakCoordinator = coordinator
             coordinator.start()
-            await Task.yield()
-            await Task.yield()
-            // coordinator goes out of scope here
+            // Allow task registration to settle.
+            await pollUntil { service.signInSubscriberCount == 1 }
+            #expect(weakCoordinator != nil)
         }
-        // Give tasks a tick to observe cancellation.
-        await Task.yield()
-        await Task.yield()
 
-        #expect(weakCoordinator == nil, "Coordinator was not deallocated — possible retain cycle")
+        // Coordinator released; weak ref should be nil.
+        #expect(weakCoordinator == nil)
+        // Both subscriptions should have terminated after the bounded yield series.
+        // The onTermination handlers run on MainActor via the Task hop.
+        await pollUntil(maxIterations: 5) { service.signInSubscriberCount == 0 }
+        await pollUntil(maxIterations: 5) { service.signOutSubscriberCount == 0 }
     }
 
-    // MARK: - 19. beginSignOut gated during active flows
+    // MARK: - 19. Duplicate sign-out
 
-    @Test("beginSignOut() during .signingIn is ignored")
-    func signOutGatedDuringSignIn() async {
-        let (coordinator, service, auth) = makeSUT()
+    @Test("beginSignOut called twice only calls service.signOut once while .signingOut is active")
+    func duplicateSignOutIsIgnored() async {
+        let (coordinator, service, auth) = makeSUT(isAuthenticated: true)
         coordinator.start()
 
-        let result = coordinator.beginSignIn()
-        guard case .started = result else {
-            Issue.record("Expected .started")
-            return
-        }
+        // Seed signed-in state.
+        auth.recordOAuthSignIn(username: "testuser")
+
+        // First sign-out.
+        coordinator.beginSignOut()
+        #expect(auth.oauthState.isSigningOut)
+        #expect(service.signOutCallCount == 1)
+
+        // Second sign-out while .signingOut is active — should be ignored.
+        coordinator.beginSignOut()
+        #expect(service.signOutCallCount == 1)
+        #expect(auth.oauthState.isSigningOut)
+    }
+
+    @Test("beginSignOut during .signingIn is ignored")
+    func signOutDuringSigningInIsIgnored() async {
+        let (coordinator, service, auth) = makeSUT()
+        coordinator.start()
+        _ = coordinator.beginSignIn()
+
+        #expect(auth.oauthState.isSigningIn)
+        #expect(service.signOutCallCount == 0)
 
         coordinator.beginSignOut()
 
-        // Sign-out must not have been called.
+        // Should be ignored — signing-in is in progress.
         #expect(service.signOutCallCount == 0)
         #expect(auth.oauthState.isSigningIn)
     }
 
+    // MARK: - 20. beginSignIn gated during active flows
+
+    @Test("beginSignIn during .signingIn is rejected")
+    func signInDuringSigningInIsRejected() async {
+        let (coordinator, service, auth) = makeSUT()
+        coordinator.start()
+        _ = coordinator.beginSignIn()
+        #expect(auth.oauthState.isSigningIn)
+
+        let second = coordinator.beginSignIn()
+
+        #expect(second == .alreadyInProgress)
+        #expect(service.makeSignInURLCallCount == 1)
+    }
+
+    @Test("beginSignIn during .signingOut is rejected")
+    func signInDuringSigningOutIsRejected() async {
+        let (coordinator, service, auth) = makeSUT(isAuthenticated: true)
+        coordinator.start()
+        auth.recordOAuthSignIn(username: "testuser")
+        coordinator.beginSignOut()
+        #expect(auth.oauthState.isSigningOut)
+
+        let result = coordinator.beginSignIn()
+
+        #expect(result == .alreadyInProgress)
+        #expect(service.makeSignInURLCallCount == 0)
+    }
+
     // MARK: - 21. browserOpeningFailed calls cancelSignIn
 
-    @Test("browserOpeningFailed calls cancelSignIn exactly once")
+    @Test("browserOpeningFailed calls service.cancelSignIn exactly once")
     func browserOpeningFailedCallsCancelSignIn() async {
         let (coordinator, service, auth) = makeSUT()
         coordinator.start()
-        await Task.yield()
-        await Task.yield()
-
-        let result = coordinator.beginSignIn()
-        guard case .started = result else {
-            Issue.record("Expected .started")
-            return
-        }
+        _ = coordinator.beginSignIn()
 
         coordinator.browserOpeningFailed()
 
@@ -473,41 +569,26 @@ struct OAuthSessionCoordinatorTests {
 
     // MARK: - 22. browserOpeningFailed exits .signingIn
 
-    @Test("browserOpeningFailed exits .signingIn")
+    @Test("browserOpeningFailed transitions from .signingIn to .failed")
     func browserOpeningFailedExitsSigningIn() async {
         let (coordinator, _, auth) = makeSUT()
         coordinator.start()
-        await Task.yield()
-        await Task.yield()
-
-        let result = coordinator.beginSignIn()
-        guard case .started = result else {
-            Issue.record("Expected .started")
-            return
-        }
-
+        _ = coordinator.beginSignIn()
         #expect(auth.oauthState.isSigningIn)
 
         coordinator.browserOpeningFailed()
 
-        #expect(!auth.oauthState.isSigningIn)
         #expect(auth.oauthState.isFailed)
+        #expect(auth.oauthState.failedPreviousState == .signedOut)
     }
 
     // MARK: - 23. Browser-opening failure preserves .signedOut rollback
 
-    @Test("browserOpeningFailure preserves .signedOut rollback state")
+    @Test("browserOpeningFailure from signedOut preserves signedOut rollback")
     func browserOpeningFailurePreservesSignedOutRollback() async {
         let (coordinator, _, auth) = makeSUT()
         coordinator.start()
-        await Task.yield()
-        await Task.yield()
-
-        let result = coordinator.beginSignIn()
-        guard case .started = result else {
-            Issue.record("Expected .started")
-            return
-        }
+        _ = coordinator.beginSignIn()
 
         coordinator.browserOpeningFailed()
 
@@ -521,26 +602,13 @@ struct OAuthSessionCoordinatorTests {
     func browserOpeningFailurePreservesSignedInRollback() async {
         let (coordinator, _, auth) = makeSUT(isAuthenticated: true)
         coordinator.start()
-        await Task.yield()
-        await Task.yield()
-
-        // Seed signed-in state.
         auth.recordOAuthSignIn(username: "testuser")
-
-        let result = coordinator.beginSignIn()
-        guard case .started = result else {
-            Issue.record("Expected .started")
-            return
-        }
+        _ = coordinator.beginSignIn()
 
         coordinator.browserOpeningFailed()
 
         #expect(auth.oauthState.isFailed)
-        if case .signedIn(let username) = auth.oauthState.failedPreviousState {
-            #expect(username == "testuser")
-        } else {
-            Issue.record("Expected .signedIn previous state, got \(String(describing: auth.oauthState.failedPreviousState))")
-        }
+        #expect(auth.oauthState.failedPreviousState == .signedIn(username: "testuser"))
     }
 
     // MARK: - 25. cancelSignIn calls cancelSignIn exactly once
@@ -549,14 +617,7 @@ struct OAuthSessionCoordinatorTests {
     func cancelSignInCallsServiceExactlyOnce() async {
         let (coordinator, service, auth) = makeSUT()
         coordinator.start()
-        await Task.yield()
-        await Task.yield()
-
-        let result = coordinator.beginSignIn()
-        guard case .started = result else {
-            Issue.record("Expected .started")
-            return
-        }
+        _ = coordinator.beginSignIn()
 
         coordinator.cancelSignIn()
 
@@ -570,45 +631,128 @@ struct OAuthSessionCoordinatorTests {
     func cancelSignInFromReAuthPreservesSignedInPrevious() async {
         let (coordinator, _, auth) = makeSUT(isAuthenticated: true)
         coordinator.start()
-        await Task.yield()
-        await Task.yield()
-
-        // Seed signed-in state, then begin re-auth.
         auth.recordOAuthSignIn(username: "testuser")
-
-        let result = coordinator.beginSignIn()
-        guard case .started = result else {
-            Issue.record("Expected .started")
-            return
-        }
+        _ = coordinator.beginSignIn()
 
         coordinator.cancelSignIn()
 
         #expect(auth.oauthState.isFailed)
-        if case .signedIn(let username) = auth.oauthState.failedPreviousState {
-            #expect(username == "testuser")
-        } else {
-            Issue.record("Expected .signedIn previous state, got \(String(describing: auth.oauthState.failedPreviousState))")
-        }
+        #expect(auth.oauthState.failedPreviousState == .signedIn(username: "testuser"))
     }
 
-    // MARK: - 27. cancelSignIn outside .signingIn is a no-op
+    // MARK: - 27. Rollback: URL unavailable from signedOut
 
-    @Test("cancelSignIn outside .signingIn is a no-op")
-    func cancelSignInOutsideSigningInIsNoOp() async {
+    @Test("URL unavailable from signedOut produces .failed(.signedOut)")
+    func urlUnavailableFromSignedOut() async {
+        let (coordinator, _, auth) = makeSUT(signInURL: nil)
+        coordinator.start()
+
+        let result = coordinator.beginSignIn()
+
+        guard case .unavailable = result else {
+            Issue.record("Expected .unavailable")
+            return
+        }
+        #expect(auth.oauthState.isFailed)
+        #expect(auth.oauthState.failedPreviousState == .signedOut)
+    }
+
+    // MARK: - 28. Rollback: URL unavailable during re-auth from signedIn
+
+    @Test("URL unavailable during re-auth from signedIn preserves .signedIn(username:) as previous")
+    func urlUnavailableFromSignedIn() async {
+        let (coordinator, _, auth) = makeSUT(signInURL: nil, isAuthenticated: true)
+        coordinator.start()
+        auth.recordOAuthSignIn(username: "testuser")
+
+        let result = coordinator.beginSignIn()
+
+        guard case .unavailable = result else {
+            Issue.record("Expected .unavailable")
+            return
+        }
+        #expect(auth.oauthState.isFailed)
+        #expect(auth.oauthState.failedPreviousState == .signedIn(username: "testuser"))
+    }
+
+    // MARK: - 29. Rollback: Browser failure from signedOut
+
+    @Test("browser failure from signedOut produces .failed(.signedOut)")
+    func browserFailureFromSignedOut() async {
         let (coordinator, service, auth) = makeSUT()
         coordinator.start()
-        await Task.yield()
-        await Task.yield()
+        _ = coordinator.beginSignIn()
 
-        #expect(auth.oauthState.isSignedOut)
+        coordinator.browserOpeningFailed()
+
+        #expect(service.cancelSignInCallCount == 1)
+        #expect(auth.oauthState.isFailed)
+        #expect(auth.oauthState.failedPreviousState == .signedOut)
+    }
+
+    // MARK: - 30. Rollback: Browser failure during re-auth
+
+    @Test("browser failure during re-auth preserves .signedIn(username:) as previous")
+    func browserFailureDuringReAuth() async {
+        let (coordinator, _, auth) = makeSUT(isAuthenticated: true)
+        coordinator.start()
+        auth.recordOAuthSignIn(username: "testuser")
+        _ = coordinator.beginSignIn()
+
+        coordinator.browserOpeningFailed()
+
+        #expect(auth.oauthState.isFailed)
+        #expect(auth.oauthState.failedPreviousState == .signedIn(username: "testuser"))
+    }
+
+    // MARK: - 31. Rollback: Explicit cancel from signedOut
+
+    @Test("explicit cancel from signedOut produces .failed(.signedOut)")
+    func explicitCancelFromSignedOut() async {
+        let (coordinator, service, auth) = makeSUT()
+        coordinator.start()
+        _ = coordinator.beginSignIn()
 
         coordinator.cancelSignIn()
 
-        // State unchanged, service not called.
-        #expect(service.cancelSignInCallCount == 0)
-        #expect(auth.oauthState.isSignedOut)
+        #expect(service.cancelSignInCallCount == 1)
+        #expect(auth.oauthState.isFailed)
+        #expect(auth.oauthState.failedPreviousState == .signedOut)
     }
+
+    // MARK: - 32. Rollback: Explicit cancel during re-auth
+
+    @Test("explicit cancel during re-auth preserves .signedIn(username:) as previous")
+    func explicitCancelDuringReAuth() async {
+        let (coordinator, service, auth) = makeSUT(isAuthenticated: true)
+        coordinator.start()
+        auth.recordOAuthSignIn(username: "testuser")
+        _ = coordinator.beginSignIn()
+
+        coordinator.cancelSignIn()
+
+        #expect(service.cancelSignInCallCount == 1)
+        #expect(auth.oauthState.isFailed)
+        #expect(auth.oauthState.failedPreviousState == .signedIn(username: "testuser"))
+    }
+
+    // MARK: - 33. Rollback: Callback false during re-auth
+
+    @Test("callback false during re-auth preserves .signedIn(username:) as previous")
+    func callbackFalseDuringReAuth() async {
+        let (coordinator, service, auth) = makeSUT(isAuthenticated: true)
+        coordinator.start()
+        auth.recordOAuthSignIn(username: "testuser")
+        _ = coordinator.beginSignIn()
+
+        service.triggerSignIn(false)
+        await pollUntil { auth.oauthState.isFailed }
+
+        #expect(auth.oauthState.isFailed)
+        #expect(auth.oauthState.failedPreviousState == .signedIn(username: "testuser"))
+    }
+
+    // MARK: - 34. reconcileAuthentication repairs .signingOut when token is gone
 
     @Test("reconcileAuthentication repairs .signingOut when token is gone")
     func reconcileRepairsSigningOut() async {
