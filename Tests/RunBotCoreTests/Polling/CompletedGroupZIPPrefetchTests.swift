@@ -1,6 +1,7 @@
 // CompletedGroupZIPPrefetchTests.swift
 // RunBotCoreTests
 
+import os
 import XCTest
 import GitHubClient
 @testable import RunBotCore
@@ -10,8 +11,16 @@ import GitHubClient
 /// Counts calls and returns configurable data or nil (simulate 404).
 /// Uses a distinct name to avoid redeclaration conflict with
 /// `FakeTransport` in `ZIPPrefetchQueueTests`.
+///
+/// Thread safety follows the project's established `OSAllocatedUnfairLock`
+/// pattern (see `WorkflowActionGroupFetcherTests.StubTransport`).
 private final class TestFakeTransport: GitHubTransportProtocol, @unchecked Sendable {
-    var callCount = 0
+    /// Thread-safe call counter — incremented before returning `responseData`.
+    private let callCountLock = OSAllocatedUnfairLock<Int>(initialState: 0)
+
+    /// The number of times `raw` has been called. Thread-safe.
+    var callCount: Int { callCountLock.withLock { $0 } }
+
     var responseData: Data?
 
     var decoder: JSONDecoder { JSONDecoder() }
@@ -20,7 +29,7 @@ private final class TestFakeTransport: GitHubTransportProtocol, @unchecked Senda
     func apiAsync(_ endpoint: String, timeout: TimeInterval) async -> Data? { nil }
     func apiPaginated(_ endpoint: String, timeout: TimeInterval) async -> Data? { nil }
     func raw(_ endpoint: String, timeout: TimeInterval) async -> Data? {
-        callCount += 1
+        callCountLock.withLock { $0 += 1 }
         return responseData
     }
     func post(_ endpoint: String, body: Data?, timeout: TimeInterval) async -> Data? { nil }
@@ -266,12 +275,17 @@ final class CompletedGroupZIPPrefetchTests: XCTestCase {
         )
         try await Task.sleep(nanoseconds: 100_000_000)
         let firstCallCount = transport.callCount
+        XCTAssertEqual(
+            firstCallCount, 1,
+            "First pass with a completed group must trigger exactly 1 ZIP fetch")
 
         // Second pass — should NOT trigger another fetch (ZIP is already cached)
+        // The group is returned again so we verify that DiskZIPCache prevents
+        // re-download, not that the doneGroups loop was simply not entered.
         let _ = await PollResultBuilder.buildGroupState(
             snapPrevGroups: [:],
             snapGroupCache: [completedGroup.id: completedGroup.copying(isDimmed: true)],
-            fetchGroups: { _ in [] },  // No new groups fetched
+            fetchGroups: { _ in [completedGroup] },
             enrichJobs: { $0 },
             enqueueZIP: { runID, scope, isCompleted in
                 await queue.enqueue(runID: runID, scope: scope, isCompleted: isCompleted)
