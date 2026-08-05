@@ -36,8 +36,6 @@ import Observation
 /// relaunches. No migration is needed because no released installation has this key.
 ///
 /// ## Mutation rules
-/// - `setOAuthState(_:)` — use for **transitional** OAuth state changes (signingIn,
-///   signingOut, failed, signedOut). Does NOT touch `selectedSource`.
 /// - `recordOAuthSignIn(username:)` — use **only** when OAuth sign-in succeeds.
 ///   Persists `.oauth` as `selectedSource`.
 /// - `syncOAuthState(isAuthenticated:)` — reconciles OAuth state with the live
@@ -141,18 +139,6 @@ public final class GitHubAuthentication {
         environmentState = state
     }
 
-    /// Updates the OAuth flow state for **transitional** changes.
-    ///
-    /// Use this for: `.signingIn`, `.signingOut`, `.failed`, `.signedOut`.
-    /// Does **not** touch `selectedSource` — use `recordOAuthSignIn(username:)`
-    /// when a sign-in succeeds so the persisted choice is updated correctly.
-    ///
-    /// - Important: Never call this with `.signedIn` from `onAppearAction` or
-    ///   any passive re-sync path — use `syncOAuthState(isAuthenticated:)` instead.
-    public func setOAuthState(_ state: OAuthState) {
-        oauthState = state
-    }
-
     /// Records a **successful** OAuth sign-in.
     ///
     /// - Sets `oauthState` to `.signedIn(username:)`.
@@ -161,8 +147,7 @@ public final class GitHubAuthentication {
     ///   OAuth is signed in.
     ///
     /// This is the only path that should write `.oauth` to `selectedSource` as
-    /// a side-effect of OAuth flow progression. All other OAuth state transitions
-    /// use `setOAuthState(_:)` which does not touch `selectedSource`.
+    /// a side-effect of OAuth flow progression.
     public func recordOAuthSignIn(username: String?) {
         oauthState = .signedIn(username: username)
         setSelectedSource(.oauth)

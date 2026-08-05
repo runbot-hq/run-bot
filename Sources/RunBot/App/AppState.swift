@@ -201,10 +201,9 @@ final class AppState {
 
     // MARK: - Retained task handles
     //
-    // statusIconTask and signOutTask are co-located with AppState because they
-    // observe/drive domain state (runnerState.aggregateStatus, oauthService
-    // sign-out stream, runnerStore). Keeping them here means AppState owns
-    // the full lifecycle of the domain observation loops.
+    // statusIconTask is co-located with AppState because it observes domain state
+    // (runnerState.aggregateStatus). Keeping it here means AppState owns the full
+    // lifecycle of the status-icon observation loop.
     //
     // PanelSheetState stays on AppDelegate: clearRunnerSheet() is called from
     // closePanel() and the settings-back callback — both AppKit-level wiring
@@ -216,15 +215,10 @@ final class AppState {
     /// is thread-safe and writes only happen on @MainActor in startObservations().
     @ObservationIgnored nonisolated(unsafe) private var statusIconTask: Task<Void, Never>?
 
-    /// Same write-only retention pattern as `statusIconTask`.
-    /// Explicit `@MainActor` on the closure avoids implicit actor hops and the
-    /// TOCTOU window between `guard let store` and `await store.start()`.
-    @ObservationIgnored nonisolated(unsafe) private var signOutTask: Task<Void, Never>?
-
-    /// App-lifetime OAuth session coordinator (issue #2474).
-    /// Owns both authentication stream subscriptions and all transition policy.
-    /// `AppState` only constructs, retains, and starts the coordinator.
-    let oauthSession: OAuthSessionCoordinator
+    /// App-lifetime OAuth credential controller (issue #2481).
+    /// Owns exactly one sign-in stream subscription. Sign-out is direct and
+    /// synchronous; runner-poll restart is wired via the `didSignOut` callback.
+    let oauthCredentials: OAuthCredentialController
 
     // MARK: - Init
 
@@ -239,10 +233,16 @@ final class AppState {
             authSource: { [authentication] in authentication.selectedSource },
             logger: GitHubLoggerAdapter()
         )
-        self.oauthSession = OAuthSessionCoordinator(
+        self.oauthCredentials = OAuthCredentialController(
             service: github.oauthService,
             authentication: authentication,
-            log: { log($0) }
+            didSignOut: { [weak self] in
+                guard let store = self?.runnerStore else {
+                    log("AppState › didSignOut — ⚠️ runnerStore nil at sign-out time; skipping start()")
+                    return
+                }
+                await store.start()
+            }
         )
         self.logFetcher = LogFetcher(transport: github.transport)
     }
@@ -264,10 +264,16 @@ final class AppState {
             logger: GitHubLoggerAdapter()
         )
         self.lifecycleService = lifecycleService
-        self.oauthSession = OAuthSessionCoordinator(
+        self.oauthCredentials = OAuthCredentialController(
             service: github.oauthService,
             authentication: authentication,
-            log: { log($0) }
+            didSignOut: { [weak self] in
+                guard let store = self?.runnerStore else {
+                    log("AppState › didSignOut — ⚠️ runnerStore nil at sign-out time; skipping start()")
+                    return
+                }
+                await store.start()
+            }
         )
         self.logFetcher = LogFetcher(transport: github.transport)
     }
@@ -286,11 +292,7 @@ final class AppState {
         // deinit ordering (deinit runs after the last strong reference drops,
         // so no concurrent write can occur at this point).
         statusIconTask?.cancel()
-        signOutTask?.cancel()
-        // oauthSession owns its own task cancellation via its deinit;
-        // do not call oauthSession.stop() here — that method is @MainActor-isolated
-        // and deinit is nonisolated. Weak task captures in the coordinator permit
-        // natural deallocation without any external cleanup call.
+        // oauthCredentials cancels its own signInTask in its deinit.
     }
 
     // MARK: - Startup
@@ -498,18 +500,19 @@ final class AppState {
 
     // MARK: - Domain observation tasks
 
-    /// Starts the two long-lived observation tasks:
+    /// Starts the long-lived observation tasks:
     /// - `statusIconTask`: observes `runnerState.aggregateStatus` and calls back
     ///   to `AppDelegate` to update the menu-bar icon (AppKit concern stays in AppDelegate).
-    /// - `signOutTask`: listens for OAuth sign-out events and restarts the poll loop.
+    /// - `oauthCredentials`: reconciles Keychain state, then begins the single
+    ///   app-lifetime sign-in observation. Runner-poll restart is wired via `didSignOut`.
     ///
     /// `onUpdateStatusIcon` is a callback rather than a direct AppDelegate reference
     /// to avoid AppState holding a strong reference to AppDelegate.
     private func startObservations(onUpdateStatusIcon: @escaping @MainActor () -> Void) {
         // Ordering tripwire: seedStoreAndPoller() MUST have run before this method.
-        // signOutTask reads self.runnerStore (set by seedStoreAndPoller). If called
-        // out of order, the guard-let inside signOutTask silently drops the first
-        // sign-out event — no crash, no log, just a stalled poll loop after sign-out.
+        // oauthCredentials.didSignOut reads self.runnerStore (set by seedStoreAndPoller).
+        // If called out of order, the guard-let inside didSignOut silently drops the
+        // first sign-out — no crash, no log, just a stalled poll loop after sign-out.
         // The assert catches a call-order swap in DEBUG/test runs before it ships.
         assert(runnerStore != nil, "AppState.startObservations: must be called after seedStoreAndPoller() — runnerStore is nil")
 
