@@ -159,6 +159,11 @@ struct SettingsView: View {
     /// Internal by necessity — read by `SettingsView+Sections.swift`. See ACCESS LEVEL NOTE.
     var appBuild: String { Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "—" }
 
+    /// `true` when the app has a usable credential for the currently selected source.
+    /// Used by `LocalRunnersView` to determine whether to show runner controls.
+    /// Delegates to `GitHubAuthentication.isAuthenticated` — the single source of truth.
+    var isEffectivelyAuthenticated: Bool { authentication.isAuthenticated }
+
     // MARK: - Local UI state
     //
     // Access level split — why some are `private` and others are not:
@@ -166,32 +171,24 @@ struct SettingsView: View {
     //               (onAppearAction spawns them, onDisappear cancels them).
     //               No extension file reads or writes these — private is correct.
     //   `internal` — everything else: read or written by SettingsView+Sections.swift
-    //               (e.g. section views read isOAuthAuthenticated, isSigningIn,
-    //               launchAtLogin; navigation sections toggle showLocalRunners/showScopes).
+    //               (launchAtLogin; navigation sections toggle showLocalRunners/showScopes).
     //               Must be internal — see ACCESS LEVEL NOTE at top of file.
 
     /// Mirrors `LoginItem.isEnabled`; toggled by the Launch at Login switch.
     /// Internal by necessity — read/written by `SettingsView+Sections.swift`. See ACCESS LEVEL NOTE.
     @State var launchAtLogin = LoginItem.isEnabled
 
-    /// `true` when a valid OAuth token is stored in the keychain.
-    /// Seeded from `oauthService.isAuthenticated` in `init` to avoid a false flash
-    /// before `.onAppear` fires. Kept in sync by `onAppearAction()`'s streams.
+    /// Explicit authentication state model (Phase 1 of #2459).
+    /// Holds selectedSource, environmentState, and oauthState.
     /// Internal by necessity — read by `SettingsView+Sections.swift`. See ACCESS LEVEL NOTE.
-    @State var isOAuthAuthenticated: Bool
-
-    /// `true` when a CLI token (GH_TOKEN / GITHUB_TOKEN) is present but no OAuth token.
-    /// Seeded from `oauthService` in `init` to avoid a false flash before `.onAppear`.
-    /// Written twice per appear: once synchronously by onAppearAction() as a fast-path
-    /// seed, and once asynchronously by Task 1 as the authoritative resolved value.
-    /// See Task 1 comment in body for the write-ordering details and known rapid-reopen gap.
-    /// Internal by necessity — read by `SettingsView+Sections.swift`. See ACCESS LEVEL NOTE.
-    @State var isCLIAuthenticated: Bool
+    var authentication: GitHubAuthentication { appState.authentication }
 
     /// `true` while the OAuth sign-in flow is in progress.
-    /// Internal by necessity — read by `SettingsView+Sections.swift` (sign-in button state).
-    /// See ACCESS LEVEL NOTE.
-    @State var isSigningIn = false
+    /// Derived from `authentication.oauthState` — no longer a separate `@State` bool.
+    var isSigningIn: Bool {
+        if case .signingIn = authentication.oauthState { return true }
+        return false
+    }
 
     /// Retains the sign-in listener Task so it can be cancelled on disappear.
     /// `private` — only touched inside this file (onAppearAction / onDisappear).
@@ -215,10 +212,9 @@ struct SettingsView: View {
 
     /// Creates the view with injected dependencies.
     ///
-    /// `isOAuthAuthenticated` and `isCLIAuthenticated` are seeded synchronously from
-    /// `oauthService` here rather than defaulting to `false` and correcting in
-    /// `.onAppear`. Both properties are backed by a synchronous Keychain read, so
-    /// the cost is identical and the one-render false-flash is eliminated.
+    /// Authentication state is derived from `appState.authentication` (`GitHubAuthentication`)
+    /// rather than seeded from booleans — eliminating the false-flash and implicit-state
+    /// problems described in #2459.
     ///
     /// `localRunnerStore` is stored as an optional override and resolved lazily in the
     /// `localRunnerStore` computed property at render time. This avoids calling
@@ -244,8 +240,6 @@ struct SettingsView: View {
         self._settings = Bindable(settings)
         self._notifications = Bindable(notifications)
         self.scopeStore = scopeStore
-        _isOAuthAuthenticated = State(initialValue: appState.oauthService.isAuthenticated)
-        _isCLIAuthenticated = State(initialValue: !appState.oauthService.isAuthenticated && appState.oauthService.hasAnyToken)
         log("【SettingsView.init】settings=\(ObjectIdentifier(settings)) betaChannel=\(settings.betaChannel)", category: .general)
         log("【SettingsView.init】notifications=\(ObjectIdentifier(notifications))", category: .general)
     }
@@ -274,52 +268,38 @@ struct SettingsView: View {
             if showLocalRunners {
                 LocalRunnersView(
                     onBack: { showLocalRunners = false },
-                    isAuthenticated: isOAuthAuthenticated || isCLIAuthenticated,
+                    isAuthenticated: isEffectivelyAuthenticated,
                     localRunnerStore: localRunnerStore,
                     lifecycleService: lifecycleService
                 )
             } else if showScopes {
-                ScopesView(onBack: { showScopes = false }, oauthService: oauthService)
+                ScopesView(onBack: { showScopes = false }, authentication: authentication)
             } else {
                 settingsBody
             }
         }
         .onAppear(perform: onAppearAction)
-        // TASK 1 of 2 — CLI token resolution.
-        // Resolves isCLIAuthenticated via the login-shell fallback for Finder-launched
+        // TASK 1 of 2 — Environment token discovery.
+        // Resolves environmentState via the login-shell fallback for Finder-launched
         // apps where env vars are absent from the process environment.
         //
         // THIS TASK IS INTENTIONALLY INDEPENDENT of task 2 below.
         // SwiftUI runs multiple .task modifiers concurrently with no ordering guarantee.
         // Task 2 (update check) reads runnerState from appState by value at call time
-        // and has NO dependency on isCLIAuthenticated or the result of this task.
+        // and has NO dependency on environmentState or the result of this task.
         // ❌ Do NOT merge these two tasks to "add ordering" unless checkAndHandle is
         //    changed to require auth state — if that ever changes, sequence them
         //    explicitly inside a single .task instead of relying on chaining order.
-        //
-        // isCLIAuthenticated write ordering (pre-existing, not introduced here):
-        // onAppearAction() writes isCLIAuthenticated synchronously from
-        // oauthService.hasAnyToken as a fast-path best-effort seed — it is cheap
-        // and keeps the UI correct for the common case without waiting for the network.
-        // This task then overwrites it once github.token() resolves asynchronously
-        // as the authoritative value (covers Finder-launch env var absence).
-        //
-        // Known gap — rapid open→open cycle:
-        // On a rapid open→open (panel re-shown without onDisappear), onAppearAction()
-        // re-runs and resets isCLIAuthenticated to the sync seed value. However,
-        // SwiftUI does NOT re-fire .task unless view identity changes or the view
-        // fully disappears/reappears — so the async authoritative overwrite does
-        // not run again. isCLIAuthenticated stays at the sync seed on that cycle.
-        // This is pre-existing behaviour; not introduced by this PR. In practice
-        // the sync seed (oauthService.hasAnyToken) is correct for most users and
-        // the gap only affects Finder-launched apps with shell-only env var tokens.
         .task {
-            // Guard: skip if the user is already signed in via OAuth — in that
-            // case neither status text nor the green dot reference `isCLIAuthenticated`.
-            guard !isOAuthAuthenticated else { return }
-            let token = await appState.github.token()
-            isCLIAuthenticated = token != nil
-            log("【SettingsView.task1】github.token() resolved — isCLIAuthenticated=\(isCLIAuthenticated)", category: .general)
+            // Seed .checking immediately, then resolve via env-only path.
+            // This task must ALWAYS complete to .available or .unavailable so the
+            // env card never stays frozen on .checking (fix for finding 3 / #2464).
+            // We use appState.envTokenProvider.token() here — NOT appState.github.token()
+            // — so OAuth Keychain credentials do not leak into env-token discovery.
+            appState.authentication.setEnvironmentState(.checking)
+            let state = await appState.github.discoverEnvironmentState()
+            appState.authentication.setEnvironmentState(state)
+            log("【SettingsView.task1】env token resolved — environmentState=\(appState.authentication.environmentState)", category: .general)
         }
         // TASK 2 of 2 — Update check (FIX #2223 / #2216).
         // Fires on every entry path — including cold-open → Settings, where
@@ -329,7 +309,7 @@ struct SettingsView: View {
         // INTENTIONALLY CONCURRENT with task 1 above — no ordering dependency.
         // checkAndHandle(state:) receives runnerState by value (computed property
         // returning appState.runnerState at call time). It does NOT read
-        // isCLIAuthenticated and does NOT depend on task 1 completing first.
+        // environmentState and does NOT depend on task 1 completing first.
         // If that ever changes, sequence both calls inside a single .task.
         //
         // NSPanel teardown assumption (tracked in issue #2231):
@@ -360,10 +340,12 @@ struct SettingsView: View {
             signInTask = nil
             signOutTask?.cancel()
             signOutTask = nil
-            // Reset isSigningIn so a close-during-flow doesn't leave a stale spinner
-            // on the next open. The stream task is already cancelled above, so the
-            // for-await loop will not reset it — we must do it explicitly here.
-            isSigningIn = false
+            // If a sign-in was in progress when the panel closed, reset to signedOut
+            // so the next open doesn't show a stale spinner. The stream task is
+            // already cancelled above so the for-await loop will not reset it.
+            if case .signingIn = appState.authentication.oauthState {
+                appState.authentication.setOAuthState(.signedOut)
+            }
         }
     }
 
@@ -441,14 +423,16 @@ struct SettingsView: View {
     /// (fix #2223). All tasks are cancelled before reassignment so a rapid open→open
     /// cycle cannot leak prior stream listeners.
     ///
-    /// isCLIAuthenticated is written synchronously here as a fast-path seed.
-    /// Task 1 in body overwrites it asynchronously with the authoritative value
-    /// once github.token() resolves. On a rapid open→open cycle, Task 1 does not
-    /// re-fire — see the Task 1 comment in body for the known gap and rationale.
+    /// Authentication state is now driven by `appState.authentication` (GitHubAuthentication).
+    /// The sign-in / sign-out streams update oauthState on the shared model.
     private func onAppearAction() { // skipcq: SW-R1002 — reviewed; complexity acceptable for this onAppear setup
-        isOAuthAuthenticated = oauthService.isAuthenticated
-        isCLIAuthenticated = !oauthService.isAuthenticated && oauthService.hasAnyToken
-        log("【SettingsView.onAppear】auth=\(oauthService.isAuthenticated) hasToken=\(oauthService.hasAnyToken)", category: .general)
+        // Passively re-sync OAuth state from the live Keychain on re-appear.
+        // Uses syncOAuthState() so the persisted selectedSource is never overwritten
+        // just by opening Settings (fix for finding 4 / #2464). recordOAuthSignIn()
+        // is the only path that writes .oauth to selectedSource.
+        let auth = appState.authentication
+        auth.syncOAuthState(isAuthenticated: oauthService.isAuthenticated)
+        log("【SettingsView.onAppear】oauthState=\(auth.oauthState)", category: .general)
         log("【SettingsView.onAppear】settings=\(ObjectIdentifier(settings)) betaChannel=\(settings.betaChannel)", category: .general)
 
         // Cancel before reassigning — guards against the rapid open→open case
@@ -458,20 +442,27 @@ struct SettingsView: View {
         signInTask = Task { @MainActor in
             for await success in oauthService.makeSignInStream() {
                 log("【SettingsView.signInStream】success=\(success) — updating auth state", category: .general)
-                isOAuthAuthenticated = success
-                isCLIAuthenticated = !success && oauthService.hasAnyToken
-                log("【SettingsView.signInStream】OAuth=\(isOAuthAuthenticated) CLI=\(isCLIAuthenticated)", category: .general)
-                isSigningIn = false
+                if success {
+                    auth.recordOAuthSignIn(username: nil)
+                } else {
+                    auth.setOAuthState(.failed(previous: .signedOut, message: "Sign-in was cancelled or failed."))
+                }
+                log("【SettingsView.signInStream】oauthState=\(auth.oauthState)", category: .general)
             }
         }
 
         signOutTask?.cancel()
         signOutTask = Task { @MainActor in
             for await _ in oauthService.makeSignOutStream() {
-                log("【SettingsView.signOutStream】didSignOut — hasAnyToken=\(oauthService.hasAnyToken)", category: .general)
-                isOAuthAuthenticated = false
-                isCLIAuthenticated = oauthService.hasAnyToken
-                log("【SettingsView.signOutStream】OAuth=\(isOAuthAuthenticated) CLI=\(isCLIAuthenticated)", category: .general)
+                log("【SettingsView.signOutStream】didSignOut", category: .general)
+                // OAuth sign-out always returns to `.unauthenticated`.
+                //
+                // Environment cannot be active here: the UI disables OAuth interactions while
+                // Environment mode is selected. There is therefore no inactive OAuth credential
+                // whose sign-out must preserve an active Environment selection.
+                auth.setOAuthState(.signedOut)
+                auth.setSelectedSource(.unauthenticated)
+                log("【SettingsView.signOutStream】oauthState=\(auth.oauthState) source=\(auth.selectedSource)", category: .general)
             }
         }
     }
@@ -513,19 +504,22 @@ struct SettingsView: View {
     /// Opening the browser is the app layer's responsibility — `OAuthService` (Core)
     /// has no AppKit dependency and cannot call `NSWorkspace` directly.
     func signInWithGitHub() {
-        log("【SettingsView.signInWithGitHub】isSigningIn=true", category: .general)
-        isSigningIn = true
+        log("【SettingsView.signInWithGitHub】setting oauthState=.signingIn", category: .general)
+        appState.authentication.setOAuthState(.signingIn)
         if let url = oauthService.makeSignInURL() {
             NSWorkspace.shared.open(url)
         } else {
             log("【SettingsView.signInWithGitHub】makeSignInURL returned nil — aborting", category: .general)
-            isSigningIn = false
+            appState.authentication.setOAuthState(.failed(previous: .signedOut, message: "Could not build sign-in URL."))
         }
     }
 
     /// Signs out of GitHub via the injected `oauthService`.
     func signOutOfGitHub() {
-        log("【SettingsView.signOutOfGitHub】calling oauthService.signOut()", category: .general)
+        log("【SettingsView.signOutOfGitHub】setting oauthState=.signingOut", category: .general)
+        let username: String?
+        if case .signedIn(let currentUsername) = appState.authentication.oauthState { username = currentUsername } else { username = nil }
+        appState.authentication.setOAuthState(.signingOut(username: username))
         oauthService.signOut()
     }
 }

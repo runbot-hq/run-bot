@@ -89,6 +89,13 @@ public final class GitHubClient {
     /// Use `cachedToken` for read-only UI status checks.
     private let _tokenCache: TokenCache
 
+    /// The env-token provider, stored separately so `discoverEnvironmentState()`
+    /// can run an env-only resolution without going through the full token-cache
+    /// chain (which also checks the Keychain and would return OAuth tokens).
+    ///
+    /// Typed to the protocol so no `EnvTokenKit` type leaks into the public API.
+    private let _envProvider: any EnvTokenProviding
+
     /// The token that the in-memory cache has already resolved, or `nil` if no
     /// `token()` call has completed yet during this process lifetime.
     ///
@@ -102,14 +109,62 @@ public final class GitHubClient {
     /// (e.g. from a `.task` modifier that awaits `token()` on appear).
     public var cachedToken: String? { _tokenCache.cachedToken }
 
-    /// Resolves and returns the current token, running the full resolution chain
-    /// if needed (Keychain → environment → login-shell fallback).
+    /// Resolves strictly from the selected authentication mode.
     ///
-    /// This is the same path used by every authenticated API call. Call it from
-    /// a `.task` modifier or other async context to warm the cache and then read
-    /// `cachedToken` synchronously for UI status checks.
+    /// - `.oauth`: Keychain-only via `oauthToken()`
+    /// - `.environment`: env/login-shell-only via `_envProvider`
+    /// - `.unauthenticated`: `nil`
+    ///
+    /// There is intentionally no fallback between sources. Do not replace the
+    /// OAuth branch with `TokenCache.token()`: that API uses the legacy combined
+    /// Keychain → environment chain and would violate the selected mode.
     public func token() async -> String? {
-        await _tokenCache.token()
+        await _tokenProvider()
+    }
+
+    /// Shared token resolution closure that routes through the selected
+    /// authentication source.
+    ///
+    /// Used by both `token()` and the transport's `tokenProvider` so the two
+    /// paths can never diverge — there is a single source of truth for how
+    /// each authentication mode maps to a credential.
+    ///
+    /// WHY STORED AS A CLOSURE (not a method):
+    /// `GitHubTransport.tokenProvider` requires a
+    /// `@Sendable () async -> String?`. Storing the resolver separately allows
+    /// `GitHubClient.token()` and the transport to share exactly the same routing
+    /// logic without capturing a partially initialized `GitHubClient`.
+    ///
+    /// Reading `authSource` still performs the required MainActor hop.
+    private let _tokenProvider: @Sendable () async -> String?
+
+    /// Probes `GH_TOKEN` / `GITHUB_TOKEN` via the env-only resolution path and
+    /// returns the corresponding `EnvironmentTokenState`.
+    ///
+    /// Unlike `token()`, this method does **not** check the Keychain. It resolves
+    /// only via the `EnvTokenProvider` (process env → login-shell fallback), so
+    /// the result reflects purely whether an environment variable token is present,
+    /// regardless of OAuth sign-in state.
+    ///
+    /// Use this from `AppState.start()` and `SettingsView.task` to seed
+    /// `GitHubAuthentication.environmentState` without OAuth state leaking in.
+    ///
+    /// ## Caching
+    /// The underlying `EnvTokenProvider` caches shell results — repeated calls are
+    /// cheap once the shell path has resolved. See `EnvTokenProviding.token()` for
+    /// the full caching contract.
+    ///
+    /// ## Variable detection
+    /// Returns `.available(variable: .ghToken)` as a conservative label.
+    /// Distinguishing `GH_TOKEN` vs `GITHUB_TOKEN` requires a separate env-var
+    /// probe and is deferred to a Phase 2 enhancement (see #2459 §4.7).
+    public func discoverEnvironmentState() async -> EnvironmentTokenState {
+        let envToken = await _envProvider.token()
+        if envToken != nil {
+            return .available(variable: .ghToken)
+        } else {
+            return .unavailable
+        }
     }
 
     // MARK: - Production init
@@ -134,6 +189,11 @@ public final class GitHubClient {
     ///     Defaults to `OAuthService.defaultRedirectURI` (`runbot://oauth/callback`).
     ///     Override for staging environments, white-label builds, or a second OAuth app.
     ///     Existing call sites are unaffected — omitting this parameter preserves current behaviour.
+    ///   - authSource: Closure that returns the currently selected authentication
+    ///     source. Evaluated on every `token()` call. Pass
+    ///     `{ appState.authentication.selectedSource }` at the construction site.
+    ///     Defaults to `{ .unauthenticated }` — callers that do not need
+    ///     source-switching can omit this parameter.
     ///   - logger: Optional logger for diagnostic messages.
     @MainActor
     public init(
@@ -143,6 +203,7 @@ public final class GitHubClient {
         account: String,
         scopes: [String] = GitHubScopes.default,
         redirectURI: String = OAuthService.defaultRedirectURI,
+        authSource: @escaping @Sendable @MainActor () -> GitHubAuthSource = { .unauthenticated },
         logger: (any GitHubLogger)? = nil
     ) {
         // Bridge GitHubLogger → log closure for kit injection.
@@ -181,6 +242,7 @@ public final class GitHubClient {
         // passed into TokenCache, which only ever knows the protocol — see TokenCache Boundary
         // Rule in #74. EnvTokenProvider is the only EnvTokenKit concrete type named in this file.
         let envProvider = EnvTokenProvider(log: log)
+        self._envProvider = envProvider
         let cache = TokenCache(tokenStore: store, envProvider: envProvider, logger: logger)
         let oauth = OAuthService(
             clientID: clientID,
@@ -200,6 +262,21 @@ public final class GitHubClient {
             onTokenSaved: { cache.invalidate() },
             onTokenDeleted: { cache.invalidate() }
         )
+        let tokenProvider: @Sendable () async -> String? = { [cache, envProvider, authSource] in
+            let source = await authSource()
+            switch source {
+            case .oauth:
+                return cache.oauthToken()
+            case .environment:
+                // Env-only path: bypass the Keychain step in TokenCache so an OAuth
+                // credential that happens to be present cannot silently satisfy the
+                // request when the user has explicitly chosen environment auth.
+                return await envProvider.token()
+            case .unauthenticated:
+                return nil
+            }
+        }
+        self._tokenProvider = tokenProvider
         // Dedicated URLSession with no disk cache for the GitHub API transport.
         // URLSession.shared uses a disk-backed URLCache by default. GitHub's /logs
         // endpoints 302-redirect to short-lived S3 pre-signed URLs; without urlCache = nil,
@@ -217,7 +294,7 @@ public final class GitHubClient {
         }()
         let transport = GitHubTransport(
             session: apiSession,
-            tokenProvider: { await cache.token() },
+            tokenProvider: tokenProvider,
             logger: logger
         )
         // NOT a dead assignment — read by free-function shims in GitHubTransportShims.swift.
@@ -265,10 +342,29 @@ public final class GitHubClient {
     public init(
         oauthService: any OAuthServiceProtocol,
         transport: any GitHubTransportProtocol,
-        tokenCache: TokenCache? = nil
+        tokenCache: TokenCache? = nil,
+        authSource: @escaping @Sendable @MainActor () -> GitHubAuthSource = { .unauthenticated }
     ) {
         self.oauthService = oauthService
         self.transport = transport
         self._tokenCache = tokenCache ?? TokenCache(tokenStore: NullTokenStore())
+        // Test init always uses NullEnvTokenProvider — discoverEnvironmentState()
+        // returns .unavailable. Tests that need a custom env-discovery result
+        // should stub at the GitHubAuthentication level, not at the provider level.
+        self._envProvider = NullEnvTokenProvider()
+        let capturedAuthSource = authSource
+        let capturedCache = self._tokenCache
+        let capturedEnvProvider = self._envProvider
+        self._tokenProvider = { [capturedAuthSource, capturedCache, capturedEnvProvider] in
+            let source = await capturedAuthSource()
+            switch source {
+            case .oauth:
+                return capturedCache.oauthToken()
+            case .environment:
+                return await capturedEnvProvider.token()
+            case .unauthenticated:
+                return nil
+            }
+        }
     }
 }

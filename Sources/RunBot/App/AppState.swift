@@ -12,8 +12,7 @@ import RunBotCore
 // MARK: - AppState
 //
 // Single coordinator for all domain-level state that was previously scattered
-// across AppDelegate's property bag. AppDelegate is reduced to lifecycle
-// wiring after this consolidation (issue #2040).
+// across AppDelegate's property bag (issue #2040).
 //
 // OWNERSHIP RULES:
 // ✅ AppState owns: domain services, poll actors, observable read models,
@@ -31,26 +30,20 @@ import RunBotCore
 // WHY NOT AppStateProtocol?
 // SettingsView previously accepted protocol-typed service parameters so tests
 // could inject stubs. With AppState as the single injection point, tests must
-// construct a full AppState. This is an accepted trade-off: AppState's concrete
-// types (GitHubClient, AppUpdater, RunnerLifecycleService) have no side effects
-// at init time — side effects begin only when start() is called. Unit tests that
-// don't call start() get a zero-cost AppState. A protocol extraction can be
-// revisited if the test surface grows (tracked as migration debt in wrapEnv).
+// construct a full AppState — an accepted trade-off since AppState's concrete
+// types have no side effects at init time (tracked as migration debt in wrapEnv).
 //
 // THREADING:
-// @MainActor-isolated. All domain sub-objects that write observable state
-// must hop to MainActor before writing (RunnerPoller does this via
-// `await MainActor.run { }` at the end of every fetch cycle).
+// @MainActor-isolated. Domain sub-objects that write observable state hop
+// to MainActor via `await MainActor.run { }` at the end of every fetch cycle.
 //
 // STARTUP:
-// AppDelegate.applicationDidFinishLaunching calls
-// `await appState.start(onUpdateStatusIcon:)` after hydrating display names.
-// AppState.start() runs the ordered async startup sequence:
-//   seedStoreAndPoller → startObservations (BEFORE any await — prevents sign-out
-//   event drop) → refreshAsync → store.start
+// AppDelegate calls `await appState.start(onUpdateStatusIcon:)` after
+// hydrating display names. AppState.start() runs the ordered async startup:
+//   seedStoreAndPoller → startObservations → refreshAsync → store.start
 //   → checkAndHandle → scheduleBackgroundCheck
 // LocalRunnerStore.configure() is called by AppDelegate BEFORE the startup
-// Task, not inside start() — see issue #1741 for why ordering matters.
+// Task, not inside start() (issue #1741).
 //
 // Ref: issue #2040, branch feat/app-state-consolidation
 
@@ -72,13 +65,11 @@ final class AppState {
     /// name used by the pre-GitHubClient `Keychain` type. Do NOT change this
     /// value post-ship — doing so orphans any token already stored under the
     /// old coordinates and forces every signed-in user to re-authenticate.
-    let github = GitHubClient(
-        clientID: OAuthSecrets.clientID,
-        clientSecret: OAuthSecrets.clientSecret,
-        service: "run-bot",
-        account: "github-oauth-token",
-        logger: GitHubLoggerAdapter()
-    )
+    ///
+    /// Declared without a default so the inits below can capture `authentication`
+    /// in the `authSource` closure. `authentication` is a `let` on `AppState` and
+    /// is initialised before `github` in both inits, so the capture is safe.
+    let github: GitHubClient
 
     /// Forwarded from `github.oauthService` for backward-compatible access
     /// across extensions and injected views.
@@ -209,6 +200,24 @@ final class AppState {
         betaChannelProvider: { AppPreferencesStore.shared.betaChannel }
     )
 
+    // MARK: - Authentication state
+
+    /// Observable authentication state model (#2459).
+    ///
+    /// Single source of truth for:
+    ///   • `selectedSource` — which credential the app uses for API requests.
+    ///   • `environmentState` — env token availability (GH_TOKEN / GITHUB_TOKEN).
+    ///   • `oauthState`  — OAuth flow lifecycle (signedOut → signingIn → signedIn).
+    ///
+    /// `selectedSource` is persisted to `UserDefaults` and survives relaunches.
+    /// Settings UI reads and mutates this model; `SettingsView.onAppearAction()`
+    /// seeds `oauthState` from `oauthService` on every re-open, and Task 1 seeds
+    /// `environmentState` via `github.token()` (login-shell fallback).
+    ///
+    /// `@ObservationIgnored` is NOT used here — SwiftUI views read from this
+    /// instance and must receive change notifications when the model mutates.
+    let authentication = GitHubAuthentication()
+
     // MARK: - Navigation state
 
     /// The last nav destination the user was on before the popover was closed
@@ -217,14 +226,12 @@ final class AppState {
 
     /// Shared `LogFetcher` instance owned above the `.id(navState)` boundary
     /// in `RootPanelView`. Owning it here means the ZIP cache (`zipCache`)
-    /// survives across step-tap navigation: every step tap tears down and
-    /// recreates `StepLogView` (SwiftUI discards `@State` on `.id()` change),
-    /// but `AppState` is not remounted, so the cache persists for the lifetime
-    /// of the panel session. After the first step tap in a run, all subsequent
-    /// steps in that run cost a slice of the already-cached ZIP — no repeat
-    /// network call or unzip. Uses the `currentTransport` `@TaskLocal` default
-    /// — no explicit wiring to `github.transport` required.
-    var logFetcher = LogFetcher()
+    /// survives across step-tap navigation: every step tap recreates
+    /// `StepLogView`, but `AppState` is not remounted, so the cache persists
+    /// for the lifetime of the panel session.
+    ///
+    /// ⚠️ Must be constructed after `github` so the transport is already wired.
+    var logFetcher: LogFetcher
 
     // MARK: - Retained task handles
     //
@@ -274,7 +281,17 @@ final class AppState {
 
     /// Creates a new `AppState` with the default production `RunnerLifecycleService`.
     /// Call `start(onUpdateStatusIcon:)` after init to begin the startup sequence.
-    init() {}
+    init() {
+        self.github = GitHubClient(
+            clientID: OAuthSecrets.clientID,
+            clientSecret: OAuthSecrets.clientSecret,
+            service: "run-bot",
+            account: "github-oauth-token",
+            authSource: { [authentication] in authentication.selectedSource },
+            logger: GitHubLoggerAdapter()
+        )
+        self.logFetcher = LogFetcher(transport: github.transport)
+    }
 
     /// Test-only initialiser. Injects a stub `RunnerLifecycleServiceProtocol`
     /// so unit tests can exercise `AppState` without spawning real `svc.sh`
@@ -284,7 +301,16 @@ final class AppState {
     /// - Parameter lifecycleService: A stub conforming to
     ///   `RunnerLifecycleServiceProtocol`. Pass a test double or a no-op mock.
     init(lifecycleService: any RunnerLifecycleServiceProtocol) {
+        self.github = GitHubClient(
+            clientID: OAuthSecrets.clientID,
+            clientSecret: OAuthSecrets.clientSecret,
+            service: "run-bot",
+            account: "github-oauth-token",
+            authSource: { [authentication] in authentication.selectedSource },
+            logger: GitHubLoggerAdapter()
+        )
         self.lifecycleService = lifecycleService
+        self.logFetcher = LogFetcher(transport: github.transport)
     }
 
     deinit {
@@ -379,6 +405,17 @@ final class AppState {
         }
         log("AppState › start — begin (LocalRunnerStore.configure already called by AppDelegate)")
 
+        // Step 0: seed GitHubAuthentication from live credential stores on cold launch.
+        // OAuth sync is synchronous so there is no `.signedOut` flash before the poll
+        // loop starts (Step 4). Env discovery runs in a detached Task (login-shell
+        // probe can take ~50–200ms). syncOAuthState — NOT recordOAuthSignIn — so the
+        // persisted `selectedSource` is never overwritten here (fix for #2464).
+        authentication.syncOAuthState(isAuthenticated: oauthService.isAuthenticated)
+        Task { @MainActor [authentication, github] in
+            authentication.setEnvironmentState(await github.discoverEnvironmentState())
+        }
+        log("AppState › start — auth seeded (oauth=\(authentication.oauthState), source=\(authentication.selectedSource))")
+
         seedStoreAndPoller()  // Step 1: kept in a helper to stay within function_body_length.
 
         // Step 2: wire domain observation tasks BEFORE any await.
@@ -387,8 +424,8 @@ final class AppState {
         // checkAndHandle — which can take tens of seconds on a slow connection), any
         // sign-out event during startup would be dropped — the stream is not buffered,
         // so missed events are gone. The poll loop would continue issuing requests with
-        // a cleared Keychain token, returning 401 on every cycle, with no env-token
-        // fallback until a full app restart.
+        // a cleared Keychain token, returning 401 on every cycle, with no poll-loop
+        // restart until a full app restart.
         // MUST follow seedStoreAndPoller() (Step 1): signOutTask reads self.runnerStore,
         // which is set by seedStoreAndPoller(). The sign-out loop handles a nil
         // runnerStore gracefully via `continue`, so this ordering is safe — wiring
@@ -539,15 +576,15 @@ final class AppState {
         // implicit actor hops on each property access inside the loop and eliminates
         // any TOCTOU window between `guard let store` and `await store.start()`.
         //
+        // OAuth sign-out transitions to `.unauthenticated`; Environment mode must be
+        // enabled explicitly — it does not activate automatically after sign-out.
         // Why store.start() is called after sign-out (PR #1138 regression history):
-        // Before #1138, polling was driven by a Timer. After sign-out the timer fired,
-        // fetch() ran, githubToken() found the keychain cleared, and naturally fell
-        // through to the env-token fallback (GH_TOKEN / GITHUB_TOKEN).
-        // #1138 replaced the timer with a Task that loops on Task.sleep — it never
-        // calls start() again on its own, so the env-token fallback only works if
-        // start() is explicitly invoked after sign-out. That is what this loop does.
-        // ❌ Do NOT remove the store.start() call — without it, signed-out users with
-        //    a GH_TOKEN env var get a permanently stalled poll loop.
+        // Before #1138, polling was driven by a Timer that continued to fire after
+        // sign-out. #1138 replaced the timer with a Task that loops on Task.sleep —
+        // it never calls start() again on its own. Without an explicit start() here
+        // the poll loop stalls permanently after sign-out.
+        // ❌ Do NOT remove the store.start() call — without it, the poll loop stalls
+        //    after sign-out regardless of which authentication mode is later selected.
         //
         // Why this lives in AppState and not SettingsView:
         // SettingsView.signOutTask is stored in @State and is only alive while
@@ -560,7 +597,7 @@ final class AppState {
             // spinning on a stream that can never do useful work.
             guard let self else { return }
             for await _ in self.oauthService.makeSignOutStream() {
-                log("AppState › didSignOut — restarting poll loop for env-token fallback")
+                log("AppState › didSignOut — restarting poll loop after sign-out")
                 // `continue` (not `return`) for nil-store: a missing runnerStore is a
                 // transient / unexpected state, but AppState itself is still alive.
                 // Continuing lets the loop handle future sign-out events rather than

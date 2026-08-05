@@ -197,6 +197,25 @@ public final class TokenCache: Sendable {
     ///   complexity for a window that is rare in practice and only occurs during a
     ///   cold Finder/Dock launch where the shell path fires. The thundering-herd
     ///   window is bounded by the shell startup time, not unbounded.
+    /// Loads only the OAuth token from `TokenStore`.
+    ///
+    /// This intentionally bypasses the shared in-memory cache because that cache
+    /// may contain a token resolved from the environment path. Reusing it here
+    /// could return an environment credential while OAuth mode is selected.
+    ///
+    /// - Returns: The stored token, or `nil` if the store is empty or absent.
+    public func oauthToken() -> String? {
+        tokenStore.load()
+    }
+
+    /// Resolves the token using the full resolution chain:
+    ///
+    ///   1. In-memory cache       (sync, free)
+    ///   2. TokenStore             (sync, Keychain)
+    ///   3. envProvider.token()    (async, env var / login-shell)
+    ///
+    /// Results from steps 2–4 are written to the in-memory cache so subsequent
+    /// calls return from step 1.
     public func token() async -> String? {
         if let cached = resolveFromCache() { return cached }  // Fast path — no I/O, no subprocess
         if let stored = resolveFromStore() { return stored }
