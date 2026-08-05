@@ -45,8 +45,8 @@ private struct RunnerMetricsBadge: View {
             metricItem(label: "CPU", value: cpu.map { String(format: "%.0f%%", $0) } ?? "—")
             metricItem(label: "MEM", value: mem.map { String(format: "%.0f%%", $0) } ?? "—")
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
+        .padding(.horizontal, 6)
+        .padding(.vertical, 2)
         .statPillBackground()
     }
 
