@@ -31,8 +31,11 @@ public final class OAuthSessionCoordinator {
 
     // MARK: - Dependencies
 
+    /// The OAuth service that manages browser sign-in, token exchange, and sign-out.
     private let service: any OAuthServiceProtocol
+    /// The observable authentication state model updated by this coordinator.
     private let authentication: GitHubAuthentication
+    /// Logger for coordinator lifecycle and policy decisions.
     private let log: @MainActor (String) -> Void
 
     // MARK: - Task handles
@@ -42,7 +45,9 @@ public final class OAuthSessionCoordinator {
     // and `stop()`. The read in `deinit` happens after the last strong reference
     // drops, so no concurrent write is possible at that point.
 
+    /// Task handle for the sign-in stream subscription. Cancelled in `deinit`.
     nonisolated(unsafe) private var signInTask: Task<Void, Never>?
+    /// Task handle for the sign-out stream subscription. Cancelled in `deinit`.
     nonisolated(unsafe) private var signOutTask: Task<Void, Never>?
 
     // MARK: - Rollback state
@@ -51,6 +56,13 @@ public final class OAuthSessionCoordinator {
     private var signInPreviousState: OAuthState.StableState = .signedOut
 
     // MARK: - Init
+
+    /// Creates a new coordinator.
+    ///
+    /// - Parameters:
+    ///   - service: The OAuth service providing sign-in/sign-out streams.
+    ///   - authentication: The observable authentication state to update.
+    ///   - log: Closure for lifecycle logging (defaults to no-op).
 
     public init(
         service: any OAuthServiceProtocol,
@@ -209,6 +221,12 @@ public final class OAuthSessionCoordinator {
 
     // MARK: - Policy handlers
 
+    /// Handles a sign-in event from the OAuth service stream.
+    ///
+    /// - Parameter success: `true` when the token was persisted; `false` on cancellation or failure.
+    ///   - On `true`: records the OAuth sign-in unconditionally (authoritative success).
+    ///   - On `false` while `.signingIn`: transitions to `.failed` with rollback.
+    ///   - On `false` while stable: ignores the stray event.
     private func handleSignInEvent(_ success: Bool) {
         if success {
             // `true` means OAuthService validated the callback and persisted the
@@ -225,18 +243,29 @@ public final class OAuthSessionCoordinator {
         log("OAuthSessionCoordinator › signInStream — success=\(success) → \(authentication.oauthState)")
     }
 
+    /// Handles a sign-out event from the OAuth service stream.
+    ///
+    /// Re-syncs the OAuth state from Keychain truth (the token is deleted synchronously
+    /// before the stream yields).
     private func handleSignOutEvent() {
         // OAuthService deletes the token synchronously before yielding.
         authentication.syncOAuthState(isAuthenticated: service.isAuthenticated)
         log("OAuthSessionCoordinator › signOutStream — → \(authentication.oauthState)")
     }
 
+    /// Transitions to `.failed` with the captured `signInPreviousState` as rollback target.
+    /// - Parameter message: Human-readable failure reason for the `.failed` payload.
     private func failSignIn(_ message: String) {
         authentication.setOAuthState(
             .failed(previous: signInPreviousState, message: message)
         )
     }
 
+    /// The stable state recorded before the current (or most recent) transition began.
+    ///
+    /// Used by `failSignIn` and `currentUsername` to determine the correct rollback
+    /// target. Reads from `signInPreviousState` when the current state is transient,
+    /// otherwise extracts it from the current state.
     private var stableStateBeforeTransition: OAuthState.StableState {
         switch authentication.oauthState {
         case let .signedIn(username):
@@ -251,6 +280,10 @@ public final class OAuthSessionCoordinator {
         }
     }
 
+    /// The username from the stable state before the current transition, if any.
+    ///
+    /// Extracted from `stableStateBeforeTransition` for use in `OAuthSignInStartResult.started(URL)`
+    /// and failure messages during re-auth flows.
     private var currentUsername: String? {
         switch stableStateBeforeTransition {
         case let .signedIn(username): username
