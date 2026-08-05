@@ -42,14 +42,10 @@ extension RunnerPoller {
     /// cycle with a truly fresh snapshot. This mirrors the `startObservingScopes()`
     /// → `start()` path that already fires on scope changes.
     ///
-    /// **Function body length:** 70 non-comment lines (below the 90-line `swiftlint`
-    /// warning threshold and 150-line error threshold). The notification-dispatch
-    /// block (~20 code lines inside `if !newlyCompleted.isEmpty`) is intentionally
-    /// kept inline here rather than extracted to a helper, because extracting it
-    /// would require threading `prevLive`, `jobResult`, and `prefs` through an
-    /// additional async actor hop boundary — the inline code is simpler and
-    /// stays under the limit. Any future addition that risks exceeding 90 lines
-    /// should extract the notification block into a private helper method.
+    /// Also detects groups that transitioned from active to completed this cycle and
+    /// enqueues one ZIP prefetch per `run.id` via `enqueueCompletionZIPs(groupResult:)`
+    /// (#2488). Detection runs before `setDisplayState` so the previous `self.actions`
+    /// value is still available for diffing.
     ///
     /// - Returns: `true` if one or more runners transitioned from idle to busy this
     ///   cycle; `false` otherwise. The caller is responsible for acting on this signal.
@@ -77,6 +73,10 @@ extension RunnerPoller {
         prevLiveJobs = jobResult.newPrevLive
         actionGroupCache = groupResult.newGroupCache
         prevLiveGroups = groupResult.newPrevLiveGroups
+        // Detect active → completed transitions and enqueue one ZIP per run (#2488).
+        // Must run before setDisplayState overwrites self.actions with the new state.
+        await enqueueCompletionZIPs(groupResult: groupResult)
+
         // setDisplayState writes the actor-local copies (self.runners / .jobs / .actions)
         // consumed by nextPollInterval() and other internal actor logic.
         setDisplayState(
@@ -281,6 +281,30 @@ extension RunnerPoller {
             }
             state.isRateLimited = rateLimitSnapshot.isLimited
             state.rateLimitResetDate = rateLimitSnapshot.resetDate
+        }
+    }
+
+    // MARK: - ZIP completion helper
+
+    /// Detects groups that transitioned from active to completed this cycle and
+    /// enqueues one ZIP prefetch per `run.id` (#2488).
+    ///
+    /// Must be called before `setDisplayState` replaces `self.actions`.
+    private func enqueueCompletionZIPs(groupResult: GroupPollResult) async {
+        let previouslyActiveRunIDs = Set(
+            actions
+                .filter { $0.groupStatus != .completed }
+                .flatMap { $0.runs }
+                .map { $0.id }
+        )
+        let newlyCompleted = groupResult.display.filter { group in
+            guard group.groupStatus == .completed else { return false }
+            return group.runs.contains { previouslyActiveRunIDs.contains($0.id) }
+        }
+        for group in newlyCompleted {
+            for run in group.runs {
+                await zipPrefetchQueue.enqueue(runID: run.id, scope: group.repo, isCompleted: true)
+            }
         }
     }
 }

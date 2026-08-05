@@ -1,35 +1,40 @@
 // CompletedGroupZIPPrefetchTests.swift
 // RunBotCoreTests
+//
+// Runner-level ZIP completion-transition tests for #2488.
+// Replaces the former PollResultBuilder.buildGroupState(enqueueZIP:) tests
+// with focused RunnerPoller.applyFetchResult transition tests.
 
 import os
 import XCTest
 import GitHubClient
 @testable import RunBotCore
 
-// MARK: - TestFakeTransport
+// MARK: - Test stubs
 
-/// Counts calls and returns configurable data or nil (simulate 404).
-/// Uses a distinct name to avoid redeclaration conflict with
-/// `FakeTransport` in `ZIPPrefetchQueueTests`.
-///
-/// Thread safety follows the project's established `OSAllocatedUnfairLock`
-/// pattern (see `WorkflowActionGroupFetcherTests.StubTransport`).
+/// Minimal AppPreferencesStoreProtocol stub (protocol has no requirements).
+@Observable
+@MainActor
+private final class StubPreferencesStore: AppPreferencesStoreProtocol, @unchecked Sendable {}
+
+/// Minimal ScopeStoreProtocol stub — returns empty collections.
+private final class StubScopeStore: ScopeStoreProtocol, @unchecked Sendable {
+    var activeScopes: [String] { [] }
+    var entries: [ScopeEntry] { [] }
+}
+
+/// Counts `raw` calls; returns `responseData`.
+/// Thread-safe via OSAllocatedUnfairLock (project convention).
 private final class TestFakeTransport: GitHubTransportProtocol, @unchecked Sendable {
-    /// Thread-safe call counter — incremented before returning `responseData`.
-    private let callCountLock = OSAllocatedUnfairLock<Int>(initialState: 0)
-
-    /// The number of times `raw` has been called. Thread-safe.
-    var callCount: Int { callCountLock.withLock { $0 } }
-
+    private let _callCount = OSAllocatedUnfairLock<Int>(initialState: 0)
+    var callCount: Int { _callCount.withLock { $0 } }
     var responseData: Data?
-
     var decoder: JSONDecoder { JSONDecoder() }
     var logger: (any GitHubLogger)? { nil }
-
     func apiAsync(_ endpoint: String, timeout: TimeInterval) async -> Data? { nil }
     func apiPaginated(_ endpoint: String, timeout: TimeInterval) async -> Data? { nil }
     func raw(_ endpoint: String, timeout: TimeInterval) async -> Data? {
-        callCountLock.withLock { $0 += 1 }
+        _callCount.withLock { $0 += 1 }
         return responseData
     }
     func post(_ endpoint: String, body: Data?, timeout: TimeInterval) async -> Data? { nil }
@@ -42,14 +47,69 @@ private final class TestFakeTransport: GitHubTransportProtocol, @unchecked Senda
     func deleteRunnerByID(scope: String, runnerID: Int) async -> Bool { false }
 }
 
-// MARK: - Tests
+// MARK: - Helpers
 
-/// Integration-style tests verifying that `PollResultBuilder.buildGroupState`
-/// triggers ZIP prefetch behaviour correctly through the `enqueueZIP` closure.
+/// Builds a minimal empty `JobPollResult` for cycles that don't exercise jobs.
+private func emptyJobResult() -> JobPollResult {
+    JobPollResult(display: [], newCache: [:], newPrevLive: [:])
+}
+
+/// Builds a `WorkflowRunRef` with the given run ID and optional status/conclusion.
+private func makeRunRef(
+    id: Int,
+    status: JobStatus = .inProgress,
+    conclusion: JobConclusion? = nil
+) -> WorkflowRunRef {
+    WorkflowRunRef(id: id, name: "CI-\(id)", status: status, conclusion: conclusion, htmlUrl: nil)
+}
+
+/// Builds a `WorkflowActionGroup` that will return the expected `groupStatus`.
 ///
-/// These tests use a real `ZIPPrefetchQueue` with a fake transport and a
-/// temporary `DiskZIPCache` so they exercise the full deduplication and
-/// caching path without hitting the network.
+/// - For active groups:   pass `inProgressRunIDs` (no conclusion, status `.inProgress`).
+/// - For completed groups: pass `completedRunIDs` (conclusion `.success`) + one job per run
+///   so `groupStatus` resolves to `.completed` (all runs concluded AND jobs have conclusion).
+private func makeGroup(
+    sha: String = "aabbcc",
+    repo: String = "owner/repo",
+    inProgressRunIDs: [Int] = [],
+    completedRunIDs: [Int] = []
+) -> WorkflowActionGroup {
+    let activeRuns = inProgressRunIDs.map {
+        makeRunRef(id: $0, status: .inProgress, conclusion: nil)
+    }
+    let doneRuns = completedRunIDs.map {
+        makeRunRef(id: $0, status: .completed, conclusion: .success)
+    }
+    let jobs: [ActiveJob] = (inProgressRunIDs + completedRunIDs).map { runID in
+        ActiveJob(
+            id: runID * 10,
+            name: "job-\(runID)",
+            status: doneRuns.contains(where: { $0.id == runID }) ? .completed : .inProgress,
+            conclusion: doneRuns.contains(where: { $0.id == runID }) ? .success : nil
+        )
+    }
+    return WorkflowActionGroup(
+        headSha: sha,
+        label: String(sha.prefix(7)),
+        title: "test commit",
+        headBranch: "main",
+        repo: repo,
+        runs: activeRuns + doneRuns,
+        jobs: jobs,
+        firstJobStartedAt: Date(timeIntervalSinceReferenceDate: 0)
+    )
+}
+
+// MARK: - CompletedGroupZIPPrefetchTests
+
+/// Runner-level completion-transition tests (#2488).
+///
+/// Each test drives `RunnerPoller.applyFetchResult` directly:
+///   cycle 1 — seed `self.actions` with an active group.
+///   cycle 2 — present the group as completed → expect one ZIP enqueue per run.
+///
+/// Transport.callCount is used as a proxy for ZIPPrefetchQueue.enqueue calls
+/// because the queue drains asynchronously straight into the transport.
 final class CompletedGroupZIPPrefetchTests: XCTestCase {
 
     private var tempDir: URL!
@@ -66,235 +126,299 @@ final class CompletedGroupZIPPrefetchTests: XCTestCase {
         try await super.tearDown()
     }
 
-    // MARK: - Helpers
+    // MARK: - Factory
 
-    /// Builds a `WorkflowActionGroup` with a single run for testing.
-    /// Mirrors the helper in `PollResultBuilderGroupStateTests`.
-    private func makeGroup(
-        id runID: Int,
-        sha: String = "aabbcc",
-        groupStatus: GroupStatus = .completed,
-        conclusion: String = "success",
-        repo: String = "owner/repo",
-        isDimmed: Bool = false
-    ) -> WorkflowActionGroup {
-        let resolvedJobStatus: JobStatus = groupStatus == .completed ? .completed : .inProgress
-        let jobConclusion: JobConclusion? = groupStatus == .completed
-            ? JobConclusion(rawString: conclusion)
-            : nil
-        let job = ActiveJob(
-            id: runID * 10,
-            name: "job-\(runID)",
-            status: resolvedJobStatus,
-            conclusion: jobConclusion
-        )
-        let runConclusion: JobConclusion? = groupStatus == .completed
-            ? JobConclusion(rawString: conclusion)
-            : nil
-        return WorkflowActionGroup(
-            headSha: sha,
-            label: String(sha.prefix(7)),
-            title: "commit message",
-            headBranch: "main",
-            repo: repo,
-            runs: [
-                WorkflowRunRef(
-                    id: runID, name: "CI", status: resolvedJobStatus,
-                    conclusion: runConclusion, htmlUrl: nil)
-            ],
-            jobs: [job],
-            firstJobStartedAt: Date(timeIntervalSinceReferenceDate: 0),
-            lastJobCompletedAt: groupStatus == .completed
-                ? Date(timeIntervalSinceReferenceDate: 60) : nil,
-            isDimmed: isDimmed
-        )
-    }
-
-    /// Builds a group with **multiple** runs for testing the per-run ZIP enqueue.
-    private func makeMultiRunGroup(
-        runIDs: [Int],
-        sha: String = "multi-run",
-        repo: String = "owner/repo"
-    ) -> WorkflowActionGroup {
-        let runs: [WorkflowRunRef] = runIDs.map { runID in
-            WorkflowRunRef(
-                id: runID, name: "CI-\(runID)", status: .completed,
-                conclusion: .success, htmlUrl: nil)
-        }
-        let jobs: [ActiveJob] = runIDs.map { runID in
-            ActiveJob(
-                id: runID * 10, name: "job-\(runID)", status: .completed,
-                conclusion: .success)
-        }
-        return WorkflowActionGroup(
-            headSha: sha,
-            label: String(sha.prefix(7)),
-            title: "multi-run commit",
-            headBranch: "main",
-            repo: repo,
-            runs: runs,
-            jobs: jobs,
-            firstJobStartedAt: Date(timeIntervalSinceReferenceDate: 0),
-            lastJobCompletedAt: Date(timeIntervalSinceReferenceDate: 120),
-            isDimmed: false
-        )
-    }
-
-    /// Creates a `ZIPPrefetchQueue` backed by a fake transport and a temp disk cache.
-    private func makeQueue(
-        transport: TestFakeTransport
-    ) -> (ZIPPrefetchQueue, DiskZIPCache) {
+    @MainActor
+    private func makePoller(transport: TestFakeTransport) -> RunnerPoller {
         let disk = DiskZIPCache(cacheDir: tempDir)
-        let queue = ZIPPrefetchQueue(
-            diskCache: disk,
-            transport: transport
+        let queue = ZIPPrefetchQueue(diskCache: disk, transport: transport)
+        return RunnerPoller(
+            state: RunnerState(),
+            preferencesStore: StubPreferencesStore(),
+            scopeStore: StubScopeStore(),
+            localRunners: { [] },
+            applyMetrics: { _, _, _ in },
+            notificationPreferences: NotificationPreferences(store: UserDefaults(suiteName: UUID().uuidString)!),
+            zipPrefetchQueue: queue
         )
-        return (queue, disk)
+    }
+
+    /// Runs two `applyFetchResult` cycles.
+    /// Cycle 1: seed active state.  Cycle 2: present completed state.
+    @MainActor
+    private func runTransitionCycles(
+        poller: RunnerPoller,
+        activeGroup: WorkflowActionGroup,
+        completedGroup: WorkflowActionGroup
+    ) async {
+        // Cycle 1 — active state (seeds self.actions)
+        let activeResult = GroupPollResult(
+            display: [activeGroup],
+            newGroupCache: [:],
+            newPrevLiveGroups: [activeGroup.id: activeGroup]
+        )
+        _ = await poller.applyFetchResult(
+            enrichedRunners: [],
+            jobResult: emptyJobResult(),
+            groupResult: activeResult
+        )
+
+        // Cycle 2 — completed state (triggers transition detection)
+        let completedResult = GroupPollResult(
+            display: [completedGroup],
+            newGroupCache: [completedGroup.id: completedGroup],
+            newPrevLiveGroups: [:]
+        )
+        _ = await poller.applyFetchResult(
+            enrichedRunners: [],
+            jobResult: emptyJobResult(),
+            groupResult: completedResult
+        )
     }
 
     // MARK: - Test cases
 
-    /// In-progress group does not trigger any ZIP prefetch requests.
+    // 1. Active → completed/success: enqueue once per run.id.
     @MainActor
-    func testInProgressGroupDoesNotRequestZIP() async throws {
+    func testActiveToCompletedSuccess_enqueuedOnce() async throws {
         let transport = TestFakeTransport()
         transport.responseData = Data()
-        let (queue, _) = makeQueue(transport: transport)
-        let liveGroup = makeGroup(id: 100, groupStatus: .inProgress)
+        let poller = makePoller(transport: transport)
 
-        let _ = await PollResultBuilder.buildGroupState(
-            snapPrevGroups: [:],
-            snapGroupCache: [:],
-            fetchGroups: { _ in [liveGroup] },
-            enrichJobs: { $0 },
-            enqueueZIP: { runID, scope, isCompleted in
-                await queue.enqueue(runID: runID, scope: scope, isCompleted: isCompleted)
-            }
-        )
+        let active = makeGroup(inProgressRunIDs: [1001])
+        let completed = makeGroup(completedRunIDs: [1001])
 
-        // Allow background tasks to drain
-        try await Task.sleep(nanoseconds: 50_000_000)
-        XCTAssertEqual(
-            transport.callCount, 0,
-            "In-progress group must not trigger ZIP fetches")
+        await runTransitionCycles(poller: poller, activeGroup: active, completedGroup: completed)
+        try await Task.sleep(nanoseconds: 150_000_000)
+
+        XCTAssertEqual(transport.callCount, 1,
+            "active → completed/success must enqueue exactly 1 ZIP")
     }
 
-    /// Completed group triggers one ZIP prefetch per run.
+    // 2. Active → completed/failure: enqueue once per run.id.
     @MainActor
-    func testCompletedGroupRequestsZIPPerRun() async throws {
+    func testActiveToCompletedFailure_enqueuedOnce() async throws {
         let transport = TestFakeTransport()
         transport.responseData = Data()
-        let (queue, _) = makeQueue(transport: transport)
-        let completedGroup = makeGroup(id: 200, groupStatus: .completed)
+        let poller = makePoller(transport: transport)
 
-        let _ = await PollResultBuilder.buildGroupState(
-            snapPrevGroups: [:],
-            snapGroupCache: [:],
-            fetchGroups: { _ in [completedGroup] },
-            enrichJobs: { $0 },
-            enqueueZIP: { runID, scope, isCompleted in
-                await queue.enqueue(runID: runID, scope: scope, isCompleted: isCompleted)
-            }
-        )
+        let active = makeGroup(inProgressRunIDs: [2001])
+        // Use failure conclusion directly via WorkflowRunRef
+        let failRun = WorkflowRunRef(id: 2001, name: "CI", status: .completed,
+                                     conclusion: .failure, htmlUrl: nil)
+        let job = ActiveJob(id: 20010, name: "job", status: .completed, conclusion: .failure)
+        let completed = WorkflowActionGroup(
+            headSha: "aabbcc", label: "aabbcc", title: "test",
+            headBranch: "main", repo: "owner/repo",
+            runs: [failRun], jobs: [job])
 
-        // Allow background tasks to drain
-        try await Task.sleep(nanoseconds: 100_000_000)
-        XCTAssertEqual(
-            transport.callCount, 1,
-            "Completed group with 1 run must trigger exactly 1 ZIP fetch")
+        await runTransitionCycles(poller: poller, activeGroup: active, completedGroup: completed)
+        try await Task.sleep(nanoseconds: 150_000_000)
+
+        XCTAssertEqual(transport.callCount, 1,
+            "active → completed/failure must enqueue exactly 1 ZIP")
     }
 
-    /// Completed group with multiple runs triggers one ZIP prefetch per run.
+    // 3. Active → completed/cancelled: enqueue once per run.id.
     @MainActor
-    func testCompletedGroupWithMultipleRunsRequestsZIPPerRun() async throws {
+    func testActiveToCompletedCancelled_enqueuedOnce() async throws {
         let transport = TestFakeTransport()
         transport.responseData = Data()
-        let (queue, _) = makeQueue(transport: transport)
-        let multiRunGroup = makeMultiRunGroup(runIDs: [10, 20])
+        let poller = makePoller(transport: transport)
 
-        let _ = await PollResultBuilder.buildGroupState(
-            snapPrevGroups: [:],
-            snapGroupCache: [:],
-            fetchGroups: { _ in [multiRunGroup] },
-            enrichJobs: { $0 },
-            enqueueZIP: { runID, scope, isCompleted in
-                await queue.enqueue(runID: runID, scope: scope, isCompleted: isCompleted)
-            }
-        )
+        let active = makeGroup(inProgressRunIDs: [3001])
+        let cancelRun = WorkflowRunRef(id: 3001, name: "CI", status: .completed,
+                                       conclusion: .cancelled, htmlUrl: nil)
+        let job = ActiveJob(id: 30010, name: "job", status: .completed, conclusion: .cancelled)
+        let completed = WorkflowActionGroup(
+            headSha: "aabbcc", label: "aabbcc", title: "test",
+            headBranch: "main", repo: "owner/repo",
+            runs: [cancelRun], jobs: [job])
 
-        // Allow background tasks to drain
-        try await Task.sleep(nanoseconds: 100_000_000)
-        XCTAssertEqual(
-            transport.callCount, 2,
-            "Completed group with 2 runs must trigger exactly 2 ZIP fetches")
+        await runTransitionCycles(poller: poller, activeGroup: active, completedGroup: completed)
+        try await Task.sleep(nanoseconds: 150_000_000)
+
+        XCTAssertEqual(transport.callCount, 1,
+            "active → completed/cancelled must enqueue exactly 1 ZIP")
     }
 
-    /// Completed group ZIPs are stored on disk after processing.
+    // 4. Completed → completed on the next update: no additional enqueue.
     @MainActor
-    func testCompletedGroupStoresZIPsOnDisk() async throws {
-        let transport = TestFakeTransport()
-        let zipData = Data("fake-zip-bytes".utf8)
-        transport.responseData = zipData
-        let (queue, disk) = makeQueue(transport: transport)
-        let completedGroup = makeGroup(id: 300, groupStatus: .completed)
-
-        let _ = await PollResultBuilder.buildGroupState(
-            snapPrevGroups: [:],
-            snapGroupCache: [:],
-            fetchGroups: { _ in [completedGroup] },
-            enrichJobs: { $0 },
-            enqueueZIP: { runID, scope, isCompleted in
-                await queue.enqueue(runID: runID, scope: scope, isCompleted: isCompleted)
-            }
-        )
-
-        // Allow background tasks to drain
-        try await Task.sleep(nanoseconds: 100_000_000)
-        let onDisk = await disk.get(runID: 300)
-        XCTAssertNotNil(onDisk, "Completed group run ZIP must be stored on disk")
-        XCTAssertEqual(onDisk, zipData, "Disk cache must contain the exact ZIP bytes")
-    }
-
-    /// Processing the same completed group again does not re-download cached ZIPs.
-    @MainActor
-    func testReProcessingCompletedGroupDoesNotRedownload() async throws {
+    func testCompletedToCompleted_noAdditionalEnqueue() async throws {
         let transport = TestFakeTransport()
         transport.responseData = Data()
-        let (queue, _) = makeQueue(transport: transport)
-        let completedGroup = makeGroup(id: 400, groupStatus: .completed)
+        let poller = makePoller(transport: transport)
 
-        // First pass — should trigger 1 fetch
-        let _ = await PollResultBuilder.buildGroupState(
-            snapPrevGroups: [:],
-            snapGroupCache: [:],
-            fetchGroups: { _ in [completedGroup] },
-            enrichJobs: { $0 },
-            enqueueZIP: { runID, scope, isCompleted in
-                await queue.enqueue(runID: runID, scope: scope, isCompleted: isCompleted)
-            }
-        )
+        // Seed self.actions directly with an already-completed group (no active run IDs).
+        let completed = makeGroup(completedRunIDs: [4001])
+        let result = GroupPollResult(
+            display: [completed],
+            newGroupCache: [completed.id: completed],
+            newPrevLiveGroups: [:])
+        _ = await poller.applyFetchResult(
+            enrichedRunners: [], jobResult: emptyJobResult(), groupResult: result)
+
+        // Second cycle — still completed, run IDs were never in previouslyActiveRunIDs.
+        _ = await poller.applyFetchResult(
+            enrichedRunners: [], jobResult: emptyJobResult(), groupResult: result)
+
         try await Task.sleep(nanoseconds: 100_000_000)
-        let firstCallCount = transport.callCount
-        XCTAssertEqual(
-            firstCallCount, 1,
-            "First pass with a completed group must trigger exactly 1 ZIP fetch")
-
-        // Second pass — should NOT trigger another fetch (ZIP is already cached)
-        // The group is returned again so we verify that DiskZIPCache prevents
-        // re-download, not that the doneGroups loop was simply not entered.
-        let _ = await PollResultBuilder.buildGroupState(
-            snapPrevGroups: [:],
-            snapGroupCache: [completedGroup.id: completedGroup.copying(isDimmed: true)],
-            fetchGroups: { _ in [completedGroup] },
-            enrichJobs: { $0 },
-            enqueueZIP: { runID, scope, isCompleted in
-                await queue.enqueue(runID: runID, scope: scope, isCompleted: isCompleted)
-            }
-        )
-        try await Task.sleep(nanoseconds: 50_000_000)
-
-        XCTAssertEqual(
-            transport.callCount, firstCallCount,
-            "Re-processing a completed group must not re-download cached ZIPs")
+        XCTAssertEqual(transport.callCount, 0,
+            "completed → completed must not enqueue any ZIP")
     }
+
+    // 5. A group first observed as completed (no prior active state): no enqueue.
+    @MainActor
+    func testFirstObservedAsCompleted_noEnqueue() async throws {
+        let transport = TestFakeTransport()
+        transport.responseData = Data()
+        let poller = makePoller(transport: transport)
+
+        // self.actions is empty — no previouslyActiveRunIDs.
+        let completed = makeGroup(completedRunIDs: [5001])
+        let result = GroupPollResult(
+            display: [completed],
+            newGroupCache: [completed.id: completed],
+            newPrevLiveGroups: [:])
+        _ = await poller.applyFetchResult(
+            enrichedRunners: [], jobResult: emptyJobResult(), groupResult: result)
+
+        try await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertEqual(transport.callCount, 0,
+            "group first observed as completed must not trigger ZIP enqueue")
+    }
+
+    // 6. A completed group containing several workflow runs: enqueue every distinct run.id.
+    @MainActor
+    func testCompletedGroupMultipleRuns_enqueuesEveryRunID() async throws {
+        let transport = TestFakeTransport()
+        transport.responseData = Data()
+        let poller = makePoller(transport: transport)
+
+        let active = makeGroup(inProgressRunIDs: [6001, 6002, 6003])
+        let completed = makeGroup(completedRunIDs: [6001, 6002, 6003])
+
+        await runTransitionCycles(poller: poller, activeGroup: active, completedGroup: completed)
+        try await Task.sleep(nanoseconds: 200_000_000)
+
+        XCTAssertEqual(transport.callCount, 3,
+            "multi-run completed group must enqueue one ZIP per run.id")
+    }
+
+    // 7. Commit and workflow_dispatch groups on same SHA: cache both independently by run.id.
+    @MainActor
+    func testCommitAndDispatchGroupsSameSHA_cachedIndependentlyByRunID() async throws {
+        let transport = TestFakeTransport()
+        transport.responseData = Data("zip".utf8)
+        let disk = DiskZIPCache(cacheDir: tempDir)
+        let queue = ZIPPrefetchQueue(diskCache: disk, transport: transport)
+        let poller = RunnerPoller(
+            state: RunnerState(),
+            preferencesStore: StubPreferencesStore(),
+            scopeStore: StubScopeStore(),
+            localRunners: { [] },
+            applyMetrics: { _, _, _ in },
+            notificationPreferences: NotificationPreferences(
+                store: UserDefaults(suiteName: UUID().uuidString)!),
+            zipPrefetchQueue: queue
+        )
+
+        let sha = "shared-sha"
+        // Two independent groups sharing the same sha (commit vs dispatch).
+        let activeCommit = makeGroup(sha: sha, inProgressRunIDs: [7001])
+        let activeDispatch = WorkflowActionGroup(
+            headSha: sha, label: "shared", title: "dispatch",
+            headBranch: "main", repo: "owner/repo",
+            runs: [makeRunRef(id: 7002)],
+            jobs: [ActiveJob(id: 70020, name: "job", status: .inProgress)],
+            normalizedEvent: "workflow_dispatch")
+
+        // Seed both as active
+        let seedResult = GroupPollResult(
+            display: [activeCommit, activeDispatch],
+            newGroupCache: [:],
+            newPrevLiveGroups: [activeCommit.id: activeCommit, activeDispatch.id: activeDispatch])
+        _ = await poller.applyFetchResult(
+            enrichedRunners: [], jobResult: emptyJobResult(), groupResult: seedResult)
+
+        // Both transition to completed
+        let doneCommit = makeGroup(sha: sha, completedRunIDs: [7001])
+        let doneDispatch = WorkflowActionGroup(
+            headSha: sha, label: "shared", title: "dispatch",
+            headBranch: "main", repo: "owner/repo",
+            runs: [makeRunRef(id: 7002, status: .completed, conclusion: .success)],
+            jobs: [ActiveJob(id: 70020, name: "job", status: .completed, conclusion: .success)],
+            normalizedEvent: "workflow_dispatch")
+
+        let doneResult = GroupPollResult(
+            display: [doneCommit, doneDispatch],
+            newGroupCache: [doneCommit.id: doneCommit, doneDispatch.id: doneDispatch],
+            newPrevLiveGroups: [:])
+        _ = await poller.applyFetchResult(
+            enrichedRunners: [], jobResult: emptyJobResult(), groupResult: doneResult)
+
+        try await Task.sleep(nanoseconds: 200_000_000)
+        let zip7001 = await disk.get(runID: 7001)
+        let zip7002 = await disk.get(runID: 7002)
+        XCTAssertNotNil(zip7001, "run 7001 (commit) ZIP must be cached independently")
+        XCTAssertNotNil(zip7002, "run 7002 (dispatch) ZIP must be cached independently")
+    }
+
+    // 8. group.repo is passed as scope; isCompleted is true.
+    @MainActor
+    func testEnqueueUsesGroupRepoAsScopeAndIsCompletedTrue() async throws {
+        var capturedEndpoints: [String] = []
+
+        // Use a capturing transport to inspect the endpoint called.
+        final class CapturingTransport: GitHubTransportProtocol, @unchecked Sendable {
+            private let lock = OSAllocatedUnfairLock<[String]>(initialState: [])
+            var endpoints: [String] { lock.withLock { $0 } }
+            var decoder: JSONDecoder { JSONDecoder() }
+            var logger: (any GitHubLogger)? { nil }
+            func apiAsync(_ e: String, timeout: TimeInterval) async -> Data? { nil }
+            func apiPaginated(_ e: String, timeout: TimeInterval) async -> Data? { nil }
+            func raw(_ endpoint: String, timeout: TimeInterval) async -> Data? {
+                lock.withLock { $0.append(endpoint) }
+                return Data()
+            }
+            func post(_ e: String, body: Data?, timeout: TimeInterval) async -> Data? { nil }
+            func put(_ e: String, body: Data, timeout: TimeInterval) async -> Data? { nil }
+            @discardableResult func delete(_ e: String, timeout: TimeInterval) async -> Bool { false }
+            func cancelRun(runID: Int, scope: String) async -> Bool { false }
+            @discardableResult func patchRunnerLabels(scope: String, runnerID: Int, labels: [String]) async -> [String]? { nil }
+            func fetchRegistrationToken(scope: String) async -> String? { nil }
+            func fetchRemovalToken(scope: String) async -> String? { nil }
+            func deleteRunnerByID(scope: String, runnerID: Int) async -> Bool { false }
+        }
+
+        let capturing = CapturingTransport()
+        let disk = DiskZIPCache(cacheDir: tempDir)
+        let queue = ZIPPrefetchQueue(diskCache: disk, transport: capturing)
+        let poller = RunnerPoller(
+            state: RunnerState(),
+            preferencesStore: StubPreferencesStore(),
+            scopeStore: StubScopeStore(),
+            localRunners: { [] },
+            applyMetrics: { _, _, _ in },
+            notificationPreferences: NotificationPreferences(
+                store: UserDefaults(suiteName: UUID().uuidString)!),
+            zipPrefetchQueue: queue
+        )
+
+        let active = makeGroup(repo: "owner/testrepo", inProgressRunIDs: [8001])
+        let completed = makeGroup(repo: "owner/testrepo", completedRunIDs: [8001])
+        await runTransitionCycles(poller: poller, activeGroup: active, completedGroup: completed)
+        try await Task.sleep(nanoseconds: 150_000_000)
+
+        capturedEndpoints = capturing.endpoints
+        XCTAssertEqual(capturedEndpoints.count, 1)
+        // Endpoint format: repos/{scope}/actions/runs/{runID}/logs
+        XCTAssertTrue(
+            capturedEndpoints.first?.contains("owner/testrepo") == true,
+            "scope must be group.repo (\"owner/testrepo\"), got: \(capturedEndpoints)")
+        XCTAssertTrue(
+            capturedEndpoints.first?.contains("8001") == true,
+            "endpoint must contain run ID 8001")
+    }
+
 }

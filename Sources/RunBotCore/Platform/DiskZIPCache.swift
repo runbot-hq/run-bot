@@ -6,15 +6,18 @@ import Foundation
 ///
 /// Stored in `applicationSupportDirectory/RunBot/ZIPCache/` as raw `.zip` files
 /// named `{runID}.zip`. The OS may purge entries under storage pressure; that is
-/// acceptable because a purge merely causes a network re-fetch — no data loss occurs.
+/// acceptable; a purged entry will not be re-fetched automatically because ZIP
+/// prefetch is triggered exactly once per active → completed transition
+/// (`RunnerPoller.enqueueCompletionZIPs`). If the file is later absent the
+/// log-fetch read path falls back to a live download.
 ///
 /// Unzipping is **not** performed here. The raw bytes are stored and returned as-is;
 /// callers (e.g. `LogFetcher.fetchStepLog`) unzip lazily on the read path.
 ///
 /// ## Key format
 /// Plain `runID` integer — filename is `{runID}.zip`. No `startedAt` discriminator
-/// is needed because `RunnerPoller.prefetchedRunIDs` ensures each runID is only
-/// ever written once per session.
+/// is needed because `ZIPPrefetchQueue.enqueue` skips runs already present in
+/// the cache, ensuring at most one write per `runID`.
 ///
 /// ## Write guard
 /// Only completed runs (`isCompleted == true`) are written to disk.
