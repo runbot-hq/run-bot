@@ -6,15 +6,18 @@ import OAuthTokenKit
 
 // MARK: - OAuthCredentialController
 
-/// Narrow credential controller that owns exactly one app-lifetime sign-in observation.
+/// Narrow credential controller that owns the complete OAuth credential lifecycle:
+/// one app-lifetime sign-in observation and the direct sign-out sequence.
 ///
 /// The browser operation is not represented in application state — only Keychain
-/// token presence matters.
+/// token presence matters. There is no transition state, pending state, or
+/// stream-driven sign-out.
 ///
 /// ## Design
 /// - One task: observes `makeSignInStream()` for the lifetime of the app.
-/// - No sign-out stream. Sign-out is synchronous and direct.
-/// - No transition policy, rollback, cancellation, or attempt correlation.
+/// - Sign-out is direct: deletes credential, reconciles authentication, then
+///   invokes the injected `didSignOut` callback for app-specific follow-up.
+/// - No sign-out stream. No rollback, cancellation, or attempt correlation.
 /// - `reconcile()` handles external Keychain changes and stale Settings UI.
 ///
 /// ## Task lifetime
@@ -26,6 +29,10 @@ public final class OAuthCredentialController {
     private let service: any OAuthServiceProtocol
     /// The shared authentication state model updated on sign-in / sign-out / reconcile.
     private let authentication: GitHubAuthentication
+
+    /// App-specific follow-up invoked after the OAuth credential is deleted and
+    /// authentication has been reconciled.
+    public var didSignOut: (@MainActor () async -> Void)?
 
     /// The long-lived sign-in stream observation task. Cancelled in `deinit`.
     nonisolated(unsafe)
@@ -88,13 +95,18 @@ public final class OAuthCredentialController {
         authentication.syncOAuthState(isAuthenticated: service.isAuthenticated)
     }
 
-    /// Synchronously deletes the Keychain token and reconciles authentication state.
+    /// Deletes the OAuth token, reconciles authentication from Keychain truth,
+    /// then invokes the configured app-specific follow-up.
     ///
-    /// The UI changes to Sign in as soon as `service.signOut()` returns because
-    /// `syncOAuthState` immediately reflects token absence. App-specific follow-up
-    /// (e.g. runner-poll restart) belongs to the caller, not this controller.
-    public func signOut() {
+    /// Ordering:
+    /// 1. `service.signOut()` — deletes the Keychain token.
+    /// 2. `authentication.syncOAuthState(...)` — reconciles UI state from token absence.
+    /// 3. `await didSignOut?()` — app-specific follow-up (e.g. runner-poll restart).
+    ///
+    /// The callback observes the already-reconciled authentication state.
+    public func signOut() async {
         service.signOut()
         authentication.syncOAuthState(isAuthenticated: service.isAuthenticated)
+        await didSignOut?()
     }
 }

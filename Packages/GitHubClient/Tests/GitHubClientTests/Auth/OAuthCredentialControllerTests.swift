@@ -121,23 +121,45 @@ struct OAuthCredentialControllerTests {
         #expect(auth.selectedSource == .unauthenticated)
     }
 
-    // MARK: - 6. signOut() deletes token and reconciles state
+    // MARK: - 6. signOut() deletes token, reconciles state, then invokes didSignOut
 
-    @Test("signOut deletes token and reconciles state")
-    func signOutClearsState() async {
+    @Test("signOut deletes token, reconciles state, then invokes didSignOut")
+    func signOutClearsStateAndInvokesCallback() async {
         let (controller, service, auth) = makeSUT(isAuthenticated: true)
+        var didSignOutCalled = false
+        var callbackObservedSignedOut = false
 
-        // Set up signed-in state.
+        controller.didSignOut = {
+            didSignOutCalled = true
+            if case .signedOut = auth.oauthState {
+                callbackObservedSignedOut = true
+            }
+        }
+
         controller.reconcile()
         #expect(auth.oauthState.isSignedIn)
 
-        // Sign out: clear the token on the mock.
         service.isAuthenticated = false
-        controller.signOut()
+        await controller.signOut()
 
+        #expect(service.signOutCallCount == 1)
         #expect(auth.oauthState.isSignedOut)
         #expect(auth.selectedSource == .unauthenticated)
+        #expect(didSignOutCalled)
+        #expect(callbackObservedSignedOut)
+    }
+
+    @Test("signOut succeeds when didSignOut is not configured")
+    func signOutWithoutCallback() async {
+        let (controller, service, auth) = makeSUT(isAuthenticated: true)
+        controller.reconcile()
+        #expect(auth.oauthState.isSignedIn)
+
+        service.isAuthenticated = false
+        await controller.signOut()  // must not crash with nil didSignOut
+
         #expect(service.signOutCallCount == 1)
+        #expect(auth.oauthState.isSignedOut)
     }
 
     // MARK: - 7. Natural deallocation cancels the subscription

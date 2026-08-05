@@ -438,11 +438,16 @@ struct SettingsView: View {
         }
     }
 
-    /// Signs out of GitHub via the credential controller and restarts polling.
+    /// Signs out of GitHub. The credential controller owns the sign-out sequence:
+    /// it deletes the token, reconciles authentication, then invokes its configured
+    /// `didSignOut` callback to restart runner polling.
     func signOutOfGitHub() {
-        log("【SettingsView.signOutOfGitHub】routing to appState.signOutOAuth()", category: .general)
+        log(
+            "【SettingsView.signOutOfGitHub】routing to oauthCredentials.signOut()",
+            category: .general
+        )
         Task { @MainActor in
-            await appState.signOutOAuth()
+            await appState.oauthCredentials.signOut()
         }
     }
 }

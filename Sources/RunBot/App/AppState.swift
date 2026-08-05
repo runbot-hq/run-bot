@@ -216,9 +216,9 @@ final class AppState {
     /// is thread-safe and writes only happen on @MainActor in startObservations().
     @ObservationIgnored nonisolated(unsafe) private var statusIconTask: Task<Void, Never>?
 
-    /// App-lifetime OAuth credential controller (issue #2481).
-    /// Owns exactly one sign-in stream subscription. Sign-out is direct and
-    /// synchronous; AppState performs the runner-poll restart via `signOutOAuth()`.
+    /// App-lifetime OAuth credential controller.
+    /// Owns the sign-in observer and direct sign-out sequence. AppState only
+    /// injects the runner-poll restart callback.
     let oauthCredentials: OAuthCredentialController
 
     // MARK: - Init
@@ -240,6 +240,16 @@ final class AppState {
             service: github.oauthService,
             authentication: authentication
         )
+        self.oauthCredentials.didSignOut = { [weak self] in
+            guard let runnerStore = self?.runnerStore else {
+                log(
+                    "OAuthCredentialController › runnerStore unavailable; "
+                        + "skipping poll restart"
+                )
+                return
+            }
+            await runnerStore.start()
+        }
     }
 
     /// Test-only initialiser. Injects a stub `RunnerLifecycleServiceProtocol`
@@ -265,6 +275,16 @@ final class AppState {
             service: github.oauthService,
             authentication: authentication
         )
+        self.oauthCredentials.didSignOut = { [weak self] in
+            guard let runnerStore = self?.runnerStore else {
+                log(
+                    "OAuthCredentialController › runnerStore unavailable; "
+                        + "skipping poll restart"
+                )
+                return
+            }
+            await runnerStore.start()
+        }
     }
 
     deinit {
@@ -480,8 +500,8 @@ final class AppState {
     /// - `statusIconTask`: observes `runnerState.aggregateStatus` and calls back
     ///   to `AppDelegate` to update the menu-bar icon (AppKit concern stays in AppDelegate).
     /// - `oauthCredentials`: reconciles Keychain state, then begins the single
-    ///   app-lifetime sign-in observation. Runner-poll restart after sign-out is
-    ///   performed by `signOutOAuth()`, not by an observation task.
+    ///   app-lifetime sign-in observation. Its injected `didSignOut` callback
+    ///   restarts runner polling after direct sign-out.
     ///
     /// `onUpdateStatusIcon` is a callback rather than a direct AppDelegate reference
     /// to avoid AppState holding a strong reference to AppDelegate.
@@ -511,33 +531,9 @@ final class AppState {
         // correct state before the first render. start() registers the app-lifetime
         // sign-in observer. Both calls happen before any suspension point so no
         // browser callback can be missed between startup and the first await.
-        // Runner-poll restart after sign-out is performed by AppState.signOutOAuth().
+        // Runner-poll restart after sign-out is performed by the injected didSignOut callback.
         oauthCredentials.reconcile()
         oauthCredentials.start()
     }
 
-    // MARK: - Sign Out
-
-    /// Signs out of OAuth and restarts the polling loop.
-    ///
-    /// 1. Deletes the OAuth token through `OAuthCredentialController.signOut()`.
-    /// 2. `GitHubAuthentication` is reconciled synchronously inside `signOut()`.
-    /// 3. Runner polling is restarted — see the ❌ note at the call site below.
-    @MainActor
-    func signOutOAuth() async {
-        oauthCredentials.signOut()
-
-        guard let runnerStore else {
-            log("AppState › signOutOAuth — runnerStore nil; skipping poll restart")
-            return
-        }
-
-        // ❌ Do NOT remove this start() call (PR #1138 regression history):
-        // #1138 replaced the polling Timer with a Task that loops on Task.sleep and
-        // never restarts itself. Without this call the poll loop stalls permanently
-        // after sign-out, whatever auth mode is selected next. signOut() invalidated
-        // TokenCache, so the first token() here may re-spawn /bin/zsh -i -l (~50–200 ms)
-        // to recover GH_TOKEN; the result is cached, so only this cycle pays it.
-        await runnerStore.start()
-    }
 }
