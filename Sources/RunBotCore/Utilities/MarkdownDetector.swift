@@ -67,7 +67,7 @@ public enum MarkdownDetector {
         if blockTypes.count >= 3 { score += 3 } // diversity bonus
 
         let lines = max(text.components(separatedBy: "\n").count, 1)
-        let autoEnable = Float(score) / Float(lines) >= 0.10 || score >= 6
+        let autoEnable = score >= 3 && Float(score * score * score) / Float(lines) >= 1.8
         return DetectResult(score: score, looksLikeMarkdown: autoEnable)
     }
 
