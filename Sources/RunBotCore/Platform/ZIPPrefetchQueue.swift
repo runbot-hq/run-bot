@@ -140,6 +140,5 @@ public actor ZIPPrefetchQueue {
         }
         guard !isCancelled else { return }
         await diskCache.set(runID: runID, zip: data, isCompleted: isCompleted)
-        log("ZIPPrefetchQueue › cached \(data.count) bytes for runID=\(runID)", category: .services)
     }
 }

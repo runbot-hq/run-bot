@@ -302,6 +302,11 @@ extension RunnerPoller {
             return group.runs.contains { previouslyActiveRunIDs.contains($0.id) }
         }
         for group in newlyCompleted {
+            log(
+                "RunnerPoller › ZIP completion transition — "
+                    + "repo=\(group.repo) runIDs=\(group.runs.map(\.id))",
+                category: .services
+            )
             for run in group.runs {
                 await zipPrefetchQueue.enqueue(runID: run.id, scope: group.repo, isCompleted: true)
             }

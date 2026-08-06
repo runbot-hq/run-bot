@@ -15,9 +15,10 @@ import Foundation
 /// callers (e.g. `LogFetcher.fetchStepLog`) unzip lazily on the read path.
 ///
 /// ## Key format
-/// Plain `runID` integer — filename is `{runID}.zip`. No `startedAt` discriminator
-/// is needed because `ZIPPrefetchQueue.enqueue` skips runs already present in
-/// the cache, ensuring at most one write per `runID`.
+/// Plain `runID` integer — filename is `{runID}.zip`. No `startedAt`
+/// discriminator is needed because the run ID identifies the cache entry.
+/// `ZIPPrefetchQueue.enqueue` skips entries currently present in the cache;
+/// after purge or eviction, the same run ID may be written to the same path again.
 ///
 /// ## Write guard
 /// Only completed runs (`isCompleted == true`) are written to disk.
@@ -87,7 +88,21 @@ public actor DiskZIPCache {
     public func set(runID: Int, zip: Data, isCompleted: Bool) {
         guard isCompleted else { return }
         let file = cacheDir.appendingPathComponent("\(runID).zip")
-        guard (try? zip.write(to: file, options: .atomic)) != nil else { return }
+        do {
+            try zip.write(to: file, options: .atomic)
+            log(
+                "DiskZIPCache › ZIP write succeeded — "
+                    + "runID=\(runID) bytes=\(zip.count)",
+                category: .services
+            )
+        } catch {
+            log(
+                "DiskZIPCache › ZIP write failed — "
+                    + "runID=\(runID) error=\(error)",
+                category: .services
+            )
+            return
+        }
         evictIfNeeded()
     }
 
