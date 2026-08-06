@@ -512,10 +512,7 @@ internal extension SettingsView {
             alignment: .topLeading
         )
         .padding(10)
-        .background(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(Color.accentColor.opacity(0.07))
-        )
+        .glassCard(cornerRadius: 8, tint: Color.accentColor.opacity(0.07))
         .overlay(
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .stroke(Color.accentColor.opacity(0.6), lineWidth: 1)

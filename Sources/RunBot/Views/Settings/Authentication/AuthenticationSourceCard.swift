@@ -33,7 +33,7 @@ struct AuthenticationSourceCard<Content: View>: View {
         return Color.clear
     }
 
-    /// Card body: content wrapped in a rounded-rect stroke + fill.
+    /// Card body: content wrapped in a tint-aware Liquid Glass card + stroke overlay.
     var body: some View {
         content()
             .frame(
@@ -42,10 +42,7 @@ struct AuthenticationSourceCard<Content: View>: View {
                 alignment: .topLeading
             )
             .padding(10)
-            .background(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(fillColor)
-            )
+            .glassCard(cornerRadius: 8, tint: fillColor)
             .overlay(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .stroke(strokeColor, lineWidth: 1)

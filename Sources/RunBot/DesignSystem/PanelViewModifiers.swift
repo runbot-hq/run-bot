@@ -4,14 +4,17 @@ import RunBotCore
 import SwiftUI
 
 // MARK: - GlassCard
-/// Centralised Liquid Glass card modifier.
-/// On macOS 26+ uses `.glassEffect(.regular)` — passive containers must NOT
-/// use `.interactive()`. The LiquidGlassReference guide restricts `.interactive()`
-/// to tappable controls (buttons, icons) only. Applying it to a passive container
-/// activates scaling/shimmer on the entire card surface including non-interactive
-/// children, which is semantically wrong and wastes GPU compositing budget.
+/// Centralised Liquid Glass card modifier (macOS 26+).
+/// Uses `.glassEffect(.regular)` — passive containers must NOT use `.interactive()`.
+/// The LiquidGlassReference guide restricts `.interactive()` to tappable controls
+/// (buttons, icons) only. Applying it to a passive container activates scaling/shimmer
+/// on the entire card surface including non-interactive children, which is semantically
+/// wrong and wastes GPU compositing budget.
 /// Tappable rows handle interactivity at the contentShape/button level via GlassButton.
-/// On older OSes falls back to `.ultraThinMaterial` + a subtle stroke overlay.
+///
+/// When `tint` is provided the glass uses `.regular.tint(tint)`, preserving
+/// accent/error/state colour semantics while keeping refraction and backdrop sampling.
+/// When `tint` is nil the plain `.regular` glass is used.
 ///
 /// All phases of the Liquid Glass adoption (Phase 3–7) must use `.glassCard()`
 /// instead of calling `.glassEffect()` or `.ultraThinMaterial` directly on
@@ -23,38 +26,31 @@ import SwiftUI
 struct GlassCard: ViewModifier {
     /// Corner radius applied to the rounded rectangle shape. Defaults to `RBRadius.card`.
     var cornerRadius: CGFloat
-    /// Opacity of the fallback stroke border. Defaults to 0.15; use 0.25 for sections.
+    /// Opacity of the stroke border overlay. Defaults to 0.15; use 0.25 for sections.
     var strokeOpacity: Double
+    /// Optional tint passed to `.glassEffect(.regular.tint(_:))`. When nil, plain `.regular` is used.
+    var tint: Color?
 
-    /// Creates a `GlassCard` modifier with custom corner radius and stroke opacity.
-    init(cornerRadius: CGFloat = RBRadius.card, strokeOpacity: Double = 0.15) {
+    /// Creates a `GlassCard` modifier with custom corner radius, stroke opacity, and optional tint.
+    init(cornerRadius: CGFloat = RBRadius.card, strokeOpacity: Double = 0.15, tint: Color? = nil) {
         self.cornerRadius = cornerRadius
         self.strokeOpacity = strokeOpacity
+        self.tint = tint
     }
 
     /// Applies the glass card effect to the given content view.
     @ViewBuilder
     func body(content: Content) -> some View {
-        if #available(macOS 26, *) {
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        if let tint {
             content
-                .glassEffect(.regular, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                        .strokeBorder(.white.opacity(strokeOpacity), lineWidth: 0.5)
-                )
+                .glassEffect(.regular.tint(tint), in: shape)
+                .overlay(shape.strokeBorder(.white.opacity(strokeOpacity), lineWidth: 0.5))
         } else {
-            materialFallback(content: content)
+            content
+                .glassEffect(.regular, in: shape)
+                .overlay(shape.strokeBorder(.white.opacity(strokeOpacity), lineWidth: 0.5))
         }
-    }
-
-    /// Returns the pre-macOS-26 material + stroke fallback for the given content.
-    private func materialFallback(content: Content) -> some View {
-        content
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .strokeBorder(.white.opacity(strokeOpacity), lineWidth: 0.5)
-            )
     }
 }
 
@@ -240,8 +236,8 @@ struct CardRowModifier: ViewModifier {
 // MARK: - View extensions
 /// Convenience modifiers for applying design-system glass effects and backgrounds.
 extension View {
-    /// Applies the `GlassCard` modifier with the given corner radius.
-    func glassCard(cornerRadius: CGFloat = RBRadius.card) -> some View { modifier(GlassCard(cornerRadius: cornerRadius)) }
+    /// Applies the `GlassCard` modifier with the given corner radius and optional tint.
+    func glassCard(cornerRadius: CGFloat = RBRadius.card, tint: Color? = nil) -> some View { modifier(GlassCard(cornerRadius: cornerRadius, tint: tint)) }
 
     /// Applies the `GlassSection` modifier with the given corner radius.
     func glassSection(cornerRadius: CGFloat = RBRadius.card) -> some View { modifier(GlassSection(cornerRadius: cornerRadius)) }
