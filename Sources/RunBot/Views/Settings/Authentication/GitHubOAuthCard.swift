@@ -40,21 +40,21 @@ struct GitHubOAuthCard: View {
     /// Card body: status dot, labels, and action button.
     var body: some View {
         AuthenticationSourceCard(isActive: isActive, isError: false) {
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 8) {
-                    statusDot
-                    VStack(alignment: .leading, spacing: 2) {
+            HStack(alignment: .center, spacing: 8) {
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 6) {
+                        statusDot
                         Text("GitHub OAuth")
                             .font(.system(size: 12, weight: .medium))
-                        statusLine
-                            .font(.caption)
-                            .foregroundColor(statusLineColor)
                     }
-                    .opacity(isActive ? 1.0 : 0.75)
-                    Spacer()
-                    actionButton
-                        .opacity(isActive ? 1.0 : 0.65)
+                    statusLine
+                        .font(.caption)
+                        .foregroundColor(statusLineColor)
                 }
+                .opacity(isActive ? 1.0 : 0.75)
+                Spacer()
+                actionButton
+                    .opacity(isActive ? 1.0 : 0.65)
             }
         }
         .accessibilityElement(children: .combine)
@@ -80,7 +80,7 @@ struct GitHubOAuthCard: View {
         Group {
             switch oauthState {
             case .signedOut:
-                Text(isActive ? "Active · not authenticated" : "Not signed in")
+                Text("Not signed in to GitHub")
             case .signedIn(let username):
                 if let username {
                     Text(isActive ? "Active · @\(username)" : "Signed in as @\(username) · inactive")
