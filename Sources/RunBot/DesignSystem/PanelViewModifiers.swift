@@ -109,8 +109,8 @@ struct GlassButton: ViewModifier {
 ///   `Color.rbGlassNeutral.opacity(0.15)` — black in light appearance, white in
 ///   dark appearance — bleeds through the glass refractive layer and defines the
 ///   pill edge visually in both modes, exactly as coloured pills do.
-///   `Color.primary` was wrong — it resolves to near-black in dark mode,
-///   making the tint invisible and leaving the glass nothing to refract.
+///   An explicit token is used instead of `Color.primary` so the neutral glass
+///   wash has a stable, documented black/light and white/dark contract.
 ///
 /// The call site MUST wrap `RunnerMetricsBadge` in its OWN `GlassEffectContainer`
 /// (separate from the card container) — same pattern as `DiskPillBadge` in
@@ -118,7 +118,7 @@ struct GlassButton: ViewModifier {
 ///
 /// macOS < 26: `.ultraThinMaterial` in a `Capsule()` (unchanged).
 ///
-/// ❌ Do NOT revert tint to `Color.primary` — it is near-black in dark mode.
+/// ❌ Do NOT replace `rbGlassNeutral` with `Color.primary` — use the explicit token.
 struct StatPillBackground: ViewModifier {
     /// Applies the stat pill background: glass capsule on macOS 26+, `.ultraThinMaterial` capsule on older OSes.
     @ViewBuilder

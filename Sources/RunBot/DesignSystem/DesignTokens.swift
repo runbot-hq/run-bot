@@ -235,7 +235,6 @@ extension Color {
         light: Color(white: 0.40),
         dark: Color(white: 0.55)
     )
-    /// Tertiary text — lowest-emphasis metadata and timestamps.
     /// Neutral wash beneath native Liquid Glass surfaces.
     ///
     /// Uses black in light appearance and white in dark appearance so the subtle
@@ -246,6 +245,7 @@ extension Color {
         dark: .white
     )
 
+    /// Tertiary text — lowest-emphasis metadata and timestamps.
     static let rbTextTertiary = Color.adaptive(
         light: Color(white: 0.58),
         dark: Color(white: 0.39)
