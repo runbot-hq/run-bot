@@ -235,6 +235,16 @@ extension Color {
         light: Color(white: 0.40),
         dark: Color(white: 0.55)
     )
+    /// Neutral wash beneath native Liquid Glass surfaces.
+    ///
+    /// Uses black in light appearance and white in dark appearance so the subtle
+    /// `0.15` wash remains visible without introducing a fixed light-only surface.
+    /// Call sites apply `.opacity(0.15)`; this token is undimmed.
+    static let rbGlassNeutral = Color.adaptive(
+        light: .black,
+        dark: .white
+    )
+
     /// Tertiary text — lowest-emphasis metadata and timestamps.
     static let rbTextTertiary = Color.adaptive(
         light: Color(white: 0.58),
