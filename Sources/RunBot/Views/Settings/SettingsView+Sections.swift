@@ -391,76 +391,88 @@ internal extension SettingsView {
         // DEBUG #2170 — remove once beta-toggle install-button bug is verified fixed
         log("【updateActionRow】RENDERED — phase=\(runnerState.currentPhase)", category: .general)
         #endif
-        return AuthenticationSourceCard(isActive: true, isError: false) {
-            HStack(spacing: 8) {
-                // ❌ DO NOT add .accessibilityHidden(true) here.
-                // Accessibility modifiers on this icon are out of scope for v1 (#1794).
-                Image(systemName: "arrow.down.circle.fill")
-                    .foregroundStyle(Color.accentColor)
-                switch runnerState.currentPhase {
-                case .idle:
-                    // Guard in aboutSection prevents us reaching here, but the
-                    // compiler requires exhaustiveness.
-                    EmptyView()
-                case .available(let version):
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text("Update available: \(version)").font(.system(size: 12))
-                        Text("A new version of RunBot is ready to download.")
-                            .font(.caption2).foregroundColor(Color.rbTextSecondary)
-                    }
-                    Spacer()
-                    Button("Install & Relaunch") {}
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.small)
-                        .disabled(true)
-                case .downloading(let version):
-                    // ⚠️ This case is unreachable at runtime.
-                    // RunnerState.currentPhase cannot reconstruct .downloading from stored
-                    // fields — it returns .available instead (no isDownloading flag; see
-                    // RunnerState+AppUpdater.swift currentPhase doc and Principle 1).
-                    // The ProgressView below never renders. The case must remain for
-                    // compiler exhaustiveness.
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text("Update available: \(version)").font(.system(size: 12))
-                        ProgressView("Downloading update…")
-                            .scaleEffect(RBMetrics.updateProgressScale)
-                    }
-                    Spacer()
-                case .ready(let version):
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text("Update available: \(version)").font(.system(size: 12))
-                        Text("A new version of RunBot is ready to install.")
-                            .font(.caption2).foregroundColor(Color.rbTextSecondary)
-                    }
-                    Spacer()
-                    Button("Install & Relaunch") {
-                        #if DEBUG
-                        log("【updateActionRow】Install & Relaunch tapped — phase=\(runnerState.currentPhase)", category: .general)
-                        #endif
-                        Task { await autoUpdater.installAndRelaunch(state: runnerState) }
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.small)
-                    .help("Install and relaunch RunBot")
-                case .failed(let version):
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text("Update available" + (version.map { ": \($0)" } ?? ""))
-                            .font(.system(size: 12))
-                        Text("Download failed. Check your connection and try again.")
-                            .font(.caption2).foregroundColor(Color.rbTextSecondary)
-                    }
-                    Spacer()
-                    Button("Retry") {
-                        #if DEBUG
-                        log("【updateActionRow】Retry tapped — phase=\(runnerState.currentPhase)", category: .general)
-                        #endif
-                        Task { await autoUpdater.checkAndHandle(state: runnerState) }
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.small)
+        return HStack(spacing: 8) {
+            // ❌ DO NOT add .accessibilityHidden(true) here.
+            // Accessibility modifiers on this icon are out of scope for v1 (#1794).
+            Image(systemName: "arrow.down.circle.fill")
+                .foregroundStyle(Color.accentColor)
+            switch runnerState.currentPhase {
+            case .idle:
+                // Guard in aboutSection prevents us reaching here, but the
+                // compiler requires exhaustiveness.
+                EmptyView()
+            case .available(let version):
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Update available: \(version)").font(.system(size: 12))
+                    Text("A new version of RunBot is ready to download.")
+                        .font(.caption2).foregroundColor(Color.rbTextSecondary)
                 }
+                Spacer()
+                Button("Install & Relaunch") {}
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                    .disabled(true)
+            case .downloading(let version):
+                // ⚠️ This case is unreachable at runtime.
+                // RunnerState.currentPhase cannot reconstruct .downloading from stored
+                // fields — it returns .available instead (no isDownloading flag; see
+                // RunnerState+AppUpdater.swift currentPhase doc and Principle 1).
+                // The ProgressView below never renders. The case must remain for
+                // compiler exhaustiveness.
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Update available: \(version)").font(.system(size: 12))
+                    ProgressView("Downloading update…")
+                        .scaleEffect(RBMetrics.updateProgressScale)
+                }
+                Spacer()
+            case .ready(let version):
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Update available: \(version)").font(.system(size: 12))
+                    Text("A new version of RunBot is ready to install.")
+                        .font(.caption2).foregroundColor(Color.rbTextSecondary)
+                }
+                Spacer()
+                Button("Install & Relaunch") {
+                    #if DEBUG
+                    log("【updateActionRow】Install & Relaunch tapped — phase=\(runnerState.currentPhase)", category: .general)
+                    #endif
+                    Task { await autoUpdater.installAndRelaunch(state: runnerState) }
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+                .help("Install and relaunch RunBot")
+            case .failed(let version):
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Update available" + (version.map { ": \($0)" } ?? ""))
+                        .font(.system(size: 12))
+                    Text("Download failed. Check your connection and try again.")
+                        .font(.caption2).foregroundColor(Color.rbTextSecondary)
+                }
+                Spacer()
+                Button("Retry") {
+                    #if DEBUG
+                    log("【updateActionRow】Retry tapped — phase=\(runnerState.currentPhase)", category: .general)
+                    #endif
+                    Task { await autoUpdater.checkAndHandle(state: runnerState) }
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
             }
         }
+        .frame(
+            maxWidth: .infinity,
+            maxHeight: .infinity,
+            alignment: .topLeading
+        )
+        .padding(10)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Color.accentColor.opacity(0.07))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(Color.accentColor.opacity(0.6), lineWidth: 1)
+        )
         .padding(.horizontal, RBSpacing.md)
         .padding(.top, 8)
     }
