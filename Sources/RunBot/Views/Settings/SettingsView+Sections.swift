@@ -395,7 +395,7 @@ internal extension SettingsView {
             // ❌ DO NOT add .accessibilityHidden(true) here.
             // Accessibility modifiers on this icon are out of scope for v1 (#1794).
             Image(systemName: "arrow.down.circle.fill")
-                .foregroundStyle(.blue)
+                .foregroundStyle(Color.accentColor)
             switch runnerState.currentPhase {
             case .idle:
                 // Guard in aboutSection prevents us reaching here, but the
@@ -459,7 +459,22 @@ internal extension SettingsView {
                 .controlSize(.small)
             }
         }
-        .padding(.horizontal, RBSpacing.md).padding(.vertical, 8)
+        .frame(
+            maxWidth: .infinity,
+            maxHeight: .infinity,
+            alignment: .topLeading
+        )
+        .padding(10)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Color.accentColor.opacity(0.07))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(Color.accentColor.opacity(0.6), lineWidth: 1)
+        )
+        .padding(.horizontal, RBSpacing.md)
+        .padding(.top, 8)
     }
 }
 
