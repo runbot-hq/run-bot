@@ -8,6 +8,7 @@
 - [In-Memory Data](#in-memory-data)
 - [macOS Permissions](#macos-permissions)
 - [GitHub OAuth Permissions](#github-oauth-permissions)
+- [Action log storage](#action-log-storage)
 - [Open Source](#open-source)
 
 # Privacy & Data Storage
@@ -157,6 +158,18 @@ RunBot requests five OAuth scopes when you sign in with GitHub: `repo`, `read:or
 - Does not access private user data beyond organisation membership
 - Does not store your token anywhere other than the macOS Keychain on your local machine
 - Does not transmit your token to any server other than `api.github.com` and `github.com`
+
+### Action log storage
+
+When you view or RunBot prefetches GitHub Actions workflow logs, RunBot downloads the log archive from GitHub and stores a local cached copy on your Mac.
+
+These cached archives may contain any text emitted by your workflows, including build output, diagnostic information, and other data written to workflow logs. RunBot uses this cache to display logs and reduce repeated downloads from GitHub.
+
+Cached action logs are stored locally at:
+
+`~/Library/Caches/RunBot/action-log-zips/`.
+
+RunBot does not upload cached action logs to a RunBot-operated server. GitHub remains the source from which the logs are downloaded. The reason they are cached is because there are no API to get step logs from GitHub other than a tiny window after an action has run. In this window we fetch the zip files that has steps accurately divided. 
 
 ---
 
