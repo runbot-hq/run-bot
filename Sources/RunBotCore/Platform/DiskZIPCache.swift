@@ -23,6 +23,8 @@ import Foundation
 /// ## Write guard
 /// Only completed runs (`isCompleted == true`) are written to disk.
 /// In-progress runs stay memory-only to avoid persisting a partial ZIP.
+/// When `isCompleted` is `false` the skip is logged at `.services` so the
+/// absence of a disk-write outcome in the log stream is never ambiguous.
 ///
 /// ## Capacity
 /// Bounded by `maxCapacity` (10 files). On every successful `set`, files are sorted by
@@ -86,7 +88,13 @@ public actor DiskZIPCache {
     /// Eviction is skipped when the write fails — valid cache entries are never
     /// deleted to make room for a file that was not successfully written.
     public func set(runID: Int, zip: Data, isCompleted: Bool) {
-        guard isCompleted else { return }
+        guard isCompleted else {
+            log(
+                "DiskZIPCache › ZIP write skipped — runID=\(runID) reason=run-not-completed",
+                category: .services
+            )
+            return
+        }
         let file = cacheDir.appendingPathComponent("\(runID).zip")
         do {
             try zip.write(to: file, options: .atomic)
