@@ -231,7 +231,7 @@ internal extension SettingsView {
     /// When disabled:
     /// - No launch-time or Settings-entry check fires.
     /// - The background scheduler remains registered but skips update work.
-    /// - The beta-channel row is disabled (greyed out) because it is meaningless
+    /// - The beta-channel row is hidden because it is meaningless
     ///   without update checks.
     /// - Any visible update-phase UI is cleared immediately via `AppState`.
     ///
