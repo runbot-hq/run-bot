@@ -80,9 +80,6 @@ struct StepLogView: View {
     /// (cancelled) task can never commit stale state even when `Task.isCancelled`
     /// hasn't propagated yet.
     @State private var loadGeneration: Int = 0
-    /// Raw confidence score from MarkdownDetector — drives badge visibility (>= 6).
-    /// Computed on the background task in loadLog() alongside isMarkdownMode.
-    @State private var markdownScore: Int = 0
     /// Whether markdown rendering is active for this log.
     ///
     /// ## Lifecycle — read before changing this
@@ -170,23 +167,21 @@ struct StepLogView: View {
                 }
                 .buttonStyle(.plain)
                 Spacer()
-                if markdownScore >= 6 {
-                    Button {
-                        isMarkdownMode.toggle()
-                    } label: {
-                        HStack(spacing: 3) {
-                            Image(systemName: isMarkdownMode ? "doc.richtext" : "doc.plaintext")
-                                .font(.caption)
-                            Text("MD").font(.caption)
-                        }
-                        .foregroundColor(isMarkdownMode ? Color.rbAccent : Color.rbTextSecondary)
-                        .fixedSize()
+                Button {
+                    isMarkdownMode.toggle()
+                } label: {
+                    HStack(spacing: 3) {
+                        Image(systemName: isMarkdownMode ? "doc.richtext" : "doc.plaintext")
+                            .font(.caption)
+                        Text("MD").font(.caption)
                     }
-                    .buttonStyle(.plain)
-                    .help(isMarkdownMode ? "Showing markdown — click for raw" : "Show as markdown")
-                    .padding(.horizontal, 5).padding(.vertical, 2)
-                    .glassCard(cornerRadius: RBRadius.small)
+                    .foregroundColor(isMarkdownMode ? Color.rbAccent : Color.rbTextSecondary)
+                    .fixedSize()
                 }
+                .buttonStyle(.plain)
+                .help(isMarkdownMode ? "Showing markdown — click for raw" : "Show as markdown")
+                .padding(.horizontal, 5).padding(.vertical, 2)
+                .glassCard(cornerRadius: RBRadius.small)
                 if let urlString = job.htmlUrl, let url = URL(string: urlString) {
                     Button { NSWorkspace.shared.open(url) } label: {
                         HStack(spacing: 3) {
@@ -280,11 +275,7 @@ struct StepLogView: View {
                     switch logResult {
                     case .slice(let content):
                         // content is String — StepLogResult.slice carries `content: String` (see LogFetcher.swift).
-                        // && markdownScore >= 6 is intentional defence-in-depth: isMarkdownMode is only
-                        // ever set true via the score-gated badge path, but the double-guard closes a
-                        // theoretical cancellation race where isMarkdownMode survives a generation where
-                        // markdownScore resets to 0. Do NOT remove the score check from this condition.
-                        if isMarkdownMode && markdownScore >= 6 {
+                        if isMarkdownMode {
                             MarkdownLogView(text: content)
                         } else {
                             logBodyView
@@ -296,8 +287,7 @@ struct StepLogView: View {
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .padding(.horizontal, RBSpacing.md).padding(.top, 6)
                             Divider().padding(.horizontal, RBSpacing.md)
-                            // See .slice case above — same rationale for && markdownScore >= 6.
-                            if isMarkdownMode && markdownScore >= 6 {
+                            if isMarkdownMode {
                                 MarkdownLogView(text: content)
                             } else {
                                 logBodyView
@@ -372,7 +362,6 @@ struct StepLogView: View {
         loadTask?.cancel() // Signals cancellation; does NOT abort in-flight network I/O.
         loadGeneration += 1
         isLoading = true
-        markdownScore = 0      // Clear stale badge — prevents MD button flash during spinner.
         // isMarkdownMode is intentionally NOT reset here: loadLog() can fire multiple
         // times per view lifetime (`.onAppear` re-fires on live-step refresh), and
         // resetting it would wipe the user's manual toggle-off. SwiftUI state teardown
@@ -450,10 +439,8 @@ struct StepLogView: View {
                 // no text. The ?? "" coalesces both, which is pre-existing behaviour; the
                 // LogCopyButton disable check handles both correctly via isEmpty.
                 logText = result.text ?? ""
-                // Markdown state: score drives badge visibility, boolean drives auto-enable.
-                // Both computed from a single detect(_:) call on the detached task above;
-                // do NOT re-derive score >= 6 inline.
-                markdownScore = mdScore
+                // Markdown state: boolean drives auto-enable.
+                // Computed from a single detect(_:) call on the detached task above.
                 // Auto-enable: safe to set unconditionally when mdAuto is true because
                 // loadLog() does not re-run while this view instance is alive (StepLogView
                 // is not polled — RunnerPoller is a separate actor with no callback into
