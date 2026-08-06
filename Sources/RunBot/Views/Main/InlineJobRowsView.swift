@@ -280,8 +280,11 @@ private struct JobRowCard: View {
                     .lineLimit(1)
                     .fixedSize(horizontal: true, vertical: false)
                 Spacer(minLength: 4)
-                if job.jobStatus == .inProgress {
-                    JobInlineProgress(progress: job.progressFraction ?? 0)
+                if job.jobStatus == .inProgress,
+                   let fraction = job.progressFraction,
+                   fraction > 0,
+                   fraction < 1 {
+                    JobInlineProgress(progress: fraction)
                         .frame(width: 120)
                 }
                 if totalSteps > 0 {
