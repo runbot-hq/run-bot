@@ -539,11 +539,11 @@ internal extension SettingsView {
 ///   button tint, establishing a consistent "stopped/needs attention" signal.
 /// - Zero-count segments are suppressed entirely: no "0 inactive" shown in red when
 ///   all runners/scopes are active, and no "0 active" shown in green when all are inactive.
-/// - Background uses `Color.rbTextTertiary.opacity(0.18)` — intentionally lighter than the
-///   `Color.rbTextTertiary.opacity(0.22)` used by `InlineJobRowsView` for progress track
-///   fills; consistent with that pattern as a faint tint, but the values are not required
-///   to be in sync.
-/// - No new design tokens are introduced. (#2294)
+/// - Background uses `Color.rbGlassNeutral.opacity(0.15)` beneath `.glassEffect(.regular)`,
+///   mirroring `RunnerMetricsBadge` / `StatPillBackground` exactly. Black in light
+///   appearance, white in dark appearance — neutral so green/red semantic text colors
+///   are not biased. Native glass generates the edge and refraction; no manual stroke.
+///   (#2520, #2524)
 ///
 /// ## Layout rationale
 /// - `HStack(spacing: 0)` is intentional — not a mistake. A non-zero spacing value inserts
@@ -581,7 +581,7 @@ private struct StatusCountBadge: View {
             .fixedSize()
             .padding(.horizontal, 7)
             .padding(.vertical, 3)
-            .background(Color.white.opacity(0.15), in: Capsule())
+            .background(Color.rbGlassNeutral.opacity(0.15), in: Capsule())
             .glassEffect(.regular, in: Capsule())
             .fixedSize()
         }

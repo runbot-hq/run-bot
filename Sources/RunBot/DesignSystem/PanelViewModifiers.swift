@@ -106,8 +106,9 @@ struct GlassButton: ViewModifier {
 /// Background modifier for `StatPill` and `RunnerMetricsBadge` capsule pills.
 ///
 /// macOS 26+: identical architecture to `DiskPillBadge`:
-///   `Color.white.opacity(0.15)` tint — bleeds through the glass refractive
-///   layer and defines the pill edge visually, exactly as coloured pills do.
+///   `Color.rbGlassNeutral.opacity(0.15)` — black in light appearance, white in
+///   dark appearance — bleeds through the glass refractive layer and defines the
+///   pill edge visually in both modes, exactly as coloured pills do.
 ///   `Color.primary` was wrong — it resolves to near-black in dark mode,
 ///   making the tint invisible and leaving the glass nothing to refract.
 ///
@@ -124,7 +125,7 @@ struct StatPillBackground: ViewModifier {
     func body(content: Content) -> some View {
         if #available(macOS 26, *) {
             content
-                .background(Color.white.opacity(0.15), in: Capsule())
+                .background(Color.rbGlassNeutral.opacity(0.15), in: Capsule())
                 .glassEffect(.regular, in: Capsule())
         } else {
             content.background(.ultraThinMaterial, in: Capsule())
