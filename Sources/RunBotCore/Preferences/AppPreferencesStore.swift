@@ -102,6 +102,10 @@ public final class AppPreferencesStore {
     /// Single source of truth — see `keyShowDimmedRunners` rationale.
     private static let keyBetaChannel = "settings.betaChannel"
 
+    /// UserDefaults key for `automaticUpdatesEnabled`.
+    /// Single source of truth — see `keyShowDimmedRunners` rationale.
+    private static let keyAutomaticUpdatesEnabled = "settings.automaticUpdatesEnabled"
+
     // MARK: - Preferences
 
     /// Whether to show dimmed (offline/idle) runners in the runners list.
@@ -153,6 +157,37 @@ public final class AppPreferencesStore {
             #if DEBUG
             log(
                 "【AppPreferencesStore.betaChannel.didSet】persisted to \(Self.keyBetaChannel)",
+                category: .general
+            )
+            #endif
+        }
+    }
+
+    /// Whether the app performs automatic update checks and background scheduling.
+    ///
+    /// When `false`:
+    /// - No launch-time update check runs.
+    /// - The background scheduler remains registered but skips update work.
+    /// - All update-phase UI in Settings is hidden.
+    /// The `betaChannel` preference is unaffected by toggling this.
+    ///
+    /// Defaults to `true`. Follows the same stored-var + `didSet` pattern as
+    /// `betaChannel` so `.onChange(of: settings.automaticUpdatesEnabled)` fires
+    /// correctly in `SettingsView`. See class-level `## betaChannel — why stored
+    /// var, not computed or @AppStorage` for the rationale.
+    public var automaticUpdatesEnabled: Bool = true {
+        didSet {
+            guard oldValue != automaticUpdatesEnabled else { return }
+            #if DEBUG
+            log(
+                "【AppPreferencesStore.automaticUpdatesEnabled.didSet】\(oldValue) → \(automaticUpdatesEnabled)",
+                category: .general
+            )
+            #endif
+            _store.set(automaticUpdatesEnabled, forKey: Self.keyAutomaticUpdatesEnabled)
+            #if DEBUG
+            log(
+                "【AppPreferencesStore.automaticUpdatesEnabled.didSet】persisted to \(Self.keyAutomaticUpdatesEnabled)",
                 category: .general
             )
             #endif
@@ -212,6 +247,7 @@ public final class AppPreferencesStore {
             Self.keyShowDimmedRunners: true,
             Self.keyShowPopoverArrow: true,
             Self.keyBetaChannel: false,
+            Self.keyAutomaticUpdatesEnabled: true,
         ])
         // Seed betaChannel from the (possibly injected) store.
         // didSet does NOT fire during init — no double-write to UserDefaults.
@@ -219,6 +255,14 @@ public final class AppPreferencesStore {
         #if DEBUG
         log(
             "【AppPreferencesStore.init】betaChannel seeded from store: \(betaChannel)",
+            category: .general
+        )
+        #endif
+        // Seed automaticUpdatesEnabled. Same init-time safety as betaChannel above.
+        automaticUpdatesEnabled = store.bool(forKey: Self.keyAutomaticUpdatesEnabled)
+        #if DEBUG
+        log(
+            "【AppPreferencesStore.init】automaticUpdatesEnabled seeded from store: \(automaticUpdatesEnabled)",
             category: .general
         )
         #endif

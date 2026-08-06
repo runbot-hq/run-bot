@@ -427,10 +427,24 @@ final class AppState {
         await store.start()
         log("AppState › start — poll loop started")
 
-        // Step 5: update check.
+        // Seed autoUpdater flag from user preference (#2501).
+        // Must run after Step 4 (store.start()) so UserDefaults is fully
+        // initialised. Placed here rather than at AppUpdater init time because
+        // AppPreferencesStore.shared is a @MainActor singleton whose value is
+        // stable only after the app's main-actor startup sequence begins.
+        autoUpdater.automaticUpdatesEnabled = AppPreferencesStore.shared.automaticUpdatesEnabled
+        log("AppState › start — autoUpdater.automaticUpdatesEnabled=\(autoUpdater.automaticUpdatesEnabled)")
+
+        // Step 5: launch-time update check.
+        // checkAndHandle is the central automaticUpdatesEnabled gate (AppUpdater+UpdateFlow.swift).
+        // Returns immediately when disabled; call site here is unconditional (#2501).
         await autoUpdater.checkAndHandle(state: runnerState)
 
         // Step 6: background update scheduler.
+        // Always registered unconditionally — the scheduler lifecycle is never
+        // gated on the preference. Its callback checks automaticUpdatesEnabled
+        // before performing update work and returns immediately when disabled
+        // (#2501).
         autoUpdater.scheduleBackgroundCheck(state: runnerState)
         log("AppState › start — update background scheduler registered")
     }
@@ -534,5 +548,35 @@ final class AppState {
         // Runner-poll restart after sign-out is performed by the injected didSignOut callback.
         oauthCredentials.reconcile()
         oauthCredentials.start()
+    }
+
+    // MARK: - Automatic updates preference (#2501)
+
+    /// Called by `SettingsView` when the user toggles the automatic-updates
+    /// preference at runtime.
+    ///
+    /// Propagates the new value to `autoUpdater.automaticUpdatesEnabled` so that
+    /// the background scheduler’s next callback respects the preference without
+    /// any scheduler lifecycle change (no re-registration, no cancellation).
+    ///
+    /// **Enabling (`enabled == true`):**
+    /// - Sets `autoUpdater.automaticUpdatesEnabled = true`.
+    /// - Performs an immediate update check.
+    ///
+    /// **Disabling (`enabled == false`):**
+    /// - Sets `autoUpdater.automaticUpdatesEnabled = false`.
+    /// - Clears visible update-phase UI to `.idle`.
+    /// - Does not change the background scheduler lifecycle. The scheduler
+    ///   remains registered, but its callback skips update work while disabled.
+    func automaticUpdatesPreferenceDidChange(enabled: Bool) {
+        log("AppState › automaticUpdatesPreferenceDidChange — enabled=\(enabled)")
+        autoUpdater.automaticUpdatesEnabled = enabled
+        if enabled {
+            Task { await autoUpdater.checkAndHandle(state: runnerState) }
+            log("AppState › automaticUpdatesPreferenceDidChange — immediate check fired")
+        } else {
+            runnerState.apply(.idle)
+            log("AppState › automaticUpdatesPreferenceDidChange — phase cleared to .idle")
+        }
     }
 }
