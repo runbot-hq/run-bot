@@ -77,7 +77,9 @@ internal extension SettingsView {
                 // store is mutated between the .filter read and the .count read. This is
                 // a latent race, not a crash — the floor makes the intent explicit.
                 let inactiveRunners = max(0, runners.count - activeRunners)
-                StatusCountBadge(active: activeRunners, inactive: inactiveRunners)
+                GlassEffectContainer {
+                    StatusCountBadge(active: activeRunners, inactive: inactiveRunners)
+                }
                 Image(systemName: "chevron.right")
                     .font(.caption2)
                     .foregroundColor(Color.rbTextTertiary)
@@ -107,7 +109,9 @@ internal extension SettingsView {
                 let activeScopes = entries.filter { $0.isEnabled }.count
                 // max(0, ...) same rationale as manageLocalRunnersRow above.
                 let inactiveScopes = max(0, entries.count - activeScopes)
-                StatusCountBadge(active: activeScopes, inactive: inactiveScopes)
+                GlassEffectContainer {
+                    StatusCountBadge(active: activeScopes, inactive: inactiveScopes)
+                }
                 Image(systemName: "chevron.right")
                     .font(.caption2)
                     .foregroundColor(Color.rbTextTertiary)
@@ -574,9 +578,12 @@ private struct StatusCountBadge: View {
                 }
             }
             .font(.caption2)
+            .fixedSize()
             .padding(.horizontal, 7)
             .padding(.vertical, 3)
-            .background(Capsule().fill(Color.rbTextTertiary.opacity(0.18)))
+            .background(Color.white.opacity(0.15), in: Capsule())
+            .glassEffect(.regular, in: Capsule())
+            .fixedSize()
         }
     }
 }
