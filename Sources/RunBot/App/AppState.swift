@@ -427,12 +427,19 @@ final class AppState {
         await store.start()
         log("AppState › start — poll loop started")
 
-        // Step 5: update check.
-        await autoUpdater.checkAndHandle(state: runnerState)
-
-        // Step 6: background update scheduler.
-        autoUpdater.scheduleBackgroundCheck(state: runnerState)
-        log("AppState › start — update background scheduler registered")
+        // Step 5 & 6: update check + background scheduler.
+        // Both are gated on the user’s `automaticUpdatesEnabled` preference (#2501).
+        // When the user opts out, no check fires on launch and no scheduler is
+        // registered for the session. If the user re-enables automatic updates at
+        // runtime, `automaticUpdatesPreferenceDidChange(enabled: true)` (called from
+        // SettingsView via an `.onChange` modifier) starts both paths.
+        if AppPreferencesStore.shared.automaticUpdatesEnabled {
+            await autoUpdater.checkAndHandle(state: runnerState)
+            autoUpdater.scheduleBackgroundCheck(state: runnerState)
+            log("AppState › start — update check + background scheduler registered")
+        } else {
+            log("AppState › start — automatic updates disabled; skipping check and scheduler (#2501)")
+        }
     }
 
     // MARK: - Startup helpers
@@ -534,5 +541,38 @@ final class AppState {
         // Runner-poll restart after sign-out is performed by the injected didSignOut callback.
         oauthCredentials.reconcile()
         oauthCredentials.start()
+    }
+
+    // MARK: - Automatic updates preference (#2501)
+
+    /// Called by `SettingsView` when the user toggles the automatic-updates
+    /// preference at runtime.
+    ///
+    /// **Disabling (`enabled == false`):**
+    /// - Resets `runnerState` to `.idle` so no stale phase UI persists.
+    /// - Does NOT stop an already-running `NSBackgroundActivityScheduler`;
+    ///   `scheduleBackgroundCheck` intentionally has no public cancel API
+    ///   (see `AppUpdater+BackgroundScheduler.swift` for rationale). In
+    ///   practice this is harmless: the scheduler fires at most once per
+    ///   24 h, and the gate in this method prevents a new scheduler from
+    ///   being registered next launch.
+    ///
+    /// **Enabling (`enabled == true`):**
+    /// - Fires an immediate check.
+    /// - Registers a fresh periodic scheduler.
+    ///   `scheduleBackgroundCheck` invalidates any existing scheduler before
+    ///   registering the new one (see `activity?.invalidate()` in
+    ///   `AppUpdater+BackgroundScheduler.swift`), so this is safe to call
+    ///   more than once.
+    func automaticUpdatesPreferenceDidChange(enabled: Bool) {
+        log("AppState › automaticUpdatesPreferenceDidChange — enabled=\(enabled)")
+        if enabled {
+            Task { await autoUpdater.checkAndHandle(state: runnerState) }
+            autoUpdater.scheduleBackgroundCheck(state: runnerState)
+            log("AppState › automaticUpdatesPreferenceDidChange — check + scheduler started")
+        } else {
+            runnerState.apply(.idle)
+            log("AppState › automaticUpdatesPreferenceDidChange — phase cleared to .idle")
+        }
     }
 }

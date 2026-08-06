@@ -308,9 +308,23 @@ struct SettingsView: View {
         //   • Back-nav sub-views   : root Group does not re-appear → no extra check ✅
         //   • Settings closed mid-check: SwiftUI cancels automatically ✅
         //
+        // Gated on `settings.automaticUpdatesEnabled` (#2501): when the user opts
+        // out, opening Settings must not silently fire a check.
+        //
         // Principle P9: structured concurrency — no manual Task or DispatchQueue.
         .task {
+            guard settings.automaticUpdatesEnabled else {
+                log("【SettingsView.task2】automatic updates disabled — skipping entry check (#2501)", category: .general)
+                return
+            }
             await autoUpdater.checkAndHandle(state: runnerState)
+        }
+        // Runtime toggle observer (#2501).
+        // When the user flips the automatic-updates toggle, notify AppState so it
+        // can start or clear the update check + scheduler outside of the .task
+        // lifecycle (which is tied to Settings being open).
+        .onChange(of: settings.automaticUpdatesEnabled) { _, enabled in
+            appState.automaticUpdatesPreferenceDidChange(enabled: enabled)
         }
         .onDisappear {
             // OAuth session is now coordinator-owned (issue #2474).

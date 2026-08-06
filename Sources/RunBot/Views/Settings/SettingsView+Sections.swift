@@ -180,7 +180,10 @@ internal extension SettingsView {
             popoverArrowRow
             Divider().padding(.leading, RBSpacing.md)
             #endif
+            Divider().padding(.leading, RBSpacing.md)
+            automaticUpdatesRow
             betaChannelRow
+                .disabled(!settings.automaticUpdatesEnabled)
         }
     }
 
@@ -214,6 +217,38 @@ internal extension SettingsView {
                     log("【popoverArrowRow】showPopoverArrow changed \(old) → \(new)", category: .general)
                 }
                 #endif
+        }
+        .padding(.horizontal, RBSpacing.md).padding(.top, 6).padding(.bottom, 6)
+    }
+
+    // MARK: - Automatic updates row (#2501)
+
+    /// Toggle row that enables or disables all automatic update activity.
+    ///
+    /// When disabled:
+    /// - No launch-time or Settings-entry check fires.
+    /// - No background scheduler runs for the session.
+    /// - The beta-channel row is disabled (greyed out) because it is meaningless
+    ///   without update checks.
+    /// - Any visible update-phase UI is cleared immediately via `AppState`.
+    ///
+    /// When enabled:
+    /// - An immediate check fires and the periodic scheduler restarts.
+    ///
+    /// Binds through `$settings.automaticUpdatesEnabled` (the stable `@Bindable var
+    /// settings` on `SettingsView`) so `.onChange` in `SettingsView.swift` fires and
+    /// notifies `AppState`. Uses the same HStack/VStack/Toggle row architecture as
+    /// `betaChannelRow`.
+    var automaticUpdatesRow: some View {
+        HStack(alignment: .center) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Automatic updates").font(.system(size: 12))
+                Text("Automatically check for and offer new versions of RunBot. All updates are verified with an Ed25519 signature before installation.")
+                    .font(.caption2).foregroundColor(Color.rbTextSecondary)
+            }
+            Spacer()
+            Toggle("", isOn: $settings.automaticUpdatesEnabled)
+                .toggleStyle(.switch).tint(Color.rbSuccess).labelsHidden()
         }
         .padding(.horizontal, RBSpacing.md).padding(.top, 6).padding(.bottom, 6)
     }
@@ -260,6 +295,15 @@ internal extension SettingsView {
             Toggle("", isOn: $settings.betaChannel)
                 .toggleStyle(.switch).tint(Color.rbSuccess).labelsHidden()
                 .onChange(of: settings.betaChannel) { _, newValue in
+                    // Do not initiate a check while automatic updates are disabled (#2501).
+                    // The stored betaChannel value is intentionally retained — disabling
+                    // automatic updates must not reset the user's beta preference.
+                    guard settings.automaticUpdatesEnabled else {
+                        #if DEBUG
+                        log("【beta-toggle】onChange — automatic updates disabled, skipping check (#2501)", category: .general)
+                        #endif
+                        return
+                    }
                     // DEBUG #2170 — remove once beta-toggle install-button bug is verified fixed
                     #if DEBUG
                     log("【beta-toggle】onChange fired — betaChannel=\(newValue) settings=\(ObjectIdentifier(settings))", category: .general)
@@ -354,7 +398,7 @@ internal extension SettingsView {
                 }
             }
             .padding(.horizontal, RBSpacing.md).padding(.vertical, 5)
-            if runnerState.currentPhase != .idle {
+            if settings.automaticUpdatesEnabled && runnerState.currentPhase != .idle {
                 Divider().padding(.leading, RBSpacing.md)
                 updateActionRow
             }
