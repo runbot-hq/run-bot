@@ -229,13 +229,13 @@ internal extension SettingsView {
     ///
     /// When disabled:
     /// - No launch-time or Settings-entry check fires.
-    /// - No background scheduler runs for the session.
+    /// - The background scheduler remains registered but skips update work.
     /// - The beta-channel row is disabled (greyed out) because it is meaningless
     ///   without update checks.
     /// - Any visible update-phase UI is cleared immediately via `AppState`.
     ///
     /// When enabled:
-    /// - An immediate check fires and the periodic scheduler restarts.
+    /// - An immediate update check fires.
     ///
     /// Binds through `$settings.automaticUpdatesEnabled` (the stable `@Bindable var
     /// settings` on `SettingsView`) so `.onChange` in `SettingsView.swift` fires and

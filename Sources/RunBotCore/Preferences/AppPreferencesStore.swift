@@ -167,7 +167,7 @@ public final class AppPreferencesStore {
     ///
     /// When `false`:
     /// - No launch-time update check runs.
-    /// - No periodic background scheduler is registered.
+    /// - The background scheduler remains registered but skips update work.
     /// - All update-phase UI in Settings is hidden.
     /// The `betaChannel` preference is unaffected by toggling this.
     ///

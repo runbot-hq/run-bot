@@ -442,9 +442,9 @@ final class AppState {
 
         // Step 6: background update scheduler.
         // Always registered unconditionally — the scheduler lifecycle is never
-        // gated on the preference. The scheduler fires checkAndHandle each cycle;
-        // when automaticUpdatesEnabled is false, checkAndHandle returns immediately
-        // and the scheduler cycle becomes a no-op (#2501).
+        // gated on the preference. Its callback checks automaticUpdatesEnabled
+        // before performing update work and returns immediately when disabled
+        // (#2501).
         autoUpdater.scheduleBackgroundCheck(state: runnerState)
         log("AppState › start — update background scheduler registered")
     }
@@ -561,16 +561,13 @@ final class AppState {
     ///
     /// **Enabling (`enabled == true`):**
     /// - Sets `autoUpdater.automaticUpdatesEnabled = true`.
-    /// - Fires an immediate `checkAndHandle` so the user sees a result straight
-    ///   away rather than waiting up to 24 h for the next scheduler cycle.
+    /// - Performs an immediate update check.
     ///
     /// **Disabling (`enabled == false`):**
     /// - Sets `autoUpdater.automaticUpdatesEnabled = false`.
-    /// - Clears any visible update-phase UI to `.idle` immediately.
-    /// - Does NOT touch the `NSBackgroundActivityScheduler` — it remains
-    ///   registered. Its Task calls `checkAndHandle`, which is the central
-    ///   `automaticUpdatesEnabled` gate and returns immediately when disabled.
-    ///   See `AppUpdater+UpdateFlow.swift`.
+    /// - Clears visible update-phase UI to `.idle`.
+    /// - Does not change the background scheduler lifecycle. The scheduler
+    ///   remains registered, but its callback skips update work while disabled.
     func automaticUpdatesPreferenceDidChange(enabled: Bool) {
         log("AppState › automaticUpdatesPreferenceDidChange — enabled=\(enabled)")
         autoUpdater.automaticUpdatesEnabled = enabled

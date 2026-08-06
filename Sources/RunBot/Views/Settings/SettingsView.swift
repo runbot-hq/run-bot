@@ -320,9 +320,9 @@ struct SettingsView: View {
             await autoUpdater.checkAndHandle(state: runnerState)
         }
         // Runtime toggle observer (#2501).
-        // When the user flips the automatic-updates toggle, notify AppState so it
-        // can start or clear the update check + scheduler outside of the .task
-        // lifecycle (which is tied to Settings being open).
+        // Propagates the preference to AppUpdater. Enabling performs an immediate
+        // check; disabling clears the visible update phase. The background
+        // scheduler lifecycle is unchanged.
         .onChange(of: settings.automaticUpdatesEnabled) { _, enabled in
             appState.automaticUpdatesPreferenceDidChange(enabled: enabled)
         }
