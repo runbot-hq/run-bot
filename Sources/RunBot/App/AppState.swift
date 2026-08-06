@@ -436,15 +436,15 @@ final class AppState {
         log("AppState › start — autoUpdater.automaticUpdatesEnabled=\(autoUpdater.automaticUpdatesEnabled)")
 
         // Step 5: launch-time update check.
-        // Gated via autoUpdater.automaticUpdatesEnabled which is seeded above. If disabled, checkAndHandle is a no-op
-        // at the AppUpdater level; the call site here is unconditional (#2501).
+        // checkAndHandle is the central automaticUpdatesEnabled gate (AppUpdater+UpdateFlow.swift).
+        // Returns immediately when disabled; call site here is unconditional (#2501).
         await autoUpdater.checkAndHandle(state: runnerState)
 
         // Step 6: background update scheduler.
         // Always registered unconditionally — the scheduler lifecycle is never
-        // gated on the preference. When disabled, the background Task inside the
-        // scheduler callback guards autoUpdater.automaticUpdatesEnabled and skips
-        // checkForUpdate without touching the scheduler itself (#2501).
+        // gated on the preference. The scheduler fires checkAndHandle each cycle;
+        // when automaticUpdatesEnabled is false, checkAndHandle returns immediately
+        // and the scheduler cycle becomes a no-op (#2501).
         autoUpdater.scheduleBackgroundCheck(state: runnerState)
         log("AppState › start — update background scheduler registered")
     }
@@ -568,8 +568,9 @@ final class AppState {
     /// - Sets `autoUpdater.automaticUpdatesEnabled = false`.
     /// - Clears any visible update-phase UI to `.idle` immediately.
     /// - Does NOT touch the `NSBackgroundActivityScheduler` — it remains
-    ///   registered. Its Task body guards `automaticUpdatesEnabled` and returns
-    ///   early if the flag is false. See `AppUpdater+BackgroundScheduler.swift`.
+    ///   registered. Its Task calls `checkAndHandle`, which is the central
+    ///   `automaticUpdatesEnabled` gate and returns immediately when disabled.
+    ///   See `AppUpdater+UpdateFlow.swift`.
     func automaticUpdatesPreferenceDidChange(enabled: Bool) {
         log("AppState › automaticUpdatesPreferenceDidChange — enabled=\(enabled)")
         autoUpdater.automaticUpdatesEnabled = enabled

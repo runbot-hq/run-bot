@@ -179,9 +179,11 @@ internal extension SettingsView {
             #if DEBUG
             popoverArrowRow
             Divider().padding(.leading, RBSpacing.md)
-            #endif
+            #else
             Divider().padding(.leading, RBSpacing.md)
+            #endif
             automaticUpdatesRow
+            Divider().padding(.leading, RBSpacing.md)
             betaChannelRow
                 .disabled(!settings.automaticUpdatesEnabled)
         }
@@ -243,7 +245,7 @@ internal extension SettingsView {
         HStack(alignment: .center) {
             VStack(alignment: .leading, spacing: 2) {
                 Text("Automatic updates").font(.system(size: 12))
-                Text("Automatically check for and offer new versions of RunBot. All updates are verified with an Ed25519 signature before installation.")
+                Text("Automatic updates arrive when new updates are available. All updates are signed with an Ed25519 signature, ensuring they come directly from GitHub Releases.")
                     .font(.caption2).foregroundColor(Color.rbTextSecondary)
             }
             Spacer()
