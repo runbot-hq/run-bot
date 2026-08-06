@@ -61,7 +61,7 @@ bash build.sh && open dist/RunBot.app
 
 ```bash
  log stream --level debug --style compact \
-  --predicate 'process == "RunBot" AND subsystem == "com.eoncode.run-bot" AND category == "mbk"'
+  --predicate 'process == "RunBot" AND subsystem == "com.eoncode.run-bot"'
 ```
 
 Reset build artifacts
