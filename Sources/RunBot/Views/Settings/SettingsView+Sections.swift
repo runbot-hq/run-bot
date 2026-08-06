@@ -183,9 +183,10 @@ internal extension SettingsView {
             Divider().padding(.leading, RBSpacing.md)
             #endif
             automaticUpdatesRow
-            Divider().padding(.leading, RBSpacing.md)
-            betaChannelRow
-                .disabled(!settings.automaticUpdatesEnabled)
+            if settings.automaticUpdatesEnabled {
+                Divider().padding(.leading, RBSpacing.md)
+                betaChannelRow
+            }
         }
     }
 
@@ -245,7 +246,7 @@ internal extension SettingsView {
         HStack(alignment: .center) {
             VStack(alignment: .leading, spacing: 2) {
                 Text("Automatic updates").font(.system(size: 12))
-                Text("Automatic updates arrive when new updates are available. All updates are signed with an Ed25519 signature, ensuring they come directly from GitHub Releases.")
+                Text("Automatically downloads updates from GitHub Releases, verified with Ed25519.")
                     .font(.caption2).foregroundColor(Color.rbTextSecondary)
             }
             Spacer()
