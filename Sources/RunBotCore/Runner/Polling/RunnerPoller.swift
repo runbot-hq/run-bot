@@ -161,8 +161,9 @@ public actor RunnerPoller {
   let decoder = JSONDecoder()
   /// Fetcher for workflow action groups.
   let actionGroupFetcher: any WorkflowActionGroupFetcherProtocol
-  /// Background ZIP prefetch queue — warms `DiskZIPCache` after each
-  /// poll cycle so that `fetchStepLog` calls hit cache instead of the network.
+  /// Background ZIP prefetch queue — warms `DiskZIPCache` on each observed
+  /// active → completed group transition (see `enqueueCompletionZIPs`) so that
+  /// `fetchStepLog` calls hit cache instead of the network.
   let zipPrefetchQueue: ZIPPrefetchQueue
 
   // MARK: - Init
