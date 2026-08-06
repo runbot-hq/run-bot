@@ -421,4 +421,35 @@ final class CompletedGroupZIPPrefetchTests: XCTestCase {
             "endpoint must contain run ID 8001")
     }
 
+    // 9. Active → completed → completed: fires once, never again.
+    // responseData is nil so nothing lands in DiskZIPCache — a regression in
+    // transition detection surfaces as callCount == 2 rather than being masked
+    // by the queue's disk-cache dedup guard.
+    @MainActor
+    func testCompletedAfterRealTransition_doesNotEnqueueAgain() async throws {
+        let transport = TestFakeTransport()
+        transport.responseData = nil
+        let poller = makePoller(transport: transport)
+
+        let active = makeGroup(inProgressRunIDs: [10001])
+        let completed = makeGroup(completedRunIDs: [10001])
+
+        await runTransitionCycles(poller: poller, activeGroup: active, completedGroup: completed)
+        try await Task.sleep(nanoseconds: 150_000_000)
+        XCTAssertEqual(transport.callCount, 1,
+            "transition tick must enqueue exactly 1 ZIP")
+
+        // Cycle 3 — same completed group; its run ID is no longer in previouslyActiveRunIDs.
+        let completedResult = GroupPollResult(
+            display: [completed],
+            newGroupCache: [completed.id: completed],
+            newPrevLiveGroups: [:])
+        _ = await poller.applyFetchResult(
+            enrichedRunners: [], jobResult: emptyJobResult(), groupResult: completedResult)
+        try await Task.sleep(nanoseconds: 100_000_000)
+
+        XCTAssertEqual(transport.callCount, 1,
+            "completed → completed after a real transition must not re-enqueue")
+    }
+
 }
