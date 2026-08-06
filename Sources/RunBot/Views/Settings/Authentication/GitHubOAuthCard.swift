@@ -102,7 +102,7 @@ struct GitHubOAuthCard: View {
         switch oauthState {
         case .signedOut:
             Button(action: onSignIn) {
-                Text("Sign in with GitHub").font(.caption2)
+                Text("Sign in").font(.caption2)
             }
             .buttonStyle(.bordered)
             .disabled(isSignInDisabled)
