@@ -7,8 +7,9 @@ import SwiftUI
 
 /// Reusable card shell used by `EnvironmentTokenCard` and `GitHubOAuthCard`.
 ///
-/// ## Design rules (from #2456)
-/// - Low-opacity accent fill only for the **active or erroneous** card; neutral stroke otherwise.
+/// ## Design rules (from #2456 / #2508)
+/// - Base semantic color at `opacity(0.15)` for active/error; `.clear` for neutral — mirrors `DiskPillBadge`.
+/// - Native `.glassEffect(.regular)` produces edge highlights; no manual stroke overlay.
 /// - Dim controls more than labels so stored state remains readable when inactive.
 struct AuthenticationSourceCard<Content: View>: View {
 
@@ -19,21 +20,16 @@ struct AuthenticationSourceCard<Content: View>: View {
     /// Content of the card.
     @ViewBuilder let content: () -> Content
 
-    /// Border color — accent when active, danger when error, neutral otherwise.
-    private var strokeColor: Color {
-        if isError { return Color.rbDanger.opacity(0.6) }
-        if isActive { return Color.accentColor.opacity(0.6) }
-        return Color.rbBorderSubtle
+    /// Base semantic color for the glass card — undimmed, passed to `settingsTintedGlassCard`
+    /// which applies `opacity(0.15)` internally (mirrors `DiskPillBadge`/`StatusBadge`).
+    private var glassColor: Color {
+        if isError { return .rbDanger }
+        if isActive { return .accentColor }
+        return .clear
     }
 
-    /// Background fill — low-opacity accent/danger when prominent, transparent otherwise.
-    private var fillColor: Color {
-        if isError { return Color.rbDanger.opacity(0.07) }
-        if isActive { return Color.accentColor.opacity(0.07) }
-        return Color.clear
-    }
-
-    /// Card body: content wrapped in a tint-aware Liquid Glass card + stroke overlay.
+    /// Card body: content wrapped in the badge-pattern Liquid Glass card.
+    /// Edge highlights and refraction come exclusively from `.glassEffect(.regular)`.
     var body: some View {
         content()
             .frame(
@@ -42,10 +38,6 @@ struct AuthenticationSourceCard<Content: View>: View {
                 alignment: .topLeading
             )
             .padding(10)
-            .settingsTintedGlassCard(backgroundColor: fillColor, cornerRadius: 8)
-            .overlay(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .stroke(strokeColor, lineWidth: 1)
-            )
+            .settingsTintedGlassCard(color: glassColor, cornerRadius: 8)
     }
 }
