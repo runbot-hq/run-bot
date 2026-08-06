@@ -40,7 +40,7 @@ struct GitHubOAuthCard: View {
     /// Card body: status dot, labels, and action button.
     var body: some View {
         AuthenticationSourceCard(isActive: isActive, isError: false) {
-            HStack(alignment: .center, spacing: 8) {
+            HStack(alignment: .top, spacing: 8) {
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 6) {
                         statusDot
@@ -54,8 +54,10 @@ struct GitHubOAuthCard: View {
                 .opacity(isActive ? 1.0 : 0.75)
                 Spacer()
                 actionButton
+                    .frame(maxHeight: .infinity, alignment: .center)
                     .opacity(isActive ? 1.0 : 0.65)
             }
+            .frame(maxHeight: .infinity, alignment: .top)
         }
         .accessibilityElement(children: .combine)
         .accessibilityValue(accessibilityValueText)
