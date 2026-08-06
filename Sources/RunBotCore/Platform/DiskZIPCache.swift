@@ -6,19 +6,25 @@ import Foundation
 ///
 /// Stored in `applicationSupportDirectory/RunBot/ZIPCache/` as raw `.zip` files
 /// named `{runID}.zip`. The OS may purge entries under storage pressure; that is
-/// acceptable because a purge merely causes a network re-fetch — no data loss occurs.
+/// acceptable; a purged entry will not be re-fetched automatically because ZIP
+/// prefetch is triggered exactly once per active → completed transition
+/// (`RunnerPoller.enqueueCompletionZIPs`). If the file is later absent the
+/// log-fetch read path falls back to a live download.
 ///
 /// Unzipping is **not** performed here. The raw bytes are stored and returned as-is;
 /// callers (e.g. `LogFetcher.fetchStepLog`) unzip lazily on the read path.
 ///
 /// ## Key format
-/// Plain `runID` integer — filename is `{runID}.zip`. No `startedAt` discriminator
-/// is needed because `RunnerPoller.prefetchedRunIDs` ensures each runID is only
-/// ever written once per session.
+/// Plain `runID` integer — filename is `{runID}.zip`. No `startedAt`
+/// discriminator is needed because the run ID identifies the cache entry.
+/// `ZIPPrefetchQueue.enqueue` skips entries currently present in the cache;
+/// after purge or eviction, the same run ID may be written to the same path again.
 ///
 /// ## Write guard
 /// Only completed runs (`isCompleted == true`) are written to disk.
 /// In-progress runs stay memory-only to avoid persisting a partial ZIP.
+/// When `isCompleted` is `false` the skip is logged at `.services` so the
+/// absence of a disk-write outcome in the log stream is never ambiguous.
 ///
 /// ## Capacity
 /// Bounded by `maxCapacity` (10 files). On every successful `set`, files are sorted by
@@ -82,9 +88,29 @@ public actor DiskZIPCache {
     /// Eviction is skipped when the write fails — valid cache entries are never
     /// deleted to make room for a file that was not successfully written.
     public func set(runID: Int, zip: Data, isCompleted: Bool) {
-        guard isCompleted else { return }
+        guard isCompleted else {
+            log(
+                "DiskZIPCache › ZIP write skipped — runID=\(runID) reason=run-not-completed",
+                category: .services
+            )
+            return
+        }
         let file = cacheDir.appendingPathComponent("\(runID).zip")
-        guard (try? zip.write(to: file, options: .atomic)) != nil else { return }
+        do {
+            try zip.write(to: file, options: .atomic)
+            log(
+                "DiskZIPCache › ZIP write succeeded — "
+                    + "runID=\(runID) bytes=\(zip.count)",
+                category: .services
+            )
+        } catch {
+            log(
+                "DiskZIPCache › ZIP write failed — "
+                    + "runID=\(runID) error=\(error)",
+                category: .services
+            )
+            return
+        }
         evictIfNeeded()
     }
 

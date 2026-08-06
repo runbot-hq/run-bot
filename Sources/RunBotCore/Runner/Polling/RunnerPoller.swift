@@ -161,16 +161,10 @@ public actor RunnerPoller {
   let decoder = JSONDecoder()
   /// Fetcher for workflow action groups.
   let actionGroupFetcher: any WorkflowActionGroupFetcherProtocol
-  /// Background ZIP prefetch queue — warms `DiskZIPCache` after each
-  /// poll cycle so that `fetchStepLog` calls hit cache instead of the network.
+  /// Background ZIP prefetch queue — warms `DiskZIPCache` on each observed
+  /// active → completed group transition (see `enqueueCompletionZIPs`) so that
+  /// `fetchStepLog` calls hit cache instead of the network.
   let zipPrefetchQueue: ZIPPrefetchQueue
-  /// runIDs already handed to `zipPrefetchQueue`; prevents redundant enqueue calls
-  /// across poll cycles. The queue itself is idempotent, but skipping the `await`
-  /// entirely avoids actor-hop overhead on every poll tick for already-seen runs.
-  /// `internal` (not `private`) solely to allow access from `RunnerPoller+ApplyResult`
-  /// (SPM cross-file extension rule — see note at top of file). Write only via
-  /// `applyFetchResult`.
-  var prefetchedRunIDs: Set<Int> = []
 
   // MARK: - Init
 
