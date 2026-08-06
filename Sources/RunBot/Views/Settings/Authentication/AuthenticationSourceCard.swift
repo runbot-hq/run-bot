@@ -42,7 +42,7 @@ struct AuthenticationSourceCard<Content: View>: View {
                 alignment: .topLeading
             )
             .padding(10)
-            .glassCard(cornerRadius: 8, tint: fillColor)
+            .settingsTintedGlassCard(backgroundColor: fillColor, cornerRadius: 8)
             .overlay(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .stroke(strokeColor, lineWidth: 1)
