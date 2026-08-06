@@ -86,29 +86,31 @@ struct AuthenticationSection: View {
                 .padding(.top, 8)
                 .padding(.bottom, 4)
 
-            HStack(alignment: .top, spacing: 8) {
-                // Env card: disabled when the environment toggle should be disabled
-                // (env not active and either OAuth is blocking or no env token is available).
-                // Always allows turning off if env is already active.
-                EnvironmentTokenCard(
-                    envState: authentication.environmentState,
-                    isActive: envIsActive,
-                    isDisabled: environmentToggleDisabled,
-                    onToggle: onToggleEnvironment
-                )
+            GlassEffectContainer {
+                HStack(alignment: .top, spacing: 8) {
+                    // Env card: disabled when the environment toggle should be disabled
+                    // (env not active and either OAuth is blocking or no env token is available).
+                    // Always allows turning off if env is already active.
+                    EnvironmentTokenCard(
+                        envState: authentication.environmentState,
+                        isActive: envIsActive,
+                        isDisabled: environmentToggleDisabled,
+                        onToggle: onToggleEnvironment
+                    )
 
-                // OAuth card: sign-in button disabled while env is the active source.
-                // The user must turn env off before signing in with OAuth so the transition
-                // is always explicit. Sign-out is always available regardless of source.
-                GitHubOAuthCard(
-                    oauthState: authentication.oauthState,
-                    isActive: oauthIsActive,
-                    isSignInDisabled: envIsActive,
-                    onSignIn: onSignIn,
-                    onSignOut: onSignOut
-                )
+                    // OAuth card: sign-in button disabled while env is the active source.
+                    // The user must turn env off before signing in with OAuth so the transition
+                    // is always explicit. Sign-out is always available regardless of source.
+                    GitHubOAuthCard(
+                        oauthState: authentication.oauthState,
+                        isActive: oauthIsActive,
+                        isSignInDisabled: envIsActive,
+                        onSignIn: onSignIn,
+                        onSignOut: onSignOut
+                    )
+                }
+                .fixedSize(horizontal: false, vertical: true)
             }
-            .fixedSize(horizontal: false, vertical: true)
             .padding(.horizontal, RBSpacing.md)
             .padding(.vertical, 8)
         }

@@ -403,7 +403,9 @@ internal extension SettingsView {
             .padding(.horizontal, RBSpacing.md).padding(.vertical, 5)
             if settings.automaticUpdatesEnabled && runnerState.currentPhase != .idle {
                 Divider().padding(.leading, RBSpacing.md)
-                updateActionRow
+                GlassEffectContainer {
+                    updateActionRow
+                }
             }
         }
     }
@@ -512,14 +514,7 @@ internal extension SettingsView {
             alignment: .topLeading
         )
         .padding(10)
-        .background(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(Color.accentColor.opacity(0.07))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(Color.accentColor.opacity(0.6), lineWidth: 1)
-        )
+        .settingsTintedGlassCard(color: .accentColor, cornerRadius: 8)
         .padding(.horizontal, RBSpacing.md)
         .padding(.top, 8)
     }
