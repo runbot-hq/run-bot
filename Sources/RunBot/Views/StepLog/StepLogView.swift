@@ -404,7 +404,7 @@ struct StepLogView: View {
                 return
             }
             let isStepCompleted = capturedStep.conclusion != nil
-            var localFetcher = fetcherSnapshot
+            let localFetcher = fetcherSnapshot
             let result = await localFetcher.fetchStepLog(
                 runID: runID,
                 startedAt: startedAt,

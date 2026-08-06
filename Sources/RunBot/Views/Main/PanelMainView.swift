@@ -229,7 +229,7 @@ struct PanelMainView: View {
                     #if DEBUG
                     log("【PanelMainView】 Color.clear.onAppear — triggering localRunnerStore.refresh()", category: .panel)
                     #endif
-                    localRunnerStore.refresh()
+Task { await localRunnerStore.refresh() }
                 }
             actionsSectionScrollable
         }
@@ -281,8 +281,8 @@ struct PanelMainView: View {
                 category: .panel
             )
             #endif
+Task { await localRunnerStore.refresh() }
             panelControllerHandle.remeasure()
-            localRunnerStore.refresh()
         }
         .onChange(of: appState.runnerState.jobs) { _, newJobs in
             #if DEBUG
