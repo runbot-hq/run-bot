@@ -34,15 +34,13 @@ enum MBKSkyLight {
     )
 
     private static func load<T>(
-        _ name: StaticString,
+        _ name: String,
         as _: T.Type
     ) -> T? {
         guard let handle else { return nil }
-        return name.withUTF8Buffer { buffer in
-            guard let baseAddress = buffer.baseAddress else { return nil }
-            return dlsym(handle, baseAddress).map {
-                unsafeBitCast($0, to: T.self)
-            }
+        return name.withCString { cName in
+            guard let symbol = dlsym(handle, cName) else { return nil }
+            return unsafeBitCast(symbol, to: T.self)
         }
     }
 
@@ -56,10 +54,4 @@ enum MBKSkyLight {
         as: SetMenuBarVisibilityOverrideFunction.self
     )
 
-    /// Whether both the SkyLight image and both required symbols are available.
-    static var isAvailable: Bool {
-        handle != nil
-            && mainConnectionID != nil
-            && setMenuBarVisibilityOverride != nil
     }
-}

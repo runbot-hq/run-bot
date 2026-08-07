@@ -90,41 +90,61 @@ final class MBKMenuBarVisibilityLease {
 
         // --- Private SkyLight lease ---
         guard let displayID = Self.displayID(for: screen) else {
-            mbkLog("MenuBarLease", "private unavailable -- no display ID for screen")
+            mbkLog("MenuBarLease", "private unavailable -- no display ID, screen=\(screen.map { "\($0)" } ?? "nil")")
             return visible
         }
 
-        guard MBKSkyLight.isAvailable else {
+        guard let mainConnectionID = MBKSkyLight.mainConnectionID,
+              let setOverride = MBKSkyLight.setMenuBarVisibilityOverride
+        else {
             mbkLog("MenuBarLease", "private unavailable -- SkyLight symbols not found")
             return visible
         }
 
-        let cid = MBKSkyLight.mainConnectionID!()
-        mbkLog("MenuBarLease", "private -- cid=\(cid) display=\(displayID)")
+        let cid = mainConnectionID()
 
         if let existing = heldDisplayID {
             if existing == displayID {
-                // Same display — reassert the override.
-                let error = MBKSkyLight.setMenuBarVisibilityOverride!(cid, displayID, true)
-                mbkLog("MenuBarLease", "private reassert -- cid=\(cid) display=\(displayID) error=\(error.rawValue)")
+                // Same display — reassert.
+                let error = setOverride(cid, displayID, true)
                 if error != .success {
-                    mbkLog("MenuBarLease", "private reassert -- error=\(error.rawValue)")
+                    mbkLog("MenuBarLease", "private reassert -- error=\(error.rawValue) cid=\(cid) display=\(displayID)")
+                } else {
+                    mbkLog("MenuBarLease", "private reassert -- cid=\(cid) display=\(displayID) error=\(error.rawValue)")
                 }
             } else {
-                // Different display — clear old, acquire new.
-                let clearError = MBKSkyLight.setMenuBarVisibilityOverride!(cid, existing, false)
-                mbkLog("MenuBarLease", "private move-clear -- cid=\(cid) display=\(existing) error=\(clearError.rawValue)")
+                // Different display — transactional migration: clear old before acquiring new.
+                let clearError = setOverride(cid, existing, false)
+                mbkLog(
+                    "MenuBarLease",
+                    "private move-clear -- cid=\(cid) display=\(existing) error=\(clearError.rawValue)"
+                )
+
+                guard clearError == .success else {
+                    // Keep tracking the old display so release() can retry cleanup.
+                    mbkLog(
+                        "MenuBarLease",
+                        "private move-abort -- oldDisplay=\(existing) newDisplay=\(displayID)"
+                    )
+                    return visible
+                }
+
                 heldDisplayID = nil
 
-                let acquireError = MBKSkyLight.setMenuBarVisibilityOverride!(cid, displayID, true)
+                let acquireError = setOverride(cid, displayID, true)
                 if acquireError == .success {
                     heldDisplayID = displayID
                 }
-                mbkLog("MenuBarLease", "private acquire -- cid=\(cid) display=\(displayID) error=\(acquireError.rawValue) active=\(heldDisplayID != nil)")
+
+                mbkLog(
+                    "MenuBarLease",
+                    "private acquire -- cid=\(cid) display=\(displayID) "
+                        + "error=\(acquireError.rawValue) active=\(heldDisplayID != nil)"
+                )
             }
         } else {
             // First acquisition on this display.
-            let error = MBKSkyLight.setMenuBarVisibilityOverride!(cid, displayID, true)
+            let error = setOverride(cid, displayID, true)
             if error == .success {
                 heldDisplayID = displayID
             }
@@ -141,14 +161,19 @@ final class MBKMenuBarVisibilityLease {
     ///
     /// This is idempotent — calling `release()` when the lease is already
     /// inactive is a no-op.
+    ///
+    /// WindowServer state is cleared **before** the public lease restoration.
+    /// If public/private state becomes desynchronized, the private cleanup still
+    /// runs unconditionally.
     func release() {
+        // WindowServer state is higher risk than process-local presentation state.
+        // Always attempt private cleanup, even if the public lease is inactive.
+        clearPrivateOverride()
+
         guard let options = savedOptions else {
-            mbkLog("MenuBarLease", "release -- inactive, ignored")
+            mbkLog("MenuBarLease", "release -- public lease inactive")
             return
         }
-
-        // Clear private override first.
-        clearPrivateOverride()
 
         // Restore public options.
         NSApp.presentationOptions = options
@@ -181,8 +206,7 @@ final class MBKMenuBarVisibilityLease {
         guard let displayID = heldDisplayID else { return }
         defer { heldDisplayID = nil }
 
-        guard MBKSkyLight.isAvailable,
-              let mainConnectionID = MBKSkyLight.mainConnectionID,
+        guard let mainConnectionID = MBKSkyLight.mainConnectionID,
               let setOverride = MBKSkyLight.setMenuBarVisibilityOverride
         else {
             mbkLog("MenuBarLease", "private release -- SkyLight unavailable, display=\(displayID)")
