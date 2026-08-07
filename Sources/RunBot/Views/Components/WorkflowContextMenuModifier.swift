@@ -105,11 +105,23 @@ private struct WorkflowContextMenuModifier: ViewModifier {
         .disabled(group.runs.first?.htmlUrl == nil)
 
         Button {
+            guard let htmlUrl = group.runs.first?.htmlUrl else { return }
+            copyToPasteboard(htmlUrl)
+        } label: { Label("Copy Workflow URL", systemImage: "link") }
+        .disabled(group.runs.first?.htmlUrl == nil)
+
+        Button {
             let sha = group.headSha
             let repo = group.repo
             guard let url = URL(string: "https://github.com/\(repo)/commit/\(sha)") else { return }
             NSWorkspace.shared.open(url)
         } label: { Label("Show Commit on GitHub", systemImage: "number") }
+
+        Button {
+            let sha = group.headSha
+            let repo = group.repo
+            copyToPasteboard("https://github.com/\(repo)/commit/\(sha)")
+        } label: { Label("Copy Commit URL", systemImage: "link") }
     }
 }
 

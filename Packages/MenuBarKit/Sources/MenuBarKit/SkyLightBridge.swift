@@ -12,11 +12,14 @@ import Darwin
 /// menu bar visible. Missing symbols must degrade to an unavailable backend;
 /// they must never crash or prevent the panel from opening.
 enum MBKSkyLight {
+    /// The type returned by `SLSMainConnectionID`.
     typealias ConnectionID = Int32
 
+    /// C function type for `SLSMainConnectionID`.
     typealias MainConnectionIDFunction =
         @convention(c) () -> ConnectionID
 
+    /// C function type for `SLSSetMenuBarVisibilityOverrideOnDisplay`.
     typealias SetMenuBarVisibilityOverrideFunction =
         @convention(c) (
             ConnectionID,
@@ -33,6 +36,12 @@ enum MBKSkyLight {
         RTLD_LAZY | RTLD_LOCAL
     )
 
+    /// Resolves a C function pointer from the SkyLight framework via `dlsym`.
+    /// Uses `String.withCString` to ensure a null-terminated C string for the symbol name.
+    /// - Parameters:
+    ///   - name: The null-terminated C string name of the symbol to resolve.
+    ///   - _: The expected C function type for `unsafeBitCast`.
+    /// - Returns: The resolved function pointer, or `nil` if the framework image or symbol is unavailable.
     private static func load<T>(
         _ name: String,
         as _: T.Type
@@ -44,14 +53,17 @@ enum MBKSkyLight {
         }
     }
 
+    /// Resolves the `SLSMainConnectionID` symbol via `dlsym`.
+    /// `nil` when the SkyLight framework is unavailable or the symbol is absent.
     static let mainConnectionID = load(
         "SLSMainConnectionID",
         as: MainConnectionIDFunction.self
     )
 
+    /// Resolves the `SLSSetMenuBarVisibilityOverrideOnDisplay` symbol via `dlsym`.
+    /// `nil` when the SkyLight framework is unavailable or the symbol is absent.
     static let setMenuBarVisibilityOverride = load(
         "SLSSetMenuBarVisibilityOverrideOnDisplay",
         as: SetMenuBarVisibilityOverrideFunction.self
     )
-
-    }
+}
