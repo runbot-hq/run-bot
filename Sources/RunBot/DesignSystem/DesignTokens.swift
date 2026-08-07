@@ -254,7 +254,7 @@ extension Color {
     /// Use for: workflow card, metric badges, glass buttons, settings rows, scope/runner rows.
     static let rbGlassNeutralBackground = Color.adaptiveGrayscale(
         light: (white: 0, alpha: 0.15),
-        dark: (white: 1, alpha: 0.10)
+        dark: (white: 1, alpha: 0.07)
     )
 
     /// Final resolved active-authentication card glass background.
@@ -266,6 +266,30 @@ extension Color {
     static let rbAuthActiveGlassBackground = Color.adaptive(
         light: Color(red: 0.18, green: 0.64, blue: 0.18, opacity: 0.22),
         dark: Color(red: 0.25, green: 0.80, blue: 0.25, opacity: 0.15)
+    )
+
+    /// Final resolved inactive-authentication card glass background.
+    /// Black 0.08 in light mode (softer than the general neutral foreground at 0.15);
+    /// white 0.07 in dark mode (matches the reduced neutral foreground strength).
+    ///
+    /// ⚠️ This token already contains its final opacity.
+    /// Do NOT append `.opacity(...)` at call sites.
+    /// Use only for the inactive state of `AuthenticationSourceCard`.
+    /// `rbGlassNeutralBackground` remains the token for all other neutral foreground surfaces.
+    static let rbAuthInactiveGlassBackground = Color.adaptiveGrayscale(
+        light: (white: 0, alpha: 0.08),
+        dark: (white: 1, alpha: 0.07)
+    )
+
+    /// Adaptive stroke color for job-row cards in `InlineJobRowsView`.
+    /// Black 0.18 in light mode (replaces the previous fixed white, which was invisible);
+    /// white 0.25 in dark mode (preserves the existing dark-mode stroke strength).
+    ///
+    /// ⚠️ This token already contains its final opacity.
+    /// Do NOT append `.opacity(...)` at call sites.
+    static let rbJobRowStroke = Color.adaptiveGrayscale(
+        light: (white: 0, alpha: 0.18),
+        dark: (white: 1, alpha: 0.25)
     )
 
     /// Tertiary text — lowest-emphasis metadata and timestamps.

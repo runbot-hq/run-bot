@@ -25,11 +25,11 @@ struct AuthenticationSourceCard<Content: View>: View {
     /// Mapping:
     /// - Error  → `rbDanger` at 0.15 (red; strength matches pre-existing error cards).
     /// - Active → `rbAuthActiveGlassBackground` (green 0.22 light / 0.15 dark).
-    /// - Inactive → `rbGlassNeutralBackground` (black 0.15 light / white 0.10 dark).
+    /// - Inactive → `rbAuthInactiveGlassBackground` (black 0.08 light / white 0.07 dark).
     private var glassBackground: Color {
         if isError { return Color.rbDanger.opacity(0.15) }
         if isActive { return .rbAuthActiveGlassBackground }
-        return .rbGlassNeutralBackground
+        return .rbAuthInactiveGlassBackground
     }
 
     /// Card body: content wrapped in the badge-pattern Liquid Glass card.
