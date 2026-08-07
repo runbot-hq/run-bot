@@ -44,8 +44,8 @@ protocol MBKPanelObserverTarget: AnyObject {
     func refreshForScreenChange()
     /// Applies a new measured content size to the panel frame.
     func applyMeasuredSize(_ size: CGSize)
-    /// Releases the menu-bar visibility lease on termination.
-    func releaseMenuBarLease()
+    /// Releases the menu-bar hold during normal application termination.
+    func releaseMenuBarHold()
 }
 
 // MARK: - Observer manager
@@ -65,7 +65,7 @@ final class MBKPanelObservers {
     private nonisolated(unsafe) var screenObserver: NSObjectProtocol?
     /// Token for the global mouse-down event monitor.
     private nonisolated(unsafe) var eventMonitor: Any?
-    /// Token for the `NSApplication.willTerminateNotification` observer.
+    /// Token for the application-termination notification observer.
     private nonisolated(unsafe) var terminationObserver: NSObjectProtocol?
 
     /// Creates an observer manager for the given controller.
@@ -152,10 +152,14 @@ final class MBKPanelObservers {
 
     // MARK: - Termination observer
 
-    /// Registers for `NSApplication.willTerminateNotification` to restore the
-    /// menu-bar presentation options on normal termination. The lease is already
-    /// released during common teardown when the panel is closed; this observer
-    /// catches the case where the app terminates while the panel is still open.
+    /// Registers for `NSApplication.willTerminateNotification` and releases the
+    /// menu-bar hold synchronously on `.main`.
+    ///
+    /// This is a separate observer (not merged into the workspace observer) because
+    /// termination is not an app-switch event. The workspace observer fires on
+    /// `NSWorkspace.didActivateApplicationNotification` and does not fire during
+    /// termination. A dedicated termination observer is required to release the
+    /// process-external SkyLight visibility override before the process exits.
     ///
     /// The callback runs synchronously on `.main` to ensure the SkyLight
     /// visibility override is cleared before the process exits. An async Task
@@ -167,7 +171,7 @@ final class MBKPanelObservers {
             queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated {
-                self?.controller?.releaseMenuBarLease()
+                self?.controller?.releaseMenuBarHold()
             }
         }
     }

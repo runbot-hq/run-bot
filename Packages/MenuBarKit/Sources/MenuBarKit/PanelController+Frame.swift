@@ -5,9 +5,8 @@
 //
 // Every frame the panel ever gets comes from `applyFrame(content:reason:)`.
 // There is no second write path, no chrome-delta snapshot, and no per-session
-// positional state beyond the anchor snapshot — the anchor is captured at
-// openPanel() time and held until the next screen change or close.
-// See #2447: without the snapshot, a retracted menu bar yields a bogus anchor.
+// positional state — the anchor is read live from the status button and the
+// screen each time.
 //
 // ❌ NEVER call `panel.setFrame` or `setFrameOrigin` anywhere else.
 // ❌ NEVER set `hostingController.view.frame` by hand.
@@ -35,27 +34,9 @@ extension MBKPanelController {
 
     // MARK: - Anchor
 
-    /// Reads the current anchor position from the snapshot or live status item button.
-    /// Returns the snapshot when one exists, falling back to a live read.
-    /// WHY THE SNAPSHOT WINS: a retracted menu bar moves the status item's window
-    /// offscreen; a live read during that window yields a bogus anchor (#2447).
-    func readAnchor() -> MBKAnchorReading? {
-        if let anchorSnapshot {
-            return anchorSnapshot
-        }
-        return readAnchorLive()
-    }
-
-    /// Captures a fresh anchor snapshot. Call ONLY from openPanel(), before the
-    /// pointer can leave the menu bar strip.
-    func captureAnchor() {
-        anchorSnapshot = readAnchorLive()
-        mbkLog("PanelController", "captureAnchor -- \(String(describing: anchorSnapshot))")
-    }
-
     /// Reads the current anchor position from the live status item button.
     /// Returns nil only if there is no button and no fallback screen.
-    private func readAnchorLive() -> MBKAnchorReading? {
+    func readAnchor() -> MBKAnchorReading? {
         guard let button = statusItem?.button else {
             mbkLog("PanelController", "readAnchor -- NO BUTTON")
             return nil
@@ -98,20 +79,13 @@ extension MBKPanelController {
 
         let topY: CGFloat
         if hidden {
-            // Menu bar is retracted or the button has no screen. visibleFrame.maxY
-            // is the attachment edge (bottom of the menu bar). Adding status-bar
-            // thickness would move the anchor to the physical top of the menu bar
-            // area, which is incorrect — the panel must attach to the bar's bottom
-            // edge. See #2447 — the anchor snapshot already captures the correct
-            // position at open time, so this fallback only matters for the first
-            // frame before the snapshot is captured.
             topY = visibleFrame.maxY
         } else if let window = buttonWindow, window.frame.minY > 0 {
             topY = window.frame.minY
         } else {
             topY = visibleFrame.maxY
         }
-        mbkLog("PanelController", "readAnchorLive -- anchorX=\(anchorX) topY=\(topY) hidden=\(hidden) buttonWindow=\(buttonWindow != nil) buttonScreen=\(buttonScreen != nil)")
+        mbkLog("PanelController", "readAnchor -- anchorX=\(anchorX) topY=\(topY) hidden=\(hidden) buttonWindow=\(buttonWindow != nil) buttonScreen=\(buttonScreen != nil)")
         return MBKAnchorReading(
             anchorX: anchorX,
             topY: topY,
@@ -242,28 +216,8 @@ extension MBKPanelController {
     /// Recomputes the height cap and reapplies the current content size if shown.
     func refreshForScreenChange() {
         guard let limits else { return }
-        // Invalidate the snapshot on screen change — the status item has moved
-        // to a new display (or the display topology changed). The next anchor
-        // read will capture a fresh snapshot via readAnchorLive().
-        anchorSnapshot = nil
-        guard isShown else {
-            // If the panel is not shown, we're done — the next openPanel() will
-            // capture a fresh anchor. Still update the height cap for next open.
-            let cap = liveMaxContentHeight()
-            mbkLog("PanelController", "refreshForScreenChange (closed) -- cap=\(cap) currentMax=\(limits.maxContentHeight)")
-            if abs(cap - limits.maxContentHeight) >= 1 {
-                limits.maxContentHeight = cap
-            }
-            return
-        }
-        // Panel is shown — recapture the anchor from the live position now
-        // that the display topology has changed. The status item's window is
-        // still onscreen so readAnchorLive() is safe.
-        captureAnchor()
-        // Re-acquire the SkyLight visibility override on the current display.
-        // acquire(on:) handles same-display reassertion and old-display release.
-        menuBarVisibilityLease.acquire(on: statusItem?.button?.window?.screen)
         let cap = liveMaxContentHeight()
+        mbkLog("PanelController", "refreshForScreenChange -- cap=\(cap) currentMax=\(limits.maxContentHeight) isShown=\(isShown)")
         if abs(cap - limits.maxContentHeight) >= 1 {
             limits.maxContentHeight = cap
             mbkLog("PanelController", "refreshForScreenChange -- maxContentHeight updated to \(cap)")

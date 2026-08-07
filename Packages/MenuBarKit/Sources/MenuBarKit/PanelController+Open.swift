@@ -61,10 +61,6 @@ extension MBKPanelController {
         // ❌ Do NOT move this assignment earlier or add a precondition in applyFrame —
         //    the silent no-op before first open is intentional defensive behaviour.
         hasOpenedOnce = true
-        // Capture anchor snapshot while the status item is guaranteed onscreen.
-        // Without this, a retracted menu bar moves the status item's window
-        // offscreen, yielding a bogus anchor (#2447).
-        captureAnchor()
         let ics = hostingController.view.intrinsicContentSize
         // Use preferredContentSize if KVO already fired (e.g. pre-show layout pass).
         // Falls back to FALLBACK only if not yet populated — KVO will correct it
@@ -93,9 +89,7 @@ extension MBKPanelController {
         }
 
         setButtonHighlight(true)
-        mbkLog("MenuBarLease", "pre-activate -- visible=\(NSMenu.menuBarVisible()) options=\(NSApp.presentationOptions.rawValue)")
-        NSApp.activate(ignoringOtherApps: true)
-        menuBarVisibilityLease.acquire(on: statusItem?.button?.window?.screen)
+        menuBarHold.acquire(on: statusItem?.button?.window?.screen)
         panel.orderFrontRegardless()
         panel.makeKey()
         mbkLog("PanelController", "openPanel -- panel shown frame=\(panel.frame)")
@@ -110,20 +104,6 @@ extension MBKPanelController {
 
         startEventMonitor()
 
-        // Next-run-loop reinforcement: NSApp.activate() can apply presentation
-        // options asynchronously, so re-acquire the lease after one actor hop.
-        // Idempotent — does not overwrite the saved options from the direct call.
-        Task { @MainActor [weak self] in
-            guard let self, self.isShown else { return }
-            let screen = self.statusItem?.button?.window?.screen
-            self.menuBarVisibilityLease.acquire(on: screen)
-            mbkLog(
-                "MenuBarLease",
-                "reinforce -- publicVisible=\(NSMenu.menuBarVisible()) "
-                    + "active=\(self.menuBarVisibilityLease.isActive) "
-                    + "privateActive=\(self.menuBarVisibilityLease.isPrivateOverrideActive)"
-            )
-        }
         Task { @MainActor [weak self] in
             guard let self else { return }
             mbkLog("PanelController", "onDidShow -- panel.frame=\(panel?.frame ?? .zero) preferredContentSize=\(hostingController.preferredContentSize)")
@@ -181,9 +161,7 @@ extension MBKPanelController {
         stopEventMonitor()
         setButtonHighlight(false)
         panel?.orderOut(nil)
-        // Release the menu-bar visibility lease after the panel is ordered out.
-        // This restores the exact presentation options captured at open time.
-        menuBarVisibilityLease.release()
+        menuBarHold.release()
         // Deliberately reset both gate flags here even though they are nominally
         // owned by MBKAnchoredSheet, mbkOpenFilePicker, and MBKAlertModifier.
         // This is safe because every close path that reaches teardown has already
@@ -206,8 +184,6 @@ extension MBKPanelController {
         // gate is already clear — which is always the case on the performClose path.
         if overlayGate.hasActiveOverlay { overlayGate.hasActiveOverlay = false }
         if overlayGate.hasFilePickerOverlay { overlayGate.hasFilePickerOverlay = false }
-        // Invalidate the anchor snapshot on close — the next open will capture a fresh one.
-        anchorSnapshot = nil
         onWillCloseFired = false
         lastContentSize = nil
         mbkLog("PanelController", "panel closed wasForced=\(wasForced)")

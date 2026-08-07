@@ -256,13 +256,8 @@ public final class MBKPanelController<Content: View>: NSObject, MBKPanelControll
     var lastKnownAnchorX: CGFloat?
     /// Cached content size, used to suppress duplicate KVO applications.
     var lastContentSize: CGSize?
-    /// Anchor captured at openPanel() time, while the status item is guaranteed
-    /// onscreen. Survives menu bar retraction; invalidated only by screen changes.
-    /// See #2447 — without this snapshot, a retracted menu bar yields a bogus anchor.
-    var anchorSnapshot: MBKAnchorReading?
     /// Keeps the system menu bar visible while the custom panel is open (#2447).
-    let menuBarVisibilityLease = MBKMenuBarVisibilityLease()
-
+    let menuBarHold = MBKMenuBarHold()
     /// Prevents double-firing of onWillClose within one open session.
     var onWillCloseFired = false
     /// True once the panel has been opened at least once.
@@ -512,8 +507,8 @@ public final class MBKPanelController<Content: View>: NSObject, MBKPanelControll
     deinit {
         preferredContentSizeObservation?.invalidate()
         preferredContentSizeObservation = nil
-        // Workspace, screen, event-monitor, and termination-observer teardown
-        // is handled by MBKPanelObservers.deinit, which fires automatically when
-        // this controller releases its observers reference.
+        // Workspace, screen, and event-monitor teardown is handled by
+        // MBKPanelObservers.deinit, which fires automatically when this
+        // controller releases its observers reference.
     }
 }

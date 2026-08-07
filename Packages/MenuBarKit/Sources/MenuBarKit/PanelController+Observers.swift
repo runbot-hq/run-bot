@@ -19,9 +19,9 @@ import AppKit
 
 /// Observers and event monitors for `MBKPanelController`.
 extension MBKPanelController: MBKPanelObserverTarget {
-    /// Releases the menu-bar visibility lease on termination.
-    func releaseMenuBarLease() {
-        menuBarVisibilityLease.release()
+    /// Releases the menu-bar hold during normal application termination.
+    func releaseMenuBarHold() {
+        menuBarHold.release()
     }
 }
 
