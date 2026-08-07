@@ -61,6 +61,10 @@ extension MBKPanelController {
         // ❌ Do NOT move this assignment earlier or add a precondition in applyFrame —
         //    the silent no-op before first open is intentional defensive behaviour.
         hasOpenedOnce = true
+        // Capture anchor snapshot while the status item is guaranteed onscreen.
+        // Without this, a retracted menu bar moves the status item's window
+        // offscreen, yielding a bogus anchor (#2447).
+        captureAnchor()
         let ics = hostingController.view.intrinsicContentSize
         // Use preferredContentSize if KVO already fired (e.g. pre-show layout pass).
         // Falls back to FALLBACK only if not yet populated — KVO will correct it
@@ -182,6 +186,8 @@ extension MBKPanelController {
         // gate is already clear — which is always the case on the performClose path.
         if overlayGate.hasActiveOverlay { overlayGate.hasActiveOverlay = false }
         if overlayGate.hasFilePickerOverlay { overlayGate.hasFilePickerOverlay = false }
+        // Invalidate the anchor snapshot on close — the next open will capture a fresh one.
+        anchorSnapshot = nil
         onWillCloseFired = false
         lastContentSize = nil
         mbkLog("PanelController", "panel closed wasForced=\(wasForced)")

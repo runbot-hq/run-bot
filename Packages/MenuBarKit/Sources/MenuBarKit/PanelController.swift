@@ -256,6 +256,11 @@ public final class MBKPanelController<Content: View>: NSObject, MBKPanelControll
     var lastKnownAnchorX: CGFloat?
     /// Cached content size, used to suppress duplicate KVO applications.
     var lastContentSize: CGSize?
+    /// Anchor captured at openPanel() time, while the status item is guaranteed
+    /// onscreen. Survives menu bar retraction; invalidated only by screen changes.
+    /// See #2447 — without this snapshot, a retracted menu bar yields a bogus anchor.
+    var anchorSnapshot: MBKAnchorReading?
+
     /// Prevents double-firing of onWillClose within one open session.
     var onWillCloseFired = false
     /// True once the panel has been opened at least once.
