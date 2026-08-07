@@ -208,7 +208,9 @@ struct ScopesView: View {
                 .font(.caption).foregroundColor(Color.rbTextSecondary)
                 .padding(.horizontal, RBSpacing.md).padding(.vertical, 4)
         } else {
-            ForEach(scopeStore.entries) { entry in scopeRow(entry) }
+            VStack(spacing: RBSpacing.xs) {
+                ForEach(scopeStore.entries) { entry in scopeRow(entry) }
+            }
         }
     }
 
