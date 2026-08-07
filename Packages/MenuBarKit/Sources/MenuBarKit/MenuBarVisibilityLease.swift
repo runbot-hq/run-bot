@@ -6,103 +6,195 @@
 
 import AppKit
 
-/// Acquires and releases an AppKit-level menu-bar visibility lease for the
-/// lifetime of a single `MBKPanel` session.
+/// Acquires and releases a menu-bar visibility lease for the lifetime of a
+/// single `MBKPanel` session.
 ///
-/// **Design intent**
+/// The lease uses two layers:
+///  1. **Public AppKit lease** — strips `.autoHideMenuBar` and `.hideMenuBar`
+///     from `NSApplication.presentationOptions` and calls
+///     `NSMenu.setMenuBarVisible(true)`.
+///  2. **Private SkyLight lease** — applies a display-scoped visibility override
+///     via `SLSSetMenuBarVisibilityOverrideOnDisplay`. This is the primary hold
+///     that keeps the bar visible even when the pointer is over another app.
 ///
-/// When the user sets System Settings → Menu Bar → Automatically hide and show
-/// the menu bar to **Always**, the system menu bar retracts shortly after the
-/// pointer leaves the menu-bar strip. RunBot's status item lives in that strip,
-/// so retraction makes the status item inaccessible and the panel loses its
-/// anchor parent.
-///
-/// This lease strips both `.autoHideMenuBar` and `.hideMenuBar` from the
-/// process-scoped `NSApplication.presentationOptions` while the panel is open,
-/// and calls `NSMenu.setMenuBarVisible(true)` to reveal the bar. On release,
-/// the exact prior `presentationOptions` value is restored — the lease never
-/// writes user defaults, never forces the bar hidden, and never assumes what
-/// the "default" options are.
+/// The SkyLight backend is resolved at runtime via `dlopen`/`dlsym`. If the
+/// symbols are unavailable (e.g., on a future macOS release), the lease degrades
+/// to the public-only fallback — the panel opens normally, but menu-bar retention
+/// may not be reliable when the pointer leaves the app.
 ///
 /// **Lifecycle**
 ///
-/// - `acquire()` — idempotent; captures and saves the current options, then
-///   clears the auto-hide/hide flags.
-/// - `release()` — idempotent; restores the saved options captured at the
-///   most recent `acquire()` call.
+/// - `acquire(on:)` — idempotent; saves current presentation options, clears
+///   auto-hide/hide flags, and acquires the SkyLight override on the given
+///   screen's display.
+/// - `release()` — idempotent; clears the SkyLight override and restores the
+///   saved options.
 ///
 /// **Thread safety**
 ///
 /// This class is `@MainActor`-bound. All calls must happen on the main actor,
 /// which is guaranteed by the `MBKPanelController` lifecycle.
-///
-/// **Non-goals**
-///
-/// - This lease does not use SkyLight or any other private API.
-/// - It does not write `_HIHideMenuBar`, `AppleMenuBarVisibleInFullscreen`,
-///   or any other user default.
-/// - It does not shell out to `defaults`.
-/// - It never calls `NSMenu.setMenuBarVisible(false)`.
 @MainActor
 final class MBKMenuBarVisibilityLease {
+
+    // MARK: - Public lease state
 
     /// The presentation options captured at the most recent `acquire()` call.
     /// `nil` when the lease is inactive.
     private var savedOptions: NSApplication.PresentationOptions?
 
-    /// Whether the lease is currently active.
+    /// Whether the public AppKit lease is currently active.
     var isActive: Bool {
         savedOptions != nil
     }
 
-    /// Acquires the lease: saves the current presentation options, clears the
-    /// auto-hide and hide flags, and reveals the menu bar.
+    // MARK: - Private SkyLight lease state
+
+    /// The display ID currently held by the SkyLight override.
+    /// `nil` when no private override is active.
+    private var heldDisplayID: CGDirectDisplayID?
+
+    /// Whether the SkyLight private override is currently active.
+    var isPrivateOverrideActive: Bool {
+        heldDisplayID != nil
+    }
+
+    // MARK: - Acquire
+
+    /// Acquires the lease on the given screen's display.
     ///
+    /// 1. Saves and adjusts the public `NSApplication.presentationOptions` (first
+    ///    call only).
+    /// 2. Applies a SkyLight visibility override on the display of `screen`.
+    ///    If SkyLight is unavailable, logs and returns the public-visibility result.
+    ///
+    /// - Parameter screen: The screen whose display should hold the menu bar
+    ///   visible. When `nil`, only the public lease is applied.
     /// - Returns: `true` when AppKit reports the menu bar visible immediately
-    ///   after the request. This is a diagnostic signal, not a guarantee that
-    ///   the bar will remain pinned after the pointer leaves the menu-bar
-    ///   tracking region.
+    ///   after the request.
     @discardableResult
-    func acquire() -> Bool {
-        guard savedOptions == nil else {
-            mbkLog("MenuBarLease", "acquire -- already active")
-            return NSMenu.menuBarVisible()
+    func acquire(on screen: NSScreen?) -> Bool {
+        // --- Public lease ---
+        if savedOptions == nil {
+            let current = NSApp.presentationOptions
+            var pinned = current
+            pinned.remove(.autoHideMenuBar)
+            pinned.remove(.hideMenuBar)
+
+            savedOptions = current
+            NSApp.presentationOptions = pinned
+            NSMenu.setMenuBarVisible(true)
         }
 
-        let current = NSApp.presentationOptions
-        var pinned = current
-        pinned.remove(.autoHideMenuBar)
-        pinned.remove(.hideMenuBar)
-
-        savedOptions = current
-        NSApp.presentationOptions = pinned
-        NSMenu.setMenuBarVisible(true)
-
         let visible = NSMenu.menuBarVisible()
-        mbkLog(
-            "MenuBarLease",
-            "acquire -- visible=\(visible) before=\(current.rawValue) after=\(pinned.rawValue)"
-        )
+
+        // --- Private SkyLight lease ---
+        guard let displayID = Self.displayID(for: screen) else {
+            mbkLog("MenuBarLease", "private unavailable -- no display ID for screen")
+            return visible
+        }
+
+        guard MBKSkyLight.isAvailable else {
+            mbkLog("MenuBarLease", "private unavailable -- SkyLight symbols not found")
+            return visible
+        }
+
+        let cid = MBKSkyLight.mainConnectionID!()
+        mbkLog("MenuBarLease", "private -- cid=\(cid) display=\(displayID)")
+
+        if let existing = heldDisplayID {
+            if existing == displayID {
+                // Same display — reassert the override.
+                let error = MBKSkyLight.setMenuBarVisibilityOverride!(cid, displayID, true)
+                mbkLog("MenuBarLease", "private reassert -- cid=\(cid) display=\(displayID) error=\(error.rawValue)")
+                if error != .success {
+                    mbkLog("MenuBarLease", "private reassert -- error=\(error.rawValue)")
+                }
+            } else {
+                // Different display — clear old, acquire new.
+                let clearError = MBKSkyLight.setMenuBarVisibilityOverride!(cid, existing, false)
+                mbkLog("MenuBarLease", "private move-clear -- cid=\(cid) display=\(existing) error=\(clearError.rawValue)")
+                heldDisplayID = nil
+
+                let acquireError = MBKSkyLight.setMenuBarVisibilityOverride!(cid, displayID, true)
+                if acquireError == .success {
+                    heldDisplayID = displayID
+                }
+                mbkLog("MenuBarLease", "private acquire -- cid=\(cid) display=\(displayID) error=\(acquireError.rawValue) active=\(heldDisplayID != nil)")
+            }
+        } else {
+            // First acquisition on this display.
+            let error = MBKSkyLight.setMenuBarVisibilityOverride!(cid, displayID, true)
+            if error == .success {
+                heldDisplayID = displayID
+            }
+            mbkLog("MenuBarLease", "private acquire -- cid=\(cid) display=\(displayID) error=\(error.rawValue) active=\(heldDisplayID != nil)")
+        }
+
         return visible
     }
 
-    /// Releases the lease: restores the exact presentation options that were
-    /// captured at the most recent `acquire()` call.
+    // MARK: - Release
+
+    /// Releases the lease: clears the SkyLight override and restores the exact
+    /// presentation options that were captured at the most recent `acquire()` call.
     ///
     /// This is idempotent — calling `release()` when the lease is already
     /// inactive is a no-op.
     func release() {
-        guard let savedOptions else {
+        guard let options = savedOptions else {
             mbkLog("MenuBarLease", "release -- inactive, ignored")
             return
         }
 
-        NSApp.presentationOptions = savedOptions
-        self.savedOptions = nil
+        // Clear private override first.
+        clearPrivateOverride()
+
+        // Restore public options.
+        NSApp.presentationOptions = options
+        savedOptions = nil
 
         mbkLog(
             "MenuBarLease",
-            "release -- visible=\(NSMenu.menuBarVisible()) restored=\(savedOptions.rawValue)"
+            "release -- visible=\(NSMenu.menuBarVisible()) restored=\(options.rawValue)"
         )
+    }
+
+    // MARK: - Private helpers
+
+    /// Resolves the `CGDirectDisplayID` for the given screen, falling back to
+    /// `NSScreen.main` when the parameter is `nil`.
+    private static func displayID(for screen: NSScreen?) -> CGDirectDisplayID? {
+        guard let screen = screen ?? NSScreen.main,
+              let number = screen.deviceDescription[
+                  NSDeviceDescriptionKey("NSScreenNumber")
+              ] as? NSNumber
+        else {
+            return nil
+        }
+        return number.uint32Value
+    }
+
+    /// Clears the SkyLight override on the currently held display, if any.
+    /// Never restores public options — that is the caller's responsibility.
+    private func clearPrivateOverride() {
+        guard let displayID = heldDisplayID else { return }
+        defer { heldDisplayID = nil }
+
+        guard MBKSkyLight.isAvailable,
+              let mainConnectionID = MBKSkyLight.mainConnectionID,
+              let setOverride = MBKSkyLight.setMenuBarVisibilityOverride
+        else {
+            mbkLog("MenuBarLease", "private release -- SkyLight unavailable, display=\(displayID)")
+            return
+        }
+
+        let cid = mainConnectionID()
+        let error = setOverride(cid, displayID, false)
+        if error != .success {
+            mbkLog("MenuBarLease", "private release -- error=\(error.rawValue) cid=\(cid) display=\(displayID)")
+        } else {
+            mbkLog("MenuBarLease", "private release -- cid=\(cid) display=\(displayID) error=\(error.rawValue)")
+        }
     }
 }

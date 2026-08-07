@@ -95,7 +95,7 @@ extension MBKPanelController {
         setButtonHighlight(true)
         mbkLog("MenuBarLease", "pre-activate -- visible=\(NSMenu.menuBarVisible()) options=\(NSApp.presentationOptions.rawValue)")
         NSApp.activate(ignoringOtherApps: true)
-        menuBarVisibilityLease.acquire()
+        menuBarVisibilityLease.acquire(on: statusItem?.button?.window?.screen)
         panel.orderFrontRegardless()
         panel.makeKey()
         mbkLog("PanelController", "openPanel -- panel shown frame=\(panel.frame)")
@@ -115,14 +115,15 @@ extension MBKPanelController {
         // Idempotent — does not overwrite the saved options from the direct call.
         Task { @MainActor [weak self] in
             guard let self, self.isShown else { return }
-            self.menuBarVisibilityLease.acquire()
-            NSMenu.setMenuBarVisible(true)
+            let screen = self.statusItem?.button?.window?.screen
+            self.menuBarVisibilityLease.acquire(on: screen)
             mbkLog(
                 "MenuBarLease",
-                "reinforce -- visible=\(NSMenu.menuBarVisible()) active=\(self.menuBarVisibilityLease.isActive)"
+                "reinforce -- publicVisible=\(NSMenu.menuBarVisible()) "
+                    + "active=\(self.menuBarVisibilityLease.isActive) "
+                    + "privateActive=\(self.menuBarVisibilityLease.isPrivateOverrideActive)"
             )
         }
-
         Task { @MainActor [weak self] in
             guard let self else { return }
             mbkLog("PanelController", "onDidShow -- panel.frame=\(panel?.frame ?? .zero) preferredContentSize=\(hostingController.preferredContentSize)")

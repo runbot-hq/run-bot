@@ -156,12 +156,17 @@ final class MBKPanelObservers {
     /// menu-bar presentation options on normal termination. The lease is already
     /// released during common teardown when the panel is closed; this observer
     /// catches the case where the app terminates while the panel is still open.
+    ///
+    /// The callback runs synchronously on `.main` to ensure the SkyLight
+    /// visibility override is cleared before the process exits. An async Task
+    /// may not execute before the process terminates.
     func setupTerminationObserver() {
         terminationObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.willTerminateNotification,
-            object: nil, queue: nil
+            object: nil,
+            queue: .main
         ) { [weak self] _ in
-            Task { @MainActor [weak self] in
+            MainActor.assumeIsolated {
                 self?.controller?.releaseMenuBarLease()
             }
         }

@@ -260,6 +260,9 @@ extension MBKPanelController {
         // that the display topology has changed. The status item's window is
         // still onscreen so readAnchorLive() is safe.
         captureAnchor()
+        // Re-acquire the SkyLight visibility override on the current display.
+        // acquire(on:) handles same-display reassertion and old-display release.
+        menuBarVisibilityLease.acquire(on: statusItem?.button?.window?.screen)
         let cap = liveMaxContentHeight()
         if abs(cap - limits.maxContentHeight) >= 1 {
             limits.maxContentHeight = cap
