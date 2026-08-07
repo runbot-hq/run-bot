@@ -210,6 +210,16 @@ extension MBKPanelController {
             frame=\(layout.frame) clamped=\(layout.wasClamped)
             """
         )
+
+        // Navigation and resize drive the panel frame pipeline — reassert
+        // menu-bar visibility after every frame write while the panel is open.
+        // The lease coalesces burst requests so multiple changes per turn
+        // produce only one deferred refresh.
+        if isShown, menuBarVisibilityLease.isActive {
+            menuBarVisibilityLease.requestVisibilityRefresh(
+                reason: "panel-frame-\(reason)"
+            )
+        }
     }
 
     /// Called by the screen observer when display parameters change.

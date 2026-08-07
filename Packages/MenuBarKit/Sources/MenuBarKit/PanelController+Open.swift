@@ -95,9 +95,9 @@ extension MBKPanelController {
 
         setButtonHighlight(true)
         panel.orderFrontRegardless()
+        panel.makeKey()
         NSApp.activate(ignoringOtherApps: true)
         menuBarVisibilityLease.acquire()
-        panel.makeKey()
         mbkLog("PanelController", "openPanel -- panel shown frame=\(panel.frame)")
 
         // Trigger first layout pass so preferredContentSize populates and KVO fires.
