@@ -96,7 +96,7 @@ struct GlassButton: ViewModifier {
     func body(content: Content) -> some View {
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
         content
-            .background(Color.rbGlassNeutral.opacity(0.15), in: shape)
+            .background(Color.rbGlassNeutralBackground, in: shape)
             .glassEffect(.regular.interactive(), in: shape)
     }
 }

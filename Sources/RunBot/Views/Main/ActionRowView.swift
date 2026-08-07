@@ -93,9 +93,9 @@ struct ActionRowView: View {
     }
 
     /// Adaptive foreground glass card background for the workflow card.
-    /// Applies a neutral tint (`rbGlassNeutral` at 0.15 opacity) beneath regular Liquid Glass:
-    /// black tint in light mode, white tint in dark mode — opposite the root panel tint,
-    /// establishing foreground/background hierarchy in both appearances.
+    /// Uses `rbGlassNeutralBackground` (black 0.15 light / white 0.10 dark) beneath regular
+    /// Liquid Glass — opposite the root panel tint, establishing foreground/background
+    /// hierarchy in both appearances.
     @ViewBuilder private var glassCardBackground: some View {
         let shape = RoundedRectangle(
             cornerRadius: RBRadius.card,
@@ -103,7 +103,7 @@ struct ActionRowView: View {
         )
         Color.clear
             .background(
-                Color.rbGlassNeutral.opacity(0.15),
+                Color.rbGlassNeutralBackground,
                 in: shape
             )
             .glassEffect(.regular, in: shape)

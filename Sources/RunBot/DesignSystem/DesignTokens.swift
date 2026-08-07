@@ -245,6 +245,29 @@ extension Color {
         dark: .white
     )
 
+    /// Final resolved neutral foreground background for glass surfaces.
+    /// Black 0.15 in light mode, white 0.10 in dark mode.
+    ///
+    /// ⚠️ This token already contains its final opacity.
+    /// Do NOT append `.opacity(...)` at call sites.
+    /// Do NOT change `rbGlassNeutral` — this token is derived from it but carries its own opacity.
+    /// Use for: workflow card, metric badges, glass buttons, settings rows, scope/runner rows.
+    static let rbGlassNeutralBackground = Color.adaptiveGrayscale(
+        light: (white: 0, alpha: 0.15),
+        dark: (white: 1, alpha: 0.10)
+    )
+
+    /// Final resolved active-authentication card glass background.
+    /// Uses the same green hue as `rbSuccess` — 0.22 opacity in light mode, 0.15 in dark mode.
+    ///
+    /// ⚠️ This token already contains its final opacity.
+    /// Do NOT append `.opacity(...)` at call sites.
+    /// Use only for the active state of `AuthenticationSourceCard`.
+    static let rbAuthActiveGlassBackground = Color.adaptive(
+        light: Color(red: 0.18, green: 0.64, blue: 0.18, opacity: 0.22),
+        dark: Color(red: 0.25, green: 0.80, blue: 0.25, opacity: 0.15)
+    )
+
     /// Tertiary text — lowest-emphasis metadata and timestamps.
     static let rbTextTertiary = Color.adaptive(
         light: Color(white: 0.58),
