@@ -107,19 +107,36 @@ struct MarkdownDetectorTests {
         print(x)
         ```
         """
-        // Score ~4, lines ~5: S^3/L = 64/5 = 12.8 >= 1.8 and score >= 3 -> true.
+        // Score = 4 (language-tagged fenced code block), lines ≈ 5.
+        // S^3/L = 64/5 = 12.8 >= 1.8 and score >= 3 → true.
         // The old linear gate (score >= 6) rejected this; the cubic curve correctly
         // auto-enables short dense code blocks (fixes #2505).
         #expect(MarkdownDetector.looksLikeMarkdown(text) == true)
     }
 
-    @Test("2000-line log with score 7 fails normalized gate")
+    @Test("long log fails min-score gate")
     func longLogWithLowNormalizedScoreFails() {
-        // 2000 plain lines + one headed section: score ~2, normalized ~0.001
+        // 1990 plain lines + one heading: score = 2, which fails the absolute
+        // minimum score >= 3 gate regardless of total line count.
         let plainLines = (0..<1990).map { "[2026-08-01T00:0\($0 % 10):00Z] Build step \($0)" }.joined(separator: "\n")
         let text = "# Summary\n" + plainLines
-        // score = 2 (heading) — fails absolute minimum score >= 3 gate
         #expect(MarkdownDetector.looksLikeMarkdown(text) == false)
+    }
+
+    @Test("issue #2505 payload auto-enables")
+    func issue2505PayloadAutoEnables() {
+        let text = """
+        Post job cleanup.
+        ### Sources/RunBot/Views/Main/PanelMainView.swift
+        ✅ No issues.
+
+        ### Sources/RunBot/StepsLog/StepLogView.swift
+        ✅ No issues.
+
+        ---
+        > 🤖 [AI code review by github.com/runbot-hq/run-bot](https://github.com/runbot-hq/run-bot)
+        """
+        #expect(MarkdownDetector.looksLikeMarkdown(text) == true)
     }
 
     @Test("rich short log auto-enables")
@@ -210,7 +227,7 @@ struct MarkdownDetectorTests {
         #expect(MarkdownDetector.detect(shortFailing).score == 5)
         #expect(MarkdownDetector.detect(shortFailing).looksLikeMarkdown == false)
 
-        // 4. Exact lower bound — headings=3, score=7, lines=134
+        // 4. Medium passing — headings=3, score=7, lines=134
         //    S^3/L = 343/134 ≈ 2.56 >= 1.8 → true
         let mediumPass = makeLog(headings: 3, lines: 134)
         #expect(MarkdownDetector.detect(mediumPass).score == 7)

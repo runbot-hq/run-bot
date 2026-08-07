@@ -83,23 +83,16 @@ struct StepLogView: View {
     /// Whether markdown rendering is active for this log.
     ///
     /// ## Lifecycle — read before changing this
+    /// Whether markdown rendering is active for this log.
     ///
-    /// `StepLogView` is NOT a live-polling view. `loadLog()` runs exactly once per
-    /// view lifetime, triggered by `.onAppear`. The poller (`RunnerPoller`) is a
-    /// completely separate actor and does not call back into this view.
-    ///
-    /// The only way `loadLog()` fires a second time is if SwiftUI re-parents the view
-    /// (e.g. `.id(navState)` identity change on step navigation). In that case SwiftUI
-    /// tears down the **entire** `@State` tree — `isMarkdownMode` resets to `false`
-    /// automatically before the second `loadLog()` runs. There is therefore no
-    /// scenario where `if mdAuto { isMarkdownMode = true }` in the MainActor commit
-    /// can override a prior user toggle-off: if the user toggled off and the view
-    /// stayed alive, `loadLog()` does not run again; if the view was remounted,
-    /// state was already wiped.
-    ///
-    /// A sentinel flag (e.g. `markdownModeOverride: Bool?`) is NOT needed and would
-    /// add complexity without closing any real bug.
+    /// `loadLog()` may re-run during the lifetime of this view (for example on a
+    /// live-step refresh), so auto-enable must not blindly overwrite a user's
+    /// manual toggle-off after the first interaction.
     @State private var isMarkdownMode: Bool = false
+    /// Tracks whether the user has explicitly toggled the Markdown button.
+    /// Once true, subsequent auto-enable passes in `loadLog()` must not override
+    /// the user's chosen mode.
+    @State private var hasToggledMarkdown: Bool = false
     /// Guards auto-enable so it fires at most once per log identity.
     /// `isMarkdownMode` alone can't distinguish "never set" from "user toggled off" —
     /// Bound to the `AppState`-owned `LogFetcher` so the ZIP cache survives
@@ -168,6 +161,7 @@ struct StepLogView: View {
                 .buttonStyle(.plain)
                 Spacer()
                 Button {
+                    hasToggledMarkdown = true
                     isMarkdownMode.toggle()
                 } label: {
                     HStack(spacing: 3) {
@@ -411,7 +405,7 @@ struct StepLogView: View {
             log("loadLog › fetchStepLog returned: \(result) elapsed=\(fetchDuration)", category: .services)
             // Offload parse to a detached task so the main thread stays free.
             // Markdown detection runs here too via a single detect(_:) call.
-            let (parsed, defaultCollapsed, mdScore, mdAuto) = await Task.detached(priority: .userInitiated) {
+            let (parsed, defaultCollapsed, _, mdAuto) = await Task.detached(priority: .userInitiated) {
                 let lines = result.text.map { parseLogLines($0) } ?? []
                 let collapsed = Set(lines.compactMap { line -> Int? in
                     if case .groupHeader(let id, _) = line { return id } else { return nil }
@@ -441,15 +435,11 @@ struct StepLogView: View {
                 logText = result.text ?? ""
                 // Markdown state: boolean drives auto-enable.
                 // Computed from a single detect(_:) call on the detached task above.
-                // Auto-enable: safe to set unconditionally when mdAuto is true because
-                // loadLog() does not re-run while this view instance is alive (StepLogView
-                // is not polled — RunnerPoller is a separate actor with no callback into
-                // this view). The only re-fire path is SwiftUI view remount via .id()
-                // identity change, which tears down all @State before loadLog() runs
-                // again, so isMarkdownMode is already false at that point. A user
-                // toggle-off therefore cannot be overwritten here.
-                if mdAuto { isMarkdownMode = true }
-                log("loadLog › markdown: score=\(mdScore) autoEnabled=\(mdAuto) finalMode=\(isMarkdownMode)", category: .services)
+                // Respect the user's first manual toggle: once they explicitly choose
+                // a mode, subsequent `loadLog()` writebacks must not force markdown
+                // back on during refreshes or re-fetches.
+                if mdAuto && !hasToggledMarkdown { isMarkdownMode = true }
+                log("loadLog › markdown: autoEnabled=\(mdAuto) userToggled=\(hasToggledMarkdown) finalMode=\(isMarkdownMode)", category: .services)
                 // Preserve groups the user expanded across re-fetches. Group identity is keyed
                 // on title (IDs are not stable across parse calls). Strategy: build a
                 // title→id map for the new parse. Any title the user had manually expanded

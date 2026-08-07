@@ -17,14 +17,27 @@ public enum MarkdownDetector {
     /// Both values are computed from one `Document(parsing:)` call — use `detect(_:)`
     /// rather than calling `confidence(_:)` and `looksLikeMarkdown(_:)` separately.
     public struct DetectResult: Sendable {
-        /// Raw confidence score. Badge appears when `score >= 6`.
+        /// Raw confidence score (sum of block-type weights plus diversity bonus).
         public let score: Int
-        /// Whether the text passes both auto-enable gates.
+        /// Whether the text passes the mathematical auto-enable gate
+        /// (`score >= 3` minimum AND (`S³/L >= 1.8` OR density `>= 0.10`)).
         public let looksLikeMarkdown: Bool
     }
 
     /// Performs a single-pass detection and returns both the raw score and the
     /// auto-enable decision.
+    ///
+    /// Auto-enable uses a mathematical gate designed to catch short, dense
+    /// Markdown responses while still protecting long logs from false positives.
+    ///
+    /// Gate rules:
+    /// - Minimum score: `score >= 3`
+    /// - Short/dense logs may pass via the cubic curve: `S³ / L >= 1.8`
+    /// - Long logs must also satisfy a minimum density floor: `score / lines >= 0.10`
+    ///
+    /// Where:
+    /// - `S` = raw score
+    /// - `L` = total line count (`max(lines, 1)`)
     ///
     /// Prefer this over calling `confidence(_:)` + `looksLikeMarkdown(_:)` in
     /// sequence — those each call `Document(parsing:)` internally, so using both
@@ -67,7 +80,10 @@ public enum MarkdownDetector {
         if blockTypes.count >= 3 { score += 3 } // diversity bonus
 
         let lines = max(text.components(separatedBy: "\n").count, 1)
-        let autoEnable = score >= 3 && Float(score * score * score) / Float(lines) >= 1.8
+        let density = Float(score) / Float(lines)
+        let cubic = Float(score * score * score) / Float(lines)
+        // Short/dense logs pass via the cubic curve; long logs are capped by the density floor.
+        let autoEnable = score >= 3 && (cubic >= 1.8 || density >= 0.10)
         return DetectResult(score: score, looksLikeMarkdown: autoEnable)
     }
 
