@@ -24,18 +24,12 @@ struct ActionRowView: View {
     /// Tracks the previous row status to detect in-progress → done transitions.
     @State private var previousStatus: RBStatus?
 
-    /// Renders the row using the appropriate glass card background for the current OS.
+    /// Workflow card: adaptive foreground glass background with status accent bar,
+    /// wrapping row content and any inline job/step expansion.
     var body: some View {
-        if #available(macOS 26, *) {
-            rowContainer {
-                Color.clear.glassCard(cornerRadius: RBRadius.card)
-                statusAccentBar
-            }
-        } else {
-            rowContainer {
-                glassCardBackground
-                statusAccentBar
-            }
+        rowContainer {
+            glassCardBackground
+            statusAccentBar
         }
     }
 
@@ -98,9 +92,21 @@ struct ActionRowView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    /// Pre-macOS-26 glass card background used as the ZStack layer inside `rowContainer`.
+    /// Adaptive foreground glass card background for the workflow card.
+    /// Applies a neutral tint (`rbGlassNeutral` at 0.15 opacity) beneath regular Liquid Glass:
+    /// black tint in light mode, white tint in dark mode — opposite the root panel tint,
+    /// establishing foreground/background hierarchy in both appearances.
     @ViewBuilder private var glassCardBackground: some View {
-        Color.clear.glassCard(cornerRadius: RBRadius.card)
+        let shape = RoundedRectangle(
+            cornerRadius: RBRadius.card,
+            style: .continuous
+        )
+        Color.clear
+            .background(
+                Color.rbGlassNeutral.opacity(0.15),
+                in: shape
+            )
+            .glassEffect(.regular, in: shape)
     }
 
     /// Sets the initial expand state based on the row's status at appear time.
