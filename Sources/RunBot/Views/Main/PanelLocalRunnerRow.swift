@@ -92,8 +92,29 @@ struct PanelLocalRunnerRow: View {
         Divider()
     }
 
+    /// Adaptive Liquid Glass background for the outer runner card.
+    ///
+    /// Matches the background hierarchy of ActionRowView:
+    ///   - `rbGlassNeutralBackground` provides the adaptive tint
+    ///     (black/0.15 light · white/0.07 dark).
+    ///   - `.glassEffect(.regular, in: shape)` applies native Liquid Glass.
+    ///   - No `GlassEffectContainer` wrapping — the card is not interactive.
+    @ViewBuilder private var runnerCardBackground: some View {
+        let shape = RoundedRectangle(
+            cornerRadius: RBRadius.card,
+            style: .continuous
+        )
+
+        Color.clear
+            .background(
+                Color.rbGlassNeutralBackground,
+                in: shape
+            )
+            .glassEffect(.regular, in: shape)
+    }
+
     /// Glass architecture mirrors ActionRowView exactly:
-    ///   - .glassCard() applied via .background{} directly — NO GlassEffectContainer around the card.
+    ///   - Native .regular glassEffect applied via .background{} directly — NO GlassEffectContainer around the card.
     ///   - RunnerMetricsBadge gets its own standalone GlassEffectContainer, same as
     ///     StatusBadge in ActionRowView.metaTrailing.
     private func runnerCard(_ runner: RunnerModel) -> some View {
@@ -114,15 +135,9 @@ struct PanelLocalRunnerRow: View {
             .layoutPriority(1)
             Spacer()
             // Standalone GlassEffectContainer — same as StatusBadge in metaTrailing.
-            // NOT nested inside a card container so it samples the real backdrop.
-            if #available(macOS 26, *) {
-                GlassEffectContainer {
-                    RunnerMetricsBadge(
-                        cpu: runner.metrics?.cpu,
-                        mem: runner.metrics?.mem
-                    )
-                }
-            } else {
+            // NOT nested inside the card so it samples the real backdrop behind the panel,
+            // not the card glass. This is required for correct glass-on-glass composition.
+            GlassEffectContainer {
                 RunnerMetricsBadge(
                     cpu: runner.metrics?.cpu,
                     mem: runner.metrics?.mem
@@ -133,9 +148,7 @@ struct PanelLocalRunnerRow: View {
         .padding(.vertical, RBSpacing.xs + 2)
         .frame(maxWidth: .infinity)
         .background {
-            // .glassCard() handles its own #available branch internally.
-            // No outer #available check needed here.
-            Color.clear.glassCard(cornerRadius: RBRadius.card)
+            runnerCardBackground
         }
         .clipShape(RoundedRectangle(cornerRadius: RBRadius.card, style: .continuous))
         .padding(.horizontal, RBSpacing.md)
