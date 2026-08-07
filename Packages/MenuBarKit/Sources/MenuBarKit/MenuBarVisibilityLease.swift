@@ -1,51 +1,48 @@
 // MenuBarVisibilityLease.swift
 // MenuBarKit
 //
-// Scoped menu-bar visibility lease for MBKPanelController.
+// DIAGNOSTIC BUILD — read-only investigation of menu-bar retraction.
 //
-// Design:
-//   - Snapshots NSApp.presentationOptions on acquire; restores exactly on release.
-//   - Defers the actual setMenuBarVisible call to a separate run-loop turn so
-//     AppKit has committed activation before the menu-bar refresh runs.
-//   - Uses a false→true visibility toggle (documented LSUIElement workaround)
-//     to force AppKit to commit the change when a single true is ignored.
-//   - KVO-observes currentSystemPresentationOptions to reassert if AppKit
-//     re-applies auto-hide after activation or navigation.
-//   - A generation counter cancels any in-flight deferred refresh after release.
+// All presentation-option writes, setMenuBarVisible calls, KVO observers,
+// deferred Tasks, and the false→true toggle have been removed.
+//
+// This file now contains only:
+//   - logMenuBarState(_:) — captures full system state on every tracked event
+//   - A mouse-region transition monitor (logs only on region change, not per-move)
+//   - acquire() / release() — lifecycle hooks that start/stop the mouse monitor
+//     and log entry/exit state; no visibility writes
+//
+// Goal: identify the exact event immediately before menuBarVisible changes
+// from true to false without interference from any RunBot-side state writes.
 
 import AppKit
 
-/// Scoped menu-bar visibility lease for `MBKPanelController`.
+/// Diagnostic-only menu-bar state observer for `MBKPanelController`.
 ///
-/// Acquire once when the panel opens; release once when it closes.
-/// Every open path must funnel through a corresponding release.
+/// Acquire on panel open, release on panel close.
+/// No presentation-option or visibility mutations are made.
 @MainActor
 final class MBKMenuBarVisibilityLease {
 
-    // MARK: - Stored state
+    // MARK: - State
 
-    /// Presentation options captured when the lease was acquired.
-    /// `nil` means there is no active lease.
-    private var savedOptions: NSApplication.PresentationOptions?
+    private var isAcquired = false
+    private var mouseMonitor: Any?
 
-    /// Incremented on every release to cancel in-flight deferred refreshes.
-    private var refreshGeneration = 0
+    /// Tracks which region the pointer was last seen in, to log only transitions.
+    private var lastPointerRegion: PointerRegion = .outside
 
-    /// True while a deferred refresh Task is queued, to coalesce burst requests.
-    private var refreshScheduled = false
-
-    /// KVO token for NSApp.currentSystemPresentationOptions.
-    private var presentationObservation: NSKeyValueObservation?
+    private enum PointerRegion: Equatable {
+        case inPanel, inButtonWindow, outside
+    }
 
     // MARK: - Public interface
 
-    /// Whether this lease currently owns a presentation-options snapshot.
-    var isActive: Bool {
-        savedOptions != nil
-    }
+    /// Whether this lease is currently active.
+    var isActive: Bool { isAcquired }
 
-    /// Returns presentation options with menu-bar hiding removed while
-    /// preserving every unrelated option.
+    /// Returns presentation options with menu-bar hiding removed.
+    /// Kept `nonisolated` so unit tests can call it without a live app.
     nonisolated static func pinnedOptions(
         from options: NSApplication.PresentationOptions
     ) -> NSApplication.PresentationOptions {
@@ -55,142 +52,103 @@ final class MBKMenuBarVisibilityLease {
         return result
     }
 
-    // MARK: - Acquire
+    // MARK: - Acquire / release
 
-    /// Acquires the lease once. Repeated acquisition is an idempotent no-op.
     func acquire() {
-        guard savedOptions == nil else {
+        guard !isAcquired else {
             mbkLog("MenuBarVisibilityLease", "acquire -- already active")
             return
         }
-
-        let original = NSApp.presentationOptions
-        savedOptions = original
-        NSApp.presentationOptions = Self.pinnedOptions(from: original)
-
-        startPresentationObservation()
-        requestVisibilityRefresh(reason: "acquire")
-
-        mbkLog(
-            "MenuBarVisibilityLease",
-            """
-            acquire -- \
-            originalOptions=\(original.rawValue) \
-            pinnedOptions=\(NSApp.presentationOptions.rawValue)
-            """
-        )
+        isAcquired = true
+        startMouseMonitor()
+        logMenuBarState("acquire")
     }
 
-    // MARK: - Deferred refresh
-
-    /// Schedules a visibility refresh for the next main-actor turn.
-    /// Coalesces burst requests: multiple calls within one turn produce one refresh.
-    func requestVisibilityRefresh(reason: String) {
-        guard isActive, !refreshScheduled else { return }
-
-        refreshScheduled = true
-        let generation = refreshGeneration
-
-        Task { @MainActor [weak self] in
-            await Task.yield()
-
-            guard let self,
-                  self.isActive,
-                  self.refreshGeneration == generation
-            else { return }
-
-            self.refreshScheduled = false
-
-            // Reassert pinned options after activation/key-window changes.
-            if let saved = self.savedOptions {
-                NSApp.presentationOptions = Self.pinnedOptions(from: saved)
-            }
-
-            // false→true toggle forces AppKit to commit when a single `true` is ignored.
-            // This is the documented LSUIElement workaround.
-            NSMenu.setMenuBarVisible(false)
-            NSMenu.setMenuBarVisible(true)
-
-            await Task.yield()
-
-            guard self.isActive,
-                  self.refreshGeneration == generation
-            else { return }
-
-            mbkLog(
-                "MenuBarVisibilityLease",
-                """
-                refresh -- \
-                reason=\(reason) \
-                appActive=\(NSApp.isActive) \
-                requestedOptions=\(NSApp.presentationOptions.rawValue) \
-                effectiveOptions=\(NSApp.currentSystemPresentationOptions.rawValue) \
-                menuBarVisible=\(NSMenu.menuBarVisible())
-                """
-            )
-        }
-    }
-
-    // MARK: - KVO observer
-
-    private func startPresentationObservation() {
-        presentationObservation?.invalidate()
-
-        presentationObservation = NSApp.observe(
-            \.currentSystemPresentationOptions,
-            options: [.new]
-        ) { [weak self] _, change in
-            Task { @MainActor [weak self] in
-                guard let self, self.isActive else { return }
-
-                let effective = change.newValue
-                    ?? NSApp.currentSystemPresentationOptions
-
-                mbkLog(
-                    "MenuBarVisibilityLease",
-                    "effective options changed -- \(effective.rawValue)"
-                )
-
-                if effective.contains(.autoHideMenuBar)
-                    || effective.contains(.hideMenuBar) {
-                    self.requestVisibilityRefresh(
-                        reason: "effective-options-changed"
-                    )
-                }
-            }
-        }
-    }
-
-    // MARK: - Release
-
-    /// Restores the exact options captured by `acquire()`.
-    ///
-    /// Cancels in-flight deferred refreshes and KVO observation before
-    /// restoring options. Does not call `NSMenu.setMenuBarVisible(false)`.
     func release() {
-        guard let original = savedOptions else {
+        guard isAcquired else {
             mbkLog("MenuBarVisibilityLease", "release -- inactive")
             return
         }
+        logMenuBarState("release")
+        stopMouseMonitor()
+        isAcquired = false
+        lastPointerRegion = .outside
+    }
 
-        // Cancel any in-flight deferred refresh.
-        refreshGeneration += 1
-        refreshScheduled = false
+    // MARK: - Core diagnostic logger
 
-        presentationObservation?.invalidate()
-        presentationObservation = nil
-
-        savedOptions = nil
-        NSApp.presentationOptions = original
+    /// Logs the complete menu-bar-relevant system state for a named event.
+    /// Call this whenever a tracked state change occurs.
+    func logMenuBarState(_ event: String) {
+        let pointer = NSEvent.mouseLocation
+        let panelFrame = panelRef?.frame ?? .zero
+        let buttonWindow = buttonWindowRef
+        let buttonFrame = buttonWindow?.frame ?? .zero
 
         mbkLog(
-            "MenuBarVisibilityLease",
+            "MenuBarDiagnostics",
             """
-            release -- \
-            restoredOptions=\(original.rawValue) \
+            event=\(event) \
+            appActive=\(NSApp.isActive) \
+            panelVisible=\(panelRef?.isVisible ?? false) \
+            panelKey=\(panelRef?.isKeyWindow ?? false) \
+            pointer=(\(Int(pointer.x)),\(Int(pointer.y))) \
+            pointerInPanel=\(panelFrame.contains(pointer)) \
+            pointerInButtonWindow=\(buttonFrame.contains(pointer)) \
+            menuBarVisible=\(NSMenu.menuBarVisible()) \
+            requestedOptions=\(NSApp.presentationOptions.rawValue) \
             effectiveOptions=\(NSApp.currentSystemPresentationOptions.rawValue) \
-            menuBarVisible=\(NSMenu.menuBarVisible())
+            buttonWindowFrame=\(buttonFrame) \
+            buttonHighlighted=\(buttonRef?.isHighlighted ?? false)
             """
         )
+    }
+
+    // MARK: - Weak refs injected by controller
+
+    /// Set by MBKPanelController immediately after setup so the logger can
+    /// read panel/button state without a strong retain cycle.
+    weak var panelRef: NSPanel?
+    weak var buttonWindowRef: NSWindow?
+    weak var buttonRef: NSButton?
+
+    // MARK: - Mouse region transition monitor
+
+    private func startMouseMonitor() {
+        stopMouseMonitor()
+        mouseMonitor = NSEvent.addGlobalMonitorForEvents(
+            matching: .mouseMoved
+        ) { [weak self] _ in
+            guard let self, self.isAcquired else { return }
+            Task { @MainActor [weak self] in
+                self?.checkPointerRegionTransition()
+            }
+        }
+    }
+
+    private func stopMouseMonitor() {
+        if let monitor = mouseMonitor {
+            NSEvent.removeMonitor(monitor)
+            mouseMonitor = nil
+        }
+    }
+
+    private func checkPointerRegionTransition() {
+        let pointer = NSEvent.mouseLocation
+        let panelFrame = panelRef?.frame ?? .zero
+        let buttonFrame = buttonWindowRef?.frame ?? .zero
+
+        let region: PointerRegion
+        if panelFrame.contains(pointer) {
+            region = .inPanel
+        } else if buttonFrame.contains(pointer) {
+            region = .inButtonWindow
+        } else {
+            region = .outside
+        }
+
+        guard region != lastPointerRegion else { return }
+        lastPointerRegion = region
+        logMenuBarState("pointer-region-\(region)")
     }
 }

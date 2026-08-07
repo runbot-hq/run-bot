@@ -93,12 +93,18 @@ extension MBKPanelController {
             "Menu-bar visibility lease leaked across panel sessions"
         )
 
+        // Wire diagnostic refs before acquire so logMenuBarState has context.
+        menuBarVisibilityLease.panelRef = panel
+        menuBarVisibilityLease.buttonWindowRef = statusItem?.button?.window
+        menuBarVisibilityLease.buttonRef = statusItem?.button
+
         setButtonHighlight(true)
         panel.orderFrontRegardless()
-        panel.makeKey()
         NSApp.activate(ignoringOtherApps: true)
         menuBarVisibilityLease.acquire()
+        panel.makeKey()
         mbkLog("PanelController", "openPanel -- panel shown frame=\(panel.frame)")
+        menuBarVisibilityLease.logMenuBarState("panel-open-complete")
 
         // Trigger first layout pass so preferredContentSize populates and KVO fires.
         // This intentionally runs AFTER orderFrontRegardless — the frame guarantee
@@ -166,6 +172,7 @@ extension MBKPanelController {
         }
         stopEventMonitor()
         setButtonHighlight(false)
+        menuBarVisibilityLease.logMenuBarState("panel-close-begin")
         panel?.orderOut(nil)
         menuBarVisibilityLease.release()
         // Deliberately reset both gate flags here even though they are nominally

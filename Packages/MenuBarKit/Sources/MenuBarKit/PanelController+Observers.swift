@@ -18,7 +18,11 @@ import AppKit
 // MARK: - MBKPanelObserverTarget conformance
 
 /// Observers and event monitors for `MBKPanelController`.
-extension MBKPanelController: MBKPanelObserverTarget {}
+extension MBKPanelController: MBKPanelObserverTarget {
+    func logMenuBarDiagnostic(_ event: String) {
+        menuBarVisibilityLease.logMenuBarState(event)
+    }
+}
 
 // MARK: - Observer lifecycle bridge
 
@@ -45,4 +49,9 @@ extension MBKPanelController {
 
     /// Removes the global mouse-down event monitor installed by `startEventMonitor()`.
     func stopEventMonitor() { observers?.stopEventMonitor() }
+
+    // MARK: - Diagnostic observer lifecycle bridge
+
+    func setupMenuBarDiagnosticObservers() { observers?.setupMenuBarDiagnosticObservers() }
 }
+

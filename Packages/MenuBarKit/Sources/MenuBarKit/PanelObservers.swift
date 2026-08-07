@@ -44,6 +44,8 @@ protocol MBKPanelObserverTarget: AnyObject {
     func refreshForScreenChange()
     /// Applies a new measured content size to the panel frame.
     func applyMeasuredSize(_ size: CGSize)
+    /// Logs a named diagnostic event through the menu-bar lease logger.
+    func logMenuBarDiagnostic(_ event: String)
 }
 
 // MARK: - Observer manager
@@ -63,6 +65,11 @@ final class MBKPanelObservers {
     private nonisolated(unsafe) var screenObserver: NSObjectProtocol?
     /// Token for the global mouse-down event monitor.
     private nonisolated(unsafe) var eventMonitor: Any?
+    // Diagnostic notification tokens (menu-bar investigation).
+    private nonisolated(unsafe) var diagAppActiveObserver: NSObjectProtocol?
+    private nonisolated(unsafe) var diagAppResignObserver: NSObjectProtocol?
+    private nonisolated(unsafe) var diagKeyObserver: NSObjectProtocol?
+    private nonisolated(unsafe) var diagResignKeyObserver: NSObjectProtocol?
 
     /// Creates an observer manager for the given controller.
     init(controller: any MBKPanelObserverTarget) {
@@ -94,6 +101,11 @@ final class MBKPanelObservers {
         if let monitor = eventMonitor {
             NSEvent.removeMonitor(monitor)
         }
+        let nc = NotificationCenter.default
+        [diagAppActiveObserver, diagAppResignObserver,
+         diagKeyObserver, diagResignKeyObserver]
+            .compactMap { $0 }
+            .forEach { nc.removeObserver($0) }
     }
 
     // MARK: - Workspace observer
@@ -139,6 +151,57 @@ final class MBKPanelObservers {
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
                 self?.controller?.refreshForScreenChange()
+            }
+        }
+    }
+
+    // MARK: - Menu-bar diagnostic observers
+
+    /// Registers NSApplication active/resign and NSWindow key/resign notifications
+    /// for menu-bar state diagnostic logging. Closures hop to @MainActor via Task
+    /// and guard on isShown before logging — identical pattern to workspace observer.
+    func setupMenuBarDiagnosticObservers() {
+        let nc = NotificationCenter.default
+
+        diagAppActiveObserver = nc.addObserver(
+            forName: NSApplication.didBecomeActiveNotification,
+            object: nil, queue: nil
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self, self.controller?.isShown == true else { return }
+                self.controller?.logMenuBarDiagnostic("app-didBecomeActive")
+            }
+        }
+
+        diagAppResignObserver = nc.addObserver(
+            forName: NSApplication.didResignActiveNotification,
+            object: nil, queue: nil
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self, self.controller?.isShown == true else { return }
+                self.controller?.logMenuBarDiagnostic("app-didResignActive")
+            }
+        }
+
+        diagKeyObserver = nc.addObserver(
+            forName: NSWindow.didBecomeKeyNotification,
+            object: nil, queue: nil
+        ) { [weak self] note in
+            let winClass = (note.object as? NSWindow)?.className ?? "nil"
+            Task { @MainActor [weak self] in
+                guard let self, self.controller?.isShown == true else { return }
+                self.controller?.logMenuBarDiagnostic("window-didBecomeKey-\(winClass)")
+            }
+        }
+
+        diagResignKeyObserver = nc.addObserver(
+            forName: NSWindow.didResignKeyNotification,
+            object: nil, queue: nil
+        ) { [weak self] note in
+            let winClass = (note.object as? NSWindow)?.className ?? "nil"
+            Task { @MainActor [weak self] in
+                guard let self, self.controller?.isShown == true else { return }
+                self.controller?.logMenuBarDiagnostic("window-didResignKey-\(winClass)")
             }
         }
     }

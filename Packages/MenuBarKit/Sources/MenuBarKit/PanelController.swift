@@ -299,6 +299,7 @@ public final class MBKPanelController<Content: View>: NSObject, MBKPanelControll
         setupPanelWindow()
         setupWorkspaceObserver()
         setupScreenObserver()
+        setupMenuBarDiagnosticObservers()
         isSetUp = true
         mbkLog("PanelController", "setup complete")
     }

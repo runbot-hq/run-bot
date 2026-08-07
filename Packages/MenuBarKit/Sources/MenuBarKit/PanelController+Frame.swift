@@ -211,14 +211,8 @@ extension MBKPanelController {
             """
         )
 
-        // Navigation and resize drive the panel frame pipeline — reassert
-        // menu-bar visibility after every frame write while the panel is open.
-        // The lease coalesces burst requests so multiple changes per turn
-        // produce only one deferred refresh.
         if isShown, menuBarVisibilityLease.isActive {
-            menuBarVisibilityLease.requestVisibilityRefresh(
-                reason: "panel-frame-\(reason)"
-            )
+            menuBarVisibilityLease.logMenuBarState("applyFrame-\(reason)")
         }
     }
 
