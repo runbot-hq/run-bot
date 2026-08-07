@@ -30,7 +30,7 @@ final class MBKPanel: NSPanel {
             defer: false
         )
         isFloatingPanel = true
-        level = .statusBar
+        level = .popUpMenu
         backgroundColor = .clear
         isOpaque = false
         hasShadow = true

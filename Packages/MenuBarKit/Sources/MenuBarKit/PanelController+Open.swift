@@ -100,23 +100,6 @@ extension MBKPanelController {
 
         setButtonHighlight(true)
 
-        // Experiment: attach panel as a child of the status-item window.
-        // Goal: give WindowServer a native ownership relationship so it
-        // treats the panel as menu-bar-owned UI and keeps the bar revealed.
-        // Revert this block entirely if panel follows status window offscreen.
-        if let statusWindow = statusItem?.button?.window,
-           panel.parent !== statusWindow {
-            statusWindow.addChildWindow(panel, ordered: .above)
-            mbkLog(
-                "PanelController",
-                """
-                attached panel to status window -- \
-                statusFrame=\(statusWindow.frame) \
-                panelFrame=\(panel.frame)
-                """
-            )
-        }
-
         panel.orderFrontRegardless()
         NSApp.activate(ignoringOtherApps: true)
         menuBarVisibilityLease.acquire()
@@ -191,9 +174,6 @@ extension MBKPanelController {
         stopEventMonitor()
         setButtonHighlight(false)
         menuBarVisibilityLease.logMenuBarState("panel-close-begin")
-        if let panel, let parent = panel.parent {
-            parent.removeChildWindow(panel)
-        }
         panel?.orderOut(nil)
         menuBarVisibilityLease.release()
         // Deliberately reset both gate flags here even though they are nominally
