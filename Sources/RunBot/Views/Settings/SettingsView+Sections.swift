@@ -448,7 +448,7 @@ internal extension SettingsView {
             // ❌ DO NOT add .accessibilityHidden(true) here.
             // Accessibility modifiers on this icon are out of scope for v1 (#1794).
             Image(systemName: "arrow.down.circle.fill")
-                .foregroundStyle(Color.accentColor)
+                .foregroundStyle(Color.rbAccent)
             switch runnerState.currentPhase {
             case .idle:
                 // Guard in aboutSection prevents us reaching here, but the
@@ -518,7 +518,7 @@ internal extension SettingsView {
             alignment: .topLeading
         )
         .padding(10)
-        .settingsTintedGlassCard(color: .accentColor, cornerRadius: 8)
+        .settingsTintedGlassCard(color: .rbAccent, cornerRadius: 8)
         .padding(.horizontal, RBSpacing.md)
         .padding(.top, 8)
     }
