@@ -45,9 +45,8 @@ struct SystemStatsView: View {
 
 /// A stable glass wrapper for live-updating chip content (CPU, MEM, DISK chips only).
 ///
-/// Uses an adaptive neutral tint (`rbGlassNeutral`: black in light mode, white in dark mode)
-/// at low opacity beneath a `.regular` glass effect — matching the `StatusCountBadge` pattern
-/// in `SettingsView+Sections.swift`.
+/// Uses `rbGlassNeutralBackground` (black 0.15 light / white 0.10 dark) beneath a `.regular`
+/// glass effect — matching the `StatusCountBadge` pattern in `SettingsView+Sections.swift`.
 ///
 /// Corner radius: `RBRadius.small` (6 pt) -- matches toolbar button rounding.
 ///
@@ -63,7 +62,7 @@ struct GlassBadgeContainer<Content: View>: View {
             content()
                 .padding(.horizontal, RBSpacing.sm)
                 .padding(.vertical, RBSpacing.xs)
-                .background(Color.rbGlassNeutral.opacity(0.15), in: shape)
+                .background(Color.rbGlassNeutralBackground, in: shape)
                 .glassEffect(.regular, in: shape)
         }
     }

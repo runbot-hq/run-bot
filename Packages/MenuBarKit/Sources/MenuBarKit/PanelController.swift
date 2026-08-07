@@ -171,19 +171,22 @@ import SwiftUI
 // MARK: - Panel glass tint
 
 /// Adaptive appearance-anchoring tint for the root `NSGlassEffectView`.
-/// White in light mode / black in dark mode at 0.22 opacity.
-/// Stabilises luminance bleed from underlying windows without making the panel opaque.
+/// White in light mode / black in dark mode.
+/// Stronger in light mode (0.30) to resist dark-window bleed;
+/// softer in dark mode (0.22) to resist bright-window bleed.
 private enum PanelGlassTint {
-    /// Starting opacity. Increase if bleed is still visible; decrease if panel feels too heavy.
-    static let opacity: CGFloat = 0.22
+    /// Opacity applied in light mode (aqua). Higher to resist dark underlying windows.
+    static let lightOpacity: CGFloat = 0.30
+    /// Opacity applied in dark mode (darkAqua). Matches previous single-value baseline.
+    static let darkOpacity: CGFloat = 0.22
 
-    /// Dynamic `NSColor` that resolves to white (light mode) or black (dark mode)
-    /// at the shared `opacity`. Re-evaluated automatically when macOS switches appearance.
+    /// Dynamic `NSColor` that resolves per-appearance.
+    /// Re-evaluated automatically when macOS switches appearance while the panel is open.
     static let color = NSColor(name: nil) { appearance in
         let isDark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
         return isDark
-            ? NSColor.black.withAlphaComponent(opacity)
-            : NSColor.white.withAlphaComponent(opacity)
+            ? NSColor.black.withAlphaComponent(darkOpacity)
+            : NSColor.white.withAlphaComponent(lightOpacity)
     }
 }
 

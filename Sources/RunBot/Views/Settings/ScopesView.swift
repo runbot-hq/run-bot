@@ -301,7 +301,7 @@ struct ScopesView: View {
         .buttonStyle(.plain)
         .padding(.horizontal, RBSpacing.md)
         .padding(.vertical, 5)
-        .settingsTintedGlassCard(color: .rbGlassNeutral, cornerRadius: RBRadius.small)
+        .settingsGlassCard(background: .rbGlassNeutralBackground, cornerRadius: RBRadius.small)
         .padding(.horizontal, RBSpacing.xs)
         .opacity(entry.isEnabled ? 1.0 : 0.5)
     }

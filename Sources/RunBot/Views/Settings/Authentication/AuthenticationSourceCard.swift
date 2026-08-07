@@ -8,7 +8,7 @@ import SwiftUI
 /// Reusable card shell used by `EnvironmentTokenCard` and `GitHubOAuthCard`.
 ///
 /// ## Design rules (from #2456 / #2508)
-/// - Base semantic color at `opacity(0.15)` for active/error; `.clear` for neutral — mirrors `DiskPillBadge`.
+/// - Final resolved background tokens carry embedded opacity (`rbAuthActiveGlassBackground`, `rbGlassNeutralBackground`, `rbDanger.opacity(0.15)`).
 /// - Native `.glassEffect(.regular)` produces edge highlights; no manual stroke overlay.
 /// - Dim controls more than labels so stored state remains readable when inactive.
 struct AuthenticationSourceCard<Content: View>: View {
@@ -20,14 +20,16 @@ struct AuthenticationSourceCard<Content: View>: View {
     /// Content of the card.
     @ViewBuilder let content: () -> Content
 
-    /// Base semantic color for the glass card — undimmed, passed to `settingsTintedGlassCard`
-    /// which applies `opacity(0.15)` internally (mirrors `DiskPillBadge`/`StatusBadge`).
-    /// Mapping: error → `rbDanger` (red), active → `rbSuccess` (green conveys an
-    /// authenticated/valid credential), inactive → `rbGlassNeutral`.
-    private var glassColor: Color {
-        if isError { return .rbDanger }
-        if isActive { return .rbSuccess }
-        return .rbGlassNeutral
+    /// Final resolved background color for the glass card.
+    /// Each value already contains its opacity — do NOT append `.opacity(...)` at the call site.
+    /// Mapping:
+    /// - Error  → `rbDanger` at 0.15 (red; strength matches pre-existing error cards).
+    /// - Active → `rbAuthActiveGlassBackground` (green 0.22 light / 0.15 dark).
+    /// - Inactive → `rbGlassNeutralBackground` (black 0.15 light / white 0.10 dark).
+    private var glassBackground: Color {
+        if isError { return Color.rbDanger.opacity(0.15) }
+        if isActive { return .rbAuthActiveGlassBackground }
+        return .rbGlassNeutralBackground
     }
 
     /// Card body: content wrapped in the badge-pattern Liquid Glass card.
@@ -40,6 +42,6 @@ struct AuthenticationSourceCard<Content: View>: View {
                 alignment: .topLeading
             )
             .padding(10)
-            .settingsTintedGlassCard(color: glassColor, cornerRadius: 8)
+            .settingsGlassCard(background: glassBackground, cornerRadius: 8)
     }
 }
