@@ -13,7 +13,7 @@ import SwiftUI
 /// parent (`SettingsView`) keeps ownership of service calls.
 ///
 /// ## Layout (from #2456 / #2459 §4.3)
-/// Both cards sit inside one "Account" section.
+/// Both cards sit inside one "Authentication" section.
 /// Environment card is on the left; OAuth card is on the right.
 struct AuthenticationSection: View {
 
@@ -79,7 +79,7 @@ struct AuthenticationSection: View {
     /// Two-card layout: environment token card on the left, OAuth card on the right.
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("Account")
+            Text("Authentication")
                 .font(RBFont.sectionHeader)
                 .foregroundColor(Color.rbTextSecondary)
                 .padding(.horizontal, RBSpacing.md)

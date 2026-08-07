@@ -64,7 +64,7 @@ internal extension SettingsView {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Manage local runners").font(.system(size: 12))
-                    Text("Self-hosted runners configured on this Mac")
+                    Text("View and configure self-hosted runners on this machine")
                         .font(.caption2).foregroundColor(Color.rbTextSecondary)
                 }
                 Spacer()
@@ -99,7 +99,7 @@ internal extension SettingsView {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Manage scopes").font(.system(size: 12))
-                    Text("Repository and organization scopes")
+                    Text("Control which repositories and organizations the app can access")
                         .font(.caption2).foregroundColor(Color.rbTextSecondary)
                 }
                 Spacer()
@@ -141,7 +141,7 @@ internal extension SettingsView {
             HStack(alignment: .center) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Notifications").font(.system(size: 12))
-                    Text("Controls when RunBot sends job notifications.")
+                    Text("Choose when to receive workflow status notifications.")
                         .font(.caption2).foregroundColor(Color.rbTextSecondary)
                 }
                 Spacer()
@@ -166,7 +166,7 @@ internal extension SettingsView {
             HStack(alignment: .center) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Launch at login").font(.system(size: 12))
-                    Text("Start RunBot automatically when you log in.")
+                    Text("Automatically launch when you log in.")
                         .font(.caption2).foregroundColor(Color.rbTextSecondary)
                 }
                 Spacer()
@@ -294,7 +294,7 @@ internal extension SettingsView {
         return HStack {
             VStack(alignment: .leading, spacing: 2) {
                 Text("Beta channel").font(.system(size: 12))
-                Text("Receive pre-release builds for early access to new features. Only affects which updates are offered — does not change your currently installed version.")
+                Text("Get early access to new features via pre-release builds.")
                     .font(.caption2).foregroundColor(Color.rbTextSecondary)
             }
             Spacer()
@@ -481,7 +481,7 @@ internal extension SettingsView {
             case .ready(let version):
                 VStack(alignment: .leading, spacing: 1) {
                     Text("Update available: \(version)").font(.system(size: 12))
-                    Text("A new version of RunBot is ready to install.")
+                    Text("A new version of the app is ready to be installed.")
                         .font(.caption2).foregroundColor(Color.rbTextSecondary)
                 }
                 Spacer()
