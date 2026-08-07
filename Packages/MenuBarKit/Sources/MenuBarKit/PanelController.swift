@@ -161,41 +161,30 @@
 import AppKit
 import SwiftUI
 
-// NSGlassEffectView private KVC keys — all three set to 1 to produce dark glass.
-//
-// Each key controls a distinct stage of the same compositor pipeline:
-// - `_subduedState = 1`  Locks the glass to its own dark intrinsic tone instead of
-//                        sampling desktop colours.
-// - `_variant      = 1`  Selects the dark-glass rendering variant of the compositor.
-// - `_scrimState   = 1`  Enables the scrim layer that reinforces the dark tone.
-//
-// All three must be set together. Setting fewer than all three leaves the pipeline
-// misaligned — partial combinations produce light or inconsistent glass.
-//
-// Counter-intuitive: value `1` produces darker/richer glass than `0` in this panel
-// context. Do NOT revert to `0` — empirically verified lighter on macOS 26.
-// These keys are undocumented and may change in a future OS update.
-// Private SPI values for `NSGlassEffectView` KVC keys.
-//
-// These values are applied via `setValue(_:forKey:)` in `setupPanelWindow()`.
-// The exact semantics are unknown — they are private SPI keys on NSGlassEffectView
-// and may change in future OS releases. If the glass appearance regresses,
-// check these values first.
-/// Groups the three NSGlassEffectView KVC constants that configure the panel's
-/// Liquid Glass appearance. Kept as a named enum (rather than inlined at the
-/// call site) so that all three values are documented and discoverable in one
-/// place, an OS-update audit has a single location to check, and the names
-/// make the KVC semantics legible without requiring a comment on every
-/// `setValue(_:forKey:)` line.
-/// - Note: Do NOT inline these values or dissolve this enum — the namespace
-///   is intentional.
-private enum GlassConfig {
-    /// Subdued/inactive appearance (matches system panels).
-    static let subduedState: Int = 1
-    /// Default panel variant.
-    static let variant: Int = 1
-    /// Enables the scrim layer that reinforces the dark tone.
-    static let scrimState: Int = 1
+// MARK: - Panel glass tint
+
+// Adaptive appearance-anchoring tint applied to the root NSGlassEffectView.
+// White in light mode anchors the panel to a light appearance;
+// black in dark mode anchors it to a dark appearance.
+// Opacity 0.22 keeps the panel translucent while stabilising
+// luminance bleed from underlying windows.
+// MARK: - Panel glass tint
+
+/// Adaptive appearance-anchoring tint for the root `NSGlassEffectView`.
+/// White in light mode / black in dark mode at 0.22 opacity.
+/// Stabilises luminance bleed from underlying windows without making the panel opaque.
+private enum PanelGlassTint {
+    /// Starting opacity. Increase if bleed is still visible; decrease if panel feels too heavy.
+    static let opacity: CGFloat = 0.22
+
+    /// Dynamic `NSColor` that resolves to white (light mode) or black (dark mode)
+    /// at the shared `opacity`. Re-evaluated automatically when macOS switches appearance.
+    static let color = NSColor(name: nil) { appearance in
+        let isDark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        return isDark
+            ? NSColor.black.withAlphaComponent(opacity)
+            : NSColor.white.withAlphaComponent(opacity)
+    }
 }
 
 /// Manages the full anchored-panel and `NSStatusItem` lifecycle for a macOS menu-bar app.
@@ -318,26 +307,11 @@ public final class MBKPanelController<Content: View>: NSObject, MBKPanelControll
         glassView.cornerRadius = metrics.cornerRadius
         glassView.autoresizingMask = [.width, .height]
 
-        let kvcKeys = ["_subduedState", "_variant", "_scrimState"]
-        let allKeysSupported = kvcKeys.allSatisfy {
-            glassView.responds(to: NSSelectorFromString("set" + $0.prefix(1).uppercased() + $0.dropFirst() + ":"))
-        }
-        // Values sourced from NSGlassEffectView.h (private SPI, macOS 26).
-        // _subduedState = 1 → subdued/inactive appearance (matches system panels)
-        // _variant      = 1 → default panel variant
-        // _scrimState   = 1 → see GlassConfig.scrimState doc above
-        // responds(to:) above guards selector existence only — it cannot verify
-        // that enum ordinals are stable across OS versions. If glass looks wrong
-        // after an OS update, audit GlassConfig values against the updated header.
-        if allKeysSupported {
-            glassView.setValue(GlassConfig.subduedState, forKey: "_subduedState")
-            glassView.setValue(GlassConfig.variant, forKey: "_variant")
-            glassView.setValue(GlassConfig.scrimState, forKey: "_scrimState")
-        } else {
-            mbkLog("PanelController", "⚠️ NSGlassEffectView KVC keys unavailable on"
-                + " \(ProcessInfo.processInfo.operatingSystemVersionString)"
-                + " — falling back to .regular style. File a radar.")
-        }
+        // Adaptive tint: white in light mode, black in dark mode at 0.22 opacity.
+        // Stabilises luminance bleed from underlying windows without making
+        // the panel opaque. NSColor dynamic provider re-evaluates automatically
+        // when macOS switches appearance while the panel is open.
+        glassView.tintColor = PanelGlassTint.color
 
         let hc = NSHostingController(
             rootView: MBKPanelContentView(limits: limits, metrics: metrics, content: rootView)
