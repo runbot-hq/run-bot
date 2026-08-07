@@ -118,9 +118,9 @@ extension MBKPanelController {
         }
 
         panel.orderFrontRegardless()
-        panel.makeKey()
         NSApp.activate(ignoringOtherApps: true)
         menuBarVisibilityLease.acquire()
+        panel.makeKey()
         mbkLog("PanelController", "openPanel -- panel shown frame=\(panel.frame)")
         menuBarVisibilityLease.logMenuBarState("panel-open-complete")
 
@@ -191,8 +191,8 @@ extension MBKPanelController {
         stopEventMonitor()
         setButtonHighlight(false)
         menuBarVisibilityLease.logMenuBarState("panel-close-begin")
-        if let parent = panel?.parent {
-            parent.removeChildWindow(panel!)
+        if let panel, let parent = panel.parent {
+            parent.removeChildWindow(panel)
         }
         panel?.orderOut(nil)
         menuBarVisibilityLease.release()
