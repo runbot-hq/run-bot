@@ -25,7 +25,7 @@ struct AuthenticationSourceCard<Content: View>: View {
     private var glassColor: Color {
         if isError { return .rbDanger }
         if isActive { return .accentColor }
-        return .clear
+        return .rbGlassNeutral
     }
 
     /// Card body: content wrapped in the badge-pattern Liquid Glass card.
