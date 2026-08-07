@@ -16,11 +16,6 @@ final class MBKMenuBarHold {
     /// The display currently held through SkyLight, or `nil` when inactive.
     private var heldDisplayID: CGDirectDisplayID?
 
-    /// Whether a SkyLight override was acquired successfully.
-    var isActive: Bool {
-        heldDisplayID != nil
-    }
-
     /// Attempts to hold the menu bar visible on `screen`.
     ///
     /// Missing screens, display IDs, framework images, symbols, or nonzero
@@ -73,20 +68,20 @@ final class MBKMenuBarHold {
 
     /// Releases the currently held display override, if any.
     ///
-    /// The stored ID is cleared after the attempt even when SkyLight returns an
-    /// error. Errors are logged; release never blocks panel teardown.
+    /// The display ID is cleared only after SkyLight confirms successful release.
+    /// Missing symbols and nonzero errors preserve the ID so teardown, termination,
+    /// or a later panel session can retry cleanup.
     func release() {
         guard let displayID = heldDisplayID else {
             return
         }
-        defer { heldDisplayID = nil }
 
         guard let mainConnectionID = MBKSkyLight.mainConnectionID,
               let setOverride = MBKSkyLight.setMenuBarVisibilityOverride
         else {
             mbkLog(
                 "MenuBarHold",
-                "release -- SkyLight unavailable display=\(displayID)"
+                "release -- SkyLight unavailable display=\(displayID) retained=true"
             )
             return
         }
@@ -94,10 +89,20 @@ final class MBKMenuBarHold {
         let connectionID = mainConnectionID()
         let error = setOverride(connectionID, displayID, false)
 
+        guard error == .success else {
+            mbkLog(
+                "MenuBarHold",
+                "release -- cid=\(connectionID) display=\(displayID) "
+                    + "error=\(error.rawValue) retained=true"
+            )
+            return
+        }
+
+        heldDisplayID = nil
+
         mbkLog(
             "MenuBarHold",
-            "release -- cid=\(connectionID) display=\(displayID) "
-                + "error=\(error.rawValue)"
+            "release -- cid=\(connectionID) display=\(displayID) error=0"
         )
     }
 
