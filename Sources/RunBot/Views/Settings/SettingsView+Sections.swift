@@ -481,7 +481,7 @@ internal extension SettingsView {
             case .ready(let version):
                 VStack(alignment: .leading, spacing: 1) {
                     Text("Update available: \(version)").font(.system(size: 12))
-                    Text("A new version of RunBot is ready to install.")
+                    Text("A new version of the app is ready to be installed.")
                         .font(.caption2).foregroundColor(Color.rbTextSecondary)
                 }
                 Spacer()
