@@ -44,6 +44,8 @@ protocol MBKPanelObserverTarget: AnyObject {
     func refreshForScreenChange()
     /// Applies a new measured content size to the panel frame.
     func applyMeasuredSize(_ size: CGSize)
+    /// Releases the menu-bar hold during normal application termination.
+    func releaseMenuBarHold()
 }
 
 // MARK: - Observer manager
@@ -63,6 +65,8 @@ final class MBKPanelObservers {
     private nonisolated(unsafe) var screenObserver: NSObjectProtocol?
     /// Token for the global mouse-down event monitor.
     private nonisolated(unsafe) var eventMonitor: Any?
+    /// Token for the application-termination notification observer.
+    private nonisolated(unsafe) var terminationObserver: NSObjectProtocol?
 
     /// Creates an observer manager for the given controller.
     init(controller: any MBKPanelObserverTarget) {
@@ -93,6 +97,9 @@ final class MBKPanelObservers {
         }
         if let monitor = eventMonitor {
             NSEvent.removeMonitor(monitor)
+        }
+        if let observer = terminationObserver {
+            NotificationCenter.default.removeObserver(observer)
         }
     }
 
@@ -139,6 +146,27 @@ final class MBKPanelObservers {
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
                 self?.controller?.refreshForScreenChange()
+            }
+        }
+    }
+
+    // MARK: - Termination observer
+
+    /// Registers for `NSApplication.willTerminateNotification` and releases the
+    /// menu-bar hold synchronously on the notification posting thread.
+    ///
+    /// `queue: nil` makes NotificationCenter invoke the block synchronously on the
+    /// posting thread. AppKit posts `willTerminateNotification` on the main actor,
+    /// so `MainActor.assumeIsolated` is valid and no async suspension can delay the
+    /// release past process termination.
+    func setupTerminationObserver() {
+        terminationObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.willTerminateNotification,
+            object: nil,
+            queue: nil
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.controller?.releaseMenuBarHold()
             }
         }
     }

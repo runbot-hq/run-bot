@@ -256,6 +256,8 @@ public final class MBKPanelController<Content: View>: NSObject, MBKPanelControll
     var lastKnownAnchorX: CGFloat?
     /// Cached content size, used to suppress duplicate KVO applications.
     var lastContentSize: CGSize?
+    /// Keeps the system menu bar visible while the custom panel is open (#2447).
+    let menuBarHold = MBKMenuBarHold()
     /// Prevents double-firing of onWillClose within one open session.
     var onWillCloseFired = false
     /// True once the panel has been opened at least once.
@@ -296,6 +298,7 @@ public final class MBKPanelController<Content: View>: NSObject, MBKPanelControll
         setupPanelWindow()
         setupWorkspaceObserver()
         setupScreenObserver()
+        observers?.setupTerminationObserver()
         isSetUp = true
         mbkLog("PanelController", "setup complete")
     }
@@ -501,11 +504,15 @@ public final class MBKPanelController<Content: View>: NSObject, MBKPanelControll
 
     // MARK: - Deallocation
 
-    deinit {
+    isolated deinit {
+        // Final best-effort cleanup for reusable-package adopters that release an
+        // open controller without first routing through normal panel teardown.
+        menuBarHold.release()
+
         preferredContentSizeObservation?.invalidate()
         preferredContentSizeObservation = nil
-        // Workspace, screen, and event-monitor teardown is handled by
-        // MBKPanelObservers.deinit, which fires automatically when this
-        // controller releases its observers reference.
+        // Workspace, screen, event-monitor, and termination-observer teardown is
+        // handled by MBKPanelObservers.deinit when this controller releases its
+        // observers reference.
     }
 }

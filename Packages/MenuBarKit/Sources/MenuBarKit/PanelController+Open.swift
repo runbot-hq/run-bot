@@ -89,6 +89,7 @@ extension MBKPanelController {
         }
 
         setButtonHighlight(true)
+        menuBarHold.acquire(on: statusItem?.button?.window?.screen)
         panel.orderFrontRegardless()
         panel.makeKey()
         mbkLog("PanelController", "openPanel -- panel shown frame=\(panel.frame)")
@@ -160,6 +161,7 @@ extension MBKPanelController {
         stopEventMonitor()
         setButtonHighlight(false)
         panel?.orderOut(nil)
+        menuBarHold.release()
         // Deliberately reset both gate flags here even though they are nominally
         // owned by MBKAnchoredSheet, mbkOpenFilePicker, and MBKAlertModifier.
         // This is safe because every close path that reaches teardown has already

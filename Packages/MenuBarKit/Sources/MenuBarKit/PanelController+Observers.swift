@@ -18,7 +18,12 @@ import AppKit
 // MARK: - MBKPanelObserverTarget conformance
 
 /// Observers and event monitors for `MBKPanelController`.
-extension MBKPanelController: MBKPanelObserverTarget {}
+extension MBKPanelController: MBKPanelObserverTarget {
+    /// Releases the menu-bar hold during normal application termination.
+    func releaseMenuBarHold() {
+        menuBarHold.release()
+    }
+}
 
 // MARK: - Observer lifecycle bridge
 
