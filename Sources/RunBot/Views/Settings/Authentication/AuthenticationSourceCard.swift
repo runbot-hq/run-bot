@@ -22,9 +22,11 @@ struct AuthenticationSourceCard<Content: View>: View {
 
     /// Base semantic color for the glass card — undimmed, passed to `settingsTintedGlassCard`
     /// which applies `opacity(0.15)` internally (mirrors `DiskPillBadge`/`StatusBadge`).
+    /// Mapping: error → `rbDanger` (red), active → `rbSuccess` (green conveys an
+    /// authenticated/valid credential), inactive → `rbGlassNeutral`.
     private var glassColor: Color {
         if isError { return .rbDanger }
-        if isActive { return .accentColor }
+        if isActive { return .rbSuccess }
         return .rbGlassNeutral
     }
 
