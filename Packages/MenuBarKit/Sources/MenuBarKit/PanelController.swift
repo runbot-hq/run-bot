@@ -239,6 +239,9 @@ public final class MBKPanelController<Content: View>: NSObject, MBKPanelControll
 
     // MARK: - Session state
 
+    /// Holds the system menu bar visible for the lifetime of an open panel session.
+    let menuBarVisibilityLease = MBKMenuBarVisibilityLease()
+
     /// Whether setup() has been called.
     private(set) var isSetUp = false
 

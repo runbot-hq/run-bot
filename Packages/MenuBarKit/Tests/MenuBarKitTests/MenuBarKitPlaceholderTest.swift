@@ -1,16 +1,37 @@
-// MenuBarKitPlaceholderTest.swift
+// MBKMenuBarVisibilityLeaseTests.swift
 // MenuBarKitTests
 //
-// Single placeholder test required by `swift test` when no test target
-// is declared in Package.swift. With no test target, SPM 6.2 exits with
-// code 1 ("no tests found"). This file is deleted when real tests exist.
-//
-// Long-term: MenuBarKit is an AppKit-adjacent package — its behaviour
-// depends on a live NSApplication, real NSScreen geometry, and macOS
-// compositor state. Correctness is validated by device testing, not
-// unit tests. See README.md → Testing section.
-import Testing
+// Pure logic tests for MBKMenuBarVisibilityLease.pinnedOptions(from:).
+// Visibility behaviour requires on-device testing; see issue #2534.
 
-/// Placeholder: see file header.
-@Test("placeholder — delete when MenuBarKit has real tests")
-func placeholder() {}
+import AppKit
+import Testing
+@testable import MenuBarKit
+
+@MainActor
+struct MBKMenuBarVisibilityLeaseTests {
+
+    @Test func pinnedOptionsRemoveMenuBarHiding() {
+        let original: NSApplication.PresentationOptions = [
+            .autoHideMenuBar,
+            .hideMenuBar,
+            .autoHideDock
+        ]
+
+        let result = MBKMenuBarVisibilityLease.pinnedOptions(
+            from: original
+        )
+
+        #expect(!result.contains(.autoHideMenuBar))
+        #expect(!result.contains(.hideMenuBar))
+        #expect(result.contains(.autoHideDock))
+    }
+
+    @Test func pinnedOptionsLeaveEmptyOptionsUnchanged() {
+        let result = MBKMenuBarVisibilityLease.pinnedOptions(
+            from: []
+        )
+
+        #expect(result == [])
+    }
+}

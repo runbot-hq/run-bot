@@ -88,8 +88,15 @@ extension MBKPanelController {
             applyFrame(content: fallback, reason: "FALLBACK")
         }
 
+        assert(
+            !menuBarVisibilityLease.isActive,
+            "Menu-bar visibility lease leaked across panel sessions"
+        )
+
         setButtonHighlight(true)
         panel.orderFrontRegardless()
+        NSApp.activate(ignoringOtherApps: true)
+        menuBarVisibilityLease.acquire()
         panel.makeKey()
         mbkLog("PanelController", "openPanel -- panel shown frame=\(panel.frame)")
 
@@ -160,6 +167,7 @@ extension MBKPanelController {
         stopEventMonitor()
         setButtonHighlight(false)
         panel?.orderOut(nil)
+        menuBarVisibilityLease.release()
         // Deliberately reset both gate flags here even though they are nominally
         // owned by MBKAnchoredSheet, mbkOpenFilePicker, and MBKAlertModifier.
         // This is safe because every close path that reaches teardown has already
