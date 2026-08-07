@@ -82,18 +82,15 @@ struct StepLogView: View {
     @State private var loadGeneration: Int = 0
     /// Whether markdown rendering is active for this log.
     ///
-    /// ## Lifecycle — read before changing this
-    /// Whether markdown rendering is active for this log.
-    ///
     /// `loadLog()` may re-run during the lifetime of this view (for example on a
     /// live-step refresh), so auto-enable must not blindly overwrite a user's
     /// manual toggle-off after the first interaction.
     @State private var isMarkdownMode: Bool = false
-    /// Tracks whether the user has explicitly toggled the Markdown button.
-    /// Once true, subsequent auto-enable passes in `loadLog()` must not override
-    /// the user's chosen mode.
-    @State private var hasToggledMarkdown: Bool = false
     /// Guards auto-enable so it fires at most once per log identity.
+    /// `isMarkdownMode` alone can't distinguish "never set" from "user toggled off"; once
+    /// the user explicitly toggles, this flag prevents `loadLog()` write-backs from
+    /// overriding their choice during live refreshes.
+    @State private var hasToggledMarkdown: Bool = false
     /// `isMarkdownMode` alone can't distinguish "never set" from "user toggled off" —
     /// Bound to the `AppState`-owned `LogFetcher` so the ZIP cache survives
     /// across step taps. `@State` would be discarded on every `.id(navState)`
@@ -405,7 +402,7 @@ struct StepLogView: View {
             log("loadLog › fetchStepLog returned: \(result) elapsed=\(fetchDuration)", category: .services)
             // Offload parse to a detached task so the main thread stays free.
             // Markdown detection runs here too via a single detect(_:) call.
-            let (parsed, defaultCollapsed, _, mdAuto) = await Task.detached(priority: .userInitiated) {
+            let (parsed, defaultCollapsed, mdScore, mdAuto) = await Task.detached(priority: .userInitiated) {
                 let lines = result.text.map { parseLogLines($0) } ?? []
                 let collapsed = Set(lines.compactMap { line -> Int? in
                     if case .groupHeader(let id, _) = line { return id } else { return nil }
@@ -439,7 +436,7 @@ struct StepLogView: View {
                 // a mode, subsequent `loadLog()` writebacks must not force markdown
                 // back on during refreshes or re-fetches.
                 if mdAuto && !hasToggledMarkdown { isMarkdownMode = true }
-                log("loadLog › markdown: autoEnabled=\(mdAuto) userToggled=\(hasToggledMarkdown) finalMode=\(isMarkdownMode)", category: .services)
+                log("loadLog › markdown: score=\(mdScore) autoEnabled=\(mdAuto) userToggled=\(hasToggledMarkdown) finalMode=\(isMarkdownMode)", category: .services)
                 // Preserve groups the user expanded across re-fetches. Group identity is keyed
                 // on title (IDs are not stable across parse calls). Strategy: build a
                 // title→id map for the new parse. Any title the user had manually expanded

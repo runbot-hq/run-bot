@@ -19,8 +19,9 @@ public enum MarkdownDetector {
     public struct DetectResult: Sendable {
         /// Raw confidence score (sum of block-type weights plus diversity bonus).
         public let score: Int
-        /// Whether the text passes the mathematical auto-enable gate
-        /// (`score >= 3` minimum AND (`S³/L >= 1.8` OR density `>= 0.10`)).
+        /// Whether the text passes the mathematical auto-enable gate.
+        /// Long logs (> 200 lines) require `S / L >= 0.10`.
+        /// Short logs (<= 200 lines) can alternatively pass via `S³ / L >= 1.8`.
         public let looksLikeMarkdown: Bool
     }
 
@@ -30,10 +31,10 @@ public enum MarkdownDetector {
     /// Auto-enable uses a mathematical gate designed to catch short, dense
     /// Markdown responses while still protecting long logs from false positives.
     ///
-    /// Gate rules:
-    /// - Minimum score: `score >= 3`
-    /// - Short/dense logs may pass via the cubic curve: `S³ / L >= 1.8`
-    /// - Long logs must also satisfy a minimum density floor: `score / lines >= 0.10`
+    /// Mathematical gate:
+    /// Requires a minimum score of 3.
+    /// Long logs (over 200 lines) must meet a strict density floor (`S / L >= 0.10`).
+    /// Short logs (<= 200 lines) can alternatively pass via a cubic curve (`S³ / L >= 1.8`).
     ///
     /// Where:
     /// - `S` = raw score
@@ -82,8 +83,9 @@ public enum MarkdownDetector {
         let lines = max(text.components(separatedBy: "\n").count, 1)
         let density = Float(score) / Float(lines)
         let cubic = Float(score * score * score) / Float(lines)
-        // Short/dense logs pass via the cubic curve; long logs are capped by the density floor.
-        let autoEnable = score >= 3 && (cubic >= 1.8 || density >= 0.10)
+        // Option A: cubic curve only applies to genuinely short logs (<= 200 lines).
+        // Long logs must satisfy the density floor; the cubic bypass is capped.
+        let autoEnable = score >= 3 && (density >= 0.10 || (cubic >= 1.8 && lines <= 200))
         return DetectResult(score: score, looksLikeMarkdown: autoEnable)
     }
 
