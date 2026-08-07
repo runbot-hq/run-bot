@@ -79,7 +79,7 @@ struct AuthenticationSection: View {
     /// Two-card layout: environment token card on the left, OAuth card on the right.
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("Account")
+            Text("Authentication")
                 .font(RBFont.sectionHeader)
                 .foregroundColor(Color.rbTextSecondary)
                 .padding(.horizontal, RBSpacing.md)
