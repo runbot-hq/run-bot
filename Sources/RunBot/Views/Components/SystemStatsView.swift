@@ -45,39 +45,26 @@ struct SystemStatsView: View {
 
 /// A stable glass wrapper for live-updating chip content (CPU, MEM, DISK chips only).
 ///
-/// macOS 26+: uses `GlassEffectContainer { content.glassButton() }` -- identical
-/// to the settings/quit toolbar button pattern in `PanelHeaderView`.
-/// Pre-26: plain `.background` with a faint fill + stroke.
+/// Uses an adaptive neutral tint (`rbGlassNeutral`: black in light mode, white in dark mode)
+/// at low opacity beneath a `.regular` glass effect — matching the `StatusCountBadge` pattern
+/// in `SettingsView+Sections.swift`.
 ///
 /// Corner radius: `RBRadius.small` (6 pt) -- matches toolbar button rounding.
 ///
 /// Do NOT apply to DiskPillBadge (the "22% free" pill) -- that has its own styling.
-/// Do NOT add fill, tint, or stroke on macOS 26+ -- the glass handles all rendering.
 struct GlassBadgeContainer<Content: View>: View {
     /// The live-updating chip content rendered in the foreground.
     @ViewBuilder let content: () -> Content
 
-    /// Renders glass on macOS 26+, plain background on earlier versions.
+    /// Renders the chip with an adaptive neutral tint beneath native Liquid Glass.
     var body: some View {
-        if #available(macOS 26, *) {
-            GlassEffectContainer {
-                content()
-                    .padding(.horizontal, RBSpacing.sm)
-                    .padding(.vertical, RBSpacing.xs)
-                    .glassButton(cornerRadius: RBRadius.small)
-            }
-        } else {
+        let shape = RoundedRectangle(cornerRadius: RBRadius.small, style: .continuous)
+        GlassEffectContainer {
             content()
                 .padding(.horizontal, RBSpacing.sm)
                 .padding(.vertical, RBSpacing.xs)
-                .background(
-                    RoundedRectangle(cornerRadius: RBRadius.small, style: .continuous)
-                        .fill(Color.primary.opacity(0.06))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: RBRadius.small, style: .continuous)
-                                .strokeBorder(Color.primary.opacity(0.15), lineWidth: 0.5)
-                        )
-                )
+                .background(Color.rbGlassNeutral.opacity(0.15), in: shape)
+                .glassEffect(.regular, in: shape)
         }
     }
 }
