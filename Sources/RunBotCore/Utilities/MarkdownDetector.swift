@@ -17,14 +17,28 @@ public enum MarkdownDetector {
     /// Both values are computed from one `Document(parsing:)` call — use `detect(_:)`
     /// rather than calling `confidence(_:)` and `looksLikeMarkdown(_:)` separately.
     public struct DetectResult: Sendable {
-        /// Raw confidence score. Badge appears when `score >= 6`.
+        /// Raw confidence score (sum of block-type weights plus diversity bonus).
         public let score: Int
-        /// Whether the text passes both auto-enable gates.
+        /// Whether the text passes the mathematical auto-enable gate.
+        /// Long logs (> 200 lines) require `S / L >= 0.10`.
+        /// Short logs (<= 200 lines) can alternatively pass via `S³ / L >= 1.8`.
         public let looksLikeMarkdown: Bool
     }
 
     /// Performs a single-pass detection and returns both the raw score and the
     /// auto-enable decision.
+    ///
+    /// Auto-enable uses a mathematical gate designed to catch short, dense
+    /// Markdown responses while still protecting long logs from false positives.
+    ///
+    /// Mathematical gate:
+    /// Requires a minimum score of 3.
+    /// Long logs (over 200 lines) must meet a strict density floor (`S / L >= 0.10`).
+    /// Short logs (<= 200 lines) can alternatively pass via a cubic curve (`S³ / L >= 1.8`).
+    ///
+    /// Where:
+    /// - `S` = raw score
+    /// - `L` = total line count (`max(lines, 1)`)
     ///
     /// Prefer this over calling `confidence(_:)` + `looksLikeMarkdown(_:)` in
     /// sequence — those each call `Document(parsing:)` internally, so using both
@@ -67,7 +81,11 @@ public enum MarkdownDetector {
         if blockTypes.count >= 3 { score += 3 } // diversity bonus
 
         let lines = max(text.components(separatedBy: "\n").count, 1)
-        let autoEnable = score >= 6 && Float(score) / Float(lines) >= 0.10
+        let density = Float(score) / Float(lines)
+        let cubic = Float(score * score * score) / Float(lines)
+        // Option A: cubic curve only applies to genuinely short logs (<= 200 lines).
+        // Long logs must satisfy the density floor; the cubic bypass is capped.
+        let autoEnable = score >= 3 && (density >= 0.10 || (cubic >= 1.8 && lines <= 200))
         return DetectResult(score: score, looksLikeMarkdown: autoEnable)
     }
 

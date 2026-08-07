@@ -80,30 +80,17 @@ struct StepLogView: View {
     /// (cancelled) task can never commit stale state even when `Task.isCancelled`
     /// hasn't propagated yet.
     @State private var loadGeneration: Int = 0
-    /// Raw confidence score from MarkdownDetector — drives badge visibility (>= 6).
-    /// Computed on the background task in loadLog() alongside isMarkdownMode.
-    @State private var markdownScore: Int = 0
     /// Whether markdown rendering is active for this log.
     ///
-    /// ## Lifecycle — read before changing this
-    ///
-    /// `StepLogView` is NOT a live-polling view. `loadLog()` runs exactly once per
-    /// view lifetime, triggered by `.onAppear`. The poller (`RunnerPoller`) is a
-    /// completely separate actor and does not call back into this view.
-    ///
-    /// The only way `loadLog()` fires a second time is if SwiftUI re-parents the view
-    /// (e.g. `.id(navState)` identity change on step navigation). In that case SwiftUI
-    /// tears down the **entire** `@State` tree — `isMarkdownMode` resets to `false`
-    /// automatically before the second `loadLog()` runs. There is therefore no
-    /// scenario where `if mdAuto { isMarkdownMode = true }` in the MainActor commit
-    /// can override a prior user toggle-off: if the user toggled off and the view
-    /// stayed alive, `loadLog()` does not run again; if the view was remounted,
-    /// state was already wiped.
-    ///
-    /// A sentinel flag (e.g. `markdownModeOverride: Bool?`) is NOT needed and would
-    /// add complexity without closing any real bug.
+    /// `loadLog()` may re-run during the lifetime of this view (for example on a
+    /// live-step refresh), so auto-enable must not blindly overwrite a user's
+    /// manual toggle-off after the first interaction.
     @State private var isMarkdownMode: Bool = false
     /// Guards auto-enable so it fires at most once per log identity.
+    /// `isMarkdownMode` alone can't distinguish "never set" from "user toggled off"; once
+    /// the user explicitly toggles, this flag prevents `loadLog()` write-backs from
+    /// overriding their choice during live refreshes.
+    @State private var hasToggledMarkdown: Bool = false
     /// `isMarkdownMode` alone can't distinguish "never set" from "user toggled off" —
     /// Bound to the `AppState`-owned `LogFetcher` so the ZIP cache survives
     /// across step taps. `@State` would be discarded on every `.id(navState)`
@@ -170,23 +157,22 @@ struct StepLogView: View {
                 }
                 .buttonStyle(.plain)
                 Spacer()
-                if markdownScore >= 6 {
-                    Button {
-                        isMarkdownMode.toggle()
-                    } label: {
-                        HStack(spacing: 3) {
-                            Image(systemName: isMarkdownMode ? "doc.richtext" : "doc.plaintext")
-                                .font(.caption)
-                            Text("MD").font(.caption)
-                        }
-                        .foregroundColor(isMarkdownMode ? Color.rbAccent : Color.rbTextSecondary)
-                        .fixedSize()
+                Button {
+                    hasToggledMarkdown = true
+                    isMarkdownMode.toggle()
+                } label: {
+                    HStack(spacing: 3) {
+                        Image(systemName: isMarkdownMode ? "doc.richtext" : "doc.plaintext")
+                            .font(.caption)
+                        Text("MD").font(.caption)
                     }
-                    .buttonStyle(.plain)
-                    .help(isMarkdownMode ? "Showing markdown — click for raw" : "Show as markdown")
-                    .padding(.horizontal, 5).padding(.vertical, 2)
-                    .glassCard(cornerRadius: RBRadius.small)
+                    .foregroundColor(isMarkdownMode ? Color.rbAccent : Color.rbTextSecondary)
+                    .fixedSize()
                 }
+                .buttonStyle(.plain)
+                .help(isMarkdownMode ? "Showing markdown — click for raw" : "Show as markdown")
+                .padding(.horizontal, 5).padding(.vertical, 2)
+                .glassCard(cornerRadius: RBRadius.small)
                 if let urlString = job.htmlUrl, let url = URL(string: urlString) {
                     Button { NSWorkspace.shared.open(url) } label: {
                         HStack(spacing: 3) {
@@ -280,11 +266,7 @@ struct StepLogView: View {
                     switch logResult {
                     case .slice(let content):
                         // content is String — StepLogResult.slice carries `content: String` (see LogFetcher.swift).
-                        // && markdownScore >= 6 is intentional defence-in-depth: isMarkdownMode is only
-                        // ever set true via the score-gated badge path, but the double-guard closes a
-                        // theoretical cancellation race where isMarkdownMode survives a generation where
-                        // markdownScore resets to 0. Do NOT remove the score check from this condition.
-                        if isMarkdownMode && markdownScore >= 6 {
+                        if isMarkdownMode {
                             MarkdownLogView(text: content)
                         } else {
                             logBodyView
@@ -296,8 +278,7 @@ struct StepLogView: View {
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .padding(.horizontal, RBSpacing.md).padding(.top, 6)
                             Divider().padding(.horizontal, RBSpacing.md)
-                            // See .slice case above — same rationale for && markdownScore >= 6.
-                            if isMarkdownMode && markdownScore >= 6 {
+                            if isMarkdownMode {
                                 MarkdownLogView(text: content)
                             } else {
                                 logBodyView
@@ -372,7 +353,6 @@ struct StepLogView: View {
         loadTask?.cancel() // Signals cancellation; does NOT abort in-flight network I/O.
         loadGeneration += 1
         isLoading = true
-        markdownScore = 0      // Clear stale badge — prevents MD button flash during spinner.
         // isMarkdownMode is intentionally NOT reset here: loadLog() can fire multiple
         // times per view lifetime (`.onAppear` re-fires on live-step refresh), and
         // resetting it would wipe the user's manual toggle-off. SwiftUI state teardown
@@ -450,19 +430,13 @@ struct StepLogView: View {
                 // no text. The ?? "" coalesces both, which is pre-existing behaviour; the
                 // LogCopyButton disable check handles both correctly via isEmpty.
                 logText = result.text ?? ""
-                // Markdown state: score drives badge visibility, boolean drives auto-enable.
-                // Both computed from a single detect(_:) call on the detached task above;
-                // do NOT re-derive score >= 6 inline.
-                markdownScore = mdScore
-                // Auto-enable: safe to set unconditionally when mdAuto is true because
-                // loadLog() does not re-run while this view instance is alive (StepLogView
-                // is not polled — RunnerPoller is a separate actor with no callback into
-                // this view). The only re-fire path is SwiftUI view remount via .id()
-                // identity change, which tears down all @State before loadLog() runs
-                // again, so isMarkdownMode is already false at that point. A user
-                // toggle-off therefore cannot be overwritten here.
-                if mdAuto { isMarkdownMode = true }
-                log("loadLog › markdown: score=\(mdScore) autoEnabled=\(mdAuto) finalMode=\(isMarkdownMode)", category: .services)
+                // Markdown state: boolean drives auto-enable.
+                // Computed from a single detect(_:) call on the detached task above.
+                // Respect the user's first manual toggle: once they explicitly choose
+                // a mode, subsequent `loadLog()` writebacks must not force markdown
+                // back on during refreshes or re-fetches.
+                if mdAuto && !hasToggledMarkdown { isMarkdownMode = true }
+                log("loadLog › markdown: score=\(mdScore) autoEnabled=\(mdAuto) userToggled=\(hasToggledMarkdown) finalMode=\(isMarkdownMode)", category: .services)
                 // Preserve groups the user expanded across re-fetches. Group identity is keyed
                 // on title (IDs are not stable across parse calls). Strategy: build a
                 // title→id map for the new parse. Any title the user had manually expanded

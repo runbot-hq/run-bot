@@ -39,6 +39,7 @@ struct SettingsTintedGlassCard: ViewModifier {
     }
 }
 
+/// Convenience modifier accessor for ``SettingsTintedGlassCard``.
 extension View {
     /// Applies the settings-local badge-pattern glass card.
     ///
