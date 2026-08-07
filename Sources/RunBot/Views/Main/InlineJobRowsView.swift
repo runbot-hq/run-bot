@@ -250,7 +250,7 @@ private struct JobRowCard: View {
             }
             .background {
                 RoundedRectangle(cornerRadius: RBRadius.small, style: .continuous)
-                    .strokeBorder(.white.opacity(0.25), lineWidth: 0.5)
+                    .strokeBorder(Color.rbJobRowStroke, lineWidth: 0.5)
             }
         }
         .padding(.vertical, 1)
