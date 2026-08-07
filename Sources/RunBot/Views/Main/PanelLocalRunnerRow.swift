@@ -42,8 +42,8 @@ private struct RunnerMetricsBadge: View {
     /// zero load is distinguishable from "no data".
     var body: some View {
         HStack(spacing: 8) {
-            metricItem(label: "CPU", value: cpu.map { String(format: "%.0f%%", $0) } ?? "—")
-            metricItem(label: "MEM", value: mem.map { String(format: "%.0f%%", $0) } ?? "—")
+            metricItem(label: "CPU", value: cpu.map { String(format: "%.0f%%", $0) } ?? "—", percentage: cpu)
+            metricItem(label: "MEM", value: mem.map { String(format: "%.0f%%", $0) } ?? "—", percentage: mem)
         }
         .padding(.horizontal, 6)
         .padding(.vertical, 2)
@@ -51,16 +51,29 @@ private struct RunnerMetricsBadge: View {
     }
 
     /// Renders a single label–value pair for use inside the badge HStack.
-    private func metricItem(label: String, value: String) -> some View {
+    /// The value text color is driven by `metricColor(for:)` thresholds.
+    private func metricItem(label: String, value: String, percentage: Double?) -> some View {
         HStack(spacing: 3) {
             Text(label)
                 .font(RBFont.statLabel)
                 .foregroundColor(.secondary)
             Text(value)
                 .font(RBFont.statValue)
-                .foregroundColor(.primary)
+                .foregroundColor(metricColor(for: percentage))
                 .monospacedDigit()
         }
+    }
+
+    /// Returns the threshold color for a utilisation percentage.
+    /// Matches `SparklineMetricView.labelColor` exactly.
+    /// - `> 85` → `.rbDanger`
+    /// - `> 60` → `.rbWarning`
+    /// - otherwise (including `nil`) → `.primary`
+    private func metricColor(for percentage: Double?) -> Color {
+        guard let percentage else { return .primary }
+        if percentage > 85 { return .rbDanger }
+        if percentage > 60 { return .rbWarning }
+        return .primary
     }
 }
 
