@@ -18,7 +18,12 @@ import AppKit
 // MARK: - MBKPanelObserverTarget conformance
 
 /// Observers and event monitors for `MBKPanelController`.
-extension MBKPanelController: MBKPanelObserverTarget {}
+extension MBKPanelController: MBKPanelObserverTarget {
+    /// Releases the menu-bar visibility lease on termination.
+    func releaseMenuBarLease() {
+        menuBarVisibilityLease.release()
+    }
+}
 
 // MARK: - Observer lifecycle bridge
 

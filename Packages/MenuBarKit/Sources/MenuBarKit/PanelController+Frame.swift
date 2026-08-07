@@ -98,18 +98,18 @@ extension MBKPanelController {
 
         let topY: CGFloat
         if hidden {
-            // Use NSStatusBar.system.thickness for the top offset rather than
-            // deriving it from the live button frame, so the value is identical
-            // whether the bar is revealed or retracted (#2447).
-            // visibleFrame.maxY is the bottom edge of the menu bar (the top of
-            // the usable area). Adding the status bar thickness gives us the
-            // physical top of the menu bar area, matching the value we'd get
-            // from button.window.frame.minY when the bar is visible.
-            topY = visibleFrame.maxY + NSStatusBar.system.thickness
+            // Menu bar is retracted or the button has no screen. visibleFrame.maxY
+            // is the attachment edge (bottom of the menu bar). Adding status-bar
+            // thickness would move the anchor to the physical top of the menu bar
+            // area, which is incorrect — the panel must attach to the bar's bottom
+            // edge. See #2447 — the anchor snapshot already captures the correct
+            // position at open time, so this fallback only matters for the first
+            // frame before the snapshot is captured.
+            topY = visibleFrame.maxY
         } else if let window = buttonWindow, window.frame.minY > 0 {
             topY = window.frame.minY
         } else {
-            topY = visibleFrame.maxY + NSStatusBar.system.thickness
+            topY = visibleFrame.maxY
         }
         mbkLog("PanelController", "readAnchorLive -- anchorX=\(anchorX) topY=\(topY) hidden=\(hidden) buttonWindow=\(buttonWindow != nil) buttonScreen=\(buttonScreen != nil)")
         return MBKAnchorReading(

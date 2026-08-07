@@ -93,6 +93,9 @@ extension MBKPanelController {
         }
 
         setButtonHighlight(true)
+        mbkLog("MenuBarLease", "pre-activate -- visible=\(NSMenu.menuBarVisible()) options=\(NSApp.presentationOptions.rawValue)")
+        NSApp.activate(ignoringOtherApps: true)
+        menuBarVisibilityLease.acquire()
         panel.orderFrontRegardless()
         panel.makeKey()
         mbkLog("PanelController", "openPanel -- panel shown frame=\(panel.frame)")
@@ -106,6 +109,19 @@ extension MBKPanelController {
         mbkLog("PanelController", "openPanel -- layoutSubtreeIfNeeded done")
 
         startEventMonitor()
+
+        // Next-run-loop reinforcement: NSApp.activate() can apply presentation
+        // options asynchronously, so re-acquire the lease after one actor hop.
+        // Idempotent — does not overwrite the saved options from the direct call.
+        Task { @MainActor [weak self] in
+            guard let self, self.isShown else { return }
+            self.menuBarVisibilityLease.acquire()
+            NSMenu.setMenuBarVisible(true)
+            mbkLog(
+                "MenuBarLease",
+                "reinforce -- visible=\(NSMenu.menuBarVisible()) active=\(self.menuBarVisibilityLease.isActive)"
+            )
+        }
 
         Task { @MainActor [weak self] in
             guard let self else { return }
@@ -164,6 +180,9 @@ extension MBKPanelController {
         stopEventMonitor()
         setButtonHighlight(false)
         panel?.orderOut(nil)
+        // Release the menu-bar visibility lease after the panel is ordered out.
+        // This restores the exact presentation options captured at open time.
+        menuBarVisibilityLease.release()
         // Deliberately reset both gate flags here even though they are nominally
         // owned by MBKAnchoredSheet, mbkOpenFilePicker, and MBKAlertModifier.
         // This is safe because every close path that reaches teardown has already

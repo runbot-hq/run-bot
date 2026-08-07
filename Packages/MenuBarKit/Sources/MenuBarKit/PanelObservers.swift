@@ -44,6 +44,8 @@ protocol MBKPanelObserverTarget: AnyObject {
     func refreshForScreenChange()
     /// Applies a new measured content size to the panel frame.
     func applyMeasuredSize(_ size: CGSize)
+    /// Releases the menu-bar visibility lease on termination.
+    func releaseMenuBarLease()
 }
 
 // MARK: - Observer manager
@@ -63,6 +65,8 @@ final class MBKPanelObservers {
     private nonisolated(unsafe) var screenObserver: NSObjectProtocol?
     /// Token for the global mouse-down event monitor.
     private nonisolated(unsafe) var eventMonitor: Any?
+    /// Token for the `NSApplication.willTerminateNotification` observer.
+    private nonisolated(unsafe) var terminationObserver: NSObjectProtocol?
 
     /// Creates an observer manager for the given controller.
     init(controller: any MBKPanelObserverTarget) {
@@ -93,6 +97,9 @@ final class MBKPanelObservers {
         }
         if let monitor = eventMonitor {
             NSEvent.removeMonitor(monitor)
+        }
+        if let observer = terminationObserver {
+            NotificationCenter.default.removeObserver(observer)
         }
     }
 
@@ -139,6 +146,23 @@ final class MBKPanelObservers {
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
                 self?.controller?.refreshForScreenChange()
+            }
+        }
+    }
+
+    // MARK: - Termination observer
+
+    /// Registers for `NSApplication.willTerminateNotification` to restore the
+    /// menu-bar presentation options on normal termination. The lease is already
+    /// released during common teardown when the panel is closed; this observer
+    /// catches the case where the app terminates while the panel is still open.
+    func setupTerminationObserver() {
+        terminationObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.willTerminateNotification,
+            object: nil, queue: nil
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.controller?.releaseMenuBarLease()
             }
         }
     }
