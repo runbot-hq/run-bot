@@ -504,11 +504,15 @@ public final class MBKPanelController<Content: View>: NSObject, MBKPanelControll
 
     // MARK: - Deallocation
 
-    deinit {
+    isolated deinit {
+        // Final best-effort cleanup for reusable-package adopters that release an
+        // open controller without first routing through normal panel teardown.
+        menuBarHold.release()
+
         preferredContentSizeObservation?.invalidate()
         preferredContentSizeObservation = nil
-        // Workspace, screen, and event-monitor teardown is handled by
-        // MBKPanelObservers.deinit, which fires automatically when this
-        // controller releases its observers reference.
+        // Workspace, screen, event-monitor, and termination-observer teardown is
+        // handled by MBKPanelObservers.deinit when this controller releases its
+        // observers reference.
     }
 }

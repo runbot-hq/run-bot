@@ -153,22 +153,17 @@ final class MBKPanelObservers {
     // MARK: - Termination observer
 
     /// Registers for `NSApplication.willTerminateNotification` and releases the
-    /// menu-bar hold synchronously on `.main`.
+    /// menu-bar hold synchronously on the notification posting thread.
     ///
-    /// This is a separate observer (not merged into the workspace observer) because
-    /// termination is not an app-switch event. The workspace observer fires on
-    /// `NSWorkspace.didActivateApplicationNotification` and does not fire during
-    /// termination. A dedicated termination observer is required to release the
-    /// process-external SkyLight visibility override before the process exits.
-    ///
-    /// The callback runs synchronously on `.main` to ensure the SkyLight
-    /// visibility override is cleared before the process exits. An async Task
-    /// may not execute before the process terminates.
+    /// `queue: nil` makes NotificationCenter invoke the block synchronously on the
+    /// posting thread. AppKit posts `willTerminateNotification` on the main actor,
+    /// so `MainActor.assumeIsolated` is valid and no async suspension can delay the
+    /// release past process termination.
     func setupTerminationObserver() {
         terminationObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.willTerminateNotification,
             object: nil,
-            queue: .main
+            queue: nil
         ) { [weak self] _ in
             MainActor.assumeIsolated {
                 self?.controller?.releaseMenuBarHold()
