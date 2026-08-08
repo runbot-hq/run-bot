@@ -5,17 +5,20 @@ import SwiftUI
 
 // MARK: - DonutStatusView
 /// Replaces the PieProgressDot for the action row status indicator.
-/// Three visual states:
+/// Visual states:
 /// - in_progress : animated rotating shimmer arc (blue) + arc trim from 0 to progress + centered play.fill symbol (Color.rbBlue)
 /// - success     : full green circle stroke + checkmark SF Symbol
 /// - failed      : full red circle stroke + xmark SF Symbol
-/// - queued      : full yellow circle stroke + pause.fill SF Symbol
+/// - queued      : dim amber ring + revolving amber sweep + static pause.fill symbol
 /// - skipped     : muted grey circle stroke + minus SF Symbol
 ///
 /// Animation contract:
 /// - In-progress background ring uses `@State rotationAngle` driven by
 ///   `.linear(duration: 2).repeatForever(autoreverses: false)`.
 /// - Progress arc uses `trim(from: 0, to: fraction)` animated with `.easeInOut`.
+/// - Queued sweep rotates once every 3 seconds.
+/// - Queued animation is owned by `QueuedDonutRing`.
+/// - Queued animation is disabled under Reduce Motion.
 ///
 /// Do NOT remove the repeatForever animation -- it is the liveness indicator.
 /// Do NOT start the rotation for non-.inProgress states -- it wastes CPU/GPU.
@@ -57,9 +60,7 @@ struct DonutStatusView: View {
             case .failed:
                 terminalRing(color: .rbDanger, symbol: "xmark")
             case .queued:
-                // pause.fill is blockier than checkmark/xmark; scale down slightly
-                // to avoid clipping at small diameters (size ≤ 16). (#2355)
-                terminalRing(color: .rbWarning, symbol: "pause.fill", symbolScale: 0.36)
+                QueuedDonutRing(size: size, strokeWidth: strokeWidth)
             case .skipped:
                 // minus (no circle variant) pairs with the donut ring as the circular chrome.
                 // rbTextTertiary.opacity(0.3) matches the ring stroke color — low emphasis,
@@ -140,6 +141,91 @@ struct DonutStatusView: View {
             Image(systemName: symbol)
                 .font(.system(size: size * symbolScale, weight: .bold))
                 .foregroundStyle(color)
+        }
+    }
+}
+
+// MARK: - QueuedDonutRing
+
+/// Queued donut treatment.
+///
+/// Renders a dim amber base ring, a slow revolving amber sweep when Reduce
+/// Motion is disabled, and a static centered pause symbol.
+private struct QueuedDonutRing: View {
+    /// Outer ring diameter.
+    let size: CGFloat
+    /// Width of the base and sweep strokes.
+    let strokeWidth: CGFloat
+
+    /// Disables continuous rotation when the user requests reduced motion.
+    @Environment(\.accessibilityReduceMotion)
+    private var reduceMotion
+
+    /// Rotation angle for the amber sweep.
+    ///
+    /// Lives inside this subview so leaving and re-entering queued creates
+    /// a fresh animation lifecycle — no 360 → 360 dead-start, no visible snap.
+    @State private var rotation: Double = 0
+
+    var body: some View {
+        ZStack {
+            baseRing
+            if !reduceMotion {
+                rotatingSweep
+            }
+            pauseSymbol
+        }
+        .frame(width: size, height: size)
+    }
+
+    /// Low-opacity ring that remains visible with or without animation.
+    private var baseRing: some View {
+        Circle()
+            .stroke(
+                Color.rbWarning.opacity(0.25),
+                lineWidth: strokeWidth
+            )
+    }
+
+    /// Revolving amber angular-gradient sweep.
+    ///
+    /// `.onAppear` is attached here, not to the parent ZStack, so that the
+    /// animation starts automatically whenever Reduce Motion is turned off and
+    /// this view re-enters the hierarchy.
+    private var rotatingSweep: some View {
+        Circle()
+            .stroke(
+                AngularGradient(
+                    colors: [
+                        Color.rbWarning.opacity(0),
+                        Color.rbWarning.opacity(0.30)
+                    ],
+                    center: .center
+                ),
+                lineWidth: strokeWidth
+            )
+            .rotationEffect(.degrees(rotation))
+            .onAppear {
+                startRotation()
+            }
+    }
+
+    /// Static queued-state pause symbol.
+    private var pauseSymbol: some View {
+        Image(systemName: "pause.fill")
+            .font(.system(size: size * 0.36, weight: .bold))
+            .foregroundStyle(Color.rbWarning)
+            .accessibilityHidden(true)
+    }
+
+    /// Starts the queued sweep at three seconds per revolution.
+    private func startRotation() {
+        rotation = 0
+        withAnimation(
+            .linear(duration: 3)
+                .repeatForever(autoreverses: false)
+        ) {
+            rotation = 360
         }
     }
 }
