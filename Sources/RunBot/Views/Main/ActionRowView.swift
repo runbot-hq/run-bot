@@ -82,12 +82,12 @@ struct ActionRowView: View {
         .onChange(of: rowStatus) { _, newStatus in handleStatusChange(newStatus) }
     }
 
-    /// Unified workflow-card surface.
+    /// Unified workflow-card background.
     ///
-    /// Composes the neutral card background and the 6 pt status accent beneath
-    /// one card-wide glass effect. The accent is an underlay visible only through
-    /// the leftmost 6 pt of the card material — it does not create an independent
-    /// glass boundary or visible strip outline.
+    /// Composes the neutral card background and 4 pt leading status accent beneath
+    /// one card-wide glass effect so they read as a single material. The accent is
+    /// an underlay visible only through the leftmost 4 pt of the card — it does not
+    /// create an independent glass boundary or visible strip outline.
     /// Uses `rbGlassNeutralBackground` (black 0.15 light / white 0.10 dark) —
     /// opposite the root panel tint, establishing foreground/background hierarchy
     /// in both appearances.
@@ -99,8 +99,8 @@ struct ActionRowView: View {
         ZStack(alignment: .leading) {
             Color.rbGlassNeutralBackground
             rowStatus.color
-                .opacity(0.30)
-                .frame(width: 6)
+                .opacity(0.18)
+                .frame(width: 4)
                 .frame(maxHeight: .infinity)
                 .accessibilityHidden(true)
         }
