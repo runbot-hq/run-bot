@@ -2,37 +2,38 @@
 // RunBot
 import Foundation
 
-/// Formats workflow durations for compact user-facing presentation.
+/// Formats completed workflow durations using compact stopwatch notation.
 public enum WorkflowDurationFormatter {
-    /// Returns a compact duration using `h`, `min`, and `sec` units.
+    /// Returns `m:ss` below one hour and `h:mm:ss` at one hour or above.
     ///
-    /// Rounds to the nearest whole second, omits zero-value units, and permits
-    /// hour values greater than 24.
+    /// The duration is rounded to the nearest whole second. Negative input is
+    /// clamped to zero. Hours are not capped or zero-padded.
     ///
     /// Examples:
-    /// - `0` → `"0sec"`
-    /// - `272` → `"4min 32sec"`
-    /// - `3_872` → `"1h 4min 32sec"`
+    /// - `0`      → `"0:00"`
+    /// - `272`    → `"4:32"`
+    /// - `3_872`  → `"1:04:32"`
     public static func string(from duration: TimeInterval) -> String {
         let totalSeconds = Int(max(0, duration).rounded())
         let hours   = totalSeconds / 3_600
         let minutes = (totalSeconds % 3_600) / 60
         let seconds = totalSeconds % 60
 
-        var parts: [String] = []
-
         if hours > 0 {
-            parts.append("\(hours)h")
+            return String(
+                format: "%d:%02d:%02d",
+                hours,
+                minutes,
+                seconds
+            )
         }
 
-        if minutes > 0 {
-            parts.append("\(minutes)min")
-        }
+        let totalMinutes = totalSeconds / 60
 
-        if seconds > 0 || parts.isEmpty {
-            parts.append("\(seconds)sec")
-        }
-
-        return parts.joined(separator: " ")
+        return String(
+            format: "%d:%02d",
+            totalMinutes,
+            seconds
+        )
     }
 }

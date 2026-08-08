@@ -252,43 +252,88 @@ struct ActionRowView: View {
     ///   even in queued/loading states before jobs populate.
     /// - completed-duration: shown only for completed workflows with valid timestamps;
     ///   measures first job start through final job completion; formatted as
-    ///   compact `h`/`min`/`sec` units prefixed with `"in "` (e.g. `"in 4min 32sec"`).
+    ///   `m:ss` below one hour and `h:mm:ss` at one hour or above.
     /// - steps/total: job progress fraction (e.g. `"6/6"`), omitted when no jobs.
     @ViewBuilder private func metaTrailing(tick tickSnapshot: Int) -> some View {
-        HStack(spacing: RBSpacing.sm) {
+        let relativeStart = group.firstJobStartedAt ?? group.createdAt
+        let duration = group.completedDuration
+        let hasProgress = !group.jobs.isEmpty
+
+        HStack(spacing: RBSpacing.xs) {
             // Use createdAt as fallback so time-ago is visible before firstJobStartedAt populates.
             // If both are nil (e.g. corrupted API response), the label is intentionally omitted.
-            if let start = group.firstJobStartedAt ?? group.createdAt {
-                Text(RelativeTimeFormatter.string(from: start))
+            if let relativeStart {
+                Text(RelativeTimeFormatter.string(from: relativeStart))
                     .font(RBFont.mono)
-                    .foregroundColor(Color.rbTextSecondary)
+                    .foregroundStyle(Color.rbTextSecondary)
                     .lineLimit(1)
                     .fixedSize(horizontal: true, vertical: false)
                     // Gate tick binding to .inProgress only — completed/queued start dates are
                     // static so group.id acts as a stable sentinel, avoiding redraws on every tick.
-                    .id(group.groupStatus == .inProgress ? "\(tickSnapshot)" : group.id)
+                    .id(
+                        group.groupStatus == .inProgress
+                            ? "\(tickSnapshot)"
+                            : group.id
+                    )
             }
+
+            if relativeStart != nil, duration != nil || hasProgress {
+                metadataSeparator
+            }
+
             // Completed-duration label: only for terminal workflows with valid timestamps.
             // Active, queued, and loading rows show nothing here.
-            if let duration = group.completedDuration {
-                Text(
-                    "in \(WorkflowDurationFormatter.string(from: duration))"
-                )
+            if let duration {
+                Text(WorkflowDurationFormatter.string(from: duration))
                     .font(RBFont.mono)
-                    .foregroundColor(Color.rbTextSecondary)
+                    .monospacedDigit()
+                    .foregroundStyle(Color.rbTextSecondary)
                     .lineLimit(1)
                     .fixedSize(horizontal: true, vertical: false)
+                    .accessibilityLabel(durationAccessibilityLabel(duration))
             }
-            if !group.jobs.isEmpty {
+
+            if duration != nil, hasProgress {
+                metadataSeparator
+            }
+
+            if hasProgress {
                 Text(group.jobProgress)
                     .font(RBFont.mono)
-                    .foregroundColor(Color.rbTextSecondary)
+                    .monospacedDigit()
+                    .foregroundStyle(Color.rbTextSecondary)
                     .lineLimit(1)
                     .fixedSize(horizontal: true, vertical: false)
             }
         }
         .fixedSize(horizontal: true, vertical: false)
         .layoutPriority(2)
+    }
+
+    /// Decorative centered-dot separator between metadata values.
+    private var metadataSeparator: some View {
+        Text("·")
+            .font(RBFont.mono)
+            .foregroundStyle(Color.rbTextTertiary)
+            .accessibilityHidden(true)
+    }
+
+    /// Spoken accessibility label for a completed workflow duration.
+    ///
+    /// Produces natural unit strings such as "Workflow duration, 2 minutes 3 seconds".
+    private func durationAccessibilityLabel(_ duration: TimeInterval) -> String {
+        let totalSeconds = Int(max(0, duration).rounded())
+        let hours   = totalSeconds / 3_600
+        let minutes = (totalSeconds % 3_600) / 60
+        let seconds = totalSeconds % 60
+
+        var parts: [String] = []
+        if hours   > 0 { parts.append(hours   == 1 ? "1 hour"   : "\(hours) hours") }
+        if minutes > 0 { parts.append(minutes == 1 ? "1 minute" : "\(minutes) minutes") }
+        if seconds > 0 { parts.append(seconds == 1 ? "1 second" : "\(seconds) seconds") }
+        if parts.isEmpty { parts.append("0 seconds") }
+
+        return "Workflow duration, " + parts.joined(separator: " ")
     }
 
     /// Glass-wrapped donut for the leading position of the top-level workflow row.
