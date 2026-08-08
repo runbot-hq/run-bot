@@ -10,8 +10,8 @@ import SwiftUI
 ///
 /// ⚠️ Do NOT add GlassEffectContainer, .glassEffectID, .bouncy, or
 /// .glassEffectTransition to the row or rowContainer — they cause staggered/slow
-/// expand animations (#957). The statusBadge GlassEffectContainer in metaTrailing
-/// is intentionally scoped to just the badge, not the row.
+/// expand animations (#957). The workflowStatusDonut GlassEffectContainer is
+/// intentionally scoped to just the leading donut, not the row.
 struct ActionRowView: View {
     /// The workflow action group this row represents.
     let group: WorkflowActionGroup
@@ -83,13 +83,26 @@ struct ActionRowView: View {
         .onChange(of: rowStatus) { _, newStatus in handleStatusChange(newStatus) }
     }
 
-    /// Left-edge accent bar whose colour reflects the current row status.
+    /// Left-edge accent strip whose colour reflects the current row status.
+    /// Width 6 pt so the glass refraction is visible. Leading corners follow
+    /// `RBRadius.card`; trailing corners are square to sit flush with the card body.
+    /// Decorative only — does not participate in hit testing or accessibility.
     @ViewBuilder private var statusAccentBar: some View {
-        Rectangle()
-            .fill(rowStatus.color)
-            .frame(width: 4)
+        let shape = UnevenRoundedRectangle(
+            topLeadingRadius: RBRadius.card,
+            bottomLeadingRadius: RBRadius.card,
+            bottomTrailingRadius: 0,
+            topTrailingRadius: 0,
+            style: .continuous
+        )
+        Color.clear
+            .frame(width: 6)
             .frame(maxHeight: .infinity)
             .frame(maxWidth: .infinity, alignment: .leading)
+            .background(rowStatus.color.opacity(0.30), in: shape)
+            .glassEffect(.regular, in: shape)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
     }
 
     /// Adaptive foreground glass card background for the workflow card.
@@ -150,9 +163,9 @@ struct ActionRowView: View {
 
     /// Main body of the action row.
     ///
-    /// Column order (#984, updated #2591):
-    /// graph-dot · repo-name · commit-title · branch-text · Spacer
-    /// · time-ago · elapsed(mm:ss) · [steps/total + statusBadge]
+    /// Column order (#984, updated #2598):
+    /// workflowStatusDonut · repo-name · commit-title · branch-text · Spacer
+    /// · time-ago · elapsed(mm:ss) · steps/total
     ///
     /// - sha: `group.label` (7-char sha or PR#), muted mono
     /// - repo-name: `group.repoShortName` stripped from owner/repo
@@ -175,7 +188,7 @@ struct ActionRowView: View {
     private var rowContent: some View {
         let tickSnapshot = tick
         return HStack(spacing: 6) {
-            DonutStatusView(status: rowStatus, progress: group.progressFraction ?? 0, size: 14)
+            workflowStatusDonut
             Text(group.repoShortName)
                 .font(RBFont.mono)
                 .foregroundColor(Color.rbTextSecondary)
@@ -257,37 +270,51 @@ struct ActionRowView: View {
                 // would be misleading.
                 .id(group.groupStatus == .inProgress ? "\(tickSnapshot)" : group.id)
         }
-        // Completion text and status badge are tightly coupled — RBSpacing.xs keeps them
-        // visually adjacent while preserving the badge's standalone GlassEffectContainer.
-        HStack(spacing: RBSpacing.xs) {
-            if !group.jobs.isEmpty {
-                Text(group.jobProgress)
-                    .font(RBFont.mono)
-                    .foregroundColor(Color.rbTextSecondary)
-                    .lineLimit(1)
-                    .fixedSize(horizontal: true, vertical: false)
-            }
-            GlassEffectContainer { statusBadge }
+        if !group.jobs.isEmpty {
+            Text(group.jobProgress)
+                .font(RBFont.mono)
+                .foregroundColor(Color.rbTextSecondary)
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
         }
-        .fixedSize()
     }
 
-    /// Badge view produced from the group's current status and conclusion.
-    /// Keep conclusion groupings in sync with `rowStatus` above.
-    @ViewBuilder private var statusBadge: some View {
+    /// Glass-wrapped donut for the leading position of the top-level workflow row.
+    /// Keeps the existing 14 pt donut unchanged; adds ~3 pt padding and a subtle
+    /// status-tinted circular glass surface. Scoped to just the donut — not the row.
+    /// Do not apply this wrapper to job- or step-level donuts.
+    @ViewBuilder private var workflowStatusDonut: some View {
+        let shape = Circle()
+        GlassEffectContainer {
+            DonutStatusView(
+                status: rowStatus,
+                progress: group.progressFraction ?? 0,
+                size: 14
+            )
+            .padding(3)
+            .background(rowStatus.color.opacity(0.14), in: shape)
+            .glassEffect(.regular, in: shape)
+        }
+        .fixedSize()
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Workflow status")
+        .accessibilityValue(statusAccessibilityText)
+    }
+
+    /// Textual description of the current workflow status for accessibility (VoiceOver).
+    /// Mirrors the former statusBadge text labels so VoiceOver continuity is preserved.
+    private var statusAccessibilityText: String {
         switch group.groupStatus {
-        case .inProgress: StatusBadge(status: .inProgress, text: "IN PROGRESS")
-        case .loading:    StatusBadge(status: .queued, text: "LOADING")
-        case .queued:     StatusBadge(status: .queued, text: "QUEUED")
+        case .inProgress: return "In progress"
+        case .loading:    return "Loading"
+        case .queued:     return "Queued"
         case .completed:
             switch group.conclusion {
-            case .success: StatusBadge(status: .success, text: "SUCCESS")
-            case .failure, .timedOut, .actionRequired, .startupFailure:
-                StatusBadge(status: .failed, text: "FAILED")
-            // TODO: promote .cancelled and .skipped to dedicated RBStatus cases when available.
-            case .cancelled: StatusBadge(status: .unknown, text: "CANCELLED")
-            case .skipped: StatusBadge(status: .unknown, text: "SKIPPED")
-            case .neutral, .stale, .unknown, nil: StatusBadge(status: .unknown, text: "DONE")
+            case .success:                                              return "Success"
+            case .failure, .timedOut, .actionRequired, .startupFailure: return "Failed"
+            case .cancelled:                                            return "Cancelled"
+            case .skipped:                                              return "Skipped"
+            case .neutral, .stale, .unknown, nil:                       return "Done"
             }
         }
     }
