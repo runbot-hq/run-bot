@@ -338,9 +338,9 @@ struct ActionRowView: View {
         return "Workflow duration, " + parts.joined(separator: " ")
     }
 
-    /// Glass-wrapped donut for the leading position of the top-level workflow row.
-    /// Keeps the existing 14 pt donut unchanged; adds ~3 pt padding and a subtle
-    /// status-tinted circular glass surface. Scoped to just the donut — not the row.
+    /// Glass-wrapped 14 pt status donut for the top-level workflow row.
+    /// Glass is applied directly to the donut bounds so it does not increase the
+    /// row's intrinsic height. Scoped to just the donut — not the row.
     /// Do not apply this wrapper to job- or step-level donuts.
     @ViewBuilder private var workflowStatusDonut: some View {
         let shape = Circle()
@@ -350,7 +350,6 @@ struct ActionRowView: View {
                 progress: group.progressFraction ?? 0,
                 size: 14
             )
-            .padding(3)
             .background(rowStatus.color.opacity(0.14), in: shape)
             .glassEffect(.regular, in: shape)
         }
