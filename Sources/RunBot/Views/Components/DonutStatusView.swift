@@ -6,16 +6,16 @@ import SwiftUI
 // MARK: - DonutStatusView
 /// Replaces the PieProgressDot for the action row status indicator.
 /// Visual states:
-/// - in_progress : dim blue track + solid progress arc + bright orbiting activity marker + centered play.fill symbol (Color.rbBlue)
+/// - in_progress : dim track + breathing blue halo + determinate progress arc + centered play.fill (Color.rbBlue)
 /// - success     : full green circle stroke + checkmark SF Symbol
 /// - failed      : full red circle stroke + xmark SF Symbol
 /// - queued      : dim amber ring + revolving amber sweep + static pause.fill symbol
 /// - skipped     : muted grey circle stroke + minus SF Symbol
 ///
 /// Animation contract:
-/// - In-progress uses `OrbitingActivityMarker` above the progress arc; orbit duration 1.4 s.
-/// - Marker is independent of completion percentage and remains visible at all progress values.
-/// - Marker is disabled under Reduce Motion; the static play icon remains the active-state cue.
+/// - In-progress uses `ActiveDonutHalo` (opacity 0.16 ↔ 0.62, 0.9 s ease-in-out autoreversing).
+/// - Halo sits behind the progress arc; indicates activity without implying a completion value.
+/// - Reduce Motion renders the halo statically at opacity 0.22; no breathing.
 /// - Progress arc uses `trim(from: 0, to: fraction)` animated with `.easeInOut`.
 /// - Queued uses a localized amber comet sweep with a bright 0.85-opacity head, a subtle glow,
 ///   and a 2.4-second linear revolution.
@@ -81,21 +81,20 @@ struct DonutStatusView: View {
         }
     }
 
-    /// Active donut: dim blue track, solid progress arc, orbiting activity marker,
-    /// Active donut: dim blue track, solid progress arc, orbiting activity marker,
-    /// and static centered play symbol.
+    /// In-progress donut: dim track, breathing blue activity halo, determinate progress arc,
+    /// and a static centered play symbol.
     ///
-    /// Layer order: track → progress arc → orbiting marker → play icon.
-    /// The marker renders above the arc so it stays visible at all progress values.
+    /// Layer order: track → halo → progress arc → play icon.
+    /// The halo sits behind the arc and breathes in opacity only; it does not move or spin.
     private var inProgressRing: some View {
         ZStack {
             inProgressTrack
+            ActiveDonutHalo(size: size, strokeWidth: strokeWidth)
             Circle()
                 .trim(from: 0, to: CGFloat(displayProgress))
                 .stroke(Color.rbBlue, style: StrokeStyle(lineWidth: strokeWidth, lineCap: .round))
                 .frame(width: size, height: size)
                 .rotationEffect(.degrees(-90))
-            OrbitingActivityMarker(size: size, strokeWidth: strokeWidth)
             Image(systemName: "play.fill")
                 .font(.system(size: size * 0.36, weight: .bold))
                 .foregroundStyle(Color.rbBlue)
@@ -128,58 +127,59 @@ struct DonutStatusView: View {
     }
 }
 
-// MARK: - OrbitingActivityMarker
+// MARK: - ActiveDonutHalo
 
-/// Bright activity marker orbiting the in-progress donut.
+/// Diffuse breathing halo indicating that a run is actively progressing.
 ///
-/// Rendered above the progress arc so it remains visible regardless of completion percentage.
-/// Omitted under Reduce Motion; the static play icon remains the active-state cue.
-private struct OrbitingActivityMarker: View {
+/// Covers the complete circumference and sits behind the determinate progress arc.
+/// Changes only in opacity — no movement, spin, or separate progress indicator.
+/// Under Reduce Motion the halo is rendered statically at `0.22` opacity.
+private struct ActiveDonutHalo: View {
     /// Outer diameter of the donut.
     let size: CGFloat
     /// Width of the donut track and progress arc.
     let strokeWidth: CGFloat
 
-    /// Disables continuous orbital motion when requested by the user.
+    /// Disables the breathing animation when the user requests reduced motion.
     @Environment(\.accessibilityReduceMotion)
     private var reduceMotion
 
-    /// Current orbital angle. Local state ensures a fresh lifecycle each time the active state is entered.
-    @State private var rotation: Double = 0
+    /// Drives the opacity oscillation between the dim and bright phases.
+    @State private var isBright = false
 
-    /// Renders the orbiting marker, or nothing under Reduce Motion.
+    /// Renders the halo with the appropriate opacity.
     var body: some View {
-        if !reduceMotion {
-            marker
-                .onAppear { startRotation() }
-        }
-    }
-
-    /// Bright marker with a white center, blue outline, and blue glow.
-    private var marker: some View {
-        let markerSize = max(2.5, size * 0.22)
-        let orbitRadius = (size - markerSize) / 2
-        return Circle()
-            .fill(Color.white.opacity(0.95))
-            .frame(width: markerSize, height: markerSize)
-            .overlay {
-                Circle()
-                    .stroke(Color.rbBlue, lineWidth: max(0.5, strokeWidth * 0.45))
-            }
-            .shadow(color: Color.rbBlue.opacity(0.85), radius: max(1, size * 0.10))
-            .offset(y: -orbitRadius)
-            .rotationEffect(.degrees(rotation))
+        halo
+            .opacity(haloOpacity)
+            .onAppear { startAnimationIfNeeded() }
             .accessibilityHidden(true)
+            .allowsHitTesting(false)
     }
 
-    /// Starts a continuous clockwise orbit completing one revolution every 1.4 seconds.
-    private func startRotation() {
-        rotation = 0
+    /// Wide, blurred blue stroke forming the ambient halo.
+    private var halo: some View {
+        Circle()
+            .stroke(Color.rbBlue, lineWidth: max(2, strokeWidth * 1.8))
+            .frame(width: size, height: size)
+            .blur(radius: max(0.5, size * 0.06))
+            .shadow(color: Color.rbBlue.opacity(0.75), radius: max(1, size * 0.12))
+    }
+
+    /// Static `0.22` under Reduce Motion; otherwise oscillates between `0.16` and `0.62`.
+    private var haloOpacity: Double {
+        if reduceMotion { return 0.22 }
+        return isBright ? 0.62 : 0.16
+    }
+
+    /// Starts a repeating ease-in-out opacity animation unless Reduce Motion is enabled.
+    private func startAnimationIfNeeded() {
+        guard !reduceMotion else { return }
+        isBright = false
         withAnimation(
-            .linear(duration: 1.4)
-                .repeatForever(autoreverses: false)
+            .easeInOut(duration: 0.9)
+                .repeatForever(autoreverses: true)
         ) {
-            rotation = 360
+            isBright = true
         }
     }
 }
