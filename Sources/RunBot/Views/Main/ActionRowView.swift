@@ -150,9 +150,13 @@ struct ActionRowView: View {
 
     /// Main body of the action row.
     ///
-    /// Column order (#984, updated #2598):
+    /// Column order (#984, updated #2599, #2601):
     /// workflowStatusDonut · repo-name · commit-title · branch-text · Spacer
-    /// · time-ago · elapsed(mm:ss) · steps/total
+    /// · time-ago · completed-duration · steps/total
+    ///
+    /// completed-duration: appears only for completed workflows with valid timestamps.
+    /// Measures first job start through final job completion.
+    /// Formatted as compact `h`, `min`, `sec` units (e.g. `"in 4min 32sec"`).
     ///
     /// - sha: `group.label` (7-char sha or PR#), muted mono
     /// - repo-name: `group.repoShortName` stripped from owner/repo
@@ -206,56 +210,35 @@ struct ActionRowView: View {
         .padding(.vertical, 4)
     }
 
-    /// Trailing meta: time-ago · steps/total · elapsed · statusBadge.
+    /// Trailing metadata group: time-ago · completed-duration · steps/total.
     ///
-    /// - time-ago: derived from `firstJobStartedAt ?? createdAt` so it is visible
-    ///   even in queued/loading states before jobs have populated.
-    /// - elapsed: shown for ALL statuses — completed rows show their final duration,
-    ///   active rows show a live ticking value (keyed to `tick`).
-    ///
-    /// statusBadge is wrapped in its own standalone GlassEffectContainer — scoped to badge only.
-    /// ⚠️ Do NOT expand this container to the row or rowContainer (#957).
+    /// - time-ago: derived from `firstJobStartedAt ?? createdAt` so it appears
+    ///   even in queued/loading states before jobs populate.
+    /// - completed-duration: shown only for completed workflows with valid timestamps;
+    ///   measures first job start through final job completion; formatted as
+    ///   compact `h`/`min`/`sec` units prefixed with `"in "` (e.g. `"in 4min 32sec"`).
+    /// - steps/total: job progress fraction (e.g. `"6/6"`), omitted when no jobs.
     @ViewBuilder private func metaTrailing(tick tickSnapshot: Int) -> some View {
         // Use createdAt as fallback so time-ago is visible before firstJobStartedAt populates.
-        // If both are nil (e.g. corrupted API response), the label is intentionally omitted — not a bug.
+        // If both are nil (e.g. corrupted API response), the label is intentionally omitted.
         if let start = group.firstJobStartedAt ?? group.createdAt {
             Text(RelativeTimeFormatter.string(from: start))
                 .font(RBFont.mono)
                 .foregroundColor(Color.rbTextSecondary)
                 .lineLimit(1)
                 .fixedSize(horizontal: true, vertical: false)
-                // Gate tick binding to .inProgress only — mirrors the elapsed label below.
-                // For non-inProgress rows the start date is static; group.id is a stable
-                // sentinel so SwiftUI does not redraw this label on every poll tick.
+                // Gate tick binding to .inProgress only — completed/queued start dates are
+                // static so group.id acts as a stable sentinel, avoiding redraws on every tick.
                 .id(group.groupStatus == .inProgress ? "\(tickSnapshot)" : group.id)
         }
-        // Show elapsed for all statuses. Completed rows display a static final duration;
-        // active rows tick live. Only bind tickSnapshot when in-progress to avoid
-        // unnecessary redraws on completed/queued rows.
-        //
-        // Condition reads: show elapsed UNLESS the row is still in .loading AND no job has
-        // started yet. That is the only state where group.elapsed would be a meaningless
-        // "time since workflow was created" with no job context.
-        // Equivalent form: suppress when (.loading AND firstJobStartedAt == nil).
-        //
-        // group.elapsed always returns a non-empty string for every state where
-        // showElapsed == true: inProgress/queued use firstJobStartedAt ?? createdAt → now,
-        // and completed uses firstJobStartedAt → lastJobCompletedAt. No empty-Text risk.
-        let showElapsed = group.groupStatus != .loading || group.firstJobStartedAt != nil
-        if showElapsed {
-            Text(group.elapsed)
+        // Completed-duration label: only for terminal workflows with valid timestamps.
+        // Active, queued, and loading rows show nothing here.
+        if let duration = group.completedDuration {
+            Text("in \(formatWorkflowDuration(duration))")
                 .font(RBFont.mono)
                 .foregroundColor(Color.rbTextSecondary)
                 .lineLimit(1)
                 .fixedSize(horizontal: true, vertical: false)
-                // Both .id() arms produce String. Collision between "\(tickSnapshot)" and
-                // group.id is not possible in practice: group.id is derived from the maximum
-                // GitHub run ID (a large integer, e.g. "12893741234"), while tickSnapshot is a
-                // small monotonic counter that resets with the app. The value spaces do not
-                // overlap. Note: .queued elapsed reflects the value at last poll, not
-                // per-second — this is intentional. Per-second ticking on a queued run
-                // would be misleading.
-                .id(group.groupStatus == .inProgress ? "\(tickSnapshot)" : group.id)
         }
         if !group.jobs.isEmpty {
             Text(group.jobProgress)
@@ -304,6 +287,23 @@ struct ActionRowView: View {
             case .neutral, .stale, .unknown, nil:                       return "Done"
             }
         }
+    }
+
+    /// Formats a completed workflow duration as compact human-readable text.
+    ///
+    /// Rules: round to nearest whole second; omit zero-value units; hours may exceed 24.
+    /// Examples: 0s → `"0sec"`, 272s → `"4min 32sec"`, 3872s → `"1h 4min 32sec"`.
+    private func formatWorkflowDuration(_ duration: TimeInterval) -> String {
+        let totalSeconds = Int(max(0, duration).rounded())
+        let hours   = totalSeconds / 3_600
+        let minutes = (totalSeconds % 3_600) / 60
+        let seconds = totalSeconds % 60
+
+        var parts: [String] = []
+        if hours   > 0 { parts.append("\(hours)h") }
+        if minutes > 0 { parts.append("\(minutes)min") }
+        if seconds > 0 || parts.isEmpty { parts.append("\(seconds)sec") }
+        return parts.joined(separator: " ")
     }
 }
 

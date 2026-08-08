@@ -356,6 +356,21 @@ public struct WorkflowActionGroup: Identifiable, Equatable, Sendable {
         )
     }
 
+    /// Total duration of a completed workflow, measured from the first job start
+    /// to the final job completion.
+    ///
+    /// Returns `nil` for active workflows, missing timestamps, or invalid
+    /// completion times (end before start).
+    public var completedDuration: TimeInterval? {
+        guard groupStatus == .completed,
+              let start = firstJobStartedAt,
+              let end = lastJobCompletedAt,
+              end >= start else {
+            return nil
+        }
+        return end.timeIntervalSince(start)
+    }
+
     // MARK: - Runner type
 
     /// `true` if at least one job in this group ran on a local (self-hosted) runner.
