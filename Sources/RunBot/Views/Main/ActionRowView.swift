@@ -224,7 +224,8 @@ struct ActionRowView: View {
                 .frame(maxWidth: RBMetrics.actionRowTitleMaxWidth, alignment: .leading) // step 2: cap width, triggers ellipsis
                 .help(group.title)                                                     // step 3: tooltip on capped view (always-on by design)
                 .layoutPriority(1)                                                     // step 4: priority on the frame, not raw Text
-            // Branch — plain text, hidden when nil (#1194)
+            // Branch — middle-truncated, full value available through native tooltip;
+            // hidden when nil (#1194, #2610).
             if let branch = group.headBranch {
                 Text(branch)
                     .font(RBFont.mono)
@@ -232,6 +233,7 @@ struct ActionRowView: View {
                     .lineLimit(1)
                     .truncationMode(.middle)
                     .frame(maxWidth: RBMetrics.actionRowBranchMaxWidth, alignment: .leading)
+                    .help(branch)
                     .layoutPriority(0)
             }
             Spacer()
