@@ -262,8 +262,12 @@ private struct JobRowCard: View {
     }
     /// Job header row.
     ///
-    /// Column order (#1037):
-    /// graph-dot · runner-type-icon · job-name · job-id · [progress bar] · steps/total · elapsed
+    /// Column order:
+    /// graph-dot · runner-type-icon · job-name · job-id · [progress bar] · elapsed · steps/total
+    ///
+    /// The elapsed duration appears before step progress so the rightmost value is always
+    /// the step fraction. A centered-dot separator is shown between the two when both are
+    /// present; missing values do not leave a dangling separator.
     private var jobHeader: some View {
         Button {
             guard totalSteps > 0 else { return }
@@ -291,12 +295,6 @@ private struct JobRowCard: View {
                     JobInlineProgress(progress: fraction)
                         .frame(width: 120)
                 }
-                if totalSteps > 0 {
-                    Text("\(completedSteps)/\(totalSteps)")
-                        .font(.caption2.monospacedDigit())
-                        .foregroundColor(Color.rbTextTertiary)
-                        .fixedSize()
-                }
                 // ELAPSED GUARD — mirrors GitHubJob.elapsed(now:)'s own start logic:
                 // `formatElapsed(start: startDate ?? createdDate, ...)`. We show the
                 // label iff at least one of those dates is non-nil, which means the
@@ -317,12 +315,32 @@ private struct JobRowCard: View {
                 //   Status is unreliable as a timing proxy — a completed job can still
                 //   lack a startedAt if the API response was partial. Date presence is
                 //   the authoritative signal.
-                if job.startDate != nil || job.createdDate != nil {
-                    Text(job.elapsed)
-                        .font(.caption2.monospacedDigit())
-                        .foregroundColor(Color.rbTextTertiary)
-                        .fixedSize()
+                let showsElapsed = job.startDate != nil || job.createdDate != nil
+                let showsStepProgress = totalSteps > 0
+
+                HStack(spacing: RBSpacing.xs) {
+                    if showsElapsed {
+                        Text(job.elapsed)
+                            .font(.caption2.monospacedDigit())
+                            .foregroundStyle(Color.rbTextTertiary)
+                            .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
+                            .accessibilityLabel("Job duration")
+                    }
+
+                    if showsElapsed, showsStepProgress {
+                        jobMetadataSeparator
+                    }
+
+                    if showsStepProgress {
+                        Text("\(completedSteps)/\(totalSteps)")
+                            .font(.caption2.monospacedDigit())
+                            .foregroundStyle(Color.rbTextTertiary)
+                            .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
+                    }
                 }
+                .fixedSize(horizontal: true, vertical: false)
             }
             .padding(.horizontal, RBSpacing.sm)
             .padding(.vertical, 5)
@@ -330,6 +348,14 @@ private struct JobRowCard: View {
         }
         .buttonStyle(.plain)
     }
+    /// Decorative centered-dot separator between job duration and step progress.
+    private var jobMetadataSeparator: some View {
+        Text("·")
+            .font(.caption2)
+            .foregroundStyle(Color.rbTextTertiary)
+            .accessibilityHidden(true)
+    }
+
     /// Vertically stacked step rows shown when the job card is expanded.
     private var stepsContainer: some View {
         VStack(alignment: .leading, spacing: 0) {
