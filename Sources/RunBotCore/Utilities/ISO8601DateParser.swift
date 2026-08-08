@@ -16,8 +16,16 @@ import GitHubClient
 /// `WorkflowDateParserActor`, `GitHubDateParserActor`) lived in separate files.
 /// They are consolidated here so callers share one allocated formatter.
 public actor ISO8601DateParser {
-    /// The underlying ISO-8601 formatter; actor isolation provides thread safety.
-    private let iso = ISO8601DateFormatter()
+    /// Parses timestamps with fractional seconds (e.g. `"2026-08-08T16:07:14.123Z"`).
+    private let fractional: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+
+    /// Parses standard timestamps without fractional seconds (e.g. `"2026-08-08T16:07:14Z"`).
+    /// GitHub commonly omits fractional seconds; this formatter handles that case.
+    private let standard = ISO8601DateFormatter()
 
     /// The module-wide shared instance. Use this from all call sites.
     public static let shared = ISO8601DateParser()
@@ -25,8 +33,35 @@ public actor ISO8601DateParser {
     /// Private initialiser — callers must use `shared`.
     private init() {}
 
-    /// Parses an ISO-8601 date string. Returns `nil` on failure.
-    public func parse(_ str: String) -> Date? {
-        iso.date(from: str)
+    /// Parses standard and fractional ISO-8601 timestamps.
+    ///
+    /// Tries fractional-seconds format first (GitHub sometimes includes milliseconds),
+    /// then falls back to standard format (GitHub commonly omits fractional seconds).
+    public func parse(_ value: String) -> Date? {
+        if let date = fractional.date(from: value) {
+            #if DEBUG
+            log(
+                "[TimingTrace][actor-parse] mode=fractional raw=\(value) parsed=\(date)",
+                category: .runner
+            )
+            #endif
+            return date
+        }
+        if let date = standard.date(from: value) {
+            #if DEBUG
+            log(
+                "[TimingTrace][actor-parse] mode=standard raw=\(value) parsed=\(date)",
+                category: .runner
+            )
+            #endif
+            return date
+        }
+        #if DEBUG
+        log(
+            "[TimingTrace][actor-parse] FAILED raw=\(value)",
+            category: .runner
+        )
+        #endif
+        return nil
     }
 }

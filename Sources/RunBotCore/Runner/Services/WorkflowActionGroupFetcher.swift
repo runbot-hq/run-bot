@@ -342,11 +342,38 @@ public struct WorkflowActionGroupFetcher: Sendable, WorkflowActionGroupFetcherPr
         htmlUrl: run.htmlUrl)
     }
     let allJobs = await fetchJobsForGroup(groupRuns: groupRuns, scope: scope, cache: cache, cacheKey: groupKey.cacheKey)
+    #if DEBUG
+    for job in allJobs {
+      log(
+        "[TimingTrace][fetch-job] "
+          + "group=\(groupKey.cacheKey) "
+          + "jobID=\(job.id) "
+          + "status=\(job.raw.status) "
+          + "rawStart=\(String(describing: job.raw.startedAt)) "
+          + "rawEnd=\(String(describing: job.raw.completedAt)) "
+          + "parsedStart=\(String(describing: job.raw.startDate)) "
+          + "parsedEnd=\(String(describing: job.raw.completedDate))",
+        category: .runner
+      )
+    }
+    #endif
     // Route through raw string dates for min/max comparison — ActiveJob exposes
     // startDate/completedDate as parsed Date? via raw.startDate/completedDate, but
     // WorkflowActionGroup.firstJobStartedAt/lastJobCompletedAt take Date?.
     let starts = allJobs.compactMap { $0.raw.startDate }
     let ends = allJobs.compactMap { $0.raw.completedDate }
+    #if DEBUG
+    log(
+      "[TimingTrace][fetch-group] "
+        + "group=\(groupKey.cacheKey) "
+        + "jobs=\(allJobs.count) "
+        + "startCount=\(starts.count) "
+        + "endCount=\(ends.count) "
+        + "firstStart=\(String(describing: starts.min())) "
+        + "lastEnd=\(String(describing: ends.max()))",
+      category: .runner
+    )
+    #endif
     // Optional.flatMap does not accept an async closure — use if let.
     let createdAt: Date?
     if let dateStr = representative.createdAt {

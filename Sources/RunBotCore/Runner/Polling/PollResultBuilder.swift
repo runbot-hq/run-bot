@@ -160,6 +160,24 @@ public enum PollResultBuilder {
         + " | cache: \(newCache.count) | display: \(display.count)",
       category: .runner
     )
+    #if DEBUG
+    for group in display {
+      let dStart = group.jobs.compactMap { $0.raw.startDate }.min()
+      let dEnd   = group.jobs.compactMap { $0.raw.completedDate }.max()
+      log(
+        "[TimingTrace][display-group] "
+          + "id=\(group.id) "
+          + "status=\(group.groupStatus) "
+          + "jobs=\(group.jobs.count) "
+          + "storedStart=\(String(describing: group.firstJobStartedAt)) "
+          + "storedEnd=\(String(describing: group.lastJobCompletedAt)) "
+          + "derivedStart=\(String(describing: dStart)) "
+          + "derivedEnd=\(String(describing: dEnd)) "
+          + "duration=\(String(describing: group.completedDuration))",
+        category: .runner
+      )
+    }
+    #endif
     let enriched = await enrichDisplay(display, enrichJobs: enrichJobs)
     // Intentionally enriches the full newCache, not just live groups. The cache feeds
     // the next poll's display list; dimmed/completed groups that carry stale job data

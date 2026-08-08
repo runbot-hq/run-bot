@@ -116,9 +116,25 @@ struct StepLogView: View {
         formatter.dateFormat = "yyyy-MM-dd"
         return formatter
     }()
-    /// ISO 8601 formatter used to parse `step.startedAt` and `step.completedAt` strings.
-    /// Cached as a static let because ISO8601DateFormatter is not cheap to allocate.
+    /// ISO 8601 formatters used to parse `step.startedAt` and `step.completedAt` strings.
+    /// Cached as static lets because ISO8601DateFormatter is not cheap to allocate.
+    ///
+    /// GitHub commonly returns timestamps without fractional seconds (e.g. `"2026-08-08T16:07:14Z"`).
+    /// Try fractional first (catches `.000Z` responses), then fall back to standard.
+    private static let iso8601FmtFractional: ISO8601DateFormatter = {
+        let fmt = ISO8601DateFormatter()
+        fmt.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return fmt
+    }()
+    /// Standard ISO-8601 formatter (no fractional seconds). Used as fallback by `parseDate`.
     private static let iso8601Fmt = ISO8601DateFormatter()
+
+    /// Parses an ISO-8601 timestamp string, trying fractional-seconds format first
+    /// (`"2026-08-08T16:07:14.000Z"`), then falling back to standard format
+    /// (`"2026-08-08T16:07:14Z"`). Returns `nil` only when both parsers fail.
+    private static func parseDate(_ raw: String) -> Date? {
+        iso8601FmtFractional.date(from: raw) ?? iso8601Fmt.date(from: raw)
+    }
 
     /// Creates a `StepLogView` for the given job step.
     /// - Parameters:
@@ -321,7 +337,21 @@ struct StepLogView: View {
         // is removed is major major major.
         // ════════════════════════════════════════════════════════════════════════
         .frame(idealWidth: 480, maxWidth: .infinity, alignment: .top)
-        .onAppear { loadLog() }
+        .onAppear {
+            loadLog()
+            #if DEBUG
+            log(
+                "[TimingTrace][step-log] "
+                    + "step=\(step.number) "
+                    + "rawStart=\(String(describing: step.startedAt)) "
+                    + "rawEnd=\(String(describing: step.completedAt)) "
+                    + "parsedStart=\(String(describing: step.startDate)) "
+                    + "parsedEnd=\(String(describing: step.completedDate)) "
+                    + "elapsed=\(step.elapsed)",
+                category: .runner
+            )
+            #endif
+        }
         .onDisappear {
             log("StepLogView.onDisappear › canceling gen=\(loadGeneration) job=\(job.id) step=\(step.number)", category: .services)
             loadTask?.cancel()
@@ -543,24 +573,21 @@ struct StepLogView: View {
 
     /// Formatted start time string, or `"—"` when the step has not yet started.
     private var startLabel: String {
-        guard let startedAtString = step.startedAt,
-              let date = Self.iso8601Fmt.date(from: startedAtString) else { return "—" }
+        guard let raw = step.startedAt, let date = Self.parseDate(raw) else { return "—" }
         return Self.timeFmt.string(from: date)
     }
 
     /// Formatted end time string, or a status string when the step is still running.
     private var endLabel: String {
-        guard let completedAtString = step.completedAt,
-              let dateValue = Self.iso8601Fmt.date(from: completedAtString) else {
+        guard let raw = step.completedAt, let date = Self.parseDate(raw) else {
             return step.status == "in_progress" ? "running…" : "—"
         }
-        return Self.timeFmt.string(from: dateValue)
+        return Self.timeFmt.string(from: date)
     }
 
     /// Formatted date string derived from `step.startedAt`, or `"—"`.
     private var dateLabel: String {
-        guard let startedAtString = step.startedAt,
-              let date = Self.iso8601Fmt.date(from: startedAtString) else { return "—" }
+        guard let raw = step.startedAt, let date = Self.parseDate(raw) else { return "—" }
         return Self.dateFmt.string(from: date)
     }
 }

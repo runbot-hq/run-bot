@@ -18,13 +18,19 @@ extension GitHubJob {
     // MARK: Parsed dates
 
     /// Parsed `startedAt` date, or `nil` when not yet started.
-    public var startDate: Date? { startedAt.flatMap { _iso8601.date(from: $0) } }
+    public var startDate: Date? {
+        startedAt.flatMap { parseGitHubDate($0, context: "GitHubJob[\(id)].startedAt") }
+    }
 
     /// Parsed `completedAt` date, or `nil` when still running.
-    public var completedDate: Date? { completedAt.flatMap { _iso8601.date(from: $0) } }
+    public var completedDate: Date? {
+        completedAt.flatMap { parseGitHubDate($0, context: "GitHubJob[\(id)].completedAt") }
+    }
 
     /// Parsed `createdAt` date, or `nil` when not available.
-    public var createdDate: Date? { createdAt.flatMap { _iso8601.date(from: $0) } }
+    public var createdDate: Date? {
+        createdAt.flatMap { parseGitHubDate($0, context: "GitHubJob[\(id)].createdAt") }
+    }
 
     // MARK: Display
 
@@ -86,10 +92,14 @@ extension GitHubStep {
     public var stepConclusion: JobConclusion? { conclusion.map { JobConclusion(rawString: $0) } }
 
     /// Parsed `startedAt` date, or `nil` when not yet started.
-    public var startDate: Date? { startedAt.flatMap { _iso8601.date(from: $0) } }
+    public var startDate: Date? {
+        startedAt.flatMap { parseGitHubDate($0, context: "GitHubStep[\(number)].startedAt") }
+    }
 
     /// Parsed `completedAt` date, or `nil` when still running.
-    public var completedDate: Date? { completedAt.flatMap { _iso8601.date(from: $0) } }
+    public var completedDate: Date? {
+        completedAt.flatMap { parseGitHubDate($0, context: "GitHubStep[\(number)].completedAt") }
+    }
 
     /// Human-readable elapsed duration.
     public var elapsed: String { elapsed(now: Date()) }
@@ -115,16 +125,54 @@ extension GitHubStep {
     }
 }
 
-// MARK: - Private ISO8601 formatter
+// MARK: - Private ISO 8601 formatters
 
-/// Module-private ISO 8601 date formatter shared by `GitHubJob` and `GitHubStep` date accessors.
+/// Parses timestamps that include fractional seconds (e.g. `"2026-08-08T16:07:14.123Z"`).
 ///
 /// `nonisolated(unsafe)` suppresses the Swift 6 `#MutableGlobalVariable` diagnostic.
-/// Access is safe because `ISO8601DateFormatter` is read-only after initialisation
-/// (no mutation occurs after the closure returns) and the Apple SDK guarantee is
-/// that date *formatting* (not setting options) is thread-safe on a configured instance.
-nonisolated(unsafe) private let _iso8601: ISO8601DateFormatter = {
+/// Safe because the formatter is read-only after initialisation and
+/// `ISO8601DateFormatter` date parsing is thread-safe on a configured instance.
+nonisolated(unsafe) private let _iso8601Fractional: ISO8601DateFormatter = {
     let formatter = ISO8601DateFormatter()
     formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
     return formatter
 }()
+
+/// Parses standard timestamps without fractional seconds (e.g. `"2026-08-08T16:07:14Z"`).
+/// GitHub commonly omits fractional seconds; this formatter handles that case.
+nonisolated(unsafe) private let _iso8601Standard: ISO8601DateFormatter = ISO8601DateFormatter()
+
+/// Tries fractional-seconds parsing first, then falls back to standard ISO-8601.
+///
+/// GitHub returns both `"2026-08-08T16:07:14Z"` and `"2026-08-08T16:07:14.000Z"`
+/// depending on the endpoint. Using two formatters in sequence ensures both variants
+/// parse to a non-nil `Date`.
+///
+/// The `context` parameter is used only in DEBUG log output to identify the caller.
+private func parseGitHubDate(_ value: String, context: String) -> Date? {
+    if let date = _iso8601Fractional.date(from: value) {
+        #if DEBUG
+        log(
+            "[TimingTrace][parse] context=\(context) mode=fractional raw=\(value) parsed=\(date)",
+            category: .runner
+        )
+        #endif
+        return date
+    }
+    if let date = _iso8601Standard.date(from: value) {
+        #if DEBUG
+        log(
+            "[TimingTrace][parse] context=\(context) mode=standard raw=\(value) parsed=\(date)",
+            category: .runner
+        )
+        #endif
+        return date
+    }
+    #if DEBUG
+    log(
+        "[TimingTrace][parse] FAILED context=\(context) raw=\(value)",
+        category: .runner
+    )
+    #endif
+    return nil
+}
