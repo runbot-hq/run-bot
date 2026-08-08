@@ -49,10 +49,11 @@ import SwiftUI
 // RULE 6: systemStats MUST run only while the panel is open.
 // RULE 7: RunnerStore self-schedules via its own adaptive timer.
 // RULE 9: displayTick fires every 1 second ALWAYS (no open-state gate).
-// RULE 10 (HEADER STABILITY): PanelHeaderView keeps .fixedSize() at the call
-//         site. On macOS 26, GlassEffectContainer reports slightly different
-//         preferred heights under layout pressure on macOS 26; .fixedSize() pins it so the
-//         Divider below never moves.
+// RULE 10 (HEADER STABILITY): PanelHeaderView uses
+//         .fixedSize(horizontal: false, vertical: true) at the call site.
+//         Vertical fixed sizing prevents GlassEffectContainer preferred-height
+//         changes from moving the Divider below. Horizontal sizing must remain
+//         flexible so the header fills the available Main width.
 // RULE 11 (WIDTH OWNERSHIP): the root carries
 //         .frame(minWidth: RBMetrics.panelListMinWidth,
 //                idealWidth: RBMetrics.panelListIdealWidth,
@@ -215,7 +216,8 @@ struct PanelMainView: View {
                 statsVM: systemStats,
                 onSelectSettings: onSelectSettings
             )
-            .fixedSize()
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity)
             .onAppear { systemStats.start() }
             Divider()
             if let error = appState.runnerState.fetchError {
