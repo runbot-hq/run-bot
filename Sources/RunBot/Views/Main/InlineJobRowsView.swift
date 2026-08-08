@@ -105,13 +105,15 @@ private struct StepRowView: View {
     let isLast: Bool
     /// Called when the user taps the step row.
     let onTap: () -> Void
-    // indent = 9: centers the vertical bar under the job DonutStatusView dot.
-    // Geometry: InlineJobRowsView.padding(.leading:12) + jobLeaderFrame(19) +
-    // stepsContainer.padding(.horizontal:4) = 35 from InlineJobRowsView edge.
-    // Job dot center = 12 + 19 + 8(card hpad) + 5(half dot10) = 44.
-    // Step leader indent = 44 - 35 = 9.
+    // indent = 7: centers the vertical bar under the 10 pt job status donut.
+    //
+    // Geometry relative to the job card:
+    // - Job-card horizontal padding: RBSpacing.sm = 6 pt
+    // - Half of the job donut: 10 / 2 = 5 pt
+    // - Step-container horizontal inset: RBSpacing.xs = 4 pt
+    // - Connector indent: 6 + 5 - 4 = 7 pt
     /// Horizontal indent aligning the step tree bar under the job status dot.
-    private let dotIndent: CGFloat = 9
+    private let dotIndent: CGFloat = 7
     /// Lays out the tree connector and step content side by side.
     var body: some View {
         HStack(alignment: .center, spacing: 0) {
