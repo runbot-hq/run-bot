@@ -54,8 +54,13 @@ import SwiftUI
 //         preferred heights under layout pressure on macOS 26; .fixedSize() pins it so the
 //         Divider below never moves.
 // RULE 11 (WIDTH OWNERSHIP): the root carries
-//         .frame(minWidth: RBMetrics.panelListMinWidth, maxWidth: RBMetrics.panelListMaxWidth).
-//         ❌ NEVER move it into MenuBarKit — it would apply to Settings too.
+//         .frame(minWidth: RBMetrics.panelListMinWidth,
+//                idealWidth: RBMetrics.panelListIdealWidth,
+//                maxWidth: RBMetrics.panelListMaxWidth)
+//         Main may size between 420 and 480 pt; 460 pt is preferred.
+//         Rows still participate in intrinsic sizing within that range.
+//         Settings width is independent and must remain unaffected.
+//         ❌ NEVER move these tokens into MenuBarKit — it would apply to Settings too.
 // RULE 12 (TOP ALIGNMENT): the root carries
 //         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
 //         AFTER the width frame. Without this, when the window expands between

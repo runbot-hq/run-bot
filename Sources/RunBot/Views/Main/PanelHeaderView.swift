@@ -13,12 +13,16 @@ struct PanelHeaderView: View {
     let onSelectSettings: () -> Void
 
     /// Renders the header HStack with stats bar and settings/quit buttons.
-    /// The stats bar receives all remaining width after the fixed-size control group.
+    /// The stats bar fills all remaining width after the separator and fixed-size control group.
     var body: some View {
         HStack(spacing: 6) {
             HeaderStatsBar(statsVM: statsVM)
-                .frame(maxWidth: .infinity)
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .layoutPriority(1)
+            Color.secondary
+                .opacity(0.3)
+                .frame(width: 1, height: 14)
+                .fixedSize()
             if #available(macOS 26, *) {
                 HStack(spacing: 6) {
                     GlassEffectContainer { settingsButton.glassButton() }

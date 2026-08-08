@@ -92,7 +92,7 @@ struct SparklineMetricView: View {
     var body: some View {
         HStack(spacing: 5) {
             Text(label)
-                .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                .font(.system(size: 8, weight: .semibold, design: .monospaced))
                 .foregroundStyle(Color.rbTextSecondary)
                 .fixedSize()
             SparklineView(history: history, currentPct: currentPct)
@@ -101,7 +101,7 @@ struct SparklineMetricView: View {
                 .layoutPriority(0)
                 .clipShape(RoundedRectangle(cornerRadius: 2))
             Text(value)
-                .font(.system(size: 10, design: .monospaced))
+                .font(.system(size: 9, design: .monospaced))
                 .monospacedDigit()
                 .foregroundStyle(labelColor)
                 .fixedSize()
