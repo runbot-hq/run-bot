@@ -167,6 +167,7 @@ private struct QueuedDonutRing: View {
     /// a fresh animation lifecycle — no 360 → 360 dead-start, no visible snap.
     @State private var rotation: Double = 0
 
+    /// Renders the base ring, optional revolving sweep, and static pause symbol.
     var body: some View {
         ZStack {
             baseRing
