@@ -362,12 +362,18 @@ public struct WorkflowActionGroup: Identifiable, Equatable, Sendable {
     /// Returns `nil` for active workflows, missing timestamps, or invalid
     /// completion times (end before start).
     public var completedDuration: TimeInterval? {
-        guard groupStatus == .completed,
-              let start = firstJobStartedAt,
-              let end = lastJobCompletedAt,
-              end >= start else {
-            return nil
-        }
+        guard groupStatus == .completed else { return nil }
+
+        // Derive timestamps from individual jobs when aggregate fields are absent.
+        // This protects the UI if stored aggregates are dropped during a cache/copy
+        // transition while per-job timestamps remain available.
+        let derivedStart = jobs.compactMap { $0.raw.startDate }.min()
+        let derivedEnd   = jobs.compactMap { $0.raw.completedDate }.max()
+
+        let start = firstJobStartedAt ?? derivedStart
+        let end   = lastJobCompletedAt ?? derivedEnd
+
+        guard let start, let end, end >= start else { return nil }
         return end.timeIntervalSince(start)
     }
 

@@ -71,7 +71,20 @@ struct ActionRowView: View {
         .modifier(RowTapModifier(jobs: group.jobs, expandState: $expandState, rowStatus: rowStatus))
         .padding(.horizontal, RBSpacing.md)
         .padding(.vertical, RBSpacing.xxs)
-        .onAppear { applyInitialExpandState() }
+        .onAppear {
+            applyInitialExpandState()
+            #if DEBUG
+            log(
+                "[TimingTrace][main-row] "
+                    + "id=\(group.id) "
+                    + "status=\(group.groupStatus) "
+                    + "storedStart=\(String(describing: group.firstJobStartedAt)) "
+                    + "storedEnd=\(String(describing: group.lastJobCompletedAt)) "
+                    + "duration=\(String(describing: group.completedDuration))",
+                category: .runner
+            )
+            #endif
+        }
         // ⚠️ DO NOT REMOVE — expandState change logger for sizing investigation.
         // Kept commented out intentionally. Re-enable when testing how row expand/collapse
         // affects panel width reported to MBKPanelController.
@@ -79,7 +92,20 @@ struct ActionRowView: View {
         // .onChange(of: expandState) { old, new in
         //     log("【ActionRowView.expandState】id=\(group.id) \(String(describing: old)) → \(String(describing: new))", category: .general)
         // }
-        .onChange(of: rowStatus) { _, newStatus in handleStatusChange(newStatus) }
+        .onChange(of: rowStatus) { _, newStatus in
+            handleStatusChange(newStatus)
+            #if DEBUG
+            log(
+                "[TimingTrace][main-row-change] "
+                    + "id=\(group.id) "
+                    + "status=\(newStatus) "
+                    + "start=\(String(describing: group.firstJobStartedAt)) "
+                    + "end=\(String(describing: group.lastJobCompletedAt)) "
+                    + "duration=\(String(describing: group.completedDuration))",
+                category: .runner
+            )
+            #endif
+        }
     }
 
     /// Unified workflow-card background.

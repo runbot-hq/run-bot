@@ -112,6 +112,38 @@ extension WorkflowActionGroup {
     ///   - branch: The `headBranch` of the group. Defaults to `"main"`.
     ///   - workflowName: The `name` of the synthetic `WorkflowRunRef`. Defaults to `"CI"`.
     ///     Use this to inject special characters (e.g. single quotes) for shell-escaping tests.
+    /// Returns a `WorkflowActionGroup` for timestamp parsing and duration tests.
+    ///
+    /// Allows injecting a custom status, conclusion, job list, and aggregate timestamps.
+    static func makeTestGroup(
+        status: JobStatus = .completed,
+        conclusion: JobConclusion? = .success,
+        jobs: [ActiveJob] = [],
+        firstJobStartedAt: Date? = nil,
+        lastJobCompletedAt: Date? = nil
+    ) -> WorkflowActionGroup {
+        let run = WorkflowRunRef(
+            id: 1,
+            name: "CI",
+            status: status,
+            conclusion: conclusion,
+            htmlUrl: nil
+        )
+        return WorkflowActionGroup(
+            headSha: "aabbccdd",
+            label: "aabbccd",
+            title: "CI",
+            headBranch: "main",
+            repo: "owner/repo",
+            runs: [run],
+            jobs: jobs,
+            firstJobStartedAt: firstJobStartedAt,
+            lastJobCompletedAt: lastJobCompletedAt,
+            createdAt: nil,
+            isDimmed: false
+        )
+    }
+
     static func fixture(
         conclusion: JobConclusion? = .failure,
         branch: String? = "main",
