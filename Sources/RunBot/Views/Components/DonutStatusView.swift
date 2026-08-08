@@ -6,23 +6,21 @@ import SwiftUI
 // MARK: - DonutStatusView
 /// Replaces the PieProgressDot for the action row status indicator.
 /// Visual states:
-/// - in_progress : animated rotating shimmer arc (blue) + arc trim from 0 to progress + centered play.fill symbol (Color.rbBlue)
+/// - in_progress : dim blue track + solid progress arc + bright orbiting activity marker + centered play.fill symbol (Color.rbBlue)
 /// - success     : full green circle stroke + checkmark SF Symbol
 /// - failed      : full red circle stroke + xmark SF Symbol
 /// - queued      : dim amber ring + revolving amber sweep + static pause.fill symbol
 /// - skipped     : muted grey circle stroke + minus SF Symbol
 ///
 /// Animation contract:
-/// - In-progress background ring uses `@State rotationAngle` driven by
-///   `.linear(duration: 2).repeatForever(autoreverses: false)`.
+/// - In-progress uses `OrbitingActivityMarker` above the progress arc; orbit duration 1.4 s.
+/// - Marker is independent of completion percentage and remains visible at all progress values.
+/// - Marker is disabled under Reduce Motion; the static play icon remains the active-state cue.
 /// - Progress arc uses `trim(from: 0, to: fraction)` animated with `.easeInOut`.
 /// - Queued uses a localized amber comet sweep with a bright 0.85-opacity head, a subtle glow,
 ///   and a 2.4-second linear revolution.
 /// - Queued animation is owned by `QueuedDonutRing`.
-/// - Reduce Motion removes the sweep and glow while preserving the amber base ring and pause symbol.
-///
-/// Do NOT remove the repeatForever animation -- it is the liveness indicator.
-/// Do NOT start the rotation for non-.inProgress states -- it wastes CPU/GPU.
+/// - Reduce Motion removes the queued sweep and glow while preserving the amber base ring and pause symbol.
 struct DonutStatusView: View {
     /// The workflow/job status this donut reflects.
     let status: RBStatus
@@ -31,8 +29,6 @@ struct DonutStatusView: View {
     /// Outer ring diameter in points.
     var size: CGFloat = 16
 
-    /// Current rotation angle for the shimmer ring; driven by `startRotationIfNeeded()`.
-    @State private var rotationAngle: Double = 0
     /// Animated copy of `progress` updated via `withAnimation(.easeInOut)` for smooth arc trim.
     @State private var displayProgress: Double = 0
 
@@ -77,55 +73,41 @@ struct DonutStatusView: View {
         .frame(width: size, height: size)
         .onAppear {
             displayProgress = max(0, min(1, progress))
-            startRotationIfNeeded()
         }
         .onChange(of: progress) { _, _ in
             withAnimation(.easeInOut(duration: 0.4)) {
                 displayProgress = max(0, min(1, progress))
             }
         }
-        .onChange(of: status) { _, _ in startRotationIfNeeded() }
     }
 
-    /// Starts the `repeatForever` rotation animation only when status is `.inProgress`.
-    /// Safe to call multiple times -- SwiftUI deduplicates identical in-flight animations.
-    private func startRotationIfNeeded() {
-        guard status == .inProgress else { return }
-        withAnimation(.linear(duration: 2).repeatForever(autoreverses: false)) {
-            rotationAngle = 360
-        }
-    }
-
-    /// Animated in-progress ring: faint rotating shimmer background, blue progress arc,
-    /// and a static centered play icon.
+    /// Active donut: dim blue track, solid progress arc, orbiting activity marker,
+    /// Active donut: dim blue track, solid progress arc, orbiting activity marker,
+    /// and static centered play symbol.
     ///
-    /// - The shimmer and progress arc continue to animate as before.
-    /// - The `play.fill` icon is static and does not participate in any animation.
-    /// - Icon color is `Color.rbBlue` to match the progress arc.
-    /// - Icon scale is `size * 0.36` (matching the `pause.fill` scale) to avoid
-    ///   clipping at small donut sizes (10 pt job donut, 14 pt workflow donut).
+    /// Layer order: track → progress arc → orbiting marker → play icon.
+    /// The marker renders above the arc so it stays visible at all progress values.
     private var inProgressRing: some View {
         ZStack {
-            Circle()
-                .stroke(
-                    AngularGradient(
-                        colors: [Color.rbBlue.opacity(0.0), Color.rbBlue.opacity(0.25)],
-                        center: .center
-                    ),
-                    lineWidth: strokeWidth
-                )
-                .frame(width: size, height: size)
-                .rotationEffect(.degrees(rotationAngle))
+            inProgressTrack
             Circle()
                 .trim(from: 0, to: CGFloat(displayProgress))
                 .stroke(Color.rbBlue, style: StrokeStyle(lineWidth: strokeWidth, lineCap: .round))
                 .frame(width: size, height: size)
                 .rotationEffect(.degrees(-90))
+            OrbitingActivityMarker(size: size, strokeWidth: strokeWidth)
             Image(systemName: "play.fill")
                 .font(.system(size: size * 0.36, weight: .bold))
                 .foregroundStyle(Color.rbBlue)
                 .accessibilityHidden(true)
         }
+    }
+
+    /// Static dim blue track communicating the full 100% circumference behind the progress arc.
+    private var inProgressTrack: some View {
+        Circle()
+            .stroke(Color.rbBlue.opacity(0.20), lineWidth: strokeWidth)
+            .frame(width: size, height: size)
     }
 
     /// Terminal state (success/failed/queued/skipped): solid colored ring + SF Symbol in the centre.
@@ -142,6 +124,62 @@ struct DonutStatusView: View {
             Image(systemName: symbol)
                 .font(.system(size: size * symbolScale, weight: .bold))
                 .foregroundStyle(color)
+        }
+    }
+}
+
+// MARK: - OrbitingActivityMarker
+
+/// Bright activity marker orbiting the in-progress donut.
+///
+/// Rendered above the progress arc so it remains visible regardless of completion percentage.
+/// Omitted under Reduce Motion; the static play icon remains the active-state cue.
+private struct OrbitingActivityMarker: View {
+    /// Outer diameter of the donut.
+    let size: CGFloat
+    /// Width of the donut track and progress arc.
+    let strokeWidth: CGFloat
+
+    /// Disables continuous orbital motion when requested by the user.
+    @Environment(\.accessibilityReduceMotion)
+    private var reduceMotion
+
+    /// Current orbital angle. Local state ensures a fresh lifecycle each time the active state is entered.
+    @State private var rotation: Double = 0
+
+    /// Renders the orbiting marker, or nothing under Reduce Motion.
+    var body: some View {
+        if !reduceMotion {
+            marker
+                .onAppear { startRotation() }
+        }
+    }
+
+    /// Bright marker with a white center, blue outline, and blue glow.
+    private var marker: some View {
+        let markerSize = max(2.5, size * 0.22)
+        let orbitRadius = (size - markerSize) / 2
+        return Circle()
+            .fill(Color.white.opacity(0.95))
+            .frame(width: markerSize, height: markerSize)
+            .overlay {
+                Circle()
+                    .stroke(Color.rbBlue, lineWidth: max(0.5, strokeWidth * 0.45))
+            }
+            .shadow(color: Color.rbBlue.opacity(0.85), radius: max(1, size * 0.10))
+            .offset(y: -orbitRadius)
+            .rotationEffect(.degrees(rotation))
+            .accessibilityHidden(true)
+    }
+
+    /// Starts a continuous clockwise orbit completing one revolution every 1.4 seconds.
+    private func startRotation() {
+        rotation = 0
+        withAnimation(
+            .linear(duration: 1.4)
+                .repeatForever(autoreverses: false)
+        ) {
+            rotation = 360
         }
     }
 }
