@@ -16,9 +16,10 @@ import SwiftUI
 /// - In-progress background ring uses `@State rotationAngle` driven by
 ///   `.linear(duration: 2).repeatForever(autoreverses: false)`.
 /// - Progress arc uses `trim(from: 0, to: fraction)` animated with `.easeInOut`.
-/// - Queued sweep rotates once every 3 seconds.
+/// - Queued uses a localized amber comet sweep with a bright 0.85-opacity head, a subtle glow,
+///   and a 2.4-second linear revolution.
 /// - Queued animation is owned by `QueuedDonutRing`.
-/// - Queued animation is disabled under Reduce Motion.
+/// - Reduce Motion removes the sweep and glow while preserving the amber base ring and pause symbol.
 ///
 /// Do NOT remove the repeatForever animation -- it is the liveness indicator.
 /// Do NOT start the rotation for non-.inProgress states -- it wastes CPU/GPU.
@@ -179,32 +180,40 @@ private struct QueuedDonutRing: View {
         .frame(width: size, height: size)
     }
 
-    /// Low-opacity ring that remains visible with or without animation.
+    /// Stronger dim amber ring visible behind the sweep, under Reduce Motion, and between
+    /// brighter sweep portions at all donut sizes.
     private var baseRing: some View {
         Circle()
             .stroke(
-                Color.rbWarning.opacity(0.25),
+                Color.rbWarning.opacity(0.35),
                 lineWidth: strokeWidth
             )
     }
 
-    /// Revolving amber angular-gradient sweep.
+    /// Revolving localized amber comet sweep with a bright 0.85-opacity head, subtle tail,
+    /// and a small amber glow. Rotates once every 2.4 seconds.
     ///
-    /// `.onAppear` is attached here, not to the parent ZStack, so that the
-    /// animation starts automatically whenever Reduce Motion is turned off and
-    /// this view re-enters the hierarchy.
+    /// `.onAppear` is attached here so the animation restarts automatically whenever
+    /// Reduce Motion is turned off and this view re-enters the hierarchy.
+    /// Reduce Motion removes the sweep and glow; the shadow belongs to this view and
+    /// disappears with it automatically.
     private var rotatingSweep: some View {
         Circle()
             .stroke(
                 AngularGradient(
-                    colors: [
-                        Color.rbWarning.opacity(0),
-                        Color.rbWarning.opacity(0.30)
-                    ],
+                    gradient: Gradient(
+                        stops: [
+                            .init(color: Color.rbWarning.opacity(0),    location: 0),
+                            .init(color: Color.rbWarning.opacity(0.05), location: 0.55),
+                            .init(color: Color.rbWarning.opacity(0.85), location: 0.84),
+                            .init(color: Color.rbWarning.opacity(0),    location: 1)
+                        ]
+                    ),
                     center: .center
                 ),
                 lineWidth: strokeWidth
             )
+            .shadow(color: Color.rbWarning.opacity(0.40), radius: max(1, size * 0.08))
             .rotationEffect(.degrees(rotation))
             .onAppear {
                 startRotation()
@@ -219,11 +228,11 @@ private struct QueuedDonutRing: View {
             .accessibilityHidden(true)
     }
 
-    /// Starts the queued sweep at three seconds per revolution.
+    /// Starts the queued sweep at 2.4 seconds per revolution (slower than active at 2 s).
     private func startRotation() {
         rotation = 0
         withAnimation(
-            .linear(duration: 3)
+            .linear(duration: 2.4)
                 .repeatForever(autoreverses: false)
         ) {
             rotation = 360
