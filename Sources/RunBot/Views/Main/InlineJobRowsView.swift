@@ -33,7 +33,8 @@ private struct TreeLineLeader: View {
     /// Size of the arrowhead at the elbow tip.
     private let arrowSize: CGFloat = 4
     /// Extends the connector into surrounding row spacing so adjacent segments meet.
-    private let verticalOverlap: CGFloat = 2
+    /// Defaults to zero; job-header call sites pass 2 to bridge card padding and stack spacing.
+    var verticalOverlap: CGFloat = 0
     /// Draws the vertical bar and elbow arrow using a `Canvas`.
     var body: some View {
         Canvas { ctx, size in
@@ -245,7 +246,7 @@ private struct JobRowCard: View {
             // expanded step list, preserving the tree hierarchy visually.
             // If isExpanded were not factored in, the elbow would render at the job
             // header row while steps are still shown below it, breaking the geometry.
-            TreeLineLeader(isLast: isLast && !isExpanded, indent: dotIndent)
+            TreeLineLeader(isLast: isLast && !isExpanded, indent: dotIndent, verticalOverlap: 2)
                 .frame(maxHeight: .infinity)
             VStack(alignment: .leading, spacing: 0) {
                 jobHeader
