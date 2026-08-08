@@ -14,15 +14,13 @@ struct PanelHeaderView: View {
 
     /// Renders the header HStack with stats bar and settings/quit buttons.
     /// The stats bar fills all remaining width after the separator and fixed-size control group.
+    /// Outer horizontal padding is owned here and must not be duplicated inside HeaderStatsBar.
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: RBSpacing.md) {
             HeaderStatsBar(statsVM: statsVM)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .layoutPriority(1)
-            Color.secondary
-                .opacity(0.3)
-                .frame(width: 1, height: 14)
-                .fixedSize()
+            headerSeparator
             if #available(macOS 26, *) {
                 HStack(spacing: 6) {
                     GlassEffectContainer { settingsButton.glassButton() }
@@ -40,6 +38,15 @@ struct PanelHeaderView: View {
         .padding(.horizontal, RBSpacing.md)
         .padding(.top, 10)
         .padding(.bottom, 8)
+    }
+
+    /// Vertical separator shared between metric chips and the DISK|Settings boundary.
+    /// Matches the CPU|MEM and MEM|DISK separators inside HeaderStatsBar.
+    private var headerSeparator: some View {
+        Color.secondary
+            .opacity(0.3)
+            .frame(width: 1, height: 14)
+            .fixedSize()
     }
 
     /// Settings gear button — plain style, 24 pt hit area.
