@@ -25,7 +25,7 @@ GitHub Actions and local runners — in your macOS menu bar.
 
 #### 🚦 Live workflow status
 
-Hierarchical overview of all your workflows. Active jobs are intelligently risen to the surface as they come alive.
+Hierarchical overview of all your workflows. Active jobs are neatly risen to the surface as they come alive.
 
 #### 🏃 Local runner manager
 
