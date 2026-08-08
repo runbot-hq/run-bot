@@ -145,10 +145,15 @@ extension AddRunnerSheet {
                 HStack(spacing: 8) {
                     Text(existingDir.isEmpty ? "No folder selected" : existingDir)
                         .font(.system(size: 11, design: .monospaced))
-                        .foregroundColor(existingDir.isEmpty ? .secondary : .primary)
-                        .lineLimit(1)
-                        .truncationMode(.head)
+                        .foregroundStyle(
+                            existingDir.isEmpty
+                                ? Color.rbTextSecondary
+                                : Color.rbTextPrimary
+                        )
+                        .multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
                         .frame(maxWidth: .infinity, alignment: .leading)
+                        .textSelection(.enabled)
                     Button {
                         pickExistingFolder()
                     } label: {
@@ -229,13 +234,19 @@ extension AddRunnerSheet {
                 HStack {
                     Text(selection.isEmpty ? "— select —" : selection)
                         .font(.system(size: 12))
-                        .foregroundColor(selection.isEmpty ? .secondary : .primary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
+                        .foregroundStyle(
+                            selection.isEmpty
+                                ? Color.rbTextSecondary
+                                : Color.rbTextPrimary
+                        )
+                        .multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
                         .frame(maxWidth: .infinity, alignment: .leading)
+                        .layoutPriority(1)
                     Image(systemName: "chevron.up.chevron.down")
                         .font(.system(size: 10))
                         .foregroundColor(.secondary)
+                        .fixedSize()
                 }
                 .padding(.horizontal, 8)
                 .padding(.vertical, 6)
