@@ -65,12 +65,12 @@ extension AddRunnerSheet {
             }
         }
 
-        labeledField("Runner name", placeholder: "e.g. my-mac-runner", text: $runnerName)
         labeledField(
             "Labels (comma-separated)",
             placeholder: "e.g. self-hosted,macOS,arm64",
             text: $labelsText
         )
+        labeledField("Runner name", placeholder: "e.g. my-mac-runner", text: $runnerName)
 
         VStack(alignment: .leading, spacing: 4) {
             Text("Runner parent directory").font(.caption).foregroundStyle(Color.rbTextSecondary)
