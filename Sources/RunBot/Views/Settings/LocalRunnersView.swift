@@ -183,7 +183,9 @@ struct LocalRunnersView: View {
             Text("No local runners found").font(.caption).foregroundColor(Color.rbTextSecondary)
                 .padding(.horizontal, RBSpacing.md).padding(.vertical, 4)
         } else {
-            ForEach(appState.runnerState.localRunners) { runner in localRunnerRow(runner) }
+            VStack(spacing: RBSpacing.xs) {
+                ForEach(appState.runnerState.localRunners) { runner in localRunnerRow(runner) }
+            }
         }
     }
 
@@ -200,7 +202,7 @@ struct LocalRunnersView: View {
         }
         .buttonStyle(.plain)
         .padding(.horizontal, RBSpacing.md).padding(.vertical, 5)
-        .glassCard(cornerRadius: RBRadius.small)
+        .settingsGlassCard(background: .rbGlassNeutralBackground, cornerRadius: RBRadius.small)
         .padding(.horizontal, RBSpacing.xs)
     }
 

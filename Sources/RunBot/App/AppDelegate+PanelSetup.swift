@@ -58,10 +58,10 @@ extension AppDelegate {
     // MARK: - Constants
 
     // WIDTH CONSTANTS LIVE IN `RBMetrics`, NOT HERE.
-    // `RBMetrics.panelListMinWidth` / `panelListMaxWidth` are applied by
-    // `PanelMainView` to its own root, NOT by MenuBarKit. A width range in MBK's
-    // wrapper applies to every route, which stretched the fixed-width Settings
-    // screen (480pt) to the list's width.
+    // `RBMetrics.panelListMinWidth` / `panelListIdealWidth` / `panelListMaxWidth`
+    // are applied by `PanelMainView` to its own root, NOT by MenuBarKit.
+    // A width range in MBK's wrapper applies to every route, which stretched
+    // the fixed-width Settings screen to the list's width.
     // ❌ NEVER pass a width range to `MBKPanelController` — it no longer has one.
 
     /// Fraction of the visible screen height the panel content may occupy.

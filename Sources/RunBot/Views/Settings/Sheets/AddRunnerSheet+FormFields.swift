@@ -23,7 +23,7 @@ extension AddRunnerSheet {
         if isLoadingScopes {
             HStack {
                 ProgressView().scaleEffect(0.7)
-                Text("Loading…").font(.caption).foregroundColor(.secondary)
+                Text("Loading…").font(.caption).foregroundColor(Color.rbTextSecondary)
             }
         } else if scopeType == .repo {
             selectorButton(
@@ -73,7 +73,7 @@ extension AddRunnerSheet {
         )
 
         VStack(alignment: .leading, spacing: 4) {
-            Text("Runner install directory").font(.caption).foregroundColor(.secondary)
+            Text("Runner install directory").font(.caption).foregroundColor(Color.rbTextSecondary)
             TextField("", text: $installDir)
                 .textFieldStyle(.roundedBorder)
                 .font(.system(size: 11, design: .monospaced))
@@ -95,7 +95,7 @@ extension AddRunnerSheet {
         if isRegistering && !registrationStep.isEmpty {
             HStack(spacing: 6) {
                 ProgressView().scaleEffect(0.7)
-                Text(registrationStep).font(.caption).foregroundColor(.secondary)
+                Text(registrationStep).font(.caption).foregroundColor(Color.rbTextSecondary)
             }
         }
 
@@ -141,7 +141,7 @@ extension AddRunnerSheet {
 
             // Folder picker row
             VStack(alignment: .leading, spacing: 4) {
-                Text("Runner install folder").font(.caption).foregroundColor(.secondary)
+                Text("Runner install folder").font(.caption).foregroundColor(Color.rbTextSecondary)
                 HStack(spacing: 8) {
                     Text(existingDir.isEmpty ? "No folder selected" : existingDir)
                         .font(.system(size: 11, design: .monospaced))
@@ -171,13 +171,13 @@ extension AddRunnerSheet {
 
                 if detectedGitHubURL.isEmpty {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("GitHub URL").font(.caption).foregroundColor(.secondary)
+                        Text("GitHub URL").font(.caption).foregroundColor(Color.rbTextSecondary)
                         TextField("\(GitHubURIs.base)owner/repo", text: $githubURLOverride)
                             .textFieldStyle(.roundedBorder)
                             .font(.system(size: 11, design: .monospaced))
                         Text("The .runner file has no GitHub URL. Paste the repo or org URL above.")
                             .font(.caption2)
-                            .foregroundColor(.secondary)
+                            .foregroundColor(Color.rbTextSecondary)
                     }
                 } else {
                     labeledReadOnly("GitHub URL (detected)", value: detectedGitHubURL)
@@ -224,7 +224,7 @@ extension AddRunnerSheet {
     func selectorButton(label: String, selection: String,
                         action: @escaping () -> Void) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(label).font(.caption).foregroundColor(.secondary)
+            Text(label).font(.caption).foregroundColor(Color.rbTextSecondary)
             Button(action: action) {
                 HStack {
                     Text(selection.isEmpty ? "— select —" : selection)
@@ -249,7 +249,7 @@ extension AddRunnerSheet {
             .buttonStyle(.plain)
             if selection.isEmpty {
                 Text("No \(label.lowercased())s found. Sign in with GitHub or set GH_TOKEN / GITHUB_TOKEN.")
-                    .font(.caption2).foregroundColor(.secondary)
+                    .font(.caption2).foregroundColor(Color.rbTextSecondary)
             }
         }
     }
@@ -259,7 +259,7 @@ extension AddRunnerSheet {
     func labeledField(_ title: String, placeholder: String,
                       text: Binding<String>) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(title).font(.caption).foregroundColor(.secondary)
+            Text(title).font(.caption).foregroundColor(Color.rbTextSecondary)
             TextField(placeholder, text: text).textFieldStyle(.roundedBorder)
         }
     }
@@ -268,7 +268,7 @@ extension AddRunnerSheet {
     @ViewBuilder
     func labeledReadOnly(_ title: String, value: String) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(title).font(.caption).foregroundColor(.secondary)
+            Text(title).font(.caption).foregroundColor(Color.rbTextSecondary)
             Text(value)
                 .font(.system(size: 12, design: .monospaced))
                 .foregroundColor(.primary)

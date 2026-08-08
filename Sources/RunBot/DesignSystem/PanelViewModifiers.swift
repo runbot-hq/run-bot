@@ -35,22 +35,8 @@ struct GlassCard: ViewModifier {
     /// Applies the glass card effect to the given content view.
     @ViewBuilder
     func body(content: Content) -> some View {
-        if #available(macOS 26, *) {
-            content
-                .glassEffect(.regular, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                        .strokeBorder(.white.opacity(strokeOpacity), lineWidth: 0.5)
-                )
-        } else {
-            materialFallback(content: content)
-        }
-    }
-
-    /// Returns the pre-macOS-26 material + stroke fallback for the given content.
-    private func materialFallback(content: Content) -> some View {
-        content
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+       content
+            .glassEffect(.regular, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .strokeBorder(.white.opacity(strokeOpacity), lineWidth: 0.5)
@@ -94,18 +80,17 @@ struct GlassButton: ViewModifier {
 
     /// Applies the interactive glass button effect to the given content view.
     func body(content: Content) -> some View {
-        if #available(macOS 26, *) {
-            content.glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-        } else {
-            content
-        }
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        content
+            .background(Color.rbGlassNeutralBackground, in: shape)
+            .glassEffect(.regular.interactive(), in: shape)
     }
 }
 
 // MARK: - StatPillBackground
 /// Background modifier for `StatPill` and `RunnerMetricsBadge` capsule pills.
 ///
-/// macOS 26+: identical architecture to `DiskPillBadge`:
+/// macOS 26+: identical architecture to `StatusBadge`:
 ///   `Color.rbGlassNeutral.opacity(0.15)` — black in light appearance, white in
 ///   dark appearance — bleeds through the glass refractive layer and defines the
 ///   pill edge visually in both modes, exactly as coloured pills do.
@@ -113,7 +98,7 @@ struct GlassButton: ViewModifier {
 ///   wash has a stable, documented black/light and white/dark contract.
 ///
 /// The call site MUST wrap `RunnerMetricsBadge` in its OWN `GlassEffectContainer`
-/// (separate from the card container) — same pattern as `DiskPillBadge` in
+/// (separate from the card container) — same pattern as `GlassBadgeContainer` in
 /// `HeaderStatsBar` and `StatusBadge` in `metaTrailing`.
 ///
 /// macOS < 26: `.ultraThinMaterial` in a `Capsule()` (unchanged).
@@ -123,37 +108,27 @@ struct StatPillBackground: ViewModifier {
     /// Applies the stat pill background: glass capsule on macOS 26+, `.ultraThinMaterial` capsule on older OSes.
     @ViewBuilder
     func body(content: Content) -> some View {
-        if #available(macOS 26, *) {
-            content
-                .background(Color.rbGlassNeutral.opacity(0.15), in: Capsule())
-                .glassEffect(.regular, in: Capsule())
-        } else {
-            content.background(.ultraThinMaterial, in: Capsule())
-        }
+        content
+            .background(Color.rbGlassNeutral.opacity(0.15), in: Capsule())
+            .glassEffect(.regular, in: Capsule())
     }
 }
 
 // MARK: - StatusBadgeBackground
-/// Colour tint + glass — identical pattern to DiskPillBadge.
+/// Colour tint + glass — identical pattern to `GlassBadgeContainer`.
 /// Call site MUST wrap in GlassEffectContainer.
 struct StatusBadgeBackground: ViewModifier {
     /// The accent colour used for the tint and (pre-macOS-26) stroke border.
     let color: Color
 
     /// Applies the status badge background: coloured glass capsule on macOS 26+, tinted fill + hairline stroke on older OSes.
-    /// The pre-26 branch was intentionally upgraded from a bare stroke to a filled capsule (matching DiskPillBadge)
+    /// The pre-26 branch was intentionally upgraded from a bare stroke to a filled capsule (matching `GlassBadgeContainer`)
     /// for visual consistency with the Liquid Glass design language rollout.
     @ViewBuilder
     func body(content: Content) -> some View {
-        if #available(macOS 26, *) {
-            content
-                .background(color.opacity(0.15), in: Capsule())
-                .glassEffect(.regular, in: Capsule())
-        } else {
-            content
-                .background(color.opacity(0.25), in: Capsule())
-                .overlay(Capsule().strokeBorder(color.opacity(0.55), lineWidth: 0.5))
-        }
+        content
+            .background(color.opacity(0.15), in: Capsule())
+            .glassEffect(.regular, in: Capsule())
     }
 }
 
@@ -165,13 +140,9 @@ struct BranchTagPillBackground: ViewModifier {
     /// Applies the branch tag pill background: accent glass capsule on macOS 26+, accent stroke capsule on older OSes.
     @ViewBuilder
     func body(content: Content) -> some View {
-        if #available(macOS 26, *) {
-            content
-                .background(Color.rbAccent.opacity(0.15), in: Capsule())
-                .glassEffect(.regular, in: Capsule())
-        } else {
-            content.background(Capsule().strokeBorder(Color.rbAccent.opacity(0.4), lineWidth: 1))
-        }
+        content
+            .background(Color.rbAccent.opacity(0.15), in: Capsule())
+            .glassEffect(.regular, in: Capsule())
     }
 }
 
@@ -278,7 +249,7 @@ struct StatPill: View {
     /// Renders the label–value pair inside a `statPillBackground` capsule.
     var body: some View {
         HStack(spacing: 3) {
-            Text(label).font(RBFont.statLabel).foregroundColor(.secondary)
+            Text(label).font(RBFont.statLabel).foregroundColor(Color.rbTextSecondary)
             Text(value).font(RBFont.statValue).foregroundColor(.primary).monospacedDigit()
         }
         .padding(.horizontal, 6).padding(.vertical, 3)

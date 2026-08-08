@@ -33,7 +33,7 @@ struct SystemStatsView: View {
         HStack {
             Text(label)
                 .font(RBFont.monoSmall)
-                .foregroundColor(.secondary)
+                .foregroundColor(Color.rbTextSecondary)
             Spacer()
             Text(value)
                 .font(RBFont.mono)
@@ -45,39 +45,27 @@ struct SystemStatsView: View {
 
 /// A stable glass wrapper for live-updating chip content (CPU, MEM, DISK chips only).
 ///
-/// macOS 26+: uses `GlassEffectContainer { content.glassButton() }` -- identical
-/// to the settings/quit toolbar button pattern in `PanelHeaderView`.
-/// Pre-26: plain `.background` with a faint fill + stroke.
+/// Uses `rbGlassNeutralBackground` (black 0.15 light / white 0.10 dark) beneath a `.regular`
+/// glass effect — matching the `StatusBadge` pattern in `SettingsView+Sections.swift`.
 ///
 /// Corner radius: `RBRadius.small` (6 pt) -- matches toolbar button rounding.
 ///
-/// Do NOT apply to DiskPillBadge (the "22% free" pill) -- that has its own styling.
-/// Do NOT add fill, tint, or stroke on macOS 26+ -- the glass handles all rendering.
+/// The glass surface follows the width allocated naturally to the metric item.
+/// The flexible sparkline inside `SparklineMetricView` provides the required flexibility;
+/// no outer infinite-width frame is applied here.
 struct GlassBadgeContainer<Content: View>: View {
     /// The live-updating chip content rendered in the foreground.
     @ViewBuilder let content: () -> Content
 
-    /// Renders glass on macOS 26+, plain background on earlier versions.
+    /// Renders the chip with an adaptive neutral tint beneath native Liquid Glass.
     var body: some View {
-        if #available(macOS 26, *) {
-            GlassEffectContainer {
-                content()
-                    .padding(.horizontal, RBSpacing.sm)
-                    .padding(.vertical, RBSpacing.xs)
-                    .glassButton(cornerRadius: RBRadius.small)
-            }
-        } else {
+        let shape = RoundedRectangle(cornerRadius: RBRadius.small, style: .continuous)
+        GlassEffectContainer {
             content()
                 .padding(.horizontal, RBSpacing.sm)
                 .padding(.vertical, RBSpacing.xs)
-                .background(
-                    RoundedRectangle(cornerRadius: RBRadius.small, style: .continuous)
-                        .fill(Color.primary.opacity(0.06))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: RBRadius.small, style: .continuous)
-                                .strokeBorder(Color.primary.opacity(0.15), lineWidth: 0.5)
-                        )
-                )
+                .background(Color.rbGlassNeutralBackground, in: shape)
+                .glassEffect(.regular, in: shape)
         }
     }
 }
@@ -100,22 +88,26 @@ struct SparklineMetricView: View {
     let currentPct: Double
 
     /// Renders label, sparkline, and value in a horizontal stack.
+    /// The sparkline flexes to absorb any width not claimed by the label or value.
     var body: some View {
         HStack(spacing: 5) {
             Text(label)
-                .font(.system(size: 9, weight: .semibold, design: .monospaced))
-                .foregroundStyle(.secondary)
+                .font(.system(size: 8, weight: .semibold, design: .monospaced))
+                .foregroundStyle(Color.rbTextSecondary)
                 .fixedSize()
+                .layoutPriority(1)
             SparklineView(history: history, currentPct: currentPct)
-                .frame(width: 40, height: 14)
+                .frame(minWidth: 16, idealWidth: 40, maxWidth: .infinity)
+                .frame(height: 14)
+                .layoutPriority(0)
                 .clipShape(RoundedRectangle(cornerRadius: 2))
             Text(value)
-                .font(.system(size: 10, design: .monospaced))
+                .font(.system(size: 9, design: .monospaced))
                 .monospacedDigit()
                 .foregroundStyle(labelColor)
                 .fixedSize()
+                .layoutPriority(1)
         }
-        .fixedSize()
     }
 
     /// Foreground color shifting green -> orange -> red as `currentPct` crosses 60 and 85.
@@ -124,43 +116,6 @@ struct SparklineMetricView: View {
         if currentPct > 85 { return .rbDanger }
         if currentPct > 60 { return .rbWarning }
         return .primary
-    }
-}
-
-// MARK: - DiskPillBadge
-
-/// Compact pill showing disk FREE percentage.
-///
-/// Color thresholds (based on free space, not used):
-/// - `freePct < 15` -> `rbDanger` (disk nearly full)
-/// - `freePct < 40` -> `rbWarning` (disk getting full)
-/// - `freePct >= 40` -> `rbSuccess` (plenty of space)
-///
-/// macOS 26+: wrapped in a `GlassEffectContainer` at the call site (HeaderStatsBar)
-/// so it gets a dedicated CABackdropLayer sampling region. The `.glassEffect` here
-/// then refracts correctly without being glass-on-glass with no shared container.
-struct DiskPillBadge: View {
-    /// Free disk space as a percentage (0-100).
-    let freePct: Double
-
-    /// Renders a styled percentage pill with danger/warning/success color.
-    var body: some View {
-        Text(String(format: "%.0f%% free", freePct))
-            .font(.system(size: 9, weight: .semibold, design: .monospaced))
-            .foregroundStyle(pillColor)
-            .fixedSize()
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
-            .background(pillColor.opacity(0.15), in: Capsule())
-            .glassEffect(.regular, in: Capsule())
-            .fixedSize()
-    }
-
-    /// Pill foreground and tint color based on free disk percentage.
-    private var pillColor: Color {
-        if freePct < 15 { return .rbDanger }
-        if freePct < 40 { return .rbWarning }
-        return .rbSuccess
     }
 }
 
@@ -175,6 +130,10 @@ struct HeaderStatsBar: View {
     var statsVM: SystemStatsViewModel
 
     /// Renders CPU, MEM, and DISK chips separated by thin dividers.
+    /// Each chip is sized intrinsically: text has layout priority over the sparkline,
+    /// so graphs share an equal ideal width of 40 pt but compress before any label or
+    /// value is truncated. CPU will naturally be narrower than MEM and DISK because
+    /// its value text is shorter. A wider value grows its chip and compresses neighbors.
     var body: some View {
         HStack(spacing: RBSpacing.md) {
             let cpuPct = statsVM.stats.cpuPct
@@ -199,33 +158,20 @@ struct HeaderStatsBar: View {
                 )
             }
             Color.secondary.opacity(0.3).frame(width: 1, height: 14)
-            HStack(spacing: RBSpacing.xs) {
-                let diskTotal = statsVM.stats.diskTotalGB
-                let diskUsed = statsVM.stats.diskUsedGB
-                let diskUsedPct = diskTotal > 0 ? diskUsed / diskTotal * 100 : 0.0
-                GlassBadgeContainer {
-                    SparklineMetricView(
-                        label: "DISK",
-                        value: String(format: "%d/%dGB",
-                                      Int(statsVM.stats.diskUsedGB.rounded()),
-                                      Int(statsVM.stats.diskTotalGB.rounded())),
-                        history: statsVM.diskHistory.values,
-                        currentPct: diskUsedPct
-                    )
-                }
-                if statsVM.stats.diskTotalGB > 0 {
-                    // GlassEffectContainer gives DiskPillBadge its own dedicated
-                    // CABackdropLayer sampling region so .glassEffect inside the
-                    // pill refracts correctly instead of glass-on-glass with no container.
-                    GlassEffectContainer {
-                        DiskPillBadge(freePct: statsVM.stats.diskFreePct)
-                    }
-                }
+            let diskTotal = statsVM.stats.diskTotalGB
+            let diskUsed = statsVM.stats.diskUsedGB
+            let diskUsedPct = diskTotal > 0 ? diskUsed / diskTotal * 100 : 0.0
+            GlassBadgeContainer {
+                SparklineMetricView(
+                    label: "DISK",
+                    value: String(format: "%d/%dGB",
+                                  Int(statsVM.stats.diskUsedGB.rounded()),
+                                  Int(statsVM.stats.diskTotalGB.rounded())),
+                    history: statsVM.diskHistory.values,
+                    currentPct: diskUsedPct
+                )
             }
-            .fixedSize()
-            Spacer()
         }
-        .padding(.horizontal, RBSpacing.md)
         .padding(.vertical, RBSpacing.sm)
     }
 }

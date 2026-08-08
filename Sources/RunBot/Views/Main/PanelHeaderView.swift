@@ -13,45 +13,54 @@ struct PanelHeaderView: View {
     let onSelectSettings: () -> Void
 
     /// Renders the header HStack with stats bar and settings/quit buttons.
+    /// The stats bar fills all remaining width after the separator and fixed-size control group.
+    /// Outer horizontal padding is owned here and must not be duplicated inside HeaderStatsBar.
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: RBSpacing.md) {
             HeaderStatsBar(statsVM: statsVM)
-            Spacer()
-            if #available(macOS 26, *) {
-                HStack(spacing: 8) {
-                    GlassEffectContainer { settingsButton.glassButton() }
-                    GlassEffectContainer { quitButton.glassButton() }
-                }
-            } else {
-                settingsButton
-                quitButton
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .layoutPriority(1)
+            headerSeparator
+            HStack(spacing: 6) {
+                GlassEffectContainer { settingsButton.glassButton() }
+                GlassEffectContainer { quitButton.glassButton() }
             }
+            .fixedSize()
         }
         .padding(.horizontal, RBSpacing.md)
         .padding(.top, 10)
         .padding(.bottom, 8)
     }
 
-    /// Settings gear button — plain style, 28 pt hit area.
+    /// Vertical separator shared between metric chips and the DISK|Settings boundary.
+    /// Matches the CPU|MEM and MEM|DISK separators inside HeaderStatsBar.
+    private var headerSeparator: some View {
+        Color.secondary
+            .opacity(0.3)
+            .frame(width: 1, height: 14)
+            .fixedSize()
+    }
+
+    /// Settings gear button — plain style, 24 pt hit area.
     @ViewBuilder private var settingsButton: some View {
         Button(action: onSelectSettings) {
             Image(systemName: "gearshape")
                 .font(.system(size: 13))
                 .foregroundColor(.secondary)
-                .frame(width: 28, height: 28)
+                .frame(width: 24, height: 24)
         }
         .buttonStyle(.plain)
         .help("Settings")
         .accessibilityLabel("Settings")
     }
 
-    /// Quit button — plain style, 28 pt hit area.
+    /// Quit button — plain style, 24 pt hit area.
     @ViewBuilder private var quitButton: some View {
         Button(action: { NSApplication.shared.terminate(nil) }) {
             Image(systemName: "xmark")
                 .font(.system(size: 11, weight: .medium))
                 .foregroundColor(.secondary)
-                .frame(width: 28, height: 28)
+                .frame(width: 24, height: 24)
         }
         .buttonStyle(.plain)
         .help("Quit RunBot")
@@ -69,7 +78,7 @@ struct SectionHeaderLabel: View {
     var body: some View {
         Text(title.uppercased())
             .font(RBFont.sectionCaption)
-            .foregroundColor(.secondary)
+            .foregroundColor(Color.rbTextSecondary)
             .padding(.horizontal, RBSpacing.md)
             .padding(.top, 6)
             .padding(.bottom, 2)

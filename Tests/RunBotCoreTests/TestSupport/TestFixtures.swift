@@ -105,6 +105,43 @@ func makeGitHubRunner(
 // MARK: - WorkflowActionGroup
 
 extension WorkflowActionGroup {
+    /// Returns a workflow group for timestamp and duration tests.
+    ///
+    /// - Parameters:
+    ///   - status: Status assigned to the synthetic workflow run.
+    ///   - conclusion: Conclusion assigned to the synthetic workflow run.
+    ///   - jobs: Jobs included in the group.
+    ///   - firstJobStartedAt: Optional stored aggregate start date.
+    ///   - lastJobCompletedAt: Optional stored aggregate completion date.
+    static func makeTestGroup(
+        status: JobStatus = .completed,
+        conclusion: JobConclusion? = .success,
+        jobs: [ActiveJob] = [],
+        firstJobStartedAt: Date? = nil,
+        lastJobCompletedAt: Date? = nil
+    ) -> WorkflowActionGroup {
+        let run = WorkflowRunRef(
+            id: 1,
+            name: "CI",
+            status: status,
+            conclusion: conclusion,
+            htmlUrl: nil
+        )
+        return WorkflowActionGroup(
+            headSha: "aabbccdd",
+            label: "aabbccd",
+            title: "CI",
+            headBranch: "main",
+            repo: "owner/repo",
+            runs: [run],
+            jobs: jobs,
+            firstJobStartedAt: firstJobStartedAt,
+            lastJobCompletedAt: lastJobCompletedAt,
+            createdAt: nil,
+            isDimmed: false
+        )
+    }
+
     /// Returns a minimal `WorkflowActionGroup` for use in polling tests.
     ///
     /// - Parameters:

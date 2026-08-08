@@ -49,13 +49,19 @@ import SwiftUI
 // RULE 6: systemStats MUST run only while the panel is open.
 // RULE 7: RunnerStore self-schedules via its own adaptive timer.
 // RULE 9: displayTick fires every 1 second ALWAYS (no open-state gate).
-// RULE 10 (HEADER STABILITY): PanelHeaderView keeps .fixedSize() at the call
-//         site. On macOS 26, GlassEffectContainer reports slightly different
-//         preferred heights under layout pressure on macOS 26; .fixedSize() pins it so the
-//         Divider below never moves.
+// RULE 10 (HEADER STABILITY): PanelHeaderView uses
+//         .fixedSize(horizontal: false, vertical: true) at the call site.
+//         Vertical fixed sizing prevents GlassEffectContainer preferred-height
+//         changes from moving the Divider below. Horizontal sizing must remain
+//         flexible so the header fills the available Main width.
 // RULE 11 (WIDTH OWNERSHIP): the root carries
-//         .frame(minWidth: RBMetrics.panelListMinWidth, maxWidth: RBMetrics.panelListMaxWidth).
-//         ❌ NEVER move it into MenuBarKit — it would apply to Settings too.
+//         .frame(minWidth: RBMetrics.panelListMinWidth,
+//                idealWidth: RBMetrics.panelListIdealWidth,
+//                maxWidth: RBMetrics.panelListMaxWidth)
+//         Main may size between 420 and 480 pt; 460 pt is preferred.
+//         Rows still participate in intrinsic sizing within that range.
+//         Settings width is independent and must remain unaffected.
+//         ❌ NEVER move these tokens into MenuBarKit — it would apply to Settings too.
 // RULE 12 (TOP ALIGNMENT): the root carries
 //         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
 //         AFTER the width frame. Without this, when the window expands between
@@ -210,7 +216,8 @@ struct PanelMainView: View {
                 statsVM: systemStats,
                 onSelectSettings: onSelectSettings
             )
-            .fixedSize()
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity)
             .onAppear { systemStats.start() }
             Divider()
             if let error = appState.runnerState.fetchError {
@@ -332,7 +339,7 @@ Task { await localRunnerStore.refresh() }
             SectionHeaderLabel(title: "Workflows")
             if appState.runnerState.actions.isEmpty {
                 Text("No recent workflows")
-                    .font(.caption).foregroundColor(.secondary)
+                    .font(.caption).foregroundColor(Color.rbTextSecondary)
                     .padding(.horizontal, 12).padding(.vertical, 8)
             } else {
                 let visible = Array(appState.runnerState.actions.prefix(visibleCount))
@@ -350,7 +357,7 @@ Task { await localRunnerStore.refresh() }
         if nextBatch > 0 {
             Button { visibleCount += nextBatch } label: {
                 Text("Load \(nextBatch) more workflows\u{2026}")
-                    .font(.caption).foregroundColor(.secondary)
+                    .font(.caption).foregroundColor(Color.rbTextSecondary)
             }
             .buttonStyle(.plain)
             .padding(.horizontal, 12).padding(.vertical, 6)
@@ -394,7 +401,7 @@ Task { await localRunnerStore.refresh() }
         HStack(spacing: 6) {
             Image(systemName: "exclamationmark.triangle.fill").foregroundColor(.red).font(.caption)
             Text("Fetch error — \(error.localizedDescription)")
-                .font(.caption).foregroundColor(.secondary)
+                .font(.caption).foregroundColor(Color.rbTextSecondary)
                 .lineLimit(2)
         }
         .padding(.horizontal, 12).padding(.vertical, 4)
@@ -420,7 +427,7 @@ Task { await localRunnerStore.refresh() }
         } else { countdownLabel = "pausing polls" }
         return HStack(spacing: 6) {
             Image(systemName: "exclamationmark.triangle.fill").foregroundColor(.yellow).font(.caption)
-            Text("GitHub rate limit reached -- \(countdownLabel)").font(.caption).foregroundColor(.secondary)
+            Text("GitHub rate limit reached -- \(countdownLabel)").font(.caption).foregroundColor(Color.rbTextSecondary)
         }
         .padding(.horizontal, 12).padding(.vertical, 4)
     }

@@ -10,8 +10,8 @@ import SwiftUI
 ///
 /// ⚠️ Do NOT add GlassEffectContainer, .glassEffectID, .bouncy, or
 /// .glassEffectTransition to the row or rowContainer — they cause staggered/slow
-/// expand animations (#957). The statusBadge GlassEffectContainer in metaTrailing
-/// is intentionally scoped to just the badge, not the row.
+/// expand animations (#957). The workflowStatusDonut GlassEffectContainer is
+/// intentionally scoped to just the leading donut, not the row.
 struct ActionRowView: View {
     /// The workflow action group this row represents.
     let group: WorkflowActionGroup
@@ -24,18 +24,11 @@ struct ActionRowView: View {
     /// Tracks the previous row status to detect in-progress → done transitions.
     @State private var previousStatus: RBStatus?
 
-    /// Renders the row using the appropriate glass card background for the current OS.
+    /// Workflow card: unified glass background with embedded status accent,
+    /// wrapping row content and any inline job/step expansion.
     var body: some View {
-        if #available(macOS 26, *) {
-            rowContainer {
-                Color.clear.glassCard(cornerRadius: RBRadius.card)
-                statusAccentBar
-            }
-        } else {
-            rowContainer {
-                glassCardBackground
-                statusAccentBar
-            }
+        rowContainer {
+            glassCardBackground
         }
     }
 
@@ -78,7 +71,20 @@ struct ActionRowView: View {
         .modifier(RowTapModifier(jobs: group.jobs, expandState: $expandState, rowStatus: rowStatus))
         .padding(.horizontal, RBSpacing.md)
         .padding(.vertical, RBSpacing.xxs)
-        .onAppear { applyInitialExpandState() }
+        .onAppear {
+            applyInitialExpandState()
+            #if DEBUG
+            log(
+                "[TimingTrace][main-row] "
+                    + "id=\(group.id) "
+                    + "status=\(group.groupStatus) "
+                    + "storedStart=\(String(describing: group.firstJobStartedAt)) "
+                    + "storedEnd=\(String(describing: group.lastJobCompletedAt)) "
+                    + "duration=\(String(describing: group.completedDuration))",
+                category: .runner
+            )
+            #endif
+        }
         // ⚠️ DO NOT REMOVE — expandState change logger for sizing investigation.
         // Kept commented out intentionally. Re-enable when testing how row expand/collapse
         // affects panel width reported to MBKPanelController.
@@ -86,21 +92,47 @@ struct ActionRowView: View {
         // .onChange(of: expandState) { old, new in
         //     log("【ActionRowView.expandState】id=\(group.id) \(String(describing: old)) → \(String(describing: new))", category: .general)
         // }
-        .onChange(of: rowStatus) { _, newStatus in handleStatusChange(newStatus) }
+        .onChange(of: rowStatus) { _, newStatus in
+            handleStatusChange(newStatus)
+            #if DEBUG
+            log(
+                "[TimingTrace][main-row-change] "
+                    + "id=\(group.id) "
+                    + "status=\(newStatus) "
+                    + "start=\(String(describing: group.firstJobStartedAt)) "
+                    + "end=\(String(describing: group.lastJobCompletedAt)) "
+                    + "duration=\(String(describing: group.completedDuration))",
+                category: .runner
+            )
+            #endif
+        }
     }
 
-    /// Left-edge accent bar whose colour reflects the current row status.
-    @ViewBuilder private var statusAccentBar: some View {
-        Rectangle()
-            .fill(rowStatus.color)
-            .frame(width: 4)
-            .frame(maxHeight: .infinity)
-            .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    /// Pre-macOS-26 glass card background used as the ZStack layer inside `rowContainer`.
+    /// Unified workflow-card background.
+    ///
+    /// Composes the neutral card background and 4 pt leading status accent beneath
+    /// one card-wide glass effect so they read as a single material. The accent is
+    /// an underlay visible only through the leftmost 4 pt of the card — it does not
+    /// create an independent glass boundary or visible strip outline.
+    /// Uses `rbGlassNeutralBackground` (black 0.15 light / white 0.10 dark) —
+    /// opposite the root panel tint, establishing foreground/background hierarchy
+    /// in both appearances.
     @ViewBuilder private var glassCardBackground: some View {
-        Color.clear.glassCard(cornerRadius: RBRadius.card)
+        let shape = RoundedRectangle(
+            cornerRadius: RBRadius.card,
+            style: .continuous
+        )
+        ZStack(alignment: .leading) {
+            Color.rbGlassNeutralBackground
+            rowStatus.color
+                .opacity(0.18)
+                .frame(width: 4)
+                .frame(maxHeight: .infinity)
+                .accessibilityHidden(true)
+        }
+        .clipShape(shape)
+        .glassEffect(.regular, in: shape)
+        .allowsHitTesting(false)
     }
 
     /// Sets the initial expand state based on the row's status at appear time.
@@ -144,9 +176,13 @@ struct ActionRowView: View {
 
     /// Main body of the action row.
     ///
-    /// Column order (#984):
-    /// graph-dot · local-remote-icon · sha · repo-name · commit-title · branch-text · Spacer
-    /// · time-ago · steps/total · elapsed(mm:ss) · statusBadge
+    /// Column order (#984, updated #2599, #2601):
+    /// workflowStatusDonut · repo-name · commit-title · branch-text · Spacer
+    /// · time-ago · completed-duration · steps/total
+    ///
+    /// completed-duration: appears only for completed workflows with valid timestamps.
+    /// Measures first job start through final job completion.
+    /// Formatted as compact `h`, `min`, `sec` units (e.g. `"in 4min 32sec"`).
     ///
     /// - sha: `group.label` (7-char sha or PR#), muted mono
     /// - repo-name: `group.repoShortName` stripped from owner/repo
@@ -166,37 +202,38 @@ struct ActionRowView: View {
     ///    negotiation, but is still capped at actionRowTitleMaxWidth. Do NOT move
     ///    .layoutPriority above .frame: the priority must apply to the constrained container,
     ///    not the raw unbounded Text.
+    ///
+    /// Layout priority summary (highest wins first):
+    ///   2 — trailing metadata HStack (always fully visible)
+    ///   1 — workflow title frame (truncates before metadata)
+    ///   0 — branch text / flexible spacing (yields first)
     private var rowContent: some View {
         let tickSnapshot = tick
         return HStack(spacing: 6) {
-            DonutStatusView(status: rowStatus, progress: group.progressFraction ?? 0, size: 14)
-            RunnerTypeIcon(isLocal: group.isLocalGroup ?? false)
-            Text(group.label)
-                .font(RBFont.mono)
-                .foregroundColor(.secondary)
-                .lineLimit(1)
-                .fixedSize(horizontal: true, vertical: false)
+            workflowStatusDonut
             Text(group.repoShortName)
                 .font(RBFont.mono)
-                .foregroundColor(.secondary)
+                .foregroundColor(Color.rbTextSecondary)
                 .lineLimit(1)
                 .fixedSize(horizontal: true, vertical: false)
             Text(group.title)
-                .font(.system(size: 12))
+                .font(.system(.caption, design: .monospaced, weight: .semibold))
                 .foregroundColor(group.isDimmed ? .secondary : .primary)
                 .lineLimit(1)                                                          // step 1: configure truncation
                 .truncationMode(.tail)                                                 // step 1: configure truncation
                 .frame(maxWidth: RBMetrics.actionRowTitleMaxWidth, alignment: .leading) // step 2: cap width, triggers ellipsis
                 .help(group.title)                                                     // step 3: tooltip on capped view (always-on by design)
                 .layoutPriority(1)                                                     // step 4: priority on the frame, not raw Text
-            // Branch — plain text, hidden when nil (#1194)
+            // Branch — middle-truncated, full value available through native tooltip;
+            // hidden when nil (#1194, #2610).
             if let branch = group.headBranch {
                 Text(branch)
                     .font(RBFont.mono)
-                    .foregroundColor(.secondary)
+                    .foregroundColor(Color.rbTextSecondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
                     .frame(maxWidth: RBMetrics.actionRowBranchMaxWidth, alignment: .leading)
+                    .help(branch)
                     .layoutPriority(0)
             }
             Spacer()
@@ -206,87 +243,136 @@ struct ActionRowView: View {
         .padding(.vertical, 4)
     }
 
-    /// Trailing meta: time-ago · steps/total · elapsed · statusBadge.
+    /// Trailing metadata group: time-ago · completed-duration · steps/total.
     ///
-    /// - time-ago: derived from `firstJobStartedAt ?? createdAt` so it is visible
-    ///   even in queued/loading states before jobs have populated.
-    /// - elapsed: shown for ALL statuses — completed rows show their final duration,
-    ///   active rows show a live ticking value (keyed to `tick`).
+    /// Rendered as a single HStack so the entire group is treated as one atomic
+    /// layout unit. `.fixedSize` prevents any member being compressed to zero,
+    /// and `.layoutPriority(2)` ensures the group wins horizontal space before
+    /// the workflow title (priority 1) or branch text (priority 0).
     ///
-    /// statusBadge is wrapped in its own standalone GlassEffectContainer — scoped to badge only.
-    /// ⚠️ Do NOT expand this container to the row or rowContainer (#957).
+    /// - time-ago: derived from `firstJobStartedAt ?? createdAt` so it appears
+    ///   even in queued/loading states before jobs populate.
+    /// - completed-duration: shown only for completed workflows with valid timestamps;
+    ///   measures first job start through final job completion; formatted as
+    ///   `m:ss` below one hour and `h:mm:ss` at one hour or above.
+    /// - steps/total: job progress fraction (e.g. `"6/6"`), omitted when no jobs.
     @ViewBuilder private func metaTrailing(tick tickSnapshot: Int) -> some View {
-        // Use createdAt as fallback so time-ago is visible before firstJobStartedAt populates.
-        // If both are nil (e.g. corrupted API response), the label is intentionally omitted — not a bug.
-        if let start = group.firstJobStartedAt ?? group.createdAt {
-            Text(RelativeTimeFormatter.string(from: start))
-                .font(RBFont.mono)
-                .foregroundColor(.secondary)
-                .lineLimit(1)
-                .fixedSize(horizontal: true, vertical: false)
-                // Gate tick binding to .inProgress only — mirrors the elapsed label below.
-                // For non-inProgress rows the start date is static; group.id is a stable
-                // sentinel so SwiftUI does not redraw this label on every poll tick.
-                .id(group.groupStatus == .inProgress ? "\(tickSnapshot)" : group.id)
+        let relativeStart = group.firstJobStartedAt ?? group.createdAt
+        let duration = group.completedDuration
+        let hasProgress = !group.jobs.isEmpty
+
+        HStack(spacing: RBSpacing.xs) {
+            // Use createdAt as fallback so time-ago is visible before firstJobStartedAt populates.
+            // If both are nil (e.g. corrupted API response), the label is intentionally omitted.
+            if let relativeStart {
+                Text(RelativeTimeFormatter.string(from: relativeStart))
+                    .font(RBFont.mono)
+                    .foregroundStyle(Color.rbTextSecondary)
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
+                    // Gate tick binding to .inProgress only — completed/queued start dates are
+                    // static so group.id acts as a stable sentinel, avoiding redraws on every tick.
+                    .id(
+                        group.groupStatus == .inProgress
+                            ? "\(tickSnapshot)"
+                            : group.id
+                    )
+            }
+
+            if relativeStart != nil, duration != nil || hasProgress {
+                metadataSeparator
+            }
+
+            // Completed-duration label: only for terminal workflows with valid timestamps.
+            // Active, queued, and loading rows show nothing here.
+            if let duration {
+                Text(WorkflowDurationFormatter.string(from: duration))
+                    .font(RBFont.mono)
+                    .monospacedDigit()
+                    .foregroundStyle(Color.rbTextSecondary)
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .accessibilityLabel(durationAccessibilityLabel(duration))
+            }
+
+            if duration != nil, hasProgress {
+                metadataSeparator
+            }
+
+            if hasProgress {
+                Text(group.jobProgress)
+                    .font(RBFont.mono)
+                    .monospacedDigit()
+                    .foregroundStyle(Color.rbTextSecondary)
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
+            }
         }
-        if !group.jobs.isEmpty {
-            Text(group.jobProgress)
-                .font(RBFont.mono)
-                .foregroundColor(.secondary)
-                .lineLimit(1)
-                .fixedSize(horizontal: true, vertical: false)
-        }
-        // Show elapsed for all statuses. Completed rows display a static final duration;
-        // active rows tick live. Only bind tickSnapshot when in-progress to avoid
-        // unnecessary redraws on completed/queued rows.
-        //
-        // Condition reads: show elapsed UNLESS the row is still in .loading AND no job has
-        // started yet. That is the only state where group.elapsed would be a meaningless
-        // "time since workflow was created" with no job context.
-        // Equivalent form: suppress when (.loading AND firstJobStartedAt == nil).
-        //
-        // group.elapsed always returns a non-empty string for every state where
-        // showElapsed == true: inProgress/queued use firstJobStartedAt ?? createdAt → now,
-        // and completed uses firstJobStartedAt → lastJobCompletedAt. No empty-Text risk.
-        let showElapsed = group.groupStatus != .loading || group.firstJobStartedAt != nil
-        if showElapsed {
-            Text(group.elapsed)
-                .font(RBFont.mono)
-                .foregroundColor(.secondary)
-                .lineLimit(1)
-                .fixedSize(horizontal: true, vertical: false)
-                // Both .id() arms produce String. Collision between "\(tickSnapshot)" and
-                // group.id is not possible in practice: group.id is derived from the maximum
-                // GitHub run ID (a large integer, e.g. "12893741234"), while tickSnapshot is a
-                // small monotonic counter that resets with the app. The value spaces do not
-                // overlap. Note: .queued elapsed reflects the value at last poll, not
-                // per-second — this is intentional. Per-second ticking on a queued run
-                // would be misleading.
-                .id(group.groupStatus == .inProgress ? "\(tickSnapshot)" : group.id)
-        }
-        if #available(macOS 26, *) {
-            GlassEffectContainer { statusBadge }
-        } else {
-            statusBadge
-        }
+        .fixedSize(horizontal: true, vertical: false)
+        .layoutPriority(2)
     }
 
-    /// Badge view produced from the group's current status and conclusion.
-    /// Keep conclusion groupings in sync with `rowStatus` above.
-    @ViewBuilder private var statusBadge: some View {
+    /// Decorative centered-dot separator between metadata values.
+    private var metadataSeparator: some View {
+        Text("·")
+            .font(RBFont.mono)
+            .foregroundStyle(Color.rbTextTertiary)
+            .accessibilityHidden(true)
+    }
+
+    /// Spoken accessibility label for a completed workflow duration.
+    ///
+    /// Produces natural unit strings such as "Workflow duration, 2 minutes 3 seconds".
+    private func durationAccessibilityLabel(_ duration: TimeInterval) -> String {
+        let totalSeconds = Int(max(0, duration).rounded())
+        let hours   = totalSeconds / 3_600
+        let minutes = (totalSeconds % 3_600) / 60
+        let seconds = totalSeconds % 60
+
+        var parts: [String] = []
+        if hours   > 0 { parts.append(hours   == 1 ? "1 hour"   : "\(hours) hours") }
+        if minutes > 0 { parts.append(minutes == 1 ? "1 minute" : "\(minutes) minutes") }
+        if seconds > 0 { parts.append(seconds == 1 ? "1 second" : "\(seconds) seconds") }
+        if parts.isEmpty { parts.append("0 seconds") }
+
+        return "Workflow duration, " + parts.joined(separator: " ")
+    }
+
+    /// Glass-wrapped 14 pt status donut for the top-level workflow row.
+    /// Glass is applied directly to the donut bounds so it does not increase the
+    /// row's intrinsic height. Scoped to just the donut — not the row.
+    /// Do not apply this wrapper to job- or step-level donuts.
+    @ViewBuilder private var workflowStatusDonut: some View {
+        let shape = Circle()
+        GlassEffectContainer {
+            DonutStatusView(
+                status: rowStatus,
+                progress: group.progressFraction ?? 0,
+                size: 14
+            )
+            .background(rowStatus.color.opacity(0.14), in: shape)
+            .glassEffect(.regular, in: shape)
+        }
+        .fixedSize()
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Workflow status")
+        .accessibilityValue(statusAccessibilityText)
+    }
+
+    /// Textual description of the current workflow status for accessibility (VoiceOver).
+    /// Mirrors the former statusBadge text labels so VoiceOver continuity is preserved.
+    private var statusAccessibilityText: String {
         switch group.groupStatus {
-        case .inProgress: StatusBadge(status: .inProgress, text: "IN PROGRESS")
-        case .loading:    StatusBadge(status: .queued, text: "LOADING")
-        case .queued:     StatusBadge(status: .queued, text: "QUEUED")
+        case .inProgress: return "In progress"
+        case .loading:    return "Loading"
+        case .queued:     return "Queued"
         case .completed:
             switch group.conclusion {
-            case .success: StatusBadge(status: .success, text: "SUCCESS")
-            case .failure, .timedOut, .actionRequired, .startupFailure:
-                StatusBadge(status: .failed, text: "FAILED")
-            // TODO: promote .cancelled and .skipped to dedicated RBStatus cases when available.
-            case .cancelled: StatusBadge(status: .unknown, text: "CANCELLED")
-            case .skipped: StatusBadge(status: .unknown, text: "SKIPPED")
-            case .neutral, .stale, .unknown, nil: StatusBadge(status: .unknown, text: "DONE")
+            case .success:                                              return "Success"
+            case .failure, .timedOut, .actionRequired, .startupFailure: return "Failed"
+            case .cancelled:                                            return "Cancelled"
+            case .skipped:                                              return "Skipped"
+            case .neutral, .stale, .unknown, nil:                       return "Done"
             }
         }
     }

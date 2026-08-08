@@ -42,8 +42,8 @@ private struct RunnerMetricsBadge: View {
     /// zero load is distinguishable from "no data".
     var body: some View {
         HStack(spacing: 8) {
-            metricItem(label: "CPU", value: cpu.map { String(format: "%.0f%%", $0) } ?? "—")
-            metricItem(label: "MEM", value: mem.map { String(format: "%.0f%%", $0) } ?? "—")
+            metricItem(label: "CPU", value: cpu.map { String(format: "%.0f%%", $0) } ?? "—", percentage: cpu)
+            metricItem(label: "MEM", value: mem.map { String(format: "%.0f%%", $0) } ?? "—", percentage: mem)
         }
         .padding(.horizontal, 6)
         .padding(.vertical, 2)
@@ -51,16 +51,29 @@ private struct RunnerMetricsBadge: View {
     }
 
     /// Renders a single label–value pair for use inside the badge HStack.
-    private func metricItem(label: String, value: String) -> some View {
+    /// The value text color is driven by `metricColor(for:)` thresholds.
+    private func metricItem(label: String, value: String, percentage: Double?) -> some View {
         HStack(spacing: 3) {
             Text(label)
                 .font(RBFont.statLabel)
-                .foregroundColor(.secondary)
+                .foregroundColor(Color.rbTextSecondary)
             Text(value)
                 .font(RBFont.statValue)
-                .foregroundColor(.primary)
+                .foregroundColor(metricColor(for: percentage))
                 .monospacedDigit()
         }
+    }
+
+    /// Returns the threshold color for a utilisation percentage.
+    /// Matches `SparklineMetricView.labelColor` exactly.
+    /// - `> 85` → `.rbDanger`
+    /// - `> 60` → `.rbWarning`
+    /// - otherwise (including `nil`) → `.primary`
+    private func metricColor(for percentage: Double?) -> Color {
+        guard let percentage else { return .primary }
+        if percentage > 85 { return .rbDanger }
+        if percentage > 60 { return .rbWarning }
+        return .primary
     }
 }
 
@@ -86,14 +99,35 @@ struct PanelLocalRunnerRow: View {
         ForEach(active.prefix(Self.maxVisibleRunners)) { runner in runnerCard(runner) }
         if active.count > Self.maxVisibleRunners {
             Text("+ \(active.count - Self.maxVisibleRunners) more…")
-                .font(.caption2).foregroundColor(.secondary)
+                .font(.caption2).foregroundColor(Color.rbTextSecondary)
                 .padding(.horizontal, RBSpacing.md).padding(.vertical, 2)
         }
         Divider()
     }
 
+    /// Adaptive Liquid Glass background for the outer runner card.
+    ///
+    /// Matches the background hierarchy of ActionRowView:
+    ///   - `rbGlassNeutralBackground` provides the adaptive tint
+    ///     (black/0.15 light · white/0.07 dark).
+    ///   - `.glassEffect(.regular, in: shape)` applies native Liquid Glass.
+    ///   - No `GlassEffectContainer` wrapping — the card is not interactive.
+    @ViewBuilder private var runnerCardBackground: some View {
+        let shape = RoundedRectangle(
+            cornerRadius: RBRadius.card,
+            style: .continuous
+        )
+
+        Color.clear
+            .background(
+                Color.rbGlassNeutralBackground,
+                in: shape
+            )
+            .glassEffect(.regular, in: shape)
+    }
+
     /// Glass architecture mirrors ActionRowView exactly:
-    ///   - .glassCard() applied via .background{} directly — NO GlassEffectContainer around the card.
+    ///   - Native .regular glassEffect applied via .background{} directly — NO GlassEffectContainer around the card.
     ///   - RunnerMetricsBadge gets its own standalone GlassEffectContainer, same as
     ///     StatusBadge in ActionRowView.metaTrailing.
     private func runnerCard(_ runner: RunnerModel) -> some View {
@@ -107,22 +141,16 @@ struct PanelLocalRunnerRow: View {
                 if let subtitle = runnerSubtitle(runner) {
                     Text("· \(subtitle)")
                         .font(.system(size: 10))
-                        .foregroundColor(.secondary)
+                        .foregroundColor(Color.rbTextSecondary)
                         .lineLimit(1)
                 }
             }
             .layoutPriority(1)
             Spacer()
             // Standalone GlassEffectContainer — same as StatusBadge in metaTrailing.
-            // NOT nested inside a card container so it samples the real backdrop.
-            if #available(macOS 26, *) {
-                GlassEffectContainer {
-                    RunnerMetricsBadge(
-                        cpu: runner.metrics?.cpu,
-                        mem: runner.metrics?.mem
-                    )
-                }
-            } else {
+            // NOT nested inside the card so it samples the real backdrop behind the panel,
+            // not the card glass. This is required for correct glass-on-glass composition.
+            GlassEffectContainer {
                 RunnerMetricsBadge(
                     cpu: runner.metrics?.cpu,
                     mem: runner.metrics?.mem
@@ -133,9 +161,7 @@ struct PanelLocalRunnerRow: View {
         .padding(.vertical, RBSpacing.xs + 2)
         .frame(maxWidth: .infinity)
         .background {
-            // .glassCard() handles its own #available branch internally.
-            // No outer #available check needed here.
-            Color.clear.glassCard(cornerRadius: RBRadius.card)
+            runnerCardBackground
         }
         .clipShape(RoundedRectangle(cornerRadius: RBRadius.card, style: .continuous))
         .padding(.horizontal, RBSpacing.md)

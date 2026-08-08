@@ -448,7 +448,7 @@ internal extension SettingsView {
             // ❌ DO NOT add .accessibilityHidden(true) here.
             // Accessibility modifiers on this icon are out of scope for v1 (#1794).
             Image(systemName: "arrow.down.circle.fill")
-                .foregroundStyle(Color.accentColor)
+                .foregroundStyle(Color.rbAccent)
             switch runnerState.currentPhase {
             case .idle:
                 // Guard in aboutSection prevents us reaching here, but the
@@ -518,7 +518,7 @@ internal extension SettingsView {
             alignment: .topLeading
         )
         .padding(10)
-        .settingsTintedGlassCard(color: .accentColor, cornerRadius: 8)
+        .settingsTintedGlassCard(color: .rbAccent, cornerRadius: 8)
         .padding(.horizontal, RBSpacing.md)
         .padding(.top, 8)
     }
@@ -539,11 +539,9 @@ internal extension SettingsView {
 ///   button tint, establishing a consistent "stopped/needs attention" signal.
 /// - Zero-count segments are suppressed entirely: no "0 inactive" shown in red when
 ///   all runners/scopes are active, and no "0 active" shown in green when all are inactive.
-/// - Background uses `Color.rbGlassNeutral.opacity(0.15)` beneath `.glassEffect(.regular)`,
-///   mirroring `RunnerMetricsBadge` / `StatPillBackground` exactly. Black in light
-///   appearance, white in dark appearance — neutral so green/red semantic text colors
-///   are not biased. Native glass generates the edge and refraction; no manual stroke.
-///   (#2520, #2524)
+/// - Background uses `Color.rbGlassNeutralBackground` (black 0.15 light / white 0.10 dark)
+///   beneath `.glassEffect(.regular)` — neutral so green/red semantic text colors are not
+///   biased. Native glass generates the edge and refraction; no manual stroke. (#2520, #2524)
 ///
 /// ## Layout rationale
 /// - `HStack(spacing: 0)` is intentional — not a mistake. A non-zero spacing value inserts
@@ -581,7 +579,7 @@ private struct StatusCountBadge: View {
             .fixedSize()
             .padding(.horizontal, 7)
             .padding(.vertical, 3)
-            .background(Color.rbGlassNeutral.opacity(0.15), in: Capsule())
+            .background(Color.rbGlassNeutralBackground, in: Capsule())
             .glassEffect(.regular, in: Capsule())
             .fixedSize()
         }

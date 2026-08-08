@@ -356,6 +356,27 @@ public struct WorkflowActionGroup: Identifiable, Equatable, Sendable {
         )
     }
 
+    /// Total duration of a completed workflow, measured from the first job start
+    /// to the final job completion.
+    ///
+    /// Returns `nil` for active workflows, missing timestamps, or invalid
+    /// completion times (end before start).
+    public var completedDuration: TimeInterval? {
+        guard groupStatus == .completed else { return nil }
+
+        // Derive timestamps from individual jobs when aggregate fields are absent.
+        // This protects the UI if stored aggregates are dropped during a cache/copy
+        // transition while per-job timestamps remain available.
+        let derivedStart = jobs.compactMap { $0.raw.startDate }.min()
+        let derivedEnd   = jobs.compactMap { $0.raw.completedDate }.max()
+
+        let start = firstJobStartedAt ?? derivedStart
+        let end   = lastJobCompletedAt ?? derivedEnd
+
+        guard let start, let end, end >= start else { return nil }
+        return end.timeIntervalSince(start)
+    }
+
     // MARK: - Runner type
 
     /// `true` if at least one job in this group ran on a local (self-hosted) runner.

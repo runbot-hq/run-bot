@@ -175,34 +175,20 @@ extension Color {
     /// macOS 26+: near-zero opacity so glass backdrop shows through.
     /// Pre-26: standard vibrancy opacities.
     static var rbSurface: Color {
-        if #available(macOS 26, *) {
-            return Color.adaptiveGrayscale(
-                light: (white: 0.95, alpha: 0.04),
-                dark: (white: 0.11, alpha: 0.04)
-            )
-        } else {
-            return Color.adaptiveGrayscale(
-                light: (white: 0.95, alpha: 0.88),
-                dark: (white: 0.11, alpha: 0.45)
-            )
-        }
+        return Color.adaptiveGrayscale(
+            light: (white: 0.95, alpha: 0.04),
+            dark: (white: 0.11, alpha: 0.04)
+        )
     }
 
     /// Elevated row/card surface — slightly lighter than `rbSurface`.
     /// macOS 26+: near-zero opacity so glass backdrop shows through.
     /// Pre-26: standard vibrancy opacities.
     static var rbSurfaceElevated: Color {
-        if #available(macOS 26, *) {
-            return Color.adaptiveGrayscale(
-                light: (white: 0.88, alpha: 0.05),
-                dark: (white: 0.15, alpha: 0.05)
-            )
-        } else {
-            return Color.adaptiveGrayscale(
-                light: (white: 0.88, alpha: 0.92),
-                dark: (white: 0.15, alpha: 0.25)
-            )
-        }
+        return Color.adaptiveGrayscale(
+            light: (white: 0.88, alpha: 0.05),
+            dark: (white: 0.15, alpha: 0.05)
+        )
     }
 
     /// Subtle border — low-contrast outline for cards and separators.
@@ -212,17 +198,10 @@ extension Color {
     /// dark backgrounds. They are not edge cases or mistakes; do not "fix" them.
     /// macOS 26+: light opacity bumped to 0.12 for better visibility on glass.
     static var rbBorderSubtle: Color {
-        if #available(macOS 26, *) {
-            return Color.adaptiveGrayscale(
-                light: (white: 0.0, alpha: 0.12), // black tint — correct, not an error
-                dark: (white: 1.0, alpha: 0.06) // white tint — correct, not an error
-            )
-        } else {
-            return Color.adaptiveGrayscale(
-                light: (white: 0.0, alpha: 0.08),
-                dark: (white: 1.0, alpha: 0.06)
-            )
-        }
+       return Color.adaptiveGrayscale(
+            light: (white: 0.0, alpha: 0.12), // black tint — correct, not an error
+            dark: (white: 1.0, alpha: 0.06) // white tint — correct, not an error
+        )
     }
 
     /// Primary text — high contrast body and heading text.
@@ -231,9 +210,10 @@ extension Color {
         dark: .white
     )
     /// Secondary text — reduced-emphasis labels and descriptions.
+    /// Dark value raised to 0.72 to maintain readability after adaptive glass tuning.
     static let rbTextSecondary = Color.adaptive(
         light: Color(white: 0.40),
-        dark: Color(white: 0.55)
+        dark: Color(white: 0.72)
     )
     /// Neutral wash beneath native Liquid Glass surfaces.
     ///
@@ -245,10 +225,58 @@ extension Color {
         dark: .white
     )
 
+    /// Final resolved neutral foreground background for glass surfaces.
+    /// Black 0.15 in light mode, white 0.10 in dark mode.
+    ///
+    /// ⚠️ This token already contains its final opacity.
+    /// Do NOT append `.opacity(...)` at call sites.
+    /// Do NOT change `rbGlassNeutral` — this token is derived from it but carries its own opacity.
+    /// Use for: workflow card, metric badges, glass buttons, settings rows, scope/runner rows.
+    static let rbGlassNeutralBackground = Color.adaptiveGrayscale(
+        light: (white: 0, alpha: 0.15),
+        dark: (white: 1, alpha: 0.07)
+    )
+
+    /// Final resolved active-authentication card glass background.
+    /// Uses the same green hue as `rbSuccess` — 0.22 opacity in light mode, 0.15 in dark mode.
+    ///
+    /// ⚠️ This token already contains its final opacity.
+    /// Do NOT append `.opacity(...)` at call sites.
+    /// Use only for the active state of `AuthenticationSourceCard`.
+    static let rbAuthActiveGlassBackground = Color.adaptive(
+        light: Color(red: 0.18, green: 0.64, blue: 0.18, opacity: 0.22),
+        dark: Color(red: 0.25, green: 0.80, blue: 0.25, opacity: 0.15)
+    )
+
+    /// Final resolved inactive-authentication card glass background.
+    /// Black 0.08 in light mode (softer than the general neutral foreground at 0.15);
+    /// white 0.07 in dark mode (matches the reduced neutral foreground strength).
+    ///
+    /// ⚠️ This token already contains its final opacity.
+    /// Do NOT append `.opacity(...)` at call sites.
+    /// Use only for the inactive state of `AuthenticationSourceCard`.
+    /// `rbGlassNeutralBackground` remains the token for all other neutral foreground surfaces.
+    static let rbAuthInactiveGlassBackground = Color.adaptiveGrayscale(
+        light: (white: 0, alpha: 0.08),
+        dark: (white: 1, alpha: 0.07)
+    )
+
+    /// Adaptive stroke color for job-row cards in `InlineJobRowsView`.
+    /// Black 0.18 in light mode (replaces the previous fixed white, which was invisible);
+    /// white 0.25 in dark mode (preserves the existing dark-mode stroke strength).
+    ///
+    /// ⚠️ This token already contains its final opacity.
+    /// Do NOT append `.opacity(...)` at call sites.
+    static let rbJobRowStroke = Color.adaptiveGrayscale(
+        light: (white: 0, alpha: 0.18),
+        dark: (white: 1, alpha: 0.25)
+    )
+
     /// Tertiary text — lowest-emphasis metadata and timestamps.
+    /// Dark value raised to 0.55 to maintain readability after adaptive glass tuning.
     static let rbTextTertiary = Color.adaptive(
         light: Color(white: 0.58),
-        dark: Color(white: 0.39)
+        dark: Color(white: 0.55)
     )
 }
 
@@ -306,15 +334,23 @@ enum RBMetrics {
     /// Maximum width for the head-branch label in `ActionRowView`.
     /// Kept narrower than `actionRowTitleMaxWidth` since branch names are lower priority (#1194).
     static let actionRowBranchMaxWidth: CGFloat = 80
-    /// Minimum width of the main panel list.
+    /// Minimum width of the Main panel list (420 pt).
     ///
-    /// Applied by `PanelMainView` to its own root. MenuBarKit deliberately has no
-    /// width parameter: a range in its wrapper is inherited by every route, which
-    /// stretched the fixed-width Settings screen to the list's width on device.
-    /// ❌ NEVER pass this to `MBKPanelController`.
-    static let panelListMinWidth: CGFloat = 280
-    /// Maximum width of the main panel list. See `panelListMinWidth`.
-    static let panelListMaxWidth: CGFloat = 900
+    /// Applied by `PanelMainView` to its own root via a min/ideal/max frame.
+    /// Main may size between `panelListMinWidth` and `panelListMaxWidth`;
+    /// workflow and runner rows still participate in intrinsic sizing within that range.
+    ///
+    /// MenuBarKit deliberately has no width parameter: a range in its wrapper is
+    /// inherited by every route, which would stretch the fixed-width Settings screen.
+    /// ❌ NEVER pass these tokens to `MBKPanelController` or move them into MenuBarKit.
+    /// ❌ Settings width is independent and must remain unaffected.
+    static let panelListMinWidth: CGFloat = 420
+    /// Preferred (ideal) width of the Main panel list (460 pt).
+    /// SwiftUI proposes this width when the panel has unconstrained space.
+    /// Rows can still influence the resolved width within the 420–480 range.
+    static let panelListIdealWidth: CGFloat = 460
+    /// Maximum width of the Main panel list (480 pt). See `panelListMinWidth`.
+    static let panelListMaxWidth: CGFloat = 480
 }
 
 // MARK: - Typography Tokens

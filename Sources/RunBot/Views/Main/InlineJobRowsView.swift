@@ -32,6 +32,9 @@ private struct TreeLineLeader: View {
     private let elbowWidth: CGFloat = 10
     /// Size of the arrowhead at the elbow tip.
     private let arrowSize: CGFloat = 4
+    /// Extends the connector into surrounding row spacing so adjacent segments meet.
+    /// Defaults to zero; job-header call sites pass 2 to bridge card padding and stack spacing.
+    var verticalOverlap: CGFloat = 0
     /// Draws the vertical bar and elbow arrow using a `Canvas`.
     var body: some View {
         Canvas { ctx, size in
@@ -53,6 +56,7 @@ private struct TreeLineLeader: View {
             arrow.closeSubpath()
             ctx.fill(arrow, with: .color(lineColor))
         }
+        .padding(.vertical, -verticalOverlap)
         .frame(width: indent + elbowWidth + 2)
     }
 }
@@ -101,13 +105,15 @@ private struct StepRowView: View {
     let isLast: Bool
     /// Called when the user taps the step row.
     let onTap: () -> Void
-    // indent = 9: centers the vertical bar under the job DonutStatusView dot.
-    // Geometry: InlineJobRowsView.padding(.leading:12) + jobLeaderFrame(19) +
-    // stepsContainer.padding(.horizontal:4) = 35 from InlineJobRowsView edge.
-    // Job dot center = 12 + 19 + 8(card hpad) + 5(half dot10) = 44.
-    // Step leader indent = 44 - 35 = 9.
+    // indent = 7: centers the vertical bar under the 10 pt job status donut.
+    //
+    // Geometry relative to the job card:
+    // - Job-card horizontal padding: RBSpacing.sm = 6 pt
+    // - Half of the job donut: 10 / 2 = 5 pt
+    // - Step-container horizontal inset: RBSpacing.xs = 4 pt
+    // - Connector indent: 6 + 5 - 4 = 7 pt
     /// Horizontal indent aligning the step tree bar under the job status dot.
-    private let dotIndent: CGFloat = 9
+    private let dotIndent: CGFloat = 7
     /// Lays out the tree connector and step content side by side.
     var body: some View {
         HStack(alignment: .center, spacing: 0) {
@@ -116,7 +122,15 @@ private struct StepRowView: View {
             stepContent
         }
     }
-    /// The step row content: icon, name, elapsed and a chevron tap target.
+    /// The step row content: icon, name, step number, elapsed and a chevron tap target.
+    ///
+    /// Column order:
+    /// status icon · step title · step number · Spacer · duration · chevron
+    ///
+    /// `step.number` is the 1-based index assigned by the GitHub API and is the
+    /// canonical source of truth. Main uses compact `#N` notation; StepLog retains
+    /// its existing `step #N` badge and is not changed here. The number is fixed-size
+    /// at layout priority 2 so it remains visible even when the title truncates.
     private var stepContent: some View {
         Button(action: onTap) {
             HStack(spacing: 6) {
@@ -130,6 +144,12 @@ private struct StepRowView: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .layoutPriority(1)
+                Text("#\(step.number)")
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(Color.rbTextTertiary)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .layoutPriority(2)
+                    .accessibilityLabel("Step \(step.number)")
                 Spacer(minLength: 4)
                 // ELAPSED GUARD — two conditions, both required:
                 //
@@ -242,7 +262,7 @@ private struct JobRowCard: View {
             // expanded step list, preserving the tree hierarchy visually.
             // If isExpanded were not factored in, the elbow would render at the job
             // header row while steps are still shown below it, breaking the geometry.
-            TreeLineLeader(isLast: isLast && !isExpanded, indent: dotIndent)
+            TreeLineLeader(isLast: isLast && !isExpanded, indent: dotIndent, verticalOverlap: 2)
                 .frame(maxHeight: .infinity)
             VStack(alignment: .leading, spacing: 0) {
                 jobHeader
@@ -250,7 +270,7 @@ private struct JobRowCard: View {
             }
             .background {
                 RoundedRectangle(cornerRadius: RBRadius.small, style: .continuous)
-                    .strokeBorder(.white.opacity(0.25), lineWidth: 0.5)
+                    .strokeBorder(Color.rbJobRowStroke, lineWidth: 0.5)
             }
         }
         .padding(.vertical, 1)
@@ -258,8 +278,12 @@ private struct JobRowCard: View {
     }
     /// Job header row.
     ///
-    /// Column order (#1037):
-    /// graph-dot · runner-type-icon · job-name · job-id · [progress bar] · steps/total · elapsed
+    /// Column order:
+    /// graph-dot · runner-type-icon · job-name · job-id · [progress bar] · elapsed · steps/total
+    ///
+    /// The elapsed duration appears before step progress so the rightmost value is always
+    /// the step fraction. A centered-dot separator is shown between the two when both are
+    /// present; missing values do not leave a dangling separator.
     private var jobHeader: some View {
         Button {
             guard totalSteps > 0 else { return }
@@ -287,12 +311,6 @@ private struct JobRowCard: View {
                     JobInlineProgress(progress: fraction)
                         .frame(width: 120)
                 }
-                if totalSteps > 0 {
-                    Text("\(completedSteps)/\(totalSteps)")
-                        .font(.caption2.monospacedDigit())
-                        .foregroundColor(Color.rbTextTertiary)
-                        .fixedSize()
-                }
                 // ELAPSED GUARD — mirrors GitHubJob.elapsed(now:)'s own start logic:
                 // `formatElapsed(start: startDate ?? createdDate, ...)`. We show the
                 // label iff at least one of those dates is non-nil, which means the
@@ -313,12 +331,32 @@ private struct JobRowCard: View {
                 //   Status is unreliable as a timing proxy — a completed job can still
                 //   lack a startedAt if the API response was partial. Date presence is
                 //   the authoritative signal.
-                if job.startDate != nil || job.createdDate != nil {
-                    Text(job.elapsed)
-                        .font(.caption2.monospacedDigit())
-                        .foregroundColor(Color.rbTextTertiary)
-                        .fixedSize()
+                let showsElapsed = job.startDate != nil || job.createdDate != nil
+                let showsStepProgress = totalSteps > 0
+
+                HStack(spacing: RBSpacing.xs) {
+                    if showsElapsed {
+                        Text(job.elapsed)
+                            .font(.caption2.monospacedDigit())
+                            .foregroundStyle(Color.rbTextTertiary)
+                            .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
+                            .accessibilityLabel("Job duration")
+                    }
+
+                    if showsElapsed, showsStepProgress {
+                        jobMetadataSeparator
+                    }
+
+                    if showsStepProgress {
+                        Text("\(completedSteps)/\(totalSteps)")
+                            .font(.caption2.monospacedDigit())
+                            .foregroundStyle(Color.rbTextTertiary)
+                            .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
+                    }
                 }
+                .fixedSize(horizontal: true, vertical: false)
             }
             .padding(.horizontal, RBSpacing.sm)
             .padding(.vertical, 5)
@@ -326,6 +364,14 @@ private struct JobRowCard: View {
         }
         .buttonStyle(.plain)
     }
+    /// Decorative centered-dot separator between job duration and step progress.
+    private var jobMetadataSeparator: some View {
+        Text("·")
+            .font(.caption2)
+            .foregroundStyle(Color.rbTextTertiary)
+            .accessibilityHidden(true)
+    }
+
     /// Vertically stacked step rows shown when the job card is expanded.
     private var stepsContainer: some View {
         VStack(alignment: .leading, spacing: 0) {
