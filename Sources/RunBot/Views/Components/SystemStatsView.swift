@@ -50,8 +50,9 @@ struct SystemStatsView: View {
 ///
 /// Corner radius: `RBRadius.small` (6 pt) -- matches toolbar button rounding.
 ///
-/// Expands content to fill its allocated width before applying the glass surface,
-/// so the glass shape tracks the stable outer frame rather than the intrinsic text width.
+/// The glass surface follows the width allocated naturally to the metric item.
+/// The flexible sparkline inside `SparklineMetricView` provides the required flexibility;
+/// no outer infinite-width frame is applied here.
 struct GlassBadgeContainer<Content: View>: View {
     /// The live-updating chip content rendered in the foreground.
     @ViewBuilder let content: () -> Content
@@ -61,7 +62,6 @@ struct GlassBadgeContainer<Content: View>: View {
         let shape = RoundedRectangle(cornerRadius: RBRadius.small, style: .continuous)
         GlassEffectContainer {
             content()
-                .frame(maxWidth: .infinity)
                 .padding(.horizontal, RBSpacing.sm)
                 .padding(.vertical, RBSpacing.xs)
                 .background(Color.rbGlassNeutralBackground, in: shape)
@@ -95,8 +95,9 @@ struct SparklineMetricView: View {
                 .font(.system(size: 8, weight: .semibold, design: .monospaced))
                 .foregroundStyle(Color.rbTextSecondary)
                 .fixedSize()
+                .layoutPriority(1)
             SparklineView(history: history, currentPct: currentPct)
-                .frame(minWidth: 16, maxWidth: .infinity)
+                .frame(minWidth: 16, idealWidth: 40, maxWidth: .infinity)
                 .frame(height: 14)
                 .layoutPriority(0)
                 .clipShape(RoundedRectangle(cornerRadius: 2))
@@ -129,7 +130,10 @@ struct HeaderStatsBar: View {
     var statsVM: SystemStatsViewModel
 
     /// Renders CPU, MEM, and DISK chips separated by thin dividers.
-    /// Each chip gets an equal, stable share of the available bar width.
+    /// Each chip is sized intrinsically: text has layout priority over the sparkline,
+    /// so graphs share an equal ideal width of 40 pt but compress before any label or
+    /// value is truncated. CPU will naturally be narrower than MEM and DISK because
+    /// its value text is shorter. A wider value grows its chip and compresses neighbors.
     var body: some View {
         HStack(spacing: RBSpacing.md) {
             let cpuPct = statsVM.stats.cpuPct
@@ -140,9 +144,7 @@ struct HeaderStatsBar: View {
                     history: statsVM.cpuHistory.values,
                     currentPct: cpuPct
                 )
-                .frame(maxWidth: .infinity)
             }
-            .frame(maxWidth: .infinity)
             Color.secondary.opacity(0.3).frame(width: 1, height: 14)
             let memTotal = statsVM.stats.memTotalGB
             let memUsed = statsVM.stats.memUsedGB
@@ -154,9 +156,7 @@ struct HeaderStatsBar: View {
                     history: statsVM.memHistory.values,
                     currentPct: memPct
                 )
-                .frame(maxWidth: .infinity)
             }
-            .frame(maxWidth: .infinity)
             Color.secondary.opacity(0.3).frame(width: 1, height: 14)
             let diskTotal = statsVM.stats.diskTotalGB
             let diskUsed = statsVM.stats.diskUsedGB
@@ -170,9 +170,7 @@ struct HeaderStatsBar: View {
                     history: statsVM.diskHistory.values,
                     currentPct: diskUsedPct
                 )
-                .frame(maxWidth: .infinity)
             }
-            .frame(maxWidth: .infinity)
         }
         .padding(.vertical, RBSpacing.sm)
     }
