@@ -110,16 +110,16 @@ struct GitHubStepTimestampParsingTests {
     }
 }
 
-// MARK: - Part 9: Fetcher integration (completedDuration)
+// MARK: - Workflow duration from decoded job timestamps
 
-@Suite("WorkflowActionGroup.completedDuration — standard timestamps")
+@Suite("Workflow duration from decoded job timestamps")
 struct WorkflowCompletedDurationStandardTimestampTests {
 
     /// Job JSON with non-fractional timestamps must produce correct group aggregates.
     ///
     /// started_at:   2026-08-08T16:03:42Z
     /// completed_at: 2026-08-08T16:08:14Z  → duration = 272 seconds
-    @Test func completedDurationFromStandardTimestamps() throws {
+    @Test func completedDurationFromDecodedStandardTimestampJob() throws {
         let json = """
         {"id":100,"run_id":200,"name":"build","status":"completed",
          "conclusion":"success",
@@ -147,7 +147,7 @@ struct WorkflowCompletedDurationStandardTimestampTests {
 
     /// completedDuration derived fallback: even when stored aggregates are nil,
     /// per-job timestamps provide the duration.
-    @Test func completedDurationDerivedFromJobsWhenAggregatesNil() throws {
+    @Test func completedDurationDerivesFromJobsWhenAggregatesAreNil() throws {
         let json = """
         {"id":100,"run_id":200,"name":"build","status":"completed",
          "conclusion":"success",

@@ -105,16 +105,14 @@ func makeGitHubRunner(
 // MARK: - WorkflowActionGroup
 
 extension WorkflowActionGroup {
-    /// Returns a minimal `WorkflowActionGroup` for use in polling tests.
+    /// Returns a workflow group for timestamp and duration tests.
     ///
     /// - Parameters:
-    ///   - conclusion: The conclusion of the single synthetic run. Defaults to `.failure`.
-    ///   - branch: The `headBranch` of the group. Defaults to `"main"`.
-    ///   - workflowName: The `name` of the synthetic `WorkflowRunRef`. Defaults to `"CI"`.
-    ///     Use this to inject special characters (e.g. single quotes) for shell-escaping tests.
-    /// Returns a `WorkflowActionGroup` for timestamp parsing and duration tests.
-    ///
-    /// Allows injecting a custom status, conclusion, job list, and aggregate timestamps.
+    ///   - status: Status assigned to the synthetic workflow run.
+    ///   - conclusion: Conclusion assigned to the synthetic workflow run.
+    ///   - jobs: Jobs included in the group.
+    ///   - firstJobStartedAt: Optional stored aggregate start date.
+    ///   - lastJobCompletedAt: Optional stored aggregate completion date.
     static func makeTestGroup(
         status: JobStatus = .completed,
         conclusion: JobConclusion? = .success,
@@ -144,6 +142,13 @@ extension WorkflowActionGroup {
         )
     }
 
+    /// Returns a minimal `WorkflowActionGroup` for use in polling tests.
+    ///
+    /// - Parameters:
+    ///   - conclusion: The conclusion of the single synthetic run. Defaults to `.failure`.
+    ///   - branch: The `headBranch` of the group. Defaults to `"main"`.
+    ///   - workflowName: The `name` of the synthetic `WorkflowRunRef`. Defaults to `"CI"`.
+    ///     Use this to inject special characters (e.g. single quotes) for shell-escaping tests.
     static func fixture(
         conclusion: JobConclusion? = .failure,
         branch: String? = "main",
