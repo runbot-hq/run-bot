@@ -13,18 +13,24 @@ struct PanelHeaderView: View {
     let onSelectSettings: () -> Void
 
     /// Renders the header HStack with stats bar and settings/quit buttons.
+    /// The stats bar receives all remaining width after the fixed-size control group.
     var body: some View {
         HStack(spacing: 6) {
             HeaderStatsBar(statsVM: statsVM)
-            Spacer()
+                .frame(maxWidth: .infinity)
+                .layoutPriority(1)
             if #available(macOS 26, *) {
-                HStack(spacing: 8) {
+                HStack(spacing: 6) {
                     GlassEffectContainer { settingsButton.glassButton() }
                     GlassEffectContainer { quitButton.glassButton() }
                 }
+                .fixedSize()
             } else {
-                settingsButton
-                quitButton
+                HStack(spacing: 6) {
+                    settingsButton
+                    quitButton
+                }
+                .fixedSize()
             }
         }
         .padding(.horizontal, RBSpacing.md)
@@ -32,26 +38,26 @@ struct PanelHeaderView: View {
         .padding(.bottom, 8)
     }
 
-    /// Settings gear button — plain style, 28 pt hit area.
+    /// Settings gear button — plain style, 24 pt hit area.
     @ViewBuilder private var settingsButton: some View {
         Button(action: onSelectSettings) {
             Image(systemName: "gearshape")
                 .font(.system(size: 13))
                 .foregroundColor(.secondary)
-                .frame(width: 28, height: 28)
+                .frame(width: 24, height: 24)
         }
         .buttonStyle(.plain)
         .help("Settings")
         .accessibilityLabel("Settings")
     }
 
-    /// Quit button — plain style, 28 pt hit area.
+    /// Quit button — plain style, 24 pt hit area.
     @ViewBuilder private var quitButton: some View {
         Button(action: { NSApplication.shared.terminate(nil) }) {
             Image(systemName: "xmark")
                 .font(.system(size: 11, weight: .medium))
                 .foregroundColor(.secondary)
-                .frame(width: 28, height: 28)
+                .frame(width: 24, height: 24)
         }
         .buttonStyle(.plain)
         .help("Quit RunBot")
