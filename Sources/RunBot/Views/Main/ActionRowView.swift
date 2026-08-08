@@ -179,12 +179,12 @@ struct ActionRowView: View {
             RunnerTypeIcon(isLocal: group.isLocalGroup ?? false)
             Text(group.label)
                 .font(RBFont.mono)
-                .foregroundColor(.secondary)
+                .foregroundColor(Color.rbTextSecondary)
                 .lineLimit(1)
                 .fixedSize(horizontal: true, vertical: false)
             Text(group.repoShortName)
                 .font(RBFont.mono)
-                .foregroundColor(.secondary)
+                .foregroundColor(Color.rbTextSecondary)
                 .lineLimit(1)
                 .fixedSize(horizontal: true, vertical: false)
             Text(group.title)
@@ -199,7 +199,7 @@ struct ActionRowView: View {
             if let branch = group.headBranch {
                 Text(branch)
                     .font(RBFont.mono)
-                    .foregroundColor(.secondary)
+                    .foregroundColor(Color.rbTextSecondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
                     .frame(maxWidth: RBMetrics.actionRowBranchMaxWidth, alignment: .leading)
@@ -227,7 +227,7 @@ struct ActionRowView: View {
         if let start = group.firstJobStartedAt ?? group.createdAt {
             Text(RelativeTimeFormatter.string(from: start))
                 .font(RBFont.mono)
-                .foregroundColor(.secondary)
+                .foregroundColor(Color.rbTextSecondary)
                 .lineLimit(1)
                 .fixedSize(horizontal: true, vertical: false)
                 // Gate tick binding to .inProgress only — mirrors the elapsed label below.
@@ -238,7 +238,7 @@ struct ActionRowView: View {
         if !group.jobs.isEmpty {
             Text(group.jobProgress)
                 .font(RBFont.mono)
-                .foregroundColor(.secondary)
+                .foregroundColor(Color.rbTextSecondary)
                 .lineLimit(1)
                 .fixedSize(horizontal: true, vertical: false)
         }
@@ -258,7 +258,7 @@ struct ActionRowView: View {
         if showElapsed {
             Text(group.elapsed)
                 .font(RBFont.mono)
-                .foregroundColor(.secondary)
+                .foregroundColor(Color.rbTextSecondary)
                 .lineLimit(1)
                 .fixedSize(horizontal: true, vertical: false)
                 // Both .id() arms produce String. Collision between "\(tickSnapshot)" and

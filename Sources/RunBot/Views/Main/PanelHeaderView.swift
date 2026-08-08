@@ -69,7 +69,7 @@ struct SectionHeaderLabel: View {
     var body: some View {
         Text(title.uppercased())
             .font(RBFont.sectionCaption)
-            .foregroundColor(.secondary)
+            .foregroundColor(Color.rbTextSecondary)
             .padding(.horizontal, RBSpacing.md)
             .padding(.top, 6)
             .padding(.bottom, 2)

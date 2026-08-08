@@ -56,7 +56,7 @@ private struct RunnerMetricsBadge: View {
         HStack(spacing: 3) {
             Text(label)
                 .font(RBFont.statLabel)
-                .foregroundColor(.secondary)
+                .foregroundColor(Color.rbTextSecondary)
             Text(value)
                 .font(RBFont.statValue)
                 .foregroundColor(metricColor(for: percentage))
@@ -99,7 +99,7 @@ struct PanelLocalRunnerRow: View {
         ForEach(active.prefix(Self.maxVisibleRunners)) { runner in runnerCard(runner) }
         if active.count > Self.maxVisibleRunners {
             Text("+ \(active.count - Self.maxVisibleRunners) more…")
-                .font(.caption2).foregroundColor(.secondary)
+                .font(.caption2).foregroundColor(Color.rbTextSecondary)
                 .padding(.horizontal, RBSpacing.md).padding(.vertical, 2)
         }
         Divider()
@@ -141,7 +141,7 @@ struct PanelLocalRunnerRow: View {
                 if let subtitle = runnerSubtitle(runner) {
                     Text("· \(subtitle)")
                         .font(.system(size: 10))
-                        .foregroundColor(.secondary)
+                        .foregroundColor(Color.rbTextSecondary)
                         .lineLimit(1)
                 }
             }

@@ -332,7 +332,7 @@ Task { await localRunnerStore.refresh() }
             SectionHeaderLabel(title: "Workflows")
             if appState.runnerState.actions.isEmpty {
                 Text("No recent workflows")
-                    .font(.caption).foregroundColor(.secondary)
+                    .font(.caption).foregroundColor(Color.rbTextSecondary)
                     .padding(.horizontal, 12).padding(.vertical, 8)
             } else {
                 let visible = Array(appState.runnerState.actions.prefix(visibleCount))
@@ -350,7 +350,7 @@ Task { await localRunnerStore.refresh() }
         if nextBatch > 0 {
             Button { visibleCount += nextBatch } label: {
                 Text("Load \(nextBatch) more workflows\u{2026}")
-                    .font(.caption).foregroundColor(.secondary)
+                    .font(.caption).foregroundColor(Color.rbTextSecondary)
             }
             .buttonStyle(.plain)
             .padding(.horizontal, 12).padding(.vertical, 6)
@@ -394,7 +394,7 @@ Task { await localRunnerStore.refresh() }
         HStack(spacing: 6) {
             Image(systemName: "exclamationmark.triangle.fill").foregroundColor(.red).font(.caption)
             Text("Fetch error — \(error.localizedDescription)")
-                .font(.caption).foregroundColor(.secondary)
+                .font(.caption).foregroundColor(Color.rbTextSecondary)
                 .lineLimit(2)
         }
         .padding(.horizontal, 12).padding(.vertical, 4)
@@ -420,7 +420,7 @@ Task { await localRunnerStore.refresh() }
         } else { countdownLabel = "pausing polls" }
         return HStack(spacing: 6) {
             Image(systemName: "exclamationmark.triangle.fill").foregroundColor(.yellow).font(.caption)
-            Text("GitHub rate limit reached -- \(countdownLabel)").font(.caption).foregroundColor(.secondary)
+            Text("GitHub rate limit reached -- \(countdownLabel)").font(.caption).foregroundColor(Color.rbTextSecondary)
         }
         .padding(.horizontal, 12).padding(.vertical, 4)
     }

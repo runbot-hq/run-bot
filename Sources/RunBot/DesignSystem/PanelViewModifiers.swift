@@ -277,7 +277,7 @@ struct StatPill: View {
     /// Renders the label–value pair inside a `statPillBackground` capsule.
     var body: some View {
         HStack(spacing: 3) {
-            Text(label).font(RBFont.statLabel).foregroundColor(.secondary)
+            Text(label).font(RBFont.statLabel).foregroundColor(Color.rbTextSecondary)
             Text(value).font(RBFont.statValue).foregroundColor(.primary).monospacedDigit()
         }
         .padding(.horizontal, 6).padding(.vertical, 3)
