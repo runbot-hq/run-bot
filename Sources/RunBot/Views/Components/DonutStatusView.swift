@@ -6,7 +6,7 @@ import SwiftUI
 // MARK: - DonutStatusView
 /// Replaces the PieProgressDot for the action row status indicator.
 /// Three visual states:
-/// - in_progress : animated rotating shimmer arc (blue) + arc trim from 0 to progress
+/// - in_progress : animated rotating shimmer arc (blue) + arc trim from 0 to progress + centered play.fill symbol (Color.rbBlue)
 /// - success     : full green circle stroke + checkmark SF Symbol
 /// - failed      : full red circle stroke + xmark SF Symbol
 /// - queued      : full yellow circle stroke + pause.fill SF Symbol
@@ -94,7 +94,14 @@ struct DonutStatusView: View {
         }
     }
 
-    /// Animated in-progress ring: faint shimmer background + blue arc trim.
+    /// Animated in-progress ring: faint rotating shimmer background, blue progress arc,
+    /// and a static centered play icon.
+    ///
+    /// - The shimmer and progress arc continue to animate as before.
+    /// - The `play.fill` icon is static and does not participate in any animation.
+    /// - Icon color is `Color.rbBlue` to match the progress arc.
+    /// - Icon scale is `size * 0.36` (matching the `pause.fill` scale) to avoid
+    ///   clipping at small donut sizes (10 pt job donut, 14 pt workflow donut).
     private var inProgressRing: some View {
         ZStack {
             Circle()
@@ -112,6 +119,10 @@ struct DonutStatusView: View {
                 .stroke(Color.rbBlue, style: StrokeStyle(lineWidth: strokeWidth, lineCap: .round))
                 .frame(width: size, height: size)
                 .rotationEffect(.degrees(-90))
+            Image(systemName: "play.fill")
+                .font(.system(size: size * 0.36, weight: .bold))
+                .foregroundStyle(Color.rbBlue)
+                .accessibilityHidden(true)
         }
     }
 
