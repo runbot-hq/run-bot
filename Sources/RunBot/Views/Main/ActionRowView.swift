@@ -150,9 +150,9 @@ struct ActionRowView: View {
 
     /// Main body of the action row.
     ///
-    /// Column order (#984):
-    /// graph-dot · local-remote-icon · sha · repo-name · commit-title · branch-text · Spacer
-    /// · time-ago · steps/total · elapsed(mm:ss) · statusBadge
+    /// Column order (#984, updated #2591):
+    /// graph-dot · repo-name · commit-title · branch-text · Spacer
+    /// · time-ago · elapsed(mm:ss) · [steps/total + statusBadge]
     ///
     /// - sha: `group.label` (7-char sha or PR#), muted mono
     /// - repo-name: `group.repoShortName` stripped from owner/repo
@@ -176,19 +176,13 @@ struct ActionRowView: View {
         let tickSnapshot = tick
         return HStack(spacing: 6) {
             DonutStatusView(status: rowStatus, progress: group.progressFraction ?? 0, size: 14)
-            RunnerTypeIcon(isLocal: group.isLocalGroup ?? false)
-            Text(group.label)
-                .font(RBFont.mono)
-                .foregroundColor(Color.rbTextSecondary)
-                .lineLimit(1)
-                .fixedSize(horizontal: true, vertical: false)
             Text(group.repoShortName)
                 .font(RBFont.mono)
                 .foregroundColor(Color.rbTextSecondary)
                 .lineLimit(1)
                 .fixedSize(horizontal: true, vertical: false)
             Text(group.title)
-                .font(.system(size: 12))
+                .font(.system(.caption, design: .monospaced, weight: .semibold))
                 .foregroundColor(group.isDimmed ? .secondary : .primary)
                 .lineLimit(1)                                                          // step 1: configure truncation
                 .truncationMode(.tail)                                                 // step 1: configure truncation
@@ -235,13 +229,6 @@ struct ActionRowView: View {
                 // sentinel so SwiftUI does not redraw this label on every poll tick.
                 .id(group.groupStatus == .inProgress ? "\(tickSnapshot)" : group.id)
         }
-        if !group.jobs.isEmpty {
-            Text(group.jobProgress)
-                .font(RBFont.mono)
-                .foregroundColor(Color.rbTextSecondary)
-                .lineLimit(1)
-                .fixedSize(horizontal: true, vertical: false)
-        }
         // Show elapsed for all statuses. Completed rows display a static final duration;
         // active rows tick live. Only bind tickSnapshot when in-progress to avoid
         // unnecessary redraws on completed/queued rows.
@@ -270,11 +257,23 @@ struct ActionRowView: View {
                 // would be misleading.
                 .id(group.groupStatus == .inProgress ? "\(tickSnapshot)" : group.id)
         }
-        if #available(macOS 26, *) {
-            GlassEffectContainer { statusBadge }
-        } else {
-            statusBadge
+        // Completion text and status badge are tightly coupled — RBSpacing.xs keeps them
+        // visually adjacent while preserving the badge's standalone GlassEffectContainer.
+        HStack(spacing: RBSpacing.xs) {
+            if !group.jobs.isEmpty {
+                Text(group.jobProgress)
+                    .font(RBFont.mono)
+                    .foregroundColor(Color.rbTextSecondary)
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
+            }
+            if #available(macOS 26, *) {
+                GlassEffectContainer { statusBadge }
+            } else {
+                statusBadge
+            }
         }
+        .fixedSize()
     }
 
     /// Badge view produced from the group's current status and conclusion.

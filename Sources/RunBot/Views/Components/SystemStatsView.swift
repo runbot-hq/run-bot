@@ -174,7 +174,6 @@ struct HeaderStatsBar: View {
             }
             .frame(maxWidth: .infinity)
         }
-        .padding(.horizontal, RBSpacing.md)
         .padding(.vertical, RBSpacing.sm)
     }
 }
