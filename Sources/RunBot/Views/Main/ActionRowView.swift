@@ -271,7 +271,9 @@ struct ActionRowView: View {
             // Completed-duration label: only for terminal workflows with valid timestamps.
             // Active, queued, and loading rows show nothing here.
             if let duration = group.completedDuration {
-                Text("in \(formatWorkflowDuration(duration))")
+                Text(
+                    "in \(WorkflowDurationFormatter.string(from: duration))"
+                )
                     .font(RBFont.mono)
                     .foregroundColor(Color.rbTextSecondary)
                     .lineLimit(1)
@@ -327,23 +329,6 @@ struct ActionRowView: View {
             case .neutral, .stale, .unknown, nil:                       return "Done"
             }
         }
-    }
-
-    /// Formats a completed workflow duration as compact human-readable text.
-    ///
-    /// Rules: round to nearest whole second; omit zero-value units; hours may exceed 24.
-    /// Examples: 0s → `"0sec"`, 272s → `"4min 32sec"`, 3872s → `"1h 4min 32sec"`.
-    private func formatWorkflowDuration(_ duration: TimeInterval) -> String {
-        let totalSeconds = Int(max(0, duration).rounded())
-        let hours   = totalSeconds / 3_600
-        let minutes = (totalSeconds % 3_600) / 60
-        let seconds = totalSeconds % 60
-
-        var parts: [String] = []
-        if hours   > 0 { parts.append("\(hours)h") }
-        if minutes > 0 { parts.append("\(minutes)min") }
-        if seconds > 0 || parts.isEmpty { parts.append("\(seconds)sec") }
-        return parts.joined(separator: " ")
     }
 }
 
