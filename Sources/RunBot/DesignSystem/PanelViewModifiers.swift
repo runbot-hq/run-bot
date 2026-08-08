@@ -104,7 +104,7 @@ struct GlassButton: ViewModifier {
 // MARK: - StatPillBackground
 /// Background modifier for `StatPill` and `RunnerMetricsBadge` capsule pills.
 ///
-/// macOS 26+: identical architecture to `DiskPillBadge`:
+/// macOS 26+: identical architecture to `StatusBadge`:
 ///   `Color.rbGlassNeutral.opacity(0.15)` — black in light appearance, white in
 ///   dark appearance — bleeds through the glass refractive layer and defines the
 ///   pill edge visually in both modes, exactly as coloured pills do.
@@ -112,7 +112,7 @@ struct GlassButton: ViewModifier {
 ///   wash has a stable, documented black/light and white/dark contract.
 ///
 /// The call site MUST wrap `RunnerMetricsBadge` in its OWN `GlassEffectContainer`
-/// (separate from the card container) — same pattern as `DiskPillBadge` in
+/// (separate from the card container) — same pattern as `GlassBadgeContainer` in
 /// `HeaderStatsBar` and `StatusBadge` in `metaTrailing`.
 ///
 /// macOS < 26: `.ultraThinMaterial` in a `Capsule()` (unchanged).
@@ -133,14 +133,14 @@ struct StatPillBackground: ViewModifier {
 }
 
 // MARK: - StatusBadgeBackground
-/// Colour tint + glass — identical pattern to DiskPillBadge.
+/// Colour tint + glass — identical pattern to `GlassBadgeContainer`.
 /// Call site MUST wrap in GlassEffectContainer.
 struct StatusBadgeBackground: ViewModifier {
     /// The accent colour used for the tint and (pre-macOS-26) stroke border.
     let color: Color
 
     /// Applies the status badge background: coloured glass capsule on macOS 26+, tinted fill + hairline stroke on older OSes.
-    /// The pre-26 branch was intentionally upgraded from a bare stroke to a filled capsule (matching DiskPillBadge)
+    /// The pre-26 branch was intentionally upgraded from a bare stroke to a filled capsule (matching `GlassBadgeContainer`)
     /// for visual consistency with the Liquid Glass design language rollout.
     @ViewBuilder
     func body(content: Content) -> some View {

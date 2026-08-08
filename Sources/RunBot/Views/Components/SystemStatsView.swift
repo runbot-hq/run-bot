@@ -46,11 +46,12 @@ struct SystemStatsView: View {
 /// A stable glass wrapper for live-updating chip content (CPU, MEM, DISK chips only).
 ///
 /// Uses `rbGlassNeutralBackground` (black 0.15 light / white 0.10 dark) beneath a `.regular`
-/// glass effect — matching the `StatusCountBadge` pattern in `SettingsView+Sections.swift`.
+/// glass effect — matching the `StatusBadge` pattern in `SettingsView+Sections.swift`.
 ///
 /// Corner radius: `RBRadius.small` (6 pt) -- matches toolbar button rounding.
 ///
-/// Do NOT apply to DiskPillBadge (the "22% free" pill) -- that has its own styling.
+/// Expands content to fill its allocated width before applying the glass surface,
+/// so the glass shape tracks the stable outer frame rather than the intrinsic text width.
 struct GlassBadgeContainer<Content: View>: View {
     /// The live-updating chip content rendered in the foreground.
     @ViewBuilder let content: () -> Content
@@ -60,6 +61,7 @@ struct GlassBadgeContainer<Content: View>: View {
         let shape = RoundedRectangle(cornerRadius: RBRadius.small, style: .continuous)
         GlassEffectContainer {
             content()
+                .frame(maxWidth: .infinity)
                 .padding(.horizontal, RBSpacing.sm)
                 .padding(.vertical, RBSpacing.xs)
                 .background(Color.rbGlassNeutralBackground, in: shape)
@@ -86,6 +88,7 @@ struct SparklineMetricView: View {
     let currentPct: Double
 
     /// Renders label, sparkline, and value in a horizontal stack.
+    /// The sparkline flexes to absorb any width not claimed by the label or value.
     var body: some View {
         HStack(spacing: 5) {
             Text(label)
@@ -93,15 +96,17 @@ struct SparklineMetricView: View {
                 .foregroundStyle(Color.rbTextSecondary)
                 .fixedSize()
             SparklineView(history: history, currentPct: currentPct)
-                .frame(width: 40, height: 14)
+                .frame(minWidth: 16, maxWidth: .infinity)
+                .frame(height: 14)
+                .layoutPriority(0)
                 .clipShape(RoundedRectangle(cornerRadius: 2))
             Text(value)
                 .font(.system(size: 10, design: .monospaced))
                 .monospacedDigit()
                 .foregroundStyle(labelColor)
                 .fixedSize()
+                .layoutPriority(1)
         }
-        .fixedSize()
     }
 
     /// Foreground color shifting green -> orange -> red as `currentPct` crosses 60 and 85.
@@ -110,43 +115,6 @@ struct SparklineMetricView: View {
         if currentPct > 85 { return .rbDanger }
         if currentPct > 60 { return .rbWarning }
         return .primary
-    }
-}
-
-// MARK: - DiskPillBadge
-
-/// Compact pill showing disk FREE percentage.
-///
-/// Color thresholds (based on free space, not used):
-/// - `freePct < 15` -> `rbDanger` (disk nearly full)
-/// - `freePct < 40` -> `rbWarning` (disk getting full)
-/// - `freePct >= 40` -> `rbSuccess` (plenty of space)
-///
-/// macOS 26+: wrapped in a `GlassEffectContainer` at the call site (HeaderStatsBar)
-/// so it gets a dedicated CABackdropLayer sampling region. The `.glassEffect` here
-/// then refracts correctly without being glass-on-glass with no shared container.
-struct DiskPillBadge: View {
-    /// Free disk space as a percentage (0-100).
-    let freePct: Double
-
-    /// Renders a styled percentage pill with danger/warning/success color.
-    var body: some View {
-        Text(String(format: "%.0f%% free", freePct))
-            .font(.system(size: 9, weight: .semibold, design: .monospaced))
-            .foregroundStyle(pillColor)
-            .fixedSize()
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
-            .background(pillColor.opacity(0.15), in: Capsule())
-            .glassEffect(.regular, in: Capsule())
-            .fixedSize()
-    }
-
-    /// Pill foreground and tint color based on free disk percentage.
-    private var pillColor: Color {
-        if freePct < 15 { return .rbDanger }
-        if freePct < 40 { return .rbWarning }
-        return .rbSuccess
     }
 }
 
@@ -161,6 +129,7 @@ struct HeaderStatsBar: View {
     var statsVM: SystemStatsViewModel
 
     /// Renders CPU, MEM, and DISK chips separated by thin dividers.
+    /// Each chip gets an equal, stable share of the available bar width.
     var body: some View {
         HStack(spacing: RBSpacing.md) {
             let cpuPct = statsVM.stats.cpuPct
@@ -171,7 +140,9 @@ struct HeaderStatsBar: View {
                     history: statsVM.cpuHistory.values,
                     currentPct: cpuPct
                 )
+                .frame(maxWidth: .infinity)
             }
+            .frame(maxWidth: .infinity)
             Color.secondary.opacity(0.3).frame(width: 1, height: 14)
             let memTotal = statsVM.stats.memTotalGB
             let memUsed = statsVM.stats.memUsedGB
@@ -183,33 +154,25 @@ struct HeaderStatsBar: View {
                     history: statsVM.memHistory.values,
                     currentPct: memPct
                 )
+                .frame(maxWidth: .infinity)
             }
+            .frame(maxWidth: .infinity)
             Color.secondary.opacity(0.3).frame(width: 1, height: 14)
-            HStack(spacing: RBSpacing.xs) {
-                let diskTotal = statsVM.stats.diskTotalGB
-                let diskUsed = statsVM.stats.diskUsedGB
-                let diskUsedPct = diskTotal > 0 ? diskUsed / diskTotal * 100 : 0.0
-                GlassBadgeContainer {
-                    SparklineMetricView(
-                        label: "DISK",
-                        value: String(format: "%d/%dGB",
-                                      Int(statsVM.stats.diskUsedGB.rounded()),
-                                      Int(statsVM.stats.diskTotalGB.rounded())),
-                        history: statsVM.diskHistory.values,
-                        currentPct: diskUsedPct
-                    )
-                }
-                if statsVM.stats.diskTotalGB > 0 {
-                    // GlassEffectContainer gives DiskPillBadge its own dedicated
-                    // CABackdropLayer sampling region so .glassEffect inside the
-                    // pill refracts correctly instead of glass-on-glass with no container.
-                    GlassEffectContainer {
-                        DiskPillBadge(freePct: statsVM.stats.diskFreePct)
-                    }
-                }
+            let diskTotal = statsVM.stats.diskTotalGB
+            let diskUsed = statsVM.stats.diskUsedGB
+            let diskUsedPct = diskTotal > 0 ? diskUsed / diskTotal * 100 : 0.0
+            GlassBadgeContainer {
+                SparklineMetricView(
+                    label: "DISK",
+                    value: String(format: "%d/%dGB",
+                                  Int(statsVM.stats.diskUsedGB.rounded()),
+                                  Int(statsVM.stats.diskTotalGB.rounded())),
+                    history: statsVM.diskHistory.values,
+                    currentPct: diskUsedPct
+                )
+                .frame(maxWidth: .infinity)
             }
-            .fixedSize()
-            Spacer()
+            .frame(maxWidth: .infinity)
         }
         .padding(.horizontal, RBSpacing.md)
         .padding(.vertical, RBSpacing.sm)
