@@ -203,10 +203,10 @@ private struct QueuedDonutRing: View {
                 AngularGradient(
                     gradient: Gradient(
                         stops: [
-                            .init(color: Color.rbWarning.opacity(0),    location: 0),
+                            .init(color: Color.rbWarning.opacity(0), location: 0),
                             .init(color: Color.rbWarning.opacity(0.05), location: 0.55),
                             .init(color: Color.rbWarning.opacity(0.85), location: 0.84),
-                            .init(color: Color.rbWarning.opacity(0),    location: 1)
+                            .init(color: Color.rbWarning.opacity(0), location: 1)
                         ]
                     ),
                     center: .center
