@@ -24,12 +24,11 @@ struct ActionRowView: View {
     /// Tracks the previous row status to detect in-progress → done transitions.
     @State private var previousStatus: RBStatus?
 
-    /// Workflow card: adaptive foreground glass background with status accent bar,
+    /// Workflow card: unified glass background with embedded status accent,
     /// wrapping row content and any inline job/step expansion.
     var body: some View {
         rowContainer {
             glassCardBackground
-            statusAccentBar
         }
     }
 
@@ -83,42 +82,31 @@ struct ActionRowView: View {
         .onChange(of: rowStatus) { _, newStatus in handleStatusChange(newStatus) }
     }
 
-    /// Left-edge glass accent strip whose colour reflects the current row status.
-    /// Tint and glass are applied while the rendered surface is exactly 6 pt wide;
-    /// the final infinite-width frame only positions that strip at the leading edge.
-    @ViewBuilder private var statusAccentBar: some View {
-        let shape = UnevenRoundedRectangle(
-            topLeadingRadius: RBRadius.card,
-            bottomLeadingRadius: RBRadius.card,
-            bottomTrailingRadius: 0,
-            topTrailingRadius: 0,
-            style: .continuous
-        )
-        Color.clear
-            .frame(width: 6)
-            .frame(maxHeight: .infinity)
-            .background(rowStatus.color.opacity(0.30), in: shape)
-            .glassEffect(.regular, in: shape)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .allowsHitTesting(false)
-            .accessibilityHidden(true)
-    }
-
-    /// Adaptive foreground glass card background for the workflow card.
-    /// Uses `rbGlassNeutralBackground` (black 0.15 light / white 0.10 dark) beneath regular
-    /// Liquid Glass — opposite the root panel tint, establishing foreground/background
-    /// hierarchy in both appearances.
+    /// Unified workflow-card surface.
+    ///
+    /// Composes the neutral card background and the 6 pt status accent beneath
+    /// one card-wide glass effect. The accent is an underlay visible only through
+    /// the leftmost 6 pt of the card material — it does not create an independent
+    /// glass boundary or visible strip outline.
+    /// Uses `rbGlassNeutralBackground` (black 0.15 light / white 0.10 dark) —
+    /// opposite the root panel tint, establishing foreground/background hierarchy
+    /// in both appearances.
     @ViewBuilder private var glassCardBackground: some View {
         let shape = RoundedRectangle(
             cornerRadius: RBRadius.card,
             style: .continuous
         )
-        Color.clear
-            .background(
-                Color.rbGlassNeutralBackground,
-                in: shape
-            )
-            .glassEffect(.regular, in: shape)
+        ZStack(alignment: .leading) {
+            Color.rbGlassNeutralBackground
+            rowStatus.color
+                .opacity(0.30)
+                .frame(width: 6)
+                .frame(maxHeight: .infinity)
+                .accessibilityHidden(true)
+        }
+        .clipShape(shape)
+        .glassEffect(.regular, in: shape)
+        .allowsHitTesting(false)
     }
 
     /// Sets the initial expand state based on the row's status at appear time.
