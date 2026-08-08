@@ -83,10 +83,9 @@ struct ActionRowView: View {
         .onChange(of: rowStatus) { _, newStatus in handleStatusChange(newStatus) }
     }
 
-    /// Left-edge accent strip whose colour reflects the current row status.
-    /// Width 6 pt so the glass refraction is visible. Leading corners follow
-    /// `RBRadius.card`; trailing corners are square to sit flush with the card body.
-    /// Decorative only — does not participate in hit testing or accessibility.
+    /// Left-edge glass accent strip whose colour reflects the current row status.
+    /// Tint and glass are applied while the rendered surface is exactly 6 pt wide;
+    /// the final infinite-width frame only positions that strip at the leading edge.
     @ViewBuilder private var statusAccentBar: some View {
         let shape = UnevenRoundedRectangle(
             topLeadingRadius: RBRadius.card,
@@ -98,9 +97,9 @@ struct ActionRowView: View {
         Color.clear
             .frame(width: 6)
             .frame(maxHeight: .infinity)
-            .frame(maxWidth: .infinity, alignment: .leading)
             .background(rowStatus.color.opacity(0.30), in: shape)
             .glassEffect(.regular, in: shape)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .allowsHitTesting(false)
             .accessibilityHidden(true)
     }
