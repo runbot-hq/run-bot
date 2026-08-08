@@ -176,6 +176,11 @@ struct ActionRowView: View {
     ///    negotiation, but is still capped at actionRowTitleMaxWidth. Do NOT move
     ///    .layoutPriority above .frame: the priority must apply to the constrained container,
     ///    not the raw unbounded Text.
+    ///
+    /// Layout priority summary (highest wins first):
+    ///   2 — trailing metadata HStack (always fully visible)
+    ///   1 — workflow title frame (truncates before metadata)
+    ///   0 — branch text / flexible spacing (yields first)
     private var rowContent: some View {
         let tickSnapshot = tick
         return HStack(spacing: 6) {
@@ -212,6 +217,11 @@ struct ActionRowView: View {
 
     /// Trailing metadata group: time-ago · completed-duration · steps/total.
     ///
+    /// Rendered as a single HStack so the entire group is treated as one atomic
+    /// layout unit. `.fixedSize` prevents any member being compressed to zero,
+    /// and `.layoutPriority(2)` ensures the group wins horizontal space before
+    /// the workflow title (priority 1) or branch text (priority 0).
+    ///
     /// - time-ago: derived from `firstJobStartedAt ?? createdAt` so it appears
     ///   even in queued/loading states before jobs populate.
     /// - completed-duration: shown only for completed workflows with valid timestamps;
@@ -219,34 +229,38 @@ struct ActionRowView: View {
     ///   compact `h`/`min`/`sec` units prefixed with `"in "` (e.g. `"in 4min 32sec"`).
     /// - steps/total: job progress fraction (e.g. `"6/6"`), omitted when no jobs.
     @ViewBuilder private func metaTrailing(tick tickSnapshot: Int) -> some View {
-        // Use createdAt as fallback so time-ago is visible before firstJobStartedAt populates.
-        // If both are nil (e.g. corrupted API response), the label is intentionally omitted.
-        if let start = group.firstJobStartedAt ?? group.createdAt {
-            Text(RelativeTimeFormatter.string(from: start))
-                .font(RBFont.mono)
-                .foregroundColor(Color.rbTextSecondary)
-                .lineLimit(1)
-                .fixedSize(horizontal: true, vertical: false)
-                // Gate tick binding to .inProgress only — completed/queued start dates are
-                // static so group.id acts as a stable sentinel, avoiding redraws on every tick.
-                .id(group.groupStatus == .inProgress ? "\(tickSnapshot)" : group.id)
+        HStack(spacing: RBSpacing.sm) {
+            // Use createdAt as fallback so time-ago is visible before firstJobStartedAt populates.
+            // If both are nil (e.g. corrupted API response), the label is intentionally omitted.
+            if let start = group.firstJobStartedAt ?? group.createdAt {
+                Text(RelativeTimeFormatter.string(from: start))
+                    .font(RBFont.mono)
+                    .foregroundColor(Color.rbTextSecondary)
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
+                    // Gate tick binding to .inProgress only — completed/queued start dates are
+                    // static so group.id acts as a stable sentinel, avoiding redraws on every tick.
+                    .id(group.groupStatus == .inProgress ? "\(tickSnapshot)" : group.id)
+            }
+            // Completed-duration label: only for terminal workflows with valid timestamps.
+            // Active, queued, and loading rows show nothing here.
+            if let duration = group.completedDuration {
+                Text("in \(formatWorkflowDuration(duration))")
+                    .font(RBFont.mono)
+                    .foregroundColor(Color.rbTextSecondary)
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
+            }
+            if !group.jobs.isEmpty {
+                Text(group.jobProgress)
+                    .font(RBFont.mono)
+                    .foregroundColor(Color.rbTextSecondary)
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
+            }
         }
-        // Completed-duration label: only for terminal workflows with valid timestamps.
-        // Active, queued, and loading rows show nothing here.
-        if let duration = group.completedDuration {
-            Text("in \(formatWorkflowDuration(duration))")
-                .font(RBFont.mono)
-                .foregroundColor(Color.rbTextSecondary)
-                .lineLimit(1)
-                .fixedSize(horizontal: true, vertical: false)
-        }
-        if !group.jobs.isEmpty {
-            Text(group.jobProgress)
-                .font(RBFont.mono)
-                .foregroundColor(Color.rbTextSecondary)
-                .lineLimit(1)
-                .fixedSize(horizontal: true, vertical: false)
-        }
+        .fixedSize(horizontal: true, vertical: false)
+        .layoutPriority(2)
     }
 
     /// Glass-wrapped donut for the leading position of the top-level workflow row.
