@@ -32,6 +32,8 @@ private struct TreeLineLeader: View {
     private let elbowWidth: CGFloat = 10
     /// Size of the arrowhead at the elbow tip.
     private let arrowSize: CGFloat = 4
+    /// Extends the connector into surrounding row spacing so adjacent segments meet.
+    private let verticalOverlap: CGFloat = 2
     /// Draws the vertical bar and elbow arrow using a `Canvas`.
     var body: some View {
         Canvas { ctx, size in
@@ -53,6 +55,7 @@ private struct TreeLineLeader: View {
             arrow.closeSubpath()
             ctx.fill(arrow, with: .color(lineColor))
         }
+        .padding(.vertical, -verticalOverlap)
         .frame(width: indent + elbowWidth + 2)
     }
 }
