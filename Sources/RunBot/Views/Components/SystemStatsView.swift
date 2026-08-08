@@ -33,7 +33,7 @@ struct SystemStatsView: View {
         HStack {
             Text(label)
                 .font(RBFont.monoSmall)
-                .foregroundColor(.secondary)
+                .foregroundColor(Color.rbTextSecondary)
             Spacer()
             Text(value)
                 .font(RBFont.mono)
@@ -90,7 +90,7 @@ struct SparklineMetricView: View {
         HStack(spacing: 5) {
             Text(label)
                 .font(.system(size: 9, weight: .semibold, design: .monospaced))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Color.rbTextSecondary)
                 .fixedSize()
             SparklineView(history: history, currentPct: currentPct)
                 .frame(width: 40, height: 14)

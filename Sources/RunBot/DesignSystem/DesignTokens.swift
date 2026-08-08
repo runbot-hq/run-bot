@@ -231,9 +231,10 @@ extension Color {
         dark: .white
     )
     /// Secondary text — reduced-emphasis labels and descriptions.
+    /// Dark value raised to 0.72 to maintain readability after adaptive glass tuning.
     static let rbTextSecondary = Color.adaptive(
         light: Color(white: 0.40),
-        dark: Color(white: 0.55)
+        dark: Color(white: 0.72)
     )
     /// Neutral wash beneath native Liquid Glass surfaces.
     ///
@@ -293,9 +294,10 @@ extension Color {
     )
 
     /// Tertiary text — lowest-emphasis metadata and timestamps.
+    /// Dark value raised to 0.55 to maintain readability after adaptive glass tuning.
     static let rbTextTertiary = Color.adaptive(
         light: Color(white: 0.58),
-        dark: Color(white: 0.39)
+        dark: Color(white: 0.55)
     )
 }
 
