@@ -116,11 +116,31 @@ struct AddRunnerSheet: View {
     @State var runnerName = ""
     /// Comma-separated label string pre-populated with defaults.
     @State var labelsText = "self-hosted,macOS"
-    /// Default: ~/actions-runner/my-runner — user should rename the last
-    /// component to match their runner name. Each runner needs its own folder.
-    @State var installDir = FileManager.default
-        .homeDirectoryForCurrentUser
-        .appendingPathComponent(GitHubURIs.actionsRunnerDefaultDir).path
+    /// Parent directory under which the new runner folder will be created.
+    ///
+    /// The final install path is derived by appending the trimmed runner name.
+    /// Default: `~/actions-runner` (the parent of the default runner directory).
+    @State var installDir = AddRunnerSheet.defaultRunnerParentDirectory
+
+    /// Default parent directory for new runners: `~/actions-runner`.
+    ///
+    /// Derived by stripping the `my-runner` component from `GitHubURIs.actionsRunnerDefaultDir`.
+    static var defaultRunnerParentDirectory: String {
+        FileManager.default
+            .homeDirectoryForCurrentUser
+            .appendingPathComponent(GitHubURIs.actionsRunnerDefaultDir)
+            .deletingLastPathComponent()
+            .standardizedFileURL
+            .path
+    }
+
+    /// Runner name trimmed of surrounding whitespace.
+    ///
+    /// Use this value for validation, duplicate checks, path construction, and
+    /// registration — never mutate the displayed `runnerName` binding directly.
+    var trimmedRunnerName: String {
+        runnerName.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
 
     // MARK: Registration state (Add new only)
 
@@ -187,9 +207,7 @@ struct AddRunnerSheet: View {
     func resetAddNewState() {
         runnerName = ""
         labelsText = "self-hosted,macOS"
-        installDir = FileManager.default
-            .homeDirectoryForCurrentUser
-            .appendingPathComponent(GitHubURIs.actionsRunnerDefaultDir).path
+        installDir = AddRunnerSheet.defaultRunnerParentDirectory
         isRegistering = false
         registrationStep = ""
         errorMessage = nil
@@ -312,10 +330,12 @@ struct AddRunnerSheet: View {
         registrationStep = ""
         isRegistering = true
         let scope = effectiveScope
-        let name = runnerName.trimmingCharacters(in: .whitespaces)
         let labels = labelsText.trimmingCharacters(in: .whitespaces)
-        let dir = installDir.trimmingCharacters(in: .whitespaces)
         let currentScopeType = scopeType
+        guard let registrationPath = finalInstallPath else { return }
+        let registrationName = trimmedRunnerName
+        let name = registrationName
+        let dir = registrationPath
 
         let homeDir = FileManager.default.homeDirectoryForCurrentUser
             .resolvingSymlinksInPath().path
