@@ -120,7 +120,15 @@ private struct StepRowView: View {
             stepContent
         }
     }
-    /// The step row content: icon, name, elapsed and a chevron tap target.
+    /// The step row content: icon, name, step number, elapsed and a chevron tap target.
+    ///
+    /// Column order:
+    /// status icon · step title · step number · Spacer · duration · chevron
+    ///
+    /// `step.number` is the 1-based index assigned by the GitHub API and is the
+    /// canonical source of truth. Main uses compact `#N` notation; StepLog retains
+    /// its existing `step #N` badge and is not changed here. The number is fixed-size
+    /// at layout priority 2 so it remains visible even when the title truncates.
     private var stepContent: some View {
         Button(action: onTap) {
             HStack(spacing: 6) {
@@ -134,6 +142,12 @@ private struct StepRowView: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .layoutPriority(1)
+                Text("#\(step.number)")
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(Color.rbTextTertiary)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .layoutPriority(2)
+                    .accessibilityLabel("Step \(step.number)")
                 Spacer(minLength: 4)
                 // ELAPSED GUARD — two conditions, both required:
                 //
