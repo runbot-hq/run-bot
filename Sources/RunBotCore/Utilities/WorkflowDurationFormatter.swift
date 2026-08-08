@@ -4,14 +4,14 @@ import Foundation
 
 /// Formats completed workflow durations using compact stopwatch notation.
 public enum WorkflowDurationFormatter {
-    /// Returns `m:ss` below one hour and `h:mm:ss` at one hour or above.
+    /// Returns `mm:ss` below one hour and `h:mm:ss` at one hour or above.
     ///
     /// The duration is rounded to the nearest whole second. Negative input is
     /// clamped to zero. Hours are not capped or zero-padded.
     ///
     /// Examples:
-    /// - `0`      → `"0:00"`
-    /// - `272`    → `"4:32"`
+    /// - `0`      → `"00:00"`
+    /// - `272`    → `"04:32"`
     /// - `3_872`  → `"1:04:32"`
     public static func string(from duration: TimeInterval) -> String {
         let totalSeconds = Int(max(0, duration).rounded())
@@ -31,7 +31,7 @@ public enum WorkflowDurationFormatter {
         let totalMinutes = totalSeconds / 60
 
         return String(
-            format: "%d:%02d",
+            format: "%02d:%02d",
             totalMinutes,
             seconds
         )
