@@ -267,11 +267,7 @@ struct ActionRowView: View {
                     .lineLimit(1)
                     .fixedSize(horizontal: true, vertical: false)
             }
-            if #available(macOS 26, *) {
-                GlassEffectContainer { statusBadge }
-            } else {
-                statusBadge
-            }
+            GlassEffectContainer { statusBadge }
         }
         .fixedSize()
     }

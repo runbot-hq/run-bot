@@ -21,19 +21,11 @@ struct PanelHeaderView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .layoutPriority(1)
             headerSeparator
-            if #available(macOS 26, *) {
-                HStack(spacing: 6) {
-                    GlassEffectContainer { settingsButton.glassButton() }
-                    GlassEffectContainer { quitButton.glassButton() }
-                }
-                .fixedSize()
-            } else {
-                HStack(spacing: 6) {
-                    settingsButton
-                    quitButton
-                }
-                .fixedSize()
+            HStack(spacing: 6) {
+                GlassEffectContainer { settingsButton.glassButton() }
+                GlassEffectContainer { quitButton.glassButton() }
             }
+            .fixedSize()
         }
         .padding(.horizontal, RBSpacing.md)
         .padding(.top, 10)

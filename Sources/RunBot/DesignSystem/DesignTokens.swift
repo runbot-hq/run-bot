@@ -175,34 +175,20 @@ extension Color {
     /// macOS 26+: near-zero opacity so glass backdrop shows through.
     /// Pre-26: standard vibrancy opacities.
     static var rbSurface: Color {
-        if #available(macOS 26, *) {
-            return Color.adaptiveGrayscale(
-                light: (white: 0.95, alpha: 0.04),
-                dark: (white: 0.11, alpha: 0.04)
-            )
-        } else {
-            return Color.adaptiveGrayscale(
-                light: (white: 0.95, alpha: 0.88),
-                dark: (white: 0.11, alpha: 0.45)
-            )
-        }
+        return Color.adaptiveGrayscale(
+            light: (white: 0.95, alpha: 0.04),
+            dark: (white: 0.11, alpha: 0.04)
+        )
     }
 
     /// Elevated row/card surface — slightly lighter than `rbSurface`.
     /// macOS 26+: near-zero opacity so glass backdrop shows through.
     /// Pre-26: standard vibrancy opacities.
     static var rbSurfaceElevated: Color {
-        if #available(macOS 26, *) {
-            return Color.adaptiveGrayscale(
-                light: (white: 0.88, alpha: 0.05),
-                dark: (white: 0.15, alpha: 0.05)
-            )
-        } else {
-            return Color.adaptiveGrayscale(
-                light: (white: 0.88, alpha: 0.92),
-                dark: (white: 0.15, alpha: 0.25)
-            )
-        }
+        return Color.adaptiveGrayscale(
+            light: (white: 0.88, alpha: 0.05),
+            dark: (white: 0.15, alpha: 0.05)
+        )
     }
 
     /// Subtle border — low-contrast outline for cards and separators.
@@ -212,17 +198,10 @@ extension Color {
     /// dark backgrounds. They are not edge cases or mistakes; do not "fix" them.
     /// macOS 26+: light opacity bumped to 0.12 for better visibility on glass.
     static var rbBorderSubtle: Color {
-        if #available(macOS 26, *) {
-            return Color.adaptiveGrayscale(
-                light: (white: 0.0, alpha: 0.12), // black tint — correct, not an error
-                dark: (white: 1.0, alpha: 0.06) // white tint — correct, not an error
-            )
-        } else {
-            return Color.adaptiveGrayscale(
-                light: (white: 0.0, alpha: 0.08),
-                dark: (white: 1.0, alpha: 0.06)
-            )
-        }
+       return Color.adaptiveGrayscale(
+            light: (white: 0.0, alpha: 0.12), // black tint — correct, not an error
+            dark: (white: 1.0, alpha: 0.06) // white tint — correct, not an error
+        )
     }
 
     /// Primary text — high contrast body and heading text.
