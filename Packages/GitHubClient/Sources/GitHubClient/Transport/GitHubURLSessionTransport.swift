@@ -182,12 +182,12 @@ public struct GitHubTransport: GitHubTransportProtocol {
           "\(logTag) › conditional GET with ETag: \(etag)",
           category: "transport")
       }
+      // Ensure we bypass the system URLCache so that every conditional call
+      // reaches GitHub's API and returns a fresh 304 or 200 with current headers.
+      req.cachePolicy = .reloadIgnoringLocalCacheData
     } else {
       cachedEntry = nil
     }
-    // Ensure we bypass the system URLCache so that every call reaches
-    // GitHub's API and returns a fresh 304 or 200 with current headers.
-    req.cachePolicy = .reloadIgnoringLocalCacheData
 
     logger?.log(
       "\(logTag) › firing request: \(urlString) raw=\(useRawAccept) cachePolicy=\(req.cachePolicy.rawValue)",
@@ -220,8 +220,12 @@ public struct GitHubTransport: GitHubTransportProtocol {
       )
 
       // If the response was successful and carried an ETag, cache it for
-      // future conditional GETs.
-      if case .success = result,
+      // future conditional GETs. Only cache when conditionalGET is enabled
+      // so that raw ZIP downloads or non-conditional responses never populate
+      // the cache with a representation that could be confused with a JSON
+      // response to the same URL.
+      if conditionalGET,
+         case .success = result,
          let httpResponse = response as? HTTPURLResponse,
          let etag = httpResponse.value(forHTTPHeaderField: "ETag") {
         let linkHeader = httpResponse.value(forHTTPHeaderField: "Link")
