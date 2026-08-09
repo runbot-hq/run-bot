@@ -14,8 +14,9 @@ import SwiftUI
 /// - skipped     : muted grey circle stroke + minus SF Symbol
 ///
 /// Animation contract:
-/// - In-progress uses `PhantomSweepRing`: one oversized `AngularGradient` (`rbBlue` 5%→100%)
+/// - In-progress uses `PhantomSweepRing`: one oversized `AngularGradient` (`rbBlue` 65%→100%)
 ///   rotates beneath a stationary alpha mask (track 35%, arc 100%). No solid underlayer.
+///   Track reads approximately 23%–35%; arc reads 65%–100% — arc is always stronger.
 /// - Source circle is expanded by `strokeWidth` on each side to cover the full stroke area.
 /// - Only the gradient rotates; mask, progress geometry, and play symbol remain stationary.
 /// - Gradient completes one clockwise revolution every 1.25 seconds.
@@ -186,16 +187,20 @@ private struct PhantomSweepRing: View {
         .onAppear { startAnimation() }
     }
 
-    /// Adaptive RunBot-blue sweep fading from near-transparent to full intensity.
+    /// Subtle RunBot-blue activity sweep.
     ///
-    /// At full gradient intensity (progress arc, mask opacity 1.0) the ring shows
-    /// `rbBlue` from 5% to 100%. Through the 35% track mask the same gradient
-    /// reads as approximately 2%–35% intensity. No solid underlayer is used.
+    /// The progress arc varies from 65% to 100% intensity. Through the
+    /// 35% track mask, the same gradient appears at approximately 23% to 35%.
+    /// This guarantees that the completed arc is always visually stronger than
+    /// the unfinished track. Matching start/end stops at 65% removes the wrap seam.
     private var sweepGradient: AngularGradient {
         AngularGradient(
-            colors: [
-                Color.rbBlue.opacity(0.05),
-                Color.rbBlue
+            stops: [
+                .init(color: Color.rbBlue.opacity(0.65), location: 0.00),
+                .init(color: Color.rbBlue.opacity(0.65), location: 0.55),
+                .init(color: Color.rbBlue.opacity(0.78), location: 0.80),
+                .init(color: Color.rbBlue,               location: 0.94),
+                .init(color: Color.rbBlue.opacity(0.65), location: 1.00)
             ],
             center: .center
         )
