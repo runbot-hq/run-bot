@@ -21,15 +21,24 @@ import Testing
 @Suite("GitHubTransport ETag", .serialized)
 final class GitHubTransportETagTests {
 
-  init() { URLProtocol.registerClass(StubURLProtocol.self) }
-  deinit  { URLProtocol.unregisterClass(StubURLProtocol.self) }
-
   // MARK: - Helpers
 
-  /// Builds a GitHubTransport backed by URLSession.shared (intercepted by StubURLProtocol).
+  /// A private URLSession backed by an ephemeral configuration that injects
+  /// `StubURLProtocol` via `protocolClasses`. This is the reliable way to
+  /// intercept requests in Swift Testing: `URLProtocol.registerClass` only
+  /// affects sessions created *after* registration and has no effect on the
+  /// already-initialised `URLSession.shared`.
+  private let stubSession: URLSession = {
+    let config = URLSessionConfiguration.ephemeral
+    config.protocolClasses = [StubURLProtocol.self]
+    return URLSession(configuration: config)
+  }()
+
+  /// Builds a `GitHubTransport` whose network layer is fully intercepted by
+  /// `StubURLProtocol` — no real network traffic is made.
   private func makeTransport(counter: MockAPICallCounter = MockAPICallCounter()) -> GitHubTransport {
     GitHubTransport(
-      session: .shared,
+      session: stubSession,
       tokenProvider: { "test-token" },
       callCounter: counter
     )
@@ -103,23 +112,32 @@ final class GitHubTransportETagTests {
   /// For a direct assertion, we use a CapturingURLProtocol that records the request.
   @Test
   func execute_withCachedETag_injectsIfNoneMatchHeader() async {
-    // Use a separate capturing protocol to inspect outgoing request headers.
-    URLProtocol.registerClass(CapturingURLProtocol.self)
-    defer { URLProtocol.unregisterClass(CapturingURLProtocol.self) }
     CapturingURLProtocol.reset()
 
     let url = GitHubConstants.apiBase + "/repos/owner/repo/actions/runs"
     let cachedBody = Data("[]".utf8)
     let etag = "\"etag-stored\""
-    // Register a 200 so the transport doesn't fall back to StubURLProtocol.
+
+    // Register a 200 so the transport gets a valid response to process.
     CapturingURLProtocol.register(
-      .init(data: cachedBody, statusCode: 200, headers: [:]),
+      .init( cachedBody, statusCode: 200, headers: [:]),
       for: url
     )
-    let cache = ETagCache()
-    await cache.store(url: url, etag: etag, data: cachedBody)
 
-    let transport = makeTransport()
+    // Use an ephemeral session with CapturingURLProtocol baked into
+    // protocolClasses - reliable across all Swift Testing concurrency modes,
+    // unlike URLProtocol.registerClass which has no effect on already-initialised sessions.
+    let capConfig = URLSessionConfiguration.ephemeral
+    capConfig.protocolClasses = [CapturingURLProtocol.self]
+    let transport = GitHubTransport(
+      session: URLSession(configuration: capConfig),
+      tokenProvider: { "test-token" },
+      callCounter: MockAPICallCounter()
+    )
+
+    let cache = ETagCache()
+    await cache.store(url: url, etag: etag,  cachedBody)
+
     _ = await transport.execute(url, timeout: 10, logTag: "test", etagCache: cache)
 
     let captured = CapturingURLProtocol.capturedRequest(for: url)
