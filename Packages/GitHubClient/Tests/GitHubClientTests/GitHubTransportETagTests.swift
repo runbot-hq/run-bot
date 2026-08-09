@@ -44,7 +44,7 @@ final class GitHubTransportETagTests {
     let url = GitHubConstants.apiBase + "/repos/owner/repo/actions/runs"
     let body = Data("[{\"id\":1}]".utf8)
     StubURLProtocol.register(
-      .init( body, statusCode: 200, headers: ["ETag": "\"etag-v1\""]),
+      .init(data: body, statusCode: 200, headers: ["ETag": "\"etag-v1\""]),
       for: url
     )
     let cache = ETagCache()
@@ -65,7 +65,7 @@ final class GitHubTransportETagTests {
     let cachedBody = Data("[{\"id\":42}]".utf8)
     // Stub returns a 304 with empty body.
     StubURLProtocol.register(
-      .init( Data(), statusCode: 304, headers: [:]),
+      .init(data: Data(), statusCode: 304, headers: [:]),
       for: url
     )
     // Pre-seed the cache as if a prior 200 had stored etag + body.
@@ -113,7 +113,7 @@ final class GitHubTransportETagTests {
     let etag = "\"etag-stored\""
     // Register a 200 so the transport doesn't fall back to StubURLProtocol.
     CapturingURLProtocol.register(
-      .init( cachedBody, statusCode: 200, headers: [:]),
+      .init(data: cachedBody, statusCode: 200, headers: [:]),
       for: url
     )
     let cache = ETagCache()
