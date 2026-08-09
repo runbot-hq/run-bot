@@ -2,6 +2,7 @@
 // RunBot
 
 import GitHubClient
+import MenuBarKit
 import RunBotCore
 import SwiftUI
 
@@ -66,6 +67,7 @@ struct RootPanelView: View {
 
     /// Switches between route branches; `.id(navState)` forces remount on every change.
     var body: some View {
+        _ = mbkLog("RootPanelView", "body evaluated -- route=\(appState.savedNavState)")
         // ⚠️ LOGGING POLICY: This render log fires on every recompose, not just route
         // transitions. It is intentionally kept until MBK sizing behaviour is confirmed
         // stable — we need full recompose visibility to diagnose spurious re-renders and

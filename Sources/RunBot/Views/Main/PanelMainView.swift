@@ -211,6 +211,7 @@ struct PanelMainView: View {
 
     /// Root body -- header, optional error/rate-limit banners, local runner rows, and the scrollable actions section.
     var body: some View {
+        _ = mbkLog("PanelMainView", "body evaluated -- itemCount=\(appState.runnerState.actions.count)")
         VStack(alignment: .leading, spacing: 0) {
             PanelHeaderView(
                 statsVM: systemStats,

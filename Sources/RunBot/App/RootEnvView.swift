@@ -37,6 +37,7 @@ struct RootEnvView: View {
 
     /// The composed view body: passes environment objects to the inner view.
     var body: some View {
+        _ = mbkLog("RootEnvView", "body evaluated")
         inner
             .environment(panelVisibilityState)
             .environment(appState)
