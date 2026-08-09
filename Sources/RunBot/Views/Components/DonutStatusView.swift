@@ -6,17 +6,21 @@ import SwiftUI
 // MARK: - DonutStatusView
 /// Replaces the PieProgressDot for the action row status indicator.
 /// Visual states:
-/// - in_progress : rotating angular gradient beneath a stationary alpha mask (track 35% / arc 100%)
+/// - in_progress : stable blue determinate arc with a rotating phantom sweep
+///                 and static centered play.fill symbol
 /// - success     : full green circle stroke + checkmark SF Symbol
 /// - failed      : full red circle stroke + xmark SF Symbol
 /// - queued      : dim amber ring + revolving amber sweep + static pause.fill symbol
 /// - skipped     : muted grey circle stroke + minus SF Symbol
 ///
 /// Animation contract:
-/// - In-progress uses `PhantomSweepRing`: one `AngularGradient` rotates beneath a stationary mask.
+/// - In-progress uses `PhantomSweepRing`: stable blue track/arc geometry with one `AngularGradient`
+///   rotating above it beneath a stationary alpha mask.
+/// - Stable geometry and terminal rings use the same `strokeWidth`.
+/// - Only the gradient rotates; progress geometry and play symbol remain stationary.
 /// - Gradient completes one clockwise revolution every 1.25 seconds.
-/// - Progress geometry (track mask + arc mask) remains stationary; only the gradient rotates.
 /// - Reduce Motion shows a static ring: track at `rbBlue 24%`, arc at solid `rbBlue`.
+/// - The play symbol remains static under both normal and reduced-motion conditions.
 /// - Progress arc uses `trim(from: 0, to: fraction)` animated with `.easeInOut`.
 /// - Queued uses a localized amber comet sweep with a bright 0.85-opacity head, a subtle glow,
 ///   and a 2.4-second linear revolution.
@@ -82,13 +86,21 @@ struct DonutStatusView: View {
         }
     }
 
-    /// Determinate progress ring with a phantom activity sweep.
+    /// Determinate progress ring with a phantom activity sweep and centered
+    /// active-state symbol.
     private var inProgressRing: some View {
-        PhantomSweepRing(
-            progress: displayProgress,
-            size: size,
-            strokeWidth: strokeWidth
-        )
+        ZStack {
+            PhantomSweepRing(
+                progress: displayProgress,
+                size: size,
+                strokeWidth: strokeWidth
+            )
+
+            Image(systemName: "play.fill")
+                .font(.system(size: size * 0.36, weight: .bold))
+                .foregroundStyle(Color.rbBlue)
+                .accessibilityHidden(true)
+        }
     }
 
     /// Terminal state (success/failed/queued/skipped): solid colored ring + SF Symbol in the centre.
@@ -153,13 +165,35 @@ private struct PhantomSweepRing: View {
         .allowsHitTesting(false)
     }
 
-    /// Rotating gradient revealed through the stationary ring mask.
+    /// Stable blue progress geometry beneath the rotating sweep.
+    ///
+    /// Gives the in-progress ring the same persistent stroke footprint as
+    /// terminal rings while the sweep modulates its intensity above.
+    private var baseGeometry: some View {
+        ZStack {
+            Circle()
+                .stroke(Color.rbBlue.opacity(0.24), lineWidth: strokeWidth)
+            Circle()
+                .trim(from: 0, to: normalizedProgress)
+                .stroke(
+                    Color.rbBlue.opacity(0.72),
+                    style: StrokeStyle(lineWidth: strokeWidth, lineCap: .round)
+                )
+                .rotationEffect(.degrees(-90))
+        }
+    }
+
+    /// Stable blue progress geometry with the rotating phantom sweep layered above.
     private var animatedRing: some View {
-        Circle()
-            .fill(sweepGradient)
-            .rotationEffect(.degrees(rotation))
-            .mask { ringMask }
-            .onAppear { startAnimation() }
+        ZStack {
+            baseGeometry
+
+            Circle()
+                .fill(sweepGradient)
+                .rotationEffect(.degrees(rotation))
+                .mask { ringMask }
+        }
+        .onAppear { startAnimation() }
     }
 
     /// Adaptive RunBot-blue sweep with a dim body and concentrated leading highlight.
