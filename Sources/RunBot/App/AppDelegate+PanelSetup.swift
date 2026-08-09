@@ -128,6 +128,10 @@ extension AppDelegate {
             panelSheetState.restoreTransientHideStateIfNeeded()
             panelVisibilityState.isOpen = true
             panelVisibilityState.isTransientHide = false
+
+            Task {
+                await appState.refreshOnPanelShow()
+            }
         }
 
         ctrl.onWillClose = { [weak self] (wasForced: Bool) in
