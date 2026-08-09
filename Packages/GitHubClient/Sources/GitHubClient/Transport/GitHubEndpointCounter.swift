@@ -32,6 +32,8 @@ internal struct GitHubEndpointKey: Hashable, Sendable {
 internal struct GitHubEndpointReport: Sendable {
     /// Total number of responses counted in this window.
     let total: Int
+    /// The actual elapsed duration of this window (seconds, rounded to nearest integer).
+    let durationSeconds: Int
     /// Per-bucket counts, where each bucket is a scope/endpoint pair with per-status counts.
     let buckets: [Bucket]
 
@@ -51,7 +53,7 @@ internal struct GitHubEndpointReport: Sendable {
     /// Status codes within each bucket are sorted numerically.
     func formatted() -> String {
         var lines: [String] = []
-        lines.append("GitHubEndpointCounter › 60s total=\(total)")
+        lines.append("GitHubEndpointCounter › \(durationSeconds)s total=\(total)")
         for bucket in buckets {
             let statusParts = bucket.statusCounts.map { "\($0.status)=\($0.count)" }.joined(separator: " ")
             let totalForBucket = bucket.statusCounts.reduce(0) { $0 + $1.count }
@@ -66,8 +68,12 @@ internal struct GitHubEndpointReport: Sendable {
 /// An internal actor that counts completed GitHub HTTP round trips by scope, endpoint
 /// category, and HTTP status code.
 ///
-/// Every 60-second window, a report is emitted through the existing `GitHubLogger`.
-/// Counters reset after each report.
+/// Every 60-second window, the first `record()` call after the interval expires returns
+/// a `GitHubEndpointReport` containing counts for the completed window. The caller
+/// (typically `GitHubTransport`) is expected to log the report via `GitHubLogger`.
+///
+/// This design avoids a detached periodic task lifecycle: there is no background loop,
+/// no cancellation-tracking, and no empty reports while idle.
 ///
 /// ## Thread safety
 /// `GitHubEndpointCounter` is an actor, so all mutable state is isolated to its own
@@ -82,66 +88,58 @@ internal actor GitHubEndpointCounter {
     /// Accumulated counts keyed by (scope, endpoint, statusCode).
     private var counts: [GitHubEndpointKey: [Int: Int]] = [:]
 
-    /// Creates a new endpoint counter.
-    init() {}
+    /// The clock used for window timing.
+    private let clock = ContinuousClock()
 
-    /// Records one completed HTTP response.
+    /// The instant at which the current window started.
+    private var windowStartedAt: ContinuousClock.Instant
+
+    /// The duration of each reporting window.
+    private let reportInterval: Duration
+
+    /// Creates a new endpoint counter with the given reporting interval.
+    ///
+    /// - Parameter reportInterval: How often `record()` returns a report. Defaults to 60 seconds.
+    init(reportInterval: Duration = .seconds(60)) {
+        self.reportInterval = reportInterval
+        self.windowStartedAt = ContinuousClock().now
+    }
+
+    /// Records one completed HTTP response and returns a report if the interval has expired.
     ///
     /// The URL is parsed to extract the scope and endpoint category. Dynamic IDs
     /// (run IDs, job IDs, attempt numbers) and pagination parameters are normalised
-    /// so that they do not create additional keys.
+    /// so that they do not create additional keys. The `status` query parameter on
+    /// `/actions/runs` list URLs is captured into a separate category so that
+    /// `in_progress`, `queued`, and `completed` queries are distinguishable.
     ///
     /// - Parameters:
     ///   - url: The absolute URL of the completed request.
     ///   - statusCode: The HTTP status code of the response.
-    func record(url: String, statusCode: Int) {
+    /// - Returns: A report for the completed window, or `nil` if the window is still active.
+    func record(url: String, statusCode: Int) -> GitHubEndpointReport? {
         let key = normalizeKey(from: url)
         let bucket = counts[key, default: [:]]
         counts[key] = bucket.merging([statusCode: 1], uniquingKeysWith: +)
-    }
 
-    /// Returns a snapshot of the current counts **without** resetting counters.
-    /// - Returns: A report of all accumulated counts.
-    func snapshot() -> GitHubEndpointReport {
-        buildReport()
-    }
-
-    /// Returns a report of the current counts and **resets all counters** for the next window.
-    /// - Returns: A report of counts accumulated since the last report or creation.
-    func report() -> GitHubEndpointReport {
-        let report = buildReport()
-        counts = [:]
-        return report
-    }
-
-    /// Starts a periodic task that logs a report through the given logger every `interval`.
-    ///
-    /// - Parameters:
-    ///   - logger: The logger to emit reports through.
-    ///   - interval: How often to emit a report. Defaults to 60 seconds.
-    /// - Returns: A `Task` that can be cancelled to stop periodic reporting.
-    @discardableResult
-    func startPeriodicReporting(logger: any GitHubLogger, interval: Duration = .seconds(60)) -> Task<Void, Never> {
-        Task { [weak self] in
-            while !Task.isCancelled {
-                do {
-                    try await Task.sleep(for: interval)
-                    guard let self else { break }
-                    let report = await self.report()
-                    if report.total > 0 {
-                        logger.log(report.formatted(), category: "transport")
-                    }
-                } catch {
-                    break
-                }
-            }
+        let now = clock.now
+        guard now - windowStartedAt >= reportInterval else {
+            return nil
         }
+
+        let durationSeconds = Int(
+            (now - windowStartedAt).components.seconds
+        )
+        let report = buildReport(durationSeconds: durationSeconds)
+        counts.removeAll(keepingCapacity: true)
+        windowStartedAt = now
+        return report
     }
 
     // MARK: - Private helpers
 
     /// Builds a `GitHubEndpointReport` from the current accumulated counts.
-    private func buildReport() -> GitHubEndpointReport {
+    private func buildReport(durationSeconds: Int) -> GitHubEndpointReport {
         let total = counts.values.reduce(0) { sum, bucket in
             sum + bucket.values.reduce(0, +)
         }
@@ -158,66 +156,80 @@ internal actor GitHubEndpointCounter {
             if lhs.scope != rhs.scope { return lhs.scope < rhs.scope }
             return lhs.endpoint < rhs.endpoint
         }
-        return GitHubEndpointReport(total: total, buckets: buckets)
+        return GitHubEndpointReport(
+            total: total,
+            durationSeconds: durationSeconds,
+            buckets: buckets
+        )
     }
 
-    /// Normalises a URL string into a `GitHubEndpointKey` by extracting the scope
-    /// and endpoint category.
+    /// Normalises a URL string to a `GitHubEndpointKey` by extracting the scope
+    /// and endpoint category, stripping dynamic IDs and pagination parameters.
     ///
-    /// Examples:
-    /// - `https://api.github.com/repos/eoncode/run-bot/actions/runners` → `repo:eoncode/run-bot`, `runners`
-    /// - `https://api.github.com/orgs/acme/actions/runners` → `org:acme`, `runners`
-    /// - `https://api.github.com/repos/eoncode/run-bot/actions/runs/12345` → `repo:eoncode/run-bot`, `runs.all`
-    /// - `https://api.github.com/repos/eoncode/run-bot/actions/runs/12345/jobs` → `repo:eoncode/run-bot`, `run_jobs`
-    /// - `https://api.github.com/repos/eoncode/run-bot/actions/jobs/67890` → `repo:eoncode/run-bot`, `job_detail`
-    /// - Unknown → `global/other`, `global/other`
+    /// - Parameter url: The absolute URL string to normalise.
+    /// - Returns: A `GitHubEndpointKey` suitable for aggregation.
     private func normalizeKey(from url: String) -> GitHubEndpointKey {
-        // Strip query parameters for normalisation.
-        let base = url.split(separator: "?").first.map(String.init) ?? url
-        // Strip trailing slash.
-        let cleaned = base.hasSuffix("/") ? String(base.dropLast()) : base
-        let pathComponents = cleaned.split(separator: "/").map(String.init)
+        // Use URLComponents to preserve query items for status extraction.
+        guard let components = URLComponents(string: url),
+              let host = components.host else {
+            return GitHubEndpointKey(scope: "global/other", endpoint: "global/other")
+        }
 
-        // Find the scope prefix (repos, orgs, user).
-        // Expected structure: scheme/.../api.github.com/{repos|orgs|user}/{rest...}
+        let hostPlusPath = host + (components.path)
+
+        let pathComponents = hostPlusPath
+            .split(separator: "/")
+            .map(String.init)
+
         guard let apiIndex = pathComponents.firstIndex(where: { $0 == "api.github.com" || $0.hasSuffix(".api.github.com") }) else {
             return GitHubEndpointKey(scope: "global/other", endpoint: "global/other")
         }
 
         let afterAPI = pathComponents[(apiIndex + 1)...]
-        let components = Array(afterAPI)
+        let pathParts = Array(afterAPI)
 
-        guard !components.isEmpty else {
+        guard !pathParts.isEmpty else {
             return GitHubEndpointKey(scope: "global/other", endpoint: "global/other")
         }
 
         let (scope, remaining): (String, [String]) = {
-            switch components[0] {
+            switch pathParts[0] {
             case "repos":
-                guard components.count >= 3 else {
-                    return ("global/other", Array(components))
+                guard pathParts.count >= 3 else {
+                    return ("global/other", Array(pathParts))
                 }
-                return ("repo:\(components[1])/\(components[2])", Array(components.dropFirst(3)))
+                return ("repo:\(pathParts[1])/\(pathParts[2])", Array(pathParts.dropFirst(3)))
             case "orgs":
-                guard components.count >= 2 else {
-                    return ("global/other", Array(components))
+                guard pathParts.count >= 2 else {
+                    return ("global/other", Array(pathParts))
                 }
-                return ("org:\(components[1])", Array(components.dropFirst(2)))
+                return ("org:\(pathParts[1])", Array(pathParts.dropFirst(2)))
             case "user":
-                return ("user", Array(components.dropFirst(1)))
+                return ("user", Array(pathParts.dropFirst(1)))
             default:
-                return ("global/other", components)
+                return ("global/other", pathParts)
             }
         }()
 
-        return GitHubEndpointKey(scope: scope, endpoint: normalizeEndpoint(remaining))
+        // Extract the status query parameter before normalising the endpoint.
+        let statusQuery = components.queryItems?
+            .first(where: { $0.name == "status" })?
+            .value
+
+        return GitHubEndpointKey(
+            scope: scope,
+            endpoint: normalizeEndpoint(remaining, statusQuery: statusQuery)
+        )
     }
 
-    /// Maps the remaining path components (after scope) to a stable endpoint category.
+    /// Maps the remaining path components (after scope) to a stable endpoint category,
+    /// incorporating the `status` query parameter for runs list URLs.
     ///
-    /// - Parameter components: The path components after the scope prefix.
+    /// - Parameters:
+    ///   - components: The path components after the scope prefix.
+    ///   - statusQuery: The value of the `status` query parameter, if present.
     /// - Returns: A normalised endpoint category string.
-    private func normalizeEndpoint(_ components: [String]) -> String {
+    private func normalizeEndpoint(_ components: [String], statusQuery: String?) -> String {
         // No components → unknown.
         guard !components.isEmpty else { return "global/other" }
 
@@ -236,13 +248,14 @@ internal actor GitHubEndpointCounter {
         // /actions/runs/...
         if rest.first == "runs" {
             guard rest.count >= 2 else {
-                return "runs.all"
+                // /actions/runs?status=... — list endpoint with query
+                return categorizeRunsList(statusQuery: statusQuery)
             }
             _ = rest[1]
             let runSuffix = Array(rest.dropFirst(2))
 
             if runSuffix.isEmpty {
-                return "runs.all"
+                return categorizeRunsList(statusQuery: statusQuery)
             }
 
             // /actions/runs/{run_id}/status
@@ -282,5 +295,24 @@ internal actor GitHubEndpointCounter {
         }
 
         return "global/other"
+    }
+
+    /// Categorises a runs list endpoint based on the `status` query parameter.
+    ///
+    /// - Parameter statusQuery: The value of the `status` query parameter, or `nil`.
+    /// - Returns: `runs.in_progress`, `runs.queued`, `runs.completed`, `runs.all`, or `runs.other`.
+    private func categorizeRunsList(statusQuery: String?) -> String {
+        switch statusQuery {
+        case "in_progress":
+            return "runs.in_progress"
+        case "queued":
+            return "runs.queued"
+        case "completed":
+            return "runs.completed"
+        case nil:
+            return "runs.all"
+        default:
+            return "runs.other"
+        }
     }
 }

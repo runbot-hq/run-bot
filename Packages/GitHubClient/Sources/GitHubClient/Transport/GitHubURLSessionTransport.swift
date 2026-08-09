@@ -87,10 +87,9 @@ public struct GitHubTransport: GitHubTransportProtocol {
   /// HTTP requests. Defaults to 4 simultaneous operations.
   private let requestGate: GitHubRequestGate
 
-  // MARK: - Init
-/// Endpoint diagnostics counter for completed HTTP responses.
+  /// Endpoint diagnostics counter for completed HTTP responses.
   /// Counts every completed round-trip including 200, 304, 403, and 429.
-  /// Reset with each `report()` call.
+  /// Returns a report every 60 seconds which is logged via `logger`.
   private let endpointCounter: GitHubEndpointCounter
 
   /// Creates a `GitHubTransport` with the given dependencies.
@@ -238,8 +237,13 @@ public struct GitHubTransport: GitHubTransportProtocol {
       // Record endpoint diagnostics for every completed HTTP round-trip,
       // including 304, 403, and 429. This must happen before branching on
       // status code so that all completed responses are represented.
-      if let httpResponse = response as? HTTPURLResponse {
-        await endpointCounter.record(url: urlString, statusCode: httpResponse.statusCode)
+      // Every 60-second window, the first response after the interval expires
+      // returns a report which is logged via the transport's logger.
+      if let httpResponse = response as? HTTPURLResponse,
+         let report = await endpointCounter.record(
+           url: urlString, statusCode: httpResponse.statusCode
+         ) {
+        logger?.log(report.formatted(), category: "transport")
       }
 
       // Handle 304 Not Modified — return cached data without counting the call.
