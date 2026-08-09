@@ -550,18 +550,6 @@ final class AppState {
         oauthCredentials.start()
     }
 
-    // MARK: - Panel-show refresh (#2661)
-
-    /// Refreshes panel-facing local and GitHub state when the main panel opens.
-    func refreshOnPanelShow() async {
-        // Refresh local process/discovery state first.
-        await localRunnerStore.refreshAsync()
-
-        // start() resets falloff, replaces the existing poll task,
-        // fetches immediately, then resumes adaptive polling.
-        await runnerStore?.start()
-    }
-
     // MARK: - Automatic updates preference (#2501)
 
     /// Called by `SettingsView` when the user toggles the automatic-updates
