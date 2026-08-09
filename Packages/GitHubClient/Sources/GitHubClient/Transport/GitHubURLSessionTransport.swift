@@ -146,28 +146,47 @@ public struct GitHubTransport: GitHubTransportProtocol {
     timeout: TimeInterval,
     logTag: String,
     useRawAccept: Bool = false,
+    etagCache: ETagCache? = nil,
     configure: @Sendable (URLRequest) -> URLRequest = { $0 }
   ) async -> ExecuteResult {
     guard let token = await tokenProvider() else {
       logger?.log("\(logTag) › no token available", category: "transport")
       return .noToken
     }
+    let urlString = resolveURL(endpoint)
+    // If we have a cached ETag, inject If-None-Match so GitHub returns 304
+    // Not Modified (zero rate-limit cost) when the resource is unchanged.
+    let cachedEtag: String? = await etagCache?.etag(for: urlString)
+    let etagConfigure: @Sendable (URLRequest) -> URLRequest = { req in
+      var r = configure(req)
+      if let etag = cachedEtag {
+        r.setValue(etag, forHTTPHeaderField: "If-None-Match")
+      }
+      return r
+    }
     guard let req = buildRequest(
       endpoint: endpoint,
       token: token,
       timeout: timeout,
       useRawAccept: useRawAccept,
-      configure: configure,
+      configure: etagConfigure,
       logTag: logTag
     ) else {
       return .networkError(URLError(.badURL))
     }
-    let urlString = resolveURL(endpoint)
     logger?.log(
       "\(logTag) › firing request: \(urlString) raw=\(useRawAccept) cachePolicy=\(req.cachePolicy.rawValue)",
       category: "transport")
     do {
       let (data, response) = try await session.data(for: req)
+      // Handle 304 Not Modified BEFORE recording a rate-limit call.
+      // GitHub does not deduct a rate-limit point for 304 responses.
+      if let http = response as? HTTPURLResponse, http.statusCode == 304 {
+        if let cached = await etagCache?.data(for: urlString) {
+          return .notModified(cached)
+        }
+        return .httpError(304)
+      }
       // Count every completed HTTP round-trip regardless of status code.
       // 5xx, 4xx, and 2xx all consumed a quota slot on GitHub’s side.
       // Network errors (DNS/timeout — no bytes sent) fall through to the
@@ -176,9 +195,16 @@ public struct GitHubTransport: GitHubTransportProtocol {
       logger?.log(
         "\(logTag) › response received: \(urlString) bytes=\(data.count)",
         category: "transport")
-      return await interpretHTTPResponse(
+      let result = await interpretHTTPResponse(
         response, data: data, urlString: urlString, logTag: logTag
       )
+      if case .success(let body, _, _) = result,
+         let http = response as? HTTPURLResponse,
+         let etag = http.value(forHTTPHeaderField: "ETag"),
+         let cache = etagCache {
+        await cache.store(url: urlString, etag: etag,  body)
+      }
+      return result
     } catch {
       logger?.log(
         "\(logTag) › \(urlString) network error: \(error.localizedDescription)",
@@ -267,7 +293,10 @@ public struct GitHubTransport: GitHubTransportProtocol {
 internal enum ExecuteResult {
   /// A 2xx response with body, status code, and optional `Link` header.
   case success(Data, statusCode: Int, linkHeader: String?)
-  /// No GitHub token was available — user is signed out or no env var is set.
+  /// A 304 Not Modified response -- the cached body is returned and no rate-limit
+  /// point was consumed. The associated `Data` is the last-known cached response.
+  case notModified(Data)
+  /// No GitHub token was available -- user is signed out or no env var is set.
   case noToken
   /// A non-2xx HTTP status code was returned.
   case httpError(Int)

@@ -18,12 +18,14 @@ extension GitHubTransport {
   /// Fetches a single GitHub API page. Returns decoded `Data` on success, `nil` on any failure.
   @concurrent
   public func apiAsync(_ endpoint: String, timeout: TimeInterval = 20) async -> Data? {
-    guard
-      case .success(let data, _, _) = await execute(
-        endpoint, timeout: timeout, logTag: "apiAsync"
-      )
-    else { return nil }
-    return data
+    let result = await execute(
+      endpoint, timeout: timeout, logTag: "apiAsync", etagCache: ETagCache.shared
+    )
+    switch result {
+    case .success(let data, _, _): return data
+    case .notModified(let cached): return cached
+    default: return nil
+    }
   }
 
   // MARK: apiPaginated
@@ -39,7 +41,7 @@ extension GitHubTransport {
   public func apiPaginated(_ endpoint: String, timeout: TimeInterval = 60) async -> Data? {
     var state = PaginationState(nextURL: resolveURL(endpoint))
     while let urlString = state.nextURL {
-      let result = await execute(urlString, timeout: timeout, logTag: "apiPaginated")
+      let result = await execute(urlString, timeout: timeout, logTag: "apiPaginated", etagCache: ETagCache.shared)
       let action = state.apply(result, decoder: decoder)
       applyPaginationLog(action, urlString: urlString, count: state.allItems.count)
       if case .advance(let linkHeader) = action {
@@ -306,6 +308,8 @@ extension GitHubTransport {
     case .networkError(let error):
       logger?.log("cancelRun › network error for runID=\(runID) at \(endpoint): \(error.localizedDescription)", category: "transport")
       return false
+    case .notModified:
+      return false
     }
   }
 
@@ -530,6 +534,13 @@ private struct PaginationState {
       return .stop(.permissionDenied)
     case .networkError:
       return .stop(.networkError)
+    case .notModified(let data):
+      guard let page = Self.decodePageItems(from: data, decoder: decoder) else {
+        return .stop(.nonArrayBody)
+      }
+      hadAtLeastOneSuccessfulPage = true
+      allItems.append(contentsOf: page)
+      return .advance(next: nil)
     }
   }
 
