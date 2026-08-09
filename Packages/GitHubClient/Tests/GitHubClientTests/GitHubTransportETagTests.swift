@@ -70,7 +70,7 @@ final class GitHubTransportETagTests {
     )
     // Pre-seed the cache as if a prior 200 had stored etag + body.
     let cache = ETagCache()
-    await cache.store(url: url, etag: "\"etag-v1\"",  cachedBody)
+    await cache.store(url: url, etag: "\"etag-v1\"", data: cachedBody)
 
     let counter = MockAPICallCounter()
     let transport = makeTransport(counter: counter)
@@ -117,7 +117,7 @@ final class GitHubTransportETagTests {
       for: url
     )
     let cache = ETagCache()
-    await cache.store(url: url, etag: etag,  cachedBody)
+    await cache.store(url: url, etag: etag, data: cachedBody)
 
     let transport = makeTransport()
     _ = await transport.execute(url, timeout: 10, logTag: "test", etagCache: cache)
