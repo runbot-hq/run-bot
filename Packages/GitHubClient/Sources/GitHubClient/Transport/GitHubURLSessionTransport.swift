@@ -78,6 +78,11 @@ public struct GitHubTransport: GitHubTransportProtocol {
   /// without touching the shared singleton. Defaults to `APICallCounter.shared`.
   private let callCounter: any APICallCounterProtocol
 
+  /// The shared conditional GET (ETag) cache.
+  /// All instances of `GitHubTransport` share the same backing store so that
+  /// cache entries survive transport re-creation.
+  private static let conditionalGETCache = ConditionalGETCache()
+
   // MARK: - Init
 
   /// Creates a `GitHubTransport` with the given dependencies.
@@ -146,13 +151,14 @@ public struct GitHubTransport: GitHubTransportProtocol {
     timeout: TimeInterval,
     logTag: String,
     useRawAccept: Bool = false,
+    conditionalGET: Bool = false,
     configure: @Sendable (URLRequest) -> URLRequest = { $0 }
   ) async -> ExecuteResult {
     guard let token = await tokenProvider() else {
       logger?.log("\(logTag) › no token available", category: "transport")
       return .noToken
     }
-    guard let req = buildRequest(
+    guard let baseReq = buildRequest(
       endpoint: endpoint,
       token: token,
       timeout: timeout,
@@ -162,23 +168,75 @@ public struct GitHubTransport: GitHubTransportProtocol {
     ) else {
       return .networkError(URLError(.badURL))
     }
+
     let urlString = resolveURL(endpoint)
+
+    // Conditional GET: look up the ETag cache and set If-None-Match header.
+    let cachedEntry: ConditionalGETCache.Entry?
+    var req = baseReq
+    if conditionalGET {
+      cachedEntry = Self.conditionalGETCache.entry(for: urlString, token: token)
+      if let etag = cachedEntry?.etag {
+        req.setValue(etag, forHTTPHeaderField: "If-None-Match")
+        logger?.log(
+          "\(logTag) › conditional GET with ETag: \(etag)",
+          category: "transport")
+      }
+    } else {
+      cachedEntry = nil
+    }
+    // Ensure we bypass the system URLCache so that every call reaches
+    // GitHub's API and returns a fresh 304 or 200 with current headers.
+    req.cachePolicy = .reloadIgnoringLocalCacheData
+
     logger?.log(
       "\(logTag) › firing request: \(urlString) raw=\(useRawAccept) cachePolicy=\(req.cachePolicy.rawValue)",
       category: "transport")
     do {
       let (data, response) = try await session.data(for: req)
+
+      // Handle 304 Not Modified — return cached data without counting the call.
+      if let httpResponse = response as? HTTPURLResponse,
+         httpResponse.statusCode == 304,
+         let cachedEntry {
+        logger?.log(
+          "\(logTag) › 304 Not Modified — returning cached data (\(cachedEntry.data.count) bytes)",
+          category: "transport")
+        // GitHub does not count a 304 against the API quota, so we do
+        // NOT call callCounter.record().
+        return .success(cachedEntry.data, statusCode: 304, linkHeader: cachedEntry.linkHeader)
+      }
+
       // Count every completed HTTP round-trip regardless of status code.
-      // 5xx, 4xx, and 2xx all consumed a quota slot on GitHub’s side.
+      // 5xx, 4xx, and 2xx all consumed a quota slot on GitHub's side.
       // Network errors (DNS/timeout — no bytes sent) fall through to the
       // catch below and are correctly excluded.
       await callCounter.record()
       logger?.log(
         "\(logTag) › response received: \(urlString) bytes=\(data.count)",
         category: "transport")
-      return await interpretHTTPResponse(
+      let result = await interpretHTTPResponse(
         response, data: data, urlString: urlString, logTag: logTag
       )
+
+      // If the response was successful and carried an ETag, cache it for
+      // future conditional GETs.
+      if case .success = result,
+         let httpResponse = response as? HTTPURLResponse,
+         let etag = httpResponse.value(forHTTPHeaderField: "ETag") {
+        let linkHeader = httpResponse.value(forHTTPHeaderField: "Link")
+        let entry = ConditionalGETCache.Entry(
+          etag: etag,
+          data: data,
+          linkHeader: linkHeader
+        )
+        Self.conditionalGETCache.store(entry, for: urlString, token: token)
+        logger?.log(
+          "\(logTag) › cached ETag: \(etag)",
+          category: "transport")
+      }
+
+      return result
     } catch {
       logger?.log(
         "\(logTag) › \(urlString) network error: \(error.localizedDescription)",
