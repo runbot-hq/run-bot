@@ -97,22 +97,26 @@ private struct JobInlineProgress: View {
 
     /// Lays out the track, fill, and optional sheen inside a clipped capsule.
     ///
-    /// `progressWidth` is computed once and shared by the fill and sheen so
-    /// both stay in sync. The outer ZStack is pinned to the full bar width.
+    /// `barWidth` pins the track and ZStack to the full measured width.
+    /// `progressWidth` is passed separately so the sheen can use `barWidth`
+    /// for its brightness profile while clipping to `progressWidth`.
     var body: some View {
         GeometryReader { geometry in
-            let width = geometry.size.width
-            let progressWidth = max(3, width * normalizedProgress)
+            let barWidth = geometry.size.width
+            let progressWidth = max(3, barWidth * normalizedProgress)
 
             ZStack(alignment: .leading) {
-                track(width: width)
+                track(width: barWidth)
                 progressFill(width: progressWidth)
 
                 if !reduceMotion {
-                    travelingSheen(progressWidth: progressWidth)
+                    travelingSheen(
+                        barWidth: barWidth,
+                        progressWidth: progressWidth
+                    )
                 }
             }
-            .frame(width: width, height: 3, alignment: .leading)
+            .frame(width: barWidth, height: 3, alignment: .leading)
             .clipShape(Capsule())
         }
         .frame(height: 3)
@@ -132,13 +136,17 @@ private struct JobInlineProgress: View {
             .frame(width: width, height: 3)
     }
 
-    /// Highlight traversing only the completed portion of the progress bar.
+    /// Full-sized sheen profile traveling only through the completed segment.
     ///
-    /// The sheen is clipped to `progressWidth`, so it never enters the unfinished
-    /// track. Its position remains derived from wall-clock time and cannot be
-    /// interrupted by panel reloads.
-    private func travelingSheen(progressWidth: CGFloat) -> some View {
-        let sheenWidth = min(progressWidth, max(3, progressWidth * 0.34))
+    /// `barWidth` controls the sheen's width and brightness distribution so the
+    /// gradient stays equally broad at any progress value. `progressWidth`
+    /// controls the travel endpoint and clipping boundary so the sheen never
+    /// enters the unfinished track.
+    private func travelingSheen(
+        barWidth: CGFloat,
+        progressWidth: CGFloat
+    ) -> some View {
+        let sheenWidth = barWidth * 0.34
         let duration: TimeInterval = 2.1
 
         return TimelineView(
