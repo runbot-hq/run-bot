@@ -6,6 +6,7 @@
 
 import Foundation
 
+/// Coalesced force-refresh entry point for ``RunnerPoller``.
 extension RunnerPoller {
 
   /// Forces one immediate fetch outside the poll cadence.

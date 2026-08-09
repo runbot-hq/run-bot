@@ -17,8 +17,10 @@ import SwiftUI
 /// in-flight or the GitHub rate-limit window is still open.
 struct RefreshButton: View {
 
+    /// The shared app state used to observe refresh and rate-limit status.
     @Environment(AppState.self) private var appState
 
+    /// The button's content and interaction logic.
     var body: some View {
         let rateLimited = appState.runnerState.rateLimitResetDate.map { $0 > Date() } ?? false
         let disabled = appState.isRefreshing || rateLimited

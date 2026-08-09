@@ -6,6 +6,7 @@
 
 import RunBotCore
 
+/// Fan-out refresh entry point for ``AppState``.
 @MainActor
 extension AppState {
 
