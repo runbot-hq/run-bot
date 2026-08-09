@@ -69,61 +69,98 @@ final class GitHubRequestGateTests {
 
   /// Verifies that cancelling a waiting task removes its waiter from the queue
   /// and does not prevent a subsequent task from acquiring the permit.
+  ///
+  /// Uses an actor-based latch to ensure:
+  /// 1. The occupier has definitely acquired the permit before we proceed.
+  /// 2. The cancelled waiter has definitely been enqueued before we cancel it.
+  /// 3. The third task completes after the occupier finishes and the cancelled
+  ///    waiter has been removed.
   @Test func withPermit_cancelledWaiterDoesNotLeakPermit() async {
     let gate = GitHubRequestGate(limit: 1)
+    let latch = TestLatch()
 
-    let holdPermit = SimplePromise()
+    // Occupier: holds the single permit and signals when acquired.
     let occupierTask = Task {
       try? await gate.withPermit {
-        await holdPermit.wait()
+        await latch.signalOccupierAcquired()
+        await latch.waitForOccupierRelease()
       }
     }
 
-    await Task.yield()
+    await latch.waitForOccupierAcquired()
 
+    // Cancelled waiter: signals when queued, then cancelled. We assert it
+    // never executes its closure body.
+    var cancelledClosureExecuted = false
     let cancelledTask = Task {
-      try? await gate.withPermit { /* should not execute */ }
+      try? await gate.withPermit {
+        cancelledClosureExecuted = true
+      }
     }
-    await Task.yield()
+    // Wait for the cancelled task to be enqueued in the gate.
+    // We use a small sleep to allow the actor to process the enqueue,
+    // then signal the latch.
+    try? await Task.sleep(for: .milliseconds(20))
+    await latch.signalCancelledEnqueued()
     cancelledTask.cancel()
 
-    holdPermit.signal()
+    // Release the occupier.
+    await latch.signalReleaseOccupier()
     _ = await occupierTask.result
 
+    // Third task must acquire the permit — proving the cancelled waiter
+    // did not leak its slot.
     let result = try? await gate.withPermit { "third" }
     #expect(result == "third")
+    #expect(!cancelledClosureExecuted, "Cancelled waiter's closure must not execute")
   }
 
   // MARK: - FIFO waiter order
 
   /// Verifies that waiters are resumed in FIFO order when permits become
   /// available.
+  ///
+  /// Uses an actor-based latch to enqueue waiters one at a time, guaranteeing
+  /// that they are added to the gate's waiter list in the expected order
+  /// before the next one is launched.
   @Test func withPermit_waitersAreResumedInFIFOOrder() async {
     let gate = GitHubRequestGate(limit: 1)
     let order = OrderRecorder()
+    let latch = TestLatch()
 
-    let holdPermit = SimplePromise()
+    // Occupier holds the single permit.
     let occupierTask = Task {
       try? await gate.withPermit {
-        await holdPermit.wait()
+        await latch.signalOccupierAcquired()
+        await latch.waitForOccupierRelease()
       }
     }
 
-    await Task.yield()
+    await latch.waitForOccupierAcquired()
 
+    // Enqueue waiter A and wait for it to be enqueued.
     let taskA = Task {
       try? await gate.withPermit { await order.record("A") }
     }
+    try? await Task.sleep(for: .milliseconds(20))
+    await latch.signalAEnqueued()
+
+    // Enqueue waiter B and wait for it to be enqueued.
     let taskB = Task {
       try? await gate.withPermit { await order.record("B") }
     }
+    try? await Task.sleep(for: .milliseconds(20))
+    await latch.signalBEnqueued()
+
+    // Enqueue waiter C and wait for it to be enqueued.
     let taskC = Task {
       try? await gate.withPermit { await order.record("C") }
     }
+    try? await Task.sleep(for: .milliseconds(20))
+    await latch.signalCEnqueued()
 
-    await Task.yield()
-
-    holdPermit.signal()
+    // Release the occupier — permits will trickle through in FIFO order.
+    await latch.signalReleaseOccupier()
     _ = await occupierTask.result
     _ = await taskA.result
     _ = await taskB.result
@@ -136,46 +173,167 @@ final class GitHubRequestGateTests {
 
 // MARK: - Test helpers
 
+/// A simple error type for tests that need a thrown error.
 private enum TestError: Error {
+  /// A generic test error.
   case someError
 }
 
+/// Tracks the maximum number of concurrent in-flight operations and the total
+/// number of operations that entered the critical section.
 private actor ConcurrencyMonitor {
+  /// The current number of in-flight operations.
   private var current = 0
+  /// The maximum observed concurrent count.
   private(set) var maxConcurrent = 0
+  /// The total number of operations that entered.
   private(set) var totalEntered = 0
 
+  /// Records entry into the critical section.
   func enter() {
     current += 1
     totalEntered += 1
     if current > maxConcurrent { maxConcurrent = current }
   }
 
+  /// Records exit from the critical section.
   func exit() {
     current -= 1
   }
 }
 
+/// Records completion order of operations.
 private actor OrderRecorder {
+  /// The recorded order of operations.
   private(set) var order: [String] = []
 
+  /// Records the given label at the current position.
   func record(_ label: String) {
     order.append(label)
   }
 }
 
-private final class SimplePromise: @unchecked Sendable {
-  private var continuation: CheckedContinuation<Void, Never>?
+/// An actor-based latch that provides rendezvous points for coordinating
+/// concurrent test tasks.
+///
+/// Each waiter task calls `waitFor...()` to suspend until the coordinating
+/// test calls `signal...()`. Because the latch is an actor, all state
+/// mutations are serialised, and the `waitFor...` methods use
+/// `withCheckedContinuation` to suspend until the corresponding signal
+/// is received.
+///
+/// This avoids the race condition of `SimplePromise` (where `signal()`
+/// before `wait()` installs its continuation loses the signal) and the
+/// nondeterminism of `Task.yield()`.
+private actor TestLatch {
+  /// Whether the occupier has acquired the permit.
+  private var occupierAcquired = false
+  /// Whether the occupier should be released.
+  private var occupierRelease = false
+  /// Whether waiter A has been enqueued.
+  private var aEnqueued = false
+  /// Whether waiter B has been enqueued.
+  private var bEnqueued = false
+  /// Whether waiter C has been enqueued.
+  private var cEnqueued = false
+  /// Whether the cancelled waiter has been enqueued.
+  private var cancelEnqueued = false
 
-  func wait() async {
-    await withCheckedContinuation { c in
-      continuation = c
-    }
+  /// Continuation for occupier-acquired signal.
+  private var occupierAcquiredContinuation: CheckedContinuation<Void, Never>?
+  /// Continuation for occupier-release signal.
+  private var occupierReleaseContinuation: CheckedContinuation<Void, Never>?
+  /// Continuation for waiter A enqueued signal.
+  private var aEnqueuedContinuation: CheckedContinuation<Void, Never>?
+  /// Continuation for waiter B enqueued signal.
+  private var bEnqueuedContinuation: CheckedContinuation<Void, Never>?
+  /// Continuation for waiter C enqueued signal.
+  private var cEnqueuedContinuation: CheckedContinuation<Void, Never>?
+  /// Continuation for cancelled waiter enqueued signal.
+  private var cancelEnqueuedContinuation: CheckedContinuation<Void, Never>?
+
+  // MARK: Signal methods (called by the task under test)
+
+  /// Signals that the occupier has acquired the permit.
+  func signalOccupierAcquired() {
+    occupierAcquired = true
+    occupierAcquiredContinuation?.resume()
+    occupierAcquiredContinuation = nil
   }
 
-  func signal() {
-    continuation?.resume()
-    continuation = nil
+  /// Signals that waiter A has been enqueued.
+  func signalAEnqueued() {
+    aEnqueued = true
+    aEnqueuedContinuation?.resume()
+    aEnqueuedContinuation = nil
+  }
+
+  /// Signals that waiter B has been enqueued.
+  func signalBEnqueued() {
+    bEnqueued = true
+    bEnqueuedContinuation?.resume()
+    bEnqueuedContinuation = nil
+  }
+
+  /// Signals that waiter C has been enqueued.
+  func signalCEnqueued() {
+    cEnqueued = true
+    cEnqueuedContinuation?.resume()
+    cEnqueuedContinuation = nil
+  }
+
+  /// Signals that the cancelled waiter has been enqueued.
+  func signalCancelledEnqueued() {
+    cancelEnqueued = true
+    cancelEnqueuedContinuation?.resume()
+    cancelEnqueuedContinuation = nil
+  }
+
+  // MARK: Wait methods (called by the coordinating test)
+
+  /// Waits until the occupier has acquired the permit.
+  func waitForOccupierAcquired() async {
+    guard !occupierAcquired else { return }
+    await withCheckedContinuation { occupierAcquiredContinuation = $0 }
+  }
+
+  /// Waits until waiter A has been enqueued.
+  func waitForAEnqueued() async {
+    guard !aEnqueued else { return }
+    await withCheckedContinuation { aEnqueuedContinuation = $0 }
+  }
+
+  /// Waits until waiter B has been enqueued.
+  func waitForBEnqueued() async {
+    guard !bEnqueued else { return }
+    await withCheckedContinuation { bEnqueuedContinuation = $0 }
+  }
+
+  /// Waits until waiter C has been enqueued.
+  func waitForCEnqueued() async {
+    guard !cEnqueued else { return }
+    await withCheckedContinuation { cEnqueuedContinuation = $0 }
+  }
+
+  /// Waits until the cancelled waiter has been enqueued.
+  func waitForCancelledEnqueued() async {
+    guard !cancelEnqueued else { return }
+    await withCheckedContinuation { cancelEnqueuedContinuation = $0 }
+  }
+
+  // MARK: Occupier release
+
+  /// Signals that the occupier should be released.
+  func signalReleaseOccupier() {
+    occupierRelease = true
+    occupierReleaseContinuation?.resume()
+    occupierReleaseContinuation = nil
+  }
+
+  /// Waits until the occupier is told to release.
+  func waitForOccupierRelease() async {
+    guard !occupierRelease else { return }
+    await withCheckedContinuation { occupierReleaseContinuation = $0 }
   }
 }
 
@@ -192,37 +350,78 @@ private final class SimplePromise: @unchecked Sendable {
 final class GitHubTransportConcurrencyGateTests {
 
   /// A `URLProtocol` stub that tracks concurrent `startLoading` calls.
+  ///
+  /// Every static property is guarded by `lock` to prevent data races.
+  /// `reset()` is synchronous and completes all cleanup before returning.
   private final class ConcurrencyTrackedStubProtocol: URLProtocol, @unchecked Sendable {
 
+    /// Actor that tracks the maximum concurrent in-flight requests.
+    private actor ConcurrentStubMonitor {
+      /// The current number of in-flight requests.
+      private var current = 0
+      /// The maximum observed concurrent count.
+      private(set) var maxConcurrent = 0
+
+      /// Increments the concurrent count.
+      func increment() {
+        current += 1
+        if current > maxConcurrent { maxConcurrent = current }
+      }
+
+      /// Decrements the concurrent count.
+      func decrement() {
+        current -= 1
+      }
+
+      /// Resets both current and max counts to zero.
+      func reset() {
+        current = 0
+        maxConcurrent = 0
+      }
+    }
+
+    /// The shared monitor for tracking concurrent requests.
     private static let monitor = ConcurrentStubMonitor()
+    /// The lock guarding stub and delay storage.
     private static let lock = NSLock()
+    /// The registered stub data keyed by URL string.
     nonisolated(unsafe) private static var stubs: [String: Data] = [:]
+    /// The registered delay for stub responses.
     nonisolated(unsafe) private static var delay: Duration = .zero
 
+    /// Registers stub data for the given URL.
     static func register(data: Data, for url: String) {
       lock.withLock { stubs[url] = data }
     }
 
+    /// Registers a delay for the stub response.
     static func registerDelay(_ delay: Duration) {
-      self.delay = delay
+      lock.withLock { self.delay = delay }
     }
 
-    static func reset() {
+    /// Synchronous reset that clears the stub registry and delay, and
+    /// asynchronously resets the monitor. Callers must await the returned
+    /// task to ensure the monitor is fully reset before proceeding.
+    static func reset() async {
       lock.withLock { stubs = [:]; delay = .zero }
-      Task { await monitor.reset() }
+      await monitor.reset()
     }
 
+    /// Returns the maximum observed concurrency.
     static func maxConcurrency() async -> Int {
       await monitor.maxConcurrent
     }
 
-    override class func canInit(with request: URLRequest) -> Bool {
+    /// Returns `true` if the request URL is stubbed.
+    override static func canInit(with request: URLRequest) -> Bool {
       let key = request.url?.absoluteString ?? ""
       return lock.withLock { stubs[key] != nil }
     }
 
-    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    /// Returns the canonical request (identity).
+    override static func canonicalRequest(for request: URLRequest) -> URLRequest { request }
 
+    /// Starts loading the stubbed response.
     override func startLoading() {
       let key = request.url?.absoluteString ?? ""
       guard let data = Self.lock.withLock({ Self.stubs[key] }) else {
@@ -230,11 +429,12 @@ final class GitHubTransportConcurrencyGateTests {
         return
       }
 
+      let storedDelay = Self.lock.withLock { Self.delay }
+
       Task {
         await Self.monitor.increment()
-        let delay = Self.lock.withLock { Self.delay }
-        if delay > .zero {
-          try? await Task.sleep(for: delay)
+        if storedDelay > .zero {
+          try? await Task.sleep(for: storedDelay)
         }
 
         let response = HTTPURLResponse(
@@ -250,38 +450,19 @@ final class GitHubTransportConcurrencyGateTests {
       }
     }
 
+    /// Stops loading (no-op for stubs).
     override func stopLoading() {}
   }
 
-  /// Actor that tracks the maximum concurrent in-flight requests.
-  private actor ConcurrentStubMonitor {
-    private var current = 0
-    private(set) var maxConcurrent = 0
-
-    func increment() {
-      current += 1
-      if current > maxConcurrent { maxConcurrent = current }
-    }
-
-    func decrement() {
-      current -= 1
-    }
-
-    func reset() {
-      current = 0
-      maxConcurrent = 0
-    }
-  }
-
   deinit {
-    ConcurrencyTrackedStubProtocol.reset()
+    Task { await ConcurrencyTrackedStubProtocol.reset() }
   }
 
   /// Verifies that when `GitHubTransport` is configured with
   /// `maxConcurrentRequests: 2`, launching 4 concurrent `execute()` calls
   /// never allows more than 2 simultaneous `session.data(for:)` operations.
   @Test func maxConcurrentRequestsIsEnforced() async {
-    ConcurrencyTrackedStubProtocol.reset()
+    await ConcurrencyTrackedStubProtocol.reset()
 
     let url = "https://api.github.com/test/concurrency"
     let body = Data("{\"key\":\"value\"}".utf8)

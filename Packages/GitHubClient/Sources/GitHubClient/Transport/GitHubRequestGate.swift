@@ -19,13 +19,18 @@ import Foundation
 /// ## Cancellation
 /// If the caller's `Task` is cancelled while waiting for a permit,
 /// `withPermit` throws `CancellationError` and releases the spot in the
-/// waiter queue — the permit is **not** leaked.
+/// waiter queue — the permit is **not** leaked. A cancellation handler
+/// installed via `withTaskCancellationHandler` ensures that cancellation
+/// is observed even after the continuation has been enqueued.
 internal actor GitHubRequestGate {
 
   /// A continuation waiting for a permit, identified by a unique ID for
   /// FIFO ordering and cancellation matching.
   private struct Waiter: Identifiable {
+    /// The unique identifier for this waiter, used for cancellation matching.
     let id: UUID
+    /// The continuation to resume when a permit is granted (true) or
+    /// when the waiter is cancelled (false).
     let continuation: CheckedContinuation<Bool, Never>
   }
 
@@ -69,38 +74,55 @@ internal actor GitHubRequestGate {
 
   /// Acquires a permit, suspending if the gate is full.
   ///
-  /// If the caller's task is already cancelled, this returns immediately
-  /// with a `CancellationError` without adding a waiter to the queue.
+  /// Checks cancellation before the fast path so that an already-cancelled
+  /// caller never acquires a permit. When the gate is full, a
+  /// `withTaskCancellationHandler` wraps the checked-continuation suspension
+  /// so that cancellation after enqueueing is observed and the waiter is
+  /// removed from the queue.
+  ///
+  /// A post-resumption cancellation check handles the race where
+  /// `release()` grants the permit before the cancellation handler reaches
+  /// the actor. In that case the newly granted permit is returned to the
+  /// pool before throwing.
   private func acquire() async throws {
-    // Fast path: gate has room.
+    try Task.checkCancellation()
+
     if activeCount < limit {
       activeCount += 1
       return
     }
 
-    // Slow path: suspend until a permit is released.
-    // We use `withCheckedContinuation` and check for cancellation both
-    // before and after suspension to handle the race where the task is
-    // cancelled while enqueued.
-    try Task.checkCancellation()
-
     let id = UUID()
-    let permit = await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
-      waiters.append(Waiter(id: id, continuation: continuation))
-
-      // After enqueuing, check if the task was cancelled. If so, remove
-      // the waiter from the queue and resume it with `false` (cancelled).
-      // This prevents leaking a waiter when the task is cancelled between
-      // the enqueue and the suspension point.
-      if Task.isCancelled {
-        waiters.removeAll { $0.id == id }
-        continuation.resume(returning: false)
+    let granted = await withTaskCancellationHandler {
+      await withCheckedContinuation { continuation in
+        waiters.append(Waiter(id: id, continuation: continuation))
       }
+    } onCancel: {
+      Task { await self.cancelWaiter(id: id) }
     }
 
-    guard permit else {
+    guard granted else {
       throw CancellationError()
     }
+
+    // The permit was granted — but if the task was also cancelled, release
+    // the permit back to the pool so it doesn't leak.
+    if Task.isCancelled {
+      release()
+      throw CancellationError()
+    }
+  }
+
+  /// Removes a waiter from the queue by ID and resumes it with `false`
+  /// (cancelled). If the waiter has already been granted a permit (the
+  /// release raced ahead of the cancellation handler), this is a no-op
+  /// because the waiter is no longer in the queue.
+  private func cancelWaiter(id: UUID) {
+    guard let index = waiters.firstIndex(where: { $0.id == id }) else {
+      return
+    }
+    let waiter = waiters.remove(at: index)
+    waiter.continuation.resume(returning: false)
   }
 
   /// Releases one permit and resumes the next waiter (if any) in FIFO order.
