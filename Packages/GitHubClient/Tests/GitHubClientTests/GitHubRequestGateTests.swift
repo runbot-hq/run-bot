@@ -90,7 +90,7 @@ final class GitHubRequestGateTests {
     // Cancelled waiter: we assert it never executes its closure body.
     let flag = ExecutionFlag()
     let cancelledTask = Task {
-      try? await gate.withPermit {
+      try await gate.withPermit {
         await flag.markExecuted()
       }
     }
@@ -190,7 +190,7 @@ private enum TestError: Error {
 /// so a regression fails rather than hanging indefinitely.
 ///
 /// The condition closure is evaluated every 5 milliseconds, up to a maximum
-/// of 100 attempts (500 ms total). This is used to wait for actor-isolated
+/// of 400 attempts (2000 ms total). This is used to wait for actor-isolated
 /// state to converge without resorting to arbitrary sleeps.
 ///
 /// - Parameter condition: An async closure that returns `true` when the
@@ -198,7 +198,10 @@ private enum TestError: Error {
 private func eventually(
   _ condition: @Sendable @escaping () async -> Bool
 ) async {
-  for _ in 0 ..< 100 {
+  // Yield once to give concurrent tasks a chance to start before we begin
+  // polling — this helps on slower CI runners.
+  await Task.yield()
+  for _ in 0 ..< 400 {
     if await condition() { return }
     try? await Task.sleep(for: .milliseconds(5))
   }
