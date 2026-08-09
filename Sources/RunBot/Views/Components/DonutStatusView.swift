@@ -6,16 +6,17 @@ import SwiftUI
 // MARK: - DonutStatusView
 /// Replaces the PieProgressDot for the action row status indicator.
 /// Visual states:
-/// - in_progress : dim track + breathing blue halo + determinate progress arc + centered play.fill (Color.rbBlue)
+/// - in_progress : rotating angular gradient beneath a stationary alpha mask (track 35% / arc 100%)
 /// - success     : full green circle stroke + checkmark SF Symbol
 /// - failed      : full red circle stroke + xmark SF Symbol
 /// - queued      : dim amber ring + revolving amber sweep + static pause.fill symbol
 /// - skipped     : muted grey circle stroke + minus SF Symbol
 ///
 /// Animation contract:
-/// - In-progress uses `ActiveDonutHalo` (opacity 0.16 ↔ 0.62, 0.9 s ease-in-out autoreversing).
-/// - Halo sits behind the progress arc; indicates activity without implying a completion value.
-/// - Reduce Motion renders the halo statically at opacity 0.22; no breathing.
+/// - In-progress uses `PhantomSweepRing`: one `AngularGradient` rotates beneath a stationary mask.
+/// - Gradient completes one clockwise revolution every 1.25 seconds.
+/// - Progress geometry (track mask + arc mask) remains stationary; only the gradient rotates.
+/// - Reduce Motion shows a static ring: track at `rbBlue 24%`, arc at solid `rbBlue`.
 /// - Progress arc uses `trim(from: 0, to: fraction)` animated with `.easeInOut`.
 /// - Queued uses a localized amber comet sweep with a bright 0.85-opacity head, a subtle glow,
 ///   and a 2.4-second linear revolution.
@@ -81,32 +82,13 @@ struct DonutStatusView: View {
         }
     }
 
-    /// In-progress donut: dim track, breathing blue activity halo, determinate progress arc,
-    /// and a static centered play symbol.
-    ///
-    /// Layer order: track → halo → progress arc → play icon.
-    /// The halo sits behind the arc and breathes in opacity only; it does not move or spin.
+    /// Determinate progress ring with a phantom activity sweep.
     private var inProgressRing: some View {
-        ZStack {
-            inProgressTrack
-            ActiveDonutHalo(size: size, strokeWidth: strokeWidth)
-            Circle()
-                .trim(from: 0, to: CGFloat(displayProgress))
-                .stroke(Color.rbBlue, style: StrokeStyle(lineWidth: strokeWidth, lineCap: .round))
-                .frame(width: size, height: size)
-                .rotationEffect(.degrees(-90))
-            Image(systemName: "play.fill")
-                .font(.system(size: size * 0.36, weight: .bold))
-                .foregroundStyle(Color.rbBlue)
-                .accessibilityHidden(true)
-        }
-    }
-
-    /// Static dim blue track communicating the full 100% circumference behind the progress arc.
-    private var inProgressTrack: some View {
-        Circle()
-            .stroke(Color.rbBlue.opacity(0.20), lineWidth: strokeWidth)
-            .frame(width: size, height: size)
+        PhantomSweepRing(
+            progress: displayProgress,
+            size: size,
+            strokeWidth: strokeWidth
+        )
     }
 
     /// Terminal state (success/failed/queued/skipped): solid colored ring + SF Symbol in the centre.
@@ -127,59 +109,111 @@ struct DonutStatusView: View {
     }
 }
 
-// MARK: - ActiveDonutHalo
+// MARK: - PhantomSweepRing
 
-/// Diffuse breathing halo indicating that a run is actively progressing.
+/// Determinate progress ring with a continuous phantom activity sweep.
 ///
-/// Covers the complete circumference and sits behind the determinate progress arc.
-/// Changes only in opacity — no movement, spin, or separate progress indicator.
-/// Under Reduce Motion the halo is rendered statically at `0.22` opacity.
-private struct ActiveDonutHalo: View {
-    /// Outer diameter of the donut.
+/// Geometry remains stationary while an angular gradient rotates beneath an
+/// alpha mask. The completed arc exposes the gradient at full intensity, and
+/// the remaining track exposes it at 35% intensity.
+private struct PhantomSweepRing: View {
+    /// Current completion value, expected in the range `0...1`.
+    let progress: Double
+    /// Outer diameter of the ring.
     let size: CGFloat
-    /// Width of the donut track and progress arc.
+    /// Width of the track and progress strokes.
     let strokeWidth: CGFloat
 
-    /// Disables the breathing animation when the user requests reduced motion.
+    /// Disables continuous rotation when requested by the user.
     @Environment(\.accessibilityReduceMotion)
     private var reduceMotion
 
-    /// Drives the opacity oscillation between the dim and bright phases.
-    @State private var isBright = false
+    /// Current angular-gradient rotation.
+    ///
+    /// State belongs to this active-only component so entering the in-progress
+    /// state creates a fresh animation lifecycle.
+    @State private var rotation = 0.0
 
-    /// Renders the halo with the appropriate opacity.
+    /// Progress clamped to the supported trim range.
+    private var normalizedProgress: CGFloat {
+        CGFloat(max(0, min(1, progress)))
+    }
+
+    /// Renders the animated or static ring depending on Reduce Motion.
     var body: some View {
-        halo
-            .opacity(haloOpacity)
-            .onAppear { startAnimationIfNeeded() }
-            .accessibilityHidden(true)
-            .allowsHitTesting(false)
+        Group {
+            if reduceMotion {
+                staticRing
+            } else {
+                animatedRing
+            }
+        }
+        .frame(width: size, height: size)
+        .accessibilityHidden(true)
+        .allowsHitTesting(false)
     }
 
-    /// Wide, blurred blue stroke forming the ambient halo.
-    private var halo: some View {
+    /// Rotating gradient revealed through the stationary ring mask.
+    private var animatedRing: some View {
         Circle()
-            .stroke(Color.rbBlue, lineWidth: max(2, strokeWidth * 1.8))
-            .frame(width: size, height: size)
-            .blur(radius: max(0.5, size * 0.06))
-            .shadow(color: Color.rbBlue.opacity(0.75), radius: max(1, size * 0.12))
+            .fill(sweepGradient)
+            .rotationEffect(.degrees(rotation))
+            .mask { ringMask }
+            .onAppear { startAnimation() }
     }
 
-    /// Static `0.22` under Reduce Motion; otherwise oscillates between `0.16` and `0.62`.
-    private var haloOpacity: Double {
-        if reduceMotion { return 0.22 }
-        return isBright ? 0.62 : 0.16
+    /// Adaptive RunBot-blue sweep with a dim body and concentrated leading highlight.
+    private var sweepGradient: AngularGradient {
+        AngularGradient(
+            stops: [
+                .init(color: Color.rbBlue.opacity(0.06), location: 0.00),
+                .init(color: Color.rbBlue.opacity(0.10), location: 0.55),
+                .init(color: Color.rbBlue.opacity(0.32), location: 0.78),
+                .init(color: Color.rbBlue,               location: 0.94),
+                .init(color: Color.rbBlue.opacity(0.06), location: 1.00)
+            ],
+            center: .center
+        )
     }
 
-    /// Starts a repeating ease-in-out opacity animation unless Reduce Motion is enabled.
-    private func startAnimationIfNeeded() {
-        guard !reduceMotion else { return }
-        isBright = false
+    /// Static alpha mask controlling the visibility of the rotating gradient.
+    private var ringMask: some View {
+        ZStack {
+            Circle()
+                .stroke(Color.white.opacity(0.35), lineWidth: strokeWidth)
+            Circle()
+                .trim(from: 0, to: normalizedProgress)
+                .stroke(
+                    Color.white,
+                    style: StrokeStyle(lineWidth: strokeWidth, lineCap: .round)
+                )
+                .rotationEffect(.degrees(-90))
+        }
+    }
+
+    /// Reduced-motion fallback preserving accurate determinate progress.
+    private var staticRing: some View {
+        ZStack {
+            Circle()
+                .stroke(Color.rbBlue.opacity(0.24), lineWidth: strokeWidth)
+            Circle()
+                .trim(from: 0, to: normalizedProgress)
+                .stroke(
+                    Color.rbBlue,
+                    style: StrokeStyle(lineWidth: strokeWidth, lineCap: .round)
+                )
+                .rotationEffect(.degrees(-90))
+        }
+    }
+
+    /// Starts one clockwise revolution every 1.25 seconds.
+    private func startAnimation() {
+        rotation = 0
         withAnimation(
-            .easeInOut(duration: 0.9)
-                .repeatForever(autoreverses: true)
+            .linear(duration: 1.25)
+                .repeatForever(autoreverses: false)
         ) {
-            isBright = true
+            rotation = 360
         }
     }
 }
