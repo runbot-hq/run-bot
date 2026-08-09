@@ -78,10 +78,10 @@ public struct GitHubTransport: GitHubTransportProtocol {
   /// without touching the shared singleton. Defaults to `APICallCounter.shared`.
   private let callCounter: any APICallCounterProtocol
 
-  /// The shared conditional GET (ETag) cache.
-  /// All instances of `GitHubTransport` share the same backing store so that
-  /// cache entries survive transport re-creation.
-  private static let conditionalGETCache = ConditionalGETCache()
+  /// The conditional GET (ETag) cache for this transport instance.
+  /// Each `GitHubTransport` owns its own cache so that cache entries are
+  /// scoped to the transport's lifetime and cleared when the token changes.
+  private let conditionalGETCache = ConditionalGETCache()
 
   // MARK: - Init
 
@@ -175,7 +175,7 @@ public struct GitHubTransport: GitHubTransportProtocol {
     let cachedEntry: ConditionalGETCache.Entry?
     var req = baseReq
     if conditionalGET {
-      cachedEntry = Self.conditionalGETCache.entry(for: urlString, token: token)
+      cachedEntry = await conditionalGETCache.entry(for: urlString, token: token)
       if let etag = cachedEntry?.etag {
         req.setValue(etag, forHTTPHeaderField: "If-None-Match")
         logger?.log(
@@ -203,8 +203,11 @@ public struct GitHubTransport: GitHubTransportProtocol {
           "\(logTag) › 304 Not Modified — returning cached data (\(cachedEntry.data.count) bytes)",
           category: "transport")
         // GitHub does not count a 304 against the API quota, so we do
-        // NOT call callCounter.record().
-        return .success(cachedEntry.data, statusCode: 304, linkHeader: cachedEntry.linkHeader)
+        // NOT call callCounter.record(). Normalise the status code to 200
+        // so that callers observing .success(statusCode:) do not need to
+        // handle 304 as a special case — the cached representation is a
+        // successful response.
+        return .success(cachedEntry.data, statusCode: 200, linkHeader: cachedEntry.linkHeader)
       }
 
       // Count every completed HTTP round-trip regardless of status code.
@@ -234,7 +237,7 @@ public struct GitHubTransport: GitHubTransportProtocol {
           data: data,
           linkHeader: linkHeader
         )
-        Self.conditionalGETCache.store(entry, for: urlString, token: token)
+        await conditionalGETCache.store(entry, for: urlString, token: token)
         logger?.log(
           "\(logTag) › cached ETag: \(etag)",
           category: "transport")

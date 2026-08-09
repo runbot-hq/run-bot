@@ -29,37 +29,24 @@ final class ConditionalGETStubURLProtocol: URLProtocol, @unchecked Sendable {
     let headers: [String: String]
   }
 
-  /// A stub error definition.
-  struct ErrorStub {
-    /// The error to report.
-    let error: URLError
-  }
-
   /// Lock for synchronising access to the static registries.
   private static let lock = NSLock()
   /// URL-to-stub mapping for successful responses.
   nonisolated(unsafe) private static var stubs: [String: Stub] = [:]
-  /// URL-to-error-stub mapping for error responses.
-  nonisolated(unsafe) private static var errorStubs: [String: ErrorStub] = [:]
 
   /// Register a successful response stub for the given URL.
   static func register(_ stub: Stub, for url: String) {
     lock.withLock { stubs[url] = stub }
   }
 
-  /// Register an error stub for the given URL.
-  static func registerError(_ stub: ErrorStub, for url: String) {
-    lock.withLock { errorStubs[url] = stub }
-  }
-
   /// Clear all registered stubs.
   static func reset() {
-    lock.withLock { stubs = [:]; errorStubs = [:] }
+    lock.withLock { stubs = [:] }
   }
 
   override static func canInit(with request: URLRequest) -> Bool {
     let key = request.url?.absoluteString ?? ""
-    return lock.withLock { stubs[key] != nil || errorStubs[key] != nil }
+    return lock.withLock { stubs[key] != nil }
   }
 
   override static func canonicalRequest(for request: URLRequest) -> URLRequest { request }
@@ -90,11 +77,6 @@ final class ConditionalGETStubURLProtocol: URLProtocol, @unchecked Sendable {
     ConditionalGETStubURLProtocol.lock.withLock {
       ConditionalGETStubURLProtocol.lastRequestedURL = key
       ConditionalGETStubURLProtocol.lastRequestHeaders = request.allHTTPHeaderFields
-    }
-    if let error = ConditionalGETStubURLProtocol.lock.withLock(
-      { ConditionalGETStubURLProtocol.errorStubs[key] }) {
-      client?.urlProtocol(self, didFailWithError: error.error)
-      return
     }
     guard let stub = ConditionalGETStubURLProtocol.lock.withLock(
       { ConditionalGETStubURLProtocol.stubs[key] })

@@ -7,6 +7,7 @@
 //   - A 200 with ETag is cached and the second request includes If-None-Match.
 //   - A 304 does not increment the API-call counter.
 //   - Paginated first-page 304 reuses its cached Link header and still requests page two.
+//   - Switching tokens clears all cached entries and stale entries are not resurrected.
 //
 // Uses ConditionalGETStubURLProtocol for URL stubbing (its own static registry,
 // separate from IsolatedStubURLProtocol used by TransportIncrementGuard).
@@ -101,11 +102,13 @@ final class ConditionalGETTransportTests {
       for: url
     )
 
-    let secondResult = await transport.apiAsync("/user")
-    #expect(secondResult != nil)
-    let secondItems = decodeItems(secondResult)
-    #expect(secondItems?.count == 1)
-    #expect(secondItems?[0]["id"] == AnyJSON.string("42"))
+    let secondResult = await transport.execute("/user", timeout: 10, logTag: "test", conditionalGET: true)
+    guard case .success(let returnedData, let statusCode, _) = secondResult else {
+      Issue.record("Expected cached success, got \(secondResult)")
+      return
+    }
+    #expect(statusCode == 200)
+    #expect(returnedData == body)
 
     // Verify the second request included If-None-Match
     let lastReq = ConditionalGETStubURLProtocol.lastRequest()
@@ -235,5 +238,32 @@ final class ConditionalGETTransportTests {
     // Page 1 was 304 (not counted), page 2 was 200 (counted)
     let secondCallCount = await callCounter.recordedCount
     #expect(secondCallCount == firstCallCount + 1)
+  }
+
+  // MARK: - Test 4: Token change clears previous entries
+
+  /// Verifies that switching authentication tokens clears all cached entries.
+  /// A token A entry is stored, token B lookup returns nil, and switching
+  /// back to token A does not resurrect stale entries.
+  @Test func tokenChangeClearsPreviousEntries() async {
+    let cache = ConditionalGETCache()
+
+    let url = "https://api.github.com/user"
+    let entry = ConditionalGETCache.Entry(
+      etag: "\"token-a-etag\"",
+      data: Data("token-a-body".utf8),
+      linkHeader: nil
+    )
+
+    await cache.store(entry, for: url, token: "token-a")
+
+    // Token A can retrieve its own entry.
+    #expect(await cache.entry(for: url, token: "token-a") != nil)
+
+    // Switching to token B clears token A entries.
+    #expect(await cache.entry(for: url, token: "token-b") == nil)
+
+    // Switching back to token A must not resurrect the old entry.
+    #expect(await cache.entry(for: url, token: "token-a") == nil)
   }
 }

@@ -2,28 +2,18 @@
 // GitHubClient
 
 import Foundation
-import os
 
 // MARK: - ConditionalGETCache
 
-/// A thread-safe store for conditional GET (ETag) cache entries.
+/// Transport-owned in-memory cache for conditional GitHub GET requests.
 ///
-/// Each entry is keyed by the fully-resolved URL string combined with the
-/// GitHub token value, so that the same URL under different auth contexts
-/// does not share a cached response.
+/// Entries are keyed by fully resolved request URL. If the authentication
+/// token changes, all entries are discarded before the lookup or write.
 ///
-/// The cache is intentionally small and internal — it is not a general-purpose
-/// HTTP cache, but a targeted optimisation for the GitHub REST API where
-/// conditional GETs (ETag / If-None-Match) reduce quota consumption.
-///
-/// ## Thread safety
-/// Backed by an `OSAllocatedUnfairLock`-guarded dictionary. All reads and
-/// writes are safe for concurrent access from any isolation domain.
-///
-/// ## Sendability
-/// `ConditionalGETCache` is a value type whose stored property is a
-/// `Sendable` lock — the compiler synthesises `Sendable` automatically.
-internal struct ConditionalGETCache: Sendable {
+/// Because `ConditionalGETCache` is an actor, each `GitHubTransport` instance
+/// owns its own cache — copied `GitHubTransport` values still share that
+/// transport's cache because actors are reference types.
+internal actor ConditionalGETCache {
 
     // MARK: - Entry
 
@@ -42,33 +32,48 @@ internal struct ConditionalGETCache: Sendable {
 
     // MARK: - Storage
 
-    /// Lock-guarded backing store. The dictionary key is `"\(urlString)|\(token)"`.
-    private let storage: OSAllocatedUnfairLock<[String: Entry]> = .init(initialState: [:])
+    /// The current token value. When a new token is supplied, all entries
+    /// are discarded before the lookup or write.
+    private var token: String?
+    /// URL-keyed cache entries for the current token.
+    private var entries: [String: Entry] = [:]
 
     // MARK: - Lookup
 
-    /// Returns the cached entry for `urlString` under `token`, or `nil` if
-    /// no entry exists.
+    /// Returns the cached entry for `urlString` under `newToken`, or `nil`
+    /// if no entry exists. If the token has changed since the last call,
+    /// all entries are discarded first.
     ///
     /// - Parameters:
     ///   - urlString: The fully-resolved request URL string.
-    ///   - token: The GitHub PAT used for the request.
+    ///   - newToken: The GitHub PAT used for the request.
     /// - Returns: The cached `Entry`, or `nil`.
-    internal func entry(for urlString: String, token: String) -> Entry? {
-        let key = "\(urlString)|\(token)"
-        return storage.withLock { $0[key] }
+    internal func entry(for urlString: String, token newToken: String) -> Entry? {
+        resetIfTokenChanged(newToken)
+        return entries[urlString]
     }
 
     // MARK: - Store
 
-    /// Stores or replaces the cache entry for `urlString` under `token`.
+    /// Stores or replaces the cache entry for `urlString` under `newToken`.
+    /// If the token has changed since the last call, all entries are
+    /// discarded first.
     ///
     /// - Parameters:
     ///   - entry: The entry to cache.
     ///   - urlString: The fully-resolved request URL string.
-    ///   - token: The GitHub PAT used for the request.
-    internal func store(_ entry: Entry, for urlString: String, token: String) {
-        let key = "\(urlString)|\(token)"
-        storage.withLock { $0[key] = entry }
+    ///   - newToken: The GitHub PAT used for the request.
+    internal func store(_ entry: Entry, for urlString: String, token newToken: String) {
+        resetIfTokenChanged(newToken)
+        entries[urlString] = entry
+    }
+
+    // MARK: - Helpers
+
+    /// Discards all entries when `newToken` differs from the stored token.
+    private func resetIfTokenChanged(_ newToken: String) {
+        guard token != newToken else { return }
+        token = newToken
+        entries.removeAll()
     }
 }
