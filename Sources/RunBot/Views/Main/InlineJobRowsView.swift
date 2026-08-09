@@ -76,22 +76,95 @@ private struct JobRunnerTypeIcon: View {
 }
 
 // MARK: - JobInlineProgress
-/// Compact progress bar shown inside a job row while the job is running.
-/// Fills proportionally to `fractionComplete`; hidden when no progress is available.
+
+/// Compact determinate progress bar shown inside a running job row.
+///
+/// The fill width reports actual progress. A low-contrast sheen travels across
+/// the complete bar to communicate ongoing activity without changing the
+/// reported progress value.
 private struct JobInlineProgress: View {
-    /// Completion fraction in the range 0.0–1.0.
+    /// Completion fraction in the range `0...1`.
     let progress: Double
-    /// Renders a capsule progress bar proportional to `progress`.
+
+    /// Disables the continuous sheen when requested by the user.
+    @Environment(\.accessibilityReduceMotion)
+    private var reduceMotion
+
+    /// Horizontal sheen position as a fraction of the complete bar width.
+    ///
+    /// Begins outside the leading edge and finishes outside the trailing edge
+    /// so the repeating reset is invisible.
+    @State private var sheenPhase: CGFloat = -0.34
+
+    /// Progress clamped to the supported range.
+    private var normalizedProgress: CGFloat {
+        CGFloat(max(0, min(1, progress)))
+    }
+
     var body: some View {
-        GeometryReader { geo in
+        GeometryReader { geometry in
+            let width = geometry.size.width
+
             ZStack(alignment: .leading) {
-                Capsule().fill(Color.rbTextTertiary.opacity(0.22)).frame(height: 3)
-                Capsule()
-                    .fill(Color.rbBlue)
-                    .frame(width: max(3, geo.size.width * CGFloat(progress)), height: 3)
+                track
+                progressFill(width: width)
+
+                if !reduceMotion {
+                    travelingSheen(width: width)
+                }
             }
+            .clipShape(Capsule())
         }
         .frame(height: 3)
+    }
+
+    /// Static unfinished portion of the progress bar.
+    private var track: some View {
+        Capsule()
+            .fill(Color.rbTextTertiary.opacity(0.22))
+            .frame(height: 3)
+    }
+
+    /// Static determinate progress fill.
+    private func progressFill(width: CGFloat) -> some View {
+        Capsule()
+            .fill(Color.rbBlue)
+            .frame(
+                width: max(3, width * normalizedProgress),
+                height: 3
+            )
+    }
+
+    /// Low-contrast highlight moving across the complete progress-bar track.
+    private func travelingSheen(width: CGFloat) -> some View {
+        LinearGradient(
+            stops: [
+                .init(color: Color.white.opacity(0),    location: 0),
+                .init(color: Color.white.opacity(0.10), location: 0.25),
+                .init(color: Color.white.opacity(0.34), location: 0.50),
+                .init(color: Color.white.opacity(0.10), location: 0.75),
+                .init(color: Color.white.opacity(0),    location: 1)
+            ],
+            startPoint: .leading,
+            endPoint: .trailing
+        )
+        .frame(width: width * 0.34, height: 3)
+        .offset(x: width * sheenPhase)
+        .accessibilityHidden(true)
+        .allowsHitTesting(false)
+        .onAppear { startSheen() }
+    }
+
+    /// Starts one complete leading-to-trailing traversal every 2.1 seconds.
+    private func startSheen() {
+        sheenPhase = -0.34
+
+        withAnimation(
+            .linear(duration: 2.1)
+                .repeatForever(autoreverses: false)
+        ) {
+            sheenPhase = 1
+        }
     }
 }
 
