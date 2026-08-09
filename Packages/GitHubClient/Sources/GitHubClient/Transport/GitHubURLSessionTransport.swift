@@ -83,6 +83,10 @@ public struct GitHubTransport: GitHubTransportProtocol {
   /// scoped to the transport's lifetime and cleared when the token changes.
   private let conditionalGETCache = ConditionalGETCache()
 
+  /// Cancellation-safe gate that limits the number of concurrent in-flight
+  /// HTTP requests. Defaults to 4 simultaneous operations.
+  private let requestGate: GitHubRequestGate
+
   // MARK: - Init
 
   /// Creates a `GitHubTransport` with the given dependencies.
@@ -114,7 +118,8 @@ public struct GitHubTransport: GitHubTransportProtocol {
     rateLimiter: some RateLimitActorProtocol = rateLimitActor,
     tokenProvider: (@Sendable () async -> String?)? = nil,
     logger: (any GitHubLogger)? = nil,
-    callCounter: any APICallCounterProtocol = APICallCounter.shared
+    callCounter: any APICallCounterProtocol = APICallCounter.shared,
+    maxConcurrentRequests: Int = 4
   ) {
     self.decoder = decoder
     self.encoder = encoder
@@ -123,6 +128,7 @@ public struct GitHubTransport: GitHubTransportProtocol {
     self.tokenProvider = tokenProvider ?? { nil }
     self.logger = logger
     self.callCounter = callCounter
+    self.requestGate = GitHubRequestGate(limit: maxConcurrentRequests)
   }
 
   // MARK: - Core execution
@@ -192,8 +198,11 @@ public struct GitHubTransport: GitHubTransportProtocol {
     logger?.log(
       "\(logTag) › firing request: \(urlString) raw=\(useRawAccept) cachePolicy=\(req.cachePolicy.rawValue)",
       category: "transport")
+    let request = req  // Capture for @Sendable closure below.
     do {
-      let (data, response) = try await session.data(for: req)
+      let (data, response) = try await requestGate.withPermit {
+        try await session.data(for: request)
+      }
 
       // Handle 304 Not Modified — return cached data without counting the call.
       if let httpResponse = response as? HTTPURLResponse,
