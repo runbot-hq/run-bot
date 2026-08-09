@@ -90,10 +90,6 @@ private struct JobInlineProgress: View {
     @Environment(\.accessibilityReduceMotion)
     private var reduceMotion
 
-    /// Complete sheen traversal from outside the leading edge to outside the
-    /// trailing edge. 0 = fully left of bar, 1 = fully right of bar.
-    @State private var sheenTravel: CGFloat = 0
-
     /// Progress clamped to the supported range.
     private var normalizedProgress: CGFloat {
         CGFloat(max(0, min(1, progress)))
@@ -140,44 +136,37 @@ private struct JobInlineProgress: View {
 
     /// Low-contrast highlight traversing the complete progress-bar track.
     ///
-    /// `sheenTravel = 0`: sheen is fully outside the leading edge.
-    /// `sheenTravel = 1`: sheen is fully outside the trailing edge.
-    /// Travel distance is independent of the current progress value.
+    /// Position is derived from wall-clock time instead of an in-flight SwiftUI
+    /// animation, so panel reload transactions cannot interrupt the traversal.
     private func travelingSheen(width: CGFloat) -> some View {
         let sheenWidth = width * 0.34
+        let duration: TimeInterval = 2.1
 
-        return LinearGradient(
-            colors: [
-                Color.white.opacity(0),
-                Color.white.opacity(0.10),
-                Color.white.opacity(0.34),
-                Color.white.opacity(0.10),
-                Color.white.opacity(0)
-            ],
-            startPoint: .leading,
-            endPoint: .trailing
-        )
-        .frame(width: sheenWidth, height: 3)
-        .offset(x: -sheenWidth + ((width + sheenWidth) * sheenTravel))
-        .accessibilityHidden(true)
-        .allowsHitTesting(false)
-        .onAppear { startSheen() }
-    }
+        return TimelineView(
+            .animation(
+                minimumInterval: 1.0 / 30.0,
+                paused: false
+            )
+        ) { timeline in
+            let elapsed = timeline.date.timeIntervalSinceReferenceDate
+            let cyclePosition = elapsed.truncatingRemainder(dividingBy: duration)
+            let phase = CGFloat(cyclePosition / duration)
 
-    /// Starts one complete leading-to-trailing traversal every 2.1 seconds.
-    ///
-    /// `DispatchQueue.main.async` defers the animation until after the first
-    /// layout pass so `sheenTravel` starts from a resolved initial value.
-    private func startSheen() {
-        sheenTravel = 0
-
-        DispatchQueue.main.async {
-            withAnimation(
-                .linear(duration: 2.1)
-                    .repeatForever(autoreverses: false)
-            ) {
-                sheenTravel = 1
-            }
+            LinearGradient(
+                colors: [
+                    Color.white.opacity(0),
+                    Color.white.opacity(0.10),
+                    Color.white.opacity(0.34),
+                    Color.white.opacity(0.10),
+                    Color.white.opacity(0)
+                ],
+                startPoint: .leading,
+                endPoint: .trailing
+            )
+            .frame(width: sheenWidth, height: 3)
+            .offset(x: -sheenWidth + ((width + sheenWidth) * phase))
+            .accessibilityHidden(true)
+            .allowsHitTesting(false)
         }
     }
 }
