@@ -76,22 +76,107 @@ private struct JobRunnerTypeIcon: View {
 }
 
 // MARK: - JobInlineProgress
-/// Compact progress bar shown inside a job row while the job is running.
-/// Fills proportionally to `fractionComplete`; hidden when no progress is available.
+
+/// Compact determinate progress bar shown inside a running job row.
+///
+/// The fill width reports actual progress. A low-contrast sheen travels across
+/// the complete bar to communicate ongoing activity without changing the
+/// reported progress value.
 private struct JobInlineProgress: View {
-    /// Completion fraction in the range 0.0–1.0.
+    /// Completion fraction in the range `0...1`.
     let progress: Double
-    /// Renders a capsule progress bar proportional to `progress`.
+
+    /// Disables the continuous sheen when requested by the user.
+    @Environment(\.accessibilityReduceMotion)
+    private var reduceMotion
+
+    /// Progress clamped to the supported range.
+    private var normalizedProgress: CGFloat {
+        CGFloat(max(0, min(1, progress)))
+    }
+
+    /// Lays out the track, fill, and optional sheen inside a clipped capsule.
+    ///
+    /// `barWidth` pins the track and ZStack to the full measured width.
+    /// `progressWidth` is passed separately so the sheen can use `barWidth`
+    /// for its brightness profile while clipping to `progressWidth`.
     var body: some View {
-        GeometryReader { geo in
+        GeometryReader { geometry in
+            let barWidth = geometry.size.width
+            let progressWidth = max(3, barWidth * normalizedProgress)
+
             ZStack(alignment: .leading) {
-                Capsule().fill(Color.rbTextTertiary.opacity(0.22)).frame(height: 3)
-                Capsule()
-                    .fill(Color.rbBlue)
-                    .frame(width: max(3, geo.size.width * CGFloat(progress)), height: 3)
+                track(width: barWidth)
+                progressFill(width: progressWidth)
+
+                if !reduceMotion {
+                    travelingSheen(
+                        barWidth: barWidth,
+                        progressWidth: progressWidth
+                    )
+                }
             }
+            .frame(width: barWidth, height: 3, alignment: .leading)
+            .clipShape(Capsule())
         }
         .frame(height: 3)
+    }
+
+    /// Static unfinished portion of the progress bar, pinned to the full bar width.
+    private func track(width: CGFloat) -> some View {
+        Capsule()
+            .fill(Color.rbTextTertiary.opacity(0.22))
+            .frame(width: width, height: 3)
+    }
+
+    /// Static determinate progress fill.
+    private func progressFill(width: CGFloat) -> some View {
+        Capsule()
+            .fill(Color.rbBlue)
+            .frame(width: width, height: 3)
+    }
+
+    /// Full-sized sheen profile traveling only through the completed segment.
+    ///
+    /// `barWidth` controls the sheen's width and brightness distribution so the
+    /// gradient stays equally broad at any progress value. `progressWidth`
+    /// controls the travel endpoint and clipping boundary so the sheen never
+    /// enters the unfinished track.
+    private func travelingSheen(
+        barWidth: CGFloat,
+        progressWidth: CGFloat
+    ) -> some View {
+        let sheenWidth = barWidth * 0.34
+        let duration: TimeInterval = 2.1
+
+        return TimelineView(
+            .animation(
+                minimumInterval: 1.0 / 30.0,
+                paused: false
+            )
+        ) { timeline in
+            let elapsed = timeline.date.timeIntervalSinceReferenceDate
+            let cyclePosition = elapsed.truncatingRemainder(dividingBy: duration)
+            let phase = CGFloat(cyclePosition / duration)
+
+            LinearGradient(
+                colors: [
+                    Color.white.opacity(0),
+                    Color.white.opacity(0.10),
+                    Color.white.opacity(0.34),
+                    Color.white.opacity(0.10),
+                    Color.white.opacity(0)
+                ],
+                startPoint: .leading,
+                endPoint: .trailing
+            )
+            .frame(width: sheenWidth, height: 3)
+            .offset(x: -sheenWidth + ((progressWidth + sheenWidth) * phase))
+        }
+        .frame(width: progressWidth, height: 3, alignment: .leading)
+        .clipShape(Capsule())
+        .accessibilityHidden(true)
+        .allowsHitTesting(false)
     }
 }
 

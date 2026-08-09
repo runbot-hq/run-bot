@@ -65,23 +65,61 @@ extension AddRunnerSheet {
             }
         }
 
-        labeledField("Runner name", placeholder: "e.g. my-mac-runner", text: $runnerName)
         labeledField(
             "Labels (comma-separated)",
             placeholder: "e.g. self-hosted,macOS,arm64",
             text: $labelsText
         )
+        labeledField("Runner name", placeholder: "e.g. my-mac-runner", text: $runnerName)
 
         VStack(alignment: .leading, spacing: 4) {
-            Text("Runner install directory").font(.caption).foregroundColor(Color.rbTextSecondary)
-            TextField("", text: $installDir)
-                .textFieldStyle(.roundedBorder)
-                .font(.system(size: 11, design: .monospaced))
-            Text(
-                "Each runner needs its own unique folder. Use the runner name as the last path component, e.g. ~/actions-runner/my-runner."
-            )
-            .font(.caption2)
-            .foregroundColor(.secondary)
+            Text("Runner parent directory").font(.caption).foregroundStyle(Color.rbTextSecondary)
+            HStack(spacing: RBSpacing.sm) {
+                TextField("", text: $installDir)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(size: 11, design: .monospaced))
+                    .layoutPriority(1)
+                    .accessibilityLabel("Runner parent directory")
+                Button("Choose…") {
+                    chooseNewRunnerParentDirectory()
+                }
+                .fixedSize()
+                .disabled(isRegistering)
+                .accessibilityLabel("Choose runner parent directory")
+            }
+            Text("RunBot creates a runner folder with the runner name inside this directory.")
+                .font(.caption2)
+                .foregroundStyle(Color.rbTextSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+
+        // MARK: Final path preview
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Final runner path").font(.caption).foregroundStyle(Color.rbTextSecondary)
+            if let finalPath = finalInstallPath {
+                Text(finalPath)
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(Color.rbTextPrimary)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .textSelection(.enabled)
+                    .accessibilityLabel("Final runner path")
+                    .accessibilityValue(finalPath)
+            } else if !trimmedRunnerName.isEmpty && !runnerNameIsValidPathComponent {
+                Text("Runner name must be a single folder name and cannot contain \"/\".")
+                    .font(.caption2)
+                    .foregroundStyle(Color.rbDanger)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                Text("Enter a runner name to preview the final path.")
+                    .font(.caption2)
+                    .foregroundStyle(Color.rbTextSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
             if dirAlreadyConfigured {
                 Label(
                     "This folder already has a runner configured. Choose a different path.",
@@ -145,10 +183,15 @@ extension AddRunnerSheet {
                 HStack(spacing: 8) {
                     Text(existingDir.isEmpty ? "No folder selected" : existingDir)
                         .font(.system(size: 11, design: .monospaced))
-                        .foregroundColor(existingDir.isEmpty ? .secondary : .primary)
-                        .lineLimit(1)
-                        .truncationMode(.head)
+                        .foregroundStyle(
+                            existingDir.isEmpty
+                                ? Color.rbTextSecondary
+                                : Color.rbTextPrimary
+                        )
+                        .multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
                         .frame(maxWidth: .infinity, alignment: .leading)
+                        .textSelection(.enabled)
                     Button {
                         pickExistingFolder()
                     } label: {
@@ -229,13 +272,19 @@ extension AddRunnerSheet {
                 HStack {
                     Text(selection.isEmpty ? "— select —" : selection)
                         .font(.system(size: 12))
-                        .foregroundColor(selection.isEmpty ? .secondary : .primary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
+                        .foregroundStyle(
+                            selection.isEmpty
+                                ? Color.rbTextSecondary
+                                : Color.rbTextPrimary
+                        )
+                        .multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
                         .frame(maxWidth: .infinity, alignment: .leading)
+                        .layoutPriority(1)
                     Image(systemName: "chevron.up.chevron.down")
                         .font(.system(size: 10))
                         .foregroundColor(.secondary)
+                        .fixedSize()
                 }
                 .padding(.horizontal, 8)
                 .padding(.vertical, 6)
@@ -281,6 +330,26 @@ extension AddRunnerSheet {
                     RoundedRectangle(cornerRadius: 5)
                         .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
                 )
+        }
+    }
+
+    // MARK: - Actions (Add new)
+
+    /// Opens a sheet-safe directory picker for the new runner's parent directory.
+    ///
+    /// Mirrors `pickExistingFolder()` so that `overlayGate` is armed before the
+    /// panel opens — preventing the outside-click monitor from dismissing the sheet.
+    /// On confirmation, writes the chosen URL to `installDir` (the parent directory).
+    /// Does not call `resetExistingState()` or treat the folder as an existing runner.
+    func chooseNewRunnerParentDirectory() {
+        log("AddRunnerSheet › chooseNewRunnerParentDirectory — opening via mbkOpenFilePicker")
+        mbkOpenFilePicker(
+            overlayGate: overlayGate,
+            message: "Select the parent directory for the new runner"
+        ) { url in
+            log("AddRunnerSheet › chooseNewRunnerParentDirectory — picker closed url=\(String(describing: url))")
+            guard let url else { return }
+            installDir = url.standardizedFileURL.path
         }
     }
 

@@ -13,20 +13,45 @@ extension AddRunnerSheet {
     /// or the selected organisation name when org-scoped.
     var effectiveScope: String { scopeType == .repo ? selectedRepo : selectedOrg }
 
-    /// Returns `true` when the chosen install directory already contains a `.runner` file,
+    /// Returns `true` when the runner name is a valid single path component.
+    ///
+    /// A valid component is non-empty, is not `.` or `..`, and contains no `/`.
+    var runnerNameIsValidPathComponent: Bool {
+        let name = trimmedRunnerName
+        guard !name.isEmpty else { return false }
+        guard name != ".", name != ".." else { return false }
+        return !name.contains("/")
+    }
+
+    /// Final filesystem path for the new runner.
+    ///
+    /// Combines the selected parent directory with the trimmed runner name.
+    /// Returns `nil` until both values are valid.
+    var finalInstallPath: String? {
+        let parent = installDir.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !parent.isEmpty, runnerNameIsValidPathComponent else { return nil }
+        return URL(fileURLWithPath: parent, isDirectory: true)
+            .appendingPathComponent(trimmedRunnerName, isDirectory: true)
+            .standardizedFileURL
+            .path
+    }
+
+    /// Returns `true` when the derived final runner path already contains a `.runner` file,
     /// preventing accidental double-registration of the same path.
     var dirAlreadyConfigured: Bool {
-        let dir = installDir.trimmingCharacters(in: .whitespaces)
-        guard !dir.isEmpty else { return false }
+        guard let finalPath = finalInstallPath else { return false }
         return FileManager.default.fileExists(
-            atPath: URL(fileURLWithPath: dir).appendingPathComponent(".runner").path
+            atPath: URL(fileURLWithPath: finalPath, isDirectory: true)
+                .appendingPathComponent(".runner").path
         )
     }
 
-    /// Guards the Register button: requires a non-empty runner name, a selected scope,
-    /// and an install directory that has not already been configured.
+    /// Guards the Register button: requires a valid runner name, a valid final path,
+    /// a selected scope, and a directory that has not already been configured.
     var canRegister: Bool {
-        !runnerName.trimmingCharacters(in: .whitespaces).isEmpty
+        !trimmedRunnerName.isEmpty
+            && runnerNameIsValidPathComponent
+            && finalInstallPath != nil
             && !effectiveScope.isEmpty
             && !dirAlreadyConfigured
     }
