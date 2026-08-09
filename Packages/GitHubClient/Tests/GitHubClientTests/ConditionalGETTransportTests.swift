@@ -8,10 +8,10 @@
 //   - A 304 does not increment the API-call counter.
 //   - Paginated first-page 304 reuses its cached Link header and still requests page two.
 //
-// Uses IsolatedStubURLProtocol for URL stubbing (separate registry from
-// GitHubTransportPaginatedTests) and MockAPICallCounter for call-count assertions.
+// Uses ConditionalGETStubURLProtocol for URL stubbing (its own static registry,
+// separate from IsolatedStubURLProtocol used by TransportIncrementGuard).
 //
-// @Suite(.serialized) is required because IsolatedStubURLProtocol.reset() mutates
+// @Suite(.serialized) is required because ConditionalGETStubURLProtocol.reset() mutates
 // the shared static stub registry. Without serialization, concurrent test runs
 // would race on that registry.
 //
@@ -36,28 +36,29 @@ private func decodeItems(_ data: Data?) -> [[String: AnyJSON]]? {
 
 /// Test suite for conditional GET (ETag) caching in the transport layer.
 ///
-/// Uses `IsolatedStubURLProtocol` for URL stubbing (separate registry from
-/// `GitHubTransportPaginatedTests`) and `MockAPICallCounter` for call-count assertions.
+/// Uses `ConditionalGETStubURLProtocol` for URL stubbing (its own static registry,
+/// separate from `IsolatedStubURLProtocol` used by `TransportIncrementGuard`).
+/// and `MockAPICallCounter` for call-count assertions.
 ///
-/// - Note: `.serialized` is required because `IsolatedStubURLProtocol.reset()` mutates
-///   the shared static stub registry. Without serialization, concurrent test runs
-///   would race on that registry.
+/// - Note: `.serialized` is required because `ConditionalGETStubURLProtocol.reset()` mutates
+/// the shared static stub registry. Without serialization, concurrent test runs
+/// would race on that registry.
 @Suite(.serialized)
 final class ConditionalGETTransportTests {
 
-  /// Private `URLSession` configured with `IsolatedStubURLProtocol` for stubbing.
+  /// Private `URLSession` configured with `ConditionalGETStubURLProtocol` for stubbing.
   private let session: URLSession
 
-  /// Creates a fresh `URLSession` with `IsolatedStubURLProtocol` and resets the stub registry.
+  /// Creates a fresh `URLSession` with `ConditionalGETStubURLProtocol` and resets the stub registry.
   init() {
     let config = URLSessionConfiguration.ephemeral
-    config.protocolClasses = [IsolatedStubURLProtocol.self]
+    config.protocolClasses = [ConditionalGETStubURLProtocol.self]
     session = URLSession(configuration: config)
-    IsolatedStubURLProtocol.reset()
+    ConditionalGETStubURLProtocol.reset()
   }
 
   deinit {
-    IsolatedStubURLProtocol.reset()
+    ConditionalGETStubURLProtocol.reset()
   }
 
   // MARK: - Test 1: 200 with ETag followed by 304
@@ -66,15 +67,15 @@ final class ConditionalGETTransportTests {
   /// request returns 304, the second request includes `If-None-Match` and the caller
   /// receives the original body from the first response.
   @Test func etag200Then304ReturnsCachedBody() async {
-    IsolatedStubURLProtocol.reset()
-    IsolatedStubURLProtocol.resetLastRequest()
+    ConditionalGETStubURLProtocol.reset()
+    ConditionalGETStubURLProtocol.resetLastRequest()
 
     let url = "\(apiBase)user"
     let body = jsonPage([["id": "42", "name": "e_tag_test"]])
     let etag = "\"abc123\""
 
     // First request: 200 with ETag
-    IsolatedStubURLProtocol.register(
+    ConditionalGETStubURLProtocol.register(
       .init(data: body, statusCode: 200, headers: ["ETag": etag]),
       for: url
     )
@@ -94,8 +95,8 @@ final class ConditionalGETTransportTests {
     #expect(items?[0]["id"] == AnyJSON.string("42"))
 
     // Second request: 304 Not Modified
-    IsolatedStubURLProtocol.reset()
-    IsolatedStubURLProtocol.register(
+    ConditionalGETStubURLProtocol.reset()
+    ConditionalGETStubURLProtocol.register(
       .init(data: Data(), statusCode: 304, headers: [:]),
       for: url
     )
@@ -107,7 +108,7 @@ final class ConditionalGETTransportTests {
     #expect(secondItems?[0]["id"] == AnyJSON.string("42"))
 
     // Verify the second request included If-None-Match
-    let lastReq = IsolatedStubURLProtocol.lastRequest()
+    let lastReq = ConditionalGETStubURLProtocol.lastRequest()
     #expect(lastReq?.headers["If-None-Match"] == etag)
   }
 // MARK: - Test 2: 304 does not increment the API-call counter
@@ -115,15 +116,15 @@ final class ConditionalGETTransportTests {
   /// Verifies that a 304 response does NOT increment the API-call counter,
   /// while the initial 200 response does.
   @Test func etag200Then304DoesNotIncrementCallCounter() async {
-    IsolatedStubURLProtocol.reset()
-    IsolatedStubURLProtocol.resetLastRequest()
+    ConditionalGETStubURLProtocol.reset()
+    ConditionalGETStubURLProtocol.resetLastRequest()
 
     let url = "\(apiBase)user"
     let body = jsonPage([["id": "1", "name": "counter-test"]])
     let etag = "\"xyz789\""
 
     // First request: 200 with ETag
-    IsolatedStubURLProtocol.register(
+    ConditionalGETStubURLProtocol.register(
       .init(data: body, statusCode: 200, headers: ["ETag": etag]),
       for: url
     )
@@ -141,8 +142,8 @@ final class ConditionalGETTransportTests {
     #expect(await callCounter.recordedCount == 1)
 
     // Second request: 304 Not Modified
-    IsolatedStubURLProtocol.reset()
-    IsolatedStubURLProtocol.register(
+    ConditionalGETStubURLProtocol.reset()
+    ConditionalGETStubURLProtocol.register(
       .init(data: Data(), statusCode: 304, headers: [:]),
       for: url
     )
@@ -162,15 +163,15 @@ final class ConditionalGETTransportTests {
   /// This guards the specific correctness hole from PR #2652 where a 304 returned
   /// `.advance(next: nil)` — truncating a multi-page response after its first page.
   @Test func paginatedFirstPage304ReusesCachedLinkHeader() async {
-    IsolatedStubURLProtocol.reset()
-    IsolatedStubURLProtocol.resetLastRequest()
+    ConditionalGETStubURLProtocol.reset()
+    ConditionalGETStubURLProtocol.resetLastRequest()
 
     let page1URL = "\(apiBase)orgs/test/actions/runners"
     let page2URL = "\(apiBase)orgs/test/actions/runners?page=2"
     let etag = "\"page1-etag\""
 
     // Page 1: 200 with ETag + Link header pointing to page 2
-    IsolatedStubURLProtocol.register(
+    ConditionalGETStubURLProtocol.register(
       .init(
         data: jsonPage([["id": "1", "name": "runner-a"]]),
         statusCode: 200,
@@ -180,7 +181,7 @@ final class ConditionalGETTransportTests {
     )
 
     // Page 2: 200 with a different item
-    IsolatedStubURLProtocol.register(
+    ConditionalGETStubURLProtocol.register(
       .init(
         data: jsonPage([["id": "2", "name": "runner-b"]]),
         statusCode: 200,
@@ -207,12 +208,12 @@ final class ConditionalGETTransportTests {
     #expect(firstCallCount == 2) // 2 pages = 2 calls
 
     // Now re-stub: page 1 returns 304, page 2 still returns 200
-    IsolatedStubURLProtocol.reset()
-    IsolatedStubURLProtocol.register(
+    ConditionalGETStubURLProtocol.reset()
+    ConditionalGETStubURLProtocol.register(
       .init(data: Data(), statusCode: 304, headers: [:]),
       for: page1URL
     )
-    IsolatedStubURLProtocol.register(
+    ConditionalGETStubURLProtocol.register(
       .init(
         data: jsonPage([["id": "3", "name": "runner-c"]]),
         statusCode: 200,
