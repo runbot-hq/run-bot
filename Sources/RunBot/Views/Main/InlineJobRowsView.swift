@@ -101,6 +101,7 @@ private struct JobInlineProgress: View {
         CGFloat(max(0, min(1, progress)))
     }
 
+    /// Lays out the track, fill, and optional sheen inside a clipped capsule.
     var body: some View {
         GeometryReader { geometry in
             let width = geometry.size.width
@@ -139,11 +140,11 @@ private struct JobInlineProgress: View {
     private func travelingSheen(width: CGFloat) -> some View {
         LinearGradient(
             stops: [
-                .init(color: Color.white.opacity(0),    location: 0),
+                .init(color: Color.white.opacity(0), location: 0),
                 .init(color: Color.white.opacity(0.10), location: 0.25),
                 .init(color: Color.white.opacity(0.34), location: 0.50),
                 .init(color: Color.white.opacity(0.10), location: 0.75),
-                .init(color: Color.white.opacity(0),    location: 1)
+                .init(color: Color.white.opacity(0), location: 1)
             ],
             startPoint: .leading,
             endPoint: .trailing
