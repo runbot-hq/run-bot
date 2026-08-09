@@ -132,7 +132,7 @@ struct PanelLocalRunnerRow: View {
     ///     StatusBadge in ActionRowView.metaTrailing.
     private func runnerCard(_ runner: RunnerModel) -> some View {
         HStack(spacing: 8) {
-            Circle().fill(Color.rbWarning).frame(width: 7, height: 7)
+            RunnerActivityDot()
             HStack(spacing: 4) {
                 Text(runner.runnerName)
                     .font(RBFont.label)
@@ -192,6 +192,70 @@ struct PanelLocalRunnerRow: View {
         if lower.hasPrefix("linux") { return "Linux" }
         if lower.hasPrefix("win") { return "Windows" }
         return raw
+    }
+}
+
+// MARK: - RunnerActivityDot
+
+/// Amber activity indicator shown beside an active local runner.
+///
+/// The foreground dot remains static. When Reduce Motion is disabled, a
+/// dedicated child view renders a breathing amber halo behind the dot.
+private struct RunnerActivityDot: View {
+    /// Removes the pulsing halo when requested by the user.
+    @Environment(\.accessibilityReduceMotion)
+    private var reduceMotion
+
+    /// Layers the optional halo beneath the solid foreground dot.
+    var body: some View {
+        ZStack {
+            if !reduceMotion {
+                RunnerActivityHalo()
+            }
+
+            Circle()
+                .fill(Color.rbWarning)
+                .frame(width: 7, height: 7)
+        }
+        .frame(width: 7, height: 7)
+        .accessibilityHidden(true)
+        .allowsHitTesting(false)
+    }
+}
+
+/// Animated halo rendered behind the local-runner activity dot.
+///
+/// Animation state is isolated in this conditional child view. Enabling Reduce
+/// Motion removes the child and destroys its repeating animation.
+private struct RunnerActivityHalo: View {
+    /// Current halo opacity.
+    @State private var glowOpacity = 0.15
+
+    /// Current halo scale relative to the 7 pt foreground dot.
+    @State private var glowScale = 1.0
+
+    /// Renders the blurred, scaling amber halo.
+    var body: some View {
+        Circle()
+            .fill(Color.rbWarning.opacity(glowOpacity))
+            .frame(width: 7, height: 7)
+            .blur(radius: 2)
+            .scaleEffect(glowScale)
+            .onAppear { startAnimation() }
+    }
+
+    /// Starts a continuous ease-in-out breathing pulse.
+    private func startAnimation() {
+        glowOpacity = 0.15
+        glowScale = 1
+
+        withAnimation(
+            .easeInOut(duration: 1.2)
+                .repeatForever(autoreverses: true)
+        ) {
+            glowOpacity = 0.45
+            glowScale = 1.8
+        }
     }
 }
 
