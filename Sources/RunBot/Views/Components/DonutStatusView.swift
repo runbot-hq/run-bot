@@ -169,7 +169,7 @@ private struct PhantomSweepRing: View {
                 .init(color: Color.rbBlue.opacity(0.06), location: 0.00),
                 .init(color: Color.rbBlue.opacity(0.10), location: 0.55),
                 .init(color: Color.rbBlue.opacity(0.32), location: 0.78),
-                .init(color: Color.rbBlue,               location: 0.94),
+                .init(color: Color.rbBlue, location: 0.94),
                 .init(color: Color.rbBlue.opacity(0.06), location: 1.00)
             ],
             center: .center
