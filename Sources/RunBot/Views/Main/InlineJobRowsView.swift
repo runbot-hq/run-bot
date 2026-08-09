@@ -100,28 +100,32 @@ private struct JobInlineProgress: View {
     }
 
     /// Lays out the track, fill, and optional sheen inside a clipped capsule.
+    ///
+    /// The ZStack is explicitly constrained to the full GeometryReader width so
+    /// `.clipShape(Capsule())` covers the complete bar, not just the fill width.
     var body: some View {
         GeometryReader { geometry in
             let width = geometry.size.width
 
             ZStack(alignment: .leading) {
-                track
+                track(width: width)
                 progressFill(width: width)
 
                 if !reduceMotion {
                     travelingSheen(width: width)
                 }
             }
+            .frame(width: width, height: 3, alignment: .leading)
             .clipShape(Capsule())
         }
         .frame(height: 3)
     }
 
-    /// Static unfinished portion of the progress bar.
-    private var track: some View {
+    /// Static unfinished portion of the progress bar, pinned to the full bar width.
+    private func track(width: CGFloat) -> some View {
         Capsule()
             .fill(Color.rbTextTertiary.opacity(0.22))
-            .frame(height: 3)
+            .frame(width: width, height: 3)
     }
 
     /// Static determinate progress fill.
