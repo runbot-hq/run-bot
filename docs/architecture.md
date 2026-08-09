@@ -292,7 +292,7 @@ The public key is stored as a compile-time constant in `Secrets.swift` (not in `
 
 - ❌ NEVER call `checkAndHandle` or `installAndRelaunch` from anywhere other than `AppDelegate` and the update UI respectively.
 - ❌ NEVER store the Ed25519 public key in `UserDefaults`, a plist, or any on-disk file — binary only.
-- ❌ NEVER change `schedulerIdentifier` without also migrating the on-disk cache path (`~/Library/Caches/<id>/update.zip`).
+- ❌ NEVER change `schedulerIdentifier` without also migrating the on-disk cache path (`~/Library/Application\ Support/RunBot/ZIPCache<id>.zip`).
 - ❌ NEVER call `fixedZipURL` more than once per operation — snapshot into a local `let` instead.
 
 ---
