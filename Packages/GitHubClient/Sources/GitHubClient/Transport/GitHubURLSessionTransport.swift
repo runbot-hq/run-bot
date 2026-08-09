@@ -202,7 +202,7 @@ public struct GitHubTransport: GitHubTransportProtocol {
          let http = response as? HTTPURLResponse,
          let etag = http.value(forHTTPHeaderField: "ETag"),
          let cache = etagCache {
-        await cache.store(url: urlString, etag: etag,  body)
+        await cache.store(url: urlString, etag: etag, data: body)
       }
       return result
     } catch {

@@ -37,7 +37,7 @@ public actor ETagCache {
 
   private struct Entry {
     let etag: String
-    let  Data
+    let data: Data
   }
 
   private var store: [String: Entry] = [:]
@@ -62,7 +62,7 @@ public actor ETagCache {
 
   /// Stores or replaces the (etag, data) pair for url.
   public func store(url: String, etag: String,  Data) {
-    store[url] = Entry(etag: etag,  data)
+    store[url] = Entry(etag: etag, data: data)
   }
 
   /// Removes the cache entry for url, if any.
