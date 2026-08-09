@@ -90,11 +90,9 @@ private struct JobInlineProgress: View {
     @Environment(\.accessibilityReduceMotion)
     private var reduceMotion
 
-    /// Horizontal sheen position as a fraction of the complete bar width.
-    ///
-    /// Begins outside the leading edge and finishes outside the trailing edge
-    /// so the repeating reset is invisible.
-    @State private var sheenPhase: CGFloat = -0.34
+    /// Complete sheen traversal from outside the leading edge to outside the
+    /// trailing edge. 0 = fully left of bar, 1 = fully right of bar.
+    @State private var sheenTravel: CGFloat = 0
 
     /// Progress clamped to the supported range.
     private var normalizedProgress: CGFloat {
@@ -136,35 +134,46 @@ private struct JobInlineProgress: View {
             )
     }
 
-    /// Low-contrast highlight moving across the complete progress-bar track.
+    /// Low-contrast highlight traversing the complete progress-bar track.
+    ///
+    /// `sheenTravel = 0`: sheen is fully outside the leading edge.
+    /// `sheenTravel = 1`: sheen is fully outside the trailing edge.
+    /// Travel distance is independent of the current progress value.
     private func travelingSheen(width: CGFloat) -> some View {
-        LinearGradient(
-            stops: [
-                .init(color: Color.white.opacity(0), location: 0),
-                .init(color: Color.white.opacity(0.10), location: 0.25),
-                .init(color: Color.white.opacity(0.34), location: 0.50),
-                .init(color: Color.white.opacity(0.10), location: 0.75),
-                .init(color: Color.white.opacity(0), location: 1)
+        let sheenWidth = width * 0.34
+
+        return LinearGradient(
+            colors: [
+                Color.white.opacity(0),
+                Color.white.opacity(0.10),
+                Color.white.opacity(0.34),
+                Color.white.opacity(0.10),
+                Color.white.opacity(0)
             ],
             startPoint: .leading,
             endPoint: .trailing
         )
-        .frame(width: width * 0.34, height: 3)
-        .offset(x: width * sheenPhase)
+        .frame(width: sheenWidth, height: 3)
+        .offset(x: -sheenWidth + ((width + sheenWidth) * sheenTravel))
         .accessibilityHidden(true)
         .allowsHitTesting(false)
         .onAppear { startSheen() }
     }
 
     /// Starts one complete leading-to-trailing traversal every 2.1 seconds.
+    ///
+    /// `DispatchQueue.main.async` defers the animation until after the first
+    /// layout pass so `sheenTravel` starts from a resolved initial value.
     private func startSheen() {
-        sheenPhase = -0.34
+        sheenTravel = 0
 
-        withAnimation(
-            .linear(duration: 2.1)
-                .repeatForever(autoreverses: false)
-        ) {
-            sheenPhase = 1
+        DispatchQueue.main.async {
+            withAnimation(
+                .linear(duration: 2.1)
+                    .repeatForever(autoreverses: false)
+            ) {
+                sheenTravel = 1
+            }
         }
     }
 }
