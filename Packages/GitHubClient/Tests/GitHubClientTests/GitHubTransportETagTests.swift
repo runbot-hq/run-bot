@@ -132,7 +132,7 @@ final class GitHubTransportETagTests {
 /// A URLProtocol that records the last `URLRequest` received for each URL,
 /// then serves a pre-registered stub response. Used to assert outgoing headers.
 final class CapturingURLProtocol: URLProtocol, @unchecked Sendable {
-  struct Stub { let  Data; let statusCode: Int; let headers: [String: String] }
+  struct Stub { let data: Data; let statusCode: Int; let headers: [String: String] }
 
   private static let lock = NSLock()
   nonisolated(unsafe) private static var stubs: [String: Stub] = [:]

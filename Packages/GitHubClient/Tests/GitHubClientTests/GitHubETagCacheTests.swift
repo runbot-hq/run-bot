@@ -36,7 +36,7 @@ struct GitHubETagCacheTests {
   func store_thenEtag_returnsStoredValue() async {
     let cache = ETagCache()
     let url = "https://api.github.com/repos/owner/repo/actions/runs"
-    await cache.store(url: url, etag: "\"abc123\"",  Data("[]".utf8))
+    await cache.store(url: url, etag: "\"abc123\"", data: Data("[]".utf8))
     #expect(await cache.etag(for: url) == "\"abc123\"")
   }
 
@@ -46,7 +46,7 @@ struct GitHubETagCacheTests {
     let cache = ETagCache()
     let url = "https://api.github.com/repos/owner/repo/actions/runs"
     let body = Data("[{\"id\":1}]".utf8)
-    await cache.store(url: url, etag: "\"abc123\"",  body)
+    await cache.store(url: url, etag: "\"abc123\"", data: body)
     #expect(await cache.data(for: url) == body)
   }
 
@@ -57,8 +57,8 @@ struct GitHubETagCacheTests {
   func store_twice_overwritesPrevious() async {
     let cache = ETagCache()
     let url = "https://api.github.com/repos/owner/repo/actions/runs"
-    await cache.store(url: url, etag: "\"v1\"",  Data("old".utf8))
-    await cache.store(url: url, etag: "\"v2\"",  Data("new".utf8))
+    await cache.store(url: url, etag: "\"v1\"", data: Data("old".utf8))
+    await cache.store(url: url, etag: "\"v2\"", data: Data("new".utf8))
     #expect(await cache.etag(for: url) == "\"v2\"")
     #expect(await cache.data(for: url) == Data("new".utf8))
   }
@@ -70,7 +70,7 @@ struct GitHubETagCacheTests {
   func remove_clearsEntry() async {
     let cache = ETagCache()
     let url = "https://api.github.com/repos/owner/repo"
-    await cache.store(url: url, etag: "\"x\"",  Data("x".utf8))
+    await cache.store(url: url, etag: "\"x\"", data: Data("x".utf8))
     await cache.remove(url: url)
     #expect(await cache.etag(for: url) == nil)
     #expect(await cache.data(for: url) == nil)
@@ -82,8 +82,8 @@ struct GitHubETagCacheTests {
   @Test
   func removeAll_clearsAllEntries() async {
     let cache = ETagCache()
-    await cache.store(url: "https://a.com", etag: "\"1\"",  Data("a".utf8))
-    await cache.store(url: "https://b.com", etag: "\"2\"",  Data("b".utf8))
+    await cache.store(url: "https://a.com", etag: "\"1\"", data: Data("a".utf8))
+    await cache.store(url: "https://b.com", etag: "\"2\"", data: Data("b".utf8))
     await cache.removeAll()
     #expect(await cache.count == 0)
   }
@@ -95,9 +95,9 @@ struct GitHubETagCacheTests {
   func count_reflectsStoreCount() async {
     let cache = ETagCache()
     #expect(await cache.count == 0)
-    await cache.store(url: "https://a.com", etag: "\"1\"",  Data())
+    await cache.store(url: "https://a.com", etag: "\"1\"", data: Data())
     #expect(await cache.count == 1)
-    await cache.store(url: "https://b.com", etag: "\"2\"",  Data())
+    await cache.store(url: "https://b.com", etag: "\"2\"", data: Data())
     #expect(await cache.count == 2)
   }
 
@@ -105,8 +105,8 @@ struct GitHubETagCacheTests {
   @Test
   func count_sameURL_doesNotGrowBeyondOne() async {
     let cache = ETagCache()
-    await cache.store(url: "https://a.com", etag: "\"1\"",  Data())
-    await cache.store(url: "https://a.com", etag: "\"2\"",  Data())
+    await cache.store(url: "https://a.com", etag: "\"1\"", data: Data())
+    await cache.store(url: "https://a.com", etag: "\"2\"", data: Data())
     #expect(await cache.count == 1)
   }
 
@@ -116,7 +116,7 @@ struct GitHubETagCacheTests {
   @Test
   func isolatedInstance_doesNotAffectShared() async {
     let isolated = ETagCache()
-    await isolated.store(url: "https://isolated-test-url.example.com", etag: "\"z\"",  Data())
+    await isolated.store(url: "https://isolated-test-url.example.com", etag: "\"z\"", data: Data())
     let sharedHasIt = await ETagCache.shared.etag(for: "https://isolated-test-url.example.com")
     #expect(sharedHasIt == nil)
   }
