@@ -88,6 +88,10 @@ public struct GitHubTransport: GitHubTransportProtocol {
   private let requestGate: GitHubRequestGate
 
   // MARK: - Init
+/// Endpoint diagnostics counter for completed HTTP responses.
+  /// Counts every completed round-trip including 200, 304, 403, and 429.
+  /// Reset with each `report()` call.
+  private let endpointCounter: GitHubEndpointCounter
 
   /// Creates a `GitHubTransport` with the given dependencies.
   ///
@@ -129,6 +133,33 @@ public struct GitHubTransport: GitHubTransportProtocol {
     self.logger = logger
     self.callCounter = callCounter
     self.requestGate = GitHubRequestGate(limit: maxConcurrentRequests)
+    self.endpointCounter = GitHubEndpointCounter()
+  }
+
+  /// Internal init with endpoint counter injection for testing.
+  ///
+  /// - Note: Not public because `GitHubEndpointCounter` is internal. Tests in the
+  ///   same module can use this to inject a test-doubled counter.
+  internal init(
+    decoder: JSONDecoder = JSONDecoder(),
+    encoder: JSONEncoder = JSONEncoder(),
+    session: URLSession = .shared,
+    rateLimiter: some RateLimitActorProtocol = rateLimitActor,
+    tokenProvider: (@Sendable () async -> String?)? = nil,
+    logger: (any GitHubLogger)? = nil,
+    callCounter: any APICallCounterProtocol = APICallCounter.shared,
+    maxConcurrentRequests: Int = 4,
+    endpointCounter: GitHubEndpointCounter
+  ) {
+    self.decoder = decoder
+    self.encoder = encoder
+    self.session = session
+    self.rateLimiter = rateLimiter
+    self.tokenProvider = tokenProvider ?? { nil }
+    self.logger = logger
+    self.callCounter = callCounter
+    self.requestGate = GitHubRequestGate(limit: maxConcurrentRequests)
+    self.endpointCounter = endpointCounter
   }
 
   // MARK: - Core execution
@@ -202,6 +233,13 @@ public struct GitHubTransport: GitHubTransportProtocol {
     do {
       let (data, response) = try await requestGate.withPermit {
         try await session.data(for: request)
+      }
+
+      // Record endpoint diagnostics for every completed HTTP round-trip,
+      // including 304, 403, and 429. This must happen before branching on
+      // status code so that all completed responses are represented.
+      if let httpResponse = response as? HTTPURLResponse {
+        await endpointCounter.record(url: urlString, statusCode: httpResponse.statusCode)
       }
 
       // Handle 304 Not Modified — return cached data without counting the call.
