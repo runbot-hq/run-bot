@@ -146,6 +146,13 @@ struct PollIntervalStrategyTests {
 
   // MARK: - Active mode (busy runner ladder)
 
+  @Test
+  func activeCadenceConstants() {
+    #expect(PollIntervalStrategy.activeIntervalFast == 3)
+    #expect(PollIntervalStrategy.activeIntervalMid == 5)
+    #expect(PollIntervalStrategy.activeIntervalSlow == 7)
+  }
+
   struct ActiveCase {
     let busyRunnerCount: Int
     let expectedInterval: TimeInterval
