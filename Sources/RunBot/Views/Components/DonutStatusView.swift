@@ -6,18 +6,18 @@ import SwiftUI
 // MARK: - DonutStatusView
 /// Replaces the PieProgressDot for the action row status indicator.
 /// Visual states:
-/// - in_progress : stable blue determinate arc with a rotating phantom sweep
-///                 and static centered play.fill symbol
+/// - in_progress : oversized rotating `rbBlue` angular gradient through a stationary
+///                 35% track / 100% arc mask, with a static centered play.fill symbol
 /// - success     : full green circle stroke + checkmark SF Symbol
 /// - failed      : full red circle stroke + xmark SF Symbol
 /// - queued      : dim amber ring + revolving amber sweep + static pause.fill symbol
 /// - skipped     : muted grey circle stroke + minus SF Symbol
 ///
 /// Animation contract:
-/// - In-progress uses `PhantomSweepRing`: stable blue track/arc geometry with one `AngularGradient`
-///   rotating above it beneath a stationary alpha mask.
-/// - Stable geometry and terminal rings use the same `strokeWidth`.
-/// - Only the gradient rotates; progress geometry and play symbol remain stationary.
+/// - In-progress uses `PhantomSweepRing`: one oversized `AngularGradient` (`rbBlue` 5%→100%)
+///   rotates beneath a stationary alpha mask (track 35%, arc 100%). No solid underlayer.
+/// - Source circle is expanded by `strokeWidth` on each side to cover the full stroke area.
+/// - Only the gradient rotates; mask, progress geometry, and play symbol remain stationary.
 /// - Gradient completes one clockwise revolution every 1.25 seconds.
 /// - Reduce Motion shows a static ring: track at `rbBlue 24%`, arc at solid `rbBlue`.
 /// - The play symbol remains static under both normal and reduced-motion conditions.
@@ -165,46 +165,37 @@ private struct PhantomSweepRing: View {
         .allowsHitTesting(false)
     }
 
-    /// Stable blue progress geometry beneath the rotating sweep.
+    /// Rotating gradient source sized to cover the full stroked mask area.
     ///
-    /// Gives the in-progress ring the same persistent stroke footprint as
-    /// terminal rings while the sweep modulates its intensity above.
-    private var baseGeometry: some View {
-        ZStack {
-            Circle()
-                .stroke(Color.rbBlue.opacity(0.24), lineWidth: strokeWidth)
-            Circle()
-                .trim(from: 0, to: normalizedProgress)
-                .stroke(
-                    Color.rbBlue.opacity(0.72),
-                    style: StrokeStyle(lineWidth: strokeWidth, lineCap: .round)
-                )
-                .rotationEffect(.degrees(-90))
-        }
-    }
-
-    /// Stable blue progress geometry with the rotating phantom sweep layered above.
+    /// A filled `Circle` at `size` clips the outer half of the stroke rendered
+    /// by the mask. Extending the source by `strokeWidth` on each side ensures
+    /// the gradient reaches the outer edge of the mask stroke, restoring the
+    /// same visual footprint as terminal rings.
     private var animatedRing: some View {
         ZStack {
-            baseGeometry
-
             Circle()
                 .fill(sweepGradient)
+                .frame(
+                    width: size + strokeWidth * 2,
+                    height: size + strokeWidth * 2
+                )
                 .rotationEffect(.degrees(rotation))
-                .mask { ringMask }
         }
+        .frame(width: size, height: size)
+        .mask { ringMask }
         .onAppear { startAnimation() }
     }
 
-    /// Adaptive RunBot-blue sweep with a dim body and concentrated leading highlight.
+    /// Adaptive RunBot-blue sweep fading from near-transparent to full intensity.
+    ///
+    /// At full gradient intensity (progress arc, mask opacity 1.0) the ring shows
+    /// `rbBlue` from 5% to 100%. Through the 35% track mask the same gradient
+    /// reads as approximately 2%–35% intensity. No solid underlayer is used.
     private var sweepGradient: AngularGradient {
         AngularGradient(
-            stops: [
-                .init(color: Color.rbBlue.opacity(0.06), location: 0.00),
-                .init(color: Color.rbBlue.opacity(0.10), location: 0.55),
-                .init(color: Color.rbBlue.opacity(0.32), location: 0.78),
-                .init(color: Color.rbBlue, location: 0.94),
-                .init(color: Color.rbBlue.opacity(0.06), location: 1.00)
+            colors: [
+                Color.rbBlue.opacity(0.05),
+                Color.rbBlue
             ],
             center: .center
         )
