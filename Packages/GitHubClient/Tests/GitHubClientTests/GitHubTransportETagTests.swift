@@ -120,7 +120,7 @@ final class GitHubTransportETagTests {
 
     // Register a 200 so the transport gets a valid response to process.
     CapturingURLProtocol.register(
-      .init( cachedBody, statusCode: 200, headers: [:]),
+      .init(data: cachedBody, statusCode: 200, headers: [:]),
       for: url
     )
 
@@ -136,7 +136,7 @@ final class GitHubTransportETagTests {
     )
 
     let cache = ETagCache()
-    await cache.store(url: url, etag: etag,  cachedBody)
+    await cache.store(url: url, etag: etag, data: cachedBody)
 
     _ = await transport.execute(url, timeout: 10, logTag: "test", etagCache: cache)
 
