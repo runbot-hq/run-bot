@@ -5,6 +5,18 @@ import Foundation
 
 // MARK: - GitHubTransport: protocol conformance
 
+/// Forces URLSession to validate cached JSON GET responses with the origin
+/// before returning them. The system `URLCache` stores ETags and response
+/// bodies automatically; on a subsequent request it sends `If-None-Match`
+/// and merges a 304 with the cached representation.
+private func revalidatingGETRequest(
+  _ request: URLRequest
+) -> URLRequest {
+  var request = request
+  request.cachePolicy = .reloadRevalidatingCacheData
+  return request
+}
+
 /// `GitHubTransport` conformance to `GitHubTransportProtocol`.
 ///
 /// All public API methods (`apiAsync`, `apiPaginated`, `raw`, `post`, `put`,
@@ -20,7 +32,8 @@ extension GitHubTransport {
   public func apiAsync(_ endpoint: String, timeout: TimeInterval = 20) async -> Data? {
     guard
       case .success(let data, _, _) = await execute(
-        endpoint, timeout: timeout, logTag: "apiAsync"
+        endpoint, timeout: timeout, logTag: "apiAsync",
+        configure: revalidatingGETRequest
       )
     else { return nil }
     return data
@@ -39,7 +52,8 @@ extension GitHubTransport {
   public func apiPaginated(_ endpoint: String, timeout: TimeInterval = 60) async -> Data? {
     var state = PaginationState(nextURL: resolveURL(endpoint))
     while let urlString = state.nextURL {
-      let result = await execute(urlString, timeout: timeout, logTag: "apiPaginated")
+      let result = await execute(urlString, timeout: timeout, logTag: "apiPaginated",
+        configure: revalidatingGETRequest)
       let action = state.apply(result, decoder: decoder)
       applyPaginationLog(action, urlString: urlString, count: state.allItems.count)
       if case .advance(let linkHeader) = action {
