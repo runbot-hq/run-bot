@@ -22,6 +22,7 @@ struct PanelHeaderView: View {
                 .layoutPriority(1)
             headerSeparator
             HStack(spacing: 6) {
+                GlassEffectContainer { RefreshButton().glassButton() }
                 GlassEffectContainer { settingsButton.glassButton() }
                 GlassEffectContainer { quitButton.glassButton() }
             }

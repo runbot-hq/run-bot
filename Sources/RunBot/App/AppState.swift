@@ -119,6 +119,17 @@ final class AppState {
     /// does not apply here. Adding `nonisolated(unsafe)` would be misleading noise.
     @ObservationIgnored private var _didStart = false  // permanent per instance — do not reuse AppState across test setUp/tearDown
 
+    /// Monotonically incremented every time the main panel becomes visible.
+    /// `PanelMainView` keys a `.task(id:)` on this so the refresh fires on every
+    /// open — including the second open, which `onAppear` may miss because
+    /// `MBKPanelController` retains the hosting controller across open/close.
+    var panelShowGeneration: Int = 0
+
+    /// `true` while `refreshAllPipelines(reason:)` is executing.
+    /// Used to disable the manual refresh button during an in-flight refresh and
+    /// to guard against re-entrant calls.
+    var isRefreshing: Bool = false
+
     /// Owned `RunnerPoller` actor. `nil` until `start()` runs.
     ///
     /// Optional (not `!`) so the uninitialised state is representable at the
@@ -131,7 +142,10 @@ final class AppState {
     /// at the `RunnerPoller` init site in `start()` rather than used as parameter
     /// defaults because Swift 6 does not allow `@MainActor`-isolated expressions
     /// as default values in a nonisolated context.
-    private var runnerStore: (any RunnerPollerProtocol)?
+    /// `internal` (not `private`) so that `AppState+Refresh.swift` can guard on
+    /// whether the store is seeded and fan out `refreshNow`. Only `seedStoreAndPoller()`
+    /// may write this property. Do not promote to `public`.
+    var runnerStore: (any RunnerPollerProtocol)?
 
     /// Observable read model for all Core-side runner/job/action/rate-limit state.
     ///

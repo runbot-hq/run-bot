@@ -215,6 +215,22 @@ public actor RunnerPoller {
     Task { await prefetchQueue.cancelAll() }
   }
 
+  // MARK: - Force-refresh state
+  //
+  // Written exclusively by `refreshNow(reason:)` in RunnerPoller+RefreshNow.swift.
+  // `internal` (not `private`) due to SPM cross-file actor extension rules.
+  // Do not write these properties from any other extension or call site.
+
+  /// In-flight `refreshNow` task, if one is currently executing.
+  /// Used to coalesce concurrent callers (e.g. panel-show + button tap) into one network pass.
+  var refreshNowTask: Task<Void, Never>?
+
+  /// Timestamp of the last forced refresh. Used to throttle rapid repeat calls.
+  var lastForcedRefresh: Date = .distantPast
+
+  /// Minimum interval (seconds) between forced refreshes. Guards against rapid panel toggles.
+  static let minForcedInterval: TimeInterval = 3
+
   // MARK: - Private(set) write-through
 
   /// Sets the actor-local display properties in a single controlled call.

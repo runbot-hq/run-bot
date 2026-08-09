@@ -10,6 +10,10 @@
 public protocol RunnerPollerProtocol: AnyObject {
     /// Starts the poll loop, observers, and initial fetch.
     func start() async
+    /// Forces one immediate fetch outside the poll cadence.
+    /// Coalesces concurrent callers and throttles rapid repeat calls.
+    /// See `RunnerPoller+RefreshNow.swift` for the full contract.
+    func refreshNow(reason: String) async
     /// The observable state object driven by this poller.
     ///
     /// Exposed on the protocol so callers holding `any RunnerPollerProtocol` —
@@ -65,6 +69,14 @@ public actor MockPoller: RunnerPollerProtocol {
         self.state = state
     }
 
+    /// Records calls for test/preview inspection.
+    public var refreshNowCalls: [String] = []
+
     /// No-op. Does not start a poll loop or make any network calls.
     public func start() async {}
+
+    /// Records the reason string. No network call is made.
+    public func refreshNow(reason: String) async {
+        refreshNowCalls.append(reason)
+    }
 }

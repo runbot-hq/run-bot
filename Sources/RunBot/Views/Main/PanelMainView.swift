@@ -229,15 +229,9 @@ struct PanelMainView: View {
                 SectionHeaderLabel(title: "Local Runners")
                 PanelLocalRunnerRow(runners: activeLocalRunners)
             }
-            // Color.clear trigger for localRunnerStore.refresh() on appear.
-            // Zero-size so it has no visual presence or layout impact.
-            Color.clear.frame(width: 0, height: 0)
-                .onAppear {
-                    #if DEBUG
-                    log("【PanelMainView】 Color.clear.onAppear — triggering localRunnerStore.refresh()", category: .panel)
-                    #endif
-Task { await localRunnerStore.refresh() }
-                }
+            // Panel-show refresh is handled by .task(id: appState.panelShowGeneration)
+            // below. The Color.clear.onAppear local-only refresh has been removed;
+            // refreshAllPipelines covers both localRunnerStore and the GitHub poller.
             actionsSectionScrollable
         }
         .frame(minWidth: RBMetrics.panelListMinWidth, maxWidth: RBMetrics.panelListMaxWidth)
@@ -245,6 +239,16 @@ Task { await localRunnerStore.refresh() }
         // when the window grows between MEASURE passes SwiftUI re-centres the
         // VStack vertically, making the list appear to float down the screen.
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        // Re-fires on every panel open (including the second open) because
+        // AppDelegate.onDidShow increments panelShowGeneration on each show.
+        // Using .task(id:) rather than onAppear because MBKPanelController retains
+        // the hosting controller across open/close — onAppear may not re-fire.
+        .task(id: appState.panelShowGeneration) {
+            #if DEBUG
+            log("【PanelMainView】 task(panelShowGeneration=\(appState.panelShowGeneration)) — refreshAllPipelines", category: .panel)
+            #endif
+            await appState.refreshAllPipelines(reason: "panel-shown")
+        }
         .onAppear {
             #if DEBUG
             log("【PanelMainView】 onAppear panelOpen=\(panelVisibilityState.isOpen)", category: .panel)

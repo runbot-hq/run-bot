@@ -122,12 +122,16 @@ extension AppDelegate {
 
         // onDidShow — fires one actor turn after openPanel().
         // Restore runner sheet state now that the view tree has a window.
+        // Also increments panelShowGeneration so PanelMainView's .task(id:)
+        // re-fires refreshAllPipelines on every open (including the second open,
+        // which onAppear may miss because MBKPanelController retains the host).
         ctrl.onDidShow = { [weak self] in
             guard let self else { return }
             log("AppDelegate › onDidShow")
             panelSheetState.restoreTransientHideStateIfNeeded()
             panelVisibilityState.isOpen = true
             panelVisibilityState.isTransientHide = false
+            appState.panelShowGeneration &+= 1
         }
 
         ctrl.onWillClose = { [weak self] (wasForced: Bool) in
