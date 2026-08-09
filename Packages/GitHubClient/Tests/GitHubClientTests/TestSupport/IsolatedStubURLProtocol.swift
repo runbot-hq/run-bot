@@ -28,8 +28,31 @@ final class IsolatedStubURLProtocol: URLProtocol, @unchecked Sendable {
   }
   override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
 
+  /// Records the last request URL that was loaded (for header inspection).
+  nonisolated(unsafe) private static var lastRequestedURL: String?
+  /// Records the headers of the last request that was loaded.
+  nonisolated(unsafe) private static var lastRequestHeaders: [String: String]?
+
+  static func lastRequest() -> (url: String, headers: [String: String])? {
+    lock.withLock {
+      guard let url = lastRequestedURL, let headers = lastRequestHeaders else { return nil }
+      return (url, headers)
+    }
+  }
+
+  static func resetLastRequest() {
+    lock.withLock {
+      lastRequestedURL = nil
+      lastRequestHeaders = nil
+    }
+  }
+
   override func startLoading() {
     let key = request.url?.absoluteString ?? ""
+    IsolatedStubURLProtocol.lock.withLock {
+      IsolatedStubURLProtocol.lastRequestedURL = key
+      IsolatedStubURLProtocol.lastRequestHeaders = request.allHTTPHeaderFields
+    }
     if let e = IsolatedStubURLProtocol.lock.withLock(
       { IsolatedStubURLProtocol.errorStubs[key] }) {
       client?.urlProtocol(self, didFailWithError: e.error)

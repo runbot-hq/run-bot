@@ -78,17 +78,12 @@ public struct GitHubTransport: GitHubTransportProtocol {
   /// without touching the shared singleton. Defaults to `APICallCounter.shared`.
   private let callCounter: any APICallCounterProtocol
 
-  /// The conditional GET (ETag) cache for this transport instance.
-  /// Each `GitHubTransport` owns its own cache so that cache entries are
-  /// scoped to the transport's lifetime and cleared when the token changes.
-  private let conditionalGETCache = ConditionalGETCache()
+  /// The shared conditional GET (ETag) cache.
+  /// All instances of `GitHubTransport` share the same backing store so that
+  /// cache entries survive transport re-creation.
+  private static let conditionalGETCache = ConditionalGETCache()
 
-  /// Cancellation-safe gate that limits the number of concurrent in-flight
-  /// HTTP requests. Defaults to 4 simultaneous operations.
-  private let requestGate: GitHubRequestGate
-
-  /// Endpoint diagnostics counter for completed HTTP responses.
-  private let endpointCounter = GitHubEndpointCounter()
+  // MARK: - Init
 
   /// Creates a `GitHubTransport` with the given dependencies.
   ///
@@ -119,8 +114,7 @@ public struct GitHubTransport: GitHubTransportProtocol {
     rateLimiter: some RateLimitActorProtocol = rateLimitActor,
     tokenProvider: (@Sendable () async -> String?)? = nil,
     logger: (any GitHubLogger)? = nil,
-    callCounter: any APICallCounterProtocol = APICallCounter.shared,
-    maxConcurrentRequests: Int = 4
+    callCounter: any APICallCounterProtocol = APICallCounter.shared
   ) {
     self.decoder = decoder
     self.encoder = encoder
@@ -129,7 +123,6 @@ public struct GitHubTransport: GitHubTransportProtocol {
     self.tokenProvider = tokenProvider ?? { nil }
     self.logger = logger
     self.callCounter = callCounter
-    self.requestGate = GitHubRequestGate(limit: maxConcurrentRequests)
   }
 
   // MARK: - Core execution
@@ -182,40 +175,25 @@ public struct GitHubTransport: GitHubTransportProtocol {
     let cachedEntry: ConditionalGETCache.Entry?
     var req = baseReq
     if conditionalGET {
-      cachedEntry = await conditionalGETCache.entry(for: urlString, token: token)
+      cachedEntry = Self.conditionalGETCache.entry(for: urlString, token: token)
       if let etag = cachedEntry?.etag {
         req.setValue(etag, forHTTPHeaderField: "If-None-Match")
         logger?.log(
           "\(logTag) › conditional GET with ETag: \(etag)",
           category: "transport")
       }
-      // Ensure we bypass the system URLCache so that every conditional call
-      // reaches GitHub's API and returns a fresh 304 or 200 with current headers.
-      req.cachePolicy = .reloadIgnoringLocalCacheData
     } else {
       cachedEntry = nil
     }
+    // Ensure we bypass the system URLCache so that every call reaches
+    // GitHub's API and returns a fresh 304 or 200 with current headers.
+    req.cachePolicy = .reloadIgnoringLocalCacheData
 
     logger?.log(
       "\(logTag) › firing request: \(urlString) raw=\(useRawAccept) cachePolicy=\(req.cachePolicy.rawValue)",
       category: "transport")
-    let request = req  // Capture for @Sendable closure below.
     do {
-      let (data, response) = try await requestGate.withPermit {
-        try await session.data(for: request)
-      }
-
-      // Record endpoint diagnostics for every completed HTTP round-trip,
-      // including 304, 403, and 429. This must happen before branching on
-      // status code so that all completed responses are represented.
-      // Every 60-second window, the first response after the interval expires
-      // returns a report which is logged via the transport's logger.
-      if let httpResponse = response as? HTTPURLResponse,
-         let report = await endpointCounter.record(
-           url: urlString, statusCode: httpResponse.statusCode
-         ) {
-        logger?.log(report.formatted(), category: "transport")
-      }
+      let (data, response) = try await session.data(for: req)
 
       // Handle 304 Not Modified — return cached data without counting the call.
       if let httpResponse = response as? HTTPURLResponse,
@@ -225,11 +203,8 @@ public struct GitHubTransport: GitHubTransportProtocol {
           "\(logTag) › 304 Not Modified — returning cached data (\(cachedEntry.data.count) bytes)",
           category: "transport")
         // GitHub does not count a 304 against the API quota, so we do
-        // NOT call callCounter.record(). Normalise the status code to 200
-        // so that callers observing .success(statusCode:) do not need to
-        // handle 304 as a special case — the cached representation is a
-        // successful response.
-        return .success(cachedEntry.data, statusCode: 200, linkHeader: cachedEntry.linkHeader)
+        // NOT call callCounter.record().
+        return .success(cachedEntry.data, statusCode: 304, linkHeader: cachedEntry.linkHeader)
       }
 
       // Count every completed HTTP round-trip regardless of status code.
@@ -245,12 +220,8 @@ public struct GitHubTransport: GitHubTransportProtocol {
       )
 
       // If the response was successful and carried an ETag, cache it for
-      // future conditional GETs. Only cache when conditionalGET is enabled
-      // so that raw ZIP downloads or non-conditional responses never populate
-      // the cache with a representation that could be confused with a JSON
-      // response to the same URL.
-      if conditionalGET,
-         case .success = result,
+      // future conditional GETs.
+      if case .success = result,
          let httpResponse = response as? HTTPURLResponse,
          let etag = httpResponse.value(forHTTPHeaderField: "ETag") {
         let linkHeader = httpResponse.value(forHTTPHeaderField: "Link")
@@ -259,7 +230,7 @@ public struct GitHubTransport: GitHubTransportProtocol {
           data: data,
           linkHeader: linkHeader
         )
-        await conditionalGETCache.store(entry, for: urlString, token: token)
+        Self.conditionalGETCache.store(entry, for: urlString, token: token)
         logger?.log(
           "\(logTag) › cached ETag: \(etag)",
           category: "transport")
