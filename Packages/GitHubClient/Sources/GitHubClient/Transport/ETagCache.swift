@@ -61,7 +61,7 @@ public actor ETagCache {
   // MARK: - Write
 
   /// Stores or replaces the (etag, data) pair for url.
-  public func store(url: String, etag: String,  Data) {
+  public func store(url: String, etag: String, data: Data) {
     store[url] = Entry(etag: etag, data: data)
   }
 
