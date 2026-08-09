@@ -167,7 +167,7 @@ These cached archives may contain any text emitted by your workflows, including 
 
 Cached action logs are stored locally at:
 
-`~/Library/Caches/RunBot/ZIPCache/`.
+`~/Library/Application\ Support/RunBot/ZIPCache<id>.zip`.
 
 RunBot does not upload cached action logs to a RunBot-operated server. GitHub remains the source from which the logs are downloaded. The reason they are cached is because there are no API to get step logs from GitHub other than a tiny window after an action has run. In this window we fetch the zip files that has steps accurately divided. 
 
