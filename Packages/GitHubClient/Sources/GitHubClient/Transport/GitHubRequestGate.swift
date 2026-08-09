@@ -49,12 +49,6 @@ internal actor GitHubRequestGate {
     waiters.count
   }
 
-  /// The number of operations currently executing.
-  /// Exposed for test observation.
-  internal var executingCount: Int {
-    activeCount
-  }
-
   /// Creates a gate with the given concurrency limit.
   ///
   /// - Parameter limit: The maximum number of operations that can execute

@@ -88,8 +88,12 @@ final class GitHubRequestGateTests {
     await latch.waitForOccupierAcquired()
 
     // Cancelled waiter: we assert it never executes its closure body.
+    // The explicit Task<Void, Error> annotation ensures CancellationError
+    // propagates to the task result for assertion — Task { try ... } does
+    // infer Error in Swift 6.2+, but being explicit protects against future
+    // inference changes.
     let flag = ExecutionFlag()
-    let cancelledTask = Task {
+    let cancelledTask = Task<Void, Error> {
       try await gate.withPermit {
         await flag.markExecuted()
       }
