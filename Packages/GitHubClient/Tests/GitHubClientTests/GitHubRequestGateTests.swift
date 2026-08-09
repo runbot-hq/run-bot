@@ -70,11 +70,9 @@ final class GitHubRequestGateTests {
   /// Verifies that cancelling a waiting task removes its waiter from the queue
   /// and does not prevent a subsequent task from acquiring the permit.
   ///
-  /// Uses an actor-based latch to ensure:
-  /// 1. The occupier has definitely acquired the permit before we proceed.
-  /// 2. The cancelled waiter has definitely been enqueued before we cancel it.
-  /// 3. The third task completes after the occupier finishes and the cancelled
-  ///    waiter has been removed.
+  /// Uses `waitingCount` polling (via `eventually`) to confirm the waiter is
+  /// enqueued before cancellation, then verifies the waiter was removed and
+  /// the cancelled task's closure never executed.
   @Test func withPermit_cancelledWaiterDoesNotLeakPermit() async {
     let gate = GitHubRequestGate(limit: 1)
     let latch = TestLatch()
@@ -89,20 +87,33 @@ final class GitHubRequestGateTests {
 
     await latch.waitForOccupierAcquired()
 
-    // Cancelled waiter: signals when queued, then cancelled. We assert it
-    // never executes its closure body.
-    var cancelledClosureExecuted = false
+    // Cancelled waiter: we assert it never executes its closure body.
+    let flag = ExecutionFlag()
     let cancelledTask = Task {
       try? await gate.withPermit {
-        cancelledClosureExecuted = true
+        await flag.markExecuted()
       }
     }
-    // Wait for the cancelled task to be enqueued in the gate.
-    // We use a small sleep to allow the actor to process the enqueue,
-    // then signal the latch.
-    try? await Task.sleep(for: .milliseconds(20))
-    await latch.signalCancelledEnqueued()
+
+    // Wait until the gate has actually enqueued the waiter.
+    await eventually { await gate.waitingCount == 1 }
+
+    // Cancel and await the task — the result should be a CancellationError.
     cancelledTask.cancel()
+    let cancelledResult = await cancelledTask.result
+
+    // Verify the gate cleaned up the waiter.
+    await eventually { await gate.waitingCount == 0 }
+
+    // Verify the closure never executed.
+    #expect(await flag.value == false, "Cancelled waiter's closure must not execute")
+
+    // Verify the task threw CancellationError.
+    #expect {
+      try cancelledResult.get()
+    } throws: { error in
+      error is CancellationError
+    }
 
     // Release the occupier.
     await latch.signalReleaseOccupier()
@@ -112,7 +123,6 @@ final class GitHubRequestGateTests {
     // did not leak its slot.
     let result = try? await gate.withPermit { "third" }
     #expect(result == "third")
-    #expect(!cancelledClosureExecuted, "Cancelled waiter's closure must not execute")
   }
 
   // MARK: - FIFO waiter order
@@ -120,9 +130,9 @@ final class GitHubRequestGateTests {
   /// Verifies that waiters are resumed in FIFO order when permits become
   /// available.
   ///
-  /// Uses an actor-based latch to enqueue waiters one at a time, guaranteeing
-  /// that they are added to the gate's waiter list in the expected order
-  /// before the next one is launched.
+  /// Uses `waitingCount` polling (via `eventually`) to confirm each waiter is
+  /// enqueued before launching the next one, guaranteeing the gate's waiter
+  /// list matches the expected A→B→C order.
   @Test func withPermit_waitersAreResumedInFIFOOrder() async {
     let gate = GitHubRequestGate(limit: 1)
     let order = OrderRecorder()
@@ -138,26 +148,23 @@ final class GitHubRequestGateTests {
 
     await latch.waitForOccupierAcquired()
 
-    // Enqueue waiter A and wait for it to be enqueued.
+    // Enqueue waiter A and wait for it to be in the gate's waiter list.
     let taskA = Task {
       try? await gate.withPermit { await order.record("A") }
     }
-    try? await Task.sleep(for: .milliseconds(20))
-    await latch.signalAEnqueued()
+    await eventually { await gate.waitingCount == 1 }
 
-    // Enqueue waiter B and wait for it to be enqueued.
+    // Enqueue waiter B.
     let taskB = Task {
       try? await gate.withPermit { await order.record("B") }
     }
-    try? await Task.sleep(for: .milliseconds(20))
-    await latch.signalBEnqueued()
+    await eventually { await gate.waitingCount == 2 }
 
-    // Enqueue waiter C and wait for it to be enqueued.
+    // Enqueue waiter C.
     let taskC = Task {
       try? await gate.withPermit { await order.record("C") }
     }
-    try? await Task.sleep(for: .milliseconds(20))
-    await latch.signalCEnqueued()
+    await eventually { await gate.waitingCount == 3 }
 
     // Release the occupier — permits will trickle through in FIFO order.
     await latch.signalReleaseOccupier()
@@ -177,6 +184,25 @@ final class GitHubRequestGateTests {
 private enum TestError: Error {
   /// A generic test error.
   case someError
+}
+
+/// Polls the given condition until it returns `true`, with a bounded timeout
+/// so a regression fails rather than hanging indefinitely.
+///
+/// The condition closure is evaluated every 5 milliseconds, up to a maximum
+/// of 100 attempts (500 ms total). This is used to wait for actor-isolated
+/// state to converge without resorting to arbitrary sleeps.
+///
+/// - Parameter condition: An async closure that returns `true` when the
+///   desired state is reached.
+private func eventually(
+  _ condition: @Sendable @escaping () async -> Bool
+) async {
+  for _ in 0 ..< 100 {
+    if await condition() { return }
+    try? await Task.sleep(for: .milliseconds(5))
+  }
+  Issue.record("`eventually` timed out waiting for condition")
 }
 
 /// Tracks the maximum number of concurrent in-flight operations and the total
@@ -213,6 +239,18 @@ private actor OrderRecorder {
   }
 }
 
+/// An actor that safely tracks whether a closure was executed, avoiding
+/// the shared-mutable-Boolean race between concurrent tasks.
+private actor ExecutionFlag {
+  /// Whether the closure has been executed.
+  private(set) var value = false
+
+  /// Marks the closure as executed.
+  func markExecuted() {
+    value = true
+  }
+}
+
 /// An actor-based latch that provides rendezvous points for coordinating
 /// concurrent test tasks.
 ///
@@ -230,27 +268,11 @@ private actor TestLatch {
   private var occupierAcquired = false
   /// Whether the occupier should be released.
   private var occupierRelease = false
-  /// Whether waiter A has been enqueued.
-  private var aEnqueued = false
-  /// Whether waiter B has been enqueued.
-  private var bEnqueued = false
-  /// Whether waiter C has been enqueued.
-  private var cEnqueued = false
-  /// Whether the cancelled waiter has been enqueued.
-  private var cancelEnqueued = false
 
   /// Continuation for occupier-acquired signal.
   private var occupierAcquiredContinuation: CheckedContinuation<Void, Never>?
   /// Continuation for occupier-release signal.
   private var occupierReleaseContinuation: CheckedContinuation<Void, Never>?
-  /// Continuation for waiter A enqueued signal.
-  private var aEnqueuedContinuation: CheckedContinuation<Void, Never>?
-  /// Continuation for waiter B enqueued signal.
-  private var bEnqueuedContinuation: CheckedContinuation<Void, Never>?
-  /// Continuation for waiter C enqueued signal.
-  private var cEnqueuedContinuation: CheckedContinuation<Void, Never>?
-  /// Continuation for cancelled waiter enqueued signal.
-  private var cancelEnqueuedContinuation: CheckedContinuation<Void, Never>?
 
   // MARK: Signal methods (called by the task under test)
 
@@ -261,64 +283,12 @@ private actor TestLatch {
     occupierAcquiredContinuation = nil
   }
 
-  /// Signals that waiter A has been enqueued.
-  func signalAEnqueued() {
-    aEnqueued = true
-    aEnqueuedContinuation?.resume()
-    aEnqueuedContinuation = nil
-  }
-
-  /// Signals that waiter B has been enqueued.
-  func signalBEnqueued() {
-    bEnqueued = true
-    bEnqueuedContinuation?.resume()
-    bEnqueuedContinuation = nil
-  }
-
-  /// Signals that waiter C has been enqueued.
-  func signalCEnqueued() {
-    cEnqueued = true
-    cEnqueuedContinuation?.resume()
-    cEnqueuedContinuation = nil
-  }
-
-  /// Signals that the cancelled waiter has been enqueued.
-  func signalCancelledEnqueued() {
-    cancelEnqueued = true
-    cancelEnqueuedContinuation?.resume()
-    cancelEnqueuedContinuation = nil
-  }
-
   // MARK: Wait methods (called by the coordinating test)
 
   /// Waits until the occupier has acquired the permit.
   func waitForOccupierAcquired() async {
     guard !occupierAcquired else { return }
     await withCheckedContinuation { occupierAcquiredContinuation = $0 }
-  }
-
-  /// Waits until waiter A has been enqueued.
-  func waitForAEnqueued() async {
-    guard !aEnqueued else { return }
-    await withCheckedContinuation { aEnqueuedContinuation = $0 }
-  }
-
-  /// Waits until waiter B has been enqueued.
-  func waitForBEnqueued() async {
-    guard !bEnqueued else { return }
-    await withCheckedContinuation { bEnqueuedContinuation = $0 }
-  }
-
-  /// Waits until waiter C has been enqueued.
-  func waitForCEnqueued() async {
-    guard !cEnqueued else { return }
-    await withCheckedContinuation { cEnqueuedContinuation = $0 }
-  }
-
-  /// Waits until the cancelled waiter has been enqueued.
-  func waitForCancelledEnqueued() async {
-    guard !cancelEnqueued else { return }
-    await withCheckedContinuation { cancelEnqueuedContinuation = $0 }
   }
 
   // MARK: Occupier release
@@ -452,10 +422,6 @@ final class GitHubTransportConcurrencyGateTests {
 
     /// Stops loading (no-op for stubs).
     override func stopLoading() {}
-  }
-
-  deinit {
-    Task { await ConcurrencyTrackedStubProtocol.reset() }
   }
 
   /// Verifies that when `GitHubTransport` is configured with

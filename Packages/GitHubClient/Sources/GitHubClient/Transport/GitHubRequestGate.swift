@@ -43,6 +43,18 @@ internal actor GitHubRequestGate {
   /// Waiters queued in FIFO order, each holding a suspended continuation.
   private var waiters: [Waiter] = []
 
+  /// The number of waiters currently queued.
+  /// Exposed for test observation.
+  internal var waitingCount: Int {
+    waiters.count
+  }
+
+  /// The number of operations currently executing.
+  /// Exposed for test observation.
+  internal var executingCount: Int {
+    activeCount
+  }
+
   /// Creates a gate with the given concurrency limit.
   ///
   /// - Parameter limit: The maximum number of operations that can execute
