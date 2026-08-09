@@ -97,18 +97,19 @@ private struct JobInlineProgress: View {
 
     /// Lays out the track, fill, and optional sheen inside a clipped capsule.
     ///
-    /// The ZStack is explicitly constrained to the full GeometryReader width so
-    /// `.clipShape(Capsule())` covers the complete bar, not just the fill width.
+    /// `progressWidth` is computed once and shared by the fill and sheen so
+    /// both stay in sync. The outer ZStack is pinned to the full bar width.
     var body: some View {
         GeometryReader { geometry in
             let width = geometry.size.width
+            let progressWidth = max(3, width * normalizedProgress)
 
             ZStack(alignment: .leading) {
                 track(width: width)
-                progressFill(width: width)
+                progressFill(width: progressWidth)
 
                 if !reduceMotion {
-                    travelingSheen(width: width)
+                    travelingSheen(progressWidth: progressWidth)
                 }
             }
             .frame(width: width, height: 3, alignment: .leading)
@@ -128,18 +129,16 @@ private struct JobInlineProgress: View {
     private func progressFill(width: CGFloat) -> some View {
         Capsule()
             .fill(Color.rbBlue)
-            .frame(
-                width: max(3, width * normalizedProgress),
-                height: 3
-            )
+            .frame(width: width, height: 3)
     }
 
-    /// Low-contrast highlight traversing the complete progress-bar track.
+    /// Highlight traversing only the completed portion of the progress bar.
     ///
-    /// Position is derived from wall-clock time instead of an in-flight SwiftUI
-    /// animation, so panel reload transactions cannot interrupt the traversal.
-    private func travelingSheen(width: CGFloat) -> some View {
-        let sheenWidth = width * 0.34
+    /// The sheen is clipped to `progressWidth`, so it never enters the unfinished
+    /// track. Its position remains derived from wall-clock time and cannot be
+    /// interrupted by panel reloads.
+    private func travelingSheen(progressWidth: CGFloat) -> some View {
+        let sheenWidth = min(progressWidth, max(3, progressWidth * 0.34))
         let duration: TimeInterval = 2.1
 
         return TimelineView(
@@ -164,10 +163,12 @@ private struct JobInlineProgress: View {
                 endPoint: .trailing
             )
             .frame(width: sheenWidth, height: 3)
-            .offset(x: -sheenWidth + ((width + sheenWidth) * phase))
-            .accessibilityHidden(true)
-            .allowsHitTesting(false)
+            .offset(x: -sheenWidth + ((progressWidth + sheenWidth) * phase))
         }
+        .frame(width: progressWidth, height: 3, alignment: .leading)
+        .clipShape(Capsule())
+        .accessibilityHidden(true)
+        .allowsHitTesting(false)
     }
 }
 
