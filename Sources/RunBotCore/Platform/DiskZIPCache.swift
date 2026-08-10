@@ -27,7 +27,7 @@ import Foundation
 /// absence of a disk-write outcome in the log stream is never ambiguous.
 ///
 /// ## Capacity
-/// Bounded by `maxCapacity` (10 files). On every successful `set`, files are sorted by
+/// Bounded by `maxCapacity` (120 files). On every successful `set`, files are sorted by
 /// modification date descending and anything past index 9 is deleted.
 ///
 /// ## Concurrency
