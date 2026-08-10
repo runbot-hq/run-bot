@@ -98,7 +98,7 @@ struct SparklineMetricView: View {
                 .fixedSize()
                 .layoutPriority(1)
             SparklineView(history: history, currentPct: currentPct)
-                .frame(minWidth: 0, idealWidth: 40, maxWidth: .infinity)
+                .frame(minWidth: 16, idealWidth: 40, maxWidth: .infinity)
                 .frame(height: 14)
                 .layoutPriority(0)
                 .clipShape(RoundedRectangle(cornerRadius: 2))
