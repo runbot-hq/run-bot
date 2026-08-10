@@ -63,7 +63,7 @@ struct GlassBadgeContainer<Content: View>: View {
         let shape = RoundedRectangle(cornerRadius: RBRadius.small, style: .continuous)
         GlassEffectContainer {
             content()
-                .padding(.horizontal, RBSpacing.sm)
+                .padding(.horizontal, RBSpacing.xs)
                 .padding(.vertical, RBSpacing.xs)
                 .background(Color.rbGlassNeutralBackground, in: shape)
                 .glassEffect(.regular, in: shape)
@@ -98,7 +98,7 @@ struct SparklineMetricView: View {
                 .fixedSize()
                 .layoutPriority(1)
             SparklineView(history: history, currentPct: currentPct)
-                .frame(minWidth: 16, idealWidth: 40, maxWidth: .infinity)
+                .frame(minWidth: 0, idealWidth: 40, maxWidth: .infinity)
                 .frame(height: 14)
                 .layoutPriority(0)
                 .clipShape(RoundedRectangle(cornerRadius: 2))
@@ -136,7 +136,7 @@ struct HeaderStatsBar: View {
     /// value is truncated. CPU will naturally be narrower than MEM and DISK because
     /// its value text is shorter. A wider value grows its chip and compresses neighbors.
     var body: some View {
-        HStack(spacing: RBSpacing.md) {
+        HStack(spacing: RBSpacing.xs) {
             let cpuPct = statsVM.stats.cpuPct
             GlassBadgeContainer {
                 SparklineMetricView(
