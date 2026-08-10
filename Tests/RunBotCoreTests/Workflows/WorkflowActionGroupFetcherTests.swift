@@ -338,7 +338,7 @@ struct WorkflowActionGroupFetcherTests {
   /// which `groupEvent(_:)` normalises to `"commit"`.
   @Test func fetchActionGroupsConcludedCacheEntryJobsNotRefetched() async {
     let sha = "cachedsha"
-    let cacheKey = "\(sha):commit"
+    let cacheKey = "owner/repo:\(sha):commit"
     let cached = makeCachedGroup(sha: sha)
     // No /jobs endpoints registered — fetcher must not call them.
     let t = makeTransport(with: [
@@ -360,7 +360,7 @@ struct WorkflowActionGroupFetcherTests {
     // A cached entry where a job is concluded but a step is still in-progress
     // must NOT serve from cache — the stale-step guard re-fetches via API.
     let sha = "staledash"
-    let cacheKey = "\(sha):commit"
+    let cacheKey = "owner/repo:\(sha):commit"
     let cached = makeCachedGroup(
       sha: sha,
       title: "Stale step commit",
@@ -420,7 +420,7 @@ struct WorkflowActionGroupFetcherTests {
     // A concluded cache entry whose `repo` doesn't match the fetch scope must
     // NOT be served — the `cached.repo == scope` guard must fire and re-fetch.
     let sha = "crossreposha"
-    let cacheKey = "\(sha):commit"
+    let cacheKey = "owner/repo:\(sha):commit"
     let cached = makeCachedGroup(
       sha: sha,
       title: "Other repo commit",
@@ -510,17 +510,17 @@ struct WorkflowActionGroupFetcherTests {
 
   // MARK: - Composite cache key (#2444)
 
-  /// Verifies that a concluded cache entry keyed by the composite `"sha:event"` string
-  /// is served without re-fetching jobs (regression guard for #2444).
+  /// Verifies that a concluded cache entry keyed by the composite `"repo:sha:event"` string
+  /// is served without re-fetching jobs (regression guard for #2444, updated for #2688).
   ///
-  /// Prior to the fix, `makeShaKeyedCache` keyed by bare `headSha`; the fetcher
-  /// looked up `"sha:commit"` — a 100% cache miss for any event.
+  /// Prior to #2444, `makeShaKeyedCache` keyed by bare `headSha`; updated to `sha:event` in
+  /// #2444, then extended to `repo:sha:event` in #2688 to prevent cross-scope collisions.
   @Test func fetchActionGroupsCompositeCacheKeyHitServesJobsWithoutAPICall() async {
     let sha = "compositehit"
     // Cache key must match what `buildActionGroup` passes to `fetchJobsForGroup`:
-    // `groupKey.cacheKey` == `"\(headSha):\(groupEvent(event))"`, and
+    // `groupKey.cacheKey` == `"\(repo):\(headSha):\(groupEvent(event))"`, and
     // `groupEvent("push")` == `"commit"`.
-    let cacheKey = "\(sha):commit"
+    let cacheKey = "owner/repo:\(sha):commit"
     let cached = makeCachedGroup(sha: sha, jobID: 42)
     let t = makeTransport(with: [
       "repos/owner/repo/actions/runs?status=in_progress": envelope(
