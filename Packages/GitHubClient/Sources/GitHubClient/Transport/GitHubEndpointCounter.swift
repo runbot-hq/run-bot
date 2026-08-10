@@ -7,7 +7,9 @@ import Foundation
 
 /// A normalised key for grouping HTTP responses by scope and endpoint category.
 internal struct GitHubEndpointKey: Hashable, Sendable {
+    /// The GitHub resource owner (e.g. `repo:owner/repo` or `org:acme`).
     let scope: String
+    /// The API endpoint category (e.g. `runners`, `run_jobs`, `job_detail`).
     let endpoint: String
 }
 
@@ -15,16 +17,24 @@ internal struct GitHubEndpointKey: Hashable, Sendable {
 
 /// A compact diagnostic report of endpoint activity for a time window.
 internal struct GitHubEndpointReport: Sendable {
+    /// Total number of responses counted in this window.
     let total: Int
+    /// The actual elapsed duration of this window (seconds, rounded to nearest integer).
     let durationSeconds: Int
+    /// Per-bucket counts, where each bucket is a scope/endpoint pair with per-status counts.
     let buckets: [Bucket]
 
+    /// A single scope/endpoint bucket with per-status-code counts.
     struct Bucket: Sendable {
+        /// The normalised scope string.
         let scope: String
+        /// The normalised endpoint string.
         let endpoint: String
+        /// Per-status-code counts for this bucket, sorted by status code ascending.
         let statusCounts: [(status: Int, count: Int)]
     }
 
+    /// Returns a deterministic string representation of this report.
     func formatted() -> String {
         var lines: [String] = []
         lines.append("GitHubEndpointCounter › \(durationSeconds)s total=\(total)")
@@ -43,11 +53,16 @@ internal struct GitHubEndpointReport: Sendable {
 /// category, and HTTP status code, producing a formatted report every ~60 seconds.
 internal actor GitHubEndpointCounter {
 
+    /// Accumulated counts keyed by (scope, endpoint, statusCode).
     private var counts: [GitHubEndpointKey: [Int: Int]] = [:]
+    /// The clock used for window timing.
     private let clock = ContinuousClock()
+    /// The instant at which the current window started.
     private var windowStartedAt: ContinuousClock.Instant
+    /// The duration of each reporting window.
     private let reportInterval: Duration = .seconds(60)
 
+    /// Creates a new endpoint counter.
     init() {
         self.windowStartedAt = clock.now
     }
