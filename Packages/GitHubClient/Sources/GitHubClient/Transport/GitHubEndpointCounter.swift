@@ -137,6 +137,9 @@ internal actor GitHubEndpointCounter {
         let scope: String
         let remaining: [String]
         if pathComponents[0] == "repos" {
+            guard pathComponents.count >= 3 else {
+                return GitHubEndpointKey(scope: "global/other", endpoint: "global/other")
+            }
             scope = "repo:\(pathComponents[1])/\(pathComponents[2])"
             remaining = Array(pathComponents.dropFirst(3))
         } else if pathComponents[0] == "orgs" {
