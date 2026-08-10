@@ -158,7 +158,7 @@ struct PanelLocalRunnerRow: View {
             }
         }
         .padding(.horizontal, RBSpacing.md)
-        .padding(.vertical, RBSpacing.xs + 2)
+        .padding(.vertical, RBSpacing.xxs)
         .frame(maxWidth: .infinity)
         .background {
             runnerCardBackground
