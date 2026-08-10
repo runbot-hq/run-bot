@@ -273,11 +273,7 @@ Task { await localRunnerStore.refresh() }
                 category: .panel
             )
             #endif
-            // Stable ids mean rows diff in-place; animate within a single transaction
-            // so status-badge and label updates cross-fade rather than hard-cut (#2688).
-            withAnimation(.default) {
-                if newActions.count < oldActions.count { visibleCount = 10 }
-            }
+            if newActions.count < oldActions.count { visibleCount = 10 }
             panelControllerHandle.remeasure()
         }
         .onChange(of: appState.runnerState.runners) { _, newRunners in
