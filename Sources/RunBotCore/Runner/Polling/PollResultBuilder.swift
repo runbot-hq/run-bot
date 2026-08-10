@@ -138,9 +138,17 @@ public enum PollResultBuilder {
     // Reversing these two operations would incorrectly evict entries just completed.
     var newCache = evictFreshShas(from: snapGroupCache, freshGroups: allFetched)
     // Dim and cache every completed group that came back from fetchGroups.
-    // `freezeVanishedGroups` (below) handles the complementary case: groups that
-    // were live last poll but are now absent from the feed entirely.
-    for group in doneGroups {
+    // Dedupe by compositeCacheKey before writing — a transitional duplicate
+    // (same composite key, two run-count snapshots) would otherwise overwrite
+    // the first entry order-dependently (#2688).
+    let dedupedDone: [WorkflowActionGroup] = {
+      let coalesced = Dictionary(
+        doneGroups.map { ($0.compositeCacheKey, $0) },
+        uniquingKeysWith: { lhs, rhs in lhs.latestRunID >= rhs.latestRunID ? lhs : rhs }
+      )
+      return Array(coalesced.values)
+    }()
+    for group in dedupedDone {
       let runSummary = group.runs.map { "\($0.id):\($0.conclusion?.rawValue ?? "nil")" }.joined(separator: ", ")
       log(
         "PollResultBuilder › doneGroups — groupID=\(group.id) runs=[\(runSummary)]",
