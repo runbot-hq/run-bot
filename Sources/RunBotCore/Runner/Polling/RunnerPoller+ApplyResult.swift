@@ -121,6 +121,8 @@ extension RunnerPoller {
         await MainActor.run { [state] in
             state.runners = enrichedRunners
             state.jobs = jobResult.display
+            // Stable group ids (compositeCacheKey) mean SwiftUI diffs in-place;
+            // no explicit animation wrapper needed here (#2688).
             state.actions = groupResult.display
             state.isRateLimited = rateLimitSnapshot.isLimited
             state.rateLimitResetDate = rateLimitSnapshot.resetDate
