@@ -263,6 +263,10 @@ public struct WorkflowActionGroupFetcher: Sendable, WorkflowActionGroupFetcherPr
       }
     }
 
+    // Coalesce any run that appeared in both in_progress and completed payloads,
+    // preferring the most authoritative status (completed > in_progress > queued).
+    for key in byGroupKey.keys { byGroupKey[key] = coalesceRuns(byGroupKey[key]!) }
+
     // Build groups concurrently — index-keyed to preserve insertion order.
     let groupEntries = Array(byGroupKey)
     var groups = Array(repeating: WorkflowActionGroup?.none, count: groupEntries.count)
@@ -291,6 +295,28 @@ public struct WorkflowActionGroupFetcher: Sendable, WorkflowActionGroupFetcherPr
       guard seenIDs.insert(run.id).inserted else { continue }
       payloads.append(run)
     }
+  }
+
+  /// Coalesces duplicate run IDs within one group's payload slice, keeping the entry
+  /// with the most authoritative status: completed > in_progress > queued > other.
+  ///
+  /// A run can appear in both the in_progress and completed API pages during the brief
+  /// window when GitHub marks it complete. Without coalescing, the same run enters the
+  /// group twice and inflates job counts or causes incorrect status derivation.
+  private func coalesceRuns(_ runs: [RunPayload]) -> [RunPayload] {
+    let priority: (RunPayload) -> Int = { run in
+      switch run.status {
+      case .completed:   return 3
+      case .inProgress:  return 2
+      case .queued:      return 1
+      default:           return 0
+      }
+    }
+    let coalesced = Dictionary(
+      runs.map { ($0.id, $0) },
+      uniquingKeysWith: { lhs, rhs in priority(lhs) >= priority(rhs) ? lhs : rhs }
+    )
+    return Array(coalesced.values)
   }
 
   /// Sorts action groups by sort priority (ascending), then by creation date (descending).
