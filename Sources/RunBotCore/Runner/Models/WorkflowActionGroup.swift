@@ -105,21 +105,30 @@ public struct WorkflowActionGroup: Identifiable, Equatable, Sendable {
     ///
     /// This is the CANONICAL definition. If the format ever changes, it changes here
     /// and here only — both callers pick it up automatically.
-    public static func compositeCacheKey(headSha: String, normalizedEvent: String) -> String {
-        "\(headSha):\(normalizedEvent)"
+    ///
+    /// `repo` is included so that two scopes sharing a commit (fork, mirror, monorepo
+    /// split) do not collide into one row when `fetchActionGroups` merges groups from
+    /// every active scope into a single display list.
+    public static func compositeCacheKey(repo: String, headSha: String, normalizedEvent: String) -> String {
+        "\(repo):\(headSha):\(normalizedEvent)"
     }
 
     /// The composite cache key for this group instance.
     /// Delegates to the static overload — format is defined in exactly one place.
     public var compositeCacheKey: String {
-        Self.compositeCacheKey(headSha: headSha, normalizedEvent: normalizedEvent)
+        Self.compositeCacheKey(repo: repo, headSha: headSha, normalizedEvent: normalizedEvent)
     }
 
-    /// Stable unique key: highest run ID in this group.
+    /// Stable Identifiable key: `repo:headSha:normalizedEvent`.
     ///
-    /// Run IDs are unique and monotonically increasing — immune to `head_sha` collisions
-    /// caused by scheduled workflows firing on the same commit.
-    public var id: String { String(runs.map { $0.id }.max() ?? 0) }
+    /// Survives status changes, added runs, and re-runs — SwiftUI diffs the group
+    /// as an in-place update instead of a remove+insert pair, eliminating the
+    /// duplicate-row animation glitch (#2688).
+    public var id: String { compositeCacheKey }
+
+    /// Newest run ID in the group (numeric). Use this for recency comparisons
+    /// anywhere the old `id` was used as a run-ID proxy (tiebreaks, log correlation).
+    public var latestRunID: Int { runs.map { $0.id }.max() ?? 0 }
 
     /// All jobs across every run in this group, fetched and flattened.
     /// This is what `ActionDetailView` renders.

@@ -42,16 +42,18 @@ private struct ActionRunsResponse: Codable {
 /// Manually dispatched runs (`workflow_dispatch`) and other non-commit events
 /// each get their own bucket, even when they target the same SHA.
 private struct GroupKey: Hashable {
+  /// The `owner/repo` scope string.
+  let repo: String
   /// The full SHA of the head commit.
   let headSha: String
   /// The normalised trigger event, produced by `groupEvent(_:)` — equivalent to
   /// `WorkflowActionGroup.normalizedEvent` for the same run.
   let event: String
-  /// Delegates to `WorkflowActionGroup.compositeCacheKey(headSha:normalizedEvent:)`
+  /// Delegates to `WorkflowActionGroup.compositeCacheKey(repo:headSha:normalizedEvent:)`
   /// — the single canonical definition of the cache key format.
   /// `GroupKey` is private to this file and holds no `WorkflowActionGroup` instance,
   /// so the static overload is used here instead of the instance property.
-  var cacheKey: String { WorkflowActionGroup.compositeCacheKey(headSha: headSha, normalizedEvent: event) }
+  var cacheKey: String { WorkflowActionGroup.compositeCacheKey(repo: repo, headSha: headSha, normalizedEvent: event) }
 }
 /// - Parameter event: The raw `event` string from the GitHub runs API.
 /// - Returns: A normalised bucket string used as part of `GroupKey`.
@@ -246,7 +248,7 @@ public struct WorkflowActionGroupFetcher: Sendable, WorkflowActionGroupFetcherPr
 
     var byGroupKey: [GroupKey: [RunPayload]] = [:]
     for run in runPayloads {
-      let key = GroupKey(headSha: run.headSha, event: run.event.map { groupEvent($0) } ?? "commit")
+      let key = GroupKey(repo: scope, headSha: run.headSha, event: run.event.map { groupEvent($0) } ?? "commit")
       byGroupKey[key, default: []].append(run)
     }
 
@@ -256,10 +258,14 @@ public struct WorkflowActionGroupFetcher: Sendable, WorkflowActionGroupFetcherPr
       // Re-constructing byGroupKey entirely is safer and cleaner than mutating the old dict
       byGroupKey.removeAll(keepingCapacity: true)
       for run in runPayloads {
-        let key = GroupKey(headSha: run.headSha, event: run.event.map { groupEvent($0) } ?? "commit")
+        let key = GroupKey(repo: scope, headSha: run.headSha, event: run.event.map { groupEvent($0) } ?? "commit")
         byGroupKey[key, default: []].append(run)
       }
     }
+
+    // Coalesce any run that appeared in both in_progress and completed payloads,
+    // preferring the most authoritative status (completed > in_progress > queued).
+    for key in byGroupKey.keys { byGroupKey[key] = coalesceRuns(byGroupKey[key]!) }
 
     // Build groups concurrently — index-keyed to preserve insertion order.
     let groupEntries = Array(byGroupKey)
@@ -289,6 +295,28 @@ public struct WorkflowActionGroupFetcher: Sendable, WorkflowActionGroupFetcherPr
       guard seenIDs.insert(run.id).inserted else { continue }
       payloads.append(run)
     }
+  }
+
+  /// Coalesces duplicate run IDs within one group's payload slice, keeping the entry
+  /// with the most authoritative status: completed > in_progress > queued > other.
+  ///
+  /// A run can appear in both the in_progress and completed API pages during the brief
+  /// window when GitHub marks it complete. Without coalescing, the same run enters the
+  /// group twice and inflates job counts or causes incorrect status derivation.
+  private func coalesceRuns(_ runs: [RunPayload]) -> [RunPayload] {
+    let priority: (RunPayload) -> Int = { run in
+      switch run.status {
+      case .completed:   return 3
+      case .inProgress:  return 2
+      case .queued:      return 1
+      default:           return 0
+      }
+    }
+    let coalesced = Dictionary(
+      runs.map { ($0.id, $0) },
+      uniquingKeysWith: { lhs, rhs in priority(lhs) >= priority(rhs) ? lhs : rhs }
+    )
+    return Array(coalesced.values)
   }
 
   /// Sorts action groups by sort priority (ascending), then by creation date (descending).

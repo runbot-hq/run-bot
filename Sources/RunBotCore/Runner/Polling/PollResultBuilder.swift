@@ -145,13 +145,27 @@ public enum PollResultBuilder {
       log(
         "PollResultBuilder › doneGroups — groupID=\(group.id) runs=[\(runSummary)]",
         category: .runner)
-      newCache[group.id] = group.copying(isDimmed: true)
+      newCache[group.compositeCacheKey] = group.copying(isDimmed: true)
     }
     freezeVanishedGroups(snapPrev: snapPrevGroups, liveIDs: liveIDs, now: now, into: &newCache)
     trimGroupCache(&newCache, limit: groupCacheLimit)
     let newPrevLive = [String: WorkflowActionGroup](
       uniqueKeysWithValues: liveGroups.map { ($0.id, $0) })
-    let display = buildGroupDisplay(live: liveGroups, cache: newCache)
+    // Dedupe liveGroups by stable id before passing to display — a second cache entry
+    // with the same composite key must never reach ForEach as a separate row (#2688).
+    let dedupedLive: [WorkflowActionGroup] = {
+      let coalesced = Dictionary(
+        liveGroups.map { ($0.id, $0) },
+        uniquingKeysWith: { lhs, rhs in lhs.latestRunID >= rhs.latestRunID ? lhs : rhs }
+      )
+      return coalesced.values.sorted { lhs, rhs in
+        if lhs.groupStatus.sortPriority != rhs.groupStatus.sortPriority {
+          return lhs.groupStatus.sortPriority < rhs.groupStatus.sortPriority
+        }
+        return (lhs.createdAt ?? .distantPast) > (rhs.createdAt ?? .distantPast)
+      }
+    }()
+    let display = buildGroupDisplay(live: dedupedLive, cache: newCache)
     let inProgCount = liveGroups.filter { $0.groupStatus == .inProgress }.count
     let queuedCount = liveGroups.filter { $0.groupStatus == .queued }.count
     let loadingCount = liveGroups.filter { $0.groupStatus == .loading }.count
@@ -265,42 +279,37 @@ public enum PollResultBuilder {
   /// group ID. Group IDs are monotonically increasing — a higher ID means a newer run
   /// — so this retains the most recent run's cache entry for each key.
   ///
-  /// The composite key is `WorkflowActionGroup.compositeCacheKey` (`"headSha:normalizedEvent"`)
+  /// The composite key is `WorkflowActionGroup.compositeCacheKey` (`"repo:headSha:normalizedEvent"`)
   /// — defined on the model so producer (`PollResultBuilder`) and consumer
   /// (`WorkflowActionGroupFetcher`) share a single canonical format and cannot drift.
   /// A pure `headSha` key would cause 100% cache misses for completed runs when
-  /// the event differs (regression from #2434).
+  /// the event differs (regression from #2434). `repo` is included so that two scopes
+  /// sharing a commit do not collide into one row (#2688).
   public static func makeShaKeyedCache(_ cache: [String: WorkflowActionGroup]) -> [String: WorkflowActionGroup] {
     Dictionary(
       cache.values.map { ($0.compositeCacheKey, $0) },
-      uniquingKeysWith: { lhs, rhs in lhs.id > rhs.id ? lhs : rhs }
+      uniquingKeysWith: { lhs, rhs in lhs.latestRunID >= rhs.latestRunID ? lhs : rhs }
     )
   }
 
-  /// Removes cache entries whose composite identity (`headSha:normalizedEvent`) appears
+  /// Removes cache entries whose composite identity (`repo:headSha:normalizedEvent`) appears
   /// in the freshly-fetched group list.
   ///
-  /// - Parameter cache: The **ID-keyed** group cache (`snapGroupCache`). Each entry's
-  ///   composite identity is derived from its *value* fields rather than its key, because
-  ///   the cache is keyed by group ID, not by `"headSha:normalizedEvent"`.
+  /// - Parameter cache: The composite-keyed group cache (`snapGroupCache`). Each entry's
+  ///   key equals `group.id` == `group.compositeCacheKey` after the #2688 stable-id fix.
   /// - Parameter freshGroups: The groups returned by the current live fetch.
   ///
-  /// A re-run on the same commit produces a new group ID for the same `headSha`.
-  /// Evicting by composite identity (not bare `headSha`) ensures that a fresh `push`
-  /// group does not accidentally evict a cached `workflow_dispatch` group that shares
-  /// the same SHA but belongs to a different event bucket.
-  ///
-  /// Note: `$0.value.compositeCacheKey` is used (not `$0.key`) because this dict is
-  /// ID-keyed — `$0.key` is a group ID string, not a composite key. `compositeCacheKey`
-  /// is defined on `WorkflowActionGroup` and propagated by all mutation paths
-  /// (`withJobs`, `copying`), so the value-based lookup is safe.
+  /// Evicting by composite identity ensures that a fresh `push` group does not
+  /// accidentally evict a cached `workflow_dispatch` group sharing the same SHA
+  /// but belonging to a different event bucket. `repo` is also included so that two
+  /// scopes sharing a commit do not cross-evict each other.
   public static func evictFreshShas(
     from cache: [String: WorkflowActionGroup],
     freshGroups: [WorkflowActionGroup]
   ) -> [String: WorkflowActionGroup] {
-    // NOTE: This cache is ID-keyed (group.id), not composite-keyed.
-    // $0.key is a group ID string — using $0.key here would silently skip all evictions.
-    // We derive the composite key from the value instead, which is correct for this dict.
+    // Cache is composite-keyed (group.compositeCacheKey == group.id after Change 2).
+    // Using $0.key is now equivalent to $0.value.compositeCacheKey, but we derive from
+    // the value to stay consistent with the canonical key definition on WorkflowActionGroup.
     let freshKeys = Set(freshGroups.map { $0.compositeCacheKey })
     return cache.filter { !freshKeys.contains($0.value.compositeCacheKey) }
   }
@@ -309,8 +318,9 @@ public enum PollResultBuilder {
   /// vanished from the live feed (i.e. completed without appearing in fetchGroups).
   ///
   /// Vanished groups are written into `cache` dimmed. Both `snapPrev` and `cache`
-  /// are keyed by `WorkflowActionGroup.id`; `liveIDs` must also be a `Set<String>`
-  /// of `WorkflowActionGroup.id` values for the containment check to be correct.
+  /// are keyed by `WorkflowActionGroup.id` (== `compositeCacheKey` after #2688 fix);
+  /// `liveIDs` must also be a `Set<String>` of those same values for the containment
+  /// check to be correct.
   ///
   /// `internal` (not `public`): exercised indirectly through `buildGroupState` in tests;
   /// no direct external callers exist outside `RunBotCore`.
@@ -383,7 +393,7 @@ public enum PollResultBuilder {
         > (rhs.lastJobCompletedAt ?? rhs.createdAt ?? .distantPast)
     }
     cache = [String: WorkflowActionGroup](
-      uniqueKeysWithValues: sorted.prefix(limit).map { group in (group.id, group) })
+      uniqueKeysWithValues: sorted.prefix(limit).map { group in (group.compositeCacheKey, group) })
   }
 
   /// Builds the ordered group display list from live groups and the completed cache.
