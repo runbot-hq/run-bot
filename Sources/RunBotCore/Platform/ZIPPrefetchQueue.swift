@@ -124,7 +124,10 @@ public actor ZIPPrefetchQueue {
             "ZIPPrefetchQueue › fetching ZIP for runID=\(entryKey.runID) attempt=\(entryKey.runAttempt) scope='\(scope)' isCompleted=\(isCompleted)",
             category: .services
         )
-        guard let data = await transport.raw("repos/\(scope)/actions/runs/\(entryKey.runID)/logs") else {
+        guard let data = await transport.raw(
+            "repos/\(scope)/actions/runs/\(entryKey.runID)"
+                + "/attempts/\(entryKey.runAttempt)/logs"
+        ) else {
             log("ZIPPrefetchQueue › nil response for runID=\(entryKey.runID) — skipping (ZIP may be expired)", category: .services)
             return
         }

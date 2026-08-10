@@ -409,7 +409,10 @@ public struct LogFetcher: Sendable {
             "fetchStepLog › cache MISS runID=\(runID) — downloading ZIP",
             category: .services
         )
-        guard let data = await transport.raw("repos/\(scope)/actions/runs/\(runID)/logs") else {
+        guard let data = await transport.raw(
+            "repos/\(scope)/actions/runs/\(runID)"
+                + "/attempts/\(runAttempt)/logs"
+        ) else {
             log("fetchStepLog › network failure fetching ZIP for run \(runID) scope '\(scope)' after \(downloadStart.duration(to: .now))", category: .services)
             return .failed(.fetchFailed(reason: "Could not download the run log archive from GitHub."))
         }

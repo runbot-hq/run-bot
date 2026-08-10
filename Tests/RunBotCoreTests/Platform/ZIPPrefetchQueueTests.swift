@@ -10,6 +10,7 @@ import GitHubClient
 final class FakeTransport: GitHubTransportProtocol, @unchecked Sendable {
     var callCount = 0
     var responseData: Data?
+    var lastEndpoint: String?
 
     var decoder: JSONDecoder { JSONDecoder() }
     var logger: (any GitHubLogger)? { nil }
@@ -18,6 +19,7 @@ final class FakeTransport: GitHubTransportProtocol, @unchecked Sendable {
     func apiPaginated(_ endpoint: String, timeout: TimeInterval) async -> Data? { nil }
     func raw(_ endpoint: String, timeout: TimeInterval) async -> Data? {
         callCount += 1
+        lastEndpoint = endpoint
         return responseData
     }
     func post(_ endpoint: String, body: Data?, timeout: TimeInterval) async -> Data? { nil }
@@ -154,5 +156,21 @@ final class ZIPPrefetchQueueTests: XCTestCase {
         XCTAssertEqual(transport.callCount, 1, "Incomplete run should still attempt fetch")
         let diskResult = await disk.get(key: key)
         XCTAssertNil(diskResult, "Incomplete run ZIP must not be written to disk")
+    }
+
+    // MARK: - Attempt endpoint
+
+    func testFetchUsesAttemptEndpoint() async throws {
+        let transport = FakeTransport()
+        transport.responseData = Data("fake-zip".utf8)
+        let (queue, _) = makeQueue(transport: transport)
+        let key = makeKey(runID: 123, runAttempt: 2)
+        await queue.enqueue(entryKey: key, scope: "owner/repo", isCompleted: true)
+        try await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertEqual(
+            transport.lastEndpoint,
+            "repos/owner/repo/actions/runs/123/attempts/2/logs",
+            "Fetch must use attempt-specific endpoint"
+        )
     }
 }
