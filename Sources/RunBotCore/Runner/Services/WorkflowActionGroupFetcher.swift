@@ -263,10 +263,6 @@ public struct WorkflowActionGroupFetcher: Sendable, WorkflowActionGroupFetcherPr
       }
     }
 
-    // Coalesce any run that appeared in both in_progress and completed payloads,
-    // preferring the most authoritative status (completed > in_progress > queued).
-    byGroupKey = byGroupKey.mapValues(coalesceRuns)
-
     // Build groups concurrently — index-keyed to preserve insertion order.
     let groupEntries = Array(byGroupKey)
     var groups = Array(repeating: WorkflowActionGroup?.none, count: groupEntries.count)
@@ -300,26 +296,6 @@ public struct WorkflowActionGroupFetcher: Sendable, WorkflowActionGroupFetcherPr
   /// Coalesces duplicate run IDs within one group's payload slice, keeping the entry
   /// with the most authoritative status: completed > in_progress > queued > other.
   ///
-  /// A run can appear in both the in_progress and completed API pages during the brief
-  /// window when GitHub marks it complete. Without coalescing, the same run enters the
-  /// group twice and inflates job counts or causes incorrect status derivation.
-  private func coalesceRuns(_ runs: [RunPayload]) -> [RunPayload] {
-    let priority: (RunPayload) -> Int = { run in
-      switch run.status {
-      case .completed:   return 3
-      case .inProgress:  return 2
-      case .queued:      return 1
-      default:           return 0
-      }
-    }
-    let coalesced = Dictionary(
-      runs.map { ($0.id, $0) },
-      uniquingKeysWith: { lhs, rhs in priority(lhs) >= priority(rhs) ? lhs : rhs }
-    )
-    // Sort by run ID so runs within a group are stable across polls (#2686).
-    return coalesced.values.sorted { $0.id < $1.id }
-  }
-
   /// Sorts action groups by sort priority (ascending), then by creation date (descending).
   private func sort(groups: [WorkflowActionGroup]) -> [WorkflowActionGroup] {
     groups.sorted { lhs, rhs in
@@ -346,11 +322,13 @@ public struct WorkflowActionGroupFetcher: Sendable, WorkflowActionGroupFetcherPr
     // value array, so this is expected to always succeed. The guard defends against
     // a future caller constructing the dict incorrectly rather than crashing silently.
     //
-    // Representative selection: prefer a push-event run whose displayTitle carries the
-    // commit subject, not the PR title. GitHub sets display_title to the PR title for
+    // Title representative: prefer the push-event run (lowest id) whose display_title
+    // carries the commit subject. GitHub sets display_title to the PR title for
     // pull_request runs — since push and pull_request bucket into the same "commit" group,
-    // max(createdAt) would often pick the PR run (created later) and show the PR title
-    // instead of the commit subject. Fall back to the lowest run ID for stability (#2690).
+    // max(createdAt) would often pick the PR run (created later) and surface the PR title
+    // in the row label. Fall back to lowest id overall for PR-only groups (#2690).
+    // NOTE: $0.event is the raw GitHub event string ("push", "pull_request"), not the
+    // normalised bucket — groupEvent() must not be applied here or the filter matches nothing.
     let pushRun = groupRuns.filter { $0.event == "push" }.min(by: { $0.id < $1.id })
     guard let representative = pushRun ?? groupRuns.min(by: { $0.id < $1.id })
     else {
@@ -410,9 +388,14 @@ public struct WorkflowActionGroupFetcher: Sendable, WorkflowActionGroupFetcherPr
       category: .runner
     )
     #endif
+    // createdAt drives row sort order and the relative-time label — use the newest
+    // run overall (max createdAt string) so the timestamp reflects when work most
+    // recently started, not when the push run was created. The push-preferred
+    // representative is used only for title/label/headBranch (#2690).
     // Optional.flatMap does not accept an async closure — use if let.
+    let createdAtSource = groupRuns.max(by: { ($0.createdAt ?? "") < ($1.createdAt ?? "") })
     let createdAt: Date?
-    if let dateStr = representative.createdAt {
+    if let dateStr = createdAtSource?.createdAt {
       createdAt = await ISO8601DateParser.shared.parse(dateStr)
     } else {
       createdAt = nil

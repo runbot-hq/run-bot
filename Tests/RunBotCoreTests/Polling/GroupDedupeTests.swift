@@ -1,14 +1,15 @@
 // GroupDedupeTests.swift
 // RunBotCoreTests
 //
-// Regression coverage for #2684 / #2688:
+// Regression coverage for #2684 / #2688 / #2690:
 // - Duplicate workflow rows on in-progress → success transition
 // - Repo-qualified composite cache key
 // - Stable group identity across run additions
-// - Deterministic run order inside coalesceRuns
+// - makeShaKeyedCache numeric tiebreak
 //
 // Uses swift-testing (@Test / #expect) consistent with the rest of the suite.
 
+import Foundation
 import Testing
 @testable import RunBotCore
 
@@ -19,7 +20,8 @@ private func makeGroup(
     sha: String,
     event: String = "commit",
     runIDs: [Int],
-    status: JobStatus = .inProgress
+    status: JobStatus = JobStatus.inProgress,
+    createdAt: Date? = nil
 ) -> WorkflowActionGroup {
     let runs = runIDs.map {
         WorkflowRunRef(id: $0, name: "CI", status: status, conclusion: nil, htmlUrl: nil)
@@ -31,6 +33,7 @@ private func makeGroup(
         headBranch: "main",
         repo: repo,
         runs: runs,
+        createdAt: createdAt,
         normalizedEvent: event
     )
 }
@@ -79,45 +82,74 @@ struct GroupDisplayDedupeTests {
     /// A live in-progress entry and a completed cache entry for the same composite key
     /// must produce exactly one row in buildGroupDisplay — no duplicate (#2688).
     @Test func noDuplicateRowOnCompletionTransition() {
-        let live      = makeGroup(sha: "abc", runIDs: [100], status: .inProgress)
-        let completed = makeGroup(sha: "abc", runIDs: [100, 101], status: .completed)
+        let live      = makeGroup(sha: "abc", runIDs: [100], status: JobStatus.inProgress)
+        let completed = makeGroup(sha: "abc", runIDs: [100, 101], status: JobStatus.completed)
             .copying(isDimmed: true)
-        // Simulate what PollResultBuilder does: live array + completed in cache.
         let cache: [String: WorkflowActionGroup] = [completed.compositeCacheKey: completed]
         let display = PollResultBuilder.buildGroupDisplay(live: [live], cache: cache)
-        #expect(display.count == 1,
-            "Expected 1 row but got \(display.count): \(display.map(\.id))")
+        #expect(display.count == 1)
     }
 
     /// When liveGroups contains two entries with the same composite id (transitional
-    /// duplicate during a poll), buildGroupDisplay must still emit only one row.
+    /// duplicate during a poll), the entry with the higher latestRunID wins.
     @Test func dedupeDropsLowerLatestRunID() {
-        let older = makeGroup(sha: "abc", runIDs: [100], status: .inProgress)
-        let newer = makeGroup(sha: "abc", runIDs: [101], status: .inProgress)
-        // Both have the same composite id. Feed both as live.
-        // buildGroupDisplay itself doesn't dedupe — that's dedupedLive's job.
-        // Verify via buildGroupDisplay after manually deduping, matching prod flow.
+        let older = makeGroup(sha: "abc", runIDs: [100], status: JobStatus.inProgress)
+        let newer = makeGroup(sha: "abc", runIDs: [101], status: JobStatus.inProgress)
         let deduped = Dictionary(
             [older, newer].map { ($0.id, $0) },
             uniquingKeysWith: { lhs, rhs in lhs.latestRunID >= rhs.latestRunID ? lhs : rhs }
         ).values
         let display = PollResultBuilder.buildGroupDisplay(live: Array(deduped), cache: [:])
         #expect(display.count == 1)
-        #expect(display.first?.latestRunID == 101,
-            "Expected newer run (101) to win tiebreak")
+        #expect(display.first?.latestRunID == 101)
     }
 
     /// Global display invariant: no two rows share an id.
     @Test func globalInvariantNoDuplicateIDs() {
         let groups: [WorkflowActionGroup] = [
-            makeGroup(sha: "abc", runIDs: [100], status: .inProgress),
-            makeGroup(sha: "def", runIDs: [200], status: .inProgress),
-            makeGroup(repo: "owner/other", sha: "abc", runIDs: [300], status: .inProgress),
+            makeGroup(sha: "abc", runIDs: [100], status: JobStatus.inProgress),
+            makeGroup(sha: "def", runIDs: [200], status: JobStatus.inProgress),
+            makeGroup(repo: "owner/other", sha: "abc", runIDs: [300], status: JobStatus.inProgress),
         ]
         let display = PollResultBuilder.buildGroupDisplay(live: groups, cache: [:])
         let ids = display.map(\.id)
-        #expect(Set(ids).count == ids.count,
-            "Duplicate ids found: \(ids)")
+        #expect(Set(ids).count == ids.count)
         #expect(display.count == 3)
+    }
+}
+
+// MARK: - makeShaKeyedCache tiebreak
+
+@Suite("PollResultBuilder.makeShaKeyedCache")
+struct MakeShaKeyedCacheTests {
+
+    /// Regression guard: when the cache contains two entries sharing the same
+    /// compositeCacheKey, makeShaKeyedCache must keep the one with the higher
+    /// latestRunID — not the lexicographically larger key ("9" > "10" in strings).
+    @Test func numericTiebreakCorrect() {
+        let winner = makeGroup(sha: "abc", runIDs: [10])  // latestRunID == 10
+        let loser  = makeGroup(sha: "abc", runIDs: [9])   // latestRunID == 9
+        let cache: [String: WorkflowActionGroup] = [
+            "key-a": winner,
+            "key-b": loser,
+        ]
+        let result = PollResultBuilder.makeShaKeyedCache(cache)
+        let entry = result[winner.compositeCacheKey]
+        #expect(entry != nil)
+        #expect(entry?.latestRunID == 10)
+    }
+
+    /// A cache with no collisions passes through unchanged.
+    @Test func noCollisionPassthrough() {
+        let g1 = makeGroup(sha: "aaa", runIDs: [1])
+        let g2 = makeGroup(sha: "bbb", runIDs: [2])
+        let cache: [String: WorkflowActionGroup] = [
+            g1.compositeCacheKey: g1,
+            g2.compositeCacheKey: g2,
+        ]
+        let result = PollResultBuilder.makeShaKeyedCache(cache)
+        #expect(result.count == 2)
+        #expect(result[g1.compositeCacheKey]?.latestRunID == 1)
+        #expect(result[g2.compositeCacheKey]?.latestRunID == 2)
     }
 }
