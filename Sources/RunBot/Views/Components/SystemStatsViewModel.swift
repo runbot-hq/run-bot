@@ -6,7 +6,7 @@ import Observation
 import RunBotCore
 
 // MARK: - SystemStatsViewModel
-/// Observable view-model that periodically samples CPU, memory, and disk metrics.
+/// Observable view-model that periodically samples CPU, GPU, memory, and disk metrics.
 /// Call `start()` when the owning view appears and `stop()` when it disappears.
 @MainActor
 @Observable
@@ -17,6 +17,8 @@ final class SystemStatsViewModel {
     private(set) var cpuHistory: RingBuffer = RingBuffer(capacity: 60)
     /// Rolling 60-sample history for memory-usage sparkline charts.
     private(set) var memHistory: RingBuffer = RingBuffer(capacity: 60)
+    /// Rolling 60-sample history for GPU-utilisation sparkline charts.
+    private(set) var gpuHistory: RingBuffer = RingBuffer(capacity: 60)
     /// Rolling 60-sample history for disk-usage sparkline charts.
     private(set) var diskHistory: RingBuffer = RingBuffer(capacity: 60)
     /// Structured task driving the 2-second sample loop.
@@ -126,28 +128,33 @@ final class SystemStatsViewModel {
     }
 
     // MARK: Sampling
-    /// Collects CPU, memory, and disk snapshots and publishes updated stats and history buffers.
+    /// Collects CPU, GPU, memory, and disk snapshots and publishes updated stats and history buffers.
     private func sample() {
         let cpu = sampleCPU()
+        let gpu = sampleGPU()
         let mem = sampleMemory()
         let disk = sampleDisk()
         let snapshot = SystemStats(
             cpuPct: cpu,
+            gpuPct: gpu,
             memUsedGB: mem.used,
             memTotalGB: mem.total,
             diskUsedGB: disk.used,
             diskTotalGB: disk.total
         )
         var newCPU = cpuHistory
+        var newGPU = gpuHistory
         var newMem = memHistory
         var newDisk = diskHistory
         newCPU.append(cpu)
+        if let gpu { newGPU.append(gpu) }
         let memPct = mem.total > 0 ? mem.used / mem.total * 100 : 0.0
         let diskPct = disk.total > 0 ? disk.used / disk.total * 100 : 0.0
         newMem.append(memPct)
         newDisk.append(diskPct)
         self.stats = snapshot
         self.cpuHistory = newCPU
+        self.gpuHistory = newGPU
         self.memHistory = newMem
         self.diskHistory = newDisk
     }

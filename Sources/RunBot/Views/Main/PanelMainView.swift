@@ -92,7 +92,7 @@ struct PanelMainView: View {
     /// Panel controller handle injected from AppDelegate.wrapEnv — used to
     /// invalidate content size when the list grows and standard KVO is insufficient.
     @Environment(PanelControllerHandle.self) private var panelControllerHandle
-    /// View model for CPU/memory stats displayed in the header.
+    /// View model for CPU/GPU/memory stats displayed in the header.
     @State private var systemStats = SystemStatsViewModel()
     /// Number of workflow rows currently shown in the actions section.
     @State private var visibleCount: Int = 10

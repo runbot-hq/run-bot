@@ -17,6 +17,7 @@ struct SystemStatsView: View {
                 .font(.headline)
                 .padding(.bottom, 4)
             statRow(label: "CPU", value: String(format: "%.1f%%", viewModel.stats.cpuPct))
+            statRow(label: "GPU", value: viewModel.stats.gpuPct.map { String(format: "%.0f%%", $0) } ?? "—")
             statRow(label: "Memory Used", value: String(format: "%.1f GB", viewModel.stats.memUsedGB))
             statRow(label: "Memory Total", value: String(format: "%.1f GB", viewModel.stats.memTotalGB))
             statRow(label: "Disk Used", value: String(format: "%.1f GB", viewModel.stats.diskUsedGB))
@@ -43,7 +44,7 @@ struct SystemStatsView: View {
 
 // MARK: - GlassBadgeContainer
 
-/// A stable glass wrapper for live-updating chip content (CPU, MEM, DISK chips only).
+/// A stable glass wrapper for live-updating chip content (CPU, GPU, MEM, DISK chips only).
 ///
 /// Uses `rbGlassNeutralBackground` (black 0.15 light / white 0.10 dark) beneath a `.regular`
 /// glass effect — matching the `StatusBadge` pattern in `SettingsView+Sections.swift`.
@@ -74,7 +75,7 @@ struct GlassBadgeContainer<Content: View>: View {
 
 /// A single header metric chip: label + inline sparkline + monospaced value in one horizontal row.
 ///
-/// Layout: CPU [sparkline] 41.1% MEM [sparkline] 6.4/16.0GB
+/// Layout: CPU [sparkline] 41.1% GPU [sparkline] 72% MEM [sparkline] 6.4/16.0GB
 ///
 /// Do NOT restore the VStack layout -- it makes the header ~70pt tall.
 struct SparklineMetricView: View {
@@ -121,15 +122,15 @@ struct SparklineMetricView: View {
 
 // MARK: - HeaderStatsBar
 
-/// Compact single-row stats bar: CPU | MEM | DISK inline chips for the panel header.
+/// Compact single-row stats bar: CPU | GPU | MEM | DISK inline chips for the panel header.
 ///
 /// Accepts an existing `SystemStatsViewModel` so it shares the sampler
 /// already running in `PanelMainView` -- no second timer is created.
 struct HeaderStatsBar: View {
-    /// The view model supplying live CPU, memory, and disk stats.
+    /// The view model supplying live CPU, GPU, memory, and disk stats.
     var statsVM: SystemStatsViewModel
 
-    /// Renders CPU, MEM, and DISK chips separated by thin dividers.
+    /// Renders CPU, GPU, MEM, and DISK chips separated by thin dividers.
     /// Each chip is sized intrinsically: text has layout priority over the sparkline,
     /// so graphs share an equal ideal width of 40 pt but compress before any label or
     /// value is truncated. CPU will naturally be narrower than MEM and DISK because
@@ -143,6 +144,16 @@ struct HeaderStatsBar: View {
                     value: String(format: "%.1f%%", cpuPct),
                     history: statsVM.cpuHistory.values,
                     currentPct: cpuPct
+                )
+            }
+            Color.secondary.opacity(0.3).frame(width: 1, height: 14)
+            let gpuPct = statsVM.stats.gpuPct
+            GlassBadgeContainer {
+                SparklineMetricView(
+                    label: "GPU",
+                    value: gpuPct.map { String(format: "%.0f%%", $0) } ?? "—",
+                    history: statsVM.gpuHistory.values,
+                    currentPct: gpuPct ?? 0
                 )
             }
             Color.secondary.opacity(0.3).frame(width: 1, height: 14)

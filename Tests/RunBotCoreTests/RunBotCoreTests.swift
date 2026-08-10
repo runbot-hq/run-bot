@@ -980,3 +980,52 @@ struct RunnerConfigStoreErrorDescriptionTests {
             "ioReadFailedDuringSave and readFailed must produce distinct descriptions")
   }
 }
+// MARK: - SystemStats.gpuPct
+
+@Suite("SystemStats.gpuPct")
+struct SystemStatsGPUTests {
+
+    /// Verifies that `SystemStats` stores and returns the GPU percentage value.
+    @Test func storesGPUPercentage() {
+        let stats = SystemStats(
+            cpuPct: 20,
+            gpuPct: 73,
+            memUsedGB: 8,
+            memTotalGB: 16,
+            diskUsedGB: 100,
+            diskTotalGB: 500
+        )
+        #expect(stats.gpuPct == 73)
+    }
+
+    /// Verifies that `.zero` has `gpuPct == nil` so the caller can distinguish
+    /// "no data" from a 0% GPU load.
+    @Test func zeroStatsHasUnavailableGPU() {
+        #expect(SystemStats.zero.gpuPct == nil)
+    }
+
+    /// Verifies that `gpuPct` defaults to `nil` when omitted from the initialiser.
+    @Test func gpuPctDefaultsToNil() {
+        let stats = SystemStats(
+            cpuPct: 10,
+            memUsedGB: 4,
+            memTotalGB: 8,
+            diskUsedGB: 50,
+            diskTotalGB: 500
+        )
+        #expect(stats.gpuPct == nil)
+    }
+
+    /// Verifies that `gpuPct` can be `nil` explicitly.
+    @Test func nilGpuPctIsExplicitlyRepresentable() {
+        let stats = SystemStats(
+            cpuPct: 10,
+            gpuPct: nil,
+            memUsedGB: 4,
+            memTotalGB: 8,
+            diskUsedGB: 50,
+            diskTotalGB: 500
+        )
+        #expect(stats.gpuPct == nil)
+    }
+}

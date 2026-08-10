@@ -2,10 +2,12 @@
 // RunBotCore
 import Foundation
 
-/// Snapshot of CPU and memory metrics sampled at a point in time.
+/// Snapshot of CPU, GPU, memory, and disk metrics sampled at a point in time.
 public struct SystemStats: Sendable, Equatable {
     /// CPU usage percentage (0–100).
     public let cpuPct: Double
+    /// GPU utilisation percentage (0–100), or `nil` when telemetry is unavailable.
+    public let gpuPct: Double?
     /// Used memory in gigabytes.
     public let memUsedGB: Double
     /// Total physical memory in gigabytes.
@@ -18,12 +20,14 @@ public struct SystemStats: Sendable, Equatable {
     /// Creates a new `SystemStats` snapshot with the given metric values.
     public init(
         cpuPct: Double,
+        gpuPct: Double? = nil,
         memUsedGB: Double,
         memTotalGB: Double,
         diskUsedGB: Double,
         diskTotalGB: Double
     ) {
         self.cpuPct = cpuPct
+        self.gpuPct = gpuPct
         self.memUsedGB = memUsedGB
         self.memTotalGB = memTotalGB
         self.diskUsedGB = diskUsedGB
@@ -49,6 +53,7 @@ public struct SystemStats: Sendable, Equatable {
     }
 
     /// Zero-initialised snapshot used as the default before the first sample arrives.
+    /// `gpuPct` is `nil` to distinguish \"no data\" from a 0% GPU load.
     public static let zero = SystemStats(
         cpuPct: 0, memUsedGB: 0, memTotalGB: 0, diskUsedGB: 0, diskTotalGB: 0
     )

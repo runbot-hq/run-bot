@@ -7,7 +7,7 @@ import SwiftUI
 // MARK: - PanelHeaderView
 /// Top bar of the popover panel showing system stats and the settings/quit buttons.
 struct PanelHeaderView: View {
-    /// View model driving the CPU/MEM/disk stat pills.
+    /// View model driving the CPU/GPU/MEM/disk stat pills.
     var statsVM: SystemStatsViewModel
     /// Called when the user taps the settings gear button.
     let onSelectSettings: () -> Void
