@@ -15,7 +15,8 @@
 - [NSPopover Decisions](#nspopover-decisions)
 - [Design](#design)
 - [E-Tag caching](#e-tag-caching)
- 
+- [ZIP log cache](#zip-log-cache)
+
 # RunBot — UI Architecture Decisions
 
 Regression guards and architectural decisions enforced inline in the source.
@@ -960,3 +961,150 @@ This is not persistent storage, a general-purpose URL cache, or an
 application-level data cache. Its only job is making repeated authenticated
 GitHub reads cheap while keeping ETag, token, pagination, and `304` handling
 confined to the transport.
+
+## ZIP log cache
+
+The primary purpose of the ZIP cache is to preserve GitHub Actions logs while they
+still contain precise per-step data.
+
+GitHub's workflow-run log endpoint can temporarily return a rich ZIP archive whose
+files can be mapped to individual workflow steps. After an undocumented and
+unpredictable period, the same endpoint may stop returning that structure or may
+return a degraded archive containing only job-level log data.
+
+The duration of this window is not treated as a contract. It has appeared to vary
+from minutes to hours. RunBot must therefore capture the rich archive as soon as a
+workflow run reaches a terminal conclusion.
+
+### Best-effort capture
+
+`ZIPPrefetchQueue` observes workflow groups transitioning from active to completed.
+For every workflow run in the completed group, it requests:
+
+```text
+/repos/{owner}/{repo}/actions/runs/{run-id}/logs
+```
+
+The returned ZIP is written to `DiskZIPCache` only after the run has completed. This
+includes successful, failed, cancelled, and other terminal conclusions; caching is
+not restricted to successful runs.
+
+Capture is deliberately best-effort:
+
+- RunBot must be active when the completion transition is observed.
+- The ZIP must still be available in its rich, step-dividable form.
+- Failed or expired downloads are not considered fatal application errors.
+- RunBot does not replay historical completion transitions after restart.
+- A cache miss must never prevent StepLogView from attempting its fallback paths.
+
+This cache is therefore a preservation mechanism, not a guaranteed archive of every
+workflow execution.
+
+### Cache identity
+
+A cache group uses the same semantic identity as a displayed workflow group:
+
+```text
+repository + full head SHA + normalized event
+```
+
+It is stored as one readable directory directly under the cache root:
+
+```text
+<owner>@<repo>--<full-sha>--<normalized-event>/
+```
+
+Each workflow-run archive is identified by run ID and run attempt:
+
+```text
+<run-id>-<run-attempt>.zip
+```
+
+Example:
+
+```text
+DiskZIPCache/
+├── runbot-hq@run-bot--fb306a5bcaad562d2e7bc183b86e4a70e983c3dd--commit/
+│   ├── 31350001-1.zip
+│   ├── 31350002-1.zip
+│   └── 31350003-2.zip
+└── runbot-hq@run-bot--fb306a5bcaad562d2e7bc183b86e4a70e983c3dd--workflow_dispatch/
+    └── 31350100-1.zip
+```
+
+GitHub retains the same run ID when a workflow is rerun and increments
+`run_attempt`. A cache hit is valid only when both values match.
+
+RunBot displays only the latest attempt. After a newer attempt is written
+successfully, older files for the same run ID are removed.
+
+### Step-log resolution
+
+StepLogView resolves logs through progressively less precise sources.
+
+#### 1. Cached rich workflow-run ZIP
+
+The preferred source is a cached workflow-run ZIP captured during the completion
+window.
+
+A rich archive contains files that can be matched to individual workflow steps.
+StepLogView extracts and displays only the requested step's content.
+
+This is the only fully reliable source of precise per-step boundaries after GitHub's
+availability window has closed.
+
+#### 2. Degraded workflow-run ZIP
+
+GitHub may later return a ZIP with a different structure that no longer contains
+individually addressable step files. It may contain only job-level log content.
+
+RunBot attempts to locate or infer the requested step from this content. If precise
+extraction is impossible, StepLogView displays the containing job log for the
+requested step and shows a visible degradation notice.
+
+This means multiple steps may display the same complete job log. That is intentional:
+the original step boundaries are no longer available.
+
+#### 3. Job-level flat-blob fallback
+
+If the workflow-run ZIP is unavailable or unusable, `LogFetcher` requests:
+
+```text
+/repos/{owner}/{repo}/actions/jobs/{job-id}/logs
+```
+
+This endpoint returns a flat job log through a short-lived redirect. RunBot attempts
+to parse the requested step from that blob.
+
+If parsing succeeds, the inferred step section is displayed. If parsing fails,
+StepLogView displays the complete job log with a degradation notice rather than
+showing no data.
+
+The fallback hierarchy is therefore:
+
+```text
+cached rich ZIP
+→ live workflow-run ZIP
+→ parsed job-level flat blob
+→ complete job-level flat blob
+→ no output
+```
+
+### Folder-level eviction
+
+Capacity is measured in workflow-group directories, not individual ZIP files. A
+commit that produces ten workflow runs consumes one cache slot rather than ten.
+
+The cache retains the ten most recently used group directories:
+
+1. A successful read or write updates the group directory's modification date.
+2. Immediate child directories of the cache root are sorted newest first.
+3. Directories beyond the ten newest groups are deleted recursively.
+4. ZIP count inside a retained group directory does not affect capacity.
+
+Eviction always removes a complete workflow group. It never removes individual
+sibling workflow runs merely because a commit contains many workflows.
+
+Legacy root-level `<run-id>.zip` files do not contain enough identity information to
+migrate safely and are deleted during cache preparation.
+
