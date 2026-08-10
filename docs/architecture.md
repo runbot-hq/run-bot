@@ -982,7 +982,7 @@ workflow run reaches a terminal conclusion.
 For every workflow run in the completed group, it requests:
 
 ```text
-/repos/{owner}/{repo}/actions/runs/{run-id}/logs
+/repos/{owner}/{repo}/actions/runs/{run-id}/attempts/{run-attempt}/logs
 ```
 
 The returned ZIP is written to `DiskZIPCache` only after the run has completed. This
