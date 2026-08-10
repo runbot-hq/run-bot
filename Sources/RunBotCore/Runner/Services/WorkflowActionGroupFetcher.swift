@@ -319,15 +319,9 @@ public struct WorkflowActionGroupFetcher: Sendable, WorkflowActionGroupFetcherPr
     // value array, so this is expected to always succeed. The guard defends against
     // a future caller constructing the dict incorrectly rather than crashing silently.
     //
-    // Title representative: prefer the push-event run (lowest id) whose display_title
-    // carries the commit subject. GitHub sets display_title to the PR title for
-    // pull_request runs — since push and pull_request bucket into the same "commit" group,
-    // max(createdAt) would often pick the PR run (created later) and surface the PR title
-    // in the row label. Fall back to lowest id overall for PR-only groups (#2690).
-    // NOTE: $0.event is the raw GitHub event string ("push", "pull_request"), not the
-    // normalised bucket — groupEvent() must not be applied here or the filter matches nothing.
-    let pushRun = groupRuns.filter { $0.event == "push" }.min(by: { $0.id < $1.id })
-    guard let representative = pushRun ?? groupRuns.min(by: { $0.id < $1.id })
+    // Representative: the run with the latest creation timestamp, so that re-runs
+    // are sorted by their own creation time, not the original run's.
+    guard let representative = groupRuns.max(by: { ($0.createdAt ?? "") < ($1.createdAt ?? "") })
     else {
       assertionFailure("buildActionGroup: groupRuns must not be empty (key: \(groupKey))")
       return (
@@ -340,14 +334,18 @@ public struct WorkflowActionGroupFetcher: Sendable, WorkflowActionGroupFetcherPr
       )
     }
     let label = prLabel(from: representative)
-    // Title: head_commit.message first line is the commit subject and is correct
-    // regardless of event type (push or pull_request runs both carry the head commit).
-    // display_title is a fallback only — GitHub sets it to the PR title for
-    // pull_request runs, which is the regression fixed here (#2690).
-    let rawTitle: String =
-      representative.headCommit.flatMap { $0.message.components(separatedBy: "\n").first }
-      ?? representative.displayTitle
-      ?? String(groupKey.headSha.prefix(7))
+    // Title: display_title first, with one exception: pull_request and pull_request_target
+    // runs carry the PR title in display_title — use the commit subject instead.
+    // GitHub sets display_title to the commit subject for push runs, and to the workflow
+    // name or explicit `run-name:` for workflow_dispatch / schedule events.
+    // NOTE: representative.event is the RAW GitHub event string, not the normalised
+    // groupEvent() bucket. A comparison against "commit" here would match nothing.
+    let commitSubject = representative.headCommit.flatMap { $0.message.components(separatedBy: "\n").first }
+    let isPullRequestRun = representative.event == "pull_request"
+      || representative.event == "pull_request_target"
+    let rawTitle: String = isPullRequestRun
+      ? (commitSubject ?? representative.displayTitle ?? String(groupKey.headSha.prefix(7)))
+      : (representative.displayTitle ?? commitSubject ?? String(groupKey.headSha.prefix(7)))
     let title = String(rawTitle.prefix(40))
     let runs: [WorkflowRunRef] = groupRuns.map { run in
       WorkflowRunRef(
