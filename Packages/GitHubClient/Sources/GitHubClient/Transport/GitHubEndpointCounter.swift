@@ -102,7 +102,7 @@ internal actor GitHubEndpointCounter {
     /// - Parameter reportInterval: How often `record()` returns a report. Defaults to 60 seconds.
     init(reportInterval: Duration = .seconds(60)) {
         self.reportInterval = reportInterval
-        self.windowStartedAt = ContinuousClock().now
+        self.windowStartedAt = clock.now
     }
 
     /// Records one completed HTTP response and returns a report if the interval has expired.
@@ -128,16 +128,39 @@ internal actor GitHubEndpointCounter {
             return nil
         }
 
-        let durationSeconds = Int(
-            (now - windowStartedAt).components.seconds
-        )
+        let durationSeconds = durationBetween(windowStartedAt, now)
         let report = buildReport(durationSeconds: durationSeconds)
         counts.removeAll(keepingCapacity: true)
         windowStartedAt = now
         return report
     }
 
+    /// Returns a snapshot of the current accumulated counts without consuming the window.
+    ///
+    /// Unlike `record(url:statusCode:)`, this method does **not** check interval expiry
+    /// and does **not** reset accumulated counts. It is intended for tests that verify
+    /// URL normalisation or aggregation behaviour without relying on window boundaries.
+    ///
+    /// - Returns: A `GitHubEndpointReport` with the current counts and wall-clock elapsed
+    ///   seconds from the window start.
+    internal func snapshot() -> GitHubEndpointReport {
+        let now = clock.now
+        let durationSeconds = durationBetween(windowStartedAt, now)
+        return buildReport(durationSeconds: durationSeconds)
+    }
+
     // MARK: - Private helpers
+
+    /// Rounds the elapsed duration between two instants to the nearest whole second.
+    ///
+    /// Unlike `Int(components.seconds)`, which truncates toward zero, this method
+    /// rounds to the nearest integer using standard rounding (0.5 and above rounds up).
+    private func durationBetween(_ start: ContinuousClock.Instant, _ end: ContinuousClock.Instant) -> Int {
+        let elapsed = start.duration(to: end)
+        // Convert to milliseconds, round, then divide by 1000.
+        let ms = Int(elapsed.components.seconds) * 1000 + Int(elapsed.components.attoseconds / 1_000_000_000_000_000)
+        return (ms + 500) / 1000
+    }
 
     /// Builds a `GitHubEndpointReport` from the current accumulated counts.
     private func buildReport(durationSeconds: Int) -> GitHubEndpointReport {

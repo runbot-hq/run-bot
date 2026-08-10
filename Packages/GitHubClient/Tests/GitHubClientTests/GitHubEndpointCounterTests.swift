@@ -17,10 +17,12 @@ struct GitHubEndpointCounterTests {
         await counter.record(
             url: "https://api.github.com/repos/eoncode/run-bot/actions/runners",
             statusCode: 200)
-        let report = await counter.record(
-            url: "https://api.github.com/repos/eoncode/run-bot/actions/runners",
-            statusCode: 304)
-        #expect(report == nil)
+        let report = await counter.snapshot()
+        #expect(report.total == 1)
+        #expect(report.buckets.count == 1)
+        #expect(report.buckets[0].scope == "repo:eoncode/run-bot")
+        #expect(report.buckets[0].endpoint == "runners")
+        #expect(report.buckets[0].statusCounts == [(200, 1)])
     }
 
     @Test("organization runner URL becomes org:acme + runners")
@@ -29,10 +31,12 @@ struct GitHubEndpointCounterTests {
         await counter.record(
             url: "https://api.github.com/orgs/acme/actions/runners",
             statusCode: 200)
-        let report = await counter.record(
-            url: "https://api.github.com/orgs/acme/actions/runners",
-            statusCode: 200)
-        #expect(report == nil)
+        let report = await counter.snapshot()
+        #expect(report.total == 1)
+        #expect(report.buckets.count == 1)
+        #expect(report.buckets[0].scope == "org:acme")
+        #expect(report.buckets[0].endpoint == "runners")
+        #expect(report.buckets[0].statusCounts == [(200, 1)])
     }
 
     @Test("workflow list with status=in_progress becomes runs.in_progress")
@@ -41,10 +45,12 @@ struct GitHubEndpointCounterTests {
         await counter.record(
             url: "https://api.github.com/repos/eoncode/run-bot/actions/runs?status=in_progress&per_page=20",
             statusCode: 200)
-        let report = await counter.record(
-            url: "https://api.github.com/repos/eoncode/run-bot/actions/runs?status=in_progress&per_page=20",
-            statusCode: 304)
-        #expect(report == nil)
+        let report = await counter.snapshot()
+        #expect(report.total == 1)
+        #expect(report.buckets.count == 1)
+        #expect(report.buckets[0].scope == "repo:eoncode/run-bot")
+        #expect(report.buckets[0].endpoint == "runs.in_progress")
+        #expect(report.buckets[0].statusCounts == [(200, 1)])
     }
 
     @Test("workflow list with status=queued becomes runs.queued")
@@ -53,10 +59,12 @@ struct GitHubEndpointCounterTests {
         await counter.record(
             url: "https://api.github.com/repos/eoncode/run-bot/actions/runs?status=queued&per_page=20",
             statusCode: 200)
-        let report = await counter.record(
-            url: "https://api.github.com/repos/eoncode/run-bot/actions/runs?status=queued&per_page=20",
-            statusCode: 200)
-        #expect(report == nil)
+        let report = await counter.snapshot()
+        #expect(report.total == 1)
+        #expect(report.buckets.count == 1)
+        #expect(report.buckets[0].scope == "repo:eoncode/run-bot")
+        #expect(report.buckets[0].endpoint == "runs.queued")
+        #expect(report.buckets[0].statusCounts == [(200, 1)])
     }
 
     @Test("workflow list with status=completed becomes runs.completed")
@@ -65,10 +73,12 @@ struct GitHubEndpointCounterTests {
         await counter.record(
             url: "https://api.github.com/repos/eoncode/run-bot/actions/runs?status=completed&per_page=100",
             statusCode: 200)
-        let report = await counter.record(
-            url: "https://api.github.com/repos/eoncode/run-bot/actions/runs?status=completed&per_page=100",
-            statusCode: 200)
-        #expect(report == nil)
+        let report = await counter.snapshot()
+        #expect(report.total == 1)
+        #expect(report.buckets.count == 1)
+        #expect(report.buckets[0].scope == "repo:eoncode/run-bot")
+        #expect(report.buckets[0].endpoint == "runs.completed")
+        #expect(report.buckets[0].statusCounts == [(200, 1)])
     }
 
     @Test("workflow list without status becomes runs.all")
@@ -77,18 +87,17 @@ struct GitHubEndpointCounterTests {
         await counter.record(
             url: "https://api.github.com/repos/eoncode/run-bot/actions/runs?per_page=100",
             statusCode: 200)
-        let report = await counter.record(
-            url: "https://api.github.com/repos/eoncode/run-bot/actions/runs?per_page=100",
-            statusCode: 200)
-        #expect(report == nil)
+        let report = await counter.snapshot()
+        #expect(report.total == 1)
+        #expect(report.buckets.count == 1)
+        #expect(report.buckets[0].scope == "repo:eoncode/run-bot")
+        #expect(report.buckets[0].endpoint == "runs.all")
+        #expect(report.buckets[0].statusCounts == [(200, 1)])
     }
 
     @Test("status query values produce four distinct endpoint categories")
     func fourDistinctStatusCategories() async {
-        let counter = GitHubEndpointCounter(reportInterval: .milliseconds(1))
-        // All records happen in the same window — the first record starts the window,
-        // and the 5th record triggers the report after the interval expires.
-
+        let counter = GitHubEndpointCounter()
         // in_progress
         await counter.record(
             url: "https://api.github.com/repos/eoncode/run-bot/actions/runs?status=in_progress&per_page=20",
@@ -106,20 +115,10 @@ struct GitHubEndpointCounterTests {
             url: "https://api.github.com/repos/eoncode/run-bot/actions/runs?per_page=100",
             statusCode: 200)
 
-        // Wait for the interval to expire, then trigger a report.
-        try? await Task.sleep(for: .milliseconds(5))
-        let report = await counter.record(
-            url: "https://api.github.com/repos/eoncode/run-bot/actions/runs?per_page=100",
-            statusCode: 200)
-
-        #expect(report != nil)
-        if let report {
-            #expect(report.total == 5)
-            // All four should be in the same bucket because the window hasn't expired yet.
-            // The next record after expiry will return a report.
-            let endpoints = Set(report.buckets.map(\.endpoint))
-            #expect(endpoints == ["runs.in_progress", "runs.queued", "runs.completed", "runs.all"])
-        }
+        let report = await counter.snapshot()
+        #expect(report.total == 4)
+        let endpoints = Set(report.buckets.map(\.endpoint))
+        #expect(endpoints == ["runs.in_progress", "runs.queued", "runs.completed", "runs.all"])
     }
 
     @Test("different run IDs aggregate under run_jobs")
@@ -131,10 +130,15 @@ struct GitHubEndpointCounterTests {
         await counter.record(
             url: "https://api.github.com/repos/eoncode/run-bot/actions/runs/200/jobs",
             statusCode: 200)
-        let report = await counter.record(
+        await counter.record(
             url: "https://api.github.com/repos/eoncode/run-bot/actions/runs/300/jobs",
             statusCode: 200)
-        #expect(report == nil)
+        let report = await counter.snapshot()
+        #expect(report.total == 3)
+        #expect(report.buckets.count == 1)
+        #expect(report.buckets[0].scope == "repo:eoncode/run-bot")
+        #expect(report.buckets[0].endpoint == "run_jobs")
+        #expect(report.buckets[0].statusCounts == [(200, 3)])
     }
 
     @Test("attempt-specific jobs normalize to run_jobs_attempt")
@@ -143,10 +147,15 @@ struct GitHubEndpointCounterTests {
         await counter.record(
             url: "https://api.github.com/repos/eoncode/run-bot/actions/runs/100/attempts/2/jobs",
             statusCode: 200)
-        let report = await counter.record(
+        await counter.record(
             url: "https://api.github.com/repos/eoncode/run-bot/actions/runs/100/attempts/2/jobs",
             statusCode: 200)
-        #expect(report == nil)
+        let report = await counter.snapshot()
+        #expect(report.total == 2)
+        #expect(report.buckets.count == 1)
+        #expect(report.buckets[0].scope == "repo:eoncode/run-bot")
+        #expect(report.buckets[0].endpoint == "run_jobs_attempt")
+        #expect(report.buckets[0].statusCounts == [(200, 2)])
     }
 
     @Test("different job IDs aggregate under job_detail")
@@ -158,10 +167,15 @@ struct GitHubEndpointCounterTests {
         await counter.record(
             url: "https://api.github.com/repos/eoncode/run-bot/actions/jobs/600",
             statusCode: 200)
-        let report = await counter.record(
+        await counter.record(
             url: "https://api.github.com/repos/eoncode/run-bot/actions/jobs/700",
             statusCode: 200)
-        #expect(report == nil)
+        let report = await counter.snapshot()
+        #expect(report.total == 3)
+        #expect(report.buckets.count == 1)
+        #expect(report.buckets[0].scope == "repo:eoncode/run-bot")
+        #expect(report.buckets[0].endpoint == "job_detail")
+        #expect(report.buckets[0].statusCounts == [(200, 3)])
     }
 
     @Test("job logs normalize separately from job details")
@@ -175,10 +189,15 @@ struct GitHubEndpointCounterTests {
         await counter.record(
             url: "https://api.github.com/repos/eoncode/run-bot/actions/jobs/500/logs",
             statusCode: 200)
-        let report = await counter.record(
-            url: "https://api.github.com/repos/eoncode/run-bot/actions/jobs/500",
-            statusCode: 200)
-        #expect(report == nil)
+        let report = await counter.snapshot()
+        #expect(report.total == 2)
+        #expect(report.buckets.count == 2)
+        let jobDetail = report.buckets.first { $0.endpoint == "job_detail" }
+        let jobLogs = report.buckets.first { $0.endpoint == "job_logs" }
+        #expect(jobDetail != nil)
+        #expect(jobLogs != nil)
+        #expect(jobDetail?.statusCounts == [(200, 1)])
+        #expect(jobLogs?.statusCounts == [(200, 1)])
     }
 
     @Test("pagination parameters do not create additional keys")
@@ -190,10 +209,15 @@ struct GitHubEndpointCounterTests {
         await counter.record(
             url: "https://api.github.com/repos/eoncode/run-bot/actions/runners?per_page=100&page=2",
             statusCode: 200)
-        let report = await counter.record(
+        await counter.record(
             url: "https://api.github.com/repos/eoncode/run-bot/actions/runners?per_page=100&page=2",
             statusCode: 200)
-        #expect(report == nil)
+        let report = await counter.snapshot()
+        #expect(report.total == 3)
+        #expect(report.buckets.count == 1)
+        #expect(report.buckets[0].scope == "repo:eoncode/run-bot")
+        #expect(report.buckets[0].endpoint == "runners")
+        #expect(report.buckets[0].statusCounts == [(200, 3)])
     }
 
     @Test("unknown URLs aggregate under global/other")
@@ -202,63 +226,59 @@ struct GitHubEndpointCounterTests {
         await counter.record(
             url: "https://api.github.com/not-a-known-path",
             statusCode: 200)
-        let report = await counter.record(
+        await counter.record(
             url: "https://api.github.com/not-a-known-path",
             statusCode: 200)
-        #expect(report == nil)
+        let report = await counter.snapshot()
+        #expect(report.total == 2)
+        #expect(report.buckets.count == 1)
+        #expect(report.buckets[0].scope == "global/other")
+        #expect(report.buckets[0].endpoint == "global/other")
+        #expect(report.buckets[0].statusCounts == [(200, 2)])
     }
 
     @Test("multiple status codes produce one bucket with separate status counts")
     func multipleStatusCodes() async {
-        let shortCounter = GitHubEndpointCounter(reportInterval: .milliseconds(1))
+        let counter = GitHubEndpointCounter()
         let url = "https://api.github.com/repos/eoncode/run-bot/actions/runners"
-        await shortCounter.record(url: url, statusCode: 200)
-        await shortCounter.record(url: url, statusCode: 200)
-        await shortCounter.record(url: url, statusCode: 304)
-        await shortCounter.record(url: url, statusCode: 403)
-        try? await Task.sleep(for: .milliseconds(5))
-        let report = await shortCounter.record(url: url, statusCode: 200)
-        #expect(report != nil)
-        if let report {
-            #expect(report.total == 5)
-        }
-    }
+        await counter.record(url: url, statusCode: 200)
+        await counter.record(url: url, statusCode: 200)
+        await counter.record(url: url, statusCode: 304)
+        await counter.record(url: url, statusCode: 403)
+        let report = await counter.snapshot()
+        #expect(report.total == 4)
+        #expect(report.buckets.count == 1)
+        #expect(report.buckets[0].endpoint == "runners")
+        #expect(report.buckets[0].statusCounts == [(200, 2), (304, 1), (403, 1)])
     }
 
     @Test("report formatting is deterministic regardless of insertion order")
     func reportFormattingDeterministic() async {
-        let shortCounter = GitHubEndpointCounter(reportInterval: .milliseconds(1))
-        await shortCounter.record(
+        let counter = GitHubEndpointCounter()
+        await counter.record(
             url: "https://api.github.com/orgs/acme/actions/runners",
             statusCode: 200)
-        await shortCounter.record(
+        await counter.record(
             url: "https://api.github.com/repos/eoncode/run-bot/actions/runners",
             statusCode: 200)
-        try? await Task.sleep(for: .milliseconds(5))
-        let report = await shortCounter.record(
-            url: "https://api.github.com/repos/eoncode/run-bot/actions/runners",
-            statusCode: 200)
-        if let report {
-            let formatted = report.formatted()
-            let lines = formatted.split(separator: "\n")
-            #expect(lines.count == 3)
-            #expect(lines[1].hasPrefix("org:acme"))
-            #expect(lines[2].hasPrefix("repo:eoncode/run-bot"))
-        }
+        let report = await counter.snapshot()
+        let formatted = report.formatted()
+        let lines = formatted.split(separator: "\n")
+        #expect(lines.count == 3)
+        #expect(lines[1].hasPrefix("org:acme"))
+        #expect(lines[2].hasPrefix("repo:eoncode/run-bot"))
     }
 
     @Test("record returns nil within the same window and returns report after expiry")
     func recordReturnsNilThenReport() async {
-        let counter = GitHubEndpointCounter(reportInterval: .milliseconds(1))
-        // First record — no report.
+        let counter = GitHubEndpointCounter(reportInterval: .zero)
+        // First record — no report because window just started.
         let first = await counter.record(
             url: "https://api.github.com/repos/eoncode/run-bot/actions/runners",
             statusCode: 200)
         #expect(first == nil)
 
-        try? await Task.sleep(for: .milliseconds(5))
-
-        // Second record after interval expiry — should return a report.
+        // With .zero interval, the next record immediately triggers a report.
         let second = await counter.record(
             url: "https://api.github.com/repos/eoncode/run-bot/actions/runners",
             statusCode: 200)
@@ -268,15 +288,20 @@ struct GitHubEndpointCounterTests {
             #expect(report.buckets.count == 1)
             #expect(report.buckets[0].endpoint == "runners")
         }
+
+        // After the report was consumed, a new window starts.
+        let third = await counter.record(
+            url: "https://api.github.com/repos/eoncode/run-bot/actions/runners",
+            statusCode: 200)
+        #expect(third == nil)
     }
 
     @Test("report includes actual duration, not hardcoded 60s")
     func reportDurationFromInterval() async {
-        let counter = GitHubEndpointCounter(reportInterval: .milliseconds(1))
+        let counter = GitHubEndpointCounter(reportInterval: .zero)
         await counter.record(
             url: "https://api.github.com/repos/eoncode/run-bot/actions/runners",
             statusCode: 200)
-        try? await Task.sleep(for: .milliseconds(5))
         let report = await counter.record(
             url: "https://api.github.com/repos/eoncode/run-bot/actions/runners",
             statusCode: 200)
@@ -294,10 +319,12 @@ struct GitHubEndpointCounterTests {
         await counter.record(
             url: "https://api.github.com/user/actions/runners",
             statusCode: 200)
-        let report = await counter.record(
-            url: "https://api.github.com/user/actions/runners",
-            statusCode: 200)
-        #expect(report == nil)
+        let report = await counter.snapshot()
+        #expect(report.total == 1)
+        #expect(report.buckets.count == 1)
+        #expect(report.buckets[0].scope == "user")
+        #expect(report.buckets[0].endpoint == "runners")
+        #expect(report.buckets[0].statusCounts == [(200, 1)])
     }
 
     @Test("timing URLs are categorised as runs.all")
@@ -306,25 +333,66 @@ struct GitHubEndpointCounterTests {
         await counter.record(
             url: "https://api.github.com/repos/eoncode/run-bot/actions/runs/12345/timing",
             statusCode: 200)
-        let report = await counter.record(
-            url: "https://api.github.com/repos/eoncode/run-bot/actions/runs/12345/timing",
-            statusCode: 200)
-        #expect(report == nil)
+        let report = await counter.snapshot()
+        #expect(report.total == 1)
+        #expect(report.buckets.count == 1)
+        #expect(report.buckets[0].scope == "repo:eoncode/run-bot")
+        #expect(report.buckets[0].endpoint == "runs.all")
+        #expect(report.buckets[0].statusCounts == [(200, 1)])
     }
 
     @Test("empty report is never produced (record returns nil for idle counter)")
     func emptyReportNeverProduced() async {
-        let counter = GitHubEndpointCounter()
-        // Do not record anything; after the interval, the first record
+        let counter = GitHubEndpointCounter(reportInterval: .zero)
+        // Do not record anything; after the .zero interval, the first record
         // should return nil because there are no previous counts.
-        try? await Task.sleep(for: .milliseconds(5))
         let report = await counter.record(
             url: "https://api.github.com/repos/eoncode/run-bot/actions/runners",
             statusCode: 200)
         #expect(report == nil)
     }
 
+    @Test("empty report is not produced when interval expires with no prior records")
+    func expiredIntervalWithNoRecords() async {
+        let counter = GitHubEndpointCounter(reportInterval: .zero)
+        // Counter was created with .zero — the window is already expired.
+        // But since there are no records, the first record should not produce a report.
+        let report = await counter.record(
+            url: "https://api.github.com/repos/eoncode/run-bot/actions/runners",
+            statusCode: 200)
+        #expect(report == nil)
+
+        // After one record, the next record should produce a report because
+        // the .zero interval has already expired.
+        let second = await counter.record(
+            url: "https://api.github.com/repos/eoncode/run-bot/actions/runners",
+            statusCode: 200)
+        #expect(second != nil)
+        #expect(second?.total == 2)
+    }
+
 // MARK: - Transport integration
+
+/// Spy logger that captures the last log message and category.
+///
+/// Used to verify that `GitHubTransport` emits a diagnostic report via the logger.
+final class SpyGitHubLogger: GitHubLogger, @unchecked Sendable {
+    private let lock = NSLock()
+    private var _loggedMessage: String?
+    private var _loggedCategory: String?
+
+    /// The last message that was logged, or `nil` if nothing has been logged yet.
+    var loggedMessage: String? { lock.withLock { _loggedMessage } }
+    /// The category of the last logged message, or `nil`.
+    var loggedCategory: String? { lock.withLock { _loggedCategory } }
+
+    nonisolated func log(_ message: String, category: String) {
+        lock.withLock {
+            _loggedMessage = message
+            _loggedCategory = category
+        }
+    }
+}
 
 /// Suite: Transport-endpoint counter integration
 ///
@@ -378,9 +446,10 @@ struct GitHubEndpointCounterTransportIntegrationTests {
     /// Common URL used for all stubbed requests in this suite.
     private let testURL = "https://api.github.com/repos/test/example/actions/runners"
 
-    /// Creates a `GitHubTransport` with the given counter and stubbed session.
+    /// Creates a `GitHubTransport` with the given counter, stubbed session, and optional logger.
     private func makeTransport(
-        endpointCounter: GitHubEndpointCounter
+        endpointCounter: GitHubEndpointCounter,
+        logger: (any GitHubLogger)? = nil
     ) -> GitHubTransport {
         let sessionConfig = URLSessionConfiguration.ephemeral
         sessionConfig.protocolClasses = [StubEndpointCounterProtocol.self]
@@ -388,13 +457,14 @@ struct GitHubEndpointCounterTransportIntegrationTests {
         return GitHubTransport(
             session: session,
             tokenProvider: { "test-token" },
+            logger: logger,
             endpointCounter: endpointCounter)
     }
 
-    @Test("all four status codes appear in endpoint diagnostics")
+    @Test("all four status codes appear in snapshot after transport requests")
     func allStatusCodesRecorded() async {
-        // Use a short interval so the transport's execute() triggers a report.
-        let counter = GitHubEndpointCounter(reportInterval: .milliseconds(1))
+        // Use a long interval so the transport's execute() does not trigger a report.
+        let counter = GitHubEndpointCounter(reportInterval: .seconds(60))
         let transport = makeTransport(endpointCounter: counter)
 
         // 200
@@ -414,16 +484,34 @@ struct GitHubEndpointCounterTransportIntegrationTests {
             data: Data("{\"message\":\"rate limited\"}".utf8), statusCode: 429, for: testURL)
         _ = await transport.execute(testURL, timeout: 10, logTag: "test")
 
-        // The next request after the interval will trigger a report.
-        try? await Task.sleep(for: .milliseconds(5))
+        // Snapshot without consuming the window.
+        let report = await counter.snapshot()
+        #expect(report.total == 4)
+        #expect(report.buckets.count == 1)
+        #expect(report.buckets[0].endpoint == "runners")
+        let statuses = Set(report.buckets[0].statusCounts.map { $0.status })
+        #expect(statuses == [200, 304, 403, 429])
+    }
+
+    @Test("transport logs a report when interval expires")
+    func transportLogsReportOnExpiry() async {
+        let spy = SpyGitHubLogger()
+        let counter = GitHubEndpointCounter(reportInterval: .zero)
+        let transport = makeTransport(endpointCounter: counter, logger: spy)
+
+        // First request — no report yet.
         StubEndpointCounterProtocol.register(
             data: Data("{\"key\":\"value\"}".utf8), statusCode: 200, for: testURL)
-        let _ = await transport.execute(testURL, timeout: 10, logTag: "test")
+        _ = await transport.execute(testURL, timeout: 10, logTag: "test")
+        // Nothing logged because the first request starts the window with no prior data.
+        #expect(spy.loggedMessage == nil)
 
-        // The report was logged via logger. We verify counts by checking
-        // that the counter has been reset (the report was consumed).
-        let next = await counter.record(
-            url: testURL, statusCode: 200)
-        #expect(next == nil) // window just started
+        // Second request — with .zero interval, this triggers a report.
+        StubEndpointCounterProtocol.register(
+            data: Data("{\"key\":\"value\"}".utf8), statusCode: 200, for: testURL)
+        _ = await transport.execute(testURL, timeout: 10, logTag: "test")
+        #expect(spy.loggedMessage != nil)
+        #expect(spy.loggedMessage?.hasPrefix("GitHubEndpointCounter › ") == true)
+        #expect(spy.loggedCategory == "transport")
     }
 }
