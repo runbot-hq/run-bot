@@ -345,7 +345,14 @@ public struct WorkflowActionGroupFetcher: Sendable, WorkflowActionGroupFetcherPr
     // `groupRuns` originates from `Dictionary(grouping:)` which never produces an empty
     // value array, so this is expected to always succeed. The guard defends against
     // a future caller constructing the dict incorrectly rather than crashing silently.
-    guard let representative = groupRuns.max(by: { ($0.createdAt ?? "") < ($1.createdAt ?? "") })
+    //
+    // Representative selection: prefer a push-event run whose displayTitle carries the
+    // commit subject, not the PR title. GitHub sets display_title to the PR title for
+    // pull_request runs — since push and pull_request bucket into the same "commit" group,
+    // max(createdAt) would often pick the PR run (created later) and show the PR title
+    // instead of the commit subject. Fall back to the lowest run ID for stability (#2690).
+    let pushRun = groupRuns.filter { $0.event == "push" }.min(by: { $0.id < $1.id })
+    guard let representative = pushRun ?? groupRuns.min(by: { $0.id < $1.id })
     else {
       assertionFailure("buildActionGroup: groupRuns must not be empty (key: \(groupKey))")
       return (

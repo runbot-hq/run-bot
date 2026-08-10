@@ -536,6 +536,39 @@ struct WorkflowActionGroupFetcherTests {
     #expect(t.callCount == 3)
   }
 
+  // MARK: - Title derivation (#2690)
+
+  /// Regression guard: when a group contains both a `push` run and a `pull_request`
+  /// run for the same commit, the group title must be the commit subject (from the
+  /// push run), not the PR title (from the pull_request run).
+  ///
+  /// GitHub sets `display_title` to the commit subject for push runs and to the PR
+  /// title for pull_request runs. Without explicit push-preference, `max(createdAt)`
+  /// selected the PR run (created later) and surfaced the PR title in the UI.
+  @Test func fetchActionGroupsPushRunTitlePreferredOverPRTitle() async {
+    let sha = "titleregressionsha"
+    // push run: lower id (100), carries commit subject.
+    var pushRun = minimalRun(id: 100, sha: sha, status: "in_progress", conclusion: nil, event: "push")
+    pushRun["display_title"] = "fix: the real commit subject"
+    // pull_request run: higher id (101), created later, carries PR title.
+    var prRun = minimalRun(id: 101, sha: sha, status: "in_progress", conclusion: nil, event: "pull_request")
+    prRun["display_title"] = "PR: some pull request title"
+    // Serve pr run first in the array so decode order cannot save us.
+    let t = makeTransport(with: [
+      "repos/owner/repo/actions/runs?status=in_progress": (
+        try? JSONSerialization.data(
+          withJSONObject: ["workflow_runs": [prRun, pushRun]])) ?? Data(),
+      "repos/owner/repo/actions/runs/100/jobs": envelope(key: "jobs", [minimalJob(id: 1, runID: 100)]),
+      "repos/owner/repo/actions/runs/101/jobs": envelope(key: "jobs", [minimalJob(id: 2, runID: 101)]),
+    ])
+    let f = WorkflowActionGroupFetcher(transport: t)
+    let r = await f.fetch(for: "owner/repo")
+    #expect(r.count == 1, "push + pull_request on same SHA should form one group")
+    #expect(
+      r.first?.title.hasPrefix("fix: the real commit") == true,
+      "Expected commit subject but got: \(r.first?.title ?? "nil")")
+  }
+
   // NOTE: Cross-event eviction (fetchActionGroupsFreshPushDoesNotEvictDispatchCacheEntry)
   // is intentionally not tested at this layer. evictFreshShas lives in PollResultBuilder,
   // not in the fetcher — that regression is covered in PollResultBuilderEvictionTests.
