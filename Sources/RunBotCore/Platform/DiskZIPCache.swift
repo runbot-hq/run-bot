@@ -37,7 +37,7 @@ public actor DiskZIPCache {
     // MARK: - Capacity
 
     /// Maximum number of `.zip` cache files kept on disk.
-    public static let maxCapacity = 10
+    public static let maxCapacity = 120
 
     // MARK: - Storage
 
