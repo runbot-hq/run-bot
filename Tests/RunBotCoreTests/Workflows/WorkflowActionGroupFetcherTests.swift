@@ -538,16 +538,15 @@ struct WorkflowActionGroupFetcherTests {
 
   // MARK: - Title derivation (#2690)
 
-  /// Regression guard for #2690: the group title must always be the commit subject,
-  /// never the PR title.
+  /// Regression guard for #2690: the group title must be the commit subject for
+  /// pull_request runs, and display_title for workflow_dispatch events.
   ///
-  /// Two cases:
-  /// 1. Mixed group (push + pull_request runs on same SHA): head_commit.message first
-  ///    line wins regardless of which run is representative.
-  /// 2. PR-only group (pull_request run only, no push run): head_commit.message still
-  ///    wins — this is the case that was broken in a5c701bb and matches the screenshot.
-  ///
-  /// Body text after the first newline must be stripped from the title.
+  /// Three cases:
+  /// 1. Mixed group (push + pull_request runs on same SHA): commit subject wins.
+  /// 2. PR-only group (pull_request run only, no push run): commit subject wins,
+  ///    body text after first newline must be stripped.
+  /// 3. Workflow_dispatch group: display_title ("Publish") wins over commit subject.
+  ///    This case fails on the head_commit-first approach from ab6927c9.
   @Test func fetchActionGroupsCommitSubjectUsedNotPRTitle() async {
     // MARK: Case 1 — mixed push + pull_request group
     let mixedSha = "titleregressionsha"
@@ -591,6 +590,23 @@ struct WorkflowActionGroupFetcherTests {
     #expect(
       r2.first?.title.contains("PR:") == false,
       "Case 2: PR title must not appear in row label")
+
+    // MARK: Case 3 — workflow_dispatch group (display_title must win)
+    let dispatchSha = "dispatchtitlesha"
+    var dispatchRun = minimalRun(id: 300, sha: dispatchSha, status: "in_progress", conclusion: nil, event: "workflow_dispatch")
+    dispatchRun["display_title"] = "Publish"
+    dispatchRun["head_commit"] = ["message": "chore: bump version"]
+    let t3 = makeTransport(with: [
+      "repos/owner/repo/actions/runs?status=in_progress": (
+        try? JSONSerialization.data(
+          withJSONObject: ["workflow_runs": [dispatchRun]])) ?? Data(),
+      "repos/owner/repo/actions/runs/300/jobs": envelope(key: "jobs", [minimalJob(id: 4, runID: 300)]),
+    ])
+    let r3 = await WorkflowActionGroupFetcher(transport: t3).fetch(for: "owner/repo")
+    #expect(r3.count == 1, "workflow_dispatch group must produce one row")
+    #expect(
+      r3.first?.title == "Publish",
+      "Case 3 (workflow_dispatch): expected display_title \"Publish\", got: \(r3.first?.title ?? "nil")")
   }
 
   // NOTE: Cross-event eviction (fetchActionGroupsFreshPushDoesNotEvictDispatchCacheEntry)
