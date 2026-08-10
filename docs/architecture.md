@@ -1035,8 +1035,10 @@ DiskZIPCache/
 GitHub retains the same run ID when a workflow is rerun and increments
 `run_attempt`. A cache hit is valid only when both values match.
 
-RunBot displays only the latest attempt. After a newer attempt is written
-successfully, older files for the same run ID are removed.
+RunBot displays the attempt associated with the current `ActiveJob`. Each
+`runID-runAttempt.zip` archive is stored independently, so an older attempt cannot
+satisfy a newer attempt's cache lookup. Attempts remain on disk until the containing
+workflow-group directory is evicted.
 
 ### Step-log resolution
 
@@ -1095,12 +1097,12 @@ cached rich ZIP
 Capacity is measured in workflow-group directories, not individual ZIP files. A
 commit that produces ten workflow runs consumes one cache slot rather than ten.
 
-The cache retains the ten most recently used group directories:
+The cache retains up to ten workflow-group directories:
 
-1. A successful read or write updates the group directory's modification date.
-2. Immediate child directories of the cache root are sorted newest first.
-3. Directories beyond the ten newest groups are deleted recursively.
-4. ZIP count inside a retained group directory does not affect capacity.
+1. Immediate child directories of the cache root are ordered by filesystem
+   modification date, newest first.
+2. Directories beyond the ten newest groups are deleted recursively.
+3. ZIP count inside a retained group directory does not affect capacity.
 
 Eviction always removes a complete workflow group. It never removes individual
 sibling workflow runs merely because a commit contains many workflows.
