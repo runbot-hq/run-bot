@@ -265,7 +265,7 @@ public struct WorkflowActionGroupFetcher: Sendable, WorkflowActionGroupFetcherPr
 
     // Coalesce any run that appeared in both in_progress and completed payloads,
     // preferring the most authoritative status (completed > in_progress > queued).
-    for key in byGroupKey.keys { byGroupKey[key] = coalesceRuns(byGroupKey[key]!) }
+    byGroupKey = byGroupKey.mapValues(coalesceRuns)
 
     // Build groups concurrently — index-keyed to preserve insertion order.
     let groupEntries = Array(byGroupKey)
@@ -316,7 +316,8 @@ public struct WorkflowActionGroupFetcher: Sendable, WorkflowActionGroupFetcherPr
       runs.map { ($0.id, $0) },
       uniquingKeysWith: { lhs, rhs in priority(lhs) >= priority(rhs) ? lhs : rhs }
     )
-    return Array(coalesced.values)
+    // Sort by run ID so runs within a group are stable across polls (#2686).
+    return coalesced.values.sorted { $0.id < $1.id }
   }
 
   /// Sorts action groups by sort priority (ascending), then by creation date (descending).
