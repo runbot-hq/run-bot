@@ -16,7 +16,7 @@ struct PanelHeaderView: View {
     /// The stats bar fills all remaining width after the separator and fixed-size control group.
     /// Outer horizontal padding is owned here and must not be duplicated inside HeaderStatsBar.
     var body: some View {
-        HStack(spacing: RBSpacing.md) {
+        HStack(spacing: RBSpacing.xs) {
             HeaderStatsBar(statsVM: statsVM)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .layoutPriority(1)
