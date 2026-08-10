@@ -82,7 +82,7 @@ public actor ZIPPrefetchQueue {
     public func enqueue(entryKey: ZIPCacheEntryKey, scope: String, isCompleted: Bool) async {
         guard !isCancelled else { return }
         guard !inFlight.contains(entryKey) else { return }
-        guard diskCache.get(key: entryKey) == nil else { return }
+        guard await diskCache.get(key: entryKey) == nil else { return }
         guard !pending.contains(where: { $0.entryKey == entryKey }) else { return }
         pending.append(PrefetchItem(entryKey: entryKey, scope: scope, isCompleted: isCompleted))
         drainQueue()
@@ -129,7 +129,7 @@ public actor ZIPPrefetchQueue {
             return
         }
         guard !isCancelled else { return }
-        diskCache.set(key: entryKey, zip: data, isCompleted: isCompleted)
+        await diskCache.set(key: entryKey, zip: data, isCompleted: isCompleted)
         log(
             "ZIPPrefetchQueue › stored ZIP for runID=\(entryKey.runID) attempt=\(entryKey.runAttempt) bytes=\(data.count)",
             category: .services

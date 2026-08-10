@@ -84,7 +84,7 @@ final class ZIPPrefetchQueueTests: XCTestCase {
         transport.responseData = Data()
         let (queue, disk) = makeQueue(transport: transport)
         let key = makeKey(runID: 1)
-        disk.set(key: key, zip: Data("test".utf8), isCompleted: true)
+        await disk.set(key: key, zip: Data("test".utf8), isCompleted: true)
         await queue.enqueue(entryKey: key, scope: "o/r", isCompleted: true)
         try await Task.sleep(nanoseconds: 30_000_000)
         XCTAssertEqual(transport.callCount, 0, "Entry already on disk must not trigger a fetch")
@@ -136,7 +136,7 @@ final class ZIPPrefetchQueueTests: XCTestCase {
         let key = makeKey(runID: 10)
         await queue.enqueue(entryKey: key, scope: "o/r", isCompleted: true)
         try await Task.sleep(nanoseconds: 100_000_000)
-        let onDisk = disk.get(key: key)
+        let onDisk = await disk.get(key: key)
         XCTAssertNotNil(onDisk, "Successful fetch of completed run must populate disk cache")
         XCTAssertEqual(onDisk, zipData, "Disk cache must contain the exact bytes returned by transport")
     }
@@ -152,6 +152,7 @@ final class ZIPPrefetchQueueTests: XCTestCase {
         try await Task.sleep(nanoseconds: 100_000_000)
         // Fetch was attempted (transport called) but disk must remain empty
         XCTAssertEqual(transport.callCount, 1, "Incomplete run should still attempt fetch")
-        XCTAssertNil(disk.get(key: key), "Incomplete run ZIP must not be written to disk")
+        let diskResult = await disk.get(key: key)
+        XCTAssertNil(diskResult, "Incomplete run ZIP must not be written to disk")
     }
 }

@@ -12,9 +12,11 @@ import Foundation
 ///   …
 /// ```
 /// One sub-directory per `ZIPCacheGroupKey`, one file per `(runID, runAttempt)` pair.
-/// Using a group-scoped directory means a rerun (new `runAttempt`) naturally
-/// replaces the previous attempt's file *within the same group folder* — the group
-/// folder remains the LRU eviction unit.
+///
+/// Each `(runID, runAttempt)` pair is stored as an independent ZIP archive.
+/// StepLogView requests the attempt attached to its current `ActiveJob`, so an
+/// older attempt cannot satisfy a newer attempt's cache lookup. All attempts
+/// remain until the containing workflow-group directory is evicted.
 ///
 /// ## Eviction
 /// Up to `maxGroupCapacity` group directories are kept on disk. When a new group
@@ -22,16 +24,10 @@ import Foundation
 /// removed. Files within a group are not individually evicted; the whole group goes.
 ///
 /// ## Thread safety
-/// All public entry points are `async` and marked `nonisolated` so callers on any
-/// actor may `await` them without a hop. Filesystem I/O is synchronous but cheap
-/// enough that no extra threading is needed at this cache size.
-///
-/// ## Legacy migration
-/// On first access this type removes any flat `*.zip` files that may exist at the
-/// *root* of the cache directory — they were written by the old single-level scheme.
-/// This is a one-time silent migration; no data is lost because the prefetch queue
-/// will re-download them on the next completed-run transition.
-public final class DiskZIPCache: Sendable {
+/// `DiskZIPCache` is actor-isolated. Reads, writes, group eviction, and capacity
+/// enforcement are serialized through the same actor instance shared by
+/// `LogFetcher` and `ZIPPrefetchQueue`.
+public actor DiskZIPCache {
 
     // MARK: - Configuration
 
@@ -59,8 +55,9 @@ public final class DiskZIPCache: Sendable {
                 .appendingPathComponent("RunBot", isDirectory: true)
                 .appendingPathComponent("ZIPCache", isDirectory: true)
         }
-        prepareCacheDir()
-        purgeLegacyFlatFiles()
+        try? FileManager.default.createDirectory(
+            at: self.cacheDir, withIntermediateDirectories: true
+        )
     }
 
     // MARK: - Public API
@@ -141,23 +138,6 @@ public final class DiskZIPCache: Sendable {
         try? FileManager.default.createDirectory(
             at: cacheDir, withIntermediateDirectories: true
         )
-    }
-
-    /// Removes flat `*.zip` files at the cache root that were written by the old
-    /// single-level scheme (runID.zip). Group sub-directories are left untouched.
-    private func purgeLegacyFlatFiles() {
-        guard let contents = try? FileManager.default.contentsOfDirectory(
-            at: cacheDir,
-            includingPropertiesForKeys: [.isDirectoryKey],
-            options: .skipsHiddenFiles
-        ) else { return }
-        for url in contents where url.pathExtension == "zip" {
-            let isDir = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
-            if !isDir {
-                try? FileManager.default.removeItem(at: url)
-                log("DiskZIPCache › purged legacy flat file \(url.lastPathComponent)", category: .services)
-            }
-        }
     }
 
     /// Sorts group directories by modification date (oldest last) and removes any
