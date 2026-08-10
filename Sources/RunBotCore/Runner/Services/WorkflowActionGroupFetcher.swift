@@ -293,9 +293,6 @@ public struct WorkflowActionGroupFetcher: Sendable, WorkflowActionGroupFetcherPr
     }
   }
 
-  /// Coalesces duplicate run IDs within one group's payload slice, keeping the entry
-  /// with the most authoritative status: completed > in_progress > queued > other.
-  ///
   /// Sorts action groups by sort priority (ascending), then by creation date (descending).
   private func sort(groups: [WorkflowActionGroup]) -> [WorkflowActionGroup] {
     groups.sorted { lhs, rhs in
