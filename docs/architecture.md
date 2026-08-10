@@ -14,6 +14,7 @@
 - [Concurrency Model](#concurrency-model)
 - [NSPopover Decisions](#nspopover-decisions)
 - [Design](#design)
+- [E-Tag caching](#e-tag-caching)
  
 # RunBot — UI Architecture Decisions
 
@@ -879,3 +880,83 @@ re-presents the sheet automatically because the binding is still `true`.
 
 ### Design
 - liquid glass: https://gist.github.com/eonist/a8f0d160c7e9e37f634a15c3a33a8109
+
+
+## ETag caching
+
+RunBot polls the same GitHub endpoints continuously, and most polls return
+unchanged JSON. `ConditionalGETCache` turns those repeated downloads into
+cheap revalidations, entirely inside the transport layer.
+
+### How it works
+
+Each `GitHubTransport` owns a private, actor-isolated, memory-only cache. On a
+successful response with an `ETag`, the transport stores the ETag, the response
+body, and the response's `Link` header, keyed by fully resolved URL. The next
+request for that URL sends `If-None-Match`:
+
+- `200 OK` — a new representation; replace the cached entry.
+- `304 Not Modified` — reuse the cached body and `Link` header.
+
+A cache-backed `304` is surfaced to callers as a normal `.success` with status
+`200`, so polling, pagination, and decoding follow one code path regardless of
+where the bytes came from.
+
+### Token ownership
+
+An ETag is valid for a *representation*, not a URL: the same endpoint returns
+different authenticated bodies under different tokens. Rather than keying by
+`URL + token` (which would retain old accounts' bodies and put PATs in
+dictionary keys), the cache treats the active token as its owner and maintains
+one invariant:
+
+```text
+cached response owner == currently active token
+```
+
+Any token change clears every entry before a lookup or store. A lookup may
+establish or change ownership; storing a completed response may not — this
+prevents a late in-flight response from an old token from resurrecting stale
+authenticated data after an account switch.
+
+### Scope and opt-in
+
+Conditional GET is opt-in per request via `execute(conditionalGET:)`, and only
+GitHub JSON reads opt in:
+
+| Transport path | ETag cache |
+|---|---:|
+| `apiAsync` | Yes |
+| `apiPaginated` | Yes |
+| Raw ZIP downloads | No |
+| POST, PUT, PATCH, DELETE | No |
+| Other requests | No |
+
+Gating both lookup and storage keeps a mutation or ZIP response from parking an
+incompatible body under a URL later used for JSON. Opted-in requests use
+`.reloadIgnoringLocalCacheData` so the system URL cache cannot hide GitHub's
+`304` from the transport.
+
+### Pagination and API accounting
+
+Because pagination depends on the `Link` header, each entry stores it alongside
+the body — a `304` on page one restores its `Link` header and pagination
+continues to page two. Pages are validated independently, so a cached page one
+may combine with a fresh page two if the remote collection shifts; this
+eventual-consistency tradeoff avoids a collection-level cache or a pagination
+state machine.
+
+A `304` delivers no new representation, so `APICallCounter` is not incremented
+for it:
+
+```text
+200 → fresh representation → count it
+304 → cached representation → do not count it
+```
+
+### Deliberate non-goals
+
+This is not persistent storage, a general-purpose URL cache, or an
+application-level data cache. Its only job is making repeated authenticated
+GitHub reads cheap while keeping ETag, token, pagination, and `304` handling
+confined to the transport.
