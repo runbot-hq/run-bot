@@ -6,8 +6,8 @@ import os
 
 /// A single pending prefetch item.
 private struct PrefetchItem: Sendable {
-    /// The GitHub workflow run ID to fetch.
-    let runID: Int
+    /// The ZIP cache entry key (group + runID + runAttempt).
+    let entryKey: ZIPCacheEntryKey
     /// The `owner/repo` scope string for the GitHub API path.
     let scope: String
     /// Whether the run has completed; gates disk cache writes.
@@ -20,7 +20,7 @@ private struct PrefetchItem: Sendable {
 /// (`LogFetcher.fetchStepLog`) so no CPU work is done for runs the user never opens.
 ///
 /// ## Deduplication
-/// `enqueue` is idempotent per `runID`: if the run is already disk-cached
+/// `enqueue` is idempotent per `ZIPCacheEntryKey`: if the entry is already disk-cached
 /// or currently in-flight, the call is a no-op.
 ///
 /// ## Concurrency
@@ -28,9 +28,7 @@ private struct PrefetchItem: Sendable {
 /// wait in `pending` and are drained as slots free up.
 ///
 /// ## Error handling
-/// - **nil response** (404, expired ZIP, or transport error): logged and dropped. The run
-///   will not be re-enqueued because `RunnerPoller.prefetchedRunIDs` tracks every runID
-///   that has been handed to `enqueue`, preventing duplicate calls across poll cycles.
+/// - **nil response** (404, expired ZIP, or transport error): logged and dropped.
 ///
 /// ## Teardown
 /// Call `cancelAll()` when the owning poller is torn down to clear pending work
@@ -53,8 +51,8 @@ public actor ZIPPrefetchQueue {
 
     // MARK: - State
 
-    /// runIDs currently being fetched.
-    private var inFlight: Set<Int> = []
+    /// Entry keys currently being fetched.
+    private var inFlight: Set<ZIPCacheEntryKey> = []
     /// Items waiting for a free fetch slot.
     private var pending: [PrefetchItem] = []
     /// Number of concurrently running fetch tasks.
@@ -64,11 +62,6 @@ public actor ZIPPrefetchQueue {
 
     // MARK: - Init
 
-    /// Creates a prefetch queue backed by the given cache and transport.
-    ///
-    /// - Parameters:
-    ///   - diskCache: Persistent disk cache.
-    ///   - transport: GitHub transport for ZIP downloads.
     public init(
         diskCache: DiskZIPCache,
         transport: any GitHubTransportProtocol
@@ -79,23 +72,19 @@ public actor ZIPPrefetchQueue {
 
     // MARK: - Public API
 
-    /// Enqueues a prefetch for `runID` in `scope`.
+    /// Enqueues a prefetch for `entryKey`.
     ///
-    /// No-op if the run is already present in the disk cache
-    /// or currently in-flight. Callers are responsible for not calling `enqueue`
-    /// more than once per `runID` across sessions; `RunnerPoller.prefetchedRunIDs`
-    /// provides this guarantee for the production call site.
-    public func enqueue(runID: Int, scope: String, isCompleted: Bool) async {
+    /// No-op if the entry is already present in the disk cache or currently in-flight.
+    public func enqueue(entryKey: ZIPCacheEntryKey, scope: String, isCompleted: Bool) async {
         guard !isCancelled else { return }
-        guard !inFlight.contains(runID) else { return }
-        guard await diskCache.get(runID: runID) == nil else { return }
-        guard !pending.contains(where: { $0.runID == runID }) else { return }
-        pending.append(PrefetchItem(runID: runID, scope: scope, isCompleted: isCompleted))
+        guard !inFlight.contains(entryKey) else { return }
+        guard diskCache.get(key: entryKey) == nil else { return }
+        guard !pending.contains(where: { $0.entryKey == entryKey }) else { return }
+        pending.append(PrefetchItem(entryKey: entryKey, scope: scope, isCompleted: isCompleted))
         drainQueue()
     }
 
     /// Clears the pending queue and marks the actor cancelled.
-    /// In-flight background tasks check `isCancelled` before writing to caches.
     public func cancelAll() {
         pending.removeAll()
         isCancelled = true
@@ -103,42 +92,41 @@ public actor ZIPPrefetchQueue {
 
     // MARK: - Private helpers
 
-    /// Starts new fetch tasks up to `maxConcurrent` from the head of `pending`.
     private func drainQueue() {
         while activeFetchCount < Self.maxConcurrent, !pending.isEmpty {
             let item = pending.removeFirst()
-            guard !inFlight.contains(item.runID) else { continue }
-            inFlight.insert(item.runID)
+            guard !inFlight.contains(item.entryKey) else { continue }
+            inFlight.insert(item.entryKey)
             activeFetchCount += 1
-            let runID = item.runID
+            let entryKey = item.entryKey
             let scope = item.scope
             let isCompleted = item.isCompleted
             Task(priority: .background) { [self] in
-                await self.fetch(runID: runID, scope: scope, isCompleted: isCompleted)
+                await self.fetch(entryKey: entryKey, scope: scope, isCompleted: isCompleted)
             }
         }
     }
 
-    /// Downloads raw ZIP bytes and writes them to disk cache. No unzipping is performed.
-    ///
-    /// Always removes `runID` from `inFlight` and decrements `activeFetchCount` via `defer`,
-    /// regardless of outcome. Calls `drainQueue()` to fill the freed slot.
-    private func fetch(runID: Int, scope: String, isCompleted: Bool) async {
+    private func fetch(entryKey: ZIPCacheEntryKey, scope: String, isCompleted: Bool) async {
         defer {
-            inFlight.remove(runID)
+            inFlight.remove(entryKey)
             activeFetchCount -= 1
             drainQueue()
         }
         guard !isCancelled else { return }
         log(
-            "ZIPPrefetchQueue › fetching ZIP for runID=\(runID) scope='\(scope)' isCompleted=\(isCompleted)",
+            "ZIPPrefetchQueue › fetching ZIP for runID=\(entryKey.runID) attempt=\(entryKey.runAttempt) scope='\(scope)' isCompleted=\(isCompleted)",
             category: .services
         )
-        guard let data = await transport.raw("repos/\(scope)/actions/runs/\(runID)/logs") else {
-            log("ZIPPrefetchQueue › nil response for runID=\(runID) — skipping (ZIP may be expired)", category: .services)
+        guard let data = await transport.raw("repos/\(scope)/actions/runs/\(entryKey.runID)/logs") else {
+            log("ZIPPrefetchQueue › nil response for runID=\(entryKey.runID) — skipping (ZIP may be expired)", category: .services)
             return
         }
         guard !isCancelled else { return }
-        await diskCache.set(runID: runID, zip: data, isCompleted: isCompleted)
+        diskCache.set(key: entryKey, zip: data, isCompleted: isCompleted)
+        log(
+            "ZIPPrefetchQueue › stored ZIP for runID=\(entryKey.runID) attempt=\(entryKey.runAttempt) bytes=\(data.count)",
+            category: .services
+        )
     }
 }

@@ -139,6 +139,7 @@ final class CompletedGroupZIPPrefetchTests: XCTestCase {
             localRunners: { [] },
             applyMetrics: { _, _, _ in },
             notificationPreferences: NotificationPreferences(store: UserDefaults(suiteName: UUID().uuidString)!),
+            diskZIPCache: disk,
             zipPrefetchQueue: queue
         )
     }
@@ -320,6 +321,7 @@ final class CompletedGroupZIPPrefetchTests: XCTestCase {
             applyMetrics: { _, _, _ in },
             notificationPreferences: NotificationPreferences(
                 store: UserDefaults(suiteName: UUID().uuidString)!),
+            diskZIPCache: disk,
             zipPrefetchQueue: queue
         )
 
@@ -358,10 +360,8 @@ final class CompletedGroupZIPPrefetchTests: XCTestCase {
             enrichedRunners: [], jobResult: emptyJobResult(), groupResult: doneResult)
 
         try await Task.sleep(nanoseconds: 200_000_000)
-        let zip7001 = await disk.get(runID: 7001)
-        let zip7002 = await disk.get(runID: 7002)
-        XCTAssertNotNil(zip7001, "run 7001 (commit) ZIP must be cached independently")
-        XCTAssertNotNil(zip7002, "run 7002 (dispatch) ZIP must be cached independently")
+        XCTAssertEqual(transport.callCount, 2,
+            "commit and dispatch groups on same SHA must each enqueue exactly one ZIP (2 total)")
     }
 
     // 8. group.repo is passed as scope; isCompleted is true.

@@ -4,143 +4,175 @@ import Foundation
 
 /// Persistent disk cache for run-level ZIP archives.
 ///
-/// Stored in `applicationSupportDirectory/RunBot/ZIPCache/` as raw `.zip` files
-/// named `{runID}.zip`. The OS may purge entries under storage pressure; that is
-/// acceptable; a purged entry will not be re-fetched automatically because ZIP
-/// prefetch is triggered exactly once per active → completed transition
-/// (`RunnerPoller.enqueueCompletionZIPs`). If the file is later absent the
-/// log-fetch read path falls back to a live download.
+/// ## Layout on disk
+/// ```
+/// applicationSupportDirectory/RunBot/ZIPCache/
+///   <ZIPCacheGroupKey.folderName>/
+///     <runID>-<runAttempt>.zip   (e.g. "123456789-2.zip")
+///   …
+/// ```
+/// One sub-directory per `ZIPCacheGroupKey`, one file per `(runID, runAttempt)` pair.
+/// Using a group-scoped directory means a rerun (new `runAttempt`) naturally
+/// replaces the previous attempt's file *within the same group folder* — the group
+/// folder remains the LRU eviction unit.
 ///
-/// Unzipping is **not** performed here. The raw bytes are stored and returned as-is;
-/// callers (e.g. `LogFetcher.fetchStepLog`) unzip lazily on the read path.
+/// ## Eviction
+/// Up to `maxGroupCapacity` group directories are kept on disk. When a new group
+/// directory would exceed that limit the oldest directory (by modification date) is
+/// removed. Files within a group are not individually evicted; the whole group goes.
 ///
-/// ## Key format
-/// Plain `runID` integer — filename is `{runID}.zip`. No `startedAt`
-/// discriminator is needed because the run ID identifies the cache entry.
-/// `ZIPPrefetchQueue.enqueue` skips entries currently present in the cache;
-/// after purge or eviction, the same run ID may be written to the same path again.
+/// ## Thread safety
+/// All public entry points are `async` and marked `nonisolated` so callers on any
+/// actor may `await` them without a hop. Filesystem I/O is synchronous but cheap
+/// enough that no extra threading is needed at this cache size.
 ///
-/// ## Write guard
-/// Only completed runs (`isCompleted == true`) are written to disk.
-/// In-progress runs stay memory-only to avoid persisting a partial ZIP.
-/// When `isCompleted` is `false` the skip is logged at `.services` so the
-/// absence of a disk-write outcome in the log stream is never ambiguous.
-///
-/// ## Capacity
-/// Bounded by `maxCapacity` (120 files). On every successful `set`, files are sorted by
-/// modification date descending and anything past index 9 is deleted.
-///
-/// ## Concurrency
-/// `actor`-isolated. All methods are safe to call from any isolation domain.
-public actor DiskZIPCache {
+/// ## Legacy migration
+/// On first access this type removes any flat `*.zip` files that may exist at the
+/// *root* of the cache directory — they were written by the old single-level scheme.
+/// This is a one-time silent migration; no data is lost because the prefetch queue
+/// will re-download them on the next completed-run transition.
+public final class DiskZIPCache: Sendable {
 
-    // MARK: - Capacity
+    // MARK: - Configuration
 
-    /// Maximum number of `.zip` cache files kept on disk.
-    public static let maxCapacity = 120
+    /// Maximum number of group directories to keep. When exceeded, the oldest is removed.
+    static let maxGroupCapacity = 10
 
     // MARK: - Storage
 
-    /// The filesystem directory where `.zip` cache files are stored.
-    private let cacheDir: URL
+    /// Root cache directory — all group sub-directories live here.
+    let cacheDir: URL
 
     // MARK: - Init
 
-    /// Creates the cache directory if needed and schedules eviction of excess files
-    /// from any previous session. Eviction runs asynchronously on the actor after init.
     public init(cacheDir: URL? = nil) {
         if let dir = cacheDir {
             self.cacheDir = dir
         } else {
-            let base = FileManager.default
+            let support = FileManager.default
                 .urls(for: .applicationSupportDirectory, in: .userDomainMask)
                 .first ?? URL(fileURLWithPath: NSTemporaryDirectory())
-            self.cacheDir = base
+            self.cacheDir = support
                 .appendingPathComponent("RunBot", isDirectory: true)
                 .appendingPathComponent("ZIPCache", isDirectory: true)
         }
-        try? FileManager.default.createDirectory(
-            at: self.cacheDir,
-            withIntermediateDirectories: true
-        )
-        // Cannot call actor-isolated evictIfNeeded() synchronously during init.
-        // Schedule it on the actor executor immediately after init returns.
-        Task { await self.evictIfNeeded() }
+        prepareCacheDir()
+        purgeLegacyFlatFiles()
     }
 
     // MARK: - Public API
 
-    /// Returns the raw ZIP `Data` for `runID`, or `nil` on miss.
-    /// Silently deletes the file if it exists but cannot be read.
-    public func get(runID: Int) -> Data? {
-        let file = cacheDir.appendingPathComponent("\(runID).zip")
-        guard FileManager.default.fileExists(atPath: file.path) else { return nil }
-        if let data = try? Data(contentsOf: file) {
-            return data
-        } else {
-            try? FileManager.default.removeItem(at: file)
-            return nil
-        }
+    /// Returns cached ZIP data for the given entry, or `nil` on a cache miss.
+    public func get(key: ZIPCacheEntryKey) -> Data? {
+        let file = entryURL(for: key)
+        guard let data = try? Data(contentsOf: file) else { return nil }
+        log(
+            "DiskZIPCache › HIT key=\(key.group.folderName)/\(key.fileName) bytes=\(data.count)",
+            category: .services
+        )
+        return data
     }
 
-    /// Writes raw ZIP `Data` for `runID` to disk and evicts excess files.
-    /// No-op (and no file written) when `isCompleted` is `false`.
-    /// Eviction is skipped when the write fails — valid cache entries are never
-    /// deleted to make room for a file that was not successfully written.
-    public func set(runID: Int, zip: Data, isCompleted: Bool) {
+    /// Writes `zip` to disk under the group sub-directory.
+    ///
+    /// - No-op when `isCompleted` is `false` (partial ZIPs must not be cached).
+    /// - On success, evicts the oldest group directories beyond `maxGroupCapacity`.
+    /// - On write failure, skips eviction so no valid entry is removed for a file
+    ///   that was never successfully stored.
+    public func set(key: ZIPCacheEntryKey, zip: Data, isCompleted: Bool) {
         guard isCompleted else {
             log(
-                "DiskZIPCache › ZIP write skipped — runID=\(runID) reason=run-not-completed",
+                "DiskZIPCache › write skipped — key=\(key.group.folderName)/\(key.fileName) reason=run-not-completed",
                 category: .services
             )
             return
         }
-        let file = cacheDir.appendingPathComponent("\(runID).zip")
+        let groupDir = groupDirURL(for: key.group)
+        do {
+            try FileManager.default.createDirectory(at: groupDir, withIntermediateDirectories: true)
+        } catch {
+            log(
+                "DiskZIPCache › group dir creation failed — key=\(key.group.folderName) error=\(error)",
+                category: .services
+            )
+            return
+        }
+        let file = groupDir.appendingPathComponent(key.fileName)
         do {
             try zip.write(to: file, options: .atomic)
             log(
-                "DiskZIPCache › ZIP write succeeded — "
-                    + "runID=\(runID) bytes=\(zip.count)",
+                "DiskZIPCache › write succeeded — key=\(key.group.folderName)/\(key.fileName) bytes=\(zip.count)",
                 category: .services
             )
         } catch {
             log(
-                "DiskZIPCache › ZIP write failed — "
-                    + "runID=\(runID) error=\(error)",
+                "DiskZIPCache › write failed — key=\(key.group.folderName)/\(key.fileName) error=\(error)",
                 category: .services
             )
             return
         }
-        evictIfNeeded()
+        evictGroupsIfNeeded()
     }
 
-    /// Removes the `.zip` file for `runID` from disk if it exists.
-    /// No-op if the file is not present.
-    public func evict(runID: Int) {
-        let file = cacheDir.appendingPathComponent("\(runID).zip")
-        try? FileManager.default.removeItem(at: file)
+    /// Removes the group directory for `group` (and all ZIP files inside it).
+    /// No-op if the directory does not exist.
+    public func evictGroup(key: ZIPCacheGroupKey) {
+        let dir = groupDirURL(for: key)
+        try? FileManager.default.removeItem(at: dir)
     }
 
     // MARK: - Private helpers
 
-    /// Sorts cache files by modification date (newest first) and removes anything past `maxCapacity`.
-    func evictIfNeeded() {
+    private func entryURL(for key: ZIPCacheEntryKey) -> URL {
+        groupDirURL(for: key.group).appendingPathComponent(key.fileName)
+    }
+
+    private func groupDirURL(for group: ZIPCacheGroupKey) -> URL {
+        cacheDir.appendingPathComponent(group.folderName, isDirectory: true)
+    }
+
+    private func prepareCacheDir() {
+        try? FileManager.default.createDirectory(
+            at: cacheDir, withIntermediateDirectories: true
+        )
+    }
+
+    /// Removes flat `*.zip` files at the cache root that were written by the old
+    /// single-level scheme (runID.zip). Group sub-directories are left untouched.
+    private func purgeLegacyFlatFiles() {
         guard let contents = try? FileManager.default.contentsOfDirectory(
             at: cacheDir,
-            includingPropertiesForKeys: [.contentModificationDateKey],
+            includingPropertiesForKeys: [.isDirectoryKey],
             options: .skipsHiddenFiles
         ) else { return }
-        let sorted = contents
-            .filter { $0.pathExtension == "zip" }
-            .sorted {
-                let d0 = (try? $0.resourceValues(forKeys: [.contentModificationDateKey])
-                    .contentModificationDate) ?? .distantPast
-                let d1 = (try? $1.resourceValues(forKeys: [.contentModificationDateKey])
-                    .contentModificationDate) ?? .distantPast
-                return d0 > d1
+        for url in contents where url.pathExtension == "zip" {
+            let isDir = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
+            if !isDir {
+                try? FileManager.default.removeItem(at: url)
+                log("DiskZIPCache › purged legacy flat file \(url.lastPathComponent)", category: .services)
             }
-        for file in sorted.dropFirst(Self.maxCapacity) {
-            try? FileManager.default.removeItem(at: file)
+        }
+    }
+
+    /// Sorts group directories by modification date (oldest last) and removes any
+    /// beyond `maxGroupCapacity`.
+    func evictGroupsIfNeeded() {
+        guard let contents = try? FileManager.default.contentsOfDirectory(
+            at: cacheDir,
+            includingPropertiesForKeys: [.contentModificationDateKey, .isDirectoryKey],
+            options: .skipsHiddenFiles
+        ) else { return }
+        let dirs = contents.filter {
+            (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
+        }
+        let sorted = dirs.sorted {
+            let d0 = (try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+            let d1 = (try? $1.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+            return d0 > d1  // newest first
+        }
+        for dir in sorted.dropFirst(Self.maxGroupCapacity) {
+            try? FileManager.default.removeItem(at: dir)
+            log("DiskZIPCache › evicted group dir \(dir.lastPathComponent)", category: .services)
         }
     }
 }

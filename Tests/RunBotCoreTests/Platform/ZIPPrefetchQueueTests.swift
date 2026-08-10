@@ -54,45 +54,63 @@ final class ZIPPrefetchQueueTests: XCTestCase {
         transport: FakeTransport
     ) -> (ZIPPrefetchQueue, DiskZIPCache) {
         let disk = DiskZIPCache(cacheDir: tempDir)
-        let queue = ZIPPrefetchQueue(
-            diskCache: disk,
-            transport: transport
-        )
+        let queue = ZIPPrefetchQueue(diskCache: disk, transport: transport)
         return (queue, disk)
+    }
+
+    private func makeKey(runID: Int, runAttempt: Int = 1) -> ZIPCacheEntryKey {
+        ZIPCacheEntryKey(
+            group: ZIPCacheGroupKey(repo: "o/r", headSha: "sha\(runID)", normalizedEvent: "push"),
+            runID: runID,
+            runAttempt: runAttempt
+        )
     }
 
     // MARK: - Deduplication
 
-    func testEnqueueSameRunIDTwiceOnlyFetchesOnce() async throws {
+    func testEnqueueSameEntryTwiceOnlyFetchesOnce() async throws {
         let transport = FakeTransport()
         transport.responseData = Data()
         let (queue, _) = makeQueue(transport: transport)
-        await queue.enqueue(runID: 1, scope: "o/r", isCompleted: true)
-        await queue.enqueue(runID: 1, scope: "o/r", isCompleted: true)
-        // Allow background tasks to drain
+        let key = makeKey(runID: 1)
+        await queue.enqueue(entryKey: key, scope: "o/r", isCompleted: true)
+        await queue.enqueue(entryKey: key, scope: "o/r", isCompleted: true)
         try await Task.sleep(nanoseconds: 50_000_000)
         XCTAssertEqual(transport.callCount, 1, "Duplicate enqueue must be deduplicated")
     }
 
-    func testSkipsRunIDAlreadyOnDisk() async throws {
+    func testSkipsEntryAlreadyOnDisk() async throws {
         let transport = FakeTransport()
         transport.responseData = Data()
         let (queue, disk) = makeQueue(transport: transport)
-        await disk.set(runID: 1, zip: Data("test".utf8), isCompleted: true)
-        await queue.enqueue(runID: 1, scope: "o/r", isCompleted: true)
+        let key = makeKey(runID: 1)
+        disk.set(key: key, zip: Data("test".utf8), isCompleted: true)
+        await queue.enqueue(entryKey: key, scope: "o/r", isCompleted: true)
         try await Task.sleep(nanoseconds: 30_000_000)
-        XCTAssertEqual(transport.callCount, 0, "Run already on disk must not trigger a fetch")
+        XCTAssertEqual(transport.callCount, 0, "Entry already on disk must not trigger a fetch")
+    }
+
+    // MARK: - Different runAttempts are independent entries
+
+    func testDifferentRunAttemptsEnqueuedIndependently() async throws {
+        let transport = FakeTransport()
+        transport.responseData = Data()
+        let (queue, _) = makeQueue(transport: transport)
+        // Same runID, different attempts — each should fetch once
+        await queue.enqueue(entryKey: makeKey(runID: 10, runAttempt: 1), scope: "o/r", isCompleted: true)
+        await queue.enqueue(entryKey: makeKey(runID: 10, runAttempt: 2), scope: "o/r", isCompleted: true)
+        try await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertEqual(transport.callCount, 2, "Each runAttempt must produce its own fetch")
     }
 
     // MARK: - Nil response (expired ZIP)
 
-    func testNilResponseDoesNotCrashAndLogsOnce() async throws {
+    func testNilResponseDoesNotCrashAndFetchesOnce() async throws {
         let transport = FakeTransport()
-        transport.responseData = nil // simulate expired / 404 ZIP
+        transport.responseData = nil
         let (queue, _) = makeQueue(transport: transport)
-        await queue.enqueue(runID: 99, scope: "o/r", isCompleted: true)
+        await queue.enqueue(entryKey: makeKey(runID: 99), scope: "o/r", isCompleted: true)
         try await Task.sleep(nanoseconds: 50_000_000)
-        // Exactly one fetch attempt
         XCTAssertEqual(transport.callCount, 1, "Nil response should trigger exactly one fetch attempt")
     }
 
@@ -103,22 +121,37 @@ final class ZIPPrefetchQueueTests: XCTestCase {
         transport.responseData = Data()
         let (queue, _) = makeQueue(transport: transport)
         await queue.cancelAll()
-        await queue.enqueue(runID: 5, scope: "o/r", isCompleted: true)
+        await queue.enqueue(entryKey: makeKey(runID: 5), scope: "o/r", isCompleted: true)
         try await Task.sleep(nanoseconds: 30_000_000)
         XCTAssertEqual(transport.callCount, 0, "Enqueue after cancelAll must be a no-op")
     }
 
-    // MARK: - Successful fetch populates caches
+    // MARK: - Successful fetch populates disk cache
 
     func testSuccessfulFetchPopulatesDiskCache() async throws {
         let transport = FakeTransport()
         let zipData = Data("fake-zip-bytes".utf8)
         transport.responseData = zipData
         let (queue, disk) = makeQueue(transport: transport)
-        await queue.enqueue(runID: 10, scope: "o/r", isCompleted: true)
+        let key = makeKey(runID: 10)
+        await queue.enqueue(entryKey: key, scope: "o/r", isCompleted: true)
         try await Task.sleep(nanoseconds: 100_000_000)
-        let onDisk = await disk.get(runID: 10)
+        let onDisk = disk.get(key: key)
         XCTAssertNotNil(onDisk, "Successful fetch of completed run must populate disk cache")
-        XCTAssertEqual(onDisk, zipData, "Disk cache must contain the exact ZIP bytes downloaded")
+        XCTAssertEqual(onDisk, zipData, "Disk cache must contain the exact bytes returned by transport")
+    }
+
+    // MARK: - Incomplete run is not cached
+
+    func testIncompleteRunNotCached() async throws {
+        let transport = FakeTransport()
+        transport.responseData = Data("zip".utf8)
+        let (queue, disk) = makeQueue(transport: transport)
+        let key = makeKey(runID: 20)
+        await queue.enqueue(entryKey: key, scope: "o/r", isCompleted: false)
+        try await Task.sleep(nanoseconds: 100_000_000)
+        // Fetch was attempted (transport called) but disk must remain empty
+        XCTAssertEqual(transport.callCount, 1, "Incomplete run should still attempt fetch")
+        XCTAssertNil(disk.get(key: key), "Incomplete run ZIP must not be written to disk")
     }
 }

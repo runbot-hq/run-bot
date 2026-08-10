@@ -161,6 +161,8 @@ public actor RunnerPoller {
   let decoder = JSONDecoder()
   /// Fetcher for workflow action groups.
   let actionGroupFetcher: any WorkflowActionGroupFetcherProtocol
+  /// Shared disk cache for workflow-run ZIP archives.
+  let diskZIPCache: DiskZIPCache
   /// Background ZIP prefetch queue — warms `DiskZIPCache` on each observed
   /// active → completed group transition (see `enqueueCompletionZIPs`) so that
   /// `fetchStepLog` calls hit cache instead of the network.
@@ -190,6 +192,7 @@ public actor RunnerPoller {
       async -> Void,
     notificationPreferences: NotificationPreferences,
     actionGroupFetcher: any WorkflowActionGroupFetcherProtocol = WorkflowActionGroupFetcher(),
+    diskZIPCache: DiskZIPCache = DiskZIPCache(),
     zipPrefetchQueue: ZIPPrefetchQueue? = nil
   ) {
     self.state = state
@@ -199,8 +202,9 @@ public actor RunnerPoller {
     self.applyMetrics = applyMetrics
     self.notificationPreferences = notificationPreferences
     self.actionGroupFetcher = actionGroupFetcher
+    self.diskZIPCache = diskZIPCache
     self.zipPrefetchQueue = zipPrefetchQueue ?? ZIPPrefetchQueue(
-      diskCache: DiskZIPCache(),
+      diskCache: diskZIPCache,
       transport: currentTransport
     )
     Task(name: "RunnerPoller.init: startObservingScopes") { await self.startObservingScopes() }

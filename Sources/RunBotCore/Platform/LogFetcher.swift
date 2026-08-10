@@ -203,6 +203,8 @@ public struct LogFetcher: Sendable {
     public func fetchStepLog(
         runID: Int,
         startedAt: String?,
+        runAttempt: Int = 1,
+        cacheGroup: ZIPCacheGroupKey? = nil,
         jobID: Int,
         jobName: String,
         step: GitHubStep,
@@ -222,7 +224,7 @@ public struct LogFetcher: Sendable {
         )
         let zipData: Data
         let zipFromCache: Bool
-        switch await loadZipFiles(runID: runID, scope: scope, isCompleted: isCompleted) {
+        switch await loadZipFiles(runID: runID, runAttempt: runAttempt, cacheGroup: cacheGroup, scope: scope, isCompleted: isCompleted) {
         case .hit(let data): zipData = data; zipFromCache = true
         case .miss(let data): zipData = data; zipFromCache = false
         case .failed(let result): return result
@@ -231,9 +233,9 @@ public struct LogFetcher: Sendable {
         // If extraction fails and the data came from the network (not a cache hit),
         // evict it from both caches so a malformed download cannot loop forever.
         guard let extraction = await extractZip(zipData, runID: runID) else {
-            if !zipFromCache {
-                await diskZIPCache.evict(runID: runID)
-                log("fetchStepLog › evicted bad ZIP for runID=\(runID) from disk after extraction failure", category: .services)
+            if !zipFromCache, let cacheGroup {
+                diskZIPCache.evictGroup(key: cacheGroup)
+                log("fetchStepLog › evicted bad ZIP group for runID=\(runID) attempt=\(runAttempt) after extraction failure", category: .services)
             }
             return .fetchFailed(reason: "GitHub returned the run log archive, but macOS could not extract it (unzip exit code or I/O error).")
         }
@@ -387,11 +389,14 @@ public struct LogFetcher: Sendable {
     /// after this method returns, so the cache only stores raw bytes.
     private func loadZipFiles(
         runID: Int,
+        runAttempt: Int,
+        cacheGroup: ZIPCacheGroupKey?,
         scope: String,
         isCompleted: Bool
     ) async -> ZipLoadResult {
         // Layer 1: Disk cache
-        if let cached = await diskZIPCache.get(runID: runID) {
+        if let cacheGroup,
+           let cached = diskZIPCache.get(key: ZIPCacheEntryKey(group: cacheGroup, runID: runID, runAttempt: runAttempt)) {
             log(
                 "fetchStepLog › DISK HIT runID=\(runID) — \(cached.count) byte(s)",
                 category: .services
@@ -410,8 +415,14 @@ public struct LogFetcher: Sendable {
         }
         let downloadDuration = downloadStart.duration(to: .now)
         log("fetchStepLog › ZIP downloaded \(data.count) bytes for run \(runID) in \(downloadDuration)", category: .services)
-        // Backfill disk cache with raw bytes. Extraction is deferred to the caller.
-        await diskZIPCache.set(runID: runID, zip: data, isCompleted: isCompleted)
+        // Backfill disk cache with raw bytes when group identity is known.
+        if let cacheGroup {
+            diskZIPCache.set(
+                key: ZIPCacheEntryKey(group: cacheGroup, runID: runID, runAttempt: runAttempt),
+                zip: data,
+                isCompleted: isCompleted
+            )
+        }
         return .miss(data)
     }
 

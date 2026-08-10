@@ -77,6 +77,8 @@ public struct GitHubJob: Decodable, Identifiable, Equatable, Sendable {
     public let id: Int
     /// The workflow run this job belongs to. Maps the `run_id` JSON field.
     public let runID: Int
+    /// The attempt number of the workflow run. Incremented on rerun; the run ID stays the same.
+    public let runAttempt: Int
     /// Display name of the job.
     public let name: String
     /// Raw status string — NOT `JobStatus` (a RunBotCore type).
@@ -124,6 +126,8 @@ public struct GitHubJob: Decodable, Identifiable, Equatable, Sendable {
         case steps
         /// Maps `run_id`.
         case runID = "run_id"
+        /// Maps `run_attempt`.
+        case runAttempt = "run_attempt"
         /// Maps `html_url`.
         case htmlUrl = "html_url"
         /// Maps `runner_name`.
@@ -141,6 +145,7 @@ public struct GitHubJob: Decodable, Identifiable, Equatable, Sendable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(Int.self, forKey: .id)
         runID = try container.decode(Int.self, forKey: .runID)
+        runAttempt = try container.decodeIfPresent(Int.self, forKey: .runAttempt) ?? 1
         name = try container.decode(String.self, forKey: .name)
         status = try container.decode(String.self, forKey: .status)
         conclusion = try container.decodeIfPresent(String.self, forKey: .conclusion)
@@ -165,6 +170,7 @@ public struct GitHubJob: Decodable, Identifiable, Equatable, Sendable {
     public init(
         id: Int,
         runID: Int,
+        runAttempt: Int = 1,
         name: String,
         status: String,
         conclusion: String? = nil,
@@ -177,6 +183,7 @@ public struct GitHubJob: Decodable, Identifiable, Equatable, Sendable {
     ) {
         self.id = id
         self.runID = runID
+        self.runAttempt = runAttempt
         self.name = name
         self.status = status
         self.conclusion = conclusion

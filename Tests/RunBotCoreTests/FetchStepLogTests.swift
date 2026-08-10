@@ -371,8 +371,10 @@ struct FetchStepLogTests {
                 .appendingPathComponent("test-disk-zip-\(UUID().uuidString)")),
             zipExtractor: { _ in .success([(name: "release/1_Build", text: "build output\n")]) }
         )
+        let cacheGroup = ZIPCacheGroupKey(repo: "owner/repo", headSha: "abc123", normalizedEvent: "push")
         _ = await fetcher.fetchStepLog(
-            runID: 99, startedAt: "2026-01-01T00:00:00Z",
+            runID: 99, startedAt: "2026-01-01T00:00:00Z", runAttempt: 1,
+            cacheGroup: cacheGroup,
             jobID: 42, jobName: "release",
             step: makeStep(number: 1, name: "Build"),
             scope: "owner/repo"
@@ -381,7 +383,8 @@ struct FetchStepLogTests {
         #expect(transport.rawCallCount == 1,
             "ZIP must be fetched exactly once for same runID+startedAt")
         _ = await fetcher.fetchStepLog(
-            runID: 99, startedAt: "2026-01-01T00:00:00Z",
+            runID: 99, startedAt: "2026-01-01T00:00:00Z", runAttempt: 1,
+            cacheGroup: cacheGroup,
             jobID: 42, jobName: "release",
             step: makeStep(number: 1, name: "Build"),
             scope: "owner/repo"

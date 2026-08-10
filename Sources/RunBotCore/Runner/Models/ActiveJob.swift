@@ -29,6 +29,10 @@ public struct ActiveJob: Identifiable, Equatable, Sendable {
     let statusOverride: JobStatus?
     /// Overrides `raw.jobConclusion` when set. `nil` defers to the raw value.
     let conclusionOverride: JobConclusion?
+    /// The ZIP-cache group key for this job's workflow group, if known.
+    /// Populated when the job originates from a `WorkflowActionGroup`; `nil` for
+    /// standalone jobs that cannot be mapped to a group (disk caching is bypassed).
+    public let zipCacheGroupKey: ZIPCacheGroupKey?
 
     /// Stable ID forwarded from `raw`.
     public var id: Int { raw.id }
@@ -41,13 +45,15 @@ public struct ActiveJob: Identifiable, Equatable, Sendable {
         isDimmed: Bool = false,
         scope: String? = nil,
         statusOverride: JobStatus? = nil,
-        conclusionOverride: JobConclusion? = nil
+        conclusionOverride: JobConclusion? = nil,
+        zipCacheGroupKey: ZIPCacheGroupKey? = nil
     ) {
         self.raw = raw
         self.isDimmed = isDimmed
         self.scope = scope
         self.statusOverride = statusOverride
         self.conclusionOverride = conclusionOverride
+        self.zipCacheGroupKey = zipCacheGroupKey
     }
 
     // MARK: Forwarded API fields
@@ -63,10 +69,9 @@ public struct ActiveJob: Identifiable, Equatable, Sendable {
     /// The workflow run ID this job belongs to. Forwarded from `raw.runID`.
     public var runID: Int { raw.runID }
     /// The raw ISO 8601 start timestamp. Forwarded from `raw.startedAt`.
-    /// Used as the cache-key discriminator in `fetchStepLog` — do not use `startDate` (a parsed
-    /// `Date`) for this purpose; re-runs of the same `runID` share the same integer but have
-    /// different `startedAt` strings, so the cache key must be `"\(runID)-\(startedAt ?? "")"` .
     public var startedAt: String? { raw.startedAt }
+    /// The attempt number of this job's workflow run. Forwarded from `raw.runAttempt`.
+    public var runAttempt: Int { raw.runAttempt }
 
     // MARK: Overridable fields
 
@@ -123,13 +128,15 @@ public struct ActiveJob: Identifiable, Equatable, Sendable {
     /// Returns a copy with `isDimmed` replaced.
     public func copying(isDimmed newValue: Bool) -> ActiveJob {
         ActiveJob(raw: raw, isDimmed: newValue, scope: scope,
-                  statusOverride: statusOverride, conclusionOverride: conclusionOverride)
+                  statusOverride: statusOverride, conclusionOverride: conclusionOverride,
+                  zipCacheGroupKey: zipCacheGroupKey)
     }
 
     /// Returns a copy with `scope` replaced.
     public func copying(scope newValue: String?) -> ActiveJob {
         ActiveJob(raw: raw, isDimmed: isDimmed, scope: newValue,
-                  statusOverride: statusOverride, conclusionOverride: conclusionOverride)
+                  statusOverride: statusOverride, conclusionOverride: conclusionOverride,
+                  zipCacheGroupKey: zipCacheGroupKey)
     }
 
     // MARK: copying — GitHubJob fields (via withUpdatedRaw)
@@ -137,7 +144,8 @@ public struct ActiveJob: Identifiable, Equatable, Sendable {
     /// Returns a copy with `raw` replaced by `job`.
     public func withUpdatedRaw(_ job: GitHubJob) -> ActiveJob {
         ActiveJob(raw: job, isDimmed: isDimmed, scope: scope,
-                  statusOverride: statusOverride, conclusionOverride: conclusionOverride)
+                  statusOverride: statusOverride, conclusionOverride: conclusionOverride,
+                  zipCacheGroupKey: zipCacheGroupKey)
     }
 
     /// Returns a copy with `runnerName` replaced.
@@ -186,7 +194,8 @@ public struct ActiveJob: Identifiable, Equatable, Sendable {
             isDimmed: true,
             scope: scope,
             statusOverride: .completed,
-            conclusionOverride: conclusionOverride ?? raw.jobConclusion ?? .neutral
+            conclusionOverride: conclusionOverride ?? raw.jobConclusion ?? .neutral,
+            zipCacheGroupKey: zipCacheGroupKey
         )
     }
 }

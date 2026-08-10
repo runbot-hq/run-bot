@@ -392,6 +392,8 @@ struct StepLogView: View {
         let jobID = job.id
         let runID = job.runID
         let startedAt = job.startedAt
+        let runAttempt = job.runAttempt
+        let cacheGroup = job.zipCacheGroupKey
         let jobName = job.name
         let capturedStep = step
         let scope: String = {
@@ -418,6 +420,8 @@ struct StepLogView: View {
             let result = await localFetcher.fetchStepLog(
                 runID: runID,
                 startedAt: startedAt,
+                runAttempt: runAttempt,
+                cacheGroup: cacheGroup,
                 jobID: jobID,
                 jobName: jobName,
                 step: capturedStep,

@@ -101,6 +101,8 @@ private struct RunPayload: Codable {
   let headCommit: HeadCommit?
   /// Pull request references associated with this run.
   let pullRequests: [PRRef]?
+  /// The attempt number of this run. `nil` for old API responses; defaults to 1.
+  let runAttempt: Int?
   /// CodingKeys mapping snake_case API fields to camelCase Swift properties.
   enum CodingKeys: String, CodingKey {
     /// Maps the `id` JSON field.
@@ -127,6 +129,8 @@ private struct RunPayload: Codable {
     case headCommit = "head_commit"
     /// Maps the `pull_requests` JSON field.
     case pullRequests = "pull_requests"
+    /// Maps the `run_attempt` JSON field.
+    case runAttempt = "run_attempt"
   }
 }
 
@@ -377,9 +381,14 @@ public struct WorkflowActionGroupFetcher: Sendable, WorkflowActionGroupFetcherPr
     let runs: [WorkflowRunRef] = groupRuns.map { run in
       WorkflowRunRef(
         id: run.id, name: run.name, status: run.status, conclusion: run.conclusion,
-        htmlUrl: run.htmlUrl)
+        htmlUrl: run.htmlUrl, runAttempt: run.runAttempt ?? 1)
     }
-    let allJobs = await fetchJobsForGroup(groupRuns: groupRuns, scope: scope, cache: cache, cacheKey: groupKey.cacheKey)
+    let zipGroupKey = ZIPCacheGroupKey(
+      repo: scope,
+      headSha: groupKey.headSha,
+      normalizedEvent: groupKey.event
+    )
+    let allJobs = await fetchJobsForGroup(groupRuns: groupRuns, scope: scope, cache: cache, cacheKey: groupKey.cacheKey, zipGroupKey: zipGroupKey)
     #if DEBUG
     for job in allJobs {
       log(
@@ -448,7 +457,8 @@ public struct WorkflowActionGroupFetcher: Sendable, WorkflowActionGroupFetcherPr
     groupRuns: [RunPayload],
     scope: String,
     cache: [String: WorkflowActionGroup],
-    cacheKey: String
+    cacheKey: String,
+    zipGroupKey: ZIPCacheGroupKey? = nil
   ) async -> [ActiveJob] {
     if let cached = cache[cacheKey],
       cached.repo == scope,
@@ -466,8 +476,8 @@ public struct WorkflowActionGroupFetcher: Sendable, WorkflowActionGroupFetcherPr
     var fetched: [ActiveJob] = []
     var seenJobIDs = Set<Int>()
     await withTaskGroup(of: [ActiveJob].self) { group in
-      for runID in groupRuns.map({ $0.id }) {
-        group.addTask { await self.fetchJobsForRun(runID, scope: scope) }
+      for run in groupRuns {
+        group.addTask { await self.fetchJobsForRun(run.id, scope: scope, zipGroupKey: zipGroupKey) }
       }
       for await jobs in group {
         for job in jobs where seenJobIDs.insert(job.id).inserted {
@@ -493,7 +503,7 @@ public struct WorkflowActionGroupFetcher: Sendable, WorkflowActionGroupFetcherPr
   /// selects the same lowest-ID jobs — not whichever tasks finished first in the
   /// preceding `withTaskGroup` (whose completion order is non-deterministic).
   /// All date parsing goes through `ISO8601DateParser.shared`.
-  private func fetchJobsForRun(_ runID: Int, scope: String) async -> [ActiveJob] {
+  private func fetchJobsForRun(_ runID: Int, scope: String, zipGroupKey: ZIPCacheGroupKey? = nil) async -> [ActiveJob] {
     guard
       let data = await transport.apiAsync(
         "repos/\(scope)/actions/runs/\(runID)/jobs?per_page=\(GitHubConstants.maxPageSize)")
@@ -514,7 +524,7 @@ public struct WorkflowActionGroupFetcher: Sendable, WorkflowActionGroupFetcherPr
 
     let initial = await withTaskGroup(of: ActiveJob.self) { group in
       for payload in wrapper.jobs {
-        group.addTask { ActiveJob(raw: payload) }
+        group.addTask { ActiveJob(raw: payload, zipCacheGroupKey: zipGroupKey) }
       }
       var out: [ActiveJob] = []
       for await job in group { out.append(job) }
@@ -573,7 +583,7 @@ public struct WorkflowActionGroupFetcher: Sendable, WorkflowActionGroupFetcherPr
       // JobPayload was renamed to GitHubJob in the Step 8 refactor.
       let fresh = try? decoder.decode(GitHubJob.self, from: freshData)
     else { return nil }
-    let freshJob = ActiveJob(raw: fresh)
+    let freshJob = ActiveJob(raw: fresh, zipCacheGroupKey: job.zipCacheGroupKey)
     if fresh.conclusion != nil { return freshJob }
     // GitHubStep.status is raw String — use stepStatus typed accessor.
     let hasBetterSteps =

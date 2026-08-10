@@ -289,7 +289,11 @@ extension RunnerPoller {
     // MARK: - ZIP completion helper
 
     /// Detects groups that transitioned from active to completed this cycle and
-    /// enqueues one ZIP prefetch per `run.id` (#2488).
+    /// enqueues one ZIP prefetch per run (#2488).
+    ///
+    /// Builds a `ZIPCacheEntryKey` per run using the group's `headSha`,
+    /// `normalizedEvent`, and `run.runAttempt` so that reruns never collide with
+    /// previous attempts in the cache.
     ///
     /// Must be called before `setDisplayState` replaces `self.actions`.
     private func enqueueCompletionZIPs(groupResult: GroupPollResult) async {
@@ -309,8 +313,18 @@ extension RunnerPoller {
                     + "repo=\(group.repo) runIDs=\(group.runs.map(\.id))",
                 category: .services
             )
+            let groupKey = ZIPCacheGroupKey(
+                repo: group.repo,
+                headSha: group.headSha,
+                normalizedEvent: group.normalizedEvent
+            )
             for run in group.runs {
-                await zipPrefetchQueue.enqueue(runID: run.id, scope: group.repo, isCompleted: true)
+                let entryKey = ZIPCacheEntryKey(
+                    group: groupKey,
+                    runID: run.id,
+                    runAttempt: run.runAttempt
+                )
+                await zipPrefetchQueue.enqueue(entryKey: entryKey, scope: group.repo, isCompleted: true)
             }
         }
     }

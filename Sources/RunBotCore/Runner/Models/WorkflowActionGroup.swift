@@ -51,6 +51,8 @@ public struct WorkflowRunRef: Identifiable, Sendable {
     public let conclusion: JobConclusion?
     /// URL to the run detail page on github.com.
     public let htmlUrl: String?
+    /// The attempt number of this run. Starts at 1; incremented on each rerun.
+    public let runAttempt: Int
 
     /// Creates a new `WorkflowRunRef`.
     /// - Parameters:
@@ -59,12 +61,14 @@ public struct WorkflowRunRef: Identifiable, Sendable {
     ///   - status: Current run status.
     ///   - conclusion: Run conclusion, or `nil` while running.
     ///   - htmlUrl: URL to the run detail page.
-    public init(id: Int, name: String, status: JobStatus, conclusion: JobConclusion?, htmlUrl: String?) {
+    ///   - runAttempt: Attempt number. Defaults to `1` so existing call sites compile unchanged.
+    public init(id: Int, name: String, status: JobStatus, conclusion: JobConclusion?, htmlUrl: String?, runAttempt: Int = 1) {
         self.id = id
         self.name = name
         self.status = status
         self.conclusion = conclusion
         self.htmlUrl = htmlUrl
+        self.runAttempt = runAttempt
     }
 }
 
