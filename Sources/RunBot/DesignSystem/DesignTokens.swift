@@ -293,6 +293,7 @@ extension RBStatus {
         case .failed:     return .rbDanger
         case .queued:     return .rbWarning
         case .skipped:    return .rbTextTertiary
+        case .cancelled:  return .rbTextTertiary
         case .unknown:    return .rbTextTertiary
         }
     }

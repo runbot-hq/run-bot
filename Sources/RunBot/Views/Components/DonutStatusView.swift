@@ -70,6 +70,11 @@ struct DonutStatusView: View {
                 // clearly distinct from failed/queued. Default symbolScale 0.42 is correct
                 // for the slim minus glyph.
                 terminalRing(color: .rbTextTertiary.opacity(0.3), symbol: "minus")
+            case .cancelled:
+                // xmark.circle — outlined (not fill) for cancelled: muted neutral,
+                // semantically distinct from the solid xmark used for failed.
+                // symbolScale 0.52 matches the visual weight of the outlined glyph.
+                terminalRing(color: .rbTextTertiary.opacity(0.5), symbol: "xmark.circle", symbolScale: 0.52)
             default:
                 Circle()
                     .stroke(Color.rbTextTertiary.opacity(0.3), lineWidth: strokeWidth)

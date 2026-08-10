@@ -19,6 +19,8 @@ public enum RBStatus: Sendable {
     case queued
     /// A job or workflow step that was intentionally skipped.
     case skipped
+    /// A job or workflow step that was explicitly cancelled.
+    case cancelled
     /// An unrecognised or unavailable status.
     case unknown
 }

@@ -21,9 +21,9 @@ struct ActiveJobRBStatusTests {
     #expect(job.rbStatus == .failed)
   }
 
-  @Test func cancelledConclusionMapsToUnknown() {
+  @Test func cancelledConclusionMapsToCancelled() {
     let job = ActiveJob(id: 3, name: "j", status: .completed, conclusion: .cancelled)
-    #expect(job.rbStatus == .unknown)
+    #expect(job.rbStatus == .cancelled)
   }
 
   @Test func skippedConclusionMapsToSkipped() {

@@ -70,7 +70,7 @@ extension GitHubJob {
             case .success: return .success
             case .failure: return .failed
             case .skipped: return .skipped
-            case .cancelled: return .unknown
+            case .cancelled: return .cancelled
             default: return .unknown
             }
         }
