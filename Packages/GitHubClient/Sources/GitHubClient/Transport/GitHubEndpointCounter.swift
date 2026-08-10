@@ -117,6 +117,7 @@ internal actor GitHubEndpointCounter {
     ///   - url: The absolute URL of the completed request.
     ///   - statusCode: The HTTP status code of the response.
     /// - Returns: A report for the completed window, or `nil` if the window is still active.
+    @discardableResult
     func record(url: String, statusCode: Int) -> GitHubEndpointReport? {
         let key = normalizeKey(from: url)
         let bucket = counts[key, default: [:]]

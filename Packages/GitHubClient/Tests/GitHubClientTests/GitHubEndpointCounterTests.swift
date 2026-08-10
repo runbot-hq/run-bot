@@ -85,39 +85,38 @@ struct GitHubEndpointCounterTests {
 
     @Test("status query values produce four distinct endpoint categories")
     func fourDistinctStatusCategories() async {
-        let counter = GitHubEndpointCounter()
-        // Force a short interval so we can trigger a report.
-        let shortCounter = GitHubEndpointCounter(reportInterval: .milliseconds(1))
-        try? await Task.sleep(for: .milliseconds(5))
+        let counter = GitHubEndpointCounter(reportInterval: .milliseconds(1))
+        // All records happen in the same window — the first record starts the window,
+        // and the 5th record triggers the report after the interval expires.
 
         // in_progress
-        await shortCounter.record(
+        await counter.record(
             url: "https://api.github.com/repos/eoncode/run-bot/actions/runs?status=in_progress&per_page=20",
             statusCode: 200)
         // queued
-        await shortCounter.record(
+        await counter.record(
             url: "https://api.github.com/repos/eoncode/run-bot/actions/runs?status=queued&per_page=20",
             statusCode: 200)
         // completed
-        await shortCounter.record(
+        await counter.record(
             url: "https://api.github.com/repos/eoncode/run-bot/actions/runs?status=completed&per_page=100",
             statusCode: 200)
         // no status
-        await shortCounter.record(
+        await counter.record(
             url: "https://api.github.com/repos/eoncode/run-bot/actions/runs?per_page=100",
             statusCode: 200)
 
-        // All four should be in the same bucket because the window hasn't expired yet.
-        // The next record after expiry will return a report.
+        // Wait for the interval to expire, then trigger a report.
         try? await Task.sleep(for: .milliseconds(5))
-        let report = await shortCounter.record(
+        let report = await counter.record(
             url: "https://api.github.com/repos/eoncode/run-bot/actions/runs?per_page=100",
             statusCode: 200)
 
         #expect(report != nil)
         if let report {
             #expect(report.total == 5)
-            // Should have four distinct endpoint categories.
+            // All four should be in the same bucket because the window hasn't expired yet.
+            // The next record after expiry will return a report.
             let endpoints = Set(report.buckets.map(\.endpoint))
             #expect(endpoints == ["runs.in_progress", "runs.queued", "runs.completed", "runs.all"])
         }
@@ -285,7 +284,7 @@ struct GitHubEndpointCounterTests {
         if let report {
             #expect(report.durationSeconds >= 0)
             #expect(report.formatted().hasPrefix("GitHubEndpointCounter › "))
-            #expect(report.formatted().contains(" total=1"))
+            #expect(report.formatted().contains(" total=2"))
         }
     }
 
@@ -324,7 +323,6 @@ struct GitHubEndpointCounterTests {
             statusCode: 200)
         #expect(report == nil)
     }
-}
 
 // MARK: - Transport integration
 
