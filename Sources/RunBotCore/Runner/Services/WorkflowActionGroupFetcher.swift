@@ -7,7 +7,6 @@ import os
 // MARK: - File-level constants
 /// Regex that extracts a PR number from a GitHub merge-ref branch name (e.g. `refs/pull/123/merge`).
 private let prNumberPattern = #"/(\d+)/"#  // NOSONAR — fixed regex pattern
-
 /// Maximum number of in-progress/inconclusive jobs refreshed concurrently per run.
 ///
 /// Capped to avoid a thundering-herd of single-job API calls when a run has
@@ -65,7 +64,6 @@ private func groupEvent(_ event: String) -> String {
     return event
   }
 }
-
 /// Minimal workflow run payload used for group construction.
 ///
 /// `status` and `conclusion` are decoded directly as typed `JobStatus`/`JobConclusion`
@@ -133,7 +131,6 @@ private struct RunPayload: Codable {
     case runAttempt = "run_attempt"
   }
 }
-
 /// The first line of the head commit message, used as a fallback display title.
 private struct HeadCommit: Codable {
   /// The full commit message (only the first line is used).
@@ -365,36 +362,7 @@ public struct WorkflowActionGroupFetcher: Sendable, WorkflowActionGroupFetcherPr
       )
     }
     let label = prLabel(from: representative)
-    // Title: use the normalized group event (groupKey.event) rather than
-    // representative.event, because coalesceRuns can reorder mixed push+PR
-    // groups and the representative may be a push run whose display_title
-    // is the PR title instead of the commit subject.
-    //
-    // For "commit" groups (push, pull_request, or mixed) the commit subject
-    // always wins. For workflow_dispatch and other non-commit events the
-    // display_title (e.g. "Publish") wins.
-    //
-    // commitSubject is derived by scanning all runs in the group (newest
-    // first) so that the first non-nil commit subject is found regardless
-    // of which run coalesceRuns chose as representative.
-    let commitSubject = groupRuns
-      .reversed()
-      .compactMap { run in
-        run.headCommit.flatMap { $0.message.components(separatedBy: "\n").first }
-      }
-      .first
-    let fallback = String(groupKey.headSha.prefix(7))
-    let rawTitle: String
-    if groupKey.event == "commit" {
-      rawTitle = commitSubject
-        ?? representative.displayTitle
-        ?? fallback
-    } else {
-      rawTitle = representative.displayTitle
-        ?? commitSubject
-        ?? fallback
-    }
-    let title = String(rawTitle.prefix(40))
+    let title = groupTitle(groupRuns: groupRuns, groupKey: groupKey, representative: representative)
     let runs: [WorkflowRunRef] = groupRuns.map { run in
       WorkflowRunRef(
         id: run.id, name: run.name, status: run.status, conclusion: run.conclusion,
@@ -461,6 +429,39 @@ public struct WorkflowActionGroupFetcher: Sendable, WorkflowActionGroupFetcherPr
         normalizedEvent: groupKey.event
       )
     )
+  }
+
+  /// Derives the display title using the normalized group event, not
+  /// `representative.event`, so mixed push+PR groups always use the commit subject.
+  ///
+  /// | Group type | Source |
+  /// |---|---|
+  /// | `"commit"` (push, PR, mixed) | commit subject, scanning all runs newest-first |
+  /// | `workflow_dispatch` / other | `display_title` (e.g. `"Publish"`) |
+  /// | Missing metadata | short SHA fallback |
+  private func groupTitle(
+    groupRuns: [RunPayload],
+    groupKey: GroupKey,
+    representative: RunPayload
+  ) -> String {
+    let commitSubject = groupRuns
+      .reversed()
+      .compactMap { run in
+        run.headCommit.flatMap { $0.message.components(separatedBy: "\n").first }
+      }
+      .first
+    let fallback = String(groupKey.headSha.prefix(7))
+    let rawTitle: String
+    if groupKey.event == "commit" {
+      rawTitle = commitSubject
+        ?? representative.displayTitle
+        ?? fallback
+    } else {
+      rawTitle = representative.displayTitle
+        ?? commitSubject
+        ?? fallback
+    }
+    return String(rawTitle.prefix(40))
   }
 
   /// Returns the flattened job list for all runs sharing a `(head_sha, event)` group key.
@@ -607,12 +608,8 @@ public struct WorkflowActionGroupFetcher: Sendable, WorkflowActionGroupFetcherPr
       !freshJob.steps.isEmpty
       && !freshJob.steps.contains(where: { (step: GitHubStep) in step.stepStatus == .inProgress })
     guard hasBetterSteps else { return nil }
-    // Use copying() helpers so any future field added to ActiveJob is
-    // automatically preserved from `job` without a manual update here.
-    // Note: createdAt is `let` on GitHubJob and cannot be mutated via copying(update:);
-    // it is always preserved unchanged through withUpdatedRaw, so no explicit
-    // copying(createdAt:) call is needed here.
-    // ActiveJob has no direct startedAt/completedAt — route through raw.
+    // Use copying() helpers so any future field is preserved automatically.
+    // createdAt is `let` on GitHubJob and cannot be mutated via copying(update:).
     return
       job
       .copying(runnerName: freshJob.runnerName ?? job.runnerName)
