@@ -149,10 +149,10 @@ public enum PollResultBuilder {
     }
     freezeVanishedGroups(snapPrev: snapPrevGroups, liveIDs: liveIDs, now: now, into: &newCache)
     trimGroupCache(&newCache, limit: groupCacheLimit)
-    let newPrevLive = [String: WorkflowActionGroup](
-      uniqueKeysWithValues: liveGroups.map { ($0.id, $0) })
-    // Dedupe liveGroups by stable id before passing to display — a second cache entry
-    // with the same composite key must never reach ForEach as a separate row (#2688).
+    // Dedupe liveGroups by stable composite id before any downstream use.
+    // Dictionary(uniqueKeysWithValues:) traps on duplicate keys — use uniquingKeysWith
+    // here so a transitional duplicate (same composite key, two run-count snapshots)
+    // never causes a crash (#2688).
     let dedupedLive: [WorkflowActionGroup] = {
       let coalesced = Dictionary(
         liveGroups.map { ($0.id, $0) },
@@ -165,10 +165,15 @@ public enum PollResultBuilder {
         return (lhs.createdAt ?? .distantPast) > (rhs.createdAt ?? .distantPast)
       }
     }()
+    // Build newPrevLive from dedupedLive — safe because ids are now guaranteed unique.
+    let newPrevLive = [String: WorkflowActionGroup](
+      uniqueKeysWithValues: dedupedLive.map { ($0.id, $0) })
     let display = buildGroupDisplay(live: dedupedLive, cache: newCache)
-    let inProgCount = liveGroups.filter { $0.groupStatus == .inProgress }.count
-    let queuedCount = liveGroups.filter { $0.groupStatus == .queued }.count
-    let loadingCount = liveGroups.filter { $0.groupStatus == .loading }.count
+    // Count from dedupedLive so a transitional duplicate does not inflate cadence
+    // thresholds or badge counts (#2688).
+    let inProgCount = dedupedLive.filter { $0.groupStatus == .inProgress }.count
+    let queuedCount = dedupedLive.filter { $0.groupStatus == .queued }.count
+    let loadingCount = dedupedLive.filter { $0.groupStatus == .loading }.count
     log(
       "PollResultBuilder › groups: \(inProgCount) in_progress \(queuedCount) queued \(loadingCount) loading"
         + " | cache: \(newCache.count) | display: \(display.count)",
