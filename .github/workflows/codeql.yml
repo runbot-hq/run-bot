@@ -40,18 +40,6 @@ jobs:
           path: ~/.codeql/packages
           key: codeql-swift-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.github/workflows/codeql.yml') }}
 
-      - name: Cache Swift build artifacts
-        uses: actions/cache@v4
-        with:
-          path: .build
-          # Key on Package.resolved so the cache is invalidated automatically
-          # when any dependency version changes. Falls back to the most recent
-          # cache for the same OS/arch so incremental compilation still works
-          # even when the resolved file changes slightly.
-          key: codeql-swiftbuild-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Package.resolved') }}
-          restore-keys: |
-            codeql-swiftbuild-${{ runner.os }}-${{ runner.arch }}-
-
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v4
         with:
@@ -61,6 +49,21 @@ jobs:
           # that requires the arch to be set explicitly. Use manual mode and
           # mirror the same invocation used by build.sh.
           build-mode: manual
+
+      # ── Resolve dependencies ───────────────────────────────────────────────
+      # WHY: Resolve before building so the CodeQL extractor sees the full
+      # dependency graph.  Without this step, `swift build` may use a stale
+      # Package.resolved from a cached .build directory, causing the build to
+      # fail when a branch-tracked dependency (e.g. AppUpdater) has evolved
+      # since the cache was created.
+      #
+      # Package.resolved is intentionally .gitignore'd (see AGENTS.md), so
+      # we cannot key the build cache on its hash.  The weekly schedule makes
+      # the cache savings marginal, and the stale-checkout bug makes it
+      # actively harmful — so we skip the .build cache entirely and resolve
+      # fresh every time.
+      - name: Resolve dependencies
+        run: swift package resolve --arch arm64
 
       - name: Build for CodeQL
         # Must match build.sh: release config, arm64 arch.
