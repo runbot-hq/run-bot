@@ -77,4 +77,16 @@ struct GPUSamplerTests {
         ]
         #expect(gpuUtilisation(from: stats) == 55.0)
     }
+
+    /// Returns `nil` for `NaN`, positive infinity, and negative infinity so invalid
+    /// telemetry follows the unavailable path rather than clamping to 0% or 100%.
+    @Test(arguments: [
+        Double.nan,
+        Double.infinity,
+        -Double.infinity
+    ])
+    func nonFiniteValueReturnsNil(_ value: Double) {
+        let stats = ["Device Utilization %": NSNumber(value: value)]
+        #expect(gpuUtilisation(from: stats) == nil)
+    }
 }

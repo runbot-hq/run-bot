@@ -14,19 +14,37 @@ import IOKit
 ///   across all M-series AGX generations.
 /// - Returns: A utilisation percentage clamped to 0…100, or `nil`.
 public func sampleGPU() -> Double? {
-    guard let matching = IOServiceMatching("AGXAccelerator") else { return nil }
+    guard let matching = IOServiceMatching("AGXAccelerator") else {
+        return nil
+    }
+
     var iterator: io_iterator_t = 0
-    guard IOServiceGetMatchingServices(kIOMainPortDefault, matching, &iterator) == KERN_SUCCESS else {
+    guard IOServiceGetMatchingServices(
+        kIOMainPortDefault,
+        matching,
+        &iterator
+    ) == KERN_SUCCESS else {
         return nil
     }
     defer { IOObjectRelease(iterator) }
 
+    var bestUtilisation: Double?
+
     while true {
         let service = IOIteratorNext(iterator)
-        guard service != 0 else { return nil }
+        guard service != 0 else {
+            return bestUtilisation
+        }
+
         let utilisation = gpuUtilisation(of: service)
         IOObjectRelease(service)
-        if let utilisation { return utilisation }
+
+        if let utilisation {
+            bestUtilisation = max(
+                bestUtilisation ?? utilisation,
+                utilisation
+            )
+        }
     }
 }
 
@@ -55,13 +73,22 @@ private func gpuUtilisation(of service: io_service_t) -> Double? {
 ///   1. `"Device Utilization %"` — used by Apple Silicon AGXAccelerator drivers.
 ///   2. `"GPU Activity(%)"` — fallback key seen on some driver versions.
 ///
+/// Non-finite values (`NaN`, `+infinity`, `-infinity`) cause the call to return `nil`,
+/// so invalid telemetry follows the unavailable path and is not appended to history.
+///
 /// - Parameter statistics: The `PerformanceStatistics` dictionary from an AGX service.
 /// - Returns: A utilisation percentage clamped to 0…100, or `nil` when no recognised key
-///   is present or the value is not a valid number.
+///   is present, the value is not a valid number, or the value is non-finite.
 public func gpuUtilisation(from statistics: [String: Any]) -> Double? {
     let keys = ["Device Utilization %", "GPU Activity(%)"]
     guard let number = keys.lazy.compactMap({ statistics[$0] as? NSNumber }).first else {
         return nil
     }
-    return min(100, max(0, number.doubleValue))
+
+    let value = number.doubleValue
+    guard value.isFinite else {
+        return nil
+    }
+
+    return min(100, max(0, value))
 }
