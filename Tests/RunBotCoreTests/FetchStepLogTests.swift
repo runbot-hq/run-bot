@@ -403,8 +403,8 @@ struct FetchStepLogTests {
         var fetcher = LogFetcher(
             transport: transport,
             diskZIPCache: DiskZIPCache(cacheDir: FileManager.default.temporaryDirectory
-                .appendingPathComponent("test-disk-zip-\\(UUID().uuidString)")),
-            zipExtractor: { _ in .success([(name: "release/1_Build", text: "build output\\n")]) }
+                .appendingPathComponent("test-disk-zip-\(UUID().uuidString)")),
+            zipExtractor: { _ in .success([(name: "release/1_Build", text: "build output\n")]) }
         )
         let result = await fetcher.fetchStepLog(
             runID: 99, startedAt: nil, runAttempt: 3,
@@ -419,7 +419,7 @@ struct FetchStepLogTests {
             "The endpoint must include the run attempt number")
         // Also verify the step was resolved successfully, proving the response was used.
         guard case .slice(let content) = result else {
-            Issue.record("Expected .slice, got \\(result)")
+            Issue.record("Expected .slice, got \(result)")
             return
         }
         #expect(content.contains("build output"))
