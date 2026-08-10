@@ -17,6 +17,11 @@ public struct ZIPCacheGroupKey: Hashable, Sendable {
     /// The normalised GitHub event string, e.g. `"commit"` or `"workflow_dispatch"`.
     public let normalizedEvent: String
 
+    /// Creates a new group key from its three identity components.
+    /// - Parameters:
+    ///   - repo: The `owner/repo` string (e.g. `"runbot-hq/run-bot"`).
+    ///   - headSha: The full commit SHA for this group's head.
+    ///   - normalizedEvent: The normalised trigger event bucket (e.g. `"commit"`, `"workflow_dispatch"`).
     public init(
         repo: String,
         headSha: String,
@@ -52,6 +57,11 @@ public struct ZIPCacheEntryKey: Hashable, Sendable {
     /// The attempt number for this run. Starts at 1; incremented on each rerun.
     public let runAttempt: Int
 
+    /// Creates a new entry key identifying one exact run archive.
+    /// - Parameters:
+    ///   - group: The group (folder) this archive belongs to.
+    ///   - runID: The GitHub workflow run ID.
+    ///   - runAttempt: The attempt number for this run (starts at 1, incremented on rerun).
     public init(
         group: ZIPCacheGroupKey,
         runID: Int,

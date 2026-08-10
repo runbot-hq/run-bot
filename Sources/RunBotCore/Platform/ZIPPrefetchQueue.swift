@@ -62,6 +62,10 @@ public actor ZIPPrefetchQueue {
 
     // MARK: - Init
 
+    /// Creates a new prefetch queue.
+    /// - Parameters:
+    ///   - diskCache: The shared disk ZIP cache to check before and write after each download.
+    ///   - transport: The GitHub transport used to download ZIP archives.
     public init(
         diskCache: DiskZIPCache,
         transport: any GitHubTransportProtocol
@@ -92,6 +96,7 @@ public actor ZIPPrefetchQueue {
 
     // MARK: - Private helpers
 
+    /// Starts as many pending fetches as the concurrency limit allows.
     private func drainQueue() {
         while activeFetchCount < Self.maxConcurrent, !pending.isEmpty {
             let item = pending.removeFirst()
@@ -107,6 +112,7 @@ public actor ZIPPrefetchQueue {
         }
     }
 
+    /// Downloads the ZIP for `entryKey` and writes it to disk on success.
     private func fetch(entryKey: ZIPCacheEntryKey, scope: String, isCompleted: Bool) async {
         defer {
             inFlight.remove(entryKey)

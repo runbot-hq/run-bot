@@ -36,7 +36,7 @@ public final class DiskZIPCache: Sendable {
     // MARK: - Configuration
 
     /// Maximum number of group directories to keep. When exceeded, the oldest is removed.
-    static let maxGroupCapacity = 10
+    public static let maxGroupCapacity = 10
 
     // MARK: - Storage
 
@@ -45,6 +45,9 @@ public final class DiskZIPCache: Sendable {
 
     // MARK: - Init
 
+    /// Creates a new cache instance.
+    /// - Parameter cacheDir: Root directory for cached ZIP files. Defaults to
+    ///   `ApplicationSupport/RunBot/ZIPCache` when `nil`.
     public init(cacheDir: URL? = nil) {
         if let dir = cacheDir {
             self.cacheDir = dir
@@ -123,14 +126,17 @@ public final class DiskZIPCache: Sendable {
 
     // MARK: - Private helpers
 
+    /// Returns the full file URL for a given entry key.
     private func entryURL(for key: ZIPCacheEntryKey) -> URL {
         groupDirURL(for: key.group).appendingPathComponent(key.fileName)
     }
 
+    /// Returns the group directory URL for a given group key.
     private func groupDirURL(for group: ZIPCacheGroupKey) -> URL {
         cacheDir.appendingPathComponent(group.folderName, isDirectory: true)
     }
 
+    /// Creates the root cache directory if it does not yet exist.
     private func prepareCacheDir() {
         try? FileManager.default.createDirectory(
             at: cacheDir, withIntermediateDirectories: true
