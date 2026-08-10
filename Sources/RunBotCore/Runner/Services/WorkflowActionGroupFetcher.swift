@@ -365,18 +365,35 @@ public struct WorkflowActionGroupFetcher: Sendable, WorkflowActionGroupFetcherPr
       )
     }
     let label = prLabel(from: representative)
-    // Title: display_title first, with one exception: pull_request and pull_request_target
-    // runs carry the PR title in display_title — use the commit subject instead.
-    // GitHub sets display_title to the commit subject for push runs, and to the workflow
-    // name or explicit `run-name:` for workflow_dispatch / schedule events.
-    // NOTE: representative.event is the RAW GitHub event string, not the normalised
-    // groupEvent() bucket. A comparison against "commit" here would match nothing.
-    let commitSubject = representative.headCommit.flatMap { $0.message.components(separatedBy: "\n").first }
-    let isPullRequestRun = representative.event == "pull_request"
-      || representative.event == "pull_request_target"
-    let rawTitle: String = isPullRequestRun
-      ? (commitSubject ?? representative.displayTitle ?? String(groupKey.headSha.prefix(7)))
-      : (representative.displayTitle ?? commitSubject ?? String(groupKey.headSha.prefix(7)))
+    // Title: use the normalized group event (groupKey.event) rather than
+    // representative.event, because coalesceRuns can reorder mixed push+PR
+    // groups and the representative may be a push run whose display_title
+    // is the PR title instead of the commit subject.
+    //
+    // For "commit" groups (push, pull_request, or mixed) the commit subject
+    // always wins. For workflow_dispatch and other non-commit events the
+    // display_title (e.g. "Publish") wins.
+    //
+    // commitSubject is derived by scanning all runs in the group (newest
+    // first) so that the first non-nil commit subject is found regardless
+    // of which run coalesceRuns chose as representative.
+    let commitSubject = groupRuns
+      .reversed()
+      .compactMap { run in
+        run.headCommit.flatMap { $0.message.components(separatedBy: "\n").first }
+      }
+      .first
+    let fallback = String(groupKey.headSha.prefix(7))
+    let rawTitle: String
+    if groupKey.event == "commit" {
+      rawTitle = commitSubject
+        ?? representative.displayTitle
+        ?? fallback
+    } else {
+      rawTitle = representative.displayTitle
+        ?? commitSubject
+        ?? fallback
+    }
     let title = String(rawTitle.prefix(40))
     let runs: [WorkflowRunRef] = groupRuns.map { run in
       WorkflowRunRef(
