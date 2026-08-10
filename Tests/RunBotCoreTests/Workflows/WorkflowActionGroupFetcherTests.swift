@@ -538,35 +538,59 @@ struct WorkflowActionGroupFetcherTests {
 
   // MARK: - Title derivation (#2690)
 
-  /// Regression guard: when a group contains both a `push` run and a `pull_request`
-  /// run for the same commit, the group title must be the commit subject (from the
-  /// push run), not the PR title (from the pull_request run).
+  /// Regression guard for #2690: the group title must always be the commit subject,
+  /// never the PR title.
   ///
-  /// GitHub sets `display_title` to the commit subject for push runs and to the PR
-  /// title for pull_request runs. Without explicit push-preference, `max(createdAt)`
-  /// selected the PR run (created later) and surfaced the PR title in the UI.
-  @Test func fetchActionGroupsPushRunTitlePreferredOverPRTitle() async {
-    let sha = "titleregressionsha"
-    // push run: lower id (100), carries commit subject.
-    var pushRun = minimalRun(id: 100, sha: sha, status: "in_progress", conclusion: nil, event: "push")
-    pushRun["display_title"] = "fix: the real commit subject"
-    // pull_request run: higher id (101), created later, carries PR title.
-    var prRun = minimalRun(id: 101, sha: sha, status: "in_progress", conclusion: nil, event: "pull_request")
+  /// Two cases:
+  /// 1. Mixed group (push + pull_request runs on same SHA): head_commit.message first
+  ///    line wins regardless of which run is representative.
+  /// 2. PR-only group (pull_request run only, no push run): head_commit.message still
+  ///    wins — this is the case that was broken in a5c701bb and matches the screenshot.
+  ///
+  /// Body text after the first newline must be stripped from the title.
+  @Test func fetchActionGroupsCommitSubjectUsedNotPRTitle() async {
+    // MARK: Case 1 — mixed push + pull_request group
+    let mixedSha = "titleregressionsha"
+    var pushRun = minimalRun(id: 100, sha: mixedSha, status: "in_progress", conclusion: nil, event: "push")
+    pushRun["display_title"] = "PR: some pull request title"
+    pushRun["head_commit"] = ["message": "fix: the real commit subject"]
+    var prRun = minimalRun(id: 101, sha: mixedSha, status: "in_progress", conclusion: nil, event: "pull_request")
     prRun["display_title"] = "PR: some pull request title"
-    // Serve pr run first in the array so decode order cannot save us.
-    let t = makeTransport(with: [
+    prRun["head_commit"] = ["message": "fix: the real commit subject"]
+    // Serve PR run first so decode order cannot accidentally save us.
+    let t1 = makeTransport(with: [
       "repos/owner/repo/actions/runs?status=in_progress": (
         try? JSONSerialization.data(
           withJSONObject: ["workflow_runs": [prRun, pushRun]])) ?? Data(),
       "repos/owner/repo/actions/runs/100/jobs": envelope(key: "jobs", [minimalJob(id: 1, runID: 100)]),
       "repos/owner/repo/actions/runs/101/jobs": envelope(key: "jobs", [minimalJob(id: 2, runID: 101)]),
     ])
-    let f = WorkflowActionGroupFetcher(transport: t)
-    let r = await f.fetch(for: "owner/repo")
-    #expect(r.count == 1, "push + pull_request on same SHA should form one group")
+    let r1 = await WorkflowActionGroupFetcher(transport: t1).fetch(for: "owner/repo")
+    #expect(r1.count == 1, "push + pull_request on same SHA must form one group")
     #expect(
-      r.first?.title.hasPrefix("fix: the real commit") == true,
-      "Expected commit subject but got: \(r.first?.title ?? "nil")")
+      r1.first?.title.hasPrefix("fix: the real commit") == true,
+      "Case 1 (mixed): expected commit subject, got: \(r1.first?.title ?? "nil")")
+
+    // MARK: Case 2 — PR-only group (no push run — the failing case in the screenshot)
+    let prOnlySha = "pronlyregressionsha"
+    var prOnlyRun = minimalRun(id: 200, sha: prOnlySha, status: "in_progress", conclusion: nil, event: "pull_request")
+    prOnlyRun["display_title"] = "PR: some pull request title"
+    // head_commit carries commit subject with body text — body must be stripped.
+    prOnlyRun["head_commit"] = ["message": "fix: the real commit subject\n\nbody text that must not appear"]
+    let t2 = makeTransport(with: [
+      "repos/owner/repo/actions/runs?status=in_progress": (
+        try? JSONSerialization.data(
+          withJSONObject: ["workflow_runs": [prOnlyRun]])) ?? Data(),
+      "repos/owner/repo/actions/runs/200/jobs": envelope(key: "jobs", [minimalJob(id: 3, runID: 200)]),
+    ])
+    let r2 = await WorkflowActionGroupFetcher(transport: t2).fetch(for: "owner/repo")
+    #expect(r2.count == 1, "PR-only group must produce one row")
+    #expect(
+      r2.first?.title == "fix: the real commit subject",
+      "Case 2 (PR-only): expected commit subject without body, got: \(r2.first?.title ?? "nil")")
+    #expect(
+      r2.first?.title.contains("PR:") == false,
+      "Case 2: PR title must not appear in row label")
   }
 
   // NOTE: Cross-event eviction (fetchActionGroupsFreshPushDoesNotEvictDispatchCacheEntry)

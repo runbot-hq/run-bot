@@ -343,11 +343,13 @@ public struct WorkflowActionGroupFetcher: Sendable, WorkflowActionGroupFetcherPr
       )
     }
     let label = prLabel(from: representative)
-    let rawTitle =
-      representative.displayTitle
-      ?? representative.headCommit.map { commit in
-        String(commit.message.components(separatedBy: "\n").first ?? "")
-      }
+    // Title: head_commit.message first line is the commit subject and is correct
+    // regardless of event type (push or pull_request runs both carry the head commit).
+    // display_title is a fallback only — GitHub sets it to the PR title for
+    // pull_request runs, which is the regression fixed here (#2690).
+    let rawTitle: String =
+      representative.headCommit.flatMap { $0.message.components(separatedBy: "\n").first }
+      ?? representative.displayTitle
       ?? String(groupKey.headSha.prefix(7))
     let title = String(rawTitle.prefix(40))
     let runs: [WorkflowRunRef] = groupRuns.map { run in
@@ -388,14 +390,9 @@ public struct WorkflowActionGroupFetcher: Sendable, WorkflowActionGroupFetcherPr
       category: .runner
     )
     #endif
-    // createdAt drives row sort order and the relative-time label — use the newest
-    // run overall (max createdAt string) so the timestamp reflects when work most
-    // recently started, not when the push run was created. The push-preferred
-    // representative is used only for title/label/headBranch (#2690).
     // Optional.flatMap does not accept an async closure — use if let.
-    let createdAtSource = groupRuns.max(by: { ($0.createdAt ?? "") < ($1.createdAt ?? "") })
     let createdAt: Date?
-    if let dateStr = createdAtSource?.createdAt {
+    if let dateStr = representative.createdAt {
       createdAt = await ISO8601DateParser.shared.parse(dateStr)
     } else {
       createdAt = nil
