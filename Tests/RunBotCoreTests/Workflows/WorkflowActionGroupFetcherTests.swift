@@ -629,7 +629,7 @@ struct WorkflowActionGroupFetcherTests {
   @Test func fetchActionGroupsMissingEventFieldDefaultsToCommitGroup() async {
     let sha = "noeventsha"
     // Build a run fixture without the "event" key — simulates an unusual API response.
-    var runDict: [String: Any] = ["id": 9, "head_sha": sha, "status": "completed", "name": "CI"]
+    var runDict: [String: Any] = ["id": 9, "workflow_id": 9, "head_sha": sha, "status": "completed", "name": "CI"]
     runDict["conclusion"] = "success"
     let t = makeTransport(with: [
       "repos/owner/repo/actions/runs?status=in_progress": (
