@@ -110,12 +110,22 @@ private func withConclusion(_ d: inout [String: Any], _ conclusion: String?) {
 /// Pass `event: "workflow_dispatch"` (or another non-commit value) to test
 /// dispatch-triggered runs that must be placed in their own group.
 private func minimalRun(
-  id: Int, sha: String, status: String = "completed",
+  id: Int,
+  workflowID: Int? = nil,
+  sha: String,
+  status: String = "completed",
   conclusion: String? = "success",
   name: String = "CI",
   event: String = "push"
 ) -> [String: Any] {
-  var d: [String: Any] = ["id": id, "head_sha": sha, "status": status, "name": name, "event": event]
+  var d: [String: Any] = [
+    "id": id,
+    "workflow_id": workflowID ?? id,
+    "head_sha": sha,
+    "status": status,
+    "name": name,
+    "event": event,
+  ]
   withConclusion(&d, conclusion)
   return d
 }
@@ -655,5 +665,39 @@ struct WorkflowActionGroupFetcherTests {
     let groups = await f.fetch(for: "owner/repo")
     #expect(groups.count == 1)
     #expect(groups[0].jobs.map(\.id) == expectedJobIDs)
+  }
+
+  // Regression guard for workflow-level ordering (issue #2724 / #2725).
+  // Input order conflicts with every candidate sort: input position, run ID,
+  // and workflow ID all disagree. Only ascending workflowID produces the
+  // expected "Job A, Job B, Job C" sequence. Completed jobs suppress refresh
+  // calls so the test covers only the ordering pipeline.
+  @Test func fetchOrdersJobsByWorkflowIdentityAcrossRuns() async {
+    let sha = "workflow-ordering-sha"
+    let runs = [
+      minimalRun(id: 100, workflowID: 30, sha: sha, name: "Workflow C"),
+      minimalRun(id: 300, workflowID: 10, sha: sha, name: "Workflow A"),
+      minimalRun(id: 200, workflowID: 20, sha: sha, name: "Workflow B"),
+    ]
+    let t = makeTransport(with: [
+      "repos/owner/repo/actions/runs?status=completed": envelope(
+        key: "workflow_runs", runs
+      ),
+      "repos/owner/repo/actions/runs/100/jobs": envelope(
+        key: "jobs", [minimalJob(id: 1001, name: "Job C")]
+      ),
+      "repos/owner/repo/actions/runs/300/jobs": envelope(
+        key: "jobs", [minimalJob(id: 3001, name: "Job A")]
+      ),
+      "repos/owner/repo/actions/runs/200/jobs": envelope(
+        key: "jobs", [minimalJob(id: 2001, name: "Job B")]
+      ),
+    ])
+    let f = WorkflowActionGroupFetcher(transport: t)
+    let groups = await f.fetch(for: "owner/repo")
+    #expect(groups.count == 1)
+    // workflowID order: 10 (A) → 20 (B) → 30 (C)
+    // Old run-ID sort would produce: Job C (100), Job B (200), Job A (300)
+    #expect(groups[0].jobs.map(\.name) == ["Job A", "Job B", "Job C"])
   }
 }
