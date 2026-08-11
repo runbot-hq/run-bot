@@ -68,6 +68,7 @@ private struct FetchStepStubTransport: GitHubTransportProtocol {
 private final class CountingTransport: GitHubTransportProtocol, @unchecked Sendable {
     private let inner: FetchStepStubTransport
     nonisolated(unsafe) private(set) var rawCallCount: Int = 0
+    nonisolated(unsafe) private(set) var lastEndpoint: String?
 
     init(responses: [String: Data]) {
         self.inner = FetchStepStubTransport(responses: responses)
@@ -84,6 +85,7 @@ private final class CountingTransport: GitHubTransportProtocol, @unchecked Senda
     }
     func raw(_ endpoint: String, timeout t: TimeInterval) async -> Data? {
         rawCallCount += 1
+        lastEndpoint = endpoint
         return await inner.raw(endpoint, timeout: t)
     }
     func post(_ endpoint: String, body: Data?, timeout t: TimeInterval) async -> Data? {
@@ -124,7 +126,7 @@ private func makeFetcher(
     extraResponses: [String: Data] = [:]
 ) -> LogFetcher {
     var responses: [String: Data] = [
-        "repos/owner/repo/actions/runs/99/logs": Data("ZIP".utf8),
+        "repos/owner/repo/actions/runs/99/attempts/1/logs": Data("ZIP".utf8),
         "repos/owner/repo/actions/jobs/42/logs": Data("flat blob content\n".utf8),
     ]
     for (k, v) in extraResponses { responses[k] = v }
@@ -182,7 +184,7 @@ struct FetchStepLogTests {
     @Test("Regression #2358: Complete job with no ##[group] markers — real extractor returns .slice")
     func test_completeJob_regression2358_realExtractor() async {
         let transport = FetchStepStubTransport(responses: [
-            "repos/owner/repo/actions/runs/99/logs": fixtureZip,
+            "repos/owner/repo/actions/runs/99/attempts/1/logs": fixtureZip,
         ])
         var fetcher = LogFetcher(
             transport: transport,
@@ -363,7 +365,7 @@ struct FetchStepLogTests {
     @Test("Cache hit: second call for same runID+startedAt makes zero extra network calls")
     func test_cacheHit_zeroAdditionalNetworkCalls() async {
         let transport = CountingTransport(responses: [
-            "repos/owner/repo/actions/runs/99/logs": Data("ZIP".utf8),
+            "repos/owner/repo/actions/runs/99/attempts/1/logs": Data("ZIP".utf8),
         ])
         var fetcher = LogFetcher(
             transport: transport,
@@ -371,8 +373,10 @@ struct FetchStepLogTests {
                 .appendingPathComponent("test-disk-zip-\(UUID().uuidString)")),
             zipExtractor: { _ in .success([(name: "release/1_Build", text: "build output\n")]) }
         )
+        let cacheGroup = ZIPCacheGroupKey(repo: "owner/repo", headSha: "abc123", normalizedEvent: "push")
         _ = await fetcher.fetchStepLog(
-            runID: 99, startedAt: "2026-01-01T00:00:00Z",
+            runID: 99, startedAt: "2026-01-01T00:00:00Z", runAttempt: 1,
+            cacheGroup: cacheGroup,
             jobID: 42, jobName: "release",
             step: makeStep(number: 1, name: "Build"),
             scope: "owner/repo"
@@ -381,7 +385,8 @@ struct FetchStepLogTests {
         #expect(transport.rawCallCount == 1,
             "ZIP must be fetched exactly once for same runID+startedAt")
         _ = await fetcher.fetchStepLog(
-            runID: 99, startedAt: "2026-01-01T00:00:00Z",
+            runID: 99, startedAt: "2026-01-01T00:00:00Z", runAttempt: 1,
+            cacheGroup: cacheGroup,
             jobID: 42, jobName: "release",
             step: makeStep(number: 1, name: "Build"),
             scope: "owner/repo"
@@ -389,6 +394,35 @@ struct FetchStepLogTests {
         // Still exactly one: the cache must absorb the second call with zero additional fetches.
         #expect(transport.rawCallCount == 1,
             "Cache hit must make zero additional network calls")
+    }
+    @Test("runAttempt reaches the network path in the ZIP endpoint")
+    func test_runAttempt_reachesNetworkPath() async {
+        let transport = CountingTransport(responses: [
+            "repos/owner/repo/actions/runs/99/attempts/3/logs": Data("ZIP".utf8),
+        ])
+        var fetcher = LogFetcher(
+            transport: transport,
+            diskZIPCache: DiskZIPCache(cacheDir: FileManager.default.temporaryDirectory
+                .appendingPathComponent("test-disk-zip-\(UUID().uuidString)")),
+            zipExtractor: { _ in .success([(name: "release/1_Build", text: "build output\n")]) }
+        )
+        let result = await fetcher.fetchStepLog(
+            runID: 99, startedAt: nil, runAttempt: 3,
+            jobID: 42, jobName: "release",
+            step: makeStep(number: 1, name: "Build"),
+            scope: "owner/repo"
+        )
+        // The transport must have been called exactly once with the attempt-specific endpoint.
+        #expect(transport.rawCallCount == 1,
+            "fetchStepLog must make exactly one network call")
+        #expect(transport.lastEndpoint == "repos/owner/repo/actions/runs/99/attempts/3/logs",
+            "The endpoint must include the run attempt number")
+        // Also verify the step was resolved successfully, proving the response was used.
+        guard case .slice(let content) = result else {
+            Issue.record("Expected .slice, got \(result)")
+            return
+        }
+        #expect(content.contains("build output"))
     }
 }
 

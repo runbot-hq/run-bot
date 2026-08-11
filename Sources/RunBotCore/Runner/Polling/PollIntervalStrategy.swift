@@ -8,12 +8,12 @@ public struct PollIntervalStrategy: Sendable {
 
     // MARK: — Active ladder (live-data, aggressive)
 
-    /// ≤ 5 busy runners → 1 s poll cadence.
-    public static let activeIntervalFast: TimeInterval = 1
-    /// 6–9 busy runners → 3 s poll cadence.
-    public static let activeIntervalMid: TimeInterval = 3
-    /// ≥ 10 busy runners → 5 s poll cadence.
-    public static let activeIntervalSlow: TimeInterval = 5
+    /// ≤ 5 busy runners → 3 s poll cadence.
+    public static let activeIntervalFast: TimeInterval = 3
+    /// 6–9 busy runners → 5 s poll cadence.
+    public static let activeIntervalMid: TimeInterval = 5
+    /// ≥ 10 busy runners → 7 s poll cadence.
+    public static let activeIntervalSlow: TimeInterval = 7
 
     // MARK: — Idle backoff
 

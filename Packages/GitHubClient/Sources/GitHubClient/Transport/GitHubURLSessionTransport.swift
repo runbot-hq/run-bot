@@ -78,7 +78,17 @@ public struct GitHubTransport: GitHubTransportProtocol {
   /// without touching the shared singleton. Defaults to `APICallCounter.shared`.
   private let callCounter: any APICallCounterProtocol
 
-  // MARK: - Init
+  /// The conditional GET (ETag) cache for this transport instance.
+  /// Each `GitHubTransport` owns its own cache so that cache entries are
+  /// scoped to the transport's lifetime and cleared when the token changes.
+  private let conditionalGETCache = ConditionalGETCache()
+
+  /// Cancellation-safe gate that limits the number of concurrent in-flight
+  /// HTTP requests. Defaults to 4 simultaneous operations.
+  private let requestGate: GitHubRequestGate
+
+  /// Endpoint diagnostics counter for completed HTTP responses.
+  private let endpointCounter = GitHubEndpointCounter()
 
   /// Creates a `GitHubTransport` with the given dependencies.
   ///
@@ -109,7 +119,8 @@ public struct GitHubTransport: GitHubTransportProtocol {
     rateLimiter: some RateLimitActorProtocol = rateLimitActor,
     tokenProvider: (@Sendable () async -> String?)? = nil,
     logger: (any GitHubLogger)? = nil,
-    callCounter: any APICallCounterProtocol = APICallCounter.shared
+    callCounter: any APICallCounterProtocol = APICallCounter.shared,
+    maxConcurrentRequests: Int = 4
   ) {
     self.decoder = decoder
     self.encoder = encoder
@@ -118,6 +129,7 @@ public struct GitHubTransport: GitHubTransportProtocol {
     self.tokenProvider = tokenProvider ?? { nil }
     self.logger = logger
     self.callCounter = callCounter
+    self.requestGate = GitHubRequestGate(limit: maxConcurrentRequests)
   }
 
   // MARK: - Core execution
@@ -146,13 +158,14 @@ public struct GitHubTransport: GitHubTransportProtocol {
     timeout: TimeInterval,
     logTag: String,
     useRawAccept: Bool = false,
+    conditionalGET: Bool = false,
     configure: @Sendable (URLRequest) -> URLRequest = { $0 }
   ) async -> ExecuteResult {
     guard let token = await tokenProvider() else {
       logger?.log("\(logTag) › no token available", category: "transport")
       return .noToken
     }
-    guard let req = buildRequest(
+    guard let baseReq = buildRequest(
       endpoint: endpoint,
       token: token,
       timeout: timeout,
@@ -162,23 +175,97 @@ public struct GitHubTransport: GitHubTransportProtocol {
     ) else {
       return .networkError(URLError(.badURL))
     }
+
     let urlString = resolveURL(endpoint)
+
+    // Conditional GET: look up the ETag cache and set If-None-Match header.
+    let cachedEntry: ConditionalGETCache.Entry?
+    var req = baseReq
+    if conditionalGET {
+      cachedEntry = await conditionalGETCache.entry(for: urlString, token: token)
+      if let etag = cachedEntry?.etag {
+        req.setValue(etag, forHTTPHeaderField: "If-None-Match")
+        logger?.log(
+          "\(logTag) › conditional GET with ETag: \(etag)",
+          category: "transport")
+      }
+      // Ensure we bypass the system URLCache so that every conditional call
+      // reaches GitHub's API and returns a fresh 304 or 200 with current headers.
+      req.cachePolicy = .reloadIgnoringLocalCacheData
+    } else {
+      cachedEntry = nil
+    }
+
     logger?.log(
       "\(logTag) › firing request: \(urlString) raw=\(useRawAccept) cachePolicy=\(req.cachePolicy.rawValue)",
       category: "transport")
+    let request = req  // Capture for @Sendable closure below.
     do {
-      let (data, response) = try await session.data(for: req)
+      let (data, response) = try await requestGate.withPermit {
+        try await session.data(for: request)
+      }
+
+      // Record endpoint diagnostics for every completed HTTP round-trip,
+      // including 304, 403, and 429. This must happen before branching on
+      // status code so that all completed responses are represented.
+      // Every 60-second window, the first response after the interval expires
+      // returns a report which is logged via the transport's logger.
+      if let httpResponse = response as? HTTPURLResponse,
+         let report = await endpointCounter.record(
+           url: urlString, statusCode: httpResponse.statusCode
+         ) {
+        logger?.log(report.formatted(), category: "transport")
+      }
+
+      // Handle 304 Not Modified — return cached data without counting the call.
+      if let httpResponse = response as? HTTPURLResponse,
+         httpResponse.statusCode == 304,
+         let cachedEntry {
+        logger?.log(
+          "\(logTag) › 304 Not Modified — returning cached data (\(cachedEntry.data.count) bytes)",
+          category: "transport")
+        // GitHub does not count a 304 against the API quota, so we do
+        // NOT call callCounter.record(). Normalise the status code to 200
+        // so that callers observing .success(statusCode:) do not need to
+        // handle 304 as a special case — the cached representation is a
+        // successful response.
+        return .success(cachedEntry.data, statusCode: 200, linkHeader: cachedEntry.linkHeader)
+      }
+
       // Count every completed HTTP round-trip regardless of status code.
-      // 5xx, 4xx, and 2xx all consumed a quota slot on GitHub’s side.
+      // 5xx, 4xx, and 2xx all consumed a quota slot on GitHub's side.
       // Network errors (DNS/timeout — no bytes sent) fall through to the
       // catch below and are correctly excluded.
       await callCounter.record()
       logger?.log(
         "\(logTag) › response received: \(urlString) bytes=\(data.count)",
         category: "transport")
-      return await interpretHTTPResponse(
+      let result = await interpretHTTPResponse(
         response, data: data, urlString: urlString, logTag: logTag
       )
+
+      // If the response was successful and carried an ETag, cache it for
+      // future conditional GETs. Only cache when conditionalGET is enabled
+      // so that raw ZIP downloads or non-conditional responses never populate
+      // the cache with a representation that could be confused with a JSON
+      // response to the same URL.
+      if conditionalGET,
+         case .success = result,
+         let httpResponse = response as? HTTPURLResponse,
+         let etag = httpResponse.value(forHTTPHeaderField: "ETag") {
+        let linkHeader = httpResponse.value(forHTTPHeaderField: "Link")
+        let entry = ConditionalGETCache.Entry(
+          etag: etag,
+          data: data,
+          linkHeader: linkHeader
+        )
+        await conditionalGETCache.store(entry, for: urlString, token: token)
+        logger?.log(
+          "\(logTag) › cached ETag: \(etag)",
+          category: "transport")
+      }
+
+      return result
     } catch {
       logger?.log(
         "\(logTag) › \(urlString) network error: \(error.localizedDescription)",

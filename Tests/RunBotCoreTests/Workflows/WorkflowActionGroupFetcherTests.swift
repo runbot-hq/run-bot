@@ -338,7 +338,7 @@ struct WorkflowActionGroupFetcherTests {
   /// which `groupEvent(_:)` normalises to `"commit"`.
   @Test func fetchActionGroupsConcludedCacheEntryJobsNotRefetched() async {
     let sha = "cachedsha"
-    let cacheKey = "\(sha):commit"
+    let cacheKey = "owner/repo:\(sha):commit"
     let cached = makeCachedGroup(sha: sha)
     // No /jobs endpoints registered — fetcher must not call them.
     let t = makeTransport(with: [
@@ -360,7 +360,7 @@ struct WorkflowActionGroupFetcherTests {
     // A cached entry where a job is concluded but a step is still in-progress
     // must NOT serve from cache — the stale-step guard re-fetches via API.
     let sha = "staledash"
-    let cacheKey = "\(sha):commit"
+    let cacheKey = "owner/repo:\(sha):commit"
     let cached = makeCachedGroup(
       sha: sha,
       title: "Stale step commit",
@@ -420,7 +420,7 @@ struct WorkflowActionGroupFetcherTests {
     // A concluded cache entry whose `repo` doesn't match the fetch scope must
     // NOT be served — the `cached.repo == scope` guard must fire and re-fetch.
     let sha = "crossreposha"
-    let cacheKey = "\(sha):commit"
+    let cacheKey = "owner/repo:\(sha):commit"
     let cached = makeCachedGroup(
       sha: sha,
       title: "Other repo commit",
@@ -510,17 +510,17 @@ struct WorkflowActionGroupFetcherTests {
 
   // MARK: - Composite cache key (#2444)
 
-  /// Verifies that a concluded cache entry keyed by the composite `"sha:event"` string
-  /// is served without re-fetching jobs (regression guard for #2444).
+  /// Verifies that a concluded cache entry keyed by the composite `"repo:sha:event"` string
+  /// is served without re-fetching jobs (regression guard for #2444, updated for #2688).
   ///
-  /// Prior to the fix, `makeShaKeyedCache` keyed by bare `headSha`; the fetcher
-  /// looked up `"sha:commit"` — a 100% cache miss for any event.
+  /// Prior to #2444, `makeShaKeyedCache` keyed by bare `headSha`; updated to `sha:event` in
+  /// #2444, then extended to `repo:sha:event` in #2688 to prevent cross-scope collisions.
   @Test func fetchActionGroupsCompositeCacheKeyHitServesJobsWithoutAPICall() async {
     let sha = "compositehit"
     // Cache key must match what `buildActionGroup` passes to `fetchJobsForGroup`:
-    // `groupKey.cacheKey` == `"\(headSha):\(groupEvent(event))"`, and
+    // `groupKey.cacheKey` == `"\(repo):\(headSha):\(groupEvent(event))"`, and
     // `groupEvent("push")` == `"commit"`.
-    let cacheKey = "\(sha):commit"
+    let cacheKey = "owner/repo:\(sha):commit"
     let cached = makeCachedGroup(sha: sha, jobID: 42)
     let t = makeTransport(with: [
       "repos/owner/repo/actions/runs?status=in_progress": envelope(
@@ -534,6 +534,79 @@ struct WorkflowActionGroupFetcherTests {
     #expect(r.first?.jobs.first?.id == 42)
     // 3 status calls only — no /jobs endpoint hit.
     #expect(t.callCount == 3)
+  }
+
+  // MARK: - Title derivation (#2690)
+
+  /// Regression guard for #2690: the group title must be the commit subject for
+  /// pull_request runs, and display_title for workflow_dispatch events.
+  ///
+  /// Three cases:
+  /// 1. Mixed group (push + pull_request runs on same SHA): commit subject wins.
+  /// 2. PR-only group (pull_request run only, no push run): commit subject wins,
+  ///    body text after first newline must be stripped.
+  /// 3. Workflow_dispatch group: display_title ("Publish") wins over commit subject.
+  ///    This case fails on the head_commit-first approach from ab6927c9.
+  @Test func fetchActionGroupsCommitSubjectUsedNotPRTitle() async {
+    // MARK: Case 1 — mixed push + pull_request group
+    let mixedSha = "titleregressionsha"
+    var pushRun = minimalRun(id: 100, sha: mixedSha, status: "in_progress", conclusion: nil, event: "push")
+    pushRun["display_title"] = "PR: some pull request title"
+    pushRun["head_commit"] = ["message": "fix: the real commit subject"]
+    var prRun = minimalRun(id: 101, sha: mixedSha, status: "in_progress", conclusion: nil, event: "pull_request")
+    prRun["display_title"] = "PR: some pull request title"
+    prRun["head_commit"] = ["message": "fix: the real commit subject"]
+    // Serve PR run first so decode order cannot accidentally save us.
+    let t1 = makeTransport(with: [
+      "repos/owner/repo/actions/runs?status=in_progress": (
+        try? JSONSerialization.data(
+          withJSONObject: ["workflow_runs": [prRun, pushRun]])) ?? Data(),
+      "repos/owner/repo/actions/runs/100/jobs": envelope(key: "jobs", [minimalJob(id: 1, runID: 100)]),
+      "repos/owner/repo/actions/runs/101/jobs": envelope(key: "jobs", [minimalJob(id: 2, runID: 101)]),
+    ])
+    let r1 = await WorkflowActionGroupFetcher(transport: t1).fetch(for: "owner/repo")
+    #expect(r1.count == 1, "push + pull_request on same SHA must form one group")
+    #expect(
+      r1.first?.title.hasPrefix("fix: the real commit") == true,
+      "Case 1 (mixed): expected commit subject, got: \(r1.first?.title ?? "nil")")
+
+    // MARK: Case 2 — PR-only group (no push run — the failing case in the screenshot)
+    let prOnlySha = "pronlyregressionsha"
+    var prOnlyRun = minimalRun(id: 200, sha: prOnlySha, status: "in_progress", conclusion: nil, event: "pull_request")
+    prOnlyRun["display_title"] = "PR: some pull request title"
+    // head_commit carries commit subject with body text — body must be stripped.
+    prOnlyRun["head_commit"] = ["message": "fix: the real commit subject\n\nbody text that must not appear"]
+    let t2 = makeTransport(with: [
+      "repos/owner/repo/actions/runs?status=in_progress": (
+        try? JSONSerialization.data(
+          withJSONObject: ["workflow_runs": [prOnlyRun]])) ?? Data(),
+      "repos/owner/repo/actions/runs/200/jobs": envelope(key: "jobs", [minimalJob(id: 3, runID: 200)]),
+    ])
+    let r2 = await WorkflowActionGroupFetcher(transport: t2).fetch(for: "owner/repo")
+    #expect(r2.count == 1, "PR-only group must produce one row")
+    #expect(
+      r2.first?.title == "fix: the real commit subject",
+      "Case 2 (PR-only): expected commit subject without body, got: \(r2.first?.title ?? "nil")")
+    #expect(
+      r2.first?.title.contains("PR:") == false,
+      "Case 2: PR title must not appear in row label")
+
+    // MARK: Case 3 — workflow_dispatch group (display_title must win)
+    let dispatchSha = "dispatchtitlesha"
+    var dispatchRun = minimalRun(id: 300, sha: dispatchSha, status: "in_progress", conclusion: nil, event: "workflow_dispatch")
+    dispatchRun["display_title"] = "Publish"
+    dispatchRun["head_commit"] = ["message": "chore: bump version"]
+    let t3 = makeTransport(with: [
+      "repos/owner/repo/actions/runs?status=in_progress": (
+        try? JSONSerialization.data(
+          withJSONObject: ["workflow_runs": [dispatchRun]])) ?? Data(),
+      "repos/owner/repo/actions/runs/300/jobs": envelope(key: "jobs", [minimalJob(id: 4, runID: 300)]),
+    ])
+    let r3 = await WorkflowActionGroupFetcher(transport: t3).fetch(for: "owner/repo")
+    #expect(r3.count == 1, "workflow_dispatch group must produce one row")
+    #expect(
+      r3.first?.title == "Publish",
+      "Case 3 (workflow_dispatch): expected display_title \"Publish\", got: \(r3.first?.title ?? "nil")")
   }
 
   // NOTE: Cross-event eviction (fetchActionGroupsFreshPushDoesNotEvictDispatchCacheEntry)

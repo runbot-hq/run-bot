@@ -20,7 +20,7 @@ extension GitHubTransport {
   public func apiAsync(_ endpoint: String, timeout: TimeInterval = 20) async -> Data? {
     guard
       case .success(let data, _, _) = await execute(
-        endpoint, timeout: timeout, logTag: "apiAsync"
+        endpoint, timeout: timeout, logTag: "apiAsync", conditionalGET: true
       )
     else { return nil }
     return data
@@ -39,7 +39,7 @@ extension GitHubTransport {
   public func apiPaginated(_ endpoint: String, timeout: TimeInterval = 60) async -> Data? {
     var state = PaginationState(nextURL: resolveURL(endpoint))
     while let urlString = state.nextURL {
-      let result = await execute(urlString, timeout: timeout, logTag: "apiPaginated")
+      let result = await execute(urlString, timeout: timeout, logTag: "apiPaginated", conditionalGET: true)
       let action = state.apply(result, decoder: decoder)
       applyPaginationLog(action, urlString: urlString, count: state.allItems.count)
       if case .advance(let linkHeader) = action {

@@ -392,6 +392,8 @@ struct StepLogView: View {
         let jobID = job.id
         let runID = job.runID
         let startedAt = job.startedAt
+        let runAttempt = job.runAttempt
+        let cacheGroup = job.zipCacheGroupKey
         let jobName = job.name
         let capturedStep = step
         let scope: String = {
@@ -418,6 +420,8 @@ struct StepLogView: View {
             let result = await localFetcher.fetchStepLog(
                 runID: runID,
                 startedAt: startedAt,
+                runAttempt: runAttempt,
+                cacheGroup: cacheGroup,
                 jobID: jobID,
                 jobName: jobName,
                 step: capturedStep,
@@ -467,36 +471,43 @@ struct StepLogView: View {
                 // back on during refreshes or re-fetches.
                 if mdAuto && !hasToggledMarkdown { isMarkdownMode = true }
                 log("loadLog › markdown: score=\(mdScore) autoEnabled=\(mdAuto) userToggled=\(hasToggledMarkdown) finalMode=\(isMarkdownMode)", category: .services)
-                // Preserve groups the user expanded across re-fetches. Group identity is keyed
-                // on title (IDs are not stable across parse calls). Strategy: build a
-                // title→id map for the new parse. Any title the user had manually expanded
-                // (old ID absent from collapsedGroups) is removed from collapsedGroups.
-                // Brand-new titles start collapsed by default.
-                let previousTitles: [String: Int] = Dictionary(
-                    uniqueKeysWithValues: parsedLines.compactMap { line -> (String, Int)? in
-                        if case .groupHeader(let id, let title) = line { return (title, id) } else { return nil }
-                    }
-                )
-                // Titles the user had expanded in the previous parse (ID was NOT in collapsedGroups).
-                let userExpandedTitles = Set(
-                    previousTitles.compactMap { title, id in collapsedGroups.contains(id) ? nil : title }
-                )
-                if collapsedGroups.isEmpty {
-                    // First load — apply GitHub-matching default (all groups collapsed).
-                    collapsedGroups = defaultCollapsed
-                } else {
-                    // Re-fetch — start from the new default-collapsed set, then re-open
-                    // any group whose title the user had previously expanded.
-                    collapsedGroups = defaultCollapsed
-                    for line in parsed {
-                        if case .groupHeader(let id, let title) = line, userExpandedTitles.contains(title) {
-                            collapsedGroups.remove(id)
-                        }
-                    }
-                }
+                applyGroupCollapseState(parsed: parsed, defaultCollapsed: defaultCollapsed)
                 parsedLines = parsed
                 isLoading = false
                 onLogLoaded?()
+            }
+        }
+    }
+
+    // MARK: - Log helpers
+
+    /// Merges `defaultCollapsed` with the user's previously expanded group titles
+    /// and writes the result back into `collapsedGroups`.
+    ///
+    /// Group IDs are not stable across parse calls, so identity is keyed on title.
+    /// Any title the user had manually expanded remains open; brand-new titles start
+    /// collapsed by default.
+    @MainActor
+    private func applyGroupCollapseState(
+        parsed: [LogLine],
+        defaultCollapsed: Set<Int>
+    ) {
+        let previousTitles: [String: Int] = Dictionary(
+            uniqueKeysWithValues: parsedLines.compactMap { line -> (String, Int)? in
+                if case .groupHeader(let id, let title) = line { return (title, id) } else { return nil }
+            }
+        )
+        let userExpandedTitles = Set(
+            previousTitles.compactMap { title, id in collapsedGroups.contains(id) ? nil : title }
+        )
+        if collapsedGroups.isEmpty {
+            collapsedGroups = defaultCollapsed
+        } else {
+            collapsedGroups = defaultCollapsed
+            for line in parsed {
+                if case .groupHeader(let id, let title) = line, userExpandedTitles.contains(title) {
+                    collapsedGroups.remove(id)
+                }
             }
         }
     }

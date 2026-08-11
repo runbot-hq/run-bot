@@ -14,7 +14,9 @@
 - [Concurrency Model](#concurrency-model)
 - [NSPopover Decisions](#nspopover-decisions)
 - [Design](#design)
- 
+- [E-Tag caching](#e-tag-caching)
+- [ZIP log cache](#zip-log-cache)
+
 # RunBot — UI Architecture Decisions
 
 Regression guards and architectural decisions enforced inline in the source.
@@ -879,3 +881,232 @@ re-presents the sheet automatically because the binding is still `true`.
 
 ### Design
 - liquid glass: https://gist.github.com/eonist/a8f0d160c7e9e37f634a15c3a33a8109
+
+
+## ETag caching
+
+RunBot polls the same GitHub endpoints continuously, and most polls return
+unchanged JSON. `ConditionalGETCache` turns those repeated downloads into
+cheap revalidations, entirely inside the transport layer.
+
+### How it works
+
+Each `GitHubTransport` owns a private, actor-isolated, memory-only cache. On a
+successful response with an `ETag`, the transport stores the ETag, the response
+body, and the response's `Link` header, keyed by fully resolved URL. The next
+request for that URL sends `If-None-Match`:
+
+- `200 OK` — a new representation; replace the cached entry.
+- `304 Not Modified` — reuse the cached body and `Link` header.
+
+A cache-backed `304` is surfaced to callers as a normal `.success` with status
+`200`, so polling, pagination, and decoding follow one code path regardless of
+where the bytes came from.
+
+### Token ownership
+
+An ETag is valid for a *representation*, not a URL: the same endpoint returns
+different authenticated bodies under different tokens. Rather than keying by
+`URL + token` (which would retain old accounts' bodies and put PATs in
+dictionary keys), the cache treats the active token as its owner and maintains
+one invariant:
+
+```text
+cached response owner == currently active token
+```
+
+Any token change clears every entry before a lookup or store. A lookup may
+establish or change ownership; storing a completed response may not — this
+prevents a late in-flight response from an old token from resurrecting stale
+authenticated data after an account switch.
+
+### Scope and opt-in
+
+Conditional GET is opt-in per request via `execute(conditionalGET:)`, and only
+GitHub JSON reads opt in:
+
+| Transport path | ETag cache |
+|---|---:|
+| `apiAsync` | Yes |
+| `apiPaginated` | Yes |
+| Raw ZIP downloads | No |
+| POST, PUT, PATCH, DELETE | No |
+| Other requests | No |
+
+Gating both lookup and storage keeps a mutation or ZIP response from parking an
+incompatible body under a URL later used for JSON. Opted-in requests use
+`.reloadIgnoringLocalCacheData` so the system URL cache cannot hide GitHub's
+`304` from the transport.
+
+### Pagination and API accounting
+
+Because pagination depends on the `Link` header, each entry stores it alongside
+the body — a `304` on page one restores its `Link` header and pagination
+continues to page two. Pages are validated independently, so a cached page one
+may combine with a fresh page two if the remote collection shifts; this
+eventual-consistency tradeoff avoids a collection-level cache or a pagination
+state machine.
+
+A `304` delivers no new representation, so `APICallCounter` is not incremented
+for it:
+
+```text
+200 → fresh representation → count it
+304 → cached representation → do not count it
+```
+
+### Deliberate non-goals
+
+This is not persistent storage, a general-purpose URL cache, or an
+application-level data cache. Its only job is making repeated authenticated
+GitHub reads cheap while keeping ETag, token, pagination, and `304` handling
+confined to the transport.
+
+## ZIP log cache
+
+The primary purpose of the ZIP cache is to preserve GitHub Actions logs while they
+still contain precise per-step data.
+
+GitHub's workflow-run log endpoint can temporarily return a rich ZIP archive whose
+files can be mapped to individual workflow steps. After an undocumented and
+unpredictable period, the same endpoint may stop returning that structure or may
+return a degraded archive containing only job-level log data.
+
+The duration of this window is not treated as a contract. It has appeared to vary
+from minutes to hours. RunBot must therefore capture the rich archive as soon as a
+workflow run reaches a terminal conclusion.
+
+### Best-effort capture
+
+`ZIPPrefetchQueue` observes workflow groups transitioning from active to completed.
+For every workflow run in the completed group, it requests:
+
+```text
+/repos/{owner}/{repo}/actions/runs/{run-id}/attempts/{run-attempt}/logs
+```
+
+The returned ZIP is written to `DiskZIPCache` only after the run has completed. This
+includes successful, failed, cancelled, and other terminal conclusions; caching is
+not restricted to successful runs.
+
+Capture is deliberately best-effort:
+
+- RunBot must be active when the completion transition is observed.
+- The ZIP must still be available in its rich, step-dividable form.
+- Failed or expired downloads are not considered fatal application errors.
+- RunBot does not replay historical completion transitions after restart.
+- A cache miss must never prevent StepLogView from attempting its fallback paths.
+
+This cache is therefore a preservation mechanism, not a guaranteed archive of every
+workflow execution.
+
+### Cache identity
+
+A cache group uses the same semantic identity as a displayed workflow group:
+
+```text
+repository + full head SHA + normalized event
+```
+
+It is stored as one readable directory directly under the cache root:
+
+```text
+<owner>@<repo>--<full-sha>--<normalized-event>/
+```
+
+Each workflow-run archive is identified by run ID and run attempt:
+
+```text
+<run-id>-<run-attempt>.zip
+```
+
+Example:
+
+```text
+DiskZIPCache/
+├── runbot-hq@run-bot--fb306a5bcaad562d2e7bc183b86e4a70e983c3dd--commit/
+│   ├── 31350001-1.zip
+│   ├── 31350002-1.zip
+│   └── 31350003-2.zip
+└── runbot-hq@run-bot--fb306a5bcaad562d2e7bc183b86e4a70e983c3dd--workflow_dispatch/
+    └── 31350100-1.zip
+```
+
+GitHub retains the same run ID when a workflow is rerun and increments
+`run_attempt`. A cache hit is valid only when both values match.
+
+RunBot displays the attempt associated with the current `ActiveJob`. Each
+`runID-runAttempt.zip` archive is stored independently, so an older attempt cannot
+satisfy a newer attempt's cache lookup. Attempts remain on disk until the containing
+workflow-group directory is evicted.
+
+### Step-log resolution
+
+StepLogView resolves logs through progressively less precise sources.
+
+#### 1. Cached rich workflow-run ZIP
+
+The preferred source is a cached workflow-run ZIP captured during the completion
+window.
+
+A rich archive contains files that can be matched to individual workflow steps.
+StepLogView extracts and displays only the requested step's content.
+
+This is the only fully reliable source of precise per-step boundaries after GitHub's
+availability window has closed.
+
+#### 2. Degraded workflow-run ZIP
+
+GitHub may later return a ZIP with a different structure that no longer contains
+individually addressable step files. It may contain only job-level log content.
+
+RunBot attempts to locate or infer the requested step from this content. If precise
+extraction is impossible, StepLogView displays the containing job log for the
+requested step and shows a visible degradation notice.
+
+This means multiple steps may display the same complete job log. That is intentional:
+the original step boundaries are no longer available.
+
+#### 3. Job-level flat-blob fallback
+
+If the workflow-run ZIP is unavailable or unusable, `LogFetcher` requests:
+
+```text
+/repos/{owner}/{repo}/actions/jobs/{job-id}/logs
+```
+
+This endpoint returns a flat job log through a short-lived redirect. RunBot attempts
+to parse the requested step from that blob.
+
+If parsing succeeds, the inferred step section is displayed. If parsing fails,
+StepLogView displays the complete job log with a degradation notice rather than
+showing no data.
+
+The fallback hierarchy is therefore:
+
+```text
+cached rich ZIP
+→ live workflow-run ZIP
+→ parsed job-level flat blob
+→ complete job-level flat blob
+→ no output
+```
+
+### Folder-level eviction
+
+Capacity is measured in workflow-group directories, not individual ZIP files. A
+commit that produces ten workflow runs consumes one cache slot rather than ten.
+
+The cache retains up to ten workflow-group directories:
+
+1. Immediate child directories of the cache root are ordered by filesystem
+   modification date, newest first.
+2. Directories beyond the ten newest groups are deleted recursively.
+3. ZIP count inside a retained group directory does not affect capacity.
+
+Eviction always removes a complete workflow group. It never removes individual
+sibling workflow runs merely because a commit contains many workflows.
+
+Legacy root-level `<run-id>.zip` files do not contain enough identity information to
+migrate safely and are deleted during cache preparation.
+

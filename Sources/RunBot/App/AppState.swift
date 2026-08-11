@@ -191,6 +191,11 @@ final class AppState {
     /// or hidden. Restored by `AppDelegate.openPanel()` on re-open.
     var savedNavState: NavState?
 
+    /// Single `DiskZIPCache` instance shared between `LogFetcher` and
+    /// `RunnerPoller` so that ZIPs prefetched by the poller are immediately
+    /// available to the log fetcher without a second network round-trip.
+    let sharedDiskZIPCache = DiskZIPCache()
+
     /// Shared `LogFetcher` instance owned above the `.id(navState)` boundary
     /// in `RootPanelView`. Owning it here means the ZIP cache (`zipCache`)
     /// survives across step-tap navigation: every step tap recreates
@@ -234,7 +239,7 @@ final class AppState {
             authSource: { [authentication] in authentication.selectedSource },
             logger: GitHubLoggerAdapter()
         )
-        self.logFetcher = LogFetcher(transport: github.transport)
+        self.logFetcher = LogFetcher(transport: github.transport, diskZIPCache: sharedDiskZIPCache)
 
         self.oauthCredentials = OAuthCredentialController(
             service: github.oauthService,
@@ -269,7 +274,7 @@ final class AppState {
             logger: GitHubLoggerAdapter()
         )
         self.lifecycleService = lifecycleService
-        self.logFetcher = LogFetcher(transport: github.transport)
+        self.logFetcher = LogFetcher(transport: github.transport, diskZIPCache: sharedDiskZIPCache)
 
         self.oauthCredentials = OAuthCredentialController(
             service: github.oauthService,
@@ -503,7 +508,8 @@ final class AppState {
             applyMetrics: { [localRunnerStore] metrics, id, name in
                 await localRunnerStore.applyMetrics(metrics, forRunnerId: id, name: name)
             },
-            notificationPreferences: NotificationPreferences.shared
+            notificationPreferences: NotificationPreferences.shared,
+            diskZIPCache: sharedDiskZIPCache
         )
         log("AppState › start — RunnerPoller created")
     }
@@ -548,6 +554,18 @@ final class AppState {
         // Runner-poll restart after sign-out is performed by the injected didSignOut callback.
         oauthCredentials.reconcile()
         oauthCredentials.start()
+    }
+
+    // MARK: - Panel-show refresh (#2661)
+
+    /// Refreshes panel-facing local and GitHub state when the main panel opens.
+    func refreshOnPanelShow() async {
+        // Refresh local process/discovery state first.
+        await localRunnerStore.refreshAsync()
+
+        // start() resets falloff, replaces the existing poll task,
+        // fetches immediately, then resumes adaptive polling.
+        await runnerStore?.start()
     }
 
     // MARK: - Automatic updates preference (#2501)
