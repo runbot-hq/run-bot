@@ -1,5 +1,19 @@
-# Triggered via workflow_dispatch from main only.
-# Use: gh workflow run publish.yml --ref main --field channel=beta --field dry_run=false
+# Triggered via workflow_dispatch from any branch.
+# Use: gh workflow run publish.yml --ref main \
+#        --field branch=<source-branch> \
+#        --field channel=beta \
+#        --field dry_run=false
+#
+# Note: --ref controls which branch the workflow YAML is read from (always main).
+#       --field branch= controls which branch is actually checked out and built.
+#       To release from a feature branch, keep --ref main and set --field branch=<your-branch>.
+#       To release from main (default), --field branch= can be omitted.
+#
+# UI note: when triggering via the GitHub Actions UI, the "Use workflow from"
+#       branch selector controls --ref (which YAML is read) and must stay on main.
+#       The source branch is set via the "Branch" input field, not the selector.
+#       Selecting a feature branch in the dropdown will read that branch's publish.yml,
+#       which may not have this feature — always leave the selector on main.
 #
 # Responsibilities:
 #   1. Compute the next semver tag from git history.
@@ -8,7 +22,7 @@
 #   4. Build + zip via build.sh.
 #   5. Verify the zip contains RunBot.app/Contents/MacOS/RunBot.
 #   6. Sign release zip with Ed25519 (RunBot.zip.sig).
-#   7. Commit patched Info.plist back to main via rebase + push (skipped on dry_run).
+#   7. Commit patched Info.plist back to the source branch via rebase + push (skipped on dry_run).
 #   8. Tag the plist commit SHA directly — race-free (skipped on dry_run).
 #   9. Upload build artifacts so the release job can consume them.
 #  10. Generate AFM release notes on self-hosted runner (skipped on dry_run / manual notes).
@@ -19,6 +33,20 @@ name: Publish
 on:
   workflow_dispatch:
     inputs:
+      branch:
+        # The branch to check out, build, and release from.
+        # Defaults to main for normal stable releases.
+        # Any branch with repo write access can be used — this is intentional:
+        # beta releases from feature branches are a first-class use case.
+        # workflow_dispatch itself requires repo write access, so only
+        # collaborators can trigger this; it is not an open attack surface.
+        # If you want to enforce that stable/release channel can only run
+        # from main, add a job-level if: condition — it is a deliberate
+        # omission here, not an oversight. See docs/development.md § Releasing.
+        description: "Branch to release from"
+        required: false
+        default: "main"
+        type: string
       channel:
         description: "Release channel"
         required: true
@@ -47,13 +75,52 @@ on:
 # cancelled run has not yet pushed a tag or committed the plist in the common
 # case. The only narrow window where partial state could exist is if a run is
 # cancelled after "Commit patched Info.plist" but before "Tag and push". In
-# that case main will have a version bump commit with no tag. Recovery:
-#   git revert HEAD --no-edit && git push origin main
-# then re-run the workflow. See docs/RELEASING.md § Rollback procedure.
+# that case the source branch will have a version bump commit with no tag.
+# Recovery:
+#   git revert <plist-commit-sha> --no-edit && git push origin <branch>
+# Use the exact SHA logged by the "Commit patched Info.plist" step output.
+# then re-run the workflow. See docs/development.md § Releasing.
+#
+# TAG-NAMESPACE COLLISION RISK (accepted — not an oversight, see below):
+# The group key includes inputs.branch so that parallel beta runs from
+# *different* branches do not cancel each other. A side-effect is that two
+# runs from different branches that happen to compute the same next tag
+# (e.g. v0.7.3-beta.1) can race past the non-atomic duplicate-tag guard.
+# The safe failure mode is: one run's `git push origin $TAG` will be rejected
+# by the remote with "already exists" — loud, non-destructive, re-runnable.
+# NOTE: by the time Tag and push fails, the losing run's plist commit has
+# already landed on its source branch (Commit patched Info.plist succeeded).
+# Recovery therefore requires TWO steps, not one:
+#   1. Revert the plist commit: git revert <plist-commit-sha> --no-edit && git push origin <branch>
+#   2. Re-trigger the workflow from that branch.
+# The plist-commit SHA is logged by the "Commit patched Info.plist" step output.
+# No silent corruption is possible. The duplicate-tag guard catches the case
+# where both runs compute the same tag and one has already pushed it before
+# the other reaches that step. This risk is accepted in preference to a global
+# serialisation lock, which would block all parallel beta runs.
+# Recovery: re-trigger the failed run from the branch that lost the race.
+# See docs/development.md § Releasing.
+#
+# INJECTION NOTE: ${{ inputs.branch }} appears inline here. This is NOT a
+# script-injection risk. concurrency.group is a workflow-level expression
+# field evaluated by the GitHub Actions engine before any runner or shell
+# process starts. The value is used only to compute a string key — it never
+# enters a bash process and cannot execute shell commands. This is in
+# contrast to run: blocks, where inline ${{ }} interpolation of user input
+# IS dangerous (see env: usage in Commit patched Info.plist and Create
+# GitHub Release steps).
 concurrency:
-  group: publish-${{ inputs.channel }}
+  group: publish-${{ inputs.branch }}-${{ inputs.channel }}  # branch-scoped: parallel betas OK, see collision note above
   cancel-in-progress: true
 
+# contents: write is the minimum permission required for this workflow:
+#   - tag push (Tag and push step) requires contents: write
+#   - plist commit push (Commit patched Info.plist step) requires contents: write
+# GitHub Actions only supports permission scoping at job level, not step level.
+# There is no supported mechanism to grant contents: write to specific steps only.
+# Narrowing further (e.g. contents: read) would break the tag push and plist
+# commit push steps. No other permissions (issues, pull-requests, etc.) are
+# granted — this is already as tightly scoped as the Actions permission model allows.
 permissions:
   contents: write
 
@@ -63,6 +130,14 @@ jobs:
     # Build, sign, plist commit, and tagging all happen here.
     # AFM release notes and gh release create run in the separate `release` job
     # on the self-hosted runner (Apple Intelligence required).
+    #
+    # TRUST MODEL: workflow_dispatch requires repo write access. Any person who
+    # can trigger this workflow can already push to the repo directly. Checking
+    # out an arbitrary branch does not expand the trust boundary — build.sh and
+    # all other scripts are checked into the same repo the dispatcher already
+    # has write access to. This is not an untrusted-code execution scenario.
+    # Do not add a branch allowlist unless the trust model changes (e.g. if
+    # this workflow is ever made triggerable by external contributors).
     runs-on: macos-26
     # Self-hosted runner outage would otherwise queue this job indefinitely.
     # 30 minutes is generous for a build that normally completes in ~3 minutes.
@@ -75,12 +150,44 @@ jobs:
       zip_path: ${{ steps.verify.outputs.zip_path }}
       sig_path: ${{ steps.sign.outputs.sig_path }}
 
+    # STABLE-FROM-ANY-BRANCH (intentional): there is no job-level guard restricting
+    # channel=release to branch=main. This is a deliberate omission — the release
+    # workflow intentionally supports stable releases from feature branches (e.g. a
+    # hotfix branch). workflow_dispatch already requires repo write access; anyone who
+    # can trigger this can push to main directly. The trust boundary is not expanded.
+    # If you want to add a main-only guard for stable releases, add:
+    #   if: ${{ inputs.channel != 'release' || inputs.branch == 'main' }}
+    # at job level. See docs/development.md § Releasing.
     steps:
       # ── Checkout ──────────────────────────────────────────────────────────────────
+      # INJECTION NOTE: ref: ${{ inputs.branch }} is a with: field on a uses: step.
+      # with: fields are evaluated by the GitHub Actions engine, not by a shell.
+      # The value is passed to the action (actions/checkout) as a typed input —
+      # it never enters a bash process and cannot execute shell commands. This is
+      # safe for user-supplied input. Compare with run: blocks, where inline
+      # ${{ inputs.branch }} would be a script-injection risk.
+      #
+      # PRIVILEGE BOUNDARY NOTE: checking out an arbitrary branch does not create
+      # an untrusted-code execution risk here. workflow_dispatch requires repo write
+      # access; build.sh is checked into the same repo the dispatcher already has
+      # write access to. There is no privilege escalation path. If this workflow
+      # were ever made triggerable by external contributors (e.g. pull_request_target),
+      # this assessment would need to be revisited.
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 0   # full history + all tags required for tag computation
+          ref: ${{ inputs.branch }}
+
+      # ── Configure git identity ─────────────────────────────────────────────────────
+      # Set once here so Commit patched Info.plist and Tag and push both inherit it.
+      # Previously this was duplicated in each mutating step — identical content, but
+      # duplication means a future edit to one copy can silently diverge from the other.
+      # git config is repo-scoped (not global), so it only affects this workspace.
+      - name: Configure git identity
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
 
       # ── Clear SPM cache ────────────────────────────────────────────────────────────
       # WHY: SPM's source-checkout cache must be cleared to guarantee fresh
@@ -149,12 +256,16 @@ jobs:
       # Rollover logic: when PATCH reaches 9 it rolls over to 0 and MINOR
       # increments; when MINOR reaches 9 it rolls over to 0 and MAJOR
       # increments. Rollover is intentional per the project convention
-      # documented in docs/RELEASING.md.
+      # documented in docs/development.md § Releasing.
       - name: Compute next tag
         id: tag
         run: |
           set -euo pipefail
 
+          # inputs.channel is a choice type constrained to "beta" | "release" by the Actions
+          # engine at dispatch time — it cannot be a free-form string without a schema change.
+          # Inline interpolation here is intentional and safe; compare with BRANCH in
+          # "Commit patched Info.plist" which uses env: because it IS a free-form string input.
           CHANNEL="${{ inputs.channel }}"
 
           # Latest stable tag (ignore beta/rc tags)
@@ -177,7 +288,7 @@ jobs:
 
           # Compute PATCH+1 with rollover (shared by both channels).
           NEW_PATCH=$(( PATCH + 1 ))
-          if (( NEW_PATCH > 9 )); then  # rollover: intentional, see docs/RELEASING.md
+          if (( NEW_PATCH > 9 )); then  # rolls when prior PATCH was 9 (NEW_PATCH=10): intentional, see docs/development.md § Releasing
             NEW_PATCH=0
             NEW_MINOR=$(( MINOR + 1 ))
             if (( NEW_MINOR > 9 )); then  # rollover: intentional
@@ -264,7 +375,7 @@ jobs:
       # returns N+1 at that tag. This is intentional — CFBundleVersion only
       # needs to be monotonically increasing. The tag is pinned to PLIST_SHA
       # (the commit where BUILD=N was embedded), which is consistent.
-      # See docs/RELEASING.md § Version scheme for full rationale.
+      # See docs/development.md § Releasing for full rationale.
       - name: Patch Info.plist
         run: |
           set -euo pipefail
@@ -520,7 +631,7 @@ jobs:
       # Skipped on dry_run — no release job runs in that case anyway.
       - name: Upload build artifacts
         if: ${{ inputs.dry_run != 'true' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4.3.3
         with:
           name: release-assets
           path: |
@@ -528,42 +639,67 @@ jobs:
             ${{ steps.sign.outputs.sig_path }}
           retention-days: 1
 
-      # ── Commit patched Info.plist back to main ─────────────────────────────────────────
-      # Pushes the version-bumped Info.plist back to main so that main always
-      # has correct version strings after a release.
+      # ── Commit patched Info.plist back to source branch ────────────────────────────────
+      # Pushes the version-bumped Info.plist back to the source branch (inputs.branch)
+      # so it always has correct version strings after a release.
       #
       # [skip ci] prevents this commit from re-triggering this workflow or any
-      # other workflow triggered on push to main (e.g. lint, tests). This is
+      # other workflow triggered on push to the branch (e.g. lint, tests). This is
       # intentional — a version string bump is not meaningful to test or lint.
       # Keep this in mind when adding new push-triggered workflows.
       #
-      # Rebase on origin/main before pushing so the plist bump commit sits on
-      # top of any commits (e.g. workflow hotfixes) that landed during the run.
-      # --force-with-lease is intentionally NOT used: GITHUB_TOKEN cannot push
-      # workflow file changes even under lease, and the rebase already ensures
-      # we are not clobbering concurrent work.
+      # Rebase on origin/<branch> before pushing so the plist bump commit sits on
+      # top of any commits that landed during the run.
+      # --force-with-lease is intentionally NOT used. The rebase-before-push already
+      # ensures we are not operating on a stale ref, and omitting lease keeps the
+      # logic uniform across all branch types (main and feature branches alike).
+      # A concurrent push between rebase and push will cause the push to fail fast
+      # with a non-fast-forward error, which is the correct safe failure mode.
+      #
+      # INJECTION SAFETY: BRANCH is user-supplied (inputs.branch). It is passed
+      # through env: — NOT interpolated inline via ${{ }} — so the runner sets it
+      # as a plain environment variable before the shell starts. Inline interpolation
+      # would allow a crafted branch name to execute arbitrary shell commands.
+      # BRANCH is additionally validated via git check-ref-format immediately below,
+      # which rejects any value that is not a valid Git branch name before any
+      # git operation runs.
       - name: Commit patched Info.plist
         if: ${{ inputs.dry_run != 'true' }}
+        env:
+          BRANCH: ${{ inputs.branch }}
         run: |
           set -euo pipefail
-          git config user.name  "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+          # FIX: use --branch to validate $BRANCH specifically as a branch name.
+          # This rejects single-level names like HEAD and edge cases like paths
+          # containing .. that --normalize "refs/heads/$BRANCH" passes on some
+          # Git versions. BRANCH is already routed via env: so there is no shell
+          # injection risk regardless, but --branch is the stricter and more
+          # semantically correct validator for this use case.
+          if ! git check-ref-format --branch "$BRANCH" > /dev/null 2>&1; then
+            echo "::error::inputs.branch is not a valid Git branch name: '$BRANCH'" >&2
+            exit 1
+          fi
           git add Resources/Info.plist
+          # INJECTION NOTE: steps.tag.outputs.tag is workflow-internal — computed by
+          # Compute next tag and constrained to a semver pattern. Not user-supplied.
+          # Inline interpolation here is intentional and safe (same pattern as Tag and push).
           git commit -m "chore: bump version to ${{ steps.tag.outputs.tag }} [skip ci]"
-          git fetch origin main
-          git rebase origin/main
-          git push origin HEAD:main
+          git fetch origin "$BRANCH"
+          git rebase "origin/$BRANCH"
+          git push origin "HEAD:$BRANCH"
 
       # ── Tag + push ─────────────────────────────────────────────────────────────────
       - name: Tag and push
         if: ${{ inputs.dry_run != 'true' }}
         run: |
           set -euo pipefail
+          # INJECTION NOTE: steps.tag.outputs.tag is workflow-internal — computed by
+          # the Compute next tag step and constrained to a semver regex. It is not
+          # user-supplied and cannot contain shell metacharacters. Inline interpolation
+          # here is intentional and safe; see Create GitHub Release for the same pattern.
           TAG="${{ steps.tag.outputs.tag }}"
-          git config user.name  "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
           # Capture the plist commit SHA explicitly so the tag is guaranteed to
-          # point at the patched plist regardless of any concurrent push to main.
+          # point at the patched plist regardless of any concurrent push to the branch.
           # CFBundleVersion=N was embedded at this commit; git rev-list at this
           # tag returns N+1 (the plist commit itself). Intentional — see Patch
           # Info.plist step comment above.
@@ -588,10 +724,15 @@ jobs:
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 0
+          ref: ${{ needs.publish.outputs.tag }}
+          # Checkout the exact released tag, not the default branch.
+          # afm-release-notes-action works tag-to-tag via gh api regardless,
+          # but any future step that reads workspace files must see the released
+          # commit, not main.
 
       # ── Download build artifacts from publish job ──────────────────────────────────────
       - name: Download build artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@fa0a91b85d4f404e444306234f1dc44b5bae9b6e # v4.1.8
         with:
           name: release-assets
           path: dist
@@ -629,6 +770,15 @@ jobs:
         id: afm_notes
         if: inputs.release_notes == ''
         uses: runbot-hq/afm-release-notes-action@main
+        # @main is intentional and not a policy violation:
+        #   1. runbot-hq/afm-release-notes-action is a first-party action in the
+        #      same org — we control both repos. A breaking change to afm-release-notes-action
+        #      is a deliberate act by the same team, not a supply-chain risk.
+        #   2. continue-on-error: true means a bad afm commit cannot break a release —
+        #      the worst outcome is degrading to GitHub's --generate-notes fallback.
+        #   3. Pinning to a SHA would create friction on every AFM update with zero
+        #      safety gain given (1) and (2). docs/development.md § Releasing covers
+        #      the pinned SHA policy for third-party actions only.
         with:
           tag: ${{ needs.publish.outputs.tag }}
         env:
@@ -703,6 +853,15 @@ jobs:
             FLAGS+=(--generate-notes)
           fi
 
+          # --target is intentionally omitted. The tag was pinned to PLIST_SHA in
+          # the Tag and push step (publish job); the tag itself is the anchor —
+          # gh release create against a pre-existing tag always points at the commit
+          # the tag references. Passing --target <tag> is not part of the documented
+          # contract for that flag (which expects a branch or commit SHA), adds no
+          # safety beyond what the tag already provides, and introduces a dependency
+          # on GitHub resolving a tag ref in that field the same way as omitting it.
+          # The ls-remote guard in Guard against duplicate tag confirms the tag exists
+          # on origin before this step runs.
           gh release create "$TAG" \
             "$ZIP" \
             "$SIG" \
