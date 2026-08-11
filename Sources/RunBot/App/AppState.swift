@@ -187,8 +187,10 @@ final class AppState {
 
     // MARK: - Navigation state
 
-    /// The last nav destination the user was on before the popover was closed
-    /// or hidden. Restored by `AppDelegate.openPanel()` on re-open.
+    /// The current panel navigation route.
+    ///
+    /// `RootPanelView` reads this state reactively. Normal panel dismissal
+    /// preserves it; explicit Back navigation clears it to return to Main.
     var savedNavState: NavState?
 
     /// Single `DiskZIPCache` instance shared between `LogFetcher` and

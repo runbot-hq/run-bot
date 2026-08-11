@@ -67,10 +67,10 @@ network I/O and is always dispatched onto `DispatchQueue.global()`.
 > Regression guard ref: issue #385  
 > See also: `AppDelegate.swift` `closePanel()`
 
-`savedNavState` is preserved across close so `openPanel()`'s `validatedView`
-path navigates back to the same view on re-open. On close, `rootView` is always
-reset to `mainView()` (so the SwiftUI tree is fresh), but `savedNavState` is
-kept — `openPanel()` reads it and calls `navigate(to: validatedView(for: saved))`.
+`savedNavState` is observable navigation state read directly by
+`RootPanelView`. Normal panel dismissal does not mutate it, so reopening
+renders the same route without an open-time restoration step. Explicit Back
+navigation clears the state to return to Main.
 
 - ❌ NEVER clear `savedNavState` inside `closePanel()` or `hidePanel()`.
 - ❌ NEVER try to preserve sheet `@State` across an explicit close (`closePanel()`) — see [NSPopover Decisions](#nspopover-decisions).
