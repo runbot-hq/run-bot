@@ -633,4 +633,27 @@ struct WorkflowActionGroupFetcherTests {
     // The group is bucketed under the "push" default → normalised to "commit".
     #expect(r.first?.normalizedEvent == "commit")
   }
+
+  // Regression guard for the fix landed in PR #2720 (issue #2541 / #2718).
+  // IDs are deliberately non-monotonic [303, 101, 202] so that the old
+  // `.sorted { $0.id < $1.id }` path would produce [101, 202, 303] and fail.
+  // Completed jobs prevent any per-job refresh call, keeping the test
+  // focused exclusively on ordering through the full fetch pipeline.
+  @Test func fetchPreservesGitHubJobResponseOrder() async {
+    let expectedJobIDs = [303, 101, 202]
+    let t = makeTransport(with: [
+      "repos/owner/repo/actions/runs?status=completed": envelope(
+        key: "workflow_runs",
+        [minimalRun(id: 42, sha: "ordering-sha", status: "completed", conclusion: "success", name: "ordering")]
+      ),
+      "repos/owner/repo/actions/runs/42/jobs": envelope(
+        key: "jobs",
+        expectedJobIDs.map { minimalJob(id: $0, status: "completed", conclusion: "success") }
+      ),
+    ])
+    let f = WorkflowActionGroupFetcher(transport: t)
+    let groups = await f.fetch(for: "owner/repo")
+    #expect(groups.count == 1)
+    #expect(groups[0].jobs.map(\.id) == expectedJobIDs)
+  }
 }
