@@ -5,6 +5,23 @@ import AppUpdater
 import RunBotCore
 import SwiftUI
 
+// MARK: - Temporary settings-row visibility policy
+
+/// Temporary settings-row visibility policy.
+///
+/// The underlying API-call tracking and notification infrastructure remains active.
+/// Set these values to `true` when the corresponding settings UI is restored.
+/// See issues #2712, #2713.
+private enum SettingsFeatureVisibility {
+    /// When `false`, the API-call counter row in the Account section is omitted
+    /// from the view hierarchy. The counter continues to update internally.
+    static let showsAPICallCounter = false
+    /// When `false`, the notification preference row in the General section is omitted
+    /// from the view hierarchy. Existing persisted preferences are not reset and
+    /// notification delivery continues to respect them.
+    static let showsNotificationPreferences = false
+}
+
 // MARK: - SettingsView sections extension
 
 /// Settings sections broken out from `SettingsView` for readability.
@@ -16,7 +33,8 @@ internal extension SettingsView {
     ///
     /// Replaced the old single-branch status row with `AuthenticationSection`,
     /// which renders an `EnvironmentTokenCard` and a `GitHubOAuthCard` side-by-side.
-    /// The `APICallCounterRow` is preserved below the divider unchanged.
+    /// The `APICallCounterRow` is conditionally included below the divider based on
+    /// `SettingsFeatureVisibility.showsAPICallCounter` — temporarily hidden per #2712.
     ///
     /// DO NOT add a separate description Text sibling after `APICallCounterRow` —
     /// it owns its title and description internally (layout bug fix #2217).
@@ -38,9 +56,12 @@ internal extension SettingsView {
             // APICallCounterRow owns its title AND description internally.
             // DO NOT add a separate description Text sibling here — that was the
             // root cause of the layout bug fixed in #2217.
-            APICallCounterRow()
-                .padding(.horizontal, RBSpacing.md)
-                .padding(.vertical, 8)
+            // Temporarily hidden by SettingsFeatureVisibility.showsAPICallCounter (#2712).
+            if SettingsFeatureVisibility.showsAPICallCounter {
+                APICallCounterRow()
+                    .padding(.horizontal, RBSpacing.md)
+                    .padding(.vertical, 8)
+            }
         }
     }
 
@@ -125,7 +146,12 @@ internal extension SettingsView {
 
     // MARK: - General
 
-    /// General section: notification toggles, launch-at-login, popover arrow, and beta channel.
+    /// General section: notification preferences (temporarily hidden per #2712),
+    /// launch-at-login, popover arrow, and beta channel.
+    ///
+    /// Notification preference UI is temporarily omitted by `SettingsFeatureVisibility.showsNotificationPreferences`
+    /// while its underlying preferences and delivery wiring remain active.
+    /// See issues #2712, #2713.
     ///
     /// FIX #2174: `notifications` is now `@Bindable var` on `SettingsView` — we use
     /// `$notifications.notificationMode` directly instead of constructing a local
@@ -138,31 +164,34 @@ internal extension SettingsView {
         return VStack(alignment: .leading, spacing: 0) {
             Text("General").font(RBFont.sectionHeader).foregroundColor(Color.rbTextSecondary)
                 .padding(.horizontal, RBSpacing.md).padding(.top, 8).padding(.bottom, 4)
-            HStack(alignment: .center) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Notifications").font(.system(size: 12))
-                    Text("Choose when to receive workflow status notifications.")
-                        .font(.caption2).foregroundColor(Color.rbTextSecondary)
-                }
-                Spacer()
-                // FIX #2174: was Bindable(notifications).notificationMode — now $notifications.notificationMode
-                // .fixedSize() lets the picker measure its own intrinsic width from the
-                // selected item label. A hardcoded .frame(width:) fights SwiftUI's
-                // menu-picker measurement and produces a narrow control on first render.
-                Picker("Notifications", selection: $notifications.notificationMode) {
-                    ForEach(NotificationMode.allCases, id: \.self) { mode in
-                        Text(mode.label).tag(mode)
+            // Temporarily hidden by SettingsFeatureVisibility.showsNotificationPreferences (#2712).
+            if SettingsFeatureVisibility.showsNotificationPreferences {
+                HStack(alignment: .center) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Notifications").font(.system(size: 12))
+                        Text("Choose when to receive workflow status notifications.")
+                            .font(.caption2).foregroundColor(Color.rbTextSecondary)
                     }
+                    Spacer()
+                    // FIX #2174: was Bindable(notifications).notificationMode — now $notifications.notificationMode
+                    // .fixedSize() lets the picker measure its own intrinsic width from the
+                    // selected item label. A hardcoded .frame(width:) fights SwiftUI's
+                    // menu-picker measurement and produces a narrow control on first render.
+                    Picker("Notifications", selection: $notifications.notificationMode) {
+                        ForEach(NotificationMode.allCases, id: \.self) { mode in
+                            Text(mode.label).tag(mode)
+                        }
+                    }
+                    .labelsHidden()
+                    .fixedSize()
+                    #if DEBUG
+                    .onChange(of: notifications.notificationMode) { old, new in
+                        log("【generalSection】notificationMode changed \(old) → \(new)", category: .general)
+                    }
+                    #endif
                 }
-                .labelsHidden()
-                .fixedSize()
-                #if DEBUG
-                .onChange(of: notifications.notificationMode) { old, new in
-                    log("【generalSection】notificationMode changed \(old) → \(new)", category: .general)
-                }
-                #endif
+                .padding(.horizontal, RBSpacing.md).padding(.vertical, 6)
             }
-            .padding(.horizontal, RBSpacing.md).padding(.vertical, 6)
             HStack(alignment: .center) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Launch at login").font(.system(size: 12))
