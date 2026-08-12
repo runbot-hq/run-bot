@@ -5,10 +5,10 @@
 // Rendering surface: `MarkdownDocumentView(markdown:style:)` from the internal
 // MarkdownKit package. `MarkdownStyle.runBot` maps RunBot design tokens.
 //
-// Tranche 9 checklist (ref #2600):
-//   [ ] Delete Theme+RunBot.swift
-//   [ ] Remove MarkdownUI product from RunBot target in Package.swift
-//   [ ] Remove swift-markdown-ui from Package.swift dependencies
+// Tranche 9 complete (ref #2600):
+//   [x] Deleted Theme+RunBot.swift
+//   [x] Removed MarkdownUI product from RunBot target in Package.swift
+//   [x] Removed swift-markdown-ui from Package.swift dependencies
 import MarkdownKit
 import SwiftUI
 
