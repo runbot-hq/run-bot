@@ -99,7 +99,8 @@ let package = Package(
             dependencies: [
                 "RunBotCore",
                 .product(name: "GitHubClient", package: "GitHubClient"),
-                .product(name: "MarkdownKit", package: "MarkdownKit"),
+                // MarkdownKit removed: MarkdownDetectorTests.swift deleted per #2600
+                // (duplicate of Packages/MarkdownKit/Tests/MarkdownKitTests/MarkdownDetectorTests.swift).
             ],
             path: "Tests/RunBotCoreTests",
             swiftSettings: [

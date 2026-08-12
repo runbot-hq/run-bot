@@ -55,8 +55,13 @@ public enum BlockParser {
 
     /// Parses a full Markdown string into `[MarkdownBlock]` off the main actor.
     ///
+    /// `@concurrent` forces an executor hop under `NonisolatedNonsendingByDefault`
+    /// (Swift 6.2), ensuring `Document(parsing:)` never runs on the caller's actor
+    /// even when called from a main-actor `.task` closure.
+    ///
     /// Safe to call from a `Task` or `task(id:)` modifier. The result is
     /// `Sendable` and can be stored in `@State` on the main actor.
+    @concurrent
     public static func parseAsync(_ markdown: String) async -> [MarkdownBlock] {
         let doc = Document(parsing: markdown)
         return doc.children.map { parse($0) }

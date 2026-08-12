@@ -42,10 +42,13 @@ struct MarkdownLogView: View {
             }
         }
         .task(id: text) {
-            // Parse and prewarm off the main actor.
-            // task(id:) cancels automatically when text changes or the view disappears.
+            // Clear stale blocks immediately so the previous log is not shown
+            // while the new one parses. parseAsync hops off-main via @concurrent.
+            blocks = nil
             let parsed = await BlockParser.parseAsync(text)
+            guard !Task.isCancelled else { return }
             await preWarmHighlighter(blocks: parsed, colorScheme: colorScheme)
+            guard !Task.isCancelled else { return }
             blocks = parsed
         }
     }

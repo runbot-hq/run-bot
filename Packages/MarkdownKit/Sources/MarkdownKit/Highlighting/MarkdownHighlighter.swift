@@ -3,7 +3,7 @@
 //
 // @MainActor singleton wrapping Highlightr's JavaScriptCore engine.
 // One JSContext is created at init (~50-150 ms); all subsequent calls are cheap.
-// Bounded LRU cache (100 entries) prevents unbounded memory growth on large logs.
+// Bounded FIFO cache (100 entries) prevents unbounded memory growth on large logs.
 import AppKit
 import Highlightr
 import SwiftUI
@@ -68,10 +68,19 @@ public final class MarkdownHighlighter {
         }
 
         guard let nsAttr = h.highlight(code, as: language) else { return nil }
-        // Do NOT bake a fixed font into the AttributedString — callers apply
-        // `.font(style.monoFont)` as a SwiftUI modifier so custom sizes are respected.
+        // Strip Highlightr's embedded `.font` attributes before conversion.
+        // Highlightr themes bake in ~14–16pt fonts at run level; those AppKit
+        // run-level attributes beat the `.font(style.monoFont)` SwiftUI view
+        // modifier, producing inconsistent sizes between highlighted blocks and
+        // plain-text fallbacks. Retaining syntax colours while removing font
+        // attributes lets callers control the final size.
+        let mutable = NSMutableAttributedString(attributedString: nsAttr)
+        mutable.removeAttribute(
+            .font,
+            range: NSRange(location: 0, length: mutable.length)
+        )
         guard let attributed = try? AttributedString(
-            nsAttr,
+            mutable,
             including: AttributeScopes.AppKitAttributes.self
         ) else { return nil }
 

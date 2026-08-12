@@ -130,7 +130,13 @@ public struct InlineTextView: View {
 
         case .link(let destination, let children):
             var a = AttributedString(inlinePlainText(children))
-            if let url = URL(string: destination), !destination.isEmpty {
+            // Only make http/https links actionable. Markdown here comes from
+            // untrusted CI log output; permitting file://, runbot://, or other
+            // registered schemes would let log content dispatch arbitrary
+            // system actions on click.
+            if let url = URL(string: destination),
+               let scheme = url.scheme?.lowercased(),
+               scheme == "http" || scheme == "https" {
                 a.link = url
             }
             a.swiftUI.foregroundColor = style.accent
