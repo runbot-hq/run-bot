@@ -1,5 +1,5 @@
 // MarkdownStyle.swift
-// MarkdownKit
+// RunBot
 //
 // Rendering tokens consumed by all MarkdownKit views.
 // Must NOT reference any RunBot-specific symbol (RBFont, RBSpacing, etc.).

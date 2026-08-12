@@ -1,5 +1,5 @@
 // MarkdownFixtureTests.swift
-// MarkdownKitTests
+// RunBot
 //
 // End-to-end fixture tests: feed a representative document through BlockParser
 // and assert the expected block sequence without crashing on any node.
@@ -52,9 +52,11 @@ import Markdown
     """
 
     @Test func fullFixtureParsesSafely() {
-        // Must not crash or produce any .unknown block for known node types.
+        // Must not crash or produce any .unknown block for supported node types.
         let blocks = Document(parsing: Self.fixture).children.map { BlockParser.parse($0) }
         #expect(!blocks.isEmpty)
+        let unknownBlocks = blocks.filter { if case .unknown = $0 { return true }; return false }
+        #expect(unknownBlocks.isEmpty, "Fixture produced unexpected .unknown blocks: \(unknownBlocks)")
     }
 
     @Test func fixtureContainsExpectedBlockTypes() {
@@ -86,10 +88,20 @@ import Markdown
     }
 
     @Test func rawHTMLFallsBackToUnknownOrParagraph() {
+        // Regression for #2731: raw HTML must fall back to readable plain text,
+        // not disappear as .unknown("").
         let md = "<div>some html</div>"
         let blocks = Document(parsing: md).children.map { BlockParser.parse($0) }
-        // Must not crash. Block type is unknown or paragraph depending on parser version.
         #expect(!blocks.isEmpty)
+        // The fallback plain text must be non-empty so MarkdownBlockView renders
+        // something visible rather than EmptyView.
+        let allNonEmpty = blocks.allSatisfy { block -> Bool in
+            if case .unknown(let text) = block {
+                return !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            }
+            return true // non-unknown blocks are fine regardless
+        }
+        #expect(allNonEmpty)
     }
 
     @Test func emptyDocumentProducesNoBlocks() {

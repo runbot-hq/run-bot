@@ -1,5 +1,5 @@
 // BlockParserTests.swift
-// MarkdownKitTests
+// RunBot
 import Testing
 import Markdown
 @testable import MarkdownKit
@@ -67,6 +67,17 @@ import Markdown
         if case .orderedList(let items, let start) = bs.first {
             #expect(items.count == 2)
             #expect(start == 1)
+        } else {
+            Issue.record("expected orderedList")
+        }
+    }
+
+    @Test func orderedListNonOneStart() {
+        // A list beginning at 7. must preserve that start index (fix for #2731).
+        let bs = blocks(from: "7. seventh\n8. eighth\n9. ninth")
+        if case .orderedList(let items, let start) = bs.first {
+            #expect(items.count == 3)
+            #expect(start == 7)
         } else {
             Issue.record("expected orderedList")
         }

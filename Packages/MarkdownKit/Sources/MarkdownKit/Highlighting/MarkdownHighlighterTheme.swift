@@ -1,5 +1,5 @@
 // MarkdownHighlighterTheme.swift
-// MarkdownKit
+// RunBot
 //
 // highlight.js theme name constants used by MarkdownHighlighter.
 // Both themes have neutral/transparent backgrounds that sit cleanly

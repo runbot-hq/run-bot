@@ -1,5 +1,5 @@
 // InlineRendererTests.swift
-// MarkdownKitTests
+// RunBot
 import Markdown
 import Testing
 @testable import MarkdownKit
@@ -50,6 +50,26 @@ import Testing
             Issue.record("expected .link node"); return
         }
         #expect(dest == "https://example.com")
+    }
+
+    @Test func linkDestinationSurvivesParsing() {
+        // Regression for #2731: destination must be non-empty after InlineParser.
+        let nodes = inlines(from: "[RunBot](https://runbot.example.com/logs/123)")
+        guard case .link(let dest, let children) = nodes.first else {
+            Issue.record("expected .link node"); return
+        }
+        #expect(dest == "https://runbot.example.com/logs/123")
+        // Label text must also survive.
+        let hasLabel = children.contains { if case .text(let s) = $0 { return s == "RunBot" }; return false }
+        #expect(hasLabel)
+    }
+
+    @Test func hardBreakEmitsNewline() {
+        // Regression for #2731: .lineBreak must map to "\n", not " ".
+        // Two trailing spaces produce a hard line break in CommonMark.
+        let nodes = inlines(from: "line one  \nline two")
+        let hasLineBreak = nodes.contains { if case .lineBreak = $0 { return true }; return false }
+        #expect(hasLineBreak)
     }
 
     @Test func emptyStringProducesNoNodes() {

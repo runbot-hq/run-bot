@@ -1,5 +1,5 @@
 // MarkdownTableModel.swift
-// MarkdownKit
+// RunBot
 import Markdown
 
 /// Normalised, deterministic representation of a GFM table.

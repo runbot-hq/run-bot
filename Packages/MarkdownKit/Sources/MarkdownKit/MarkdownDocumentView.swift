@@ -1,5 +1,5 @@
 // MarkdownDocumentView.swift
-// MarkdownKit
+// RunBot
 //
 // Public rendering entry point. Parses `Document` once at init and delegates
 // each top-level block to `MarkdownBlockView`. No RunBot symbols here.
@@ -10,19 +10,24 @@ import SwiftUI
 
 /// Public rendering surface for MarkdownKit.
 ///
-/// ```swift
-/// MarkdownDocumentView(markdown: text, style: .runBot)
-/// ```
-///
-/// Parses the document once on the calling thread during `init`. If you need
-/// to run parsing off-main, build `blocks` yourself via `BlockParser` and
-/// drive a custom container instead.
+/// Prefer `MarkdownDocumentView(blocks:style:)` when the caller has already
+/// parsed off the main actor. Use `MarkdownDocumentView(markdown:style:)` only
+/// for simple / short strings where main-thread parse cost is negligible.
 @MainActor
 public struct MarkdownDocumentView: View {
     private let blocks: [MarkdownBlock]
     private let style: MarkdownStyle
 
-    /// Creates a document view by parsing `markdown` with `style` applied.
+    /// Creates a document view from pre-parsed blocks (preferred — no parse on main actor).
+    public init(blocks: [MarkdownBlock], style: MarkdownStyle) {
+        self.blocks = blocks
+        self.style = style
+    }
+
+    /// Creates a document view by parsing `markdown` synchronously.
+    ///
+    /// ⚠️ Runs `Document(parsing:)` on the calling actor. For large strings call
+    /// `BlockParser.parseAsync(_:)` off the main actor and use `init(blocks:style:)`.
     public init(markdown: String, style: MarkdownStyle) {
         self.style = style
         let doc = Document(parsing: markdown)
@@ -48,6 +53,15 @@ public struct MarkdownDocumentView: View {
 /// `MarkdownListView` via further `BlockParser.parse` calls.
 public enum BlockParser {
 
+    /// Parses a full Markdown string into `[MarkdownBlock]` off the main actor.
+    ///
+    /// Safe to call from a `Task` or `task(id:)` modifier. The result is
+    /// `Sendable` and can be stored in `@State` on the main actor.
+    public static func parseAsync(_ markdown: String) async -> [MarkdownBlock] {
+        let doc = Document(parsing: markdown)
+        return doc.children.map { parse($0) }
+    }
+
     /// Parses a single `Markup` node into a `MarkdownBlock`.
     public static func parse(_ markup: any Markup) -> MarkdownBlock {
         switch markup {
@@ -61,7 +75,7 @@ public enum BlockParser {
             let items: [[MarkdownBlock]] = ol.listItems.map { item in
                 Array(item.children.map { parse($0) })
             }
-            return .orderedList(items: items, startIndex: 1)
+            return .orderedList(items: items, startIndex: ol.startIndex)
 
         case let ul as UnorderedList:
             let items: [[MarkdownBlock]] = ul.listItems.map { item in
@@ -104,6 +118,14 @@ private struct PlainTextWalker: MarkupWalker {
 
     mutating func visitInlineCode(_ inlineCode: InlineCode) {
         result += inlineCode.code
+    }
+
+    mutating func visitHTMLBlock(_ html: HTMLBlock) {
+        result += html.rawHTML
+    }
+
+    mutating func visitInlineHTML(_ html: InlineHTML) {
+        result += html.rawHTML
     }
 }
 

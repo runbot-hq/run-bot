@@ -1,5 +1,5 @@
 // MarkdownCodeBlockView.swift
-// MarkdownKit
+// RunBot
 import SwiftUI
 
 /// Renders a fenced code block with Highlightr syntax highlighting.

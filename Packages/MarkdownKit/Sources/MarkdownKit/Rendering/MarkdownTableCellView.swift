@@ -1,5 +1,5 @@
 // MarkdownTableCellView.swift
-// MarkdownKit
+// RunBot
 import SwiftUI
 
 /// Renders a single table cell using `InlineTextView`.
@@ -23,9 +23,9 @@ struct MarkdownTableCellView: View {
             .font(isHeader ? style.baseFont.bold() : style.baseFont)
             .foregroundColor(style.textPrimary)
             .multilineTextAlignment(textAlignment)
-            .lineLimit(10)
             .frame(maxWidth: 220, alignment: textAlignment == .trailing ? .trailing : textAlignment == .center ? .center : .leading)
             .padding(style.spacingXS)
             .textSelection(.enabled)
+            .fixedSize(horizontal: false, vertical: true)
     }
 }

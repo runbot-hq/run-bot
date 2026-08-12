@@ -1,26 +1,29 @@
 // HighlightPrewarmer.swift
-// MarkdownKit
+// RunBot
 //
-// Pre-warms MarkdownHighlighter cache for all code blocks in a document.
-// Uses MarkdownDetector.codeBlocks(in:) so this file does not need to
-// call Document(parsing:) a second time.
+// Pre-warms MarkdownHighlighter cache using already-parsed [MarkdownBlock].
+// No Document(parsing:) call here — the caller owns the parse lifecycle.
 import SwiftUI
 
-/// Pre-warms `MarkdownHighlighter` for every code block found in `text`.
+/// Pre-warms `MarkdownHighlighter` for every `.codeBlock` in `blocks`.
 ///
-/// Call from `MarkdownDocumentView.onAppear` or from the host view after
-/// `isMarkdownMode` is set to `true`.
-@MainActor
-public func preWarmMarkdownHighlighter(text: String, colorScheme: ColorScheme) {
-    Task(priority: .utility) {
-        let blocks = MarkdownDetector.codeBlocks(in: text)
-        for block in blocks {
-            let lang = block.language.flatMap { $0.isEmpty ? nil : $0 } ?? "plaintext"
-            _ = await MarkdownHighlighter.shared.highlight(
-                block.code,
-                language: lang,
-                colorScheme: colorScheme
-            )
-        }
+/// Call this inside the same background `Task` that produces the blocks, so
+/// highlighting is warm before the view renders for the first time.
+///
+/// - Parameters:
+///   - blocks: Pre-parsed block model from `BlockParser.parseAsync`.
+///   - colorScheme: Current colour scheme; drives theme selection.
+nonisolated public func preWarmHighlighter(
+    blocks: [MarkdownBlock],
+    colorScheme: ColorScheme
+) async {
+    for block in blocks {
+        guard case .codeBlock(let code, let lang) = block else { continue }
+        let language = lang.flatMap { $0.isEmpty ? nil : $0 } ?? "plaintext"
+        _ = await MarkdownHighlighter.shared.highlight(
+            code,
+            language: language,
+            colorScheme: colorScheme
+        )
     }
 }

@@ -1,5 +1,5 @@
 // MarkdownHighlighter.swift
-// MarkdownKit
+// RunBot
 //
 // @MainActor singleton wrapping Highlightr's JavaScriptCore engine.
 // One JSContext is created at init (~50-150 ms); all subsequent calls are cheap.
@@ -41,6 +41,7 @@ public final class MarkdownHighlighter {
     private init() {
         highlightr = Highlightr()
         highlightr?.setTheme(to: MarkdownHighlighterTheme.light)
+        currentTheme = MarkdownHighlighterTheme.light
     }
 
     // MARK: Public API
@@ -67,14 +68,10 @@ public final class MarkdownHighlighter {
         }
 
         guard let nsAttr = h.highlight(code, as: language) else { return nil }
-        let mutable = NSMutableAttributedString(attributedString: nsAttr)
-        mutable.addAttribute(
-            .font,
-            value: NSFont.monospacedSystemFont(ofSize: 11, weight: .regular),
-            range: NSRange(location: 0, length: mutable.length)
-        )
+        // Do NOT bake a fixed font into the AttributedString — callers apply
+        // `.font(style.monoFont)` as a SwiftUI modifier so custom sizes are respected.
         guard let attributed = try? AttributedString(
-            mutable,
+            nsAttr,
             including: AttributeScopes.AppKitAttributes.self
         ) else { return nil }
 
