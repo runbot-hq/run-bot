@@ -111,11 +111,12 @@ public enum MarkdownDetector {
         detect(text).score
     }
 
-    /// Extracts all fenced code blocks from `text`.
+    /// Extracts top-level fenced code blocks and their language hints.
     ///
-    /// Used by the RunBot UI layer to pre-warm the syntax-highlighting cache
-    /// without importing `Markdown` into files that already stress the
-    /// Swift type-checker (e.g. large SwiftUI view bodies).
+    /// Retained as part of MarkdownDetector's public behavior-preservation contract
+    /// from #2600. The current MarkdownLogView prewarmer consumes normalized
+    /// MarkdownBlock values instead, so this API may have no in-repository caller.
+    /// Do not remove it as dead code without explicitly changing that contract.
     ///
     /// - Parameter text: Raw log text, ANSI-stripped.
     /// - Returns: Array of `(code, language)` tuples; `language` is `nil` when

@@ -31,6 +31,8 @@ public enum InlineParser {
             return .strikethrough(parse(st))
         case let l as Markdown.Link:
             return .link(destination: l.destination ?? "", inlines: parse(l))
+        // Unsupported inline HTML is preserved as literal readable text.
+        // It is intentionally not interpreted or rendered as HTML (#2600 non-goal).
         case let html as InlineHTML:
             return .unknown(html.rawHTML)
         default:

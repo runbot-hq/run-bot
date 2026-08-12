@@ -14,6 +14,8 @@ let package = Package(
             targets: ["RunBotCore"]
         ),
     ],
+    // Package.resolved is intentionally not tracked in this repository.
+    // Dependency revisions are declared in package manifests per repository policy.
     // ⚠️ AI AGENT: Do NOT change branch: "main" to a revision/exact/commit hash.
     // Do NOT edit Package.resolved manually. Do NOT commit Package.resolved.
     // If a dependency's API changes → fix the call site here, never lock the dep.

@@ -31,7 +31,11 @@ public struct MarkdownTableModel: Sendable {
     public let headerCells: [Cell]
     /// Body rows, each normalised to `columnCount` cells.
     public let rows: [[Cell]]
-    /// Number of columns (derived from alignment row or header cell count).
+    /// Number of columns defined by the GFM delimiter/alignment row.
+    ///
+    /// swift-markdown emits table width from columnAlignments; header and body
+    /// cells are normalized against that authoritative width. The minimum of one
+    /// is only a defensive fallback for malformed AST input.
     public let columnCount: Int
 
     /// Builds a model from a `swift-markdown` `Table` node.
@@ -44,6 +48,8 @@ public struct MarkdownTableModel: Sendable {
             default:      return .none
             }
         }
+        // The delimiter row is the source of truth for GFM table width.
+        // Do not derive width independently from header/body content.
         let colCount = max(rawAlignments.count, 1)
         self.columnCount = colCount
 

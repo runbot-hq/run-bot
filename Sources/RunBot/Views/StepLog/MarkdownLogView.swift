@@ -47,6 +47,11 @@ struct MarkdownLogView: View {
             blocks = nil
             let parsed = await BlockParser.parseAsync(text)
             guard !Task.isCancelled else { return }
+            // Intentional ordering: MarkdownDocumentView uses a non-lazy VStack and
+            // MarkdownCodeBlockView highlights synchronously on a cache miss. Publishing
+            // blocks before prewarming would move the same JSCore work into View.body;
+            // it would not produce an earlier usable render. Revisit only with measured
+            // evidence and an asynchronous code-block rendering design.
             await preWarmHighlighter(blocks: parsed, colorScheme: colorScheme)
             guard !Task.isCancelled else { return }
             blocks = parsed

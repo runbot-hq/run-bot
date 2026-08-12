@@ -13,6 +13,15 @@ import SwiftUI
 /// Call `highlight(_:language:colorScheme:)` from any `@MainActor` context.
 /// Returns `nil` on unknown language or highlight failure; callers must fall back
 /// to plain text rendering in that case.
+///
+/// Highlightr owns one JavaScriptCore context and all access is intentionally
+/// serialized on MainActor to preserve the current synchronous SwiftUI
+/// cache-miss contract. Moving it to another actor requires asynchronous
+/// code-block rendering and must be justified by profiling.
+///
+/// The cache is intentionally bounded FIFO rather than LRU. Its linear lookup
+/// is capped at 100 entries; maintaining a dictionary plus ordering structure
+/// would duplicate state without a demonstrated production bottleneck.
 @MainActor
 public final class MarkdownHighlighter {
 
