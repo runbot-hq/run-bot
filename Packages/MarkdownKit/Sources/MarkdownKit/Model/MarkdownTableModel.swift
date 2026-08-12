@@ -49,7 +49,10 @@ public struct MarkdownTableModel: Sendable {
             }
         }
         // The delimiter row is the source of truth for GFM table width.
-        // Do not derive width independently from header/body content.
+        // GFM pipe-table syntax cannot express rowspan or colspan. Although
+        // Table.Cell exposes span metadata for programmatically constructed ASTs,
+        // RunBot only builds tables through Document(parsing:), which does not emit
+        // spanning cells for supported GFM input.
         let colCount = max(rawAlignments.count, 1)
         self.columnCount = colCount
 

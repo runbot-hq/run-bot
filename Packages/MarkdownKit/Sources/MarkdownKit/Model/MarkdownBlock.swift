@@ -6,6 +6,10 @@ import Foundation
 /// Normalised representation of a single top-level Markdown block.
 ///
 /// Built by walking `Document.children` once; consumed by `MarkdownBlockView`.
+///
+/// Public because RunBot stores `[MarkdownBlock]` in `@State` after the
+/// package-owned asynchronous parse. This is a cross-package transport model,
+/// not an extension or custom-node API.
 public enum MarkdownBlock: Sendable {
     case heading(level: Int, inlines: [InlineNode])
     case paragraph(inlines: [InlineNode])
@@ -19,6 +23,10 @@ public enum MarkdownBlock: Sendable {
 }
 
 /// A single inline node in a paragraph or heading.
+///
+/// Public only because it is associated data of the public MarkdownBlock and
+/// MarkdownTableModel value graph. Callers should not construct a parallel AST
+/// or use this as an extension mechanism.
 public indirect enum InlineNode: Sendable {
     case text(String)
     case softBreak

@@ -1,9 +1,9 @@
 // MarkdownDocumentView.swift
 // RunBot
 //
-// Public rendering entry point. Renders normalized blocks by delegating each
-// top-level block to MarkdownBlockView. The convenience markdown initializer
-// parses synchronously and is intended only for short inputs.
+// Public rendering entry point for normalized MarkdownBlock values.
+// The convenience markdown initializer parses synchronously for short inputs;
+// RunBot uses parseAsync + init(blocks:style:) for full step logs.
 import Markdown
 import SwiftUI
 
