@@ -39,14 +39,8 @@ let package = Package(
         //   3. Bump the revision: value here.
         //   4. Commit both Package.swift and Package.resolved changes together.
         //   ❌ Do NOT switch back to branch: "main" for either of these packages.
-        // Highlightr for syntax highlighting in markdown code blocks (#2399).
-        // Pinned to v2.3.0 — do NOT switch to branch: "main".
-        .package(url: "https://github.com/raspu/Highlightr", revision: "05e7fcc63b33925cd0c1faaa205cdd5681e7bbef"),
-        // swiftlang mirror — must match MarkdownKit's transitive dep URL exactly.
-        // apple/swift-markdown and swiftlang/swift-markdown are treated as different SPM
-        // identities even though they point to the same repo, causing an identity conflict
-        // warning if the wrong mirror is used here.
-        .package(url: "https://github.com/swiftlang/swift-markdown", revision: "27b7fc1a19068bcea3d2072db0ce86360d1400ed"),
+        // Highlightr and swift-markdown are now owned entirely by the MarkdownKit
+        // local package (#2600 tranche 10). They are no longer declared at root level.
     ],
     targets: [
         .target(
@@ -54,7 +48,6 @@ let package = Package(
             dependencies: [
                 .product(name: "GitHubClient", package: "GitHubClient"),
                 .product(name: "AppUpdater", package: "AppUpdater"),
-                .product(name: "Markdown", package: "swift-markdown"),
             ],
             path: "Sources/RunBotCore",
             swiftSettings: [
@@ -79,8 +72,7 @@ let package = Package(
                 .product(name: "MenuBarKit", package: "MenuBarKit"),
                 // MarkdownKit — internal package owning all Markdown concerns (#2600).
                 .product(name: "MarkdownKit", package: "MarkdownKit"),
-                // Highlightr for syntax highlighting — used directly by HighlightrService (#2399).
-                .product(name: "Highlightr", package: "Highlightr"),
+
             ],
             path: "Sources/RunBot",
             exclude: ["Resources/Assets.xcassets"],
