@@ -6,7 +6,7 @@ import Markdown
 ///
 /// Lives in `MarkdownKit` (not `RunBot`) so it can be unit-tested without SwiftUI.
 /// Always pass **ANSI-stripped** text — raw escape sequences degrade AST scoring
-/// and would render as literal characters in MarkdownView. Today `cleanLogText`
+/// and would render as literal characters in MarkdownDocumentView. Today `cleanLogText`
 /// strips ANSI upstream of this call. When #2379 Item 5 lands and ANSI stripping
 /// is extracted into a standalone `stripANSI(_:)` function, the markdown path in
 /// `StepLogView.loadLog()` must call `stripANSI(_:)` explicitly. See §7 of #2394.

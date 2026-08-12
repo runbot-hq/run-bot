@@ -16,9 +16,8 @@ import SwiftUI
 /// blocks remain correct through MarkdownCodeBlockView's normal cache-miss path.
 /// Recursive tree warming is deferred unless profiling shows a real need.
 ///
-/// Cancellation is owned by the calling MarkdownLogView task before and after
-/// this phase. An individual Highlightr call is synchronous and cannot be
-/// interrupted once started.
+/// Cancellation is checked cooperatively between blocks. An individual
+/// Highlightr call is synchronous and cannot be interrupted once started.
 ///
 /// - Parameters:
 ///   - blocks: Pre-parsed block model from `BlockParser.parseAsync`.
@@ -28,6 +27,7 @@ nonisolated public func preWarmHighlighter(
     colorScheme: ColorScheme
 ) async {
     for block in blocks {
+        guard !Task.isCancelled else { return }
         guard case .codeBlock(let code, let lang) = block else { continue }
         let language = lang.flatMap { $0.isEmpty ? nil : $0 } ?? "plaintext"
         _ = await MarkdownHighlighter.shared.highlight(
