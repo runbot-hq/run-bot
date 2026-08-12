@@ -5,12 +5,18 @@ import SwiftUI
 /// Renders ordered and unordered lists, supporting nested lists via `listDepth`.
 @MainActor
 public struct MarkdownListView: View {
+    /// Each element is the array of blocks inside one list item.
     let items: [[MarkdownBlock]]
+    /// `true` for ordered lists, `false` for bullet lists.
     let ordered: Bool
+    /// Starting counter for ordered lists (from the `start` attribute).
     let startIndex: Int
+    /// Inherited style tokens.
     let style: MarkdownStyle
+    /// Nesting depth; 0 = top-level, increments on each nested list.
     let depth: Int
 
+    /// Creates a list view for the given items, ordering, start index, style, and depth.
     public init(
         items: [[MarkdownBlock]],
         ordered: Bool,
@@ -25,6 +31,7 @@ public struct MarkdownListView: View {
         self.depth = depth
     }
 
+    /// SwiftUI view body — see type-level doc for rendering contract.
     public var body: some View {
         VStack(alignment: .leading, spacing: style.listItemSpacing) {
             ForEach(items.indices, id: \.self) { i in

@@ -63,14 +63,18 @@ public enum InlineParser {
 /// macOS 26 in favour of string interpolation.
 @MainActor
 public struct InlineTextView: View {
+    /// The inline nodes to render as a single attributed `Text`.
     public let inlines: [InlineNode]
+    /// Style tokens controlling fonts and colours.
     public let style: MarkdownStyle
 
+    /// Creates an inline text view for the given inline nodes and style.
     public init(inlines: [InlineNode], style: MarkdownStyle) {
         self.inlines = inlines
         self.style = style
     }
 
+    /// SwiftUI view body — see type-level doc for rendering contract.
     public var body: some View {
         SwiftUI.Text(attributedString(for: inlines))
     }

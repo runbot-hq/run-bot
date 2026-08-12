@@ -5,9 +5,13 @@ import SwiftUI
 /// Renders a single table cell using `InlineTextView`.
 @MainActor
 struct MarkdownTableCellView: View {
+    /// Inline nodes forming the cell's content.
     let inlines: [InlineNode]
+    /// Column alignment determined by the GFM alignment marker.
     let alignment: MarkdownTableModel.ColumnAlignment
+    /// `true` for header row cells; applies bold font weight.
     let isHeader: Bool
+    /// Inherited style tokens.
     let style: MarkdownStyle
 
     private var textAlignment: TextAlignment {
@@ -18,6 +22,7 @@ struct MarkdownTableCellView: View {
         }
     }
 
+    /// SwiftUI view body — see type-level doc for rendering contract.
     var body: some View {
         InlineTextView(inlines: inlines, style: style)
             .font(isHeader ? style.tableFont.bold() : style.tableFont)

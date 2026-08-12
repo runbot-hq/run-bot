@@ -9,14 +9,18 @@ import SwiftUI
 /// wide column from pushing the table off screen in narrow panels.
 @MainActor
 public struct MarkdownTableView: View {
+    /// Normalised table data produced by `MarkdownTableModel`.
     let model: MarkdownTableModel
+    /// Inherited style tokens.
     let style: MarkdownStyle
 
+    /// Creates a table view for the given model and style.
     public init(model: MarkdownTableModel, style: MarkdownStyle) {
         self.model = model
         self.style = style
     }
 
+    /// SwiftUI view body — see type-level doc for rendering contract.
     public var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             // Single Grid so header and body columns share the same width measurement.

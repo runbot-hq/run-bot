@@ -1,37 +1,30 @@
 // MarkdownStyle+RunBot.swift
 // RunBot
 //
-// Maps RunBot design tokens onto MarkdownStyle.
-// No MarkdownKit symbol is allowed in DesignTokens.swift or vice-versa.
-// This file is the only bridge between the two.
+// Maps RunBot design tokens onto `MarkdownStyle`.
+// Lives in the RunBot target so MarkdownKit stays import-free of app symbols.
 import MarkdownKit
 import SwiftUI
 
-/// RunBot design-token mapping for `MarkdownStyle`.
+/// RunBot-specific `MarkdownStyle` presets.
 extension MarkdownStyle {
-    /// RunBot-native style built from design tokens.
+    /// `MarkdownStyle` preset that matches RunBot's visual language.
     ///
-    /// Token cross-reference (mirrors Theme+RunBot.swift):
-    /// - Base / paragraph  : 12 pt regular · rbTextPrimary
-    /// - H1                : 14 pt bold    · rbTextPrimary
-    /// - H2                : 13 pt semi    · rbTextPrimary
-    /// - H3                : 12.5 pt medium · rbTextPrimary
-    /// - H4–H6             : 12.5 pt regular · rbTextSecondary
-    /// - Inline code       : monoSmall 11  · rbTextSecondary
-    /// - Code block bg     : rbSurfaceElevated
-    /// - Border            : rbBorderSubtle
-    /// - Link              : rbAccent
-    @MainActor static var runBot: MarkdownStyle {
+    /// Tokens source from:
+    /// - Typography  → `RBFont`
+    /// - Spacing     → `RBSpacing` / `RBRadius`
+    /// - Colour      → `Color.rb*` semantic palette
+    static var runBot: MarkdownStyle {
         MarkdownStyle(
-            baseFont: .system(size: 12, weight: .regular),
-            monoFont: RBFont.monoSmall,
-            labelFont: RBFont.statLabel,
-            textPrimary: .rbTextPrimary,
-            textSecondary: .rbTextSecondary,
-            textTertiary: .rbTextTertiary,
-            accent: .rbAccent,
-            surfaceElevated: .rbSurfaceElevated,
-            borderSubtle: .rbBorderSubtle,
+            baseFont: RBFont.sectionKey,
+            monoFont: RBFont.mono,
+            labelFont: RBFont.sectionCaption,
+            textPrimary: Color.rbTextPrimary,
+            textSecondary: Color.rbTextSecondary,
+            textTertiary: Color.rbTextTertiary,
+            accent: Color.rbAccent,
+            surfaceElevated: Color.rbSurfaceElevated,
+            borderSubtle: Color.rbBorderSubtle,
             radiusSmall: RBRadius.small,
             spacingXS: RBSpacing.xs,
             spacingSM: RBSpacing.sm,
@@ -39,52 +32,52 @@ extension MarkdownStyle {
             headings: MarkdownHeadingStyles(
                 h1: MarkdownHeadingStyle(
                     font: .system(size: 14, weight: .bold),
-                    color: .rbTextPrimary,
+                    color: Color.rbTextPrimary,
                     topSpacing: 16,
                     bottomSpacing: 8
                 ),
                 h2: MarkdownHeadingStyle(
                     font: .system(size: 13, weight: .semibold),
-                    color: .rbTextPrimary,
+                    color: Color.rbTextPrimary,
                     topSpacing: 12,
                     bottomSpacing: 6
                 ),
                 h3: MarkdownHeadingStyle(
                     font: .system(size: 12.5, weight: .medium),
-                    color: .rbTextPrimary,
+                    color: Color.rbTextPrimary,
                     topSpacing: 10,
                     bottomSpacing: 4
                 ),
                 h4: MarkdownHeadingStyle(
-                    font: .system(size: 12.5, weight: .regular),
-                    color: .rbTextSecondary,
+                    font: .system(size: 12.5),
+                    color: Color.rbTextSecondary,
                     topSpacing: 6,
                     bottomSpacing: 4
                 ),
                 h5: MarkdownHeadingStyle(
-                    font: .system(size: 12.5, weight: .regular),
-                    color: .rbTextSecondary,
+                    font: .system(size: 12.5),
+                    color: Color.rbTextSecondary,
                     topSpacing: 6,
                     bottomSpacing: 4
                 ),
                 h6: MarkdownHeadingStyle(
-                    font: .system(size: 12.5, weight: .regular),
-                    color: .rbTextSecondary,
+                    font: .system(size: 12.5),
+                    color: Color.rbTextSecondary,
                     topSpacing: 6,
                     bottomSpacing: 4
                 )
             ),
-            paragraphTextColor: .rbTextPrimary.opacity(0.75),
-            blockBottomSpacing: 6,
-            inlineCodeBackground: .rbSurfaceElevated,
-            blockQuoteFont: .system(size: 12, weight: .regular).italic(),
-            blockQuoteTextColor: .rbTextSecondary,
+            paragraphTextColor: Color.rbTextPrimary,
+            blockBottomSpacing: RBSpacing.sm,
+            inlineCodeBackground: Color.rbSurfaceElevated,
+            blockQuoteFont: RBFont.sectionKey,
+            blockQuoteTextColor: Color.rbTextSecondary,
             blockQuoteBorderWidth: 2,
-            blockQuoteHorizontalPadding: 9,
+            blockQuoteHorizontalPadding: RBSpacing.sm,
             listItemSpacing: 2,
-            tableFont: .system(size: 11),
-            codeBlockLineSpacing: 2.2,
-            showsLinkUnderline: false
+            tableFont: RBFont.label,
+            codeBlockLineSpacing: 2,
+            showsLinkUnderline: true
         )
     }
 }

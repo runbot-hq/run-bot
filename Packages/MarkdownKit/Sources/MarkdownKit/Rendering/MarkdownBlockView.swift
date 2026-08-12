@@ -8,16 +8,21 @@ import SwiftUI
 /// disappearing or crashing.
 @MainActor
 public struct MarkdownBlockView: View {
+    /// The block node to render.
     let block: MarkdownBlock
+    /// Inherited style tokens.
     let style: MarkdownStyle
+    /// Current list nesting depth; 0 = not inside a list.
     var listDepth: Int = 0
 
+    /// Creates a block view for the given block, style, and optional list depth.
     public init(block: MarkdownBlock, style: MarkdownStyle, listDepth: Int = 0) {
         self.block = block
         self.style = style
         self.listDepth = listDepth
     }
 
+    /// SwiftUI view body — see type-level doc for rendering contract.
     public var body: some View {
         Group {
             switch block {

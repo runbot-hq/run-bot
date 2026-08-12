@@ -10,7 +10,14 @@
 //   [x] Removed MarkdownUI product from RunBot target in Package.swift
 //   [x] Removed swift-markdown-ui from Package.swift dependencies
 import MarkdownKit
+import OSLog
 import SwiftUI
+
+/// OSLog logger for MarkdownKit render events scoped to `MarkdownRender` category.
+private let markdownRenderLogger = Logger(
+    subsystem: "com.runbot-hq.RunBot",
+    category: "MarkdownRender"
+)
 
 /// Renders a Markdown string inside RunBot's step log.
 ///
@@ -33,28 +40,93 @@ struct MarkdownLogView: View {
 
     /// The rendered view.
     var body: some View {
-        Group {
+        VStack(alignment: .leading, spacing: 0) {
             if let blocks {
                 MarkdownDocumentView(blocks: blocks, style: .runBot)
                     .textSelection(.enabled)
                     .padding(.horizontal, RBSpacing.md)
                     .padding(.vertical, 8)
+                    .onAppear {
+                        markdownRenderLogger.notice(
+                            "document appeared blocks=\(blocks.count, privacy: .public)"
+                        )
+                    }
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .task(id: text) {
-            // Clear stale blocks immediately so the previous log is not shown
-            // while the new one parses. parseAsync hops off-main via @concurrent.
-            blocks = nil
-            let parsed = await BlockParser.parseAsync(text)
-            guard !Task.isCancelled else { return }
-            // Intentional ordering: MarkdownDocumentView uses a non-lazy VStack and
-            // MarkdownCodeBlockView highlights synchronously on a cache miss. Publishing
-            // blocks before prewarming would move the same JSCore work into View.body;
-            // it would not produce an earlier usable render. Revisit only with measured
-            // evidence and an asynchronous code-block rendering design.
-            await preWarmHighlighter(blocks: parsed, colorScheme: colorScheme)
-            guard !Task.isCancelled else { return }
-            blocks = parsed
+            await renderMarkdown()
         }
+        .onAppear {
+            markdownRenderLogger.notice(
+                "MarkdownLogView appeared chars=\(text.count, privacy: .public)"
+            )
+        }
+        .onDisappear {
+            markdownRenderLogger.notice("MarkdownLogView disappeared")
+        }
+    }
+
+    // MARK: - Private
+
+    /// Parses and renders `text` off the main actor, then publishes the result to `blocks`.
+    private func renderMarkdown() async {
+        let renderID = UUID().uuidString.prefix(8)
+        let lineCount = text.components(separatedBy: "\n").count
+
+        markdownRenderLogger.notice("[\(renderID, privacy: .public)] task started chars=\(text.count) lines=\(lineCount) scheme=\(String(describing: colorScheme))")
+
+        // Clear stale blocks immediately so the previous log is not shown
+        // while the new one parses. parseAsync hops off-main via @concurrent.
+        blocks = nil
+
+        let parseStart = ContinuousClock.now
+        let parsed = await BlockParser.parseAsync(text)
+        let parseDuration = parseStart.duration(to: .now)
+
+        markdownRenderLogger.notice("[\(renderID, privacy: .public)] parse completed blocks=\(parsed.count) duration=\(String(describing: parseDuration)) cancelled=\(Task.isCancelled)")
+
+        for (index, block) in parsed.enumerated() {
+            markdownRenderLogger.debug("[\(renderID, privacy: .public)] parsed block index=\(index, privacy: .public) kind=\(block.renderLogKind, privacy: .public)")
+        }
+
+        if parsed.isEmpty, !text.isEmpty {
+            markdownRenderLogger.error(
+                "[\(renderID, privacy: .public)] parser returned zero blocks for non-empty input"
+            )
+        }
+
+        guard !Task.isCancelled else {
+            markdownRenderLogger.notice(
+                "[\(renderID, privacy: .public)] cancelled after parse"
+            )
+            return
+        }
+
+        let prewarmStart = ContinuousClock.now
+
+        markdownRenderLogger.notice("[\(renderID, privacy: .public)] prewarm started blocks=\(parsed.count, privacy: .public)")
+
+        // Intentional ordering: MarkdownDocumentView uses a non-lazy VStack and
+        // MarkdownCodeBlockView highlights synchronously on a cache miss. Publishing
+        // blocks before prewarming would move the same JSCore work into View.body;
+        // it would not produce an earlier usable render. Revisit only with measured
+        // evidence and an asynchronous code-block rendering design.
+        await preWarmHighlighter(blocks: parsed, colorScheme: colorScheme)
+
+        let prewarmDuration = prewarmStart.duration(to: .now)
+
+        markdownRenderLogger.notice("[\(renderID, privacy: .public)] prewarm completed duration=\(String(describing: prewarmDuration)) cancelled=\(Task.isCancelled)")
+
+        guard !Task.isCancelled else {
+            markdownRenderLogger.notice(
+                "[\(renderID, privacy: .public)] cancelled after prewarm"
+            )
+            return
+        }
+
+        blocks = parsed
+
+        markdownRenderLogger.notice("[\(renderID, privacy: .public)] blocks published count=\(parsed.count, privacy: .public)")
     }
 }

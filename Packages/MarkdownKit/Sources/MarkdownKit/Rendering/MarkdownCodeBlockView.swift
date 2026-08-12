@@ -8,18 +8,23 @@ import SwiftUI
 /// JSCore failure). Language label displayed above the block when present.
 @MainActor
 public struct MarkdownCodeBlockView: View {
+    /// The raw code string to highlight and display.
     public let code: String
+    /// Lowercased language identifier passed to Highlightr (e.g. `"swift"`, `"bash"`).
     public let language: String?
+    /// Style tokens controlling typography, colours, and geometry.
     public let style: MarkdownStyle
 
     @Environment(\.colorScheme) private var colorScheme
 
+    /// Creates a code block view for the given code, optional language, and style.
     public init(code: String, language: String?, style: MarkdownStyle) {
         self.code = code
         self.language = language
         self.style = style
     }
 
+    /// SwiftUI view body — see type-level doc for rendering contract.
     public var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             if let lang = language, !lang.isEmpty {
