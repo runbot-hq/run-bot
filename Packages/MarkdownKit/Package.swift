@@ -11,9 +11,9 @@ let package = Package(
         ),
     ],
     dependencies: [
-        // swiftlang mirror — must match root Package.swift URL exactly.
+        // External dependencies must remain pinned by revision per repository policy.
+        // Do not switch these dependencies to a branch.
         .package(url: "https://github.com/swiftlang/swift-markdown", revision: "27b7fc1a19068bcea3d2072db0ce86360d1400ed"),
-        // Highlightr for syntax highlighting in code blocks.
         .package(url: "https://github.com/raspu/Highlightr", revision: "05e7fcc63b33925cd0c1faaa205cdd5681e7bbef"),
     ],
     targets: [
