@@ -143,6 +143,7 @@ extension AppDelegate {
             } else {
                 // wasForced=false: normal panel dismissal. Clear transient sheet state
                 // through closePanel(), but preserve savedNavState for the next open.
+                // This is the shared fix for #2376 (Settings) and #2726 (Step Log).
                 closePanel()
             }
             panelVisibilityState.isOpen = false

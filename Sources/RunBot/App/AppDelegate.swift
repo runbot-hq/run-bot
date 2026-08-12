@@ -136,6 +136,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     ///
     /// ❌ NEVER add panelController?.close() here.
     /// ❌ NEVER clear savedNavState here — panel visibility must not alter navigation.
+    ///    Preserving savedNavState is the fix for both #2376 (Settings) and #2726 (Step Log).
     func closePanel() {
         log("AppDelegate › closePanel")
         panelSheetState.clearRunnerSheet()
