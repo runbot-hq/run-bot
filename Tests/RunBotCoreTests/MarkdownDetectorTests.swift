@@ -1,5 +1,6 @@
 // MarkdownDetectorTests.swift
 // RunBotCoreTests
+import MarkdownKit
 import Testing
 @testable import RunBotCore
 
