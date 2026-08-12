@@ -57,6 +57,11 @@ func groupEvent(_ event: String) -> String {
 struct RunPayload: Codable {
   /// The unique run identifier.
   let id: Int
+  /// Stable GitHub identifier for the workflow definition.
+  ///
+  /// RunBot uses this as its deterministic cross-commit presentation key.
+  /// This is a client-side ordering policy, not a GitHub API ordering guarantee.
+  let workflowID: Int
   /// The workflow event that triggered this run (e.g. `push`, `workflow_dispatch`).
   ///
   /// A `nil` value falls back to `"commit"` at the call site via
@@ -90,6 +95,8 @@ struct RunPayload: Codable {
   enum CodingKeys: String, CodingKey {
     /// Maps the `id` JSON field.
     case id
+    /// Maps the `workflow_id` JSON field.
+    case workflowID = "workflow_id"
     /// Maps the `event` JSON field.
     case event
     /// Maps the `name` JSON field.
@@ -175,7 +182,15 @@ extension WorkflowActionGroupFetcher {
       runs.map { ($0.id, $0) },
       uniquingKeysWith: { lhs, rhs in priority(lhs) >= priority(rhs) ? lhs : rhs }
     )
-    // Sort by run ID so runs within a group are stable across polls (#2686).
-    return coalesced.values.sorted { $0.id < $1.id }
+    // RunBot presentation policy: order by stable workflow identity so equivalent
+    // workflow groups retain the same child order across commits. GitHub does not
+    // document its workflow-runs response order as a stable presentation contract.
+    // Run ID is only a deterministic tie-breaker for multiple runs of one workflow.
+    return coalesced.values.sorted { lhs, rhs in
+      if lhs.workflowID != rhs.workflowID {
+        return lhs.workflowID < rhs.workflowID
+      }
+      return lhs.id < rhs.id
+    }
   }
 }

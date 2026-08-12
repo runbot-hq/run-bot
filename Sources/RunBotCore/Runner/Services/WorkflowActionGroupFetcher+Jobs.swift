@@ -12,13 +12,11 @@ import os
 /// Capped to avoid a thundering-herd of single-job API calls when a run has
 /// many steps still in-progress simultaneously (e.g. a large matrix job).
 ///
-/// **Determinism:** `initial` is sorted by `job.id` (ascending) before slicing,
-/// so the first `maxRefreshConcurrency` jobs selected are always the lowest-ID
-/// jobs needing refresh — not whichever tasks happened to complete first in the
-/// preceding `withTaskGroup`. Without the sort, `withTaskGroup` completion order
-/// is non-deterministic and different jobs could be skipped on every poll cycle,
-/// causing some jobs to serve stale data indefinitely in a large matrix run where
-/// all jobs finish concurrently and no slot ever frees before the cap is re-evaluated.
+/// **Determinism:** Refresh candidates are sorted by job ID before applying
+/// the concurrency cap, ensuring deterministic candidate selection across poll cycles.
+///
+/// This sort controls refresh scheduling only. The returned job collection retains
+/// the order supplied by GitHub's `jobs` response.
 let maxRefreshConcurrency = 3
 
 // MARK: - Job fetching
@@ -54,19 +52,26 @@ extension WorkflowActionGroupFetcher {
       return cached.jobs
     }
 
-    var fetched: [ActiveJob] = []
-    var seenJobIDs = Set<Int>()
-    await withTaskGroup(of: [ActiveJob].self) { group in
-      for run in groupRuns {
-        group.addTask { await self.fetchJobsForRun(run.id, scope: scope, zipGroupKey: zipGroupKey) }
-      }
-      for await jobs in group {
-        for job in jobs where seenJobIDs.insert(job.id).inserted {
-          fetched.append(job)
+    var fetchedByRunIndex = Array(repeating: [ActiveJob](), count: groupRuns.count)
+    await withTaskGroup(of: (Int, [ActiveJob]).self) { group in
+      for (runIndex, run) in groupRuns.enumerated() {
+        group.addTask {
+          let jobs = await self.fetchJobsForRun(run.id, scope: scope, zipGroupKey: zipGroupKey)
+          return (runIndex, jobs)
         }
       }
+      for await (runIndex, jobs) in group {
+        fetchedByRunIndex[runIndex] = jobs
+      }
     }
-    fetched.sort { $0.id < $1.id }
+
+    var fetched: [ActiveJob] = []
+    var seenJobIDs = Set<Int>()
+    for jobs in fetchedByRunIndex {
+      for job in jobs where seenJobIDs.insert(job.id).inserted {
+        fetched.append(job)
+      }
+    }
     return fetched
   }
 
@@ -80,9 +85,9 @@ extension WorkflowActionGroupFetcher {
   /// Refresh calls for in-progress/inconclusive jobs run concurrently,
   /// capped at `maxRefreshConcurrency` to avoid a thundering-herd of single-job
   /// API calls on runs with many simultaneously in-progress steps.
-  /// `initial` is sorted by `job.id` ascending before slicing so the cap always
-  /// selects the same lowest-ID jobs — not whichever tasks finished first in the
-  /// preceding `withTaskGroup` (whose completion order is non-deterministic).
+  /// Refresh candidates are sorted by job ID before applying the concurrency cap,
+  /// ensuring deterministic candidate selection across poll cycles.
+  /// The returned job collection retains the order supplied by GitHub's `jobs` response.
   /// All date parsing goes through `ISO8601DateParser.shared`.
   func fetchJobsForRun(_ runID: Int, scope: String, zipGroupKey: ZIPCacheGroupKey? = nil) async -> [ActiveJob] {
     guard
@@ -103,30 +108,23 @@ extension WorkflowActionGroupFetcher {
       return []
     }
 
-    let initial = await withTaskGroup(of: ActiveJob.self) { group in
-      for payload in wrapper.jobs {
-        group.addTask { ActiveJob(raw: payload, zipCacheGroupKey: zipGroupKey) }
-      }
-      var out: [ActiveJob] = []
-      for await job in group { out.append(job) }
-      // Sort by id so the refresh cap below is deterministic across poll cycles.
-      return out.sorted { $0.id < $1.id }
-    }
+    // Preserve GitHub's jobs array order. ActiveJob construction is synchronous,
+    // so no task group is needed here.
+    let initial = wrapper.jobs.map { ActiveJob(raw: $0, zipCacheGroupKey: zipGroupKey) }
 
     // Refresh in-progress/inconclusive jobs concurrently, capped at maxRefreshConcurrency.
-    // `initial` is already sorted by job.id (above), so `.prefix(maxRefreshConcurrency)`
-    // always selects the same lowest-ID jobs needing refresh — independent of task
-    // completion order. Without the sort, a matrix run with N > maxRefreshConcurrency
-    // simultaneous jobs could starve the same job indefinitely if it consistently
-    // lands beyond position maxRefreshConcurrency in whichever order the group finishes.
+    // Candidates are sorted by job ID so `.prefix(maxRefreshConcurrency)` always selects
+    // the same lowest-ID jobs — independent of their position in the GitHub response.
     // Note: `idx` is the position in `initial`/`result`, not the position in `needsRefresh`.
     // The `.prefix(maxRefreshConcurrency)` reduces the number of refresh tasks, but the
     // original enumerated indices are preserved for the `result[idx]` write-back below.
-    let allNeedingRefresh = initial.enumerated().filter { (_, job: ActiveJob) in
-      // ActiveJob exposes jobConclusion (JobConclusion?), not conclusion (String?).
-      // GitHubStep.status is raw String — use stepStatus typed accessor.
-      job.jobConclusion == nil || job.steps.contains(where: { (step: GitHubStep) in step.stepStatus == .inProgress })
-    }
+    let allNeedingRefresh = initial.enumerated()
+      .filter { (_, job: ActiveJob) in
+        // ActiveJob exposes jobConclusion (JobConclusion?), not conclusion (String?).
+        // GitHubStep.status is raw String — use stepStatus typed accessor.
+        job.jobConclusion == nil || job.steps.contains(where: { (step: GitHubStep) in step.stepStatus == .inProgress })
+      }
+      .sorted { lhs, rhs in lhs.element.id < rhs.element.id }
     let needsRefresh = allNeedingRefresh.prefix(maxRefreshConcurrency)
     let skippedCount = allNeedingRefresh.count - needsRefresh.count
     if skippedCount > 0 {
