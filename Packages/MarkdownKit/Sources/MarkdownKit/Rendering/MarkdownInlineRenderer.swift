@@ -31,6 +31,8 @@ public enum InlineParser {
             return .strikethrough(parse(st))
         case let l as Markdown.Link:
             return .link(destination: l.destination ?? "", inlines: parse(l))
+        case let html as InlineHTML:
+            return .unknown(html.rawHTML)
         default:
             // Unknown inline container: preserve children without inventing emphasis styling.
             // Leaf nodes with no children (e.g. Image alt-text holder) return nil silently.
