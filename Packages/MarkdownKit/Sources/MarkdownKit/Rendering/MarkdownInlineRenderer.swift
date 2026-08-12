@@ -93,6 +93,21 @@ public struct InlineTextView: View {
         }.joined()
     }
 
+    /// Unions `intent` into every run of the rendered children rather than
+    /// overwriting, so nested emphasis (e.g. `***bold italic***`) keeps both
+    /// `.stronglyEmphasized` and `.emphasized` on the same run.
+    private func addingIntent(
+        _ intent: InlinePresentationIntent,
+        to children: [InlineNode]
+    ) -> AttributedString {
+        var result = attributedString(for: children)
+        let runs = result.runs.map { ($0.range, $0.inlinePresentationIntent ?? []) }
+        for (range, existing) in runs {
+            result[range].inlinePresentationIntent = existing.union(intent)
+        }
+        return result
+    }
+
     /// Converts a single `InlineNode` into an `AttributedString` run.
     private func attributed(_ node: InlineNode) -> AttributedString {
         switch node {
@@ -112,16 +127,10 @@ public struct InlineTextView: View {
             return a
 
         case .strong(let children):
-            var a = attributedString(for: children)
-            // `inlinePresentationIntent` is the correct way to apply bold/italic
-            // to an AttributedString without mutating individual runs.
-            a.inlinePresentationIntent = .stronglyEmphasized
-            return a
+            return addingIntent(.stronglyEmphasized, to: children)
 
         case .emphasis(let children):
-            var a = attributedString(for: children)
-            a.inlinePresentationIntent = .emphasized
-            return a
+            return addingIntent(.emphasized, to: children)
 
         case .strikethrough(let children):
             var a = attributedString(for: children)
@@ -129,7 +138,7 @@ public struct InlineTextView: View {
             return a
 
         case .link(let destination, let children):
-            var a = AttributedString(inlinePlainText(children))
+            var a = attributedString(for: children)
             // Only make http/https links actionable. Markdown here comes from
             // untrusted CI log output; permitting file://, runbot://, or other
             // registered schemes would let log content dispatch arbitrary
