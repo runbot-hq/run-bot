@@ -15,7 +15,8 @@ extension MarkdownStyle {
     /// - Base / paragraph  : 12 pt regular · rbTextPrimary
     /// - H1                : 14 pt bold    · rbTextPrimary
     /// - H2                : 13 pt semi    · rbTextPrimary
-    /// - H3–H6             : 12.5 pt       · rbTextSecondary
+    /// - H3                : 12.5 pt medium · rbTextPrimary
+    /// - H4–H6             : 12.5 pt regular · rbTextSecondary
     /// - Inline code       : monoSmall 11  · rbTextSecondary
     /// - Code block bg     : rbSurfaceElevated
     /// - Border            : rbBorderSubtle

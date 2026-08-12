@@ -80,19 +80,6 @@ public struct InlineTextView: View {
         }
     }
 
-    /// Flattens an `[InlineNode]` array to plain text (e.g. for link labels).
-    private func inlinePlainText(_ nodes: [InlineNode]) -> String {
-        nodes.map { node -> String in
-            switch node {
-            case .text(let s), .code(let s), .unknown(let s): return s
-            case .softBreak: return " "
-            case .lineBreak: return "\n"
-            case .strong(let c), .emphasis(let c), .strikethrough(let c), .link(_, let c):
-                return inlinePlainText(c)
-            }
-        }.joined()
-    }
-
     /// Unions `intent` into every run of the rendered children rather than
     /// overwriting, so nested emphasis (e.g. `***bold italic***`) keeps both
     /// `.stronglyEmphasized` and `.emphasized` on the same run.

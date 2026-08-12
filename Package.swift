@@ -27,20 +27,6 @@ let package = Package(
         // Local path — internal MarkdownKit package (#2600). Owns detection,
         // parsing, rendering, highlighting, and tables. Replaces swift-markdown-ui.
         .package(path: "Packages/MarkdownKit"),
-        // ⚠️ DEPENDENCY POLICY — external (non-runbot-hq) packages MUST use revision: SHA.
-        // branch: "main" is reserved for internal runbot-hq packages only (they are
-        // owned by this org and changes are reviewed before landing on main).
-        // External packages can push breaking changes to main at any time and would
-        // silently break the next `swift package update` run in CI.
-        //
-        // TO UPDATE THESE DEPS:
-        //   1. Run `swift package update` locally.
-        //   2. Copy the new SHA from Package.resolved for the target package.
-        //   3. Bump the revision: value here.
-        //   4. Commit both Package.swift and Package.resolved changes together.
-        //   ❌ Do NOT switch back to branch: "main" for either of these packages.
-        // Highlightr and swift-markdown are now owned entirely by the MarkdownKit
-        // local package (#2600 tranche 10). They are no longer declared at root level.
     ],
     targets: [
         .target(
