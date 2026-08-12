@@ -75,7 +75,7 @@ public enum BlockParser {
             let items: [[MarkdownBlock]] = ol.listItems.map { item in
                 Array(item.children.map { parse($0) })
             }
-            return .orderedList(items: items, startIndex: ol.startIndex)
+            return .orderedList(items: items, startIndex: Int(ol.startIndex))
 
         case let ul as UnorderedList:
             let items: [[MarkdownBlock]] = ul.listItems.map { item in

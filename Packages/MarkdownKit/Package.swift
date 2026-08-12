@@ -26,7 +26,8 @@ let package = Package(
             path: "Sources/MarkdownKit",
             swiftSettings: [
                 .swiftLanguageMode(.v6),
-                .enableUpcomingFeature("NonisolatedNonsendingByDefault")
+                .enableUpcomingFeature("NonisolatedNonsendingByDefault"),
+
             ]
         ),
         .testTarget(

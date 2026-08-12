@@ -51,10 +51,12 @@ public enum InlineParser {
 
 // MARK: - InlineTextView
 
-/// Renders a `[InlineNode]` array as a single SwiftUI `Text` by joining.
+/// Renders a `[InlineNode]` array as a single SwiftUI `Text`.
 ///
-/// Uses a recursive `joined(_:)` helper instead of `Text +` concatenation
-/// because the `+` operator is deprecated on macOS 26.
+/// Builds an `AttributedString` incrementally so that per-run formatting
+/// (bold, italic, strikethrough, colour, font) is fully expressed without
+/// relying on the `Text +` concatenation operator, which is deprecated on
+/// macOS 26 in favour of string interpolation.
 @MainActor
 public struct InlineTextView: View {
     public let inlines: [InlineNode]
@@ -66,26 +68,19 @@ public struct InlineTextView: View {
     }
 
     public var body: some View {
-        joined(inlines)
+        SwiftUI.Text(attributedString(for: inlines))
     }
 
     // MARK: Private
 
-    /// Recursively joins an array of `InlineNode` into a single `Text`.
-    ///
-    /// Uses `Text` concatenation via `+` which is deprecated on macOS 26 in favour
-    /// of string interpolation. String interpolation cannot carry per-run formatting
-    /// (bold, italic, colour) so `+` is intentional here.
-    /// swiftlint:disable:next no_grouping_extension
-    private func joined(_ nodes: [InlineNode]) -> SwiftUI.Text {
-        // swiftlint:disable:next operator_usage_whitespace
-        var out = SwiftUI.Text(verbatim: "")
-        for node in nodes { out = out + rendered(node) } // swiftlint:disable:this operator_usage_whitespace
-        return out
+    /// Recursively builds an `AttributedString` for the given inline nodes.
+    private func attributedString(for nodes: [InlineNode]) -> AttributedString {
+        nodes.reduce(into: AttributedString()) { result, node in
+            result += attributed(node)
+        }
     }
 
-    /// Flattens an `[InlineNode]` array to plain text for use in `AttributedString`
-    /// contexts where rich formatting cannot be carried (e.g. link labels).
+    /// Flattens an `[InlineNode]` array to plain text (e.g. for link labels).
     private func inlinePlainText(_ nodes: [InlineNode]) -> String {
         nodes.map { node -> String in
             switch node {
@@ -98,37 +93,51 @@ public struct InlineTextView: View {
         }.joined()
     }
 
-    private func rendered(_ node: InlineNode) -> SwiftUI.Text {
+    /// Converts a single `InlineNode` into an `AttributedString` run.
+    private func attributed(_ node: InlineNode) -> AttributedString {
         switch node {
         case .text(let s):
-            return SwiftUI.Text(verbatim: s)
+            return AttributedString(s)
+
         case .softBreak:
-            return SwiftUI.Text(verbatim: " ")
+            return AttributedString(" ")
+
         case .lineBreak:
-            return SwiftUI.Text(verbatim: "\n")
+            return AttributedString("\n")
+
         case .code(let s):
-            return SwiftUI.Text(verbatim: s)
-                .font(style.monoFont)
-                .foregroundColor(style.textSecondary)
+            var a = AttributedString(s)
+            a.swiftUI.font = style.monoFont
+            a.swiftUI.foregroundColor = style.textSecondary
+            return a
+
         case .strong(let children):
-            return joined(children).bold()
+            var a = attributedString(for: children)
+            // `inlinePresentationIntent` is the correct way to apply bold/italic
+            // to an AttributedString without mutating individual runs.
+            a.inlinePresentationIntent = .stronglyEmphasized
+            return a
+
         case .emphasis(let children):
-            return joined(children).italic()
+            var a = attributedString(for: children)
+            a.inlinePresentationIntent = .emphasized
+            return a
+
         case .strikethrough(let children):
-            return joined(children).strikethrough()
+            var a = attributedString(for: children)
+            a.strikethroughStyle = .single
+            return a
+
         case .link(let destination, let children):
+            var a = AttributedString(inlinePlainText(children))
             if let url = URL(string: destination), !destination.isEmpty {
-                // Build visible label as plain text, attach the URL so the link
-                // is actionable. Formatting inside the label (bold, italic) is
-                // intentionally flattened — nested rich links are rare in CI logs.
-                var attr = AttributedString(inlinePlainText(children))
-                attr.link = url
-                attr.foregroundColor = style.accent
-                return SwiftUI.Text(attr)
+                a.link = url
             }
-            return joined(children).foregroundColor(style.accent)
+            a.swiftUI.foregroundColor = style.accent
+            return a
+
         case .unknown(let s):
-            return SwiftUI.Text(verbatim: s)
+            return AttributedString(s)
         }
     }
 }
