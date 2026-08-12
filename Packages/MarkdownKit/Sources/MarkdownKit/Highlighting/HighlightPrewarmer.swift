@@ -7,8 +7,9 @@ import SwiftUI
 
 /// Pre-warms `MarkdownHighlighter` for every `.codeBlock` in `blocks`.
 ///
-/// Call this inside the same background `Task` that produces the blocks, so
-/// highlighting is warm before the view renders for the first time.
+/// Call after `BlockParser.parseAsync` returns and before publishing the blocks.
+/// Individual highlight operations run through MarkdownHighlighter on MainActor,
+/// leaving the cache warm before MarkdownDocumentView evaluates code-block views.
 ///
 /// This is a best-effort cache warmer, not part of rendering correctness.
 /// It intentionally consumes the top-level normalized block array. Nested code
