@@ -73,8 +73,9 @@ struct MarkdownLogView: View {
     private func renderMarkdown() async {
         let renderID = UUID().uuidString.prefix(8)
         let lineCount = text.components(separatedBy: "\n").count
+        let schemeName = colorScheme == .dark ? "dark" : "light"
 
-        markdownRenderLogger.notice("[\(renderID, privacy: .public)] task started chars=\(text.count) lines=\(lineCount) scheme=\(String(describing: colorScheme))")
+        markdownRenderLogger.notice("[\(renderID, privacy: .public)] task started chars=\(text.count) lines=\(lineCount) scheme=\(schemeName, privacy: .public)")
 
         // Clear stale blocks immediately so the previous log is not shown
         // while the new one parses. parseAsync hops off-main via @concurrent.
@@ -83,8 +84,9 @@ struct MarkdownLogView: View {
         let parseStart = ContinuousClock.now
         let parsed = await BlockParser.parseAsync(text)
         let parseDuration = parseStart.duration(to: .now)
+        let parseDurationText = String(describing: parseDuration)
 
-        markdownRenderLogger.notice("[\(renderID, privacy: .public)] parse completed blocks=\(parsed.count) duration=\(String(describing: parseDuration)) cancelled=\(Task.isCancelled)")
+        markdownRenderLogger.notice("[\(renderID, privacy: .public)] parse completed blocks=\(parsed.count) duration=\(parseDurationText, privacy: .public) cancelled=\(Task.isCancelled)")
 
         for (index, block) in parsed.enumerated() {
             markdownRenderLogger.debug("[\(renderID, privacy: .public)] parsed block index=\(index, privacy: .public) kind=\(block.renderLogKind, privacy: .public)")
@@ -115,8 +117,9 @@ struct MarkdownLogView: View {
         await preWarmHighlighter(blocks: parsed, colorScheme: colorScheme)
 
         let prewarmDuration = prewarmStart.duration(to: .now)
+        let prewarmDurationText = String(describing: prewarmDuration)
 
-        markdownRenderLogger.notice("[\(renderID, privacy: .public)] prewarm completed duration=\(String(describing: prewarmDuration)) cancelled=\(Task.isCancelled)")
+        markdownRenderLogger.notice("[\(renderID, privacy: .public)] prewarm completed duration=\(prewarmDurationText, privacy: .public) cancelled=\(Task.isCancelled)")
 
         guard !Task.isCancelled else {
             markdownRenderLogger.notice(

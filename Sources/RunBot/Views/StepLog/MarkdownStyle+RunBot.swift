@@ -16,9 +16,9 @@ extension MarkdownStyle {
     /// - Colour      → `Color.rb*` semantic palette
     static var runBot: MarkdownStyle {
         MarkdownStyle(
-            baseFont: RBFont.sectionKey,
-            monoFont: RBFont.mono,
-            labelFont: RBFont.sectionCaption,
+            baseFont: .system(size: 12, weight: .regular),
+            monoFont: RBFont.monoSmall,
+            labelFont: RBFont.statLabel,
             textPrimary: Color.rbTextPrimary,
             textSecondary: Color.rbTextSecondary,
             textTertiary: Color.rbTextTertiary,
@@ -67,17 +67,17 @@ extension MarkdownStyle {
                     bottomSpacing: 4
                 )
             ),
-            paragraphTextColor: Color.rbTextPrimary,
+            paragraphTextColor: Color.rbTextPrimary.opacity(0.75),
             blockBottomSpacing: RBSpacing.sm,
             inlineCodeBackground: Color.rbSurfaceElevated,
-            blockQuoteFont: RBFont.sectionKey,
+            blockQuoteFont: .system(size: 12, weight: .regular).italic(),
             blockQuoteTextColor: Color.rbTextSecondary,
             blockQuoteBorderWidth: 2,
-            blockQuoteHorizontalPadding: RBSpacing.sm,
+            blockQuoteHorizontalPadding: 9,
             listItemSpacing: 2,
-            tableFont: RBFont.label,
-            codeBlockLineSpacing: 2,
-            showsLinkUnderline: true
+            tableFont: .system(size: 11, weight: .regular),
+            codeBlockLineSpacing: 2.2,
+            showsLinkUnderline: false
         )
     }
 }
