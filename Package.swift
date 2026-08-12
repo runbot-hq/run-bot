@@ -24,6 +24,9 @@ let package = Package(
         .package(path: "Packages/GitHubClient"),
         // Local path — source of truth is now Packages/MenuBarKit in this repo.
         .package(path: "Packages/MenuBarKit"),
+        // Local path — internal MarkdownKit package (#2600). Owns detection,
+        // parsing, rendering, highlighting, and tables. Replaces swift-markdown-ui.
+        .package(path: "Packages/MarkdownKit"),
         // ⚠️ DEPENDENCY POLICY — external (non-runbot-hq) packages MUST use revision: SHA.
         // branch: "main" is reserved for internal runbot-hq packages only (they are
         // owned by this org and changes are reviewed before landing on main).
@@ -77,6 +80,9 @@ let package = Package(
                 // No RunBot source imports MenuBarKit yet — the dependency is additive
                 // and costs nothing until the first import statement is written.
                 .product(name: "MenuBarKit", package: "MenuBarKit"),
+                // MarkdownKit — internal package owning all Markdown concerns (#2600).
+                // MarkdownUI stays until tranche 9 cutover (implementation switch guards it).
+                .product(name: "MarkdownKit", package: "MarkdownKit"),
                 // MarkdownUI for rendering detected markdown in StepLogView (#2398).
                 // swift-markdown (swiftlang mirror) arrives transitively via swift-markdown-ui
                 // and is also declared directly in RunBotCore for MarkdownDetector testability.
