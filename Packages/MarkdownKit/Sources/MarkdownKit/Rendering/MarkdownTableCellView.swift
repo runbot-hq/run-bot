@@ -20,7 +20,7 @@ struct MarkdownTableCellView: View {
 
     var body: some View {
         InlineTextView(inlines: inlines, style: style)
-            .font(isHeader ? style.baseFont.bold() : style.baseFont)
+            .font(isHeader ? style.tableFont.bold() : style.tableFont)
             .foregroundColor(style.textPrimary)
             .multilineTextAlignment(textAlignment)
             .frame(maxWidth: 220, alignment: textAlignment == .trailing ? .trailing : textAlignment == .center ? .center : .leading)

@@ -45,6 +45,7 @@ public struct MarkdownCodeBlockView: View {
                     }
                 }
                 .font(style.monoFont)
+                .lineSpacing(style.codeBlockLineSpacing)
                 .fixedSize(horizontal: true, vertical: false)
                 .padding(style.spacingSM)
             }
@@ -56,6 +57,6 @@ public struct MarkdownCodeBlockView: View {
             RoundedRectangle(cornerRadius: style.radiusSmall)
                 .strokeBorder(style.borderSubtle, lineWidth: 0.5)
         )
-        .padding(.bottom, 6)
+        .padding(.bottom, style.blockBottomSpacing)
     }
 }

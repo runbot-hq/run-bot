@@ -27,9 +27,12 @@ public struct MarkdownBlockView: View {
             case .paragraph(let inlines):
                 InlineTextView(inlines: inlines, style: style)
                     .font(style.baseFont)
-                    .foregroundColor(style.textPrimary.opacity(0.75))
+                    .foregroundColor(style.paragraphTextColor)
                     .fixedSize(horizontal: false, vertical: true)
-                    .padding(.bottom, 6)
+                    .padding(
+                        .bottom,
+                        listDepth > 0 ? style.listItemSpacing : style.blockBottomSpacing
+                    )
 
             case .orderedList(let items, let start):
                 MarkdownListView(items: items, ordered: true, startIndex: start, style: style, depth: listDepth)
@@ -41,16 +44,16 @@ public struct MarkdownBlockView: View {
                 HStack(alignment: .top, spacing: 0) {
                     Rectangle()
                         .fill(style.borderSubtle)
-                        .frame(width: 2)
+                        .frame(width: style.blockQuoteBorderWidth)
                     VStack(alignment: .leading, spacing: 0) {
                         ForEach(blocks.indices, id: \.self) { i in
-                            MarkdownBlockView(block: blocks[i], style: style)
+                            MarkdownBlockView(block: blocks[i], style: blockQuoteContentStyle)
                         }
                     }
-                    .padding(.horizontal, 8)
+                    .padding(.horizontal, style.blockQuoteHorizontalPadding)
                 }
                 .fixedSize(horizontal: false, vertical: true)
-                .padding(.bottom, 6)
+                .padding(.bottom, style.blockBottomSpacing)
 
             case .codeBlock(let code, let language):
                 MarkdownCodeBlockView(code: code, language: language, style: style)
@@ -58,7 +61,7 @@ public struct MarkdownBlockView: View {
             case .thematicBreak:
                 Divider()
                     .overlay(style.borderSubtle)
-                    .padding(.vertical, 12)
+                    .padding(.vertical, style.spacingMD)
 
             case .table(let model):
                 MarkdownTableView(model: model, style: style)
@@ -80,19 +83,18 @@ public struct MarkdownBlockView: View {
 
     @ViewBuilder
     private func headingView(level: Int, inlines: [InlineNode]) -> some View {
+        let heading = style.headings.style(for: level)
         InlineTextView(inlines: inlines, style: style)
-            .font(headingFont(level))
-            .foregroundColor(level <= 3 ? style.textPrimary : style.textSecondary)
-            .padding(.top, level == 1 ? 16 : level == 2 ? 12 : 10)
-            .padding(.bottom, level <= 2 ? 8 : 4)
+            .font(heading.font)
+            .foregroundColor(heading.color)
+            .padding(.top, heading.topSpacing)
+            .padding(.bottom, heading.bottomSpacing)
     }
 
-    private func headingFont(_ level: Int) -> Font {
-        switch level {
-        case 1:  return .system(size: 14, weight: .bold)
-        case 2:  return .system(size: 13, weight: .semibold)
-        case 3:  return .system(size: 12.5, weight: .medium)
-        default: return .system(size: 12.5, weight: .regular)
-        }
+    private var blockQuoteContentStyle: MarkdownStyle {
+        var copy = style
+        copy.baseFont = style.blockQuoteFont
+        copy.paragraphTextColor = style.blockQuoteTextColor
+        return copy
     }
 }

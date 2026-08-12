@@ -60,6 +60,6 @@ public struct MarkdownTableView: View {
                 }
             }
         }
-        .padding(.bottom, 6)
+        .padding(.bottom, style.blockBottomSpacing)
     }
 }

@@ -22,7 +22,7 @@ extension MarkdownStyle {
     /// - Link              : rbAccent
     @MainActor static var runBot: MarkdownStyle {
         MarkdownStyle(
-            baseFont: .system(size: 12),
+            baseFont: .system(size: 12, weight: .regular),
             monoFont: RBFont.monoSmall,
             labelFont: RBFont.statLabel,
             textPrimary: .rbTextPrimary,
@@ -34,7 +34,56 @@ extension MarkdownStyle {
             radiusSmall: RBRadius.small,
             spacingXS: RBSpacing.xs,
             spacingSM: RBSpacing.sm,
-            spacingMD: RBSpacing.md
+            spacingMD: RBSpacing.md,
+            headings: MarkdownHeadingStyles(
+                h1: MarkdownHeadingStyle(
+                    font: .system(size: 14, weight: .bold),
+                    color: .rbTextPrimary,
+                    topSpacing: 16,
+                    bottomSpacing: 8
+                ),
+                h2: MarkdownHeadingStyle(
+                    font: .system(size: 13, weight: .semibold),
+                    color: .rbTextPrimary,
+                    topSpacing: 12,
+                    bottomSpacing: 6
+                ),
+                h3: MarkdownHeadingStyle(
+                    font: .system(size: 12.5, weight: .medium),
+                    color: .rbTextPrimary,
+                    topSpacing: 10,
+                    bottomSpacing: 4
+                ),
+                h4: MarkdownHeadingStyle(
+                    font: .system(size: 12.5, weight: .regular),
+                    color: .rbTextSecondary,
+                    topSpacing: 6,
+                    bottomSpacing: 4
+                ),
+                h5: MarkdownHeadingStyle(
+                    font: .system(size: 12.5, weight: .regular),
+                    color: .rbTextSecondary,
+                    topSpacing: 6,
+                    bottomSpacing: 4
+                ),
+                h6: MarkdownHeadingStyle(
+                    font: .system(size: 12.5, weight: .regular),
+                    color: .rbTextSecondary,
+                    topSpacing: 6,
+                    bottomSpacing: 4
+                )
+            ),
+            paragraphTextColor: .rbTextPrimary.opacity(0.75),
+            blockBottomSpacing: 6,
+            inlineCodeBackground: .rbSurfaceElevated,
+            blockQuoteFont: .system(size: 12, weight: .regular).italic(),
+            blockQuoteTextColor: .rbTextSecondary,
+            blockQuoteBorderWidth: 2,
+            blockQuoteHorizontalPadding: 9,
+            listItemSpacing: 2,
+            tableFont: .system(size: 11),
+            codeBlockLineSpacing: 2.2,
+            showsLinkUnderline: false
         )
     }
 }

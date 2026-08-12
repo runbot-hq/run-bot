@@ -124,6 +124,7 @@ public struct InlineTextView: View {
             var a = AttributedString(s)
             a.swiftUI.font = style.monoFont
             a.swiftUI.foregroundColor = style.textSecondary
+            a.swiftUI.backgroundColor = style.inlineCodeBackground
             return a
 
         case .strong(let children):
@@ -149,6 +150,9 @@ public struct InlineTextView: View {
                 a.link = url
             }
             a.swiftUI.foregroundColor = style.accent
+            if !style.showsLinkUnderline {
+                a.swiftUI.underlineStyle = Text.LineStyle(pattern: .solid, color: .clear)
+            }
             return a
 
         case .unknown(let s):

@@ -26,14 +26,14 @@ public struct MarkdownListView: View {
     }
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: style.listItemSpacing) {
             ForEach(items.indices, id: \.self) { i in
                 HStack(alignment: .firstTextBaseline, spacing: 4) {
                     Text(ordered ? "\(startIndex + i)." : "•")
                         .font(style.baseFont)
                         .foregroundColor(style.textSecondary)
                         .frame(minWidth: ordered ? 20 : 10, alignment: .trailing)
-                    VStack(alignment: .leading, spacing: 2) {
+                    VStack(alignment: .leading, spacing: style.listItemSpacing) {
                         ForEach(items[i].indices, id: \.self) { j in
                             MarkdownBlockView(
                                 block: items[i][j],
@@ -45,6 +45,9 @@ public struct MarkdownListView: View {
                 }
             }
         }
-        .padding(.bottom, depth == 0 ? 4 : 2)
+        .padding(
+            .bottom,
+            depth == 0 ? style.blockBottomSpacing : style.listItemSpacing
+        )
     }
 }
