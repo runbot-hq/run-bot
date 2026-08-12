@@ -108,10 +108,10 @@ extension AppDelegate {
         // onWillShow is intentionally empty / commented out.
         //
         // WHY nav state does not need to be restored here:
-        // appState.savedNavState is persistent @Observable state — it is never cleared
-        // on open, only on explicit back-navigation or onWillClose(wasForced: false).
-        // RootPanelView reads it directly and reactively; by the time onWillShow fires
-        // the SwiftUI tree is already rendering the correct route. There is nothing to do.
+        // appState.savedNavState is persistent @Observable state. Panel dismissal
+        // does not clear it; only explicit back-navigation changes the route.
+        // RootPanelView reads it directly and reactively, so the SwiftUI tree is
+        // already rendering the saved route before the panel becomes visible.
         //
         // Other candidates considered for this callback (auth token pre-flight, stale-job
         // guard restoration) were deferred — see the commented-out block below for context.
@@ -141,6 +141,9 @@ extension AppDelegate {
                 panelSheetState.captureTransientHideState()
                 panelVisibilityState.isTransientHide = true
             } else {
+                // wasForced=false: normal panel dismissal. Clear transient sheet state
+                // through closePanel(), but preserve savedNavState for the next open.
+                // This is the shared fix for #2376 (Settings) and #2726 (Step Log).
                 closePanel()
             }
             panelVisibilityState.isOpen = false

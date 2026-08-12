@@ -110,7 +110,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Close
 
-    /// Resets run-bot state ahead of a close driven externally by MBKPanelController.
+    /// Handles cleanup for a normal panel dismissal.
+    ///
+    /// Preserves `appState.savedNavState` so reopening the panel returns to
+    /// the current route. Panel visibility changes must not mutate navigation.
+    ///
+    /// Clears transient runner-sheet state because the normal close path does
+    /// not participate in forced sheet restoration.
+    ///
+    /// Route reset is owned by `navigateBack()`.
     ///
     /// ⚠️ THIS METHOD INTENTIONALLY DOES NOT DISMISS THE PANEL.
     /// MBKPanelController owns all close paths (status-bar toggle, click-outside,
@@ -127,9 +135,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// panelController?.close() there directly instead of routing through here.
     ///
     /// ❌ NEVER add panelController?.close() here.
+    /// ❌ NEVER clear savedNavState here — panel visibility must not alter navigation.
+    ///    Preserving savedNavState is the fix for both #2376 (Settings) and #2726 (Step Log).
     func closePanel() {
         log("AppDelegate › closePanel")
-        appState.savedNavState = nil
         panelSheetState.clearRunnerSheet()
     }
 }
