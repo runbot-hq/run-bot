@@ -43,15 +43,6 @@ extension WorkflowActionGroup {
         return Double(done) / Double(steps.count)
     }
 
-    /// A formatted string showing completed vs total job count, e.g. `"2/4"`.
-    ///
-    /// Returns an empty string when the group has no jobs.
-    var jobProgress: String {
-        guard !jobs.isEmpty else { return "" }
-        let done = jobs.filter { $0.jobConclusion != nil }.count
-        return "\(done)/\(jobs.count)"
-    }
-
     /// Elapsed time as a `mm:ss` string, computed from `firstJobStartedAt` to
     /// `lastJobCompletedAt` (completed runs) or `Date()` (active runs).
     ///
