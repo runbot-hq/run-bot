@@ -1,8 +1,8 @@
 // InlineRendererTests.swift
 // RunBot
 import Markdown
-import Testing
 @testable import MarkdownKit
+import Testing
 
 @Suite struct InlineRendererTests {
 
@@ -75,5 +75,16 @@ import Testing
     @Test func emptyStringProducesNoNodes() {
         let nodes = inlines(from: "")
         #expect(nodes.isEmpty)
+    }
+
+    @Test func unknownInlineContainerPreservesNestedVisibleText() {
+        // Regression for #2740: unsupported inline containers (e.g. Image) must
+        // preserve recursively nested visible text rather than discarding it.
+        let nodes = inlines(from: "![prefix **bold** and `code`](https://example.com/image.png)")
+        guard case .unknown(let text) = nodes.first else {
+            Issue.record("expected unknown inline fallback")
+            return
+        }
+        #expect(text == "prefix bold and code")
     }
 }

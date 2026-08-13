@@ -13,6 +13,21 @@ public enum InlineParser {
         markup.children.compactMap { node(from: $0) }
     }
 
+        /// Extracts all visible text recursively from a normalized inline node.
+    private static func plainText(from node: InlineNode) -> String {
+        switch node {
+        case .text(let string), .code(let string), .unknown(let string):
+            return string
+        case .softBreak:
+            return " "
+        case .lineBreak:
+            return "\n"
+        case .strong(let children), .emphasis(let children), .strikethrough(let children):
+            return children.map { plainText(from: $0) }.joined()
+        case .link(_, let children):
+            return children.map { plainText(from: $0) }.joined()
+        }
+    }
     static func node(from markup: any Markup) -> InlineNode? {
         switch markup {
         case let t as Markdown.Text:
@@ -39,16 +54,10 @@ public enum InlineParser {
             // Unknown inline container: preserve children without inventing emphasis styling.
             // Leaf nodes with no children (e.g. Image alt-text holder) return nil silently.
             let children = parse(markup)
-            if children.isEmpty { return nil }
-            return .unknown(children.map { node -> String in
-                switch node {
-                case .text(let s), .code(let s), .unknown(let s): return s
-                case .softBreak: return " "
-                case .lineBreak: return "\n"
-                case .strong(let c), .emphasis(let c), .strikethrough(let c), .link(_, let c):
-                    return c.compactMap { if case .text(let s) = $0 { return s } else { return nil } }.joined()
-                }
-            }.joined())
+            guard !children.isEmpty else { return nil }
+            let text = children.map { Self.plainText(from: $0) }.joined()
+            guard !text.isEmpty else { return nil }
+            return .unknown(text)
         }
     }
 }
