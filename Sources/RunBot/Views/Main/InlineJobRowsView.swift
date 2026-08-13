@@ -565,8 +565,8 @@ struct InlineJobRowsView: View {
         // This means expandedJobIDs persists and steps appear expanded after collapse.
         // Clearing expandedJobIDs here resets all job cards to their default closed
         // state, matching the expected "active row state" on collapse.
-        .onChange(of: fullExpand) { _, newValue in
-            if !newValue { hierarchyState.clearJobs(for: groupID) }
-        }
+        // Job-state cleanup on full→partial is owned by
+        // MainHierarchyState.setExpansion; no duplicate clearJobs here.
+        .onChange(of: fullExpand) { _, _ in }
     }
 }

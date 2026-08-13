@@ -286,7 +286,7 @@ Task { await localRunnerStore.refresh() }
         ) { _, groupIDs in
             appState.mainHierarchyState.retainGroups(Set(groupIDs))
         }
-                .onChange(of: appState.runnerState.runners) { _, newRunners in
+        .onChange(of: appState.runnerState.runners) { _, newRunners in
             // Re-trigger enrichment so local.isBusy is stamped in lock-step with
             // every new GitHub runners poll. The isScanning guard in
             // LocalRunnerStore.performRefresh() prevents concurrent cycles.

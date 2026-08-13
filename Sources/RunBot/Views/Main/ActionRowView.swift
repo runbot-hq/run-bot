@@ -154,40 +154,29 @@ struct ActionRowView: View {
         .allowsHitTesting(false)
     }
 
-    /// Sets the initial expand state based on the row's status at appear time.
-    /// Only applies the automatic default when the row has never been visited.
-    /// An existing entry (even .collapsed) represents user intent or a prior
-    /// navigation; do not overwrite it on re-mount after route change.
+    /// Reconciles expansion on appear, catching status transitions that
+    /// occurred while Main was unmounted, then seeds `previousStatus`.
+    ///
+    /// Does not animate: appearance reconciliation is not a live transition.
     private func applyInitialExpandState() {
         let status = rowStatus
+        hierarchyState.reconcile(status: status, for: group.id)
         previousStatus = status
-        if hierarchyState.expansion(for: group.id) == nil {
-            setExpandState((status == .inProgress) ? false : nil)
-        }
     }
 
-    /// Routes all expandState mutations through hierarchyState and handles
-    /// job-state cleanup on collapse/partial transitions.
+    /// Routes all user-driven expandState mutations through hierarchyState.
+    /// Job-state cleanup is owned by `MainHierarchyState.setExpansion`.
     private func setExpandState(_ newValue: Bool?) {
-        let oldExpansion = hierarchyState.expansion(for: group.id)
         let newExpansion = MainHierarchyState.WorkflowExpansion(newValue)
         hierarchyState.setExpansion(newExpansion, for: group.id)
-        switch (oldExpansion, newExpansion) {
-        case (_, .collapsed), (.some(.full), .partial):
-            hierarchyState.clearJobs(for: group.id)
-        default:
-            break
-        }
     }
 
-    /// Animates expand state transitions when the row status changes.
+    /// Animates expansion transitions triggered by live status changes.
     private func handleStatusChange(_ newStatus: RBStatus) {
         let animation: Animation = .easeInOut(duration: 0.15)
-        if newStatus == .inProgress && expandState == nil {
-            withAnimation(animation) { setExpandState(false) }
-        }
-        if previousStatus == .inProgress && (newStatus == .success || newStatus == .failed) {
-            withAnimation(animation) { setExpandState(nil) }
+        let changed = hierarchyState.reconcile(status: newStatus, for: group.id)
+        if changed {
+            withAnimation(animation) {}
         }
         previousStatus = newStatus
     }
