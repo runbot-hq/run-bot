@@ -102,7 +102,11 @@ swift package clean && swift build
 ```bash
 swift package show-dependencies
 ```
-The only third-party dependency is `apple/swift-collections`.
+Third-party dependencies are `apple/swift-collections` (root package),
+`apple/swift-markdown` and `nicklockwood/Highlightr` (used by `MarkdownKit`).
+All external packages are pinned to a hardcoded `revision:` SHA — see the
+relevant `Package.swift` manifests. Organization-owned packages (`runbot-hq/*`)
+track `branch: "main"` and are never revision-pinned.
 
 ### Log streaming
 

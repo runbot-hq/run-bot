@@ -4,9 +4,9 @@ import Markdown
 
 /// Scores a log string for markdown content and decides whether to auto-render it.
 ///
-/// Lives in `RunBotCore` (not `RunBot`) so it can be unit-tested without SwiftUI.
+/// Lives in `MarkdownKit` (not `RunBot`) so it can be unit-tested without SwiftUI.
 /// Always pass **ANSI-stripped** text — raw escape sequences degrade AST scoring
-/// and would render as literal characters in MarkdownView. Today `cleanLogText`
+/// and would render as literal characters in MarkdownDocumentView. Today `cleanLogText`
 /// strips ANSI upstream of this call. When #2379 Item 5 lands and ANSI stripping
 /// is extracted into a standalone `stripANSI(_:)` function, the markdown path in
 /// `StepLogView.loadLog()` must call `stripANSI(_:)` explicitly. See §7 of #2394.
@@ -97,8 +97,8 @@ public enum MarkdownDetector {
     /// distinct block types appear.
     ///
     /// Thresholds:
-    /// - `>= 6` — enough signal for the badge to appear (§4 of #2394)
-    /// - Combined with line-count normalization in `looksLikeMarkdown(_:)` for auto-enable
+    /// - `>= 3` — minimum signal required before any gate applies
+    /// - Combined with line-count normalization and the cubic bypass in `looksLikeMarkdown(_:)` for auto-enable
     ///
     /// - Note: Prefer `detect(_:)` when you need both the score and the boolean
     ///   in the same call site — it avoids a redundant `Document(parsing:)` call.
@@ -111,11 +111,12 @@ public enum MarkdownDetector {
         detect(text).score
     }
 
-    /// Extracts all fenced code blocks from `text`.
+    /// Extracts top-level fenced code blocks and their language hints.
     ///
-    /// Used by the RunBot UI layer to pre-warm the syntax-highlighting cache
-    /// without importing `Markdown` into files that already stress the
-    /// Swift type-checker (e.g. large SwiftUI view bodies).
+    /// Retained as part of MarkdownDetector's public behavior-preservation contract
+    /// from #2600. The current MarkdownLogView prewarmer consumes normalized
+    /// MarkdownBlock values instead, so this API may have no in-repository caller.
+    /// Do not remove it as dead code without explicitly changing that contract.
     ///
     /// - Parameter text: Raw log text, ANSI-stripped.
     /// - Returns: Array of `(code, language)` tuples; `language` is `nil` when
@@ -133,15 +134,15 @@ public enum MarkdownDetector {
 
     /// Returns `true` when `text` is likely markdown and should auto-render.
     ///
-    /// Two gates (AND):
-    /// 1. Raw score `>= 6`
-    /// 2. Normalized score (raw / line count) `>= 0.10` — prevents a 2000-line
-    ///    build log with a single fenced block from triggering auto-render.
+    /// Gates (see `detect(_:)` for the authoritative implementation):
+    /// 1. Raw score `>= 3` is required.
+    /// 2. Then either the density floor (`score / lines >= 0.10`) or, for logs of
+    ///    200 lines or fewer, the cubic bypass (`score³ / lines >= 1.8`).
     ///
-    /// - Note: Short-log bypass (open decision, see §2 of #2394):
-    ///   A pure 5-line fenced Swift block scores ~4 and fails gate 1 entirely.
-    ///   Consider a `lines < 15` fast-pass (`raw >= 4` sufficient) to catch
-    ///   clean short AI review outputs. Decide before implementation.
+    /// The density floor prevents a 2000-line build log with a single fenced block
+    /// from triggering auto-render. The cubic bypass catches short, dense Markdown
+    /// such as a 5-line fenced Swift block (score 4), which the earlier `>= 6`
+    /// linear gate rejected.
     ///
     /// - Note: Prefer `detect(_:)` when you need both the score and the boolean
     ///   in the same call site — it avoids a redundant `Document(parsing:)` call.

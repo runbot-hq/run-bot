@@ -1,7 +1,7 @@
 // MarkdownDetectorTests.swift
-// RunBotCoreTests
+// RunBot
 import Testing
-@testable import RunBotCore
+@testable import MarkdownKit
 
 @Suite("MarkdownDetector")
 struct MarkdownDetectorTests {
@@ -13,7 +13,8 @@ struct MarkdownDetectorTests {
         #expect(MarkdownDetector.confidence("") == 0)
     }
 
-    @Test func detect_emptyString_scoresZero() {
+    @Test("detect on empty string scores zero")
+    func detectEmptyStringScoresZero() {
         let result = MarkdownDetector.detect("")
         #expect(result.score == 0)
         #expect(result.looksLikeMarkdown == false)
@@ -114,10 +115,12 @@ struct MarkdownDetectorTests {
         #expect(MarkdownDetector.looksLikeMarkdown(text) == true)
     }
 
-    @Test("long log fails min-score gate")
-    func longLogWithLowNormalizedScoreFails() {
-        // 1990 plain lines + one heading: score = 2, which fails the absolute
-        // minimum score >= 3 gate regardless of total line count.
+    @Test("long log fails density floor")
+    func longLogFailsDensityFloor() {
+        // One heading (+2) plus 1990 consecutive log lines, which parse as a
+        // single long paragraph (+2 prose) = score 4. That passes score >= 3,
+        // but density 4/1991 ≈ 0.002 is below the 0.10 floor and the 1991 line
+        // count exceeds the 200-line cubic cap, so auto-enable is false.
         let plainLines = (0..<1990).map { "[2026-08-01T00:0\($0 % 10):00Z] Build step \($0)" }.joined(separator: "\n")
         let text = "# Summary\n" + plainLines
         #expect(MarkdownDetector.looksLikeMarkdown(text) == false)
@@ -214,8 +217,7 @@ struct MarkdownDetectorTests {
         #expect(MarkdownDetector.detect(tiny).score == 1)
         #expect(MarkdownDetector.detect(tiny).looksLikeMarkdown == false)
 
-        // 2. Issue #2505 scenario — headings=1, score=3, lines=35
-        //    S^3/L = 27/35 ≈ 0.77 ... hmm, need denser. Use headings=2, score=5, lines=15
+        // 2. Short dense log — headings=2, score=5, lines=15
         //    S^3/L = 125/15 ≈ 8.33 >= 1.8 → true
         let shortDense = makeLog(headings: 2, lines: 15)
         #expect(MarkdownDetector.detect(shortDense).score == 5)
@@ -233,7 +235,8 @@ struct MarkdownDetectorTests {
         #expect(MarkdownDetector.detect(mediumPass).score == 7)
         #expect(MarkdownDetector.detect(mediumPass).looksLikeMarkdown == true)
 
-        // 5. Medium log over line limit — headings=3, score=7, lines=200
+        // 5. Medium log at the line cap — headings=3, score=7, lines=200.
+        //    lines <= 200 so the cubic branch applies, but
         //    S^3/L = 343/200 = 1.715 < 1.8 → false
         let mediumFail = makeLog(headings: 3, lines: 200)
         #expect(MarkdownDetector.detect(mediumFail).score == 7)

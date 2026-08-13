@@ -14,6 +14,8 @@ let package = Package(
             targets: ["RunBotCore"]
         ),
     ],
+    // Package.resolved is intentionally not tracked in this repository.
+    // Dependency revisions are declared in package manifests per repository policy.
     // ⚠️ AI AGENT: Do NOT change branch: "main" to a revision/exact/commit hash.
     // Do NOT edit Package.resolved manually. Do NOT commit Package.resolved.
     // If a dependency's API changes → fix the call site here, never lock the dep.
@@ -24,29 +26,9 @@ let package = Package(
         .package(path: "Packages/GitHubClient"),
         // Local path — source of truth is now Packages/MenuBarKit in this repo.
         .package(path: "Packages/MenuBarKit"),
-        // ⚠️ DEPENDENCY POLICY — external (non-runbot-hq) packages MUST use revision: SHA.
-        // branch: "main" is reserved for internal runbot-hq packages only (they are
-        // owned by this org and changes are reviewed before landing on main).
-        // External packages can push breaking changes to main at any time and would
-        // silently break the next `swift package update` run in CI.
-        //
-        // TO UPDATE THESE DEPS:
-        //   1. Run `swift package update` locally.
-        //   2. Copy the new SHA from Package.resolved for the target package.
-        //   3. Bump the revision: value here.
-        //   4. Commit both Package.swift and Package.resolved changes together.
-        //   ❌ Do NOT switch back to branch: "main" for either of these packages.
-        // swift-markdown-ui for RunBot-native markdown rendering in StepLogView (#2398).
-        // Pinned to v2.4.1 — do NOT switch to branch: "main".
-        .package(url: "https://github.com/gonzalezreal/swift-markdown-ui", revision: "5f613358148239d0292c0cef674a3c2314737f9e"),
-        // Highlightr for syntax highlighting in markdown code blocks (#2399).
-        // Pinned to v2.3.0 — do NOT switch to branch: "main".
-        .package(url: "https://github.com/raspu/Highlightr", revision: "05e7fcc63b33925cd0c1faaa205cdd5681e7bbef"),
-        // swiftlang mirror required — must match swift-markdown-ui's transitive dep URL exactly.
-        // apple/swift-markdown and swiftlang/swift-markdown are treated as different SPM
-        // identities even though they point to the same repo, causing an identity conflict
-        // warning if the wrong mirror is used here.
-        .package(url: "https://github.com/swiftlang/swift-markdown", revision: "27b7fc1a19068bcea3d2072db0ce86360d1400ed"),
+        // Local path — internal MarkdownKit package (#2600). Owns detection,
+        // parsing, rendering, highlighting, and tables. Replaces swift-markdown-ui.
+        .package(path: "Packages/MarkdownKit"),
     ],
     targets: [
         .target(
@@ -54,7 +36,6 @@ let package = Package(
             dependencies: [
                 .product(name: "GitHubClient", package: "GitHubClient"),
                 .product(name: "AppUpdater", package: "AppUpdater"),
-                .product(name: "Markdown", package: "swift-markdown"),
             ],
             path: "Sources/RunBotCore",
             swiftSettings: [
@@ -77,12 +58,9 @@ let package = Package(
                 // No RunBot source imports MenuBarKit yet — the dependency is additive
                 // and costs nothing until the first import statement is written.
                 .product(name: "MenuBarKit", package: "MenuBarKit"),
-                // MarkdownUI for rendering detected markdown in StepLogView (#2398).
-                // swift-markdown (swiftlang mirror) arrives transitively via swift-markdown-ui
-                // and is also declared directly in RunBotCore for MarkdownDetector testability.
-                .product(name: "MarkdownUI", package: "swift-markdown-ui"),
-                // Highlightr for syntax highlighting in markdown code blocks (#2399).
-                .product(name: "Highlightr", package: "Highlightr"),
+                // MarkdownKit — internal package owning all Markdown concerns (#2600).
+                .product(name: "MarkdownKit", package: "MarkdownKit"),
+
             ],
             path: "Sources/RunBot",
             exclude: ["Resources/Assets.xcassets"],
@@ -108,7 +86,9 @@ let package = Package(
             name: "RunBotCoreTests",
             dependencies: [
                 "RunBotCore",
-                .product(name: "GitHubClient", package: "GitHubClient")
+                .product(name: "GitHubClient", package: "GitHubClient"),
+                // MarkdownKit removed: MarkdownDetectorTests.swift deleted per #2600
+                // (duplicate of Packages/MarkdownKit/Tests/MarkdownKitTests/MarkdownDetectorTests.swift).
             ],
             path: "Tests/RunBotCoreTests",
             swiftSettings: [

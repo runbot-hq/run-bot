@@ -2,8 +2,16 @@
 // RunBot
 import AppKit
 import GitHubClient
+import MarkdownKit
+import OSLog
 import RunBotCore
 import SwiftUI
+
+/// OSLog logger for markdown render toggle events in `StepLogView`.
+private let markdownRenderLogger = Logger(
+    subsystem: "com.runbot-hq.RunBot",
+    category: "MarkdownRender"
+)
 // ╔════════════════════════════════════════════════════════════════════════════╗
 // ║ ☹️ StepLogView — LAYOUT + SIZING CONTRACT ☹️                              ║
 // ╠════════════════════════════════════════════════════════════════════════════╣
@@ -176,6 +184,9 @@ struct StepLogView: View {
                 Button {
                     hasToggledMarkdown = true
                     isMarkdownMode.toggle()
+                    markdownRenderLogger.notice(
+                        "toggle userToggled=true isMarkdownMode=\(isMarkdownMode, privacy: .public)"
+                    )
                 } label: {
                     HStack(spacing: 3) {
                         Image(systemName: isMarkdownMode ? "doc.richtext" : "doc.plaintext")
