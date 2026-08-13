@@ -346,11 +346,15 @@ public struct WorkflowActionGroup: Identifiable, Equatable, Sendable {
     /// Number of jobs with a concluded result across all sibling runs.
     public var jobsDone: Int { jobs.filter { $0.jobConclusion != nil }.count }
 
+    /// Number of successfully concluded jobs across all sibling runs.
+    public var jobsSucceeded: Int { jobs.filter { $0.jobConclusion == .success }.count }
+
     /// Total job count across all sibling runs.
     public var jobsTotal: Int { jobs.count }
 
-    /// Human-readable job progress fraction, e.g. `"3/5"`. Returns `"—"` while jobs load.
-    public var jobProgress: String { jobs.isEmpty ? "—" : "\(jobsDone)/\(jobsTotal)" }
+    /// Human-readable job progress fraction showing successful vs total jobs, e.g. `"3/5"`.
+    /// Returns `"—"` while jobs load.
+    public var jobProgress: String { jobs.isEmpty ? "—" : "\(jobsSucceeded)/\(jobsTotal)" }
 
     /// Name of the first in-progress job, or first queued job, or `"—"`.
     public var currentJobName: String {
