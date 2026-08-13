@@ -172,11 +172,14 @@ struct ActionRowView: View {
     }
 
     /// Animates expansion transitions triggered by live status changes.
+    ///
+    /// `reconcile()` must be called *inside* the `withAnimation` closure so that
+    /// the `hierarchyState.workflowExpansions` mutation is captured by the
+    /// animation transaction. Calling it before and then wrapping an empty closure
+    /// leaves the state change outside the transaction — the expand/collapse snaps.
     private func handleStatusChange(_ newStatus: RBStatus) {
-        let animation: Animation = .easeInOut(duration: 0.15)
-        let changed = hierarchyState.reconcile(status: newStatus, for: group.id)
-        if changed {
-            withAnimation(animation) {}
+        withAnimation(.easeInOut(duration: 0.15)) {
+            hierarchyState.reconcile(status: newStatus, for: group.id)
         }
         previousStatus = newStatus
     }
