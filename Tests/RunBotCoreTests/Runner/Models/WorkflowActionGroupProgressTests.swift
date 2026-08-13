@@ -5,6 +5,13 @@ import Testing
 
 // MARK: - WorkflowActionGroup.jobProgress
 
+/// Test suite for successful-versus-total job progress aggregation on `WorkflowActionGroup`.
+///
+/// Covers the fix for issue #2630: the workflow-row fraction now counts only
+/// `.success` conclusions in the numerator, while keeping all jobs in the denominator.
+/// Non-success conclusions (`.failure`, `.cancelled`, `.skipped`, `.neutral`,
+/// `.timedOut`, `.actionRequired`, `.stale`, `.startupFailure`, `.unknown`) and
+/// running/queued jobs (nil conclusion) must not increment the numerator.
 @Suite("WorkflowActionGroup.jobProgress")
 struct WorkflowActionGroupProgressTests {
 
