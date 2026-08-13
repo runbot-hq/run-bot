@@ -19,8 +19,13 @@ struct ActionRowView: View {
     let tick: Int
     /// Called when the user taps a step inside the expanded inline job rows.
     let onStepTap: (ActiveJob, GitHubStep) -> Void
-    /// Drives the inline expand/collapse state: `nil` = collapsed, `false` = partially expanded, `true` = fully expanded.
-    @State private var expandState: Bool?
+    /// Process-lifetime hierarchy state; owns expansion and nested-job state.
+    let hierarchyState: MainHierarchyState
+    /// Drives the inline expand/collapse state via hierarchyState.
+    /// nil = collapsed, false = partially expanded, true = fully expanded.
+    private var expandState: Bool? {
+        hierarchyState.expansion(for: group.id)?.value
+    }
     /// Tracks the previous row status to detect in-progress → done transitions.
     @State private var previousStatus: RBStatus?
 
@@ -42,7 +47,14 @@ struct ActionRowView: View {
                 rowContent
             }
             if let fullExpand = expandState {
-                InlineJobRowsView(group: group, tick: tick, fullExpand: fullExpand, onStepTap: onStepTap)
+                InlineJobRowsView(
+                    group: group,
+                    tick: tick,
+                    fullExpand: fullExpand,
+                    onStepTap: onStepTap,
+                    groupID: group.id,
+                    hierarchyState: hierarchyState
+                )
             }
         }
         .frame(maxWidth: .infinity)
@@ -68,7 +80,14 @@ struct ActionRowView: View {
         .clipShape(RoundedRectangle(cornerRadius: RBRadius.card, style: .continuous))
         .contentShape(RoundedRectangle(cornerRadius: RBRadius.card, style: .continuous))
         .workflowContextMenu(group: group)
-        .modifier(RowTapModifier(jobs: group.jobs, expandState: $expandState, rowStatus: rowStatus))
+        .modifier(RowTapModifier(
+            jobs: group.jobs,
+            expandState: Binding(
+                get: { expandState },
+                set: { setExpandState($0) }
+            ),
+            rowStatus: rowStatus
+        ))
         .padding(.horizontal, RBSpacing.md)
         .padding(.vertical, RBSpacing.xxs)
         .onAppear {
@@ -136,20 +155,39 @@ struct ActionRowView: View {
     }
 
     /// Sets the initial expand state based on the row's status at appear time.
+    /// Only applies the automatic default when the row has never been visited.
+    /// An existing entry (even .collapsed) represents user intent or a prior
+    /// navigation; do not overwrite it on re-mount after route change.
     private func applyInitialExpandState() {
         let status = rowStatus
         previousStatus = status
-        expandState = (status == .inProgress) ? false : nil
+        if hierarchyState.expansion(for: group.id) == nil {
+            setExpandState((status == .inProgress) ? false : nil)
+        }
+    }
+
+    /// Routes all expandState mutations through hierarchyState and handles
+    /// job-state cleanup on collapse/partial transitions.
+    private func setExpandState(_ newValue: Bool?) {
+        let oldExpansion = hierarchyState.expansion(for: group.id)
+        let newExpansion = MainHierarchyState.WorkflowExpansion(newValue)
+        hierarchyState.setExpansion(newExpansion, for: group.id)
+        switch (oldExpansion, newExpansion) {
+        case (_, .collapsed), (.some(.full), .partial):
+            hierarchyState.clearJobs(for: group.id)
+        default:
+            break
+        }
     }
 
     /// Animates expand state transitions when the row status changes.
     private func handleStatusChange(_ newStatus: RBStatus) {
         let animation: Animation = .easeInOut(duration: 0.15)
         if newStatus == .inProgress && expandState == nil {
-            withAnimation(animation) { expandState = false }
+            withAnimation(animation) { setExpandState(false) }
         }
         if previousStatus == .inProgress && (newStatus == .success || newStatus == .failed) {
-            withAnimation(animation) { expandState = nil }
+            withAnimation(animation) { setExpandState(nil) }
         }
         previousStatus = newStatus
     }

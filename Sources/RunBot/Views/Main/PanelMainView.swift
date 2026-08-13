@@ -95,7 +95,11 @@ struct PanelMainView: View {
     /// View model for CPU/GPU/memory stats displayed in the header.
     @State private var systemStats = SystemStatsViewModel()
     /// Number of workflow rows currently shown in the actions section.
-    @State private var visibleCount: Int = 10
+    /// Backed by `mainHierarchyState` so it survives Settings/StepLog navigation.
+    private var visibleCount: Int {
+        get { appState.mainHierarchyState.visibleCount }
+        nonmutating set { appState.mainHierarchyState.visibleCount = newValue }
+    }
     /// Increments every second to drive relative-time label refreshes without re-polling.
     @State private var displayTick: Int = 0
     /// Structured task driving the 1-second `displayTick` loop; managed by `startDisplayTickTimer()`.
@@ -276,7 +280,13 @@ Task { await localRunnerStore.refresh() }
             if newActions.count < oldActions.count { visibleCount = 10 }
             panelControllerHandle.remeasure()
         }
-        .onChange(of: appState.runnerState.runners) { _, newRunners in
+        .onChange(
+            of: appState.runnerState.actions.map(\.id),
+            initial: true
+        ) { _, groupIDs in
+            appState.mainHierarchyState.retainGroups(Set(groupIDs))
+        }
+                .onChange(of: appState.runnerState.runners) { _, newRunners in
             // Re-trigger enrichment so local.isBusy is stamped in lock-step with
             // every new GitHub runners poll. The isScanning guard in
             // LocalRunnerStore.performRefresh() prevents concurrent cycles.
@@ -344,7 +354,12 @@ Task { await localRunnerStore.refresh() }
             } else {
                 let visible = Array(appState.runnerState.actions.prefix(visibleCount))
                 ForEach(visible) { group in
-                    ActionRowView(group: group, tick: displayTick, onStepTap: onStepTap)
+                    ActionRowView(
+                        group: group,
+                        tick: displayTick,
+                        onStepTap: onStepTap,
+                        hierarchyState: appState.mainHierarchyState
+                    )
                 }
                 loadMoreButton
             }

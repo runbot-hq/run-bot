@@ -495,8 +495,15 @@ struct InlineJobRowsView: View {
     }
     /// Tracks whether the panel popover is currently visible.
     @Environment(PanelVisibilityState.self) private var panelVisibilityState: PanelVisibilityState
+    /// Stable group ID used to key hierarchy state lookups.
+    let groupID: WorkflowActionGroup.ID
+    /// Process-lifetime hierarchy state; owns job expansion per workflow.
+    let hierarchyState: MainHierarchyState
     /// The set of job IDs whose step lists are currently expanded.
-    @State private var expandedJobIDs: Set<Int> = []
+    /// Backed by hierarchyState so it survives route navigation.
+    private var expandedJobIDs: Set<Int> {
+        hierarchyState.jobs(for: groupID)
+    }
     /// A stable snapshot of `tick` captured at view evaluation time.
     ///
     /// Embedding `tick` in each `JobRowCard`'s SwiftUI identity string forces
@@ -527,7 +534,11 @@ struct InlineJobRowsView: View {
                             isLast: index == jobs.count - 1,
                             group: group,
                             isExpanded: expandedJobIDs.contains(job.id),
-                            onToggle: { expandedJobIDs.toggle(job.id) },
+                            onToggle: {
+                                var ids = hierarchyState.jobs(for: groupID)
+                                ids.toggle(job.id)
+                                hierarchyState.setJobs(ids, for: groupID)
+                            },
                             onStepTap: { step in onStepTap(job, step) }
                         )
                         // job.id alone would be stable enough for diffing, but tick
@@ -555,7 +566,7 @@ struct InlineJobRowsView: View {
         // Clearing expandedJobIDs here resets all job cards to their default closed
         // state, matching the expected "active row state" on collapse.
         .onChange(of: fullExpand) { _, newValue in
-            if !newValue { expandedJobIDs.removeAll() }
+            if !newValue { hierarchyState.clearJobs(for: groupID) }
         }
     }
 }

@@ -193,6 +193,13 @@ final class AppState {
     /// preserves it; explicit Back navigation clears it to return to Main.
     var savedNavState: NavState?
 
+    /// Process-lifetime hierarchy state for the Main panel route.
+    ///
+    /// Preserves workflow and nested-job expansion state across Settings,
+    /// Step Log, and panel hide/unhide. Never reset by navigateBack() or
+    /// closePanel(). Never persisted to UserDefaults.
+    let mainHierarchyState = MainHierarchyState()
+
     /// Single `DiskZIPCache` instance shared between `LogFetcher` and
     /// `RunnerPoller` so that ZIPs prefetched by the poller are immediately
     /// available to the log fetcher without a second network round-trip.
