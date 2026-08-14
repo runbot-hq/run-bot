@@ -87,8 +87,8 @@ let package = Package(
             dependencies: [
                 "RunBotCore",
                 .product(name: "GitHubClient", package: "GitHubClient"),
-                // MarkdownKit removed: MarkdownDetectorTests.swift deleted per #2600
-                // (duplicate of Packages/MarkdownKit/Tests/MarkdownKitTests/MarkdownDetectorTests.swift).
+                // MarkdownDetector tests are owned by runbot-hq/MarkdownKit.
+                // The duplicate RunBotCore test suite was removed under #2600.
             ],
             path: "Tests/RunBotCoreTests",
             swiftSettings: [
