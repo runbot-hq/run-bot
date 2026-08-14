@@ -81,8 +81,7 @@ extension AppDelegate {
     /// xcodebuild/actool — it is NOT available in `swift build` debug builds.
     /// See issue #2763 for the xcodebuild migration that makes this possible.
     private static let statusBarIcon: NSImage? = {
-        guard let image = Bundle.main.image(forResource: "StatusBarIcon")
-                       ?? NSImage(named: "StatusBarIcon") else {
+        guard let image = NSImage(named: "StatusBarIcon") else {
             return nil
         }
         // Explicitly set the logical point size so the menu-bar icon renders
