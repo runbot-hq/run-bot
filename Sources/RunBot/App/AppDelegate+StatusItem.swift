@@ -81,8 +81,16 @@ extension AppDelegate {
     /// xcodebuild/actool — it is NOT available in `swift build` debug builds.
     /// See issue #2763 for the xcodebuild migration that makes this possible.
     private static let statusBarIcon: NSImage? = {
-        let image = NSImage(named: "StatusBarIcon")
-        image?.isTemplate = true
+        guard let image = NSImage(named: "StatusBarIcon") else {
+            return nil
+        }
+        // Explicitly set the logical point size so the menu-bar icon renders
+        // at 18×18 pt on all displays, regardless of the intrinsic size baked
+        // into the asset catalog. Without this, AppKit infers the size from the
+        // imageset's contents, which may differ from the 18pt convention.
+        // isTemplate enables automatic light/dark inversion by the system.
+        image.size = statusBarIconPointSize
+        image.isTemplate = true
         return image
     }()
 }

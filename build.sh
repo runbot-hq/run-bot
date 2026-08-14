@@ -125,12 +125,13 @@ xcodebuild build \
   MARKETING_VERSION="$VERSION"
 
 # ── Locate built .app in DerivedData ───────────────────────────────────────
-# xcodebuild places the built .app under DerivedData. The exact path includes
-# a platform/arch subdirectory. Using `find` is robust against xcodebuild
-# DerivedData layout changes between Xcode versions.
-BUILT_APP=$(find "$DERIVED_DATA" -name "${APP_NAME}.app" -type d | head -1)
-if [[ -z "$BUILT_APP" ]]; then
-  echo "✗ Built ${APP_NAME}.app not found in $DERIVED_DATA" >&2
+# Use the deterministic Release product path rather than `find | head -1`.
+# The find+head pattern silently selects the wrong bundle if DerivedData
+# contains index, test-host, preview, or secondary build products with the
+# same name. The Release path is always unambiguous for a `build` invocation.
+BUILT_APP="$DERIVED_DATA/Build/Products/Release/$APP_NAME.app"
+if [[ ! -d "$BUILT_APP" ]]; then
+  echo "✗ Built ${APP_NAME}.app not found at expected Release path: $BUILT_APP" >&2
   exit 1
 fi
 
@@ -146,10 +147,36 @@ ditto "$BUILT_APP" "$OUT_DIR/$APP_NAME.app"
 # either resource was missing, but explicit guards catch silent omissions
 # and give actionable error messages.
 
-# Application icon: must be byte-for-byte the committed Resources/AppIcon.icns
-if [[ ! -f "$OUT_DIR/$APP_NAME.app/Contents/Resources/AppIcon.icns" ]]; then
-  echo "✗ AppIcon.icns missing from built bundle Contents/Resources/" >&2
-  echo "  Check: Resources/AppIcon.icns is listed in project.yml resources" >&2
+# Application icon: must be byte-for-byte identical to the committed source.
+# Existence alone is not sufficient — a mismatched binary means the wrong
+# icns was bundled (e.g. from a stale DerivedData cache or a wrong resources
+# entry in project.yml).
+cmp -s \
+  Resources/AppIcon.icns \
+  "$OUT_DIR/$APP_NAME.app/Contents/Resources/AppIcon.icns" || {
+    echo "✗ Built AppIcon.icns differs from committed Resources/AppIcon.icns" >&2
+    echo "  Check: Resources/AppIcon.icns is listed in project.yml resources" >&2
+    exit 1
+  }
+
+# CFBundleIconFile must point to AppIcon so macOS resolves the dock/Finder icon.
+BUNDLE_ICON=$(
+  plutil -extract CFBundleIconFile raw \
+    "$OUT_DIR/$APP_NAME.app/Contents/Info.plist"
+)
+[[ "$BUNDLE_ICON" == "AppIcon" ]] || {
+  echo "✗ CFBundleIconFile mismatch: expected 'AppIcon', got '$BUNDLE_ICON'" >&2
+  exit 1
+}
+
+# CFBundleShortVersionString must match the version passed to this script.
+BUILT_VERSION=$(
+  plutil -extract CFBundleShortVersionString raw \
+    "$OUT_DIR/$APP_NAME.app/Contents/Info.plist"
+)
+if [[ "$BUILT_VERSION" != "$VERSION" ]]; then
+  echo "✗ Version mismatch: expected $VERSION, got $BUILT_VERSION" >&2
+  echo "  Check: Resources/Info.plist references \$(MARKETING_VERSION), not a literal string" >&2
   exit 1
 fi
 
