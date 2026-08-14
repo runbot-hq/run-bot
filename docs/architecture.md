@@ -1,21 +1,32 @@
-## Contents
+## Index
 
-- [panelVisibilityState and wrapEnv()](#panelvisibilitystate-and-wrapenv)
-- [@MainActor isolation on AppDelegate](#mainactor-isolation-on-appdelegate)
-- [Nav-state persistence across panel close/open](#nav-state-persistence-across-panel-closeopen)
-- [OAuth URL handling](#oauth-url-handling)
-- [KeyablePanel access level](#keyablepanel-access-level)
-- [Dark Mode & Light Mode Support](#dark-mode--light-mode-support)
-- [RunBotCore Library Rationale](#runbotcore-library-rationale)
-- [Log Directive Parsing — Reference Spec](#log-directive-parsing--reference-spec)
-- [GitHubClient Package](#githubclient-package-runbot-hqgithubclient)
-- [AppUpdater Package](#appupdater-package-runbot-hqappupdater)
-- [Data Model](#data-model)
-- [Concurrency Model](#concurrency-model)
-- [NSPopover Decisions](#nspopover-decisions)
-- [Design](#design)
-- [E-Tag caching](#e-tag-caching)
-- [ZIP log cache](#zip-log-cache)
+- [Application lifecycle](#application-lifecycle)
+  - [`panelVisibilityState` and `wrapEnv()`](#panelvisibilitystate-and-wrapenv)
+  - [`@MainActor` isolation on `AppDelegate`](#mainactor-isolation-on-appdelegate)
+  - [OAuth URL handling](#oauth-url-handling)
+
+- [Panel and presentation](#panel-and-presentation)
+  - [Nav-state persistence across panel close/open](#nav-state-persistence-across-panel-closeopen)
+  - [`KeyablePanel` access level](#keyablepanel-access-level)
+  - [Dark and light mode support](#dark-mode--light-mode-support)
+  - [NSPopover decisions](#nspopover-decisions)
+
+- [Core runtime](#core-runtime)
+  - [`RunBotCore` library rationale](#runbotcore-library-rationale)
+  - [`RunnerPoller` responsibilities and isolation](#runnerpoller-responsibilities-and-isolation)
+  - [Data model](#data-model)
+  - [Concurrency model](#concurrency-model)
+
+- [Log processing](#log-processing)
+  - [Log directive parsing](#log-directive-parsing--reference-spec)
+  - [ETag caching](#etag-caching)
+  - [ZIP log cache](#zip-log-cache)
+
+- [Package boundaries](#package-boundaries)
+  - [`GitHubClient`](#githubclient-package-runbot-hqgithubclient)
+  - [`MenuBarKit`](#menubarkit-package)
+  - [`MarkdownKit`](#markdownkit-package-runbot-hqmarkdownkit)
+  - [`AppUpdater`](#appupdater-package-runbot-hqappupdater)
 
 # RunBot — UI Architecture Decisions
 
@@ -25,6 +36,10 @@ Regression guards and architectural decisions enforced inline in the source.
 For deep-dives on specific subsystems see:
 - [#nspopover-decisions](#nspopover-decisions) — why NSPopover, side-jump prevention, sheet/file-picker dismiss
 - [Swift concurrency lexicon](https://gist.github.com/eonist/cd034f2318a70ca03ee69635a2fc2583) — replacement for the deleted `swift-concurrency-lexicon.md`
+
+---
+
+## Application lifecycle
 
 ---
 
@@ -59,6 +74,10 @@ network I/O and is always dispatched onto `DispatchQueue.global()`.
 
 - ❌ NEVER remove `@MainActor` from the `AppDelegate` class declaration.
 - ❌ NEVER remove `nonisolated` from `enrichStepsIfNeeded`.
+
+---
+
+## Panel and presentation
 
 ---
 
@@ -141,6 +160,10 @@ All SwiftUI views exclusively use semantic system colors (`.primary`, `.secondar
 
 ---
 
+## Core runtime
+
+---
+
 ## RunBotCore Library Rationale
 
 Great question. Here's the full picture for your specific setup.
@@ -187,6 +210,10 @@ In a pure SPM / no-`.xcodeproj` codebase with GitHub Actions CI, the payoff is *
 
 ---
 
+## Log processing
+
+---
+
 ## Log Directive Parsing — Reference Spec
 
 `LogLineParser.swift` (`RunBotCore`) parses raw GitHub Actions step log text directly.
@@ -208,6 +235,10 @@ The reference sources for the wire format are:
 keys (emitted by `core.ts`, parsed by `ActionCommandManager.cs`) but are not modelled in
 `AnnotationParams`. They are silently ignored as unknown keys — this is by design; column
 metadata has no current display use in the log view.
+
+---
+
+## Package boundaries
 
 ---
 
@@ -299,6 +330,35 @@ The public key is stored as a compile-time constant in `Secrets.swift` (not in `
 
 ---
 
+## `MenuBarKit` Package
+
+`MenuBarKit` owns the NSPopover lifecycle, `KeyablePanel`, `PanelChrome`, and
+the anchor-panel controller. The `RunBot` target imports `MenuBarKit` for all
+panel presentation and never re-implements popover or panel primitives directly.
+
+- `MenuBarKit` must not import app-target symbols.
+- Panel behaviour rules are documented in [NSPopover Decisions](#nspopover-decisions).
+- The package tracks the `main` branch (temporarily `fix/arrow-center-drift` — see `Package.swift`).
+  Dependency pinning and release behaviour are documented in [deployment.md](deployment.md).
+
+---
+
+## `MarkdownKit` Package (`runbot-hq/MarkdownKit`)
+
+`MarkdownKit` owns Markdown parsing, rendering primitives, syntax highlighting,
+and its underlying `swift-markdown` and `Highlightr` dependencies.
+
+The `RunBot` target owns application-specific presentation:
+
+- `MarkdownLogView` integrates the renderer into step-log presentation.
+- `MarkdownStyle+RunBot` maps RunBot design tokens onto `MarkdownStyle`.
+- `MarkdownKit` must not import or depend on app-target symbols.
+
+The package tracks the `main` branch. Dependency pinning and release behaviour are
+documented in [deployment.md](deployment.md).
+
+---
+
 ## Data Model
 
 This document describes the runtime data model of RunBot: how the GitHub poll loop
@@ -313,7 +373,7 @@ runners are reconciled with GitHub-hosted runners.
 
 ---
 
-## `RunnerPoller` — what it does today
+## RunnerPoller Responsibilities and Isolation
 
 `RunnerPoller` is a Swift 6 `actor` in `RunBotCore` that owns the GitHub poll loop
 and all derived runner/job/action state. It runs on its own (background) executor and
