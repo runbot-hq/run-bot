@@ -212,19 +212,22 @@ struct SettingsView: View {
         onBack: @escaping () -> Void,
         appState: AppState,
         localRunnerStore: LocalRunnerStore? = nil,
-        settings: AppPreferencesStore = .shared,
-        notifications: NotificationPreferences = .shared,
-        scopeStore: ScopeStore = .shared
+        settings: AppPreferencesStore? = nil,
+        notifications: NotificationPreferences? = nil,
+        scopeStore: ScopeStore? = nil
     ) {
         self.onBack = onBack
         self.appState = appState
         self._localRunnerStoreOverride = localRunnerStore
         // @Bindable var — assign via _settings/_notifications wrappers
-        self._settings = Bindable(settings)
-        self._notifications = Bindable(notifications)
-        self.scopeStore = scopeStore
-        log("【SettingsView.init】settings=\(ObjectIdentifier(settings)) betaChannel=\(settings.betaChannel)", category: .general)
-        log("【SettingsView.init】notifications=\(ObjectIdentifier(notifications))", category: .general)
+        let resolvedSettings = settings ?? .shared
+        let resolvedNotifications = notifications ?? .shared
+        let resolvedScopeStore = scopeStore ?? .shared
+        self._settings = Bindable(resolvedSettings)
+        self._notifications = Bindable(resolvedNotifications)
+        self.scopeStore = resolvedScopeStore
+        log("【SettingsView.init】settings=\(ObjectIdentifier(resolvedSettings)) betaChannel=\(resolvedSettings.betaChannel)", category: .general)
+        log("【SettingsView.init】notifications=\(ObjectIdentifier(resolvedNotifications))", category: .general)
     }
 
     // MARK: - Body
