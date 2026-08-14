@@ -3,7 +3,6 @@
 - [Authentication & Credentials](#authentication--credentials)
 - [GitHub OAuth Scopes](#github-oauth-scopes)
 - [Preferences & Settings](#preferences--settings)
-- [Failure Hooks](#failure-hooks)
 - [Network Activity](#network-activity)
 - [In-Memory Data](#in-memory-data)
 - [macOS Permissions](#macos-permissions)
