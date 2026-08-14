@@ -46,8 +46,7 @@ jobs:
           languages: swift
           # autobuild runs plain `swift build` without --arch arm64, which
           # fails on this arm64 runner because main.swift has an #error guard
-          # that requires the arch to be set explicitly. Use manual mode and
-          # mirror the same invocation used by build.sh.
+          # that requires the arch to be set explicitly. Use manual mode.
           build-mode: manual
 
       # ── Resolve dependencies ───────────────────────────────────────────────
@@ -66,11 +65,10 @@ jobs:
         run: swift package resolve --arch arm64
 
       - name: Build for CodeQL
-        # Must match build.sh: release config, arm64 arch.
-        # -c release: consistent with production build and avoids debug-only
-        #   code paths that inflate the analysis surface.
-        # --arch arm64: required — the #error guard in main.swift fires if the
-        #   arch is not pinned, which is exactly what broke autobuild.
+        # CodeQL analyzes the Swift source graph through SwiftPM. Release packaging
+        # separately uses XcodeGen + xcodebuild; asset compilation and .app assembly
+        # are not required for CodeQL analysis. --arch arm64 is required because
+        # main.swift intentionally rejects unsupported architectures.
         run: swift build -c release --arch arm64
 
       - name: Perform CodeQL Analysis

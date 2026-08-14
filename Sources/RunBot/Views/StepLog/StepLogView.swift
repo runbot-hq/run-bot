@@ -49,6 +49,7 @@ private let markdownRenderLogger = Logger(
 /// Placed by `AppDelegate.navigate()` (rootView swap). Fits the fixed popover frame;
 /// `ScrollView` absorbs overflow. Fetches log on `onAppear` via a background task;
 /// cancelled automatically on `onDisappear` to avoid wasted work on fast back-navigation.
+@MainActor
 struct StepLogView: View {
     /// The job that owns this step.
     let job: ActiveJob
@@ -65,7 +66,7 @@ struct StepLogView: View {
     var onLogLoaded: (() -> Void)?
     /// Injected scope store — avoids `ScopeStore.shared` singleton access inside `loadLog`.
     /// Defaults to the live singleton so all existing call sites require no changes.
-    var scopeStore: any ScopeStoreProtocol = ScopeStore.shared
+    var scopeStore: any ScopeStoreProtocol
     /// `nil` = not yet fetched; `""` = fetch returned empty; non-empty = log text.
     /// Kept for `LogCopyButton` compatibility — mirrors `logResult.text`.
     @State private var logText: String?
@@ -157,14 +158,14 @@ struct StepLogView: View {
         logFetcher: Binding<LogFetcher> = .constant(LogFetcher()), // preview/test only — production callers must pass AppState's @Binding; .constant writes are silently dropped
         onBack: @escaping () -> Void,
         onLogLoaded: (() -> Void)? = nil,
-        scopeStore: any ScopeStoreProtocol = ScopeStore.shared
+        scopeStore: (any ScopeStoreProtocol)? = nil
     ) {
         self.job = job
         self.step = step
         self._logFetcher = logFetcher
         self.onBack = onBack
         self.onLogLoaded = onLogLoaded
-        self.scopeStore = scopeStore
+        self.scopeStore = scopeStore ?? ScopeStore.shared
     }
 
     /// Root body -- top bar, step name, meta rows, and the capped log scroll view.

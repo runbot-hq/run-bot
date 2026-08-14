@@ -98,10 +98,10 @@ You can inspect or delete these values at any time:
 
 ```bash
 # List all RunBot defaults
-defaults read dev.eonist.runbot
+defaults read io.github.runbot-hq
 
 # Delete all RunBot defaults
-defaults delete dev.eonist.runbot
+defaults delete io.github.runbot-hq
 ```
 
 ---

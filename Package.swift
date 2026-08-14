@@ -74,10 +74,12 @@ let package = Package(
             // This created an unsolvable three-way conflict between SwiftPM,
             // codesign, and the standard macOS .app layout.
             //
-            // Fix: PNGs are now shipped as loose files in Contents/Resources/ by
-            // build.sh and loaded via Bundle.main, which correctly resolves to
-            // Contents/Resources/ for a packaged .app. No bundle, no accessor,
-            // no conflict. See AppDelegate+StatusItem.swift and build.sh.
+            // Fix: Resources remain disabled for the SwiftPM executable target because release
+            // packaging is owned by the generated Xcode app target. project.yml places
+            // Assets.xcassets in the Copy Bundle Resources phase, and xcodebuild/actool
+            // compiles it into Contents/Resources/Assets.car. The app loads StatusBarIcon
+            // through NSImage(named:). Do not reintroduce Bundle.module or a SwiftPM
+            // resource bundle; see issues #2139 and #2777.
             swiftSettings: [
                 .enableUpcomingFeature("NonisolatedNonsendingByDefault")
             ]

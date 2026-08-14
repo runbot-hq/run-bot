@@ -307,28 +307,33 @@ swift package resolve
 ```bash
 bash build.sh
 ```
-Builds an arm64-only release binary (`swift build -c release --arch arm64`), assembles the `.app`
-bundle, ad-hoc signs it, and zips to `dist/RunBot.zip`. The arch flag and build path in
-`build.sh` are pinned intentionally — do not change them.
+Generates an ephemeral Xcode project from `project.yml`, builds the arm64
+Release application with `xcodebuild`, validates the packaged resources and
+metadata, ad-hoc signs it, and creates `dist/RunBot.zip`.
+
+XcodeGen is required:
+
+```bash
+brew install xcodegen
+```
 
 ---
 
 ## Releasing
 
 This section covers the full release pipeline — from triggering CI to how the binary lands on a
-user's machine. All automation lives in [`publish.sh`](../../publish.sh) (local) and
-[`.github/workflows/publish.yml`](../../.github/workflows/publish.yml) (CI).
+user's machine. All automation is handled by [`.github/workflows/publish.yml`](../.github/workflows/publish.yml).
 
 To verify the pipeline is healthy before shipping, run a dry run first — see [Dry run](#dry-run) below.
 
 ### Quick reference
 
 ```bash
-# Pre-release (beta)
-./publish.sh -beta
+# Pre-release (beta) — push main HEAD to the beta routing branch
+git push --force-with-lease origin HEAD:beta
 
-# Stable release
-./publish.sh
+# Stable release — push main HEAD to the release routing branch
+git push --force-with-lease origin HEAD:release
 ```
 
 That is the entire manual workflow. Everything else — tagging, building,
@@ -336,17 +341,16 @@ zipping, and creating the GitHub Release — is handled by CI automatically.
 
 ### How the pipeline works
 
-1. **`publish.sh`** validates a clean working tree on `main`, then
-   force-pushes `main` HEAD to either the `beta` or `release` routing branch.
-   That push is the only trigger.
+1. A force-push of `main` HEAD to either the `beta` or `release` routing branch
+   is the only automatic release trigger. Use `workflow_dispatch` for manual dry runs.
 2. **`publish.yml`** picks it up and does all the real work in sequence:
    1. **Compute tag** — reads full git tag history, derives the next version
       automatically (no manual version bumping ever)
    2. **Guard duplicates** — aborts if that tag already exists on origin
    3. **Patch Info.plist** — writes `CFBundleShortVersionString` (X.Y.Z),
       `RBVersionString` (full semver incl. beta suffix), and `CFBundleVersion`
-      (git commit count) — only in the CI artifact, never committed back to `main`
-   4. **Build** — `bash build.sh <version>` compiles arm64, assembles `.app`,
+      (git commit count) — committed to `main` by `publish.yml` as part of the release
+   4. **Build** — `bash build.sh` compiles arm64, assembles `.app`,
       signs ad-hoc, zips to `dist/RunBot.zip` (see [Build internals](#build-internals) below)
    5. **Verify** — confirms the binary is actually present inside the zip
    6. **Generate SHA-256 sidecar** — computes a `shasum -a 256` digest and writes
@@ -364,12 +368,12 @@ zipping, and creating the GitHub Release — is handled by CI automatically.
 
 | Command | Routing branch | Tag format | Release type | Marked latest |
 |---|---|---|---|---|
-| `./publish.sh -beta` | `beta` | `vX.Y.(Z+1)-beta.N` | Pre-release | No |
-| `./publish.sh` | `release` | `vX.Y.(Z+1)` | Full release | Yes |
+| `git push --force-with-lease origin HEAD:beta` | `beta` | `vX.Y.(Z+1)-beta.N` | Pre-release | No |
+| `git push --force-with-lease origin HEAD:release` | `release` | `vX.Y.(Z+1)` | Full release | Yes |
 
 The `beta` and `release` branches are **ephemeral CI trigger targets**.
 Do not commit to them directly or use them for long-lived work — they are
-always force-pushed by `publish.sh`.
+always force-push targets.
 
 ### Versioning rules
 
@@ -398,32 +402,44 @@ always force-pushed by `publish.sh`.
   `v0.7.3-beta.1 > v0.7.2`, so beta users are semver-ahead of stable users.
   Stable users are not offered betas via the update channel preference in
   `UpdateChecker`, not by semver precedence.
-- **Promoting to stable:** run `./publish.sh` — CI bumps PATCH from the
+- **Promoting to stable:** push `main` HEAD to `release` — CI bumps PATCH from the
   latest stable tag and creates `vX.Y.(Z+1)`, which is the same base the
   betas were already under. No version gap, no collision.
 
 ### Build internals
 
-`build.sh` is what CI calls at step 4 above. It does four things:
+`build.sh` orchestrates the full release pipeline. Key points:
 
-```bash
-# 1. Compile arm64 binary
-swift build -c release --arch arm64
+- `project.yml` is the application-target source of truth; `RunBot.xcodeproj` is generated and ephemeral.
+- XcodeGen is required for release builds.
+- `Resources/Info.plist` retains the current literal release version; `publish.yml` patches and commits release metadata before building.
+- `build.sh` takes no version argument.
+- The application icon (`AppIcon.icns`) and status-bar icon (`StatusBarIcon`) use separate pipelines.
+- `AppIcon.icns` is copied unchanged into `Contents/Resources/`.
+- `StatusBarIcon.imageset` is compiled by `actool` into `Contents/Resources/Assets.car`.
+- The installer and AppUpdater security model (Ed25519 signature verification) is unchanged.
+- Developer ID signing and notarisation are not implemented; the app is ad-hoc signed without `--deep`.
 
-# 2. Assemble .app bundle
-mkdir -p "$OUT_DIR/$APP_NAME.app/Contents/MacOS"
-mkdir -p "$OUT_DIR/$APP_NAME.app/Contents/Resources"
-cp ".build/arm64-apple-macosx/release/$APP_NAME" \
-   "$OUT_DIR/$APP_NAME.app/Contents/MacOS/"
-cp Resources/Info.plist "$OUT_DIR/$APP_NAME.app/Contents/"
-
-# 3. Ad-hoc sign (required for Apple Silicon)
-codesign --force --deep --sign - "$OUT_DIR/$APP_NAME.app"
-
-# 4. Zip (preserves symlinks and resource forks)
-ditto -c -k --keepParent \
-  "$OUT_DIR/$APP_NAME.app" \
-  "$OUT_DIR/RunBot.zip"
+```text
+bash build.sh
+    ↓
+swift package update
+    ↓
+xcodegen generate
+    ↓
+xcodebuild build (Release, arm64)
+    ↓
+Xcode copies AppIcon.icns
+    ↓
+actool compiles Assets.xcassets into Assets.car
+    ↓
+ditto copies generated RunBot.app to dist/
+    ↓
+post-build artifact validation
+    ↓
+ad-hoc codesign without --deep
+    ↓
+ditto creates dist/RunBot.zip
 ```
 
 The output is always `dist/RunBot.zip`. CI then generates the `.sha256` sidecar
@@ -464,11 +480,11 @@ security dialog.
 | Branch | Purpose | Push rule |
 |---|---|---|
 | `main` | Active development | Normal commits / PRs |
-| `beta` | Beta CI trigger | Force-push via `publish.sh -beta` only |
-| `release` | Stable CI trigger | Force-push via `publish.sh` only |
+| `beta` | Beta CI trigger | Force-push `main` HEAD only |
+| `release` | Stable CI trigger | Force-push `main` HEAD only |
 
 > ⚠️ **Do not add branch-protection rules to `beta` or `release`.** They
-> are force-push targets. Protecting them will break `publish.sh`.
+> are force-push targets. Protecting them will break the release workflow.
 
 ### `deploy.sh` deprecation
 
@@ -495,7 +511,7 @@ If a release needs to be pulled:
    ```
 3. If the release was marked `--latest`, the previous stable release will
    automatically become latest once the bad release is deleted.
-4. Investigate, fix, commit to `main`, then re-run `./publish.sh`.
+4. Investigate, fix, commit to `main`, then re-push to the appropriate routing branch.
 
 > Do not re-use a deleted tag. CI's duplicate-tag guard will block it
 > anyway — but more importantly, users who already downloaded the old zip
@@ -574,7 +590,7 @@ would never push the tag anyway. Check whether the existing tag points at
 the correct commit.
 
 **Build fails**\
-Run `swift build` and `bash build.sh <version>` locally first to isolate
+Run `swift build` and `bash build.sh` locally first to isolate
 whether the failure is in the source or the pipeline.
 
 ### Update Flow

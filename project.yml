@@ -6,22 +6,61 @@ options:
 packages:
   RunBot:
     path: .
+  GitHubClient:
+    path: Packages/GitHubClient
+  MenuBarKit:
+    path: Packages/MenuBarKit
+  AppUpdater:
+    url: https://github.com/runbot-hq/AppUpdater
+    branch: main
+  MarkdownKit:
+    url: https://github.com/runbot-hq/MarkdownKit
+    branch: main
 
 targets:
   RunBot:
     type: application
     platform: macOS
+    # Xcode derives LSMinimumSystemVersion in the built Info.plist from this
+    # deployment target. Do not add a conflicting literal value to
+    # Resources/Info.plist; the removed 13.0 value was stale and did not
+    # represent the application's actual platform requirements.
     deploymentTarget: "26.0"
     sources:
-      - Sources/RunBot
-    resources:
-      - Resources
+      - path: Sources/RunBot
+        excludes:
+          # Excluded here to avoid duplicate membership in Copy Bundle Resources.
+          # Assets.xcassets is declared explicitly below with buildPhase: resources
+          # so XcodeGen assigns it to exactly one resource build phase.
+          # Verify with: grep -c 'Assets.xcassets.*Resources' RunBot.xcodeproj/project.pbxproj
+          - Resources/Assets.xcassets
+      # buildPhase: resources places these in Copy Bundle Resources.
+      # XcodeGen routes .icns to a plain copy and .xcassets through actool,
+      # producing Contents/Resources/AppIcon.icns and Contents/Resources/Assets.car.
+      - path: Resources/AppIcon.icns
+        buildPhase: resources
+      - path: Sources/RunBot/Resources/Assets.xcassets
+        buildPhase: resources
     dependencies:
       - package: RunBot
         product: RunBotCore
+      - package: GitHubClient
+        product: GitHubClient
+      - package: MenuBarKit
+        product: MenuBarKit
+      - package: AppUpdater
+        product: AppUpdater
+      - package: MarkdownKit
+        product: MarkdownKit
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: dev.eonist.runbot
+        # Production identity invariant:
+        # main's legacy release build copied Resources/Info.plist directly into
+        # RunBot.app, and that plist already used io.github.runbot-hq. The old
+        # dev.eonist.runbot value here affected Xcode-generated builds only and
+        # was stale. Keep this aligned with CFBundleIdentifier in Info.plist;
+        # changing it back would change the identity of Xcode-built releases.
+        PRODUCT_BUNDLE_IDENTIFIER: io.github.runbot-hq
         MACH_O_TYPE: mh_execute
         CODE_SIGN_IDENTITY: "-"
         CODE_SIGNING_REQUIRED: NO
@@ -53,6 +92,10 @@ targets:
     # to locate the already-built .app at runtime.
     settings:
       base:
+        # This identifies the XCTest runner bundle, not the RunBot application.
+        # RunBotUITests launches the app explicitly using io.github.runbot-hq.
+        # The test-runner identifier is independent and does not control app
+        # preferences, Keychain access, URL-scheme registration, or updates.
         PRODUCT_BUNDLE_IDENTIFIER: dev.eonist.runbot.uitests
         CODE_SIGN_IDENTITY: "-"
         CODE_SIGNING_REQUIRED: NO

@@ -21,129 +21,212 @@ set -e
 APP_NAME="RunBot"
 OUT_DIR="dist"
 
-# VERSION defaults to "0.0.0-dev" for local development convenience so that
-# engineers can run `bash build.sh` without arguments during iteration.
-# CI always passes the real version explicitly (see .github/workflows/),
-# so the default never reaches a published build.
-# The dev sentinel is intentionally not a real semver release tag — it will
-# never satisfy the auto-updater's "newer version available" check, which
-# prevents accidental self-update prompts during local testing.
-# Do NOT replace this default with a real version number — that would mask
-# CI misconfiguration by silently publishing a stale version string.
-VERSION="${1:-0.0.0-dev}"
-if ! printf '%s\n' "$VERSION" | grep -E -q '^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$'; then
-  echo "✗ Invalid version '${VERSION}'. Expected semver (e.g. 1.2.3 or 1.2.3-beta.1)" >&2
+# Version ownership invariant:
+# publish.yml computes the release version and patches Resources/Info.plist
+# before invoking this script. The legacy positional argument never stamped
+# the app plist; it only validated a parallel value and wrote version.txt.
+# build.sh now reads the packaged plist and writes version.txt from that same
+# value so the built app is the single source of truth.
+#
+# Local builds intentionally retain the literal version committed in
+# Resources/Info.plist. Do not reintroduce a 0.0.0-dev shell-only value or a
+# positional version argument, because either would make version.txt diverge
+# from the packaged application.
+#
+# build.sh intentionally takes no positional arguments.
+# Release version metadata is read from Resources/Info.plist, which publish.yml
+# patches before invoking this script. Reject arguments rather than silently
+# ignoring them and potentially packaging a different version than the caller
+# expected.
+if [[ $# -ne 0 ]]; then
+  echo "✗ build.sh takes no arguments." >&2
+  echo "  Version metadata is read from Resources/Info.plist." >&2
+  echo "  Usage: bash build.sh" >&2
   exit 1
 fi
 
-# ── Resolve dependencies ─────────────────────────────────────────────────────
-# All deps track a branch (not a tag/revision) — `swift package update` ensures
-# the local Package.resolved is updated to the current branch HEAD before every
-# build. Without this, `swift build` reuses the cached resolved versions and will
-# miss commits pushed to dependency branches since the last update.
-#
-# ⚠️ NON-DETERMINISM NOTE: `swift package update` resolves ALL three branch-tracked
-# deps (MenuBarKit, AppUpdater, GitHubClient) to their live branch HEAD at execution
-# time — not just MenuBarKit. Two CI runs against the same run-bot commit SHA can
-# produce different binaries if any commit lands on any of those branches between
-# runs. This is an accepted and intentional trade-off for this PR:
-# • MenuBarKit is temporarily pinned to fix/arrow-center-drift (see Package.swift).
-#   Once that branch merges into MBK main, Package.swift reverts to branch: "main".
-#   Tracked in #2275 — do not remove that issue until Package.swift is back on main.
-# • AppUpdater and GitHubClient are internal repos; the non-determinism risk is low
-#   but exists. Both will continue to track main after this PR merges.
+# ── Resolve dependencies ─────────────────────────────────────────────
+# Validate and refresh the root SwiftPM dependency graph before generating the
+# Xcode project. xcodebuild performs its own package resolution for the
+# generated project; this step is an early dependency-health check, not the
+# source of Xcode's resolved package state.
 echo "→ Updating dependencies..."
 swift package update
 
-# ── ⚠️  DO NOT CHANGE THE ARCH OR BUILD PATH BELOW ────────────────────────────
-# This project targets Apple Silicon (arm64) ONLY.
-# The explicit --arch arm64 flag and the .build/arm64-apple-macosx/release/
-# output path are INTENTIONAL. The previous arch-neutral path
-# (.build/apple/Products/Release/) caused stale build artefacts that led to
-# hours of wasted debugging. Do not revert to the generic path.
-# ────────────────────────────────────────────────────────────────────────
-echo "→ Compiling arm64 binary..."
-swift build -c release --arch arm64
+# ── Validate XcodeGen ───────────────────────────────────────────────────
+# XcodeGen is required to generate RunBot.xcodeproj before xcodebuild can run.
+# Install via: brew install xcodegen
+if ! command -v xcodegen &>/dev/null; then
+  echo "✗ xcodegen not found. Install it with: brew install xcodegen" >&2
+  exit 1
+fi
 
-echo "→ Assembling .app bundle..."
+# ── Prepare dist dir ─────────────────────────────────────────────────────────
 # rm -rf is intentional and safe: OUT_DIR is always the hardcoded string
 # "dist" — a local subdirectory relative to the project root, never an
 # absolute or system path. It is never set from user input or environment
 # variables. A full wipe before each build prevents stale files from a
-# previous run being silently included in the zip (e.g. a leftover binary
-# from a different arch).
+# previous run being silently included in the zip.
+echo "→ Preparing dist/..."
 rm -rf "$OUT_DIR"
-mkdir -p "$OUT_DIR/$APP_NAME.app/Contents/MacOS"
-mkdir -p "$OUT_DIR/$APP_NAME.app/Contents/Resources"
+mkdir -p "$OUT_DIR"
 
-cp ".build/arm64-apple-macosx/release/$APP_NAME" \
-   "$OUT_DIR/$APP_NAME.app/Contents/MacOS/"
-cp "Resources/Info.plist" \
-   "$OUT_DIR/$APP_NAME.app/Contents/"
+# DerivedData is placed inside dist/ so the EXIT trap below can clean it up
+# alongside the ephemeral .xcodeproj. Using a controlled path also avoids
+# contaminating ~/Library/Developer/Xcode/DerivedData with release build
+# artefacts from local iteration.
+DERIVED_DATA="$OUT_DIR/DerivedData"
 
-# ── App Icon ───────────────────────────────────────────────────────────────────────────
-# AppIcon.icns is the macOS app icon (Finder, Dock, About screen).
-# It is generated from wb.png via `magick` + `iconutil` and committed to
-# Resources/ as a pre-built binary. swift build does not run actool so
-# AppIcon.appiconset inside Assets.xcassets would be silently ignored —
-# the .icns approach is the correct method for the current swift build pipeline.
-# See issue #2145 and issue #2144 (Option B / xcodebuild path, future work).
-if [[ ! -f "Resources/AppIcon.icns" ]]; then
-  echo "✗ Resources/AppIcon.icns not found" >&2
-  exit 1
-fi
-cp "Resources/AppIcon.icns" \
-   "$OUT_DIR/$APP_NAME.app/Contents/Resources/"
-# Post-copy guard: intentionally kept for readability and consistency with
-# the StatusBarIcon block below. Under set -e, cp already exits the script
-# on any hard failure — this guard cannot catch a silent cp failure.
-# It is defensive documentation, not a safety net. Do NOT remove it in
-# isolation — remove the whole pattern from both blocks together if ever
-# cleaned up. This is a known pattern, not an oversight.
-if [[ ! -f "$OUT_DIR/$APP_NAME.app/Contents/Resources/AppIcon.icns" ]]; then
-  echo "✗ AppIcon.icns missing from Contents/Resources after copy" >&2
-  exit 1
-fi
+# ── EXIT trap: clean generated project + DerivedData ──────────────────────
+# RunBot.xcodeproj is ephemeral: it is generated from project.yml, used for
+# this build, then deleted. It must never be committed — see .gitignore.
+# DerivedData is cleaned because it can be several GB and holds artefacts
+# specific to this build configuration that are useless after the zip is made.
+cleanup() {
+  echo "→ Cleaning up ephemeral project and DerivedData..."
+  rm -rf RunBot.xcodeproj
+  rm -rf "$DERIVED_DATA"
+}
+trap cleanup EXIT
 
-# ── StatusBarIcon PNGs ─────────────────────────────────────────────────────────────────────────
-# PNGs are shipped as loose files directly in Contents/Resources/.
-# They are loaded via Bundle.main in AppDelegate+StatusItem.swift, which
-# correctly resolves to Contents/Resources/ for a packaged .app.
+# ── Generate Xcode project ───────────────────────────────────────────────
+# project.yml is the single source of truth for the app target definition.
+# xcodegen generates RunBot.xcodeproj from it. The generated project is
+# ephemeral — deleted by the EXIT trap above.
+echo "→ Generating Xcode project..."
+xcodegen generate
+
+# ── Build with xcodebuild ──────────────────────────────────────────────────
+# xcodebuild owns the full app-bundle construction:
+#   • compiles Sources/ via the RunBot scheme
+#   • runs actool to compile Assets.xcassets into Assets.car
+#   • processes Resources/Info.plist (literal version values from the plist)
+#   • copies Resources/AppIcon.icns to Contents/Resources/
+#   • places the binary at Contents/MacOS/RunBot
 #
-# ⚠️  AI AGENT: Do NOT reintroduce resources: [.process("Resources")] in
-# Package.swift and do NOT go back to Bundle.module / RunBot_RunBot.bundle.
-# The previous approach caused an unsolvable three-way conflict:
-#   - SwiftPM's accessor probed Bundle.main.bundleURL (app root) for the bundle
-#   - codesign hard-rejects any directory at the app root other than Contents/
-#   - Moving the bundle to Contents/Resources/ is codesign-safe but the binary
-#     never looked there — crash on every clean install
-# Loose files + Bundle.main eliminates all three sides of the conflict.
-# See issue #2139 and #2136 for the full history.
-STATUS_ICON_SRC="Sources/RunBot/Resources/Assets.xcassets/StatusBarIcon.imageset"
-STATUS_ICON_DST="$OUT_DIR/$APP_NAME.app/Contents/Resources"
+# ⚠️  DO NOT CHANGE THE ARCH BELOW ───────────────────────────────────
+# This project targets Apple Silicon (arm64) ONLY.
+# ARCHS=arm64 + ONLY_ACTIVE_ARCH=NO is the xcodebuild equivalent of the
+# former --arch arm64 flag passed to `swift build`. The previous generic path
+# (.build/apple/Products/Release/) caused stale build artefacts that led to
+# hours of wasted debugging. Do not revert to a generic/universal build.
+# ───────────────────────────────────────────────────────────────────────────
+# ── Verbosity control ────────────────────────────────────────────────────────
+# -quiet suppresses phase/command noise while keeping warnings and errors.
+# Set RUNBOT_VERBOSE_BUILD=1 to get the full xcodebuild log, e.g.:
+#   RUNBOT_VERBOSE_BUILD=1 bash build.sh 2>&1 | tee /tmp/runbot-build.log
+XCODEBUILD_FLAGS=()
+if [[ -z "${RUNBOT_VERBOSE_BUILD:-}" ]]; then
+  XCODEBUILD_FLAGS+=(-quiet)
+fi
 
-if [[ ! -d "$STATUS_ICON_SRC" ]]; then
-  echo "✗ StatusBarIcon assets not found at $STATUS_ICON_SRC" >&2
+echo "→ Building with xcodebuild (Release, arm64)..."
+xcodebuild build \
+  "${XCODEBUILD_FLAGS[@]}" \
+  -project RunBot.xcodeproj \
+  -scheme RunBot \
+  -configuration Release \
+  -destination 'generic/platform=macOS' \
+  -derivedDataPath "$DERIVED_DATA" \
+  ARCHS=arm64 \
+  ONLY_ACTIVE_ARCH=NO
+
+# ── Locate built .app in DerivedData ───────────────────────────────────────
+# Use the deterministic Release product path rather than `find | head -1`.
+# The find+head pattern silently selects the wrong bundle if DerivedData
+# contains index, test-host, preview, or secondary build products with the
+# same name. The Release path is always unambiguous for a `build` invocation.
+BUILT_APP="$DERIVED_DATA/Build/Products/Release/$APP_NAME.app"
+if [[ ! -d "$BUILT_APP" ]]; then
+  echo "✗ Built ${APP_NAME}.app not found at expected Release path: $BUILT_APP" >&2
   exit 1
 fi
 
-cp "$STATUS_ICON_SRC/StatusBarIcon.png"    "$STATUS_ICON_DST/"
-cp "$STATUS_ICON_SRC/StatusBarIcon@2x.png" "$STATUS_ICON_DST/"
-cp "$STATUS_ICON_SRC/StatusBarIcon@3x.png" "$STATUS_ICON_DST/"
+# ── Copy .app to dist/ ───────────────────────────────────────────────────────
+# ditto preserves macOS extended attributes, symlinks, and resource forks that
+# standard `cp -r` may strip. Using ditto here is consistent with the zip step.
+echo "→ Copying .app to dist/..."
+ditto "$BUILT_APP" "$OUT_DIR/$APP_NAME.app"
 
-# Post-copy guard: intentionally kept for readability and consistency with
-# the AppIcon block above. Under set -e, cp already exits the script on any
-# hard failure — this loop cannot catch a silent cp failure. It is defensive
-# documentation, not a safety net. Do NOT remove it in isolation — remove
-# the whole pattern from both blocks together if ever cleaned up.
-for f in StatusBarIcon.png StatusBarIcon@2x.png StatusBarIcon@3x.png; do
-  if [[ ! -f "$STATUS_ICON_DST/$f" ]]; then
-    echo "✗ $f missing from Contents/Resources after copy" >&2
+# ── Post-build checks ───────────────────────────────────────────────────────────
+# Explicit post-build guards confirm both icon pipelines are intact.
+# These are belt-and-suspenders checks: xcodebuild should have failed if
+# either resource was missing, but explicit guards catch silent omissions
+# and give actionable error messages.
+
+# Application icon: must be byte-for-byte identical to the committed source.
+# Existence alone is not sufficient — a mismatched binary means the wrong
+# icns was bundled (e.g. from a stale DerivedData cache or a wrong resources
+# entry in project.yml).
+cmp -s \
+  Resources/AppIcon.icns \
+  "$OUT_DIR/$APP_NAME.app/Contents/Resources/AppIcon.icns" || {
+    echo "✗ Built AppIcon.icns differs from committed Resources/AppIcon.icns" >&2
+    echo "  Check: Resources/AppIcon.icns is declared in project.yml sources with buildPhase: resources" >&2
     exit 1
-  fi
-done
+  }
 
-# ── Signing ────────────────────────────────────────────────────────────────────────────
+# CFBundleIconFile must point to AppIcon so macOS resolves the dock/Finder icon.
+BUNDLE_ICON=$(
+  plutil -extract CFBundleIconFile raw \
+    "$OUT_DIR/$APP_NAME.app/Contents/Info.plist"
+)
+[[ "$BUNDLE_ICON" == "AppIcon" ]] || {
+  echo "✗ CFBundleIconFile mismatch: expected 'AppIcon', got '$BUNDLE_ICON'" >&2
+  exit 1
+}
+
+# CFBundleShortVersionString and RBVersionString must be identical — publish.yml
+# patches both from the same version source. A mismatch means the plist was
+# edited by hand or the patch step ran incompletely.
+BUILT_VERSION=$(
+  plutil -extract CFBundleShortVersionString raw \
+    "$OUT_DIR/$APP_NAME.app/Contents/Info.plist"
+)
+BUILT_RB_VERSION=$(
+  plutil -extract RBVersionString raw \
+    "$OUT_DIR/$APP_NAME.app/Contents/Info.plist"
+)
+if [[ "$BUILT_VERSION" != "$BUILT_RB_VERSION" ]]; then
+  echo "✗ Version mismatch: CFBundleShortVersionString=$BUILT_VERSION RBVersionString=$BUILT_RB_VERSION" >&2
+  echo "  Check: publish.yml patches both keys from the same version source" >&2
+  exit 1
+fi
+
+# CFBundleVersion must be a non-empty numeric build number.
+BUILT_BUILD=$(
+  plutil -extract CFBundleVersion raw \
+    "$OUT_DIR/$APP_NAME.app/Contents/Info.plist"
+)
+if ! printf '%s\n' "$BUILT_BUILD" | grep -E -q '^[0-9]+$'; then
+  echo "✗ CFBundleVersion is not a numeric build number: '$BUILT_BUILD'" >&2
+  exit 1
+fi
+
+# Status-bar icon: actool must have produced Assets.car containing StatusBarIcon.
+# Existence of Assets.car alone is insufficient — verify the catalog actually
+# contains the StatusBarIcon asset so a stale or empty catalog is caught early.
+if [[ ! -f "$OUT_DIR/$APP_NAME.app/Contents/Resources/Assets.car" ]]; then
+  echo "✗ Assets.car missing from built bundle Contents/Resources/" >&2
+  echo "  Check: Sources/RunBot/Resources/Assets.xcassets is listed in project.yml sources with buildPhase: resources" >&2
+  exit 1
+fi
+xcrun assetutil --info \
+  "$OUT_DIR/$APP_NAME.app/Contents/Resources/Assets.car" 2>/dev/null |
+  grep -Eq '"Name"[[:space:]]*:[[:space:]]*"StatusBarIcon"' || {
+    echo "✗ StatusBarIcon missing from compiled Assets.car" >&2
+    echo "  Check: StatusBarIcon.imageset is inside Assets.xcassets and actool ran" >&2
+    exit 1
+  }
+
+# Architecture check
+BUILT_ARCH=$(lipo -archs "$OUT_DIR/$APP_NAME.app/Contents/MacOS/$APP_NAME" 2>/dev/null || true)
+if [[ "$BUILT_ARCH" != "arm64" ]]; then
+  echo "✗ Architecture mismatch: expected arm64, got '${BUILT_ARCH}'" >&2
+  exit 1
+fi
+
+# ── Signing ──────────────────────────────────────────────────────────────────────────
 # codesign --sign - (ad-hoc identity) is used for both local dev builds and
 # CI builds. publish.yml calls `bash build.sh` with CI=true and does not
 # perform a separate Developer ID codesign step — the CI signing step is an
@@ -153,12 +236,11 @@ done
 # See issue #2128 for the tracked work to add notarisation.
 #
 # --force: replaces any existing signature on re-runs without prompting.
-#   Required because `swift build` may leave a partial sig on the binary.
-# --deep is NOT needed here: the PNGs in Contents/Resources/ are plain files,
-#   not nested bundles with executable code. They are sealed as resources by
-#   the outer app signature. No nested bundle exists to recurse into.
-#   See issue #2139 — removing RunBot_RunBot.bundle also removes the need
-#   for --deep. Do NOT add --deep back without a specific reason.
+# xcodebuild applies its own ad-hoc signature (CODE_SIGN_IDENTITY = "-" in
+# project.yml). The explicit codesign call here re-signs the copied bundle
+# to ensure a clean, consistent ad-hoc signature after ditto.
+# --deep is NOT needed: Assets.car and AppIcon.icns are plain resource files,
+# not nested bundles with executable code.
 echo "→ Ad-hoc signing..."
 codesign --force --sign - "$OUT_DIR/$APP_NAME.app"
 
@@ -180,11 +262,13 @@ ditto -c -k --keepParent \
 # are outside this script (install.sh and/or the gh-pages deploy pipeline).
 # It is not read by publish.yml directly — that workflow derives the version
 # from its own tag computation step.
-echo "$VERSION" > "$OUT_DIR/version.txt"
+# Read from the built bundle so version.txt always matches what was actually
+# packaged, regardless of how the script was invoked.
+echo "$BUILT_VERSION" > "$OUT_DIR/version.txt"
 
 echo "✓ Done — dist/RunBot.zip is ready"
 
-# ── Launch via `open` (not direct binary) ────────────────────────────────────────────
+# ── Launch via `open` (not direct binary) ──────────────────────────────────────────────────
 # IMPORTANT: The OAuth callback URL scheme (runbot://) is registered with
 # macOS Launch Services only when the .app bundle is launched via `open` or
 # Finder. Running the binary directly (./dist/RunBot.app/Contents/MacOS/RunBot)
@@ -193,7 +277,7 @@ echo "✓ Done — dist/RunBot.zip is ready"
 #
 # Always use `open dist/RunBot.app` for development — this script does it
 # automatically. The pkill ensures a clean restart without a stale process.
-# ─────────────────────────────────────────────────────────────────────────────────
+# ───────────────────────────────────────────────────────────────────────────────────
 # Only kill/relaunch the running app when building locally, not in CI.
 if [[ -z "${CI:-}" ]]; then
     echo "→ Restarting app via open (registers runbot:// URL scheme)..."
