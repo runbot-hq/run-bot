@@ -113,8 +113,18 @@ xcodegen generate
 # (.build/apple/Products/Release/) caused stale build artefacts that led to
 # hours of wasted debugging. Do not revert to a generic/universal build.
 # ───────────────────────────────────────────────────────────────────────────
+# ── Verbosity control ────────────────────────────────────────────────────────
+# -quiet suppresses phase/command noise while keeping warnings and errors.
+# Set RUNBOT_VERBOSE_BUILD=1 to get the full xcodebuild log, e.g.:
+#   RUNBOT_VERBOSE_BUILD=1 bash build.sh 2>&1 | tee /tmp/runbot-build.log
+XCODEBUILD_FLAGS=()
+if [[ -z "${RUNBOT_VERBOSE_BUILD:-}" ]]; then
+  XCODEBUILD_FLAGS+=(-quiet)
+fi
+
 echo "→ Building with xcodebuild (Release, arm64)..."
 xcodebuild build \
+  "${XCODEBUILD_FLAGS[@]}" \
   -project RunBot.xcodeproj \
   -scheme RunBot \
   -configuration Release \
