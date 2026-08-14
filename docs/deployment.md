@@ -404,26 +404,38 @@ always force-pushed by `publish.sh`.
 
 ### Build internals
 
-`build.sh` is what CI calls at step 4 above. It does four things:
+`build.sh` orchestrates the full release pipeline. Key points:
 
-```bash
-# 1. Compile arm64 binary
-swift build -c release --arch arm64
+- `project.yml` is the application-target source of truth; `RunBot.xcodeproj` is generated and ephemeral.
+- XcodeGen is required for release builds.
+- `Resources/Info.plist` retains the current literal release version; `publish.yml` patches and commits release metadata before building.
+- `build.sh` takes no version argument.
+- The application icon (`AppIcon.icns`) and status-bar icon (`StatusBarIcon`) use separate pipelines.
+- `AppIcon.icns` is copied unchanged into `Contents/Resources/`.
+- `StatusBarIcon.imageset` is compiled by `actool` into `Contents/Resources/Assets.car`.
+- The installer and AppUpdater security model (Ed25519 signature verification) is unchanged.
+- Developer ID signing and notarisation are not implemented; the app is ad-hoc signed without `--deep`.
 
-# 2. Assemble .app bundle
-mkdir -p "$OUT_DIR/$APP_NAME.app/Contents/MacOS"
-mkdir -p "$OUT_DIR/$APP_NAME.app/Contents/Resources"
-cp ".build/arm64-apple-macosx/release/$APP_NAME" \
-   "$OUT_DIR/$APP_NAME.app/Contents/MacOS/"
-cp Resources/Info.plist "$OUT_DIR/$APP_NAME.app/Contents/"
-
-# 3. Ad-hoc sign (required for Apple Silicon)
-codesign --force --deep --sign - "$OUT_DIR/$APP_NAME.app"
-
-# 4. Zip (preserves symlinks and resource forks)
-ditto -c -k --keepParent \
-  "$OUT_DIR/$APP_NAME.app" \
-  "$OUT_DIR/RunBot.zip"
+```
+bash build.sh
+    ↓
+swift package update
+    ↓
+xcodegen generate
+    ↓
+xcodebuild build (Release, arm64)
+    ↓
+Xcode copies AppIcon.icns
+    ↓
+actool compiles Assets.xcassets into Assets.car
+    ↓
+ditto copies generated RunBot.app to dist/
+    ↓
+post-build artifact validation
+    ↓
+ad-hoc codesign without --deep
+    ↓
+ditto creates dist/RunBot.zip
 ```
 
 The output is always `dist/RunBot.zip`. CI then generates the `.sha256` sidecar
