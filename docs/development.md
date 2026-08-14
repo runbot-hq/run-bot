@@ -104,9 +104,11 @@ swift package show-dependencies
 ```
 Third-party dependencies are `apple/swift-collections` (root package),
 `apple/swift-markdown` and `nicklockwood/Highlightr` (used by `MarkdownKit`).
-All external packages are pinned to a hardcoded `revision:` SHA — see the
-relevant `Package.swift` manifests. Organization-owned packages (`runbot-hq/*`)
-track `branch: "main"` and are never revision-pinned.
+`MarkdownKit` is now an organization-owned package (`runbot-hq/MarkdownKit`) that
+tracks `branch: "main"`. All other external packages are pinned to a hardcoded
+`revision:` SHA — see the relevant `Package.swift` manifests.
+Organization-owned packages (`runbot-hq/*`) track `branch: "main"` and are
+never revision-pinned.
 
 ### Log streaming
 

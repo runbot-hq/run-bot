@@ -26,9 +26,9 @@ let package = Package(
         .package(path: "Packages/GitHubClient"),
         // Local path — source of truth is now Packages/MenuBarKit in this repo.
         .package(path: "Packages/MenuBarKit"),
-        // Local path — internal MarkdownKit package (#2600). Owns detection,
-        // parsing, rendering, highlighting, and tables. Replaces swift-markdown-ui.
-        .package(path: "Packages/MarkdownKit"),
+        // Organization-owned — tracks main. Source of truth is the runbot-hq/MarkdownKit repo.
+        // Do not pin to a revision or exact hash.
+        .package(url: "https://github.com/runbot-hq/MarkdownKit", branch: "main"),
     ],
     targets: [
         .target(
@@ -58,7 +58,7 @@ let package = Package(
                 // No RunBot source imports MenuBarKit yet — the dependency is additive
                 // and costs nothing until the first import statement is written.
                 .product(name: "MenuBarKit", package: "MenuBarKit"),
-                // MarkdownKit — internal package owning all Markdown concerns (#2600).
+                // MarkdownKit — organization-owned package (#2751). Tracks branch: "main".
                 .product(name: "MarkdownKit", package: "MarkdownKit"),
 
             ],
