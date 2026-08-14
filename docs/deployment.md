@@ -322,7 +322,7 @@ brew install xcodegen
 ## Releasing
 
 This section covers the full release pipeline — from triggering CI to how the binary lands on a
-user's machine. All automation is handled by [`.github/workflows/publish.yml`](../../.github/workflows/publish.yml).
+user's machine. All automation is handled by [`.github/workflows/publish.yml`](../.github/workflows/publish.yml).
 
 To verify the pipeline is healthy before shipping, run a dry run first — see [Dry run](#dry-run) below.
 
@@ -330,10 +330,10 @@ To verify the pipeline is healthy before shipping, run a dry run first — see [
 
 ```bash
 # Pre-release (beta) — push main HEAD to the beta routing branch
-git push origin HEAD:beta
+git push --force-with-lease origin HEAD:beta
 
 # Stable release — push main HEAD to the release routing branch
-git push origin HEAD:release
+git push --force-with-lease origin HEAD:release
 ```
 
 That is the entire manual workflow. Everything else — tagging, building,
@@ -341,7 +341,8 @@ zipping, and creating the GitHub Release — is handled by CI automatically.
 
 ### How the pipeline works
 
-1. A force-push of `main` HEAD to either the `beta` or `release` routing branch is the only trigger.
+1. A force-push of `main` HEAD to either the `beta` or `release` routing branch
+   is the only automatic release trigger. Use `workflow_dispatch` for manual dry runs.
 2. **`publish.yml`** picks it up and does all the real work in sequence:
    1. **Compute tag** — reads full git tag history, derives the next version
       automatically (no manual version bumping ever)
@@ -367,8 +368,8 @@ zipping, and creating the GitHub Release — is handled by CI automatically.
 
 | Command | Routing branch | Tag format | Release type | Marked latest |
 |---|---|---|---|---|
-| `git push origin HEAD:beta` | `beta` | `vX.Y.(Z+1)-beta.N` | Pre-release | No |
-| `git push origin HEAD:release` | `release` | `vX.Y.(Z+1)` | Full release | Yes |
+| `git push --force-with-lease origin HEAD:beta` | `beta` | `vX.Y.(Z+1)-beta.N` | Pre-release | No |
+| `git push --force-with-lease origin HEAD:release` | `release` | `vX.Y.(Z+1)` | Full release | Yes |
 
 The `beta` and `release` branches are **ephemeral CI trigger targets**.
 Do not commit to them directly or use them for long-lived work — they are
