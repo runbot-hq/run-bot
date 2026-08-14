@@ -2,8 +2,8 @@
 // RunBot
 //
 // Integration boundary between RunBot and MarkdownKit.
-// Rendering surface: `MarkdownDocumentView(blocks:style:)` from the internal
-// MarkdownKit package. `MarkdownStyle.runBot` maps RunBot design tokens.
+// Rendering surface: `MarkdownDocumentView(blocks:style:)` from the
+// runbot-hq/MarkdownKit package. `MarkdownStyle.runBot` maps RunBot design tokens.
 //
 // Tranche 9 complete (ref #2600):
 //   [x] Deleted Theme+RunBot.swift
