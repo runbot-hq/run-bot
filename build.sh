@@ -190,12 +190,21 @@ if [[ "$BUILT_VERSION" != "$VERSION" ]]; then
   exit 1
 fi
 
-# Status-bar icon: actool must have produced Assets.car
+# Status-bar icon: actool must have produced Assets.car containing StatusBarIcon.
+# Existence of Assets.car alone is insufficient — verify the catalog actually
+# contains the StatusBarIcon asset so a stale or empty catalog is caught early.
 if [[ ! -f "$OUT_DIR/$APP_NAME.app/Contents/Resources/Assets.car" ]]; then
   echo "✗ Assets.car missing from built bundle Contents/Resources/" >&2
-  echo "  Check: Sources/RunBot/Resources/Assets.xcassets is listed in project.yml resources" >&2
+  echo "  Check: Sources/RunBot/Resources/Assets.xcassets is listed in project.yml sources with buildPhase: resources" >&2
   exit 1
 fi
+xcrun assetutil --info \
+  "$OUT_DIR/$APP_NAME.app/Contents/Resources/Assets.car" 2>/dev/null | \
+  grep -q '"Name" : "StatusBarIcon"' || {
+    echo "✗ StatusBarIcon missing from compiled Assets.car" >&2
+    echo "  Check: StatusBarIcon.imageset is inside Assets.xcassets and actool ran" >&2
+    exit 1
+  }
 
 # Architecture check
 BUILT_ARCH=$(lipo -archs "$OUT_DIR/$APP_NAME.app/Contents/MacOS/$APP_NAME" 2>/dev/null || true)

@@ -26,13 +26,17 @@ targets:
       - path: Sources/RunBot
         excludes:
           # Excluded here to avoid duplicate membership in Copy Bundle Resources.
-          # Assets.xcassets is declared explicitly in the resources list below
+          # Assets.xcassets is declared explicitly below with buildPhase: resources
           # so XcodeGen assigns it to exactly one resource build phase.
           # Verify with: grep -c 'Assets.xcassets.*Resources' RunBot.xcodeproj/project.pbxproj
           - Resources/Assets.xcassets
-    resources:
+      # buildPhase: resources places these in Copy Bundle Resources.
+      # XcodeGen routes .icns to a plain copy and .xcassets through actool,
+      # producing Contents/Resources/AppIcon.icns and Contents/Resources/Assets.car.
       - path: Resources/AppIcon.icns
+        buildPhase: resources
       - path: Sources/RunBot/Resources/Assets.xcassets
+        buildPhase: resources
     dependencies:
       - package: RunBot
         product: RunBotCore
@@ -50,7 +54,6 @@ targets:
         MACH_O_TYPE: mh_execute
         CODE_SIGN_IDENTITY: "-"
         CODE_SIGNING_REQUIRED: NO
-        ASSETCATALOG_COMPILER_APPICON_NAME: ""
         AD_HOC_CODE_SIGNING_ALLOWED: YES
         INFOPLIST_FILE: Resources/Info.plist
         ARCHS: arm64
