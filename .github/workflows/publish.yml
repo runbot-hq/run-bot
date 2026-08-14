@@ -385,7 +385,7 @@ jobs:
 
       # ── Build ────────────────────────────────────────────────────────────────────
       - name: Build
-        run: bash build.sh "${{ steps.tag.outputs.version }}"
+        run: bash build.sh
         env:
           CI: "true"
 
