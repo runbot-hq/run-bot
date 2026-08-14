@@ -58,6 +58,7 @@ import SwiftUI
 ///
 /// No `onRestartPolling` callback is needed — all `ScopeStore` mutations are
 /// observed by `RunnerPoller`'s `withObservationTracking` loop automatically.
+@MainActor
 struct SettingsView: View {
 
     // MARK: - Inputs

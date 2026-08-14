@@ -49,6 +49,7 @@ private let markdownRenderLogger = Logger(
 /// Placed by `AppDelegate.navigate()` (rootView swap). Fits the fixed popover frame;
 /// `ScrollView` absorbs overflow. Fetches log on `onAppear` via a background task;
 /// cancelled automatically on `onDisappear` to avoid wasted work on fast back-navigation.
+@MainActor
 struct StepLogView: View {
     /// The job that owns this step.
     let job: ActiveJob

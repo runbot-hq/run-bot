@@ -179,7 +179,7 @@ struct ActionRowView: View {
     /// leaves the state change outside the transaction — the expand/collapse snaps.
     private func handleStatusChange(_ newStatus: RBStatus) {
         withAnimation(.easeInOut(duration: 0.15)) {
-            hierarchyState.reconcile(status: newStatus, for: group.id)
+            _ = hierarchyState.reconcile(status: newStatus, for: group.id)
         }
         previousStatus = newStatus
     }
