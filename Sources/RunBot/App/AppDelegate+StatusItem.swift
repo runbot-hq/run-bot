@@ -36,9 +36,9 @@ extension AppDelegate {
 
     /// Returns the menu-bar icon for the given aggregate status.
     ///
-    /// Prefers the bundled `StatusBarIcon` asset (the robot-face template PNG),
-    /// loaded via `Bundle.main` from `Contents/Resources/` — see `statusBarIcon`
-    /// below for why `Bundle.module` is NOT used here.
+    /// Prefers the bundled `StatusBarIcon` asset (the robot-face template image),
+    /// loaded from the compiled asset catalog (`Assets.car`) via
+    /// `NSImage(named:)` — see `statusBarIcon` below.
     ///
     /// Falls back to the SF Symbol chain when the asset is missing, preserving
     /// the original triple-fallback behaviour for safety.
@@ -47,8 +47,7 @@ extension AppDelegate {
     ///   `StatusBarIcon` is a static brand image and is status-agnostic.
     ///
     /// Fallback chain:
-    /// 1. `Self.statusBarIcon` — bundled robot-face asset (template image),
-    ///    loaded once and cached.
+    /// 1. `Self.statusBarIcon` — robot-face asset from compiled catalog.
     /// 2. `status.symbolName`  — correct SF Symbol for the current status.
     ///    Reached only if the StatusBarIcon asset is genuinely missing/corrupt.
     /// 3. `NSImage()`          — empty/invisible (should never be reached).
@@ -57,7 +56,7 @@ extension AppDelegate {
             return icon
         }
         #if DEBUG
-        assertionFailure("StatusBarIcon asset missing from Contents/Resources — check build.sh copies StatusBarIcon*.png (see issue #2139)")
+        assertionFailure("StatusBarIcon missing from Assets.car — check Assets.xcassets is in project.yml resources and xcodebuild ran actool (see issue #2763)")
         #endif
         return NSImage(systemSymbolName: status.symbolName, accessibilityDescription: nil)
             ?? NSImage()
@@ -68,63 +67,22 @@ extension AppDelegate {
     /// is the standard macOS menu bar icon convention.
     private static let statusBarIconPointSize = NSSize(width: 18, height: 18)
 
-    /// Cached `StatusBarIcon` image, loaded from `Bundle.main` exactly once.
+    /// Cached `StatusBarIcon` image, loaded from the compiled asset catalog
+    /// (`Assets.car`) exactly once via `NSImage(named:)`.
     ///
-    /// ⚠️  AI AGENT: Do NOT switch this back to `Bundle.module`.
+    /// xcodebuild runs `actool` which compiles
+    /// `Sources/RunBot/Resources/Assets.xcassets` into
+    /// `Contents/Resources/Assets.car`. `NSImage(named:)` resolves named
+    /// images from that catalog automatically via `Bundle.main`.
     ///
-    /// WHY Bundle.main, NOT Bundle.module:
-    /// SwiftPM's auto-generated resource_bundle_accessor.swift resolves
-    /// Bundle.module via Bundle.main.bundleURL (the app root: RunBot.app/).
-    /// codesign hard-rejects any directory at the app root other than Contents/
-    /// with "unsealed contents present in the bundle root".
-    /// Moving the bundle to Contents/Resources/ is codesign-safe, but the
-    /// binary never looks there — it looks at the app root. Crash on every
-    /// clean install.
-    ///
-    /// Fix (issue #2139): remove resources: [.process("Resources")] from
-    /// Package.swift entirely. No SwiftPM bundle, no generated accessor,
-    /// no conflict. The three PNG files are shipped as loose files in
-    /// Contents/Resources/ by build.sh, and loaded here via Bundle.main
-    /// which correctly resolves to Contents/Resources/ for a packaged .app.
-    ///
-    /// WHY literal path loading (not NSImage(named:) or image(forResource:)):
-    /// `swift build` does NOT run actool — Assets.xcassets is never compiled
-    /// into Assets.car. NSImage(named:) needs a compiled catalog. The PNGs
-    /// are now loose files, so Bundle.main.path(forResource:ofType:) finds
-    /// them directly by filename. The @Nx suffix is handled manually below
-    /// so AppKit gets all three representations and picks the sharpest one
-    /// for the current display — the same behaviour a compiled catalog gives.
-    ///
-    /// Do NOT revert to Bundle.module. Do NOT use NSImage(named:).
-    /// Do NOT reintroduce resources: [.process("Resources")] in Package.swift
-    /// without reading issues #2139 and #2136 first.
+    /// ⚠️  AI AGENT: Do NOT revert to loose-file loading via
+    /// `Bundle.main.path(forResource:ofType:)`. Do NOT use `Bundle.module`
+    /// or a SwiftPM resource bundle. The asset catalog is compiled by
+    /// xcodebuild/actool — it is NOT available in `swift build` debug builds.
+    /// See issue #2763 for the xcodebuild migration that makes this possible.
     private static let statusBarIcon: NSImage? = {
-        let combinedIcon = NSImage(size: statusBarIconPointSize)
-        var loadedAny = false
-
-        for scale in [1, 2, 3] {
-            let filename = scale == 1 ? "StatusBarIcon" : "StatusBarIcon@\(scale)x"
-            // Bundle.main.path(forResource:ofType:) finds loose files in
-            // Contents/Resources/ — exactly where build.sh places the PNGs.
-            // No inDirectory: needed — the PNGs are at the Contents/Resources/ root.
-            guard let path = Bundle.main.path(forResource: filename, ofType: "png"),
-                  let data = NSData(contentsOfFile: path),
-                  let rep = NSBitmapImageRep(data: data as Data) else {
-                continue
-            }
-            rep.size = statusBarIconPointSize
-            combinedIcon.addRepresentation(rep)
-            loadedAny = true
-        }
-
-        guard loadedAny else {
-            #if DEBUG
-            assertionFailure("StatusBarIcon PNGs missing from Contents/Resources — check build.sh (see issue #2139)")
-            #endif
-            return nil
-        }
-
-        combinedIcon.isTemplate = true
-        return combinedIcon
+        let image = NSImage(named: "StatusBarIcon")
+        image?.isTemplate = true
+        return image
     }()
 }

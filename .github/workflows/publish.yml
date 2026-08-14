@@ -351,6 +351,32 @@ jobs:
           echo "[plist] SUMMARY: channel=${CHANNEL} shortVersion=${POST_SHORT} rbVersion=${POST_RB} build=${POST_BUILD}"
           echo "[plist] SUMMARY: CFBundleShortVersionString and RBVersionString are in sync — AppUpdater post-swap verification will pass."
 
+      # ── Ensure Homebrew is available ──────────────────────────────────────────
+      - name: Ensure Homebrew is available
+        run: |
+          if ! command -v brew &>/dev/null; then
+            echo "Installing Homebrew..."
+            /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+          else
+            echo "Homebrew already installed: $(brew --version)"
+          fi
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: 1
+
+      # ── Ensure XcodeGen is available ──────────────────────────────────────────
+      # build.sh requires xcodegen to generate RunBot.xcodeproj before
+      # xcodebuild runs. Mirrors the conditional install pattern from
+      # ui-tests.yml so both workflows stay consistent.
+      - name: Ensure XcodeGen is available
+        run: |
+          if ! command -v xcodegen &>/dev/null; then
+            brew install xcodegen
+          else
+            echo "XcodeGen already installed: $(xcodegen --version)"
+          fi
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: 1
+
       # ── Build ────────────────────────────────────────────────────────────────────
       - name: Build
         run: bash build.sh "${{ steps.tag.outputs.version }}"
