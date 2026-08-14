@@ -50,9 +50,8 @@ RunBot does not:
 ## Network access
 
 RunBot makes encrypted requests to `api.github.com` and `github.com`.
-Workflow log archives are served via GitHub-issued pre-signed URLs that redirect
-to object storage (currently `*.s3.amazonaws.com`). RunBot follows these redirects
-to download log ZIPs; your OAuth token is not sent to object storage.
+Workflow log archives are downloaded through temporary URLs provided by GitHub;
+your OAuth token is not included in those requests.
 Notifications are optional and generated locally by macOS.
 
 ---
