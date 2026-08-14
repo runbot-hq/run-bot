@@ -316,19 +316,18 @@ bundle, ad-hoc signs it, and zips to `dist/RunBot.zip`. The arch flag and build 
 ## Releasing
 
 This section covers the full release pipeline — from triggering CI to how the binary lands on a
-user's machine. All automation lives in [`publish.sh`](../../publish.sh) (local) and
-[`.github/workflows/publish.yml`](../../.github/workflows/publish.yml) (CI).
+user's machine. All automation is handled by [`.github/workflows/publish.yml`](../../.github/workflows/publish.yml).
 
 To verify the pipeline is healthy before shipping, run a dry run first — see [Dry run](#dry-run) below.
 
 ### Quick reference
 
 ```bash
-# Pre-release (beta)
-./publish.sh -beta
+# Pre-release (beta) — push main HEAD to the beta routing branch
+git push origin HEAD:beta
 
-# Stable release
-./publish.sh
+# Stable release — push main HEAD to the release routing branch
+git push origin HEAD:release
 ```
 
 That is the entire manual workflow. Everything else — tagging, building,
@@ -336,9 +335,7 @@ zipping, and creating the GitHub Release — is handled by CI automatically.
 
 ### How the pipeline works
 
-1. **`publish.sh`** validates a clean working tree on `main`, then
-   force-pushes `main` HEAD to either the `beta` or `release` routing branch.
-   That push is the only trigger.
+1. A force-push of `main` HEAD to either the `beta` or `release` routing branch is the only trigger.
 2. **`publish.yml`** picks it up and does all the real work in sequence:
    1. **Compute tag** — reads full git tag history, derives the next version
       automatically (no manual version bumping ever)
@@ -364,12 +361,12 @@ zipping, and creating the GitHub Release — is handled by CI automatically.
 
 | Command | Routing branch | Tag format | Release type | Marked latest |
 |---|---|---|---|---|
-| `./publish.sh -beta` | `beta` | `vX.Y.(Z+1)-beta.N` | Pre-release | No |
-| `./publish.sh` | `release` | `vX.Y.(Z+1)` | Full release | Yes |
+| `git push origin HEAD:beta` | `beta` | `vX.Y.(Z+1)-beta.N` | Pre-release | No |
+| `git push origin HEAD:release` | `release` | `vX.Y.(Z+1)` | Full release | Yes |
 
 The `beta` and `release` branches are **ephemeral CI trigger targets**.
 Do not commit to them directly or use them for long-lived work — they are
-always force-pushed by `publish.sh`.
+always force-push targets.
 
 ### Versioning rules
 
@@ -398,7 +395,7 @@ always force-pushed by `publish.sh`.
   `v0.7.3-beta.1 > v0.7.2`, so beta users are semver-ahead of stable users.
   Stable users are not offered betas via the update channel preference in
   `UpdateChecker`, not by semver precedence.
-- **Promoting to stable:** run `./publish.sh` — CI bumps PATCH from the
+- **Promoting to stable:** push `main` HEAD to `release` — CI bumps PATCH from the
   latest stable tag and creates `vX.Y.(Z+1)`, which is the same base the
   betas were already under. No version gap, no collision.
 
@@ -476,11 +473,11 @@ security dialog.
 | Branch | Purpose | Push rule |
 |---|---|---|
 | `main` | Active development | Normal commits / PRs |
-| `beta` | Beta CI trigger | Force-push via `publish.sh -beta` only |
-| `release` | Stable CI trigger | Force-push via `publish.sh` only |
+| `beta` | Beta CI trigger | Force-push `main` HEAD only |
+| `release` | Stable CI trigger | Force-push `main` HEAD only |
 
 > ⚠️ **Do not add branch-protection rules to `beta` or `release`.** They
-> are force-push targets. Protecting them will break `publish.sh`.
+> are force-push targets. Protecting them will break the release workflow.
 
 ### `deploy.sh` deprecation
 
@@ -507,7 +504,7 @@ If a release needs to be pulled:
    ```
 3. If the release was marked `--latest`, the previous stable release will
    automatically become latest once the bad release is deleted.
-4. Investigate, fix, commit to `main`, then re-run `./publish.sh`.
+4. Investigate, fix, commit to `main`, then re-push to the appropriate routing branch.
 
 > Do not re-use a deleted tag. CI's duplicate-tag guard will block it
 > anyway — but more importantly, users who already downloaded the old zip
