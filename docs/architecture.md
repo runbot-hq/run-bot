@@ -8,13 +8,12 @@
 
 - [Panel and presentation](#panel-and-presentation)
   - [Nav-state persistence across panel close/open](#nav-state-persistence-across-panel-closeopen)
-  - [`KeyablePanel` access level](#keyablepanel-access-level)
   - [Dark and light mode support](#dark-mode--light-mode-support)
-  - [NSPopover decisions](#nspopover-decisions)
+  - [NSPopover architecture (historical)](#nspopover-architecture--historical-reference)
   - [Design](#design)
 
 - [Core runtime](#core-runtime)
-  - [`RunBotCore` library rationale](#runbotcore-library-rationale)
+  - [`RunBotCore` library rationale](#the-core-rationale)
   - [`RunnerPoller` responsibilities and isolation](#runnerpoller-responsibilities-and-isolation)
   - [Data model](#data-model)
   - [Concurrency model](#concurrency-model)
@@ -36,7 +35,7 @@ Regression guards and architectural decisions enforced inline in the source.
 **Do not remove** the corresponding inline annotations without updating this file.
 
 For deep-dives on specific subsystems see:
-- [#nspopover-decisions](#nspopover-decisions) — why NSPopover, side-jump prevention, sheet/file-picker dismiss
+- [#nspopover-architecture--historical-reference](#nspopover-architecture--historical-reference) — why NSPopover was removed; historical side-jump/dismiss notes
 - [Swift concurrency lexicon](https://gist.github.com/eonist/cd034f2318a70ca03ee69635a2fc2583) — replacement for the deleted `swift-concurrency-lexicon.md`
 
 ---
@@ -102,18 +101,8 @@ renders the same route without an open-time restoration step. Explicit Back
 navigation clears the state to return to Main.
 
 - ❌ NEVER clear `savedNavState` inside `closePanel()` or `hidePanel()`.
-- ❌ NEVER try to preserve sheet `@State` across an explicit close (`closePanel()`) — see [NSPopover Decisions](#nspopover-decisions).
+- ❌ NEVER try to preserve sheet `@State` across an explicit close (`closePanel()`) — see [NSPopover Architecture (historical)](#nspopover-architecture--historical-reference).
 - Sheet `@State` IS preserved across `hidePanel()` (outside-tap / workspace-switch) via `hidePopoverWindowsPreservingSheets()` — this is intentional.
-
----
-
-### `KeyablePanel` access level
-
-> See also: `KeyablePanel.swift`, `AppDelegate.swift`
-
-`KeyablePanel` must be `internal` (not `private` or `fileprivate`).
-`AppDelegate+Navigation.swift` accesses `panel: KeyablePanel?` from a separate
-file, and Swift `private` does not cross file boundaries.
 
 ---
 
@@ -158,13 +147,17 @@ All SwiftUI views exclusively use semantic system colors (`.primary`, `.secondar
 
 ---
 
-### NSPopover Decisions
+### NSPopover Architecture — Historical Reference
 
-Everything you need to know before touching `AppDelegate.swift`,
-`AppDelegate+PanelSetup.swift`, `PopoverView.swift`, or any
-sizing/frame/contentSize code in this project.
+> **⚠️ This section documents the removed NSPopover architecture (replaced by PR #2262/#2305).**
+> The app no longer uses `NSPopover` anywhere. `MenuBarKit` now owns a single borderless `NSPanel`
+> (`MBKPanelController`) that draws the bubble and arrow itself. This section is preserved for
+> historical context and to explain *why* the popover approach was abandoned. Do not follow
+> its implementation rules for new code.
+>
+> For current panel behaviour see: `AppDelegate+PanelSetup.swift`, `PanelController.swift`.
 
-**Read this entire document before writing a single line.**
+**For historical reference only. Do not follow these rules in new code.**
 
 ### Contents
 
@@ -489,22 +482,25 @@ re-presents the sheet automatically because the binding is still `true`.
 
 ### Rules
 
+> **⚠️ These rules applied to the removed NSPopover architecture. They are preserved here
+> for historical context. `MenuBarKit/FilePicker.swift` documents the current approach.**
+
 ```
-❌ NEVER use picker.begin { }            — free-floating, invisible to hasActiveSheet
-❌ NEVER use picker.runModal()           — same reason
-✅ ALWAYS use picker.beginSheetModal(for: hostWindow)
+❌ NEVER use picker.runModal()           — blocks the main thread
+❌ NEVER call popover.show() on resize   — re-anchors the arrow; use contentSize only (historical)
+❌ NEVER remove tearDownOpenState() from any close path — monitor leak (historical)
+❌ NEVER inline teardown back into AppDelegate.swift (historical)
+```
 
-❌ NEVER call popover.show() on resize   — re-anchors the arrow; use contentSize only
-❌ NEVER omit behavior re-assert before show() — AppKit latches at show-time
-❌ NEVER omit delegate re-assert before show() — same reason
+**Current file-picker pattern** (from `MenuBarKit/FilePicker.swift`):
 
-❌ NEVER add dismissSheets() to hidePanel()
-❌ NEVER reset hostingController.rootView in hidePanel()
-
-❌ NEVER remove tearDownOpenState() from any close path — monitor leak
-❌ NEVER inline teardown back into AppDelegate.swift
-❌ NEVER call popover.performClose() while a sheet is open without first calling
-        hidePopoverWindowsPreservingSheets()
+```swift
+// Use panel.begin{} NOT beginSheetModal — beginSheetModal attaches NSOpenPanel
+// as an AppKit sheet, causing SwiftUI to write true back into any live
+// .sheet(isPresented:) binding, corrupting isSheetPresented state.
+panel.begin { response in
+    // handle response
+}
 ```
 
 ### Design
@@ -554,8 +550,6 @@ re-presents the sheet automatically because the binding is still `true`.
 In a pure SPM / no-`.xcodeproj` codebase with GitHub Actions CI, the payoff is **high and concrete**: faster CI via `swift test`, enforced architectural boundaries, and a clean path to testing business logic without the full app build. The main cost is upfront refactoring — particularly the `RunnerStore`/`RunnerViewModel` coupling — but the files that don't have that coupling (the 13 straightforward candidates in the issue) are essentially free wins.
 
 ---
-
-### Log Directive Parsing — Reference Spec
 
 ### RunnerPoller Responsibilities and Isolation
 
@@ -711,8 +705,6 @@ from Core.
 
 ### Concurrency Model
 
-### Concurrency Model
-
 ### Concurrency Architecture Overview
 
 The concurrency model is explicit and compiler-enforced end-to-end. All UI state lives on `@MainActor`, all background domain work is isolated in dedicated actors, and there are no `@unchecked Sendable` escape hatches in production types. The system maps to **six core concurrency pillars** across 21 documented principles.
@@ -789,8 +781,6 @@ Business logic lives in `Sendable` use-case structs (e.g. `WorkflowActionsUseCas
 The principles document (P4) confirms this is a **build-time guarantee** — no `@unchecked Sendable` in production, every actor crossing visible at the call site.
 
 ---
-
-### NSPopover Decisions
 
 ## Log processing
 
@@ -1055,7 +1045,7 @@ migrate safely and are deleted during cache preparation.
 
 **How RunBot wires it up:**
 
-`AppDelegate` constructs a single `GitHubClient` instance at launch, passing Keychain credentials, and holds the resulting `oauthService` and `transport` references. These are injected into `RunBotCore` types (e.g. `RunnerPoller`, `OAuthUseCase`) at init time — nothing in Core imports the package directly.
+`AppDelegate` constructs a single `GitHubClient` instance at launch, passing Keychain credentials, and holds the resulting `oauthService` and `transport` references. These are injected into `RunBotCore` types (e.g. `RunnerPoller`, `OAuthUseCase`) at init time. `RunBotCore` has a compile-time dependency on `GitHubClient` and uses its types directly (models, protocols, error types) throughout the target — `RunnerPoller`, `RunnerState`, `WorkflowActionsUseCase`, `LogFetcher`, and related files all `import GitHubClient`. The injection boundary is behavioural: Keychain access, token resolution, and live network I/O are provided by the protocol-conforming `GitHubClient` instance constructed in `AppDelegate`, keeping `RunBotCore` testable via `MockTransport` / `MockOAuthService` without Keychain or network.
 
 **What RunBot calls:**
 
@@ -1076,19 +1066,16 @@ Credentials never fall back across modes. Discovering an environment token only 
 
 All tests that touch network or Keychain inject `MockTransport` and `MockOAuthService` via the `GitHubClient(oauthService:transport:)` test initialiser. No production `GitHubClient` instance is created in the test suite.
 
-- ❌ NEVER import `GitHubClient` directly in `RunBotCore` source files — consume via the injected protocol only.
 - ❌ NEVER construct a second `GitHubClient` instance — the one created in `AppDelegate` is the single source of truth for tokens and rate-limit state.
 
 ---
 
 ### `MenuBarKit` Package
 
-`MenuBarKit` owns the NSPopover lifecycle, `KeyablePanel`, `PanelChrome`, and
-the anchor-panel controller. The `RunBot` target imports `MenuBarKit` for all
-panel presentation and never re-implements popover or panel primitives directly.
+`MenuBarKit` owns the anchored-panel lifecycle. Its public surface includes `MBKPanelController` (construction and callback wiring), `Panel.swift` (the borderless `NSPanel` subclass), `PanelController+Open` and `PanelController+Frame` (show/resize logic), `OverlayGate` (sheet-open guard), `FilePicker.swift`, and `AnchoredSheet.swift`. There is no `NSPopover` in the app; `MenuBarKit` draws the bubble and arrow itself. The `RunBot` target imports `MenuBarKit` for all panel presentation and never re-implements panel primitives directly.
 
 - `MenuBarKit` must not import app-target symbols.
-- Panel behaviour rules are documented in [NSPopover Decisions](#nspopover-decisions).
+- Panel lifecycle decisions are documented in `Packages/MenuBarKit/Sources/MenuBarKit/PanelController.swift`.
 - `MenuBarKit` is a local package whose source of truth is `Packages/MenuBarKit` in this repository
   (declared as `.package(path: "Packages/MenuBarKit")` in the root `Package.swift`).
 
@@ -1159,7 +1146,7 @@ The public key is stored as a compile-time constant in `Secrets.swift` (not in `
 
 - ❌ NEVER call `checkAndHandle` or `installAndRelaunch` from anywhere other than `AppDelegate` and the update UI respectively.
 - ❌ NEVER store the Ed25519 public key in `UserDefaults`, a plist, or any on-disk file — binary only.
-- ❌ NEVER change `schedulerIdentifier` without also migrating the on-disk cache path (`~/Library/Application\ Support/RunBot/ZIPCache/`).
+- ❌ NEVER change `schedulerIdentifier` without also migrating the on-disk updater cache path (resolved at runtime as `FileManager.cachesDirectory/<schedulerIdentifier>/`). Note: `ZIPCache/` is the log cache under `Application Support/RunBot/`, not the updater cache.
 - ❌ NEVER call `fixedZipURL` more than once per operation — snapshot into a local `let` instead.
 
 ---
