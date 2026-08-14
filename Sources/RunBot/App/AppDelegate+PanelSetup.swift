@@ -130,7 +130,7 @@ extension AppDelegate {
             panelVisibilityState.isTransientHide = false
 
             Task {
-                await appState.refreshOnPanelShow()
+                await self.appState.refreshOnPanelShow()
             }
         }
 

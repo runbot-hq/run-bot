@@ -6,6 +6,16 @@ options:
 packages:
   RunBot:
     path: .
+  GitHubClient:
+    path: Packages/GitHubClient
+  MenuBarKit:
+    path: Packages/MenuBarKit
+  AppUpdater:
+    url: https://github.com/runbot-hq/AppUpdater
+    branch: main
+  MarkdownKit:
+    url: https://github.com/runbot-hq/MarkdownKit
+    branch: main
 
 targets:
   RunBot:
@@ -26,12 +36,21 @@ targets:
     dependencies:
       - package: RunBot
         product: RunBotCore
+      - package: GitHubClient
+        product: GitHubClient
+      - package: MenuBarKit
+        product: MenuBarKit
+      - package: AppUpdater
+        product: AppUpdater
+      - package: MarkdownKit
+        product: MarkdownKit
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: dev.eonist.runbot
+        PRODUCT_BUNDLE_IDENTIFIER: io.github.runbot-hq
         MACH_O_TYPE: mh_execute
         CODE_SIGN_IDENTITY: "-"
         CODE_SIGNING_REQUIRED: NO
+        ASSETCATALOG_COMPILER_APPICON_NAME: ""
         AD_HOC_CODE_SIGNING_ALLOWED: YES
         INFOPLIST_FILE: Resources/Info.plist
         ARCHS: arm64
