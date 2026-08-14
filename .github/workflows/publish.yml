@@ -352,17 +352,14 @@ jobs:
           echo "[plist] SUMMARY: CFBundleShortVersionString and RBVersionString are in sync — AppUpdater post-swap verification will pass."
 
       # ── Ensure Homebrew is available ──────────────────────────────────────────
-      # The release runner is self-hosted and must have Homebrew pre-installed.
-      # We do NOT install Homebrew here — executing a remote shell script from
-      # HEAD is an unpinned supply-chain risk and causes SonarCloud to flag the
-      # workflow with a C security rating. If brew is missing, fail fast with an
-      # actionable error so the runner can be provisioned correctly instead of
-      # silently executing mutable remote code in the release pipeline.
+      # The publish job requires Homebrew to be available on its macOS runner.
+      # Do not install Homebrew dynamically in the release workflow. Fail fast if
+      # the selected runner image does not provide it.
       - name: Ensure Homebrew is available
         run: |
           if ! command -v brew &>/dev/null; then
-            echo "::error::Homebrew is required on the release runner but was not found."
-            echo "::error::Provision it on the runner before publishing. Do not install it here."
+            echo "::error::Homebrew is required by the publish job but was not found on this runner."
+            echo "::error::Use a runner image with Homebrew or provision XcodeGen separately."
             exit 1
           fi
           echo "Homebrew available: $(brew --version)"

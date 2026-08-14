@@ -116,10 +116,10 @@ ones**. That's why `AppDelegate`, `AddRunnerSheet`, and `RunnerPoller` are split
   `xcodebuild` invocation. Do not revert to a universal/generic build.
 - **Icon pipelines are intentionally separate — do not conflate them:**
   - `Resources/AppIcon.icns` — app icon (Finder, Dock). Copied to `Contents/Resources/` by
-    xcodebuild. Listed explicitly in `project.yml` resources.
+    xcodebuild. Declared under `project.yml` sources with `buildPhase: resources`.
   - `Sources/RunBot/Resources/Assets.xcassets/StatusBarIcon.imageset` — menu-bar icon.
     Compiled by `actool` into `Contents/Resources/Assets.car`. Loaded via
-    `NSImage(named: "StatusBarIcon")`. Listed explicitly in `project.yml` resources.
+    `NSImage(named: "StatusBarIcon")`. Declared under `project.yml` sources with `buildPhase: resources`.
   Do NOT create an `AppIcon.appiconset`, do NOT set `ASSETCATALOG_COMPILER_APPICON_NAME`,
   do NOT reintroduce loose-PNG loading for the status-bar icon.
 - **Dependencies:** only `apple/swift-collections` is allowed. Do not add third-party deps without

@@ -345,7 +345,7 @@ zipping, and creating the GitHub Release — is handled by CI automatically.
    2. **Guard duplicates** — aborts if that tag already exists on origin
    3. **Patch Info.plist** — writes `CFBundleShortVersionString` (X.Y.Z),
       `RBVersionString` (full semver incl. beta suffix), and `CFBundleVersion`
-      (git commit count) — only in the CI artifact, never committed back to `main`
+      (git commit count) — committed to `main` by `publish.yml` as part of the release
    4. **Build** — `bash build.sh` compiles arm64, assembles `.app`,
       signs ad-hoc, zips to `dist/RunBot.zip` (see [Build internals](#build-internals) below)
    5. **Verify** — confirms the binary is actually present inside the zip
@@ -416,7 +416,7 @@ always force-pushed by `publish.sh`.
 - The installer and AppUpdater security model (Ed25519 signature verification) is unchanged.
 - Developer ID signing and notarisation are not implemented; the app is ad-hoc signed without `--deep`.
 
-```
+```text
 bash build.sh
     ↓
 swift package update

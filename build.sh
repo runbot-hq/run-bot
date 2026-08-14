@@ -161,7 +161,7 @@ cmp -s \
   Resources/AppIcon.icns \
   "$OUT_DIR/$APP_NAME.app/Contents/Resources/AppIcon.icns" || {
     echo "✗ Built AppIcon.icns differs from committed Resources/AppIcon.icns" >&2
-    echo "  Check: Resources/AppIcon.icns is listed in project.yml resources" >&2
+    echo "  Check: Resources/AppIcon.icns is declared in project.yml sources with buildPhase: resources" >&2
     exit 1
   }
 
@@ -211,8 +211,8 @@ if [[ ! -f "$OUT_DIR/$APP_NAME.app/Contents/Resources/Assets.car" ]]; then
   exit 1
 fi
 xcrun assetutil --info \
-  "$OUT_DIR/$APP_NAME.app/Contents/Resources/Assets.car" 2>/dev/null | \
-  grep -q '"Name" : "StatusBarIcon"' || {
+  "$OUT_DIR/$APP_NAME.app/Contents/Resources/Assets.car" 2>/dev/null |
+  grep -Eq '"Name"[[:space:]]*:[[:space:]]*"StatusBarIcon"' || {
     echo "✗ StatusBarIcon missing from compiled Assets.car" >&2
     echo "  Check: StatusBarIcon.imageset is inside Assets.xcassets and actool ran" >&2
     exit 1
