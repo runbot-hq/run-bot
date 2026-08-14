@@ -19,8 +19,13 @@ struct ActionRowView: View {
     let tick: Int
     /// Called when the user taps a step inside the expanded inline job rows.
     let onStepTap: (ActiveJob, GitHubStep) -> Void
-    /// Drives the inline expand/collapse state: `nil` = collapsed, `false` = partially expanded, `true` = fully expanded.
-    @State private var expandState: Bool?
+    /// Process-lifetime hierarchy state; owns expansion and nested-job state.
+    let hierarchyState: MainHierarchyState
+    /// Drives the inline expand/collapse state via hierarchyState.
+    /// nil = collapsed, false = partially expanded, true = fully expanded.
+    private var expandState: Bool? {
+        hierarchyState.expansion(for: group.id)?.value
+    }
     /// Tracks the previous row status to detect in-progress → done transitions.
     @State private var previousStatus: RBStatus?
 
@@ -42,7 +47,14 @@ struct ActionRowView: View {
                 rowContent
             }
             if let fullExpand = expandState {
-                InlineJobRowsView(group: group, tick: tick, fullExpand: fullExpand, onStepTap: onStepTap)
+                InlineJobRowsView(
+                    group: group,
+                    tick: tick,
+                    fullExpand: fullExpand,
+                    onStepTap: onStepTap,
+                    groupID: group.id,
+                    hierarchyState: hierarchyState
+                )
             }
         }
         .frame(maxWidth: .infinity)
@@ -68,7 +80,14 @@ struct ActionRowView: View {
         .clipShape(RoundedRectangle(cornerRadius: RBRadius.card, style: .continuous))
         .contentShape(RoundedRectangle(cornerRadius: RBRadius.card, style: .continuous))
         .workflowContextMenu(group: group)
-        .modifier(RowTapModifier(jobs: group.jobs, expandState: $expandState, rowStatus: rowStatus))
+        .modifier(RowTapModifier(
+            jobs: group.jobs,
+            expandState: Binding(
+                get: { expandState },
+                set: { setExpandState($0) }
+            ),
+            rowStatus: rowStatus
+        ))
         .padding(.horizontal, RBSpacing.md)
         .padding(.vertical, RBSpacing.xxs)
         .onAppear {
@@ -135,21 +154,32 @@ struct ActionRowView: View {
         .allowsHitTesting(false)
     }
 
-    /// Sets the initial expand state based on the row's status at appear time.
+    /// Reconciles expansion on appear, catching status transitions that
+    /// occurred while Main was unmounted, then seeds `previousStatus`.
+    ///
+    /// Does not animate: appearance reconciliation is not a live transition.
     private func applyInitialExpandState() {
         let status = rowStatus
+        hierarchyState.reconcile(status: status, for: group.id)
         previousStatus = status
-        expandState = (status == .inProgress) ? false : nil
     }
 
-    /// Animates expand state transitions when the row status changes.
+    /// Routes all user-driven expandState mutations through hierarchyState.
+    /// Job-state cleanup is owned by `MainHierarchyState.setExpansion`.
+    private func setExpandState(_ newValue: Bool?) {
+        let newExpansion = MainHierarchyState.WorkflowExpansion(newValue)
+        hierarchyState.setExpansion(newExpansion, for: group.id)
+    }
+
+    /// Animates expansion transitions triggered by live status changes.
+    ///
+    /// `reconcile()` must be called *inside* the `withAnimation` closure so that
+    /// the `hierarchyState.workflowExpansions` mutation is captured by the
+    /// animation transaction. Calling it before and then wrapping an empty closure
+    /// leaves the state change outside the transaction — the expand/collapse snaps.
     private func handleStatusChange(_ newStatus: RBStatus) {
-        let animation: Animation = .easeInOut(duration: 0.15)
-        if newStatus == .inProgress && expandState == nil {
-            withAnimation(animation) { expandState = false }
-        }
-        if previousStatus == .inProgress && (newStatus == .success || newStatus == .failed) {
-            withAnimation(animation) { expandState = nil }
+        withAnimation(.easeInOut(duration: 0.15)) {
+            hierarchyState.reconcile(status: newStatus, for: group.id)
         }
         previousStatus = newStatus
     }

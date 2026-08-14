@@ -95,5 +95,13 @@ let package = Package(
                 .enableUpcomingFeature("NonisolatedNonsendingByDefault")
             ]
         ),
+        .testTarget(
+            name: "RunBotTests",
+            dependencies: ["RunBot"],
+            path: "Tests/RunBotTests",
+            swiftSettings: [
+                .enableUpcomingFeature("NonisolatedNonsendingByDefault")
+            ]
+        ),
     ]
 )
