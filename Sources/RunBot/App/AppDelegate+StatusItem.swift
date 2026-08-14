@@ -36,27 +36,28 @@ extension AppDelegate {
 
     /// Returns the menu-bar icon for the given aggregate status.
     ///
-    /// Prefers the bundled `StatusBarIcon` asset (the robot-face template image),
-    /// loaded from the compiled asset catalog (`Assets.car`) via
-    /// `NSImage(named:)` — see `statusBarIcon` below.
+    /// Loads `StatusBarIcon` from loose PNG files in `Bundle.main` — the
+    /// proven mechanism from main's build pipeline. build.sh explicitly copies
+    /// StatusBarIcon.png / @2x / @3x into Contents/Resources, so all three
+    /// representations are always present regardless of actool behaviour.
     ///
-    /// Falls back to the SF Symbol chain when the asset is missing, preserving
-    /// the original triple-fallback behaviour for safety.
+    /// Falls back to the SF Symbol chain when the loose files are missing,
+    /// preserving the original triple-fallback behaviour for safety.
     ///
     /// - Note: `status` is used only by the SF Symbol fallback chain (step 2).
     ///   `StatusBarIcon` is a static brand image and is status-agnostic.
     ///
     /// Fallback chain:
-    /// 1. `Self.statusBarIcon` — robot-face asset from compiled catalog.
+    /// 1. `Self.statusBarIcon` — robot-face image loaded from loose PNGs.
     /// 2. `status.symbolName`  — correct SF Symbol for the current status.
-    ///    Reached only if the StatusBarIcon asset is genuinely missing/corrupt.
+    ///    Reached only if the StatusBarIcon PNGs are genuinely missing.
     /// 3. `NSImage()`          — empty/invisible (should never be reached).
     func menuBarImage(for status: AggregateStatus) -> NSImage {
         if let icon = Self.statusBarIcon {
             return icon
         }
         #if DEBUG
-        assertionFailure("StatusBarIcon missing from Assets.car — check Assets.xcassets is in project.yml resources and xcodebuild ran actool (see issue #2763)")
+        assertionFailure("StatusBarIcon missing from Bundle.main — check build.sh copies StatusBarIcon.png/@2x/@3x into Contents/Resources (see issue #2775)")
         #endif
         return NSImage(systemSymbolName: status.symbolName, accessibilityDescription: nil)
             ?? NSImage()
@@ -67,29 +68,38 @@ extension AppDelegate {
     /// is the standard macOS menu bar icon convention.
     private static let statusBarIconPointSize = NSSize(width: 18, height: 18)
 
-    /// Cached `StatusBarIcon` image, loaded from the compiled asset catalog
-    /// (`Assets.car`) exactly once via `NSImage(named:)`.
+    /// Cached `StatusBarIcon` image, loaded from loose PNG files in
+    /// `Bundle.main` exactly once.
     ///
-    /// xcodebuild runs `actool` which compiles
-    /// `Sources/RunBot/Resources/Assets.xcassets` into
-    /// `Contents/Resources/Assets.car`. `NSImage(named:)` resolves named
-    /// images from that catalog automatically via `Bundle.main`.
+    /// build.sh explicitly copies StatusBarIcon.png, StatusBarIcon@2x.png, and
+    /// StatusBarIcon@3x.png from the imageset into Contents/Resources before
+    /// codesigning. `Bundle.main.path(forResource:ofType:)` resolves each
+    /// representation by filename; they are composed into a single NSImage with
+    /// the correct pixel density metadata so AppKit picks the right one per
+    /// display. This mirrors main's proven icon-loading mechanism exactly.
     ///
-    /// ⚠️  AI AGENT: Do NOT revert to loose-file loading via
-    /// `Bundle.main.path(forResource:ofType:)`. Do NOT use `Bundle.module`
-    /// or a SwiftPM resource bundle. The asset catalog is compiled by
-    /// xcodebuild/actool — it is NOT available in `swift build` debug builds.
-    /// See issue #2763 for the xcodebuild migration that makes this possible.
+    /// ⚠️  AI AGENT: Do NOT switch to `NSImage(named:)` or `Bundle.module`.
+    /// `NSImage(named:)` requires Assets.car (actool output) which is not
+    /// reliably produced by the current XcodeGen resource phase. `Bundle.module`
+    /// is a SwiftPM resource bundle unavailable in xcodebuild app targets.
+    /// The loose-file approach is deliberate — see issue #2775.
     private static let statusBarIcon: NSImage? = {
-        guard let image = NSImage(named: "StatusBarIcon") else {
+        let filenames = ["StatusBarIcon", "StatusBarIcon@2x", "StatusBarIcon@3x"]
+        let image = NSImage()
+        image.size = statusBarIconPointSize
+
+        for filename in filenames {
+            guard let path = Bundle.main.path(forResource: filename, ofType: "png"),
+                  let rep = NSBitmapImageRep(contentsOfFile: path) else {
+                continue
+            }
+            image.addRepresentation(rep)
+        }
+
+        guard image.representations.isEmpty == false else {
             return nil
         }
-        // Explicitly set the logical point size so the menu-bar icon renders
-        // at 18×18 pt on all displays, regardless of the intrinsic size baked
-        // into the asset catalog. Without this, AppKit infers the size from the
-        // imageset's contents, which may differ from the 18pt convention.
-        // isTemplate enables automatic light/dark inversion by the system.
-        image.size = statusBarIconPointSize
+
         image.isTemplate = true
         return image
     }()
