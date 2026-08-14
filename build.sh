@@ -21,6 +21,18 @@ set -e
 APP_NAME="RunBot"
 OUT_DIR="dist"
 
+# build.sh intentionally takes no positional arguments.
+# Release version metadata is read from Resources/Info.plist, which publish.yml
+# patches before invoking this script. Reject arguments rather than silently
+# ignoring them and potentially packaging a different version than the caller
+# expected.
+if [[ $# -ne 0 ]]; then
+  echo "✗ build.sh takes no arguments." >&2
+  echo "  Version metadata is read from Resources/Info.plist." >&2
+  echo "  Usage: bash build.sh" >&2
+  exit 1
+fi
+
 # ── Resolve dependencies ─────────────────────────────────────────────
 # All deps track a branch (not a tag/revision) — `swift package update` ensures
 # the local Package.resolved is updated to the current branch HEAD before every

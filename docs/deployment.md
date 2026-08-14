@@ -346,7 +346,7 @@ zipping, and creating the GitHub Release — is handled by CI automatically.
    3. **Patch Info.plist** — writes `CFBundleShortVersionString` (X.Y.Z),
       `RBVersionString` (full semver incl. beta suffix), and `CFBundleVersion`
       (git commit count) — only in the CI artifact, never committed back to `main`
-   4. **Build** — `bash build.sh <version>` compiles arm64, assembles `.app`,
+   4. **Build** — `bash build.sh` compiles arm64, assembles `.app`,
       signs ad-hoc, zips to `dist/RunBot.zip` (see [Build internals](#build-internals) below)
    5. **Verify** — confirms the binary is actually present inside the zip
    6. **Generate SHA-256 sidecar** — computes a `shasum -a 256` digest and writes
@@ -586,7 +586,7 @@ would never push the tag anyway. Check whether the existing tag points at
 the correct commit.
 
 **Build fails**\
-Run `swift build` and `bash build.sh <version>` locally first to isolate
+Run `swift build` and `bash build.sh` locally first to isolate
 whether the failure is in the source or the pipeline.
 
 ### Update Flow
