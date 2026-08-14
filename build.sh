@@ -21,6 +21,18 @@ set -e
 APP_NAME="RunBot"
 OUT_DIR="dist"
 
+# Version ownership invariant:
+# publish.yml computes the release version and patches Resources/Info.plist
+# before invoking this script. The legacy positional argument never stamped
+# the app plist; it only validated a parallel value and wrote version.txt.
+# build.sh now reads the packaged plist and writes version.txt from that same
+# value so the built app is the single source of truth.
+#
+# Local builds intentionally retain the literal version committed in
+# Resources/Info.plist. Do not reintroduce a 0.0.0-dev shell-only value or a
+# positional version argument, because either would make version.txt diverge
+# from the packaged application.
+#
 # build.sh intentionally takes no positional arguments.
 # Release version metadata is read from Resources/Info.plist, which publish.yml
 # patches before invoking this script. Reject arguments rather than silently
@@ -34,21 +46,10 @@ if [[ $# -ne 0 ]]; then
 fi
 
 # ── Resolve dependencies ─────────────────────────────────────────────
-# All deps track a branch (not a tag/revision) — `swift package update` ensures
-# the local Package.resolved is updated to the current branch HEAD before every
-# build. Without this, `swift build` reuses the cached resolved versions and will
-# miss commits pushed to dependency branches since the last update.
-#
-# ⚠️ NON-DETERMINISM NOTE: `swift package update` resolves ALL three branch-tracked
-# deps (MenuBarKit, AppUpdater, GitHubClient) to their live branch HEAD at execution
-# time — not just MenuBarKit. Two CI runs against the same run-bot commit SHA can
-# produce different binaries if any commit lands on any of those branches between
-# runs. This is an accepted and intentional trade-off for this PR:
-# • MenuBarKit is temporarily pinned to fix/arrow-center-drift (see Package.swift).
-#   Once that branch merges into MBK main, Package.swift reverts to branch: "main".
-#   Tracked in #2275 — do not remove that issue until Package.swift is back on main.
-# • AppUpdater and GitHubClient are internal repos; the non-determinism risk is low
-#   but exists. Both will continue to track main after this PR merges.
+# Validate and refresh the root SwiftPM dependency graph before generating the
+# Xcode project. xcodebuild performs its own package resolution for the
+# generated project; this step is an early dependency-health check, not the
+# source of Xcode's resolved package state.
 echo "→ Updating dependencies..."
 swift package update
 

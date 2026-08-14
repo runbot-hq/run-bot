@@ -21,6 +21,10 @@ targets:
   RunBot:
     type: application
     platform: macOS
+    # Xcode derives LSMinimumSystemVersion in the built Info.plist from this
+    # deployment target. Do not add a conflicting literal value to
+    # Resources/Info.plist; the removed 13.0 value was stale and did not
+    # represent the application's actual platform requirements.
     deploymentTarget: "26.0"
     sources:
       - path: Sources/RunBot
@@ -50,6 +54,12 @@ targets:
         product: MarkdownKit
     settings:
       base:
+        # Production identity invariant:
+        # main's legacy release build copied Resources/Info.plist directly into
+        # RunBot.app, and that plist already used io.github.runbot-hq. The old
+        # dev.eonist.runbot value here affected Xcode-generated builds only and
+        # was stale. Keep this aligned with CFBundleIdentifier in Info.plist;
+        # changing it back would change the identity of Xcode-built releases.
         PRODUCT_BUNDLE_IDENTIFIER: io.github.runbot-hq
         MACH_O_TYPE: mh_execute
         CODE_SIGN_IDENTITY: "-"
@@ -82,6 +92,10 @@ targets:
     # to locate the already-built .app at runtime.
     settings:
       base:
+        # This identifies the XCTest runner bundle, not the RunBot application.
+        # RunBotUITests launches the app explicitly using io.github.runbot-hq.
+        # The test-runner identifier is independent and does not control app
+        # preferences, Keychain access, URL-scheme registration, or updates.
         PRODUCT_BUNDLE_IDENTIFIER: dev.eonist.runbot.uitests
         CODE_SIGN_IDENTITY: "-"
         CODE_SIGNING_REQUIRED: NO
