@@ -50,24 +50,15 @@ RunBot does not:
 ## Network access
 
 RunBot makes encrypted requests to `api.github.com` and `github.com`.
-Workflow log archives are served via GitHub-issued pre-signed URLs that redirect
-to object storage (`*.s3.amazonaws.com`). RunBot follows these redirects to download
-log ZIPs. URLSession strips the `Authorization` header on cross-origin redirects,
-so your OAuth token is not forwarded to object storage.
+Workflow log archives are downloaded through temporary URLs provided by GitHub;
+your OAuth token is not included in those requests.
 Notifications are optional and generated locally by macOS.
 
 ---
 
 ## Removing local data
 
-Signing out removes the stored GitHub credentials from the Keychain. Deletion is
-best-effort: a failure is logged but does not block sign-out, so a ghost entry may
-remain. To remove it manually:
-
-```
-security delete-generic-password -s run-bot
-```
-
+Signing out removes the stored GitHub credentials from the Keychain.
 To remove application settings:
 
 ```
