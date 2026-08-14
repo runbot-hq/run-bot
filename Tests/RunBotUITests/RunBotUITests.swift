@@ -61,7 +61,7 @@ final class RunBotUITests: XCTestCase {
         // UI_TESTING=1. If we don't do this, app.launch() re-activates the
         // existing instance (which lacks the env var) and the app never
         // reaches .runningForeground from XCTest's perspective.
-        let stale = XCUIApplication(bundleIdentifier: "dev.eonist.runbot")
+        let stale = XCUIApplication(bundleIdentifier: "io.github.runbot-hq")
         if stale.state != .notRunning {
             print("[UITest] setUp: terminating stale RunBot (state=\(stale.state.rawValue))")
             stale.terminate()
@@ -69,7 +69,7 @@ final class RunBotUITests: XCTestCase {
             Thread.sleep(forTimeInterval: 0.5)
         }
 
-        app = XCUIApplication(bundleIdentifier: "dev.eonist.runbot")
+        app = XCUIApplication(bundleIdentifier: "io.github.runbot-hq")
         app.launchEnvironment["UI_TESTING"] = "1"
         app.launch()
         let launched = app.wait(for: .runningForeground, timeout: 10)
