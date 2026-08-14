@@ -307,9 +307,15 @@ swift package resolve
 ```bash
 bash build.sh
 ```
-Builds an arm64-only release binary (`swift build -c release --arch arm64`), assembles the `.app`
-bundle, ad-hoc signs it, and zips to `dist/RunBot.zip`. The arch flag and build path in
-`build.sh` are pinned intentionally — do not change them.
+Generates an ephemeral Xcode project from `project.yml`, builds the arm64
+Release application with `xcodebuild`, validates the packaged resources and
+metadata, ad-hoc signs it, and creates `dist/RunBot.zip`.
+
+XcodeGen is required:
+
+```bash
+brew install xcodegen
+```
 
 ---
 

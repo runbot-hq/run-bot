@@ -56,7 +56,7 @@ extension AppDelegate {
             return icon
         }
         #if DEBUG
-        assertionFailure("StatusBarIcon missing from Assets.car — check Assets.xcassets is in project.yml resources and xcodebuild ran actool (see issue #2763)")
+        assertionFailure("StatusBarIcon missing from Assets.car — check Assets.xcassets is declared in project.yml sources with buildPhase: resources and xcodebuild ran actool (see issue #2763)")
         #endif
         return NSImage(systemSymbolName: status.symbolName, accessibilityDescription: nil)
             ?? NSImage()
