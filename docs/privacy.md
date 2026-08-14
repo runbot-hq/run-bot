@@ -50,9 +50,6 @@ RunBot does not:
 ## Network access
 
 RunBot makes encrypted requests to `api.github.com` and `github.com`.
-Workflow log archives are served via GitHub-issued pre-signed URLs that redirect
-to object storage (currently `*.s3.amazonaws.com`). RunBot follows these redirects
-to download log ZIPs; your OAuth token is not sent to object storage.
 Notifications are optional and generated locally by macOS.
 
 ---
@@ -60,12 +57,6 @@ Notifications are optional and generated locally by macOS.
 ## Removing local data
 
 Signing out removes the stored GitHub credentials from the Keychain.
-To remove application settings:
-
-```
-defaults delete io.github.runbot-hq
-```
-
 To remove cached workflow logs, quit RunBot and delete:
 
 ```
