@@ -32,9 +32,7 @@ targets:
           - Resources/Assets.xcassets
     resources:
       - path: Resources/AppIcon.icns
-      - path: Sources/RunBot/Resources/Assets.xcassets/StatusBarIcon.imageset/StatusBarIcon.png
-      - path: Sources/RunBot/Resources/Assets.xcassets/StatusBarIcon.imageset/StatusBarIcon@2x.png
-      - path: Sources/RunBot/Resources/Assets.xcassets/StatusBarIcon.imageset/StatusBarIcon@3x.png
+      - path: Sources/RunBot/Resources/Assets.xcassets
     dependencies:
       - package: RunBot
         product: RunBotCore

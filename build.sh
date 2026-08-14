@@ -151,31 +151,6 @@ fi
 echo "→ Copying .app to dist/..."
 ditto "$BUILT_APP" "$OUT_DIR/$APP_NAME.app"
 
-# ── Explicit icon resource copies ────────────────────────────────────────────
-# XcodeGen lists the three loose status PNGs as resources so Xcode copies them
-# into Contents/Resources. However, to guarantee the proven main behaviour and
-# defend against any future resource-phase regression, we also copy them
-# explicitly here — after ditto and before codesign — so the final sealed
-# bundle always contains the correct files regardless of what Xcode did.
-#
-# AppIcon.icns is similarly re-copied to guard against actool overwriting it
-# (ASSETCATALOG_COMPILER_APPICON_NAME="" in project.yml prevents this, but the
-# explicit copy is the belt-and-suspenders guarantee).
-APP_RESOURCES="$OUT_DIR/$APP_NAME.app/Contents/Resources"
-STATUS_ICON_SRC="Sources/RunBot/Resources/Assets.xcassets/StatusBarIcon.imageset"
-
-mkdir -p "$APP_RESOURCES"
-
-cp "Resources/AppIcon.icns" \
-   "$APP_RESOURCES/"
-
-cp "$STATUS_ICON_SRC/StatusBarIcon.png" \
-   "$APP_RESOURCES/"
-cp "$STATUS_ICON_SRC/StatusBarIcon@2x.png" \
-   "$APP_RESOURCES/"
-cp "$STATUS_ICON_SRC/StatusBarIcon@3x.png" \
-   "$APP_RESOURCES/"
-
 # ── Post-build checks ───────────────────────────────────────────────────────────
 # Explicit post-build guards confirm both icon pipelines are intact.
 # These are belt-and-suspenders checks: xcodebuild should have failed if
@@ -215,20 +190,12 @@ if [[ "$BUILT_VERSION" != "$VERSION" ]]; then
   exit 1
 fi
 
-# Status-bar icon: all three loose PNG representations must be present.
-# main's loader uses Bundle.main.path(forResource:ofType:) for 1×/2×/3× —
-# all three files must exist for correct Retina rendering.
-for _status_png in \
-  StatusBarIcon.png \
-  StatusBarIcon@2x.png \
-  StatusBarIcon@3x.png
-do
-  if [[ ! -f "$OUT_DIR/$APP_NAME.app/Contents/Resources/$_status_png" ]]; then
-    echo "✗ Missing status-bar icon: Contents/Resources/$_status_png" >&2
-    echo "  Check: explicit cp in build.sh and project.yml loose-PNG resources" >&2
-    exit 1
-  fi
-done
+# Status-bar icon: actool must have produced Assets.car
+if [[ ! -f "$OUT_DIR/$APP_NAME.app/Contents/Resources/Assets.car" ]]; then
+  echo "✗ Assets.car missing from built bundle Contents/Resources/" >&2
+  echo "  Check: Sources/RunBot/Resources/Assets.xcassets is listed in project.yml resources" >&2
+  exit 1
+fi
 
 # Architecture check
 BUILT_ARCH=$(lipo -archs "$OUT_DIR/$APP_NAME.app/Contents/MacOS/$APP_NAME" 2>/dev/null || true)
