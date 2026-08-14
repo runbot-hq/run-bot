@@ -66,12 +66,6 @@ targets:
         # is fully visible to XCTest.
         # ❌ NEVER move this back into Resources/Info.plist.
         INFOPLIST_KEY_LSUIElement: YES
-        # Default version for local Xcode opens. build.sh always overrides
-        # this by passing MARKETING_VERSION="$VERSION" to xcodebuild.
-        # CFBundleShortVersionString and RBVersionString in Info.plist both
-        # reference $(MARKETING_VERSION) — a literal version string must never
-        # be committed back there (see issue #2763).
-        MARKETING_VERSION: 0.0.0-dev
 
   RunBotUITests:
     type: bundle.ui-testing

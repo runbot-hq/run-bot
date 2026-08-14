@@ -21,21 +21,6 @@ set -e
 APP_NAME="RunBot"
 OUT_DIR="dist"
 
-# VERSION defaults to "0.0.0-dev" for local development convenience so that
-# engineers can run `bash build.sh` without arguments during iteration.
-# CI always passes the real version explicitly (see .github/workflows/),
-# so the default never reaches a published build.
-# The dev sentinel is intentionally not a real semver release tag — it will
-# never satisfy the auto-updater's "newer version available" check, which
-# prevents accidental self-update prompts during local testing.
-# Do NOT replace this default with a real version number — that would mask
-# CI misconfiguration by silently publishing a stale version string.
-VERSION="${1:-0.0.0-dev}"
-if ! printf '%s\n' "$VERSION" | grep -E -q '^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$'; then
-  echo "✗ Invalid version '${VERSION}'. Expected semver (e.g. 1.2.3 or 1.2.3-beta.1)" >&2
-  exit 1
-fi
-
 # ── Resolve dependencies ─────────────────────────────────────────────
 # All deps track a branch (not a tag/revision) — `swift package update` ensures
 # the local Package.resolved is updated to the current branch HEAD before every
@@ -102,7 +87,7 @@ xcodegen generate
 # xcodebuild owns the full app-bundle construction:
 #   • compiles Sources/ via the RunBot scheme
 #   • runs actool to compile Assets.xcassets into Assets.car
-#   • processes Resources/Info.plist (MARKETING_VERSION injected below)
+#   • processes Resources/Info.plist (literal version values from the plist)
 #   • copies Resources/AppIcon.icns to Contents/Resources/
 #   • places the binary at Contents/MacOS/RunBot
 #
@@ -131,8 +116,7 @@ xcodebuild build \
   -destination 'generic/platform=macOS' \
   -derivedDataPath "$DERIVED_DATA" \
   ARCHS=arm64 \
-  ONLY_ACTIVE_ARCH=NO \
-  MARKETING_VERSION="$VERSION"
+  ONLY_ACTIVE_ARCH=NO
 
 # ── Locate built .app in DerivedData ───────────────────────────────────────
 # Use the deterministic Release product path rather than `find | head -1`.
@@ -179,14 +163,30 @@ BUNDLE_ICON=$(
   exit 1
 }
 
-# CFBundleShortVersionString must match the version passed to this script.
+# CFBundleShortVersionString and RBVersionString must be identical — publish.yml
+# patches both from the same version source. A mismatch means the plist was
+# edited by hand or the patch step ran incompletely.
 BUILT_VERSION=$(
   plutil -extract CFBundleShortVersionString raw \
     "$OUT_DIR/$APP_NAME.app/Contents/Info.plist"
 )
-if [[ "$BUILT_VERSION" != "$VERSION" ]]; then
-  echo "✗ Version mismatch: expected $VERSION, got $BUILT_VERSION" >&2
-  echo "  Check: Resources/Info.plist references \$(MARKETING_VERSION), not a literal string" >&2
+BUILT_RB_VERSION=$(
+  plutil -extract RBVersionString raw \
+    "$OUT_DIR/$APP_NAME.app/Contents/Info.plist"
+)
+if [[ "$BUILT_VERSION" != "$BUILT_RB_VERSION" ]]; then
+  echo "✗ Version mismatch: CFBundleShortVersionString=$BUILT_VERSION RBVersionString=$BUILT_RB_VERSION" >&2
+  echo "  Check: publish.yml patches both keys from the same version source" >&2
+  exit 1
+fi
+
+# CFBundleVersion must be a non-empty numeric build number.
+BUILT_BUILD=$(
+  plutil -extract CFBundleVersion raw \
+    "$OUT_DIR/$APP_NAME.app/Contents/Info.plist"
+)
+if ! printf '%s\n' "$BUILT_BUILD" | grep -E -q '^[0-9]+$'; then
+  echo "✗ CFBundleVersion is not a numeric build number: '$BUILT_BUILD'" >&2
   exit 1
 fi
 
@@ -249,7 +249,9 @@ ditto -c -k --keepParent \
 # are outside this script (install.sh and/or the gh-pages deploy pipeline).
 # It is not read by publish.yml directly — that workflow derives the version
 # from its own tag computation step.
-echo "$VERSION" > "$OUT_DIR/version.txt"
+# Read from the built bundle so version.txt always matches what was actually
+# packaged, regardless of how the script was invoked.
+echo "$BUILT_VERSION" > "$OUT_DIR/version.txt"
 
 echo "✓ Done — dist/RunBot.zip is ready"
 
