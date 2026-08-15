@@ -11,16 +11,16 @@ struct MigrationWorkflowView: View {
     var body: some View {
         HSplitView {
             MigrationWorkflowListView()
-                .frame(minWidth: 180, idealWidth: 220)
+                .frame(minWidth: 150, idealWidth: 190, maxWidth: 320)
 
             MigrationJobListView()
-                .frame(minWidth: 180, idealWidth: 220)
+                .frame(minWidth: 150, idealWidth: 190, maxWidth: 320)
 
             MigrationStepListView()
-                .frame(minWidth: 180, idealWidth: 220)
+                .frame(minWidth: 150, idealWidth: 190, maxWidth: 320)
 
             MigrationStepLogView()
-                .frame(minWidth: 320, idealWidth: 520)
+                .frame(minWidth: 260, idealWidth: 380, maxWidth: 800)
         }
     }
 }
