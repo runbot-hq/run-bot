@@ -13,6 +13,14 @@ let package = Package(
             name: "RunBotCore",
             targets: ["RunBotCore"]
         ),
+        .executable(
+            name: "RunBotApp",
+            targets: ["RunBotApp"]
+        ),
+        .library(
+            name: "RunBotAppCore",
+            targets: ["RunBotAppCore"]
+        ),
     ],
     // Package.resolved is intentionally not tracked in this repository.
     // Dependency revisions are declared in package manifests per repository policy.
@@ -101,6 +109,24 @@ let package = Package(
             name: "RunBotTests",
             dependencies: ["RunBot"],
             path: "Tests/RunBotTests",
+            swiftSettings: [
+                .enableUpcomingFeature("NonisolatedNonsendingByDefault")
+            ]
+        ),
+        .target(
+            name: "RunBotAppCore",
+            dependencies: [],
+            path: "Sources/RunBotAppCore",
+            swiftSettings: [
+                .enableUpcomingFeature("NonisolatedNonsendingByDefault")
+            ]
+        ),
+        .executableTarget(
+            name: "RunBotApp",
+            dependencies: [
+                "RunBotAppCore",
+            ],
+            path: "Sources/RunBotApp",
             swiftSettings: [
                 .enableUpcomingFeature("NonisolatedNonsendingByDefault")
             ]
