@@ -17,13 +17,16 @@ struct AboutSettingsSection: View {
 
     // MARK: - Version
 
+    /// The marketing version string from `Bundle.main.rbVersionString`.
     private var appVersion: String { Bundle.main.rbVersionString }
+    /// The build number from `CFBundleVersion`.
     private var appBuild: String {
         Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "—"
     }
 
     // MARK: - Body
 
+    /// The about section card showing version, build, and pre-release badge.
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Text("About")

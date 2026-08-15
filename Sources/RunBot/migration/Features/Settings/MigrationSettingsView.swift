@@ -30,15 +30,18 @@ struct MigrationSettingsView: View {
 
     // MARK: - Environment
 
+    /// The active GitHub authentication state, injected from the environment.
     @Environment(GitHubAuthentication.self)
     private var authentication
 
     // MARK: - Inputs
 
+    /// Services required by the settings sections.
     let dependencies: MigrationSettingsDependencies
 
     // MARK: - Body
 
+    /// The scrollable settings layout.
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {

@@ -13,8 +13,10 @@ import SwiftUI
 /// menu-bar-popover behaviour that does not apply to the windowed destination.
 struct GeneralSettingsSection: View {
 
+    /// Whether RunBot is registered as a Login Item.
     @State private var launchAtLogin = LoginItem.isEnabled
 
+    /// The launch-at-login settings card.
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Text("General")
@@ -50,6 +52,7 @@ struct GeneralSettingsSection: View {
         }
     }
 
+    /// Writes the Login Item entry then re-reads state so the toggle snaps on failure.
     private func applyLaunchAtLogin(_ enabled: Bool) {
         LoginItem.setEnabled(enabled)
         launchAtLogin = LoginItem.isEnabled
