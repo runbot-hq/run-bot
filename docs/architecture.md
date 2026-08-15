@@ -1,21 +1,23 @@
-## Contents
+## Index
 
-- [panelVisibilityState and wrapEnv()](#panelvisibilitystate-and-wrapenv)
-- [@MainActor isolation on AppDelegate](#mainactor-isolation-on-appdelegate)
-- [Nav-state persistence across panel close/open](#nav-state-persistence-across-panel-closeopen)
-- [OAuth URL handling](#oauth-url-handling)
-- [KeyablePanel access level](#keyablepanel-access-level)
-- [Dark Mode & Light Mode Support](#dark-mode--light-mode-support)
-- [RunBotCore Library Rationale](#runbotcore-library-rationale)
-- [Log Directive Parsing — Reference Spec](#log-directive-parsing--reference-spec)
-- [GitHubClient Package](#githubclient-package-runbot-hqgithubclient)
-- [AppUpdater Package](#appupdater-package-runbot-hqappupdater)
-- [Data Model](#data-model)
-- [Concurrency Model](#concurrency-model)
-- [NSPopover Decisions](#nspopover-decisions)
-- [Design](#design)
-- [E-Tag caching](#e-tag-caching)
-- [ZIP log cache](#zip-log-cache)
+- [Application lifecycle](#application-lifecycle)
+  - [`@MainActor` isolation on `AppDelegate`](#mainactor-isolation-on-appdelegate)
+  - [OAuth URL handling](#oauth-url-handling)
+- [Panel and presentation](#panel-and-presentation)
+  - [Nav-state persistence across panel close/open](#nav-state-persistence-across-panel-closeopen)
+  - [`KeyablePanel` access level](#keyablepanel-access-level)
+  - [Dark and light mode support](#dark-mode--light-mode-support)
+- [Core runtime](#core-runtime)
+  - [`RunBotCore` library rationale](#runbotcore-library-rationale)
+  - [`RunnerPoller` responsibilities](#runnerpoller-responsibilities-and-isolation)
+  - [Log processing](#log-processing)
+  - [Log directive parsing](#log-directive-parsing--reference-spec)
+  - [Markdown rendering](#markdown-rendering)
+- [Package boundaries](#package-boundaries)
+  - [`GitHubClient`](#githubclient-package-runbot-hqgithubclient)
+  - [`MenuBarKit`](#menubarkit-package)
+  - [`MarkdownKit`](#markdownkit-package-runbot-hqmarkdownkit)
+  - [`AppUpdater`](#appupdater-package-runbot-hqappupdater)
 
 # RunBot — UI Architecture Decisions
 
@@ -44,7 +46,9 @@ mirrors `panelIsOpen`. It is injected into every SwiftUI view hierarchy via
 
 ---
 
-## `@MainActor` isolation on `AppDelegate`
+## Application lifecycle
+
+### `@MainActor` isolation on `AppDelegate`
 
 > Regression guard ref: Swift 6 concurrency migration  
 > See also: `AppDelegate.swift`, `AppDelegate+Navigation.swift`
@@ -62,7 +66,9 @@ network I/O and is always dispatched onto `DispatchQueue.global()`.
 
 ---
 
-## Nav-state persistence across panel close/open
+## Panel and presentation
+
+### Nav-state persistence across panel close/open
 
 > Regression guard ref: issue #385  
 > See also: `AppDelegate.swift` `closePanel()`
@@ -78,7 +84,7 @@ navigation clears the state to return to Main.
 
 ---
 
-## OAuth URL handling
+### OAuth URL handling
 
 > Ref: issue #597  
 > See also: `AppDelegate.swift` `application(_:open:)`
@@ -90,7 +96,7 @@ the sign-in spinner stuck indefinitely.
 
 ---
 
-## `KeyablePanel` access level
+### `KeyablePanel` access level
 
 > See also: `KeyablePanel.swift`, `AppDelegate.swift`
 
@@ -100,11 +106,11 @@ file, and Swift `private` does not cross file boundaries.
 
 ---
 
-## Dark Mode & Light Mode Support
+### Dark Mode & Light Mode Support
 
 Appearance adaptation is handled at three distinct layers. There is no user-facing toggle — the app defers entirely to the system setting.
 
-### 1. `PanelChromeView` — Explicit AppKit check (`PanelChrome.swift`)
+#### 1. `PanelChromeView` — Explicit AppKit check (`PanelChrome.swift`)
 
 The custom `NSView` subclass uses `effectiveAppearance` to manually detect the active color scheme:
 
@@ -115,7 +121,7 @@ let fill: NSColor = isDark
     : NSColor(white: 0.95, alpha: 0.01)
 ```
 
-### 2. `NSVisualEffectView` — Automatic material adaptation (`PanelChrome.swift`)
+#### 2. `NSVisualEffectView` — Automatic material adaptation (`PanelChrome.swift`)
 
 ```swift
 view.material = .popover
@@ -125,7 +131,7 @@ view.state = .active
 
 The `.popover` material resolves automatically to a light frosted-glass blur in Light Mode and a dark tinted blur in Dark Mode. **Do not change the material** — switching away from `.popover` is explicitly prohibited in inline code comments to prevent visual regressions.
 
-### 3. SwiftUI views — Semantic colors (all view files)
+#### 3. SwiftUI views — Semantic colors (all view files)
 
 All SwiftUI views exclusively use semantic system colors (`.primary`, `.secondary`, `.green`, `.red`, `.yellow`, `Color.secondary.opacity(0.12)`) that SwiftUI resolves at render time. There is **no hardcoded `NSColor` or `Color(hex:)`** in the UI layer.
 
@@ -141,17 +147,19 @@ All SwiftUI views exclusively use semantic system colors (`.primary`, `.secondar
 
 ---
 
-## RunBotCore Library Rationale
+## Core runtime
+
+### `RunBotCore` Library Rationale
 
 Great question. Here's the full picture for your specific setup.
 
-## The Core Rationale
+### The Core Rationale
 
 `RunBotCore` is a plain Swift package library target — no app bundle, no AppKit, no entitlements. Moving code there means that code is **completely decoupled from the macOS app runtime**. In a pure SPM codebase without `.xcodeproj`, this boundary is enforced by the compiler itself: if you accidentally import `AppKit` in a Core file, the build fails. The separation isn't just architectural — it's structural and verified on every build.
 
 ***
 
-## Pros
+### Pros
 
 **Testability is the biggest win.** Code in `RunBotCore` can be tested with `swift test` — no simulator, no app bundle, no entitlements, no Keychain access prompts. Your CI job becomes `swift build && swift test` and runs in seconds on a plain Linux or macOS runner with zero UI setup. App-layer code (`RunBot`) requires a full `xcodebuild` invocation with a derived data path, scheme, destination, and often a booted simulator or `-allowProvisioningUpdates`. The testing surface is fundamentally different.
 
@@ -167,7 +175,7 @@ Great question. Here's the full picture for your specific setup.
 
 ***
 
-## Cons
+### Cons
 
 **`@MainActor` and `Observation` friction.** `@Observable` types work fine in a library target, but if you move something like `ScopeStore` or `AppPreferencesStore` to Core, you need to be careful that `@MainActor` isolation is declared explicitly rather than inherited from the app's implicit main-actor context. This is usually a one-line fix but it can surface Swift 6 concurrency warnings you hadn't seen before.
 
@@ -181,13 +189,15 @@ Great question. Here's the full picture for your specific setup.
 
 ***
 
-## The Net Position for Your Setup
+### The Net Position for Your Setup
 
 In a pure SPM / no-`.xcodeproj` codebase with GitHub Actions CI, the payoff is **high and concrete**: faster CI via `swift test`, enforced architectural boundaries, and a clean path to testing business logic without the full app build. The main cost is upfront refactoring — particularly the `RunnerStore`/`RunnerViewModel` coupling — but the files that don't have that coupling (the 13 straightforward candidates in the issue) are essentially free wins.
 
 ---
 
-## Log Directive Parsing — Reference Spec
+### Log processing
+
+### Log Directive Parsing — Reference Spec
 
 `LogLineParser.swift` (`RunBotCore`) parses raw GitHub Actions step log text directly.
 This is distinct from how `gh` CLI works — `gh` fetches annotations from the REST API
@@ -209,9 +219,15 @@ keys (emitted by `core.ts`, parsed by `ActionCommandManager.cs`) but are not mod
 `AnnotationParams`. They are silently ignored as unknown keys — this is by design; column
 metadata has no current display use in the log view.
 
+### Markdown rendering
+
+Markdown rendering is owned by the `MarkdownKit` package (see [Package boundaries](#package-boundaries)). The `RunBot` app target provides application-specific presentation via `MarkdownLogView` and `MarkdownStyle+RunBot`, which maps RunBot design tokens onto `MarkdownStyle`.
+
 ---
 
-## GitHubClient Package (`runbot-hq/GitHubClient`)
+## Package boundaries
+
+### `GitHubClient` Package (`runbot-hq/GitHubClient`)
 
 > See also: [runbot-hq/GitHubClient](https://github.com/runbot-hq/GitHubClient) for full API docs and package internals.
 
@@ -245,7 +261,32 @@ All tests that touch network or Keychain inject `MockTransport` and `MockOAuthSe
 
 ---
 
-## AppUpdater Package (`runbot-hq/AppUpdater`)
+### `MenuBarKit` Package
+
+`MenuBarKit` is a local Swift package (see `Packages/MenuBarKit`) that owns the anchored-panel, SwiftUI sheet, NSOpenPanel, and alert layer of a macOS menu-bar app. It is imported by the `RunBot` app target and provides:
+
+- `MBKPanelController` — owns the full `NSPanel` + `NSStatusItem` lifecycle
+- `MBKOverlayGate` — single source of truth for whether any overlay is open
+- `PanelGeometry` — pure math for panel positioning, no AppKit dependency
+- `SkyLightBridge` — runtime-only bridge to private SkyLight symbols for menu-bar hold
+
+`MenuBarKit` must not import `RunBot` or `RunBotCore` symbols. The package has zero dependencies on RunBot.
+
+---
+
+### `MarkdownKit` Package (`runbot-hq/MarkdownKit`)
+
+`MarkdownKit` owns Markdown parsing, rendering primitives, syntax highlighting, and its underlying `swift-markdown` and `Highlightr` dependencies. The `RunBot` target owns application-specific presentation:
+
+- `MarkdownLogView` integrates the renderer into step-log presentation.
+- `MarkdownStyle+RunBot` maps RunBot design tokens onto `MarkdownStyle`.
+- `MarkdownKit` must not import or depend on app-target symbols.
+
+The package tracks the `main` branch. Dependency pinning and release behavior are documented in [deployment.md](deployment.md).
+
+---
+
+### `AppUpdater` Package (`runbot-hq/AppUpdater`)
 
 > See also: [runbot-hq/AppUpdater](https://github.com/runbot-hq/AppUpdater) for full API docs and package internals.
 
@@ -313,7 +354,7 @@ runners are reconciled with GitHub-hosted runners.
 
 ---
 
-## `RunnerPoller` — what it does today
+### `RunnerPoller` Responsibilities and Isolation
 
 `RunnerPoller` is a Swift 6 `actor` in `RunBotCore` that owns the GitHub poll loop
 and all derived runner/job/action state. It runs on its own (background) executor and
