@@ -70,7 +70,7 @@ targets:
         EXCLUDED_ARCHS: x86_64
         # LSUIElement is NO: app appears in Dock as a regular windowed app.
         # Kept here as a build setting (not in Info.plist) so RunBotUITests
-        # is unaffected. See migration #2799.
+        # is unaffected.
         # ❌ NEVER move this back into Resources/Info.plist.
         INFOPLIST_KEY_LSUIElement: NO
 
