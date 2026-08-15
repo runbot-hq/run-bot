@@ -8,8 +8,8 @@ struct MigrationJobListView: View {
     /// The pane content.
     var body: some View {
         MigrationWorkflowColumn(title: "Jobs") {
-            ContentUnavailableView(
-                "Select a workflow",
+            MigrationColumnPlaceholder(
+                title: "Select a workflow",
                 systemImage: "list.bullet.rectangle"
             )
         }
