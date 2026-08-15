@@ -2,6 +2,7 @@
 // RunBot
 
 import Observation
+import RunBotCore
 
 /// In-memory selection state for the four-pane workflow layout.
 ///

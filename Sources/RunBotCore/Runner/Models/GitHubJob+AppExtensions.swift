@@ -85,6 +85,24 @@ extension GitHubJob {
 /// RunBotCore-layer extensions on `GitHubStep` for typed status, dates, and display.
 extension GitHubStep {
 
+    /// Canonical RBStatus for display, matching the ActiveJob.rbStatus convention.
+    public var rbStatus: RBStatus {
+        if let conclusion = stepConclusion {
+            switch conclusion {
+            case .success:            return .success
+            case .failure, .timedOut: return .failed
+            case .skipped:            return .skipped
+            case .cancelled:          return .cancelled
+            default:                  return .unknown
+            }
+        }
+        switch stepStatus {
+        case .inProgress:                 return .inProgress
+        case .queued, .waiting, .pending: return .queued
+        default:                          return .unknown
+        }
+    }
+
     /// Typed step status derived from the raw `status` string.
     public var stepStatus: JobStatus { JobStatus(rawString: status) }
 

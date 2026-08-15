@@ -1,6 +1,8 @@
 // MigrationStepListView.swift
 // RunBot
 
+import GitHubClient
+import RunBotCore
 import SwiftUI
 
 /// Steps column — renders step rows or a contextual placeholder.

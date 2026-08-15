@@ -1,6 +1,7 @@
 // MigrationStepLogView.swift
 // RunBot
 
+import GitHubClient
 import SwiftUI
 
 /// Step-log pane — confirms end-to-end selection without log rendering.

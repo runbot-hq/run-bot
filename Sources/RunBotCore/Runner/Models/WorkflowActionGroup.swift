@@ -34,6 +34,20 @@ extension GroupStatus {
     }
 }
 
+// MARK: - GroupStatus + RBStatus
+
+/// RBStatus bridging for `GroupStatus`.
+extension GroupStatus {
+    /// Maps `GroupStatus` to the shared `RBStatus` for indicator display.
+    public var rbStatus: RBStatus {
+        switch self {
+        case .inProgress: return .inProgress
+        case .loading:    return .queued
+        case .queued:     return .queued
+        case .completed:  return .unknown
+        }
+    }
+}
 // MARK: - WorkflowRunRef
 
 /// Lightweight reference to a single workflow run inside a `WorkflowActionGroup`.

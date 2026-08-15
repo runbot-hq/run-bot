@@ -1,6 +1,8 @@
 // MigrationStepRow.swift
 // RunBot
 
+import GitHubClient
+import RunBotCore
 import SwiftUI
 
 /// A single row in the Steps column.
