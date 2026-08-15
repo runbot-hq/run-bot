@@ -1,18 +1,138 @@
 // MigrationScopeView.swift
 // RunBot
 
+import GitHubClient
+import MenuBarKit
+import RunBotCore
 import SwiftUI
 
-/// Placeholder root view for the Scopes destination.
-/// Internal layout is introduced in a later migration step.
+// MARK: - MigrationScopeView
+
+/// Root view for the Scopes destination in the migration app shell.
+///
+/// Owns all scope-specific state and sheet presentation. The `scopeStore`
+/// is resolved once at the composition boundary in `AppDetailView` so child
+/// views do not each pull from `.shared`.
+///
+/// No `onRestartPolling` callback is needed — `ScopeStore` mutations are
+/// observed by `RunnerStore`'s `withObservationTracking` loop automatically.
+@MainActor
 struct MigrationScopeView: View {
-    /// The placeholder content.
-    var body: some View {
-        ContentUnavailableView(
-            "Scopes",
-            systemImage: "scope",
-            description: Text("Scope management will be added in a later migration step.")
+
+    // MARK: - Inputs
+
+    /// The shared scope store, injected at the composition boundary.
+    let scopeStore: ScopeStore
+
+    /// Authentication forwarded from the app shell for `AddScopeSheet`.
+    let authentication: GitHubAuthentication
+
+    // MARK: - Local UI state
+
+    /// The ID of the currently selected scope in the list pane.
+    @State private var selectedScopeID: ScopeEntry.ID?
+    /// Controls presentation of `AddScopeSheet`.
+    @State private var isAddScopePresented = false
+    /// Non-nil while `ScopeEditSheet` is being prepared or presented.
+    @State private var editedScope: ScopeEntry?
+    /// Preferences snapshot for `editedScope`. Fetched async before sheet
+    /// appears so `ScopeEditSheet.init` stays synchronous. (#1538)
+    @State private var editedScopePreferences: ScopePreferences?
+
+    // MARK: - Environment
+
+    /// Overlay gate managed by mbkSheet automatically.
+    @Environment(MBKOverlayGate.self) private var overlayGate: MBKOverlayGate
+
+    // MARK: - Computed
+
+    /// The full `ScopeEntry` for the current `selectedScopeID`, if any.
+    /// Full entry for `selectedScopeID`, or `nil` when nothing is selected.
+    private var selectedScope: ScopeEntry? {
+        scopeStore.entries.first { $0.id == selectedScopeID }
+    }
+
+    /// Bool binding mapping `editedScope` nil/non-nil for `mbkSheet(isPresented:)`.
+    /// Bool binding mapping `editedScope` nil/non-nil for `mbkSheet(isPresented:)`.
+    private var isEditSheetPresented: Binding<Bool> {
+        Binding(
+            get: { editedScope != nil },
+            set: { if !$0 { editedScope = nil; editedScopePreferences = nil } }
         )
-        .navigationTitle("Scopes")
+    }
+
+    // MARK: - Body
+
+    /// The root HSplitView layout with sheet bindings.
+    var body: some View {
+        HSplitView {
+            MigrationScopeListView(
+                scopes: scopeStore.entries,
+                selectedScopeID: $selectedScopeID,
+                onAdd: { isAddScopePresented = true },
+                onSetEnabled: setEnabled,
+                onDelete: delete
+            )
+            .frame(minWidth: 220, idealWidth: 280, maxWidth: 400)
+
+            MigrationScopeDetailView(
+                scope: selectedScope,
+                onEdit: prepareEdit
+            )
+            .frame(minWidth: 360, idealWidth: 520, maxWidth: 900)
+        }
+        .mbkSheet(isPresented: $isAddScopePresented) {
+            AddScopeSheet(
+                isPresented: $isAddScopePresented,
+                authentication: authentication
+            )
+        }
+        .mbkSheet(isPresented: isEditSheetPresented) {
+            if let entry = editedScope, let prefs = editedScopePreferences {
+                ScopeEditSheet(
+                    scopeEntry: entry,
+                    preferences: prefs,
+                    isPresented: isEditSheetPresented
+                )
+            } else {
+                EmptyView()
+            }
+        }
+        .onChange(of: editedScope) { _, newEntry in
+            if newEntry == nil { editedScopePreferences = nil }
+        }
+        // If a store refresh removes the selected scope, clear the selection.
+        .onChange(of: scopeStore.entries) { _, newEntries in
+            if let id = selectedScopeID,
+               !newEntries.contains(where: { $0.id == id }) {
+                selectedScopeID = nil
+            }
+        }
+    }
+
+    // MARK: - Actions
+
+    /// Flips the enabled state via the store (observed by RunnerStore automatically).
+    private func setEnabled(_ entry: ScopeEntry, _ enabled: Bool) {
+        scopeStore.setEnabled(entry.id, enabled)
+    }
+
+    /// Cleans up preferences then removes the scope; clears selection if needed.
+    private func delete(_ entry: ScopeEntry) {
+        if selectedScopeID == entry.id { selectedScopeID = nil }
+        Task {
+            await ScopePreferencesStore.shared.cleanUp(scope: entry.scope)
+            scopeStore.remove(id: entry.id)
+        }
+    }
+
+    /// Fetches preferences asynchronously then presents the edit sheet.
+    private func prepareEdit(_ entry: ScopeEntry) {
+        guard editedScope == nil else { return }
+        Task {
+            let prefs = await ScopePreferencesStore.shared.preferences(for: entry.scope)
+            editedScopePreferences = prefs
+            editedScope = entry
+        }
     }
 }
