@@ -15,22 +15,28 @@ struct MigrationRunnerView: View {
 
     // MARK: - Inputs
 
+    /// Observable runner state pushed by `LocalRunnerStore` via `MigrationAppDependencies`.
     let runnerState: RunnerState
+    /// The configured local-runner store; must be configured before this view mounts.
     let localRunnerStore: LocalRunnerStore
 
     // MARK: - Local UI state
 
+    /// The ID of the runner whose detail is displayed in the right pane.
     @State private var selectedRunnerID: RunnerModel.ID?
+    /// Controls presentation of `AddRunnerSheet`.
     @State private var isAddRunnerPresented = false
 
     // MARK: - Computed
 
+    /// The `RunnerModel` matching `selectedRunnerID`, or `nil` when nothing is selected.
     private var selectedRunner: RunnerModel? {
         runnerState.localRunners.first { $0.id == selectedRunnerID }
     }
 
     // MARK: - Body
 
+    /// Root `HSplitView` with list pane left and detail pane right.
     var body: some View {
         HSplitView {
             MigrationRunnerListView(
@@ -63,6 +69,7 @@ struct MigrationRunnerView: View {
 
     // MARK: - Actions
 
+    /// Optimistically flips the runner service state then refreshes.
     private func setRunning(_ runner: RunnerModel, isRunning: Bool) {
         Task {
             await localRunnerStore.optimisticallySetRunning(runner.runnerName, isRunning: isRunning)
@@ -70,6 +77,7 @@ struct MigrationRunnerView: View {
         }
     }
 
+    /// Clears selection immediately then optimistically removes the runner from the store.
     private func delete(_ runner: RunnerModel) {
         let wasSelected = runner.id == selectedRunnerID
         if wasSelected { selectedRunnerID = nil }

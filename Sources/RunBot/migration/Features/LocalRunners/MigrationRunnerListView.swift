@@ -10,14 +10,20 @@ struct MigrationRunnerListView: View {
 
     // MARK: - Inputs
 
+    /// The current list of configured local runners.
     let runners: [RunnerModel]
+    /// The ID of the currently selected runner, driven by the parent.
     @Binding var selectedRunnerID: RunnerModel.ID?
+    /// Called when the Add local runner button is tapped.
     let onAdd: () -> Void
+    /// Called when a row start/stop toggle changes; receives the runner and new value.
     let onSetRunning: (RunnerModel, Bool) -> Void
+    /// Called when a row delete button is tapped; receives the runner to remove.
     let onDelete: (RunnerModel) -> Void
 
     // MARK: - Body
 
+    /// The column layout: header with Add action, divider, list or empty placeholder.
     var body: some View {
         MigrationWorkflowColumn(title: "Local runners") {
             VStack(spacing: 0) {

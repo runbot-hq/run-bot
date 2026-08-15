@@ -16,6 +16,7 @@ struct AppShellView: View {
 
     /// Runner store forwarded from the composition root.
     let runnerState: RunnerState
+    /// Configured local-runner store forwarded from the composition root.
     let localRunnerStore: LocalRunnerStore
 
     /// The top-level split-view layout.

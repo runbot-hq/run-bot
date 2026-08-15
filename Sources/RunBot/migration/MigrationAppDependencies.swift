@@ -13,9 +13,12 @@ import RunBotCore
 @MainActor
 @Observable
 final class MigrationAppDependencies {
+    /// Observable runner state that `LocalRunnerStore` pushes snapshots into.
     let runnerState: RunnerState
+    /// The configured local-runner store, ready for injection into views.
     let localRunnerStore: LocalRunnerStore
 
+    /// Configures `LocalRunnerStore` synchronously then captures the shared instance.
     init() {
         let state = RunnerState()
         self.runnerState = state

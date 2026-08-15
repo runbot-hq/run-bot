@@ -11,10 +11,12 @@ struct MigrationRunnerDetailView: View {
 
     // MARK: - Inputs
 
+    /// The runner whose detail should be displayed, or `nil` when nothing is selected.
     let runner: RunnerModel?
 
     // MARK: - Body
 
+    /// Shows `RunnerDetailContentView` when a runner is selected, otherwise a placeholder.
     var body: some View {
         if let runner {
             RunnerDetailContentView(runner: runner)
