@@ -15,13 +15,13 @@ struct AppShellView: View {
             AppSidebarView(selection: $selection)
                 .navigationSplitViewColumnWidth(
                     min: 180,
-                    ideal: 220,
-                    max: 280
+                    ideal: 210,
+                    max: 260
                 )
         } detail: {
             AppDetailView(selection: selection)
         }
         .navigationSplitViewStyle(.balanced)
-        .frame(minHeight: 480)
+        .frame(minWidth: 920, minHeight: 480)
     }
 }
