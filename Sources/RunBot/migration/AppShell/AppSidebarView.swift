@@ -17,6 +17,5 @@ struct AppSidebarView: View {
         }
         .listStyle(.sidebar)
         .navigationTitle("RunBot")
-        .frame(minWidth: 220)
     }
 }
