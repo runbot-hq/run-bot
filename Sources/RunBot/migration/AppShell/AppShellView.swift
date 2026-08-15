@@ -1,6 +1,7 @@
 // AppShellView.swift
 // RunBot
 
+import GitHubClient
 import SwiftUI
 
 /// Root two-column navigation shell.
@@ -9,8 +10,8 @@ struct AppShellView: View {
     /// Currently selected sidebar section. Defaults to Workflows.
     @State private var selection: AppSection? = .workflows
 
-    /// App-level state; source of authentication for child views.
-    @Environment(AppState.self) private var appState: AppState
+    /// Authentication injected from `RunBotDesktopApp`.
+    @Environment(GitHubAuthentication.self) private var authentication: GitHubAuthentication
 
     /// The top-level split-view layout.
     var body: some View {
@@ -22,7 +23,7 @@ struct AppShellView: View {
                     max: 260
                 )
         } detail: {
-            AppDetailView(selection: selection, authentication: appState.authentication)
+            AppDetailView(selection: selection, authentication: authentication)
         }
         .navigationSplitViewStyle(.balanced)
         .frame(minWidth: 720, minHeight: 480)

@@ -39,11 +39,6 @@ struct MigrationScopeView: View {
     /// appears so `ScopeEditSheet.init` stays synchronous. (#1538)
     @State private var editedScopePreferences: ScopePreferences?
 
-    // MARK: - Environment
-
-    /// Overlay gate managed by mbkSheet automatically.
-    @Environment(MBKOverlayGate.self) private var overlayGate: MBKOverlayGate
-
     // MARK: - Computed
 
     /// The full `ScopeEntry` for the current `selectedScopeID`, if any.
