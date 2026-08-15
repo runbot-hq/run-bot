@@ -19,13 +19,14 @@ import SwiftUI
 /// `MigrationSettingsDependencies`.
 struct UpdateSettingsSection: View {
 
-    /// App-wide preference store — needs @Bindable for two-way toggle bindings.
+    /// App-wide preference store; needs `@Bindable` for two-way toggle bindings.
     @Bindable var settings: AppPreferencesStore
     /// Observable runner state — read to drive the update action row.
     let runnerState: RunnerState
     /// The shared auto-updater; must be owned at the composition root.
     let autoUpdater: AppUpdater
 
+    /// The updates settings card.
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Text("Updates")
@@ -56,6 +57,7 @@ struct UpdateSettingsSection: View {
 
     // MARK: - Rows
 
+    /// Row toggling automatic update downloads.
     private var automaticUpdatesRow: some View {
         HStack(alignment: .center) {
             VStack(alignment: .leading, spacing: 2) {
@@ -78,6 +80,7 @@ struct UpdateSettingsSection: View {
         .padding(.vertical, 6)
     }
 
+    /// Row toggling the beta update channel.
     private var betaChannelRow: some View {
         HStack(alignment: .center) {
             VStack(alignment: .leading, spacing: 2) {
@@ -100,6 +103,7 @@ struct UpdateSettingsSection: View {
         .padding(.vertical, 6)
     }
 
+    /// Row showing download progress or install action for a pending update.
     @ViewBuilder
     private var updateActionRow: some View {
         HStack {

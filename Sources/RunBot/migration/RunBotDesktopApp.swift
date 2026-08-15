@@ -17,6 +17,7 @@ struct RunBotDesktopApp: App {
     /// Constructed in `init()` so it shares the same `authentication` instance.
     @State private var deps: MigrationAppDependencies
 
+    /// Initialises shared authentication and dependency bundle before first render.
     init() {
         let auth = GitHubAuthentication()
         _authentication = State(initialValue: auth)

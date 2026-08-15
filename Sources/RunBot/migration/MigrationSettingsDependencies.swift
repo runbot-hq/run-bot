@@ -33,6 +33,7 @@ final class MigrationSettingsDependencies {
     /// Called to sign out and remove the stored OAuth token.
     let onSignOut: @MainActor () async -> Void
 
+    /// Creates a fully configured settings dependency bundle.
     init(
         settings: AppPreferencesStore,
         runnerState: RunnerState,
