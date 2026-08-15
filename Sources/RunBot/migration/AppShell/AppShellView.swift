@@ -3,8 +3,8 @@
 
 import SwiftUI
 
-/// Root two-column navigation shell for the windowed RunBot app.
-/// Migration step 1 (#2797/#2799): intentionally static — no routing state.
+/// Root two-column navigation shell.
+/// Intentionally static; sidebar routing is introduced separately.
 struct AppShellView: View {
     /// The top-level split-view layout.
     var body: some View {
