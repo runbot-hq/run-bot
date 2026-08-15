@@ -14,14 +14,14 @@ struct AppShellView: View {
         NavigationSplitView {
             AppSidebarView(selection: $selection)
                 .navigationSplitViewColumnWidth(
-                    min: 180,
-                    ideal: 220,
-                    max: 280
+                    min: 220,
+                    ideal: 240,
+                    max: 300
                 )
         } detail: {
             AppDetailView(selection: selection)
         }
         .navigationSplitViewStyle(.balanced)
-        .frame(minWidth: 720, minHeight: 480)
+        .frame(minWidth: 1_120, minHeight: 480)
     }
 }
