@@ -22,6 +22,6 @@ struct AppShellView: View {
             AppDetailView(selection: selection)
         }
         .navigationSplitViewStyle(.balanced)
-        .frame(minWidth: 920, minHeight: 480)
+        .frame(minWidth: 720, minHeight: 480)
     }
 }
