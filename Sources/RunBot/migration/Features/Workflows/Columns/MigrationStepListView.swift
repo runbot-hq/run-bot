@@ -7,7 +7,9 @@ import SwiftUI
 ///
 /// `GitHubStep` is not `Identifiable`; `number` is the stable 1-based step index.
 struct MigrationStepListView: View {
+    /// Steps to display; empty array shows a contextual placeholder.
     let steps: [GitHubStep]
+    /// Shared selection state mutated on row tap.
     var selection: MigrationWorkflowSelection
 
     /// The column layout.

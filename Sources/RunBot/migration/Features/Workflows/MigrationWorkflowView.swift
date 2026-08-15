@@ -17,14 +17,17 @@ struct MigrationWorkflowView: View {
 
     // MARK: - Derived selection
 
+    /// The workflow matching the current `selection.workflowID`, or `nil`.
     private var selectedWorkflow: WorkflowActionGroup? {
         workflows.first { $0.id == selection.workflowID }
     }
 
+    /// The job matching the current `selection.jobID` within the selected workflow, or `nil`.
     private var selectedJob: ActiveJob? {
         selectedWorkflow?.jobs.first { $0.id == selection.jobID }
     }
 
+    /// The step matching the current `selection.stepNumber` within the selected job, or `nil`.
     private var selectedStep: GitHubStep? {
         selectedJob?.steps.first { $0.number == selection.stepNumber }
     }

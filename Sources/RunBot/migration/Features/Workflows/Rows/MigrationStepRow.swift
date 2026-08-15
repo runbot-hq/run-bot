@@ -9,6 +9,7 @@ import SwiftUI
 /// Elapsed is omitted for queued/unstarted steps — mirrors the existing
 /// `InlineJobRowsView` timing guard.
 struct MigrationStepRow: View {
+    /// The step to render.
     let step: GitHubStep
 
     /// Elapsed text only for started steps; nil for queued/waiting.

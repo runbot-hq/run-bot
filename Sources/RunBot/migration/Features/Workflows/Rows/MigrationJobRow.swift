@@ -9,6 +9,7 @@ import SwiftUI
 /// and step progress. Uses `.lineLimit(1)` on all text so the pane
 /// minimum width is never widened by long job names.
 struct MigrationJobRow: View {
+    /// The job to render.
     let job: ActiveJob
 
     /// Step progress text, or nil when the step list is empty.
