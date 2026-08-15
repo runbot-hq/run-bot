@@ -1,9 +1,7 @@
 import SwiftUI
 
-public struct AppShellView: View {
-    public init() {}
-
-    public var body: some View {
+struct AppShellView: View {
+    var body: some View {
         NavigationSplitView {
             AppSidebarView()
                 .navigationSplitViewColumnWidth(

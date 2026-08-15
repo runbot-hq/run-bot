@@ -68,14 +68,11 @@ targets:
         INFOPLIST_FILE: Resources/Info.plist
         ARCHS: arm64
         EXCLUDED_ARCHS: x86_64
-        # LSUIElement makes the app a menu bar agent (no Dock icon) in production.
-        # It lives here as a build setting rather than in Info.plist so that it
-        # is only applied to the RunBot app target. The RunBotUITests target
-        # has its own generated plist and never inherits this key, meaning the app
-        # launches as a normal foreground process during UI tests and app.windows
-        # is fully visible to XCTest.
+        # LSUIElement is NO: app appears in Dock as a regular windowed app.
+        # Kept here as a build setting (not in Info.plist) so RunBotUITests
+        # is unaffected. See migration #2799.
         # ❌ NEVER move this back into Resources/Info.plist.
-        INFOPLIST_KEY_LSUIElement: YES
+        INFOPLIST_KEY_LSUIElement: NO
 
   RunBotUITests:
     type: bundle.ui-testing
@@ -104,45 +101,11 @@ targets:
         ARCHS: arm64
         EXCLUDED_ARCHS: x86_64
 
-  RunBotApp:
-    type: application
-    platform: macOS
-    deploymentTarget: "26.0"
-    sources:
-      - path: Sources/RunBotApp
-      - path: Sources/RunBotAppCore
-      - path: Resources/AppIcon.icns
-        buildPhase: resources
-      - path: Sources/RunBot/Resources/Assets.xcassets
-        buildPhase: resources
-    dependencies:
-      - package: RunBot
-        product: RunBotAppCore
-    settings:
-      base:
-        PRODUCT_BUNDLE_IDENTIFIER: io.github.runbot-hq
-        MACH_O_TYPE: mh_execute
-        CODE_SIGN_IDENTITY: "-"
-        CODE_SIGNING_REQUIRED: NO
-        AD_HOC_CODE_SIGNING_ALLOWED: YES
-        INFOPLIST_FILE: Resources/RunBotApp/Info.plist
-        ARCHS: arm64
-        EXCLUDED_ARCHS: x86_64
-        # LSUIElement is intentionally absent (or false) for the windowed app.
-        INFOPLIST_KEY_LSUIElement: NO
-
 schemes:
   RunBot:
     build:
       targets:
         RunBot: all
-    run:
-      config: Debug
-
-  RunBotApp:
-    build:
-      targets:
-        RunBotApp: all
     run:
       config: Debug
 

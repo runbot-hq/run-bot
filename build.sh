@@ -124,7 +124,7 @@ echo "→ Building with xcodebuild (Release, arm64)..."
 xcodebuild build \
   "${XCODEBUILD_FLAGS[@]}" \
   -project RunBot.xcodeproj \
-  -scheme RunBotApp \
+  -scheme RunBot \
   -configuration Release \
   -destination 'generic/platform=macOS' \
   -derivedDataPath "$DERIVED_DATA" \
