@@ -15,6 +15,8 @@ struct AppSidebarView: View {
             Label(section.title, systemImage: section.systemImage)
                 .tag(section)
         }
+        .listStyle(.sidebar)
         .navigationTitle("RunBot")
+        .frame(minWidth: 220)
     }
 }
