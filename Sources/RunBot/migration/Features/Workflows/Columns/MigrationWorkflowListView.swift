@@ -5,7 +5,9 @@ import SwiftUI
 
 /// Workflows column — renders workflow rows or an empty placeholder.
 struct MigrationWorkflowListView: View {
+    /// Workflows to display; empty array shows an empty-state placeholder.
     let workflows: [WorkflowActionGroup]
+    /// Shared selection state mutated on row tap.
     var selection: MigrationWorkflowSelection
 
     /// The column layout.

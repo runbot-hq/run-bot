@@ -5,7 +5,9 @@ import SwiftUI
 
 /// Jobs column — renders job rows or a contextual placeholder.
 struct MigrationJobListView: View {
+    /// Jobs to display; empty array shows a contextual placeholder.
     let jobs: [ActiveJob]
+    /// Shared selection state mutated on row tap.
     var selection: MigrationWorkflowSelection
 
     /// The column layout.

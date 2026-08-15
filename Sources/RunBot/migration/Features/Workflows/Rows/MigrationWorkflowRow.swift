@@ -9,6 +9,7 @@ import SwiftUI
 /// branch, elapsed time, and job progress. Uses `.lineLimit(1)` on
 /// all text so the pane minimum width is never widened by long titles.
 struct MigrationWorkflowRow: View {
+    /// The workflow to render.
     let workflow: WorkflowActionGroup
 
     /// The row layout.
