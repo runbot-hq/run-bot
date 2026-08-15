@@ -1,6 +1,8 @@
 // MigrationJobRow.swift
 // RunBot
 
+import GitHubClient
+import RunBotCore
 import SwiftUI
 
 /// A single row in the Jobs column.

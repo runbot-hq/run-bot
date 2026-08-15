@@ -1,6 +1,7 @@
 // MigrationStatusIndicator.swift
 // RunBot
 
+import RunBotCore
 import SwiftUI
 
 /// Small circular status dot for workflow, job, and step rows.

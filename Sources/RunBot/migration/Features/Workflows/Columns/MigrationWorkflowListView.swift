@@ -1,6 +1,7 @@
 // MigrationWorkflowListView.swift
 // RunBot
 
+import RunBotCore
 import SwiftUI
 
 /// Workflows column — renders workflow rows or an empty placeholder.

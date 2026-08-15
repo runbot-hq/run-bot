@@ -1,6 +1,8 @@
 // MigrationWorkflowView.swift
 // RunBot
 
+import GitHubClient
+import RunBotCore
 import SwiftUI
 
 /// Root view for the Workflows destination.

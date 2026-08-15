@@ -1,6 +1,7 @@
 // MigrationJobListView.swift
 // RunBot
 
+import RunBotCore
 import SwiftUI
 
 /// Jobs column — renders job rows or a contextual placeholder.

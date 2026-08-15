@@ -1,6 +1,7 @@
 // MigrationWorkflowRow.swift
 // RunBot
 
+import RunBotCore
 import SwiftUI
 
 /// A single row in the Workflows column.
