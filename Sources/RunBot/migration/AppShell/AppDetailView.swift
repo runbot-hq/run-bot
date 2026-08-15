@@ -3,14 +3,28 @@
 
 import SwiftUI
 
-/// Neutral detail placeholder for the migration shell.
-/// Replaced by feature-specific views in later PRs.
+/// Detail column router. Switches on the current sidebar selection.
+/// The `nil` case is defensive; Workflows is always selected on launch.
 struct AppDetailView: View {
-    /// The placeholder content.
+    /// The currently selected sidebar section.
+    let selection: AppSection?
+
+    /// Routes to the corresponding feature-root view.
     var body: some View {
-        ContentUnavailableView(
-            "Select an item",
-            systemImage: "sidebar.left"
-        )
+        switch selection {
+        case .workflows:
+            MigrationWorkflowView()
+        case .localRunners:
+            MigrationRunnerView()
+        case .scopes:
+            MigrationScopeView()
+        case .settings:
+            MigrationSettingsView()
+        case nil:
+            ContentUnavailableView(
+                "Select an item",
+                systemImage: "sidebar.left"
+            )
+        }
     }
 }
