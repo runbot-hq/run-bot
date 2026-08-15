@@ -18,6 +18,8 @@ struct AppDetailView: View {
     let runnerState: RunnerState
     /// Configured local-runner store forwarded from the composition root.
     let localRunnerStore: LocalRunnerStore
+    /// Settings services forwarded from the composition root.
+    let settingsDependencies: MigrationSettingsDependencies
 
     /// Routes to the corresponding feature-root view.
     var body: some View {
@@ -32,7 +34,7 @@ struct AppDetailView: View {
         case .scopes:
             MigrationScopeView(scopeStore: .shared, authentication: authentication)
         case .settings:
-            MigrationSettingsView()
+            MigrationSettingsView(dependencies: settingsDependencies)
         case nil:
             ContentUnavailableView(
                 "Select an item",
