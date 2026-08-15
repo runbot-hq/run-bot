@@ -14,8 +14,9 @@ struct AppDetailView: View {
     /// Injected from `AppShellView`; forwarded to scope management.
     let authentication: GitHubAuthentication
 
-    /// Runner store forwarded from the composition root.
+    /// Observable runner state pushed by `LocalRunnerStore`.
     let runnerState: RunnerState
+    /// Configured local-runner store forwarded from the composition root.
     let localRunnerStore: LocalRunnerStore
 
     /// Routes to the corresponding feature-root view.

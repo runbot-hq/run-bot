@@ -14,15 +14,19 @@ struct RunnerDetailContentView: View {
 
     // MARK: - Inputs
 
+    /// The runner whose information and configuration are displayed.
     let runner: RunnerModel
 
     // MARK: - Display fields (loaded from .runner JSON)
 
+    /// OS and architecture string loaded asynchronously from the runner JSON file.
     @State private var displayOsArch: String = ""
+    /// Agent version string loaded asynchronously from the runner JSON file.
     @State private var displayVersion: String = ""
 
     // MARK: - Body
 
+    /// Scrollable info and configuration panels for the runner.
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
@@ -66,6 +70,7 @@ struct RunnerDetailContentView: View {
 
     // MARK: - Helpers
 
+    /// Returns a styled section header label.
     private func sectionHeader(_ title: String) -> some View {
         Text(title)
             .font(RBFont.sectionHeader)
@@ -75,6 +80,7 @@ struct RunnerDetailContentView: View {
             .padding(.bottom, 4)
     }
 
+    /// Returns a glass-card container wrapping the provided content.
     private func infoCard<Content: View>(@ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 0) { content() }
             .glassCard(cornerRadius: RBRadius.small)
@@ -82,6 +88,7 @@ struct RunnerDetailContentView: View {
             .padding(.bottom, 8)
     }
 
+    /// Returns a two-column label/value row with an optional copy-to-clipboard button.
     private func infoRow(label: String, value: String, copyable: Bool = false) -> some View {
         HStack(alignment: .top, spacing: 8) {
             Text(label)
@@ -114,6 +121,7 @@ struct RunnerDetailContentView: View {
 
     // MARK: - Load display fields
 
+    /// Reads OS/arch and version from the runner JSON file and updates display state.
     @MainActor
     private func loadDisplayFields() async {
         guard let installPath = runner.installPath else { return }
@@ -127,6 +135,6 @@ struct RunnerDetailContentView: View {
         let combined = [config.platform, config.platformArchitecture]
             .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " / ")
         if !combined.isEmpty { displayOsArch = combined }
-        if let v = config.agentVersion, !v.isEmpty { displayVersion = v }
+        if let version = config.agentVersion, !version.isEmpty { displayVersion = version }
     }
 }

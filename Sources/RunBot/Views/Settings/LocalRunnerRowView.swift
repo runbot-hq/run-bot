@@ -13,13 +13,18 @@ struct LocalRunnerRowView: View {
 
     // MARK: - Inputs
 
+    /// The runner model displayed by this row.
     let runner: RunnerModel
+    /// Called when the row body is tapped to select the runner.
     let onSelect: () -> Void
+    /// Called when the start/stop toggle changes; receives the new value.
     let onSetRunning: (Bool) -> Void
+    /// Called when the remove button is tapped.
     let onDelete: () -> Void
 
     // MARK: - Body
 
+    /// The row layout: status dot, name, URL, toggle, delete button.
     var body: some View {
         Button(action: onSelect) {
             HStack(spacing: 6) {
