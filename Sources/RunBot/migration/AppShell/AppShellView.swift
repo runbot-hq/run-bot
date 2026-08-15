@@ -18,6 +18,8 @@ struct AppShellView: View {
     let runnerState: RunnerState
     /// Configured local-runner store forwarded from the composition root.
     let localRunnerStore: LocalRunnerStore
+    /// Settings services forwarded from the composition root.
+    let settingsDependencies: MigrationSettingsDependencies
 
     /// The top-level split-view layout.
     var body: some View {
@@ -33,7 +35,8 @@ struct AppShellView: View {
                 selection: selection,
                 authentication: authentication,
                 runnerState: runnerState,
-                localRunnerStore: localRunnerStore
+                localRunnerStore: localRunnerStore,
+                settingsDependencies: settingsDependencies
             )
         }
         .navigationSplitViewStyle(.balanced)
