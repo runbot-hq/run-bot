@@ -9,6 +9,9 @@ struct AppShellView: View {
     /// Currently selected sidebar section. Defaults to Workflows.
     @State private var selection: AppSection? = .workflows
 
+    /// App-level state; source of authentication for child views.
+    @Environment(AppState.self) private var appState: AppState
+
     /// The top-level split-view layout.
     var body: some View {
         NavigationSplitView {
@@ -19,7 +22,7 @@ struct AppShellView: View {
                     max: 260
                 )
         } detail: {
-            AppDetailView(selection: selection)
+            AppDetailView(selection: selection, authentication: appState.authentication)
         }
         .navigationSplitViewStyle(.balanced)
         .frame(minWidth: 720, minHeight: 480)
