@@ -8,8 +8,8 @@ struct MigrationStepListView: View {
     /// The pane content.
     var body: some View {
         MigrationWorkflowColumn(title: "Steps") {
-            ContentUnavailableView(
-                "Select a job",
+            MigrationColumnPlaceholder(
+                title: "Select a job",
                 systemImage: "checklist"
             )
         }
