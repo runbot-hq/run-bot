@@ -29,6 +29,9 @@ struct RunBotDesktopApp: App {
     /// and threaded into `AppShellView` via `$logFetcher`.
     @State private var logFetcher: LogFetcher
 
+    /// Tracks scene phase so the poller can refresh on activation.
+    @Environment(\.scenePhase) private var scenePhase
+
     /// Initialises shared authentication and dependency bundle before first render.
     init() {
         let auth = GitHubAuthentication()
@@ -59,6 +62,10 @@ struct RunBotDesktopApp: App {
             .environment(overlayGate)
             .task {
                 await deps.start()
+            }
+            .onChange(of: scenePhase) { _, phase in
+                guard phase == .active else { return }
+                Task { await deps.refresh() }
             }
         }
         .windowStyle(.hiddenTitleBar)

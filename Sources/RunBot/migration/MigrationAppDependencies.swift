@@ -149,4 +149,20 @@ extension MigrationAppDependencies {
         guard let store = runnerStore else { return }
         await store.start()
     }
+
+    /// Triggers a poll-loop restart without the full startup sequence.
+    ///
+    /// Unlike `start()`, this method is **not** idempotent — it cancels the
+    /// current poll task and begins a fresh fetch cycle immediately. Designed
+    /// to be called from scene-phase transitions (e.g. returning from sleep,
+    /// reactivating the window) so the UI reflects the latest GitHub state
+    /// without waiting for the next scheduled tick.
+    ///
+    /// Calling `refresh()` before `start()` has completed is safe: the actor
+    /// serialises the two calls, so `start()`'s initial fetch will finish
+    /// before `refresh()` begins its own cycle.
+    func refresh() async {
+        guard let store = runnerStore else { return }
+        await store.start()
+    }
 }
