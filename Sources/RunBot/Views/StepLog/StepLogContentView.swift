@@ -35,6 +35,7 @@ struct StepLogContentView: View {
     /// Injected scope store — avoids `ScopeStore.shared` singleton access inside `loadLog`.
     /// Defaults to the live singleton so all existing call sites require no changes.
     var scopeStore: any ScopeStoreProtocol
+    /// Raw log text from the last fetch; `nil` = not yet fetched, `""` = empty response.
     @State private var logText: String?
     /// The typed result of the last step log fetch. Drives the scroll-view rendering.
     @State private var logResult: StepLogResult?
@@ -80,6 +81,13 @@ struct StepLogContentView: View {
     /// across step taps.
     @Binding var logFetcher: LogFetcher
 
+    /// Creates a `StepLogContentView` for the given job and step.
+    /// - Parameters:
+    ///   - job: The job that owns the step.
+    ///   - step: The step whose log will be fetched and displayed.
+    ///   - logFetcher: Binding to the shared `LogFetcher` owned by app dependencies.
+    ///   - onLogLoaded: Optional callback fired on the main thread once the log fetch completes.
+    ///   - scopeStore: Scope store used for API scope resolution. Defaults to `ScopeStore.shared`.
     init(
         job: ActiveJob,
         step: GitHubStep,
