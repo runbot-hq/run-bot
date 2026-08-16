@@ -30,30 +30,44 @@ struct SidebarMetricsView: View {
 
     /// The four metric rows grouped in a compact material surface.
     var body: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 10) {
             SidebarUsageMetricView(
                 title: "CPU",
+                accessibilityTitle: "CPU",
                 value: viewModel.stats.cpuPct,
-                history: viewModel.cpuHistory.values
+                history: viewModel.cpuHistory.values,
+                tint: .rbMetricCPU,
+                fractionDigits: 1
             )
             SidebarUsageMetricView(
                 title: "GPU",
+                accessibilityTitle: "GPU",
                 value: viewModel.stats.gpuPct,
-                history: viewModel.gpuHistory.values
+                history: viewModel.gpuHistory.values,
+                tint: .rbMetricGPU,
+                fractionDigits: 0
             )
+
+            Divider()
+
             SidebarCapacityMetricView(
                 title: "MEM",
+                accessibilityTitle: "Memory",
                 used: viewModel.stats.memUsedGB,
-                total: viewModel.stats.memTotalGB
+                total: viewModel.stats.memTotalGB,
+                tint: .rbMetricCapacity
             )
             SidebarCapacityMetricView(
                 title: "DISK",
+                accessibilityTitle: "Disk",
                 used: viewModel.stats.diskUsedGB,
-                total: viewModel.stats.diskTotalGB
+                total: viewModel.stats.diskTotalGB,
+                tint: .rbMetricCapacity
             )
         }
-        .padding(10)
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 10))
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .frame(maxHeight: 240)
         .onAppear {
             viewModel.start()
         }
