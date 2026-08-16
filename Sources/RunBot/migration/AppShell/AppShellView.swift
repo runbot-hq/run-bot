@@ -1,7 +1,6 @@
 // AppShellView.swift
 // RunBot
 
-import GitHubClient
 import RunBotCore
 import SwiftUI
 
@@ -10,9 +9,6 @@ import SwiftUI
 struct AppShellView: View {
     /// Currently selected sidebar section. Defaults to Workflows.
     @State private var selection: AppSection? = .workflows
-
-    /// Authentication injected from `RunBotDesktopApp`.
-    @Environment(GitHubAuthentication.self) private var authentication: GitHubAuthentication
 
     /// Runner store forwarded from the composition root.
     let runnerState: RunnerState
@@ -36,7 +32,6 @@ struct AppShellView: View {
         } detail: {
             AppDetailView(
                 selection: selection,
-                authentication: authentication,
                 runnerState: runnerState,
                 localRunnerStore: localRunnerStore,
                 settingsDependencies: settingsDependencies,

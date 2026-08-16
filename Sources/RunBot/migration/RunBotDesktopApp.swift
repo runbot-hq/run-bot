@@ -12,11 +12,14 @@ import SwiftUI
 /// The SwiftUI application entry point for RunBot.
 /// `@main` is intentionally absent because `main.swift` invokes `main()`.
 struct RunBotDesktopApp: App {
-    /// Authentication state owned at the window level and injected into the view hierarchy.
-    @State private var authentication: GitHubAuthentication
-    /// Runner dependencies configured synchronously before any view is mounted.
-    /// `LocalRunnerStore.configure` runs inside `MigrationAppDependencies.init()`.
-    /// Constructed in `init()` so it shares the same `authentication` instance.
+    /// Single domain-level state coordinator owned by this process.
+    /// The same `AppState` instance is used by the menu-bar panel (via `AppDelegate`),
+    /// ensuring the windowed app and the panel observe the identical `RunnerState`.
+    /// When the poller publishes a completed snapshot, all views invalidate reactively.
+    @State private var appState = AppState()
+
+    /// Runner dependencies configured as a thin adapter around `AppState`.
+    /// Constructed in `init()` so it shares the same `appState` instance.
     @State private var deps: MigrationAppDependencies
     /// Single overlay gate for the scene lifetime.
     ///
@@ -32,21 +35,21 @@ struct RunBotDesktopApp: App {
     /// Tracks scene phase so the poller can refresh on activation.
     @Environment(\.scenePhase) private var scenePhase
 
-    /// Initialises shared authentication and dependency bundle before first render.
+    /// Initialises shared dependencies before first render.
+    ///
+    /// Startup ordering (mirrors `AppDelegate+StoreSetup.swift`):
+    ///   1. `LocalRunnerStore.configure(viewModel:)` — synchronous, before any await.
+    ///   2. `MigrationAppDependencies` is constructed with the `AppState` instance
+    ///      that will be shared across the menu-bar panel and the windowed app.
     init() {
-        let auth = GitHubAuthentication()
-        _authentication = State(initialValue: auth)
-        _deps = State(initialValue: MigrationAppDependencies(
-            authentication: auth,
-            onSignIn: {
-                // OAuthCredentialController lives in AppState (legacy layer).
-                // For the migration shell, sign-in is a no-op placeholder.
-                // TODO: wire real coordinator when AppState is retired (#2815).
-            },
-            onSignOut: {}
-        ))
+        // ⚠️ MUST be synchronous and before any Task — see AppDelegate+StoreSetup.swift
+        // for the ordering rule (fix for issue #1741).
+        let state = AppState()
+        _appState = State(initialValue: state)
+        LocalRunnerStore.configure(viewModel: state.runnerState)
+        _deps = State(initialValue: MigrationAppDependencies(appState: state))
         _overlayGate = State(initialValue: MBKOverlayGate())
-        _logFetcher = State(initialValue: LogFetcher())
+        _logFetcher = State(initialValue: state.logFetcher)
     }
 
     /// The scene graph for the windowed application.
@@ -58,7 +61,7 @@ struct RunBotDesktopApp: App {
                 settingsDependencies: deps.settingsDependencies,
                 logFetcher: $logFetcher
             )
-            .environment(authentication)
+            .environment(deps.appState.authentication)
             .environment(overlayGate)
             .task {
                 await deps.start()

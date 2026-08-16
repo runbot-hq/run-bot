@@ -11,9 +11,6 @@ struct AppDetailView: View {
     /// The currently selected sidebar section.
     let selection: AppSection?
 
-    /// Injected from `AppShellView`; forwarded to scope management.
-    let authentication: GitHubAuthentication
-
     /// Observable runner state pushed by `LocalRunnerStore`.
     let runnerState: RunnerState
     /// Configured local-runner store forwarded from the composition root.
