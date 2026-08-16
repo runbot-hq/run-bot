@@ -9,7 +9,9 @@ import SwiftUI
 /// selected job/step pair changes. Step numbers repeat across jobs, so
 /// both values are required.
 private struct StepLogSelectionID: Hashable, Sendable {
+    /// The GitHub Actions job ID that owns the selected step.
     let jobID: Int
+    /// The step number within the job (1-based, as returned by the GitHub API).
     let stepNumber: Int
 }
 
