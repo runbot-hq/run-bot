@@ -39,12 +39,48 @@ extension GroupStatus {
 /// RBStatus bridging for `GroupStatus`.
 extension GroupStatus {
     /// Maps `GroupStatus` to the shared `RBStatus` for indicator display.
+    /// For completed groups use `WorkflowActionGroup.rbStatus` to get the
+    /// conclusion-aware mapping.
     public var rbStatus: RBStatus {
         switch self {
         case .inProgress: return .inProgress
         case .loading:    return .queued
         case .queued:     return .queued
         case .completed:  return .unknown
+        }
+    }
+}
+
+// MARK: - WorkflowActionGroup + RBStatus
+
+// swiftlint:disable:next missing_docs
+extension WorkflowActionGroup {
+    /// Canonical `RBStatus` derived from both the group's status and its conclusion.
+    ///
+    /// Mirrors the legacy `ActionRowView.rowStatus` mapping so the windowed app
+    /// and the status-bar app show identical conclusion colours.
+    public var rbStatus: RBStatus {
+        switch groupStatus {
+        case .inProgress: return .inProgress
+        case .loading:    return .queued
+        case .queued:     return .queued
+        case .completed:  return completedRBStatus
+        }
+    }
+
+    /// Conclusion-aware status for completed workflow groups.
+    private var completedRBStatus: RBStatus {
+        switch conclusion {
+        case .success:
+            return .success
+        case .failure, .timedOut, .actionRequired, .startupFailure:
+            return .failed
+        case .cancelled:
+            return .cancelled
+        case .skipped:
+            return .skipped
+        case .neutral, .stale, .unknown, nil:
+            return .unknown
         }
     }
 }

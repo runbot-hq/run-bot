@@ -27,7 +27,7 @@ struct AppDetailView: View {
     var body: some View {
         switch selection {
         case .workflows:
-            MigrationWorkflowView(workflows: runnerState.actions, logFetcher: $logFetcher)
+            MigrationWorkflowView(runnerState: runnerState, logFetcher: $logFetcher)
         case .localRunners:
             MigrationRunnerView(
                 runnerState: runnerState,
