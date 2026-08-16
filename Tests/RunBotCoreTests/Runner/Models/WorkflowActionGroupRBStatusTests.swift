@@ -175,9 +175,64 @@ struct WorkflowActionGroupRBStatusTests {
         #expect(group.allJobsAreTerminal == false)
     }
 
-    @Test func allJobsAreTerminalTrueForEmptyJobs() {
+    @Test func allJobsAreTerminalFalseForEmptyJobs() {
         let group = makeGroup(status: .inProgress, conclusion: nil, isDimmed: false, jobs: [])
+        #expect(group.allJobsAreTerminal == false)
+    }
+
+    @Test func allJobsAreTerminalFalseForUnknownStatus() {
+        let group = makeGroup(status: .inProgress, conclusion: nil, isDimmed: false, jobs: [
+            makeJob(id: 1, status: .completed, conclusion: .success),
+            makeJob(id: 2, status: .unknown("new_status"), conclusion: nil),
+        ])
+        #expect(group.allJobsAreTerminal == false)
+    }
+
+    @Test func allJobsAreTerminalFalseForQueuedStatus() {
+        let group = makeGroup(status: .inProgress, conclusion: nil, isDimmed: false, jobs: [
+            makeJob(id: 1, status: .completed, conclusion: .success),
+            makeJob(id: 2, status: .queued, conclusion: nil),
+        ])
+        #expect(group.allJobsAreTerminal == false)
+    }
+
+    // MARK: - Dimmed, all jobs completed with nil conclusions → success
+
+    @Test func dimmedAllCompletedWithNilConclusions() {
+        let group = makeGroup(status: .inProgress, conclusion: nil, isDimmed: true, jobs: [
+            makeJob(id: 1, status: .completed, conclusion: nil),
+            makeJob(id: 2, status: .completed, conclusion: nil),
+        ])
         #expect(group.allJobsAreTerminal == true)
+        #expect(group.rbStatus == .success)
+    }
+
+    // MARK: - jobsDone edge cases
+
+    @Test func jobsDoneCountsCompletedJobsWithoutConclusions() {
+        let group = makeGroup(status: .inProgress, conclusion: nil, isDimmed: false, jobs: [
+            makeJob(id: 1, status: .completed, conclusion: nil),
+            makeJob(id: 2, status: .completed, conclusion: .success),
+            makeJob(id: 3, status: .inProgress, conclusion: nil),
+        ])
+        #expect(group.jobsDone == 2)
+        #expect(group.jobsTotal == 3)
+    }
+
+    @Test func jobsDoneDoesNotCountUnknownStatus() {
+        let group = makeGroup(status: .inProgress, conclusion: nil, isDimmed: false, jobs: [
+            makeJob(id: 1, status: .completed, conclusion: .success),
+            makeJob(id: 2, status: .unknown("new_status"), conclusion: nil),
+        ])
+        #expect(group.jobsDone == 1)
+    }
+
+    @Test func jobsDoneDoesNotCountQueuedStatus() {
+        let group = makeGroup(status: .inProgress, conclusion: nil, isDimmed: false, jobs: [
+            makeJob(id: 1, status: .completed, conclusion: .success),
+            makeJob(id: 2, status: .queued, conclusion: nil),
+        ])
+        #expect(group.jobsDone == 1)
     }
 
     // MARK: - Helpers

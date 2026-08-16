@@ -157,12 +157,7 @@ extension MigrationAppDependencies {
         await store.start()
         didStart = true
         isStarting = false
-
-        // If a refresh was requested while startup was in flight, run it now.
-        if pendingRefresh {
-            pendingRefresh = false
-            await store.start()
-        }
+        pendingRefresh = false
     }
 
     /// Triggers a poll-loop restart without the full startup sequence.
@@ -173,8 +168,9 @@ extension MigrationAppDependencies {
     /// reactivating the window) so the UI reflects the latest GitHub state
     /// without waiting for the next scheduled tick.
     ///
-    /// If startup has not yet completed, the refresh is deferred and runs
-    /// automatically after `start()` finishes.
+    /// If startup has not yet completed, the refresh is deferred via
+    /// `pendingRefresh`; the startup's initial `store.start()` already
+    /// begins an immediate fresh cycle, so no second `start()` is needed.
     func refresh() async {
         guard didStart else {
             pendingRefresh = true

@@ -61,8 +61,11 @@ extension WorkflowActionGroup {
     /// Canonical `RBStatus` derived from the group's status, conclusion, and
     /// job-level terminality.
     ///
-    /// Mirrors the legacy `ActionRowView.rowStatus` mapping so the windowed app
-    /// and the status-bar app show identical conclusion colours.
+    /// The previous `ActionRowView.rowStatus` mapped `cancelled`, `skipped`,
+    /// `neutral`, `stale`, `unknown`, and `nil` all to `.unknown`. The shared
+    /// implementation intentionally maps them to dedicated statuses (`.cancelled`,
+    /// `.skipped`, `.unknown`) so that the status-bar and windowed app show
+    /// richer conclusion colours. This is a semantic improvement, not a regression.
     ///
     /// ## Dimmed-group fallback
     ///
@@ -85,12 +88,18 @@ extension WorkflowActionGroup {
         }
     }
 
-    /// `true` when every job in the group has a terminal (non-active) status.
+    /// `true` when every job in the group has a terminal status.
+    ///
+    /// A job is considered terminal when its status is `.completed` or its
+    /// conclusion is non-nil. An empty job array returns `false` — a group
+    /// with no job evidence must never be treated as terminal through the
+    /// fallback path. An `.unknown` status is also not terminal.
     ///
     /// Used by ``rbStatus`` to detect the frozen-group scenario where the
     /// run-level snapshot is stale but the job-level data is complete.
     public var allJobsAreTerminal: Bool {
-        jobs.allSatisfy { !$0.jobStatus.isActive }
+        guard !jobs.isEmpty else { return false }
+        return jobs.allSatisfy { $0.jobStatus == .completed || $0.jobConclusion != nil }
     }
 
     /// RBStatus derived from the group's aggregated conclusion.
@@ -116,11 +125,18 @@ extension WorkflowActionGroup {
     /// Priority: failure > cancelled > skipped > success.
     /// If all jobs are skipped, returns `.skipped`. If all jobs are terminal
     /// and none failed, cancelled, or skipped, returns `.success`.
+    ///
+    /// **Legacy note:** The previous `ActionRowView.rowStatus` mapped `cancelled`,
+    /// `skipped`, `neutral`, `stale`, `unknown`, and `nil` all to `.unknown`.
+    /// The shared implementation intentionally maps them to dedicated statuses
+    /// (`.cancelled`, `.skipped`, `.unknown`) so that the status-bar and
+    /// windowed app show richer conclusion colours. This is a semantic
+    /// improvement, not a regression.
     private var jobConclusionRBStatus: RBStatus {
         let conclusions = jobs.compactMap { $0.jobConclusion }
         if conclusions.contains(where: { $0.isFailure }) { return .failed }
         if conclusions.contains(where: { $0 == .cancelled }) { return .cancelled }
-        if conclusions.allSatisfy({ $0 == .skipped }) { return .skipped }
+        if !jobs.isEmpty, jobs.allSatisfy({ $0.jobConclusion == .skipped }) { return .skipped }
         // All jobs are terminal and none failed/cancelled — success.
         return .success
     }
@@ -435,10 +451,11 @@ public struct WorkflowActionGroup: Identifiable, Equatable, Sendable {
     }
 
     /// Number of jobs with a concluded result across all sibling runs.
-    /// Counts jobs whose status is terminal (`.completed`) or whose conclusion
-    /// is non-nil, ensuring the progress fraction reflects the actual job state
+    /// Counts jobs whose status is `.completed` or whose conclusion is
+    /// non-nil, ensuring the progress fraction reflects the actual job state
     /// even when the API has not yet populated a conclusion for a completed job.
-    public var jobsDone: Int { jobs.filter { !$0.jobStatus.isActive || $0.jobConclusion != nil }.count }
+    /// An `.unknown` status is not counted as done.
+    public var jobsDone: Int { jobs.filter { $0.jobStatus == .completed || $0.jobConclusion != nil }.count }
 
     /// Number of successfully concluded jobs across all sibling runs.
     public var jobsSucceeded: Int { jobs.filter { $0.jobConclusion == .success }.count }
