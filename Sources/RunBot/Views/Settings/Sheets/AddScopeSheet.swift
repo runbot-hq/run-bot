@@ -236,7 +236,7 @@ struct AddScopeSheet: View {
 
     /// Selector button matching the established `AddRunnerSheet+FormFields` design.
     ///
-    /// Shows the current selection or the "\u2014 select \u2014" placeholder.
+    /// Shows the current selection or the "— select —" placeholder.
     /// Uses the same label typography, insets, border, background, and chevron as
     /// `AddRunnerSheet.selectorButton`. Both sheets must stay visually identical.
     @ViewBuilder
@@ -249,7 +249,7 @@ struct AddScopeSheet: View {
             Text(label).font(.caption).foregroundColor(Color.rbTextSecondary)
             Button(action: action) {
                 HStack {
-                    Text(selection.isEmpty ? "\u2014 select \u2014" : selection)
+                    Text(selection.isEmpty ? "— select —" : selection)
                         .font(.system(size: 12))
                         .foregroundStyle(
                             selection.isEmpty
@@ -287,7 +287,7 @@ struct AddScopeSheet: View {
     /// instead of silently falling back to a text field.
     @MainActor private func fetchScopeOptions() {
         guard authentication.isAuthenticated else {
-            log("AddScopeSheet \u203a active auth mode has no usable credential \u2014 showing load failure")
+            log("AddScopeSheet › active auth mode has no usable credential — showing load failure")
             usePicker = false
             errorMessage = "Could not load repositories and organisations."
             return
@@ -301,7 +301,7 @@ struct AddScopeSheet: View {
                 orgs = options.organizations
                 isFetching = false
                 if options.isEmpty {
-                    log("AddScopeSheet \u203a fetch returned no orgs or repos \u2014 showing load failure")
+                    log("AddScopeSheet › fetch returned no orgs or repos — showing load failure")
                     usePicker = false
                     errorMessage = "Could not load repositories and organisations."
                     return
@@ -309,7 +309,7 @@ struct AddScopeSheet: View {
                 usePicker = true
                 selectedRepo = selectedRepo.isEmpty ? repos.first ?? "" : selectedRepo
                 selectedOrg = selectedOrg.isEmpty ? orgs.first ?? "" : selectedOrg
-                log("AddScopeSheet \u203a loaded orgs=\(orgs.count) repos=\(repos.count)")
+                log("AddScopeSheet › loaded orgs=\(orgs.count) repos=\(repos.count)")
             }
         }
     }
@@ -321,7 +321,7 @@ struct AddScopeSheet: View {
         let scope = effectiveScope
         guard !scope.isEmpty else { return }
         ScopeStore.shared.add(scope)
-        log("AddScopeSheet \u203a added scope: \(scope)")
+        log("AddScopeSheet › added scope: \(scope)")
         isPresented = false
     }
 }

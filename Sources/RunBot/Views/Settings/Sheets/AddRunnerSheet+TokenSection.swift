@@ -47,10 +47,10 @@ func fetchRunnerDownloadURL() async -> String? {
     let arch = archResult.output.trimmingCharacters(in: .whitespacesAndNewlines)
     let assetArch = (arch == "arm64") ? "arm64" : "x64"
     let assetName = "actions-runner-osx-\(assetArch)"
-    log("fetchRunnerDownloadURL \u203a arch=\(arch) assetName=\(assetName)")
+    log("fetchRunnerDownloadURL › arch=\(arch) assetName=\(assetName)")
 
     guard let url = URL(string: GitHubURIs.apiRunnerLatest) else {
-        log("fetchRunnerDownloadURL \u203a invalid URL")
+        log("fetchRunnerDownloadURL › invalid URL")
         return nil
     }
     let data: Data
@@ -58,17 +58,17 @@ func fetchRunnerDownloadURL() async -> String? {
         let (responseData, _) = try await URLSession.shared.data(from: url)
         data = responseData
     } catch {
-        log("fetchRunnerDownloadURL \u203a network error: \(error.localizedDescription)")
+        log("fetchRunnerDownloadURL › network error: \(error.localizedDescription)")
         return nil
     }
     guard let release = try? JSONDecoder().decode(RunnerRelease.self, from: data) else {
-        log("fetchRunnerDownloadURL \u203a decode failed")
+        log("fetchRunnerDownloadURL › decode failed")
         return nil
     }
     let match = release.assets.first {
         $0.name.hasPrefix(assetName) && $0.name.hasSuffix(".tar.gz")
     }
-    log("fetchRunnerDownloadURL \u203a match=\(match?.name ?? "nil")")
+    log("fetchRunnerDownloadURL › match=\(match?.name ?? "nil")")
     return match?.browserDownloadUrl
 }
 
