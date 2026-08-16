@@ -6,6 +6,7 @@ on:
 
 jobs:
   review:
+    name: AI Code Review
     runs-on: [self-hosted, macOS, apple-intelligence]
     if: |
       github.event_name != 'pull_request' ||
