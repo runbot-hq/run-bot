@@ -3,19 +3,29 @@
 
 import SwiftUI
 
-/// Sidebar column with selectable navigation rows.
-/// Status indicators and counts are added in later migration steps.
+/// Sidebar column composed of a scrollable navigation list and a pinned metrics footer.
+///
+/// The navigation `List` and `SidebarMetricsView` are separated by a `Divider`
+/// inside a `VStack` so metrics stay fixed at the bottom regardless of selection.
+/// Navigation can shrink and scroll independently when the window is short.
 struct AppSidebarView: View {
     /// Binding to the shell's current section selection.
     @Binding var selection: AppSection?
 
-    /// The selectable section list.
+    /// The sidebar layout: scrollable navigation list above a pinned metrics footer.
     var body: some View {
-        List(AppSection.allCases, selection: $selection) { section in
-            Label(section.title, systemImage: section.systemImage)
-                .tag(section)
+        VStack(spacing: 0) {
+            List(AppSection.allCases, selection: $selection) { section in
+                Label(section.title, systemImage: section.systemImage)
+                    .tag(section)
+            }
+            .listStyle(.sidebar)
+
+            Divider()
+
+            SidebarMetricsView()
+                .padding(10)
         }
-        .listStyle(.sidebar)
         .navigationTitle("RunBot")
     }
 }
