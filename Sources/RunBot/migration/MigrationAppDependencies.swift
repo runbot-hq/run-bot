@@ -43,6 +43,13 @@ final class MigrationAppDependencies {
     private var runnerStore: (any RunnerPollerProtocol)?
     /// Guards against duplicate `start()` calls (SwiftUI `.task` can fire more than once).
     private var didStart = false
+    /// Guards against re-entrant `start()` while an async startup sequence is in flight.
+    /// Without this, an activation `refresh()` that fires before `start()` completes
+    /// would either crash (nil `runnerStore`) or start a redundant poll loop.
+    private var isStarting = false
+    /// Set when `refresh()` is called before startup finishes; the deferred refresh
+    /// runs immediately after `start()` completes.
+    private var pendingRefresh = false
 
     /// Creates the dependency graph for the windowed migration app shell.
     /// - Parameters:
@@ -135,8 +142,8 @@ extension MigrationAppDependencies {
     ///   2. localRunnerStore.refreshAsync  - hydrates local runners
     ///   3. runnerStore.start              - begins GitHub poll loop
     func start() async {
-        guard !didStart else { return }
-        didStart = true
+        guard !didStart, !isStarting else { return }
+        isStarting = true
 
         // Step 1 - sync, before first suspension point.
         oauthCredentials.reconcile()
@@ -146,8 +153,16 @@ extension MigrationAppDependencies {
         await localRunnerStore.refreshAsync()
 
         // Step 3 - begin GitHub Actions poll loop.
-        guard let store = runnerStore else { return }
+        guard let store = runnerStore else { isStarting = false; return }
         await store.start()
+        didStart = true
+        isStarting = false
+
+        // If a refresh was requested while startup was in flight, run it now.
+        if pendingRefresh {
+            pendingRefresh = false
+            await store.start()
+        }
     }
 
     /// Triggers a poll-loop restart without the full startup sequence.
@@ -158,10 +173,13 @@ extension MigrationAppDependencies {
     /// reactivating the window) so the UI reflects the latest GitHub state
     /// without waiting for the next scheduled tick.
     ///
-    /// Calling `refresh()` before `start()` has completed is safe: the actor
-    /// serialises the two calls, so `start()`'s initial fetch will finish
-    /// before `refresh()` begins its own cycle.
+    /// If startup has not yet completed, the refresh is deferred and runs
+    /// automatically after `start()` finishes.
     func refresh() async {
+        guard didStart else {
+            pendingRefresh = true
+            return
+        }
         guard let store = runnerStore else { return }
         await store.start()
     }
