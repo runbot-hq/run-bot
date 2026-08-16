@@ -9,6 +9,7 @@ permissions:
 
 jobs:
   review:
+    name: Octopus AI Code Review
     runs-on: ubuntu-latest
     continue-on-error: true # external service; 403s must not block PRs
     steps:
