@@ -20,12 +20,14 @@ struct AppDetailView: View {
     let localRunnerStore: LocalRunnerStore
     /// Settings services forwarded from the composition root.
     let settingsDependencies: MigrationSettingsDependencies
+    /// Shared log fetcher — threaded from `AppShellView`.
+    @Binding var logFetcher: LogFetcher
 
     /// Routes to the corresponding feature-root view.
     var body: some View {
         switch selection {
         case .workflows:
-            MigrationWorkflowView(workflows: runnerState.actions)
+            MigrationWorkflowView(workflows: runnerState.actions, logFetcher: $logFetcher)
         case .localRunners:
             MigrationRunnerView(
                 runnerState: runnerState,

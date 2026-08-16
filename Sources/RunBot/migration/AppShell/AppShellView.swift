@@ -20,6 +20,9 @@ struct AppShellView: View {
     let localRunnerStore: LocalRunnerStore
     /// Settings services forwarded from the composition root.
     let settingsDependencies: MigrationSettingsDependencies
+    /// Shared log fetcher — owned by `MigrationAppDependencies`, threaded down
+    /// via `@Binding` so the ZIP cache survives column navigations.
+    @Binding var logFetcher: LogFetcher
 
     /// The top-level split-view layout.
     var body: some View {
@@ -36,7 +39,8 @@ struct AppShellView: View {
                 authentication: authentication,
                 runnerState: runnerState,
                 localRunnerStore: localRunnerStore,
-                settingsDependencies: settingsDependencies
+                settingsDependencies: settingsDependencies,
+                logFetcher: $logFetcher
             )
         }
         .navigationSplitViewStyle(.balanced)

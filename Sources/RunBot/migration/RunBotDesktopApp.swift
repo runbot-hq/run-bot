@@ -3,6 +3,7 @@
 
 import GitHubClient
 import MenuBarKit
+import RunBotCore
 import SwiftUI
 
 // @main removed: Sources/RunBot/main.swift is top-level code.
@@ -23,6 +24,10 @@ struct RunBotDesktopApp: App {
     /// app hierarchy. `MBKOverlayGate` is presentation infrastructure; it is not
     /// placed in `MigrationAppDependencies`.
     @State private var overlayGate: MBKOverlayGate
+    /// Log fetcher lifted to app level so the ZIP cache persists across
+    /// column navigations. Initialised from `deps.logFetcher` in `init()`
+    /// and threaded into `AppShellView` via `$logFetcher`.
+    @State private var logFetcher: LogFetcher
 
     /// Initialises shared authentication and dependency bundle before first render.
     init() {
@@ -38,6 +43,7 @@ struct RunBotDesktopApp: App {
             onSignOut: {}
         ))
         _overlayGate = State(initialValue: MBKOverlayGate())
+        _logFetcher = State(initialValue: LogFetcher())
     }
 
     /// The scene graph for the windowed application.
@@ -46,7 +52,8 @@ struct RunBotDesktopApp: App {
             AppShellView(
                 runnerState: deps.runnerState,
                 localRunnerStore: deps.localRunnerStore,
-                settingsDependencies: deps.settingsDependencies
+                settingsDependencies: deps.settingsDependencies,
+                logFetcher: $logFetcher
             )
             .environment(authentication)
             .environment(overlayGate)

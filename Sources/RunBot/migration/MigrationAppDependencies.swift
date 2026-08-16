@@ -26,6 +26,9 @@ final class MigrationAppDependencies {
     let runnerState: RunnerState
     let localRunnerStore: LocalRunnerStore
     let settingsDependencies: MigrationSettingsDependencies
+    /// Shared log fetcher — owns the ZIP cache for the windowed app lifetime.
+    /// Exposed so views can thread it via `@Binding` into `StepLogContentView`.
+    let logFetcher: LogFetcher
 
     private let authentication: GitHubAuthentication
     private let github: GitHubClient
@@ -102,6 +105,7 @@ final class MigrationAppDependencies {
             onSignIn: onSignIn,
             onSignOut: onSignOut
         )
+        self.logFetcher = LogFetcher()
     }
 }
 
