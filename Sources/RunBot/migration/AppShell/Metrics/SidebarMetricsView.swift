@@ -4,6 +4,19 @@
 import RunBotCore
 import SwiftUI
 
+// MARK: - SidebarMetricLayout
+
+/// Shared layout constants for sidebar metric rows.
+/// Use these instead of hardcoding sizes in individual metric views.
+enum SidebarMetricLayout {
+    /// Fixed total row height for every metric row (usage and capacity).
+    static let rowHeight: CGFloat = 44
+    /// Height of the CPU and GPU sparkline graphs.
+    static let graphHeight: CGFloat = 18
+    /// Height of the Memory and Disk capacity bars.
+    static let barHeight: CGFloat = 5
+}
+
 // MARK: - SidebarMetricsView
 
 /// Pinned sidebar footer showing live CPU, GPU, memory, and disk metrics.
@@ -30,13 +43,12 @@ struct SidebarMetricsView: View {
 
     /// The four metric rows grouped in a compact material surface.
     var body: some View {
-        VStack(spacing: 10) {
+        VStack(spacing: 8) {
             SidebarUsageMetricView(
                 title: "CPU",
                 accessibilityTitle: "CPU",
                 value: viewModel.stats.cpuPct,
                 history: viewModel.cpuHistory.values,
-                tint: .rbMetricCPU,
                 fractionDigits: 1
             )
             SidebarUsageMetricView(
@@ -44,29 +56,27 @@ struct SidebarMetricsView: View {
                 accessibilityTitle: "GPU",
                 value: viewModel.stats.gpuPct,
                 history: viewModel.gpuHistory.values,
-                tint: .rbMetricGPU,
                 fractionDigits: 0
             )
-
-            Divider()
 
             SidebarCapacityMetricView(
                 title: "MEM",
                 accessibilityTitle: "Memory",
                 used: viewModel.stats.memUsedGB,
-                total: viewModel.stats.memTotalGB,
-                tint: .rbMetricCapacity
+                total: viewModel.stats.memTotalGB
             )
             SidebarCapacityMetricView(
                 title: "DISK",
                 accessibilityTitle: "Disk",
                 used: viewModel.stats.diskUsedGB,
-                total: viewModel.stats.diskTotalGB,
-                tint: .rbMetricCapacity
+                total: viewModel.stats.diskTotalGB
             )
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
+        .padding(12)
+        .background(
+            .thinMaterial,
+            in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+        )
         .frame(maxHeight: 240)
         .onAppear {
             viewModel.start()

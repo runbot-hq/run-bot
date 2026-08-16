@@ -142,23 +142,25 @@ extension Color {
     /// Primary accent alias — resolves to `rbBlue`.
     static let rbAccent = rbBlue
 
-    // MARK: Sidebar Metric Tint Tokens
+    // MARK: Sidebar Metric Severity
 
-    /// Fixed tint for the CPU sparkline in the sidebar metrics footer.
-    static let rbMetricCPU = Color.adaptive(
-        light: Color(red: 0.18, green: 0.64, blue: 0.18),
-        dark: Color(red: 0.25, green: 0.80, blue: 0.25)
-    )
-    /// Fixed tint for the GPU sparkline in the sidebar metrics footer.
-    static let rbMetricGPU = Color.adaptive(
-        light: Color(red: 0.0, green: 0.48, blue: 1.0),
-        dark: Color(red: 0.3, green: 0.64, blue: 1.0)
-    )
-    /// Fixed tint for memory and disk capacity bars in the sidebar metrics footer.
-    static let rbMetricCapacity = Color.adaptive(
-        light: Color(red: 0.80, green: 0.55, blue: 0.05),
-        dark: Color(red: 1.0, green: 0.75, blue: 0.20)
-    )
+    /// Returns the severity color for a 0–100 percentage using shared thresholds.
+    ///
+    /// - 0–60 %  → green (`.rbSuccess`)
+    /// - >60–85 % → orange (`.rbWarning`)
+    /// - >85 %    → red (`.rbDanger`)
+    ///
+    /// Used by `SparklineView`, `SidebarUsageMetricView`, and
+    /// `SidebarCapacityMetricView` so threshold logic is defined once.
+    static func rbMetricSeverity(percentage: Double) -> Color {
+        let clamped = min(max(percentage, 0), 100)
+        if clamped > 85 { return .rbDanger }
+        if clamped > 60 { return .rbWarning }
+        return .rbSuccess
+    }
+
+    // MARK: Sidebar Metric Track
+
     /// Neutral track fill for empty sparkline and capacity-bar backgrounds.
     static let rbMetricTrack = Color.secondary.opacity(0.18)
 

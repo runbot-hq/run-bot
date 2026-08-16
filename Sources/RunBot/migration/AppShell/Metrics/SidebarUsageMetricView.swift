@@ -5,7 +5,7 @@ import SwiftUI
 
 // MARK: - SidebarUsageMetricView
 
-/// Two-zone metric row: percentage header and full-width tinted sparkline.
+/// Two-zone metric row: percentage header and full-width severity-colored sparkline.
 ///
 /// Used for CPU and GPU in the sidebar metrics footer.
 /// When `value` is `nil` the header shows an em-dash and a neutral
@@ -20,8 +20,6 @@ struct SidebarUsageMetricView: View {
     let value: Double?
     /// Ordered oldest-to-newest history values in the range 0-100.
     let history: [Double]
-    /// Fixed sparkline tint (e.g. `.rbMetricCPU`). Does not shift with load level.
-    let tint: Color
     /// Number of decimal places in the formatted percentage string.
     let fractionDigits: Int
 
@@ -64,17 +62,17 @@ struct SidebarUsageMetricView: View {
             if let pct = clampedValue, !history.isEmpty {
                 SparklineView(
                     history: history,
-                    currentPct: pct,
-                    tint: tint
+                    currentPct: pct
                 )
-                .frame(height: 40)
+                .frame(height: SidebarMetricLayout.graphHeight)
                 .clipShape(RoundedRectangle(cornerRadius: 6))
             } else {
                 RoundedRectangle(cornerRadius: 6)
                     .fill(Color.rbMetricTrack)
-                    .frame(height: 40)
+                    .frame(height: SidebarMetricLayout.graphHeight)
             }
         }
+        .frame(height: SidebarMetricLayout.rowHeight, alignment: .top)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityDescription)
     }

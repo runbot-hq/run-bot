@@ -20,8 +20,6 @@ struct SidebarCapacityMetricView: View {
     let used: Double
     /// Total capacity in gigabytes.
     let total: Double
-    /// Progress bar and footer tint (e.g. `.rbMetricCapacity`).
-    let tint: Color
 
     /// Free capacity clamped to zero.
     private var free: Double { max(total - used, 0) }
@@ -47,6 +45,11 @@ struct SidebarCapacityMetricView: View {
             + "\(formatted(free)) gigabytes free"
     }
 
+    /// Severity color for the capacity bar, driven by used percentage.
+    private var severityColor: Color {
+        .rbMetricSeverity(percentage: fraction * 100)
+    }
+
     /// Header, capacity bar, and used/free footer.
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -70,11 +73,11 @@ struct SidebarCapacityMetricView: View {
                         .fill(Color.rbMetricTrack)
 
                     Capsule()
-                        .fill(tint)
+                        .fill(severityColor)
                         .frame(width: geometry.size.width * fraction)
                 }
             }
-            .frame(height: 6)
+            .frame(height: SidebarMetricLayout.barHeight)
 
             HStack {
                 Text("used \(formatted(used))")
@@ -84,6 +87,7 @@ struct SidebarCapacityMetricView: View {
             .font(.caption2.monospacedDigit())
             .foregroundStyle(.secondary)
         }
+        .frame(height: SidebarMetricLayout.rowHeight, alignment: .top)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityDescription)
     }
