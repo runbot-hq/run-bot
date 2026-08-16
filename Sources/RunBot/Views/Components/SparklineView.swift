@@ -41,10 +41,10 @@ struct SparklineView: View {
             strokePath(in: size)
                 .stroke(resolvedColor, lineWidth: 1.5)
         }
+    }
 
     /// Resolved color: explicit tint when provided, otherwise threshold-driven color.
     private var resolvedColor: Color { tint ?? themeColor }
-    }
 
     /// Accent color shifting green -> orange -> red as `currentPct` crosses 60 and 85.
     private var themeColor: Color {
