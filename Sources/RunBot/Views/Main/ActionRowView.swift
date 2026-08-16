@@ -185,24 +185,10 @@ struct ActionRowView: View {
     }
 
     /// Derives the canonical `RBStatus` from the group's status and conclusion.
-    private var rowStatus: RBStatus {
-        switch group.groupStatus {
-        case .inProgress: return .inProgress
-        case .loading:    return .queued
-        case .queued:     return .queued
-        case .completed:
-            switch group.conclusion {
-            case .success: return .success
-            // All failure-class subtypes map to the red (.failed) tier.
-            // timedOut / actionRequired / startupFailure are intentionally grouped here
-            // alongside .failure — statusBadge uses the same grouping.
-            case .failure, .timedOut, .actionRequired, .startupFailure: return .failed
-            // Accent-bar colour is undifferentiated for these — all map to the grey
-            // (.unknown) tier. See statusBadge below for per-case text differentiation.
-            case .cancelled, .skipped, .neutral, .stale, .unknown, nil: return .unknown
-            }
-        }
-    }
+    /// Canonical `RBStatus` derived from the shared ``WorkflowActionGroup.rbStatus``.
+    /// Both the status-bar app (`ActionRowView`) and the windowed migration app
+    /// (`MigrationWorkflowRow`) now consume the same implementation.
+    private var rowStatus: RBStatus { group.rbStatus }
 
     /// Main body of the action row.
     ///

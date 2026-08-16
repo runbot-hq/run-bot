@@ -53,35 +53,76 @@ extension GroupStatus {
 
 // MARK: - WorkflowActionGroup + RBStatus
 
-// swiftlint:disable:next missing_docs
+/// Shared `RBStatus` derivation for `WorkflowActionGroup`.
+///
+/// - SeeAlso: ``ActionRowView.rowStatus`` (removed in #2868 — both app targets
+///   now consume this single implementation).
 extension WorkflowActionGroup {
-    /// Canonical `RBStatus` derived from both the group's status and its conclusion.
+    /// Canonical `RBStatus` derived from the group's status, conclusion, and
+    /// job-level terminality.
     ///
     /// Mirrors the legacy `ActionRowView.rowStatus` mapping so the windowed app
     /// and the status-bar app show identical conclusion colours.
+    ///
+    /// ## Dimmed-group fallback
+    ///
+    /// When a group vanishes from the live API feed, the poller freezes its last
+    /// snapshot with ``isDimmed`` set to `true`. The run-level `status`/`conclusion`
+    /// may still be stale (e.g. `inProgress`/`nil`) while the jobs have already
+    /// been enriched with terminal states. In that scenario we fall back to
+    /// aggregating the job conclusions instead of the run-level conclusion.
     public var rbStatus: RBStatus {
         switch groupStatus {
-        case .inProgress: return .inProgress
+        case .inProgress:
+            // Dimmed + all-jobs-terminal overrides a stale inProgress run status.
+            if isDimmed, allJobsAreTerminal {
+                return jobConclusionRBStatus
+            }
+            return .inProgress
         case .loading:    return .queued
         case .queued:     return .queued
-        case .completed:  return completedRBStatus
+        case .completed:  return conclusionRBStatus
         }
     }
 
-    /// Conclusion-aware status for completed workflow groups.
-    private var completedRBStatus: RBStatus {
+    /// `true` when every job in the group has a terminal (non-active) status.
+    ///
+    /// Used by ``rbStatus`` to detect the frozen-group scenario where the
+    /// run-level snapshot is stale but the job-level data is complete.
+    public var allJobsAreTerminal: Bool {
+        jobs.allSatisfy { !$0.jobStatus.isActive }
+    }
+
+    /// RBStatus derived from the group's aggregated conclusion.
+    ///
+    /// This is the primary path for groups whose ``groupStatus`` is `.completed`.
+    private var conclusionRBStatus: RBStatus {
         switch conclusion {
-        case .success:
-            return .success
+        case .success:          return .success
         case .failure, .timedOut, .actionRequired, .startupFailure:
             return .failed
-        case .cancelled:
-            return .cancelled
-        case .skipped:
-            return .skipped
+        case .cancelled:        return .cancelled
+        case .skipped:          return .skipped
         case .neutral, .stale, .unknown, nil:
             return .unknown
         }
+    }
+
+    /// RBStatus derived from the group's job conclusions.
+    ///
+    /// This is the fallback path for dimmed/frozen groups where the run-level
+    /// conclusion is stale but all jobs have terminal status.
+    ///
+    /// Priority: failure > cancelled > skipped > success.
+    /// If all jobs are skipped, returns `.skipped`. If all jobs are terminal
+    /// and none failed, cancelled, or skipped, returns `.success`.
+    private var jobConclusionRBStatus: RBStatus {
+        let conclusions = jobs.compactMap { $0.jobConclusion }
+        if conclusions.contains(where: { $0.isFailure }) { return .failed }
+        if conclusions.contains(where: { $0 == .cancelled }) { return .cancelled }
+        if conclusions.allSatisfy({ $0 == .skipped }) { return .skipped }
+        // All jobs are terminal and none failed/cancelled — success.
+        return .success
     }
 }
 // MARK: - WorkflowRunRef
@@ -394,7 +435,10 @@ public struct WorkflowActionGroup: Identifiable, Equatable, Sendable {
     }
 
     /// Number of jobs with a concluded result across all sibling runs.
-    public var jobsDone: Int { jobs.filter { $0.jobConclusion != nil }.count }
+    /// Counts jobs whose status is terminal (`.completed`) or whose conclusion
+    /// is non-nil, ensuring the progress fraction reflects the actual job state
+    /// even when the API has not yet populated a conclusion for a completed job.
+    public var jobsDone: Int { jobs.filter { !$0.jobStatus.isActive || $0.jobConclusion != nil }.count }
 
     /// Number of successfully concluded jobs across all sibling runs.
     public var jobsSucceeded: Int { jobs.filter { $0.jobConclusion == .success }.count }
