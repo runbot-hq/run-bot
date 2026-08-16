@@ -42,6 +42,13 @@ extension RunnerPoller {
     let snapCache = completedCache
     let snapPrevGroups = prevLiveGroups
     let snapGroupCache = actionGroupCache
+    // Merge pending final groups into snapPrevGroups so they are retried on
+    // this poll cycle. Also captures the retry set for `applyFetchResult`.
+    let mergeResult = mergePendingFinalGroups(
+      pendingFinalGroups: pendingFinalGroups,
+      snapPrevGroups: snapPrevGroups,
+      snapGroupCache: snapGroupCache
+    )
     let localRunnersSnapshot = await MainActor.run { localRunners() }
     log(
       "RunnerPoller › fetch — localRunners.count=\(localRunnersSnapshot.count) (total; used for enrichment)",
@@ -98,15 +105,16 @@ extension RunnerPoller {
       scopes: scopesSnapshot
     )
     let groupResult = await buildGroupState(
-      snapPrevGroups: snapPrevGroups,
-      snapGroupCache: snapGroupCache,
+      snapPrevGroups: mergeResult.mergedPrevGroups,
+      snapGroupCache: mergeResult.mergedGroupCache,
       jobCache: jobResult.newCache,
       scopes: scopesSnapshot
     )
     let didPickUp = await applyFetchResult(
       enrichedRunners: enrichedRunners,
       jobResult: jobResult,
-      groupResult: groupResult
+      groupResult: groupResult,
+      pendingToRetry: mergeResult.pendingToRetry
     )
     // (#2327) Restart poll loop on runner pickup so the next fetch uses a fresh
     // activeScopes snapshot. start() is called after applyFetchResult returns
@@ -142,5 +150,62 @@ extension RunnerPoller {
         category: .runner)
     }
     return extra
+  }
+// MARK: - Pending final group merging
+
+  /// Holds the result of merging pending final groups into the poll snapshots.
+  private struct PendingMergeResult {
+    /// The merged snapPrevGroups with pending groups added.
+    let mergedPrevGroups: [String: WorkflowActionGroup]
+    /// The merged group cache with pending groups added.
+    let mergedGroupCache: [String: WorkflowActionGroup]
+    /// The retry set to pass to `applyFetchResult`.
+    let pendingToRetry: [String: PendingFinalGroup]
+  }
+
+  /// Merges pending final groups into the snapshots for retry on the current poll cycle.
+  ///
+  /// Groups that have exceeded `PendingFinalGroup.maxAttempts` are abandoned. Groups
+  /// that are still resolvable are merged into `snapPrevGroups` (so `buildGroupState` sees
+  /// them) and `snapGroupCache` (so they remain visible in the display). The retry set
+  /// is returned for the caller to pass to `applyFetchResult` so the attempt count is
+  /// preserved across cycles.
+  ///
+  /// - Parameters:
+  ///   - pendingFinalGroups: The actor's current `pendingFinalGroups` dictionary.
+  ///   - snapPrevGroups: The previous live groups snapshot.
+  ///   - snapGroupCache: The group cache snapshot.
+  /// - Returns: A `PendingMergeResult` with the merged snapshots and retry set.
+  private func mergePendingFinalGroups(
+    pendingFinalGroups: [String: PendingFinalGroup],
+    snapPrevGroups: [String: WorkflowActionGroup],
+    snapGroupCache: [String: WorkflowActionGroup]
+  ) -> PendingMergeResult {
+    var mergedPrevGroups = snapPrevGroups
+    var mergedGroupCache = snapGroupCache
+    var pendingToRetry: [String: PendingFinalGroup] = [:]
+    for (key, pending) in pendingFinalGroups {
+      if snapPrevGroups[key] != nil { continue }
+      if pending.attempts >= PendingFinalGroup.maxAttempts {
+        log(
+          "RunnerPoller › fetch — pendingFinalGroups EXCEEDED maxAttempts=\(PendingFinalGroup.maxAttempts) for key=\(key), abandoning",
+          category: .runner)
+        continue
+      }
+      let incremented = PendingFinalGroup(group: pending.group, attempts: pending.attempts + 1)
+      pendingToRetry[key] = incremented
+      mergedPrevGroups[key] = pending.group
+      if mergedGroupCache[key] == nil, !pending.group.isCompleted {
+        mergedGroupCache[key] = pending.group
+      }
+    }
+    log(
+      "RunnerPoller › fetch — pendingFinalGroups=\(pendingFinalGroups.count) toRetry=\(pendingToRetry.count)",
+      category: .runner)
+    return PendingMergeResult(
+      mergedPrevGroups: mergedPrevGroups,
+      mergedGroupCache: mergedGroupCache,
+      pendingToRetry: pendingToRetry
+    )
   }
 }

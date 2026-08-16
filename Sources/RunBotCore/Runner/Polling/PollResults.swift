@@ -33,19 +33,28 @@ public struct GroupPollResult: Sendable {
     public let newGroupCache: [String: WorkflowActionGroup]
     /// Live-group snapshot for the next poll's diff.
     public let newPrevLiveGroups: [String: WorkflowActionGroup]
+    /// Groups that vanished from the API response but whose final state could not
+    /// yet be resolved. These are retried on subsequent poll cycles (issue #2859).
+    ///
+    /// Keyed by `compositeCacheKey` so the actor can merge them into the next
+    /// poll's `snapPrevGroups` for retry without duplicating live entries.
+    public let pendingFinalGroups: [String: PendingFinalGroup]
 
     /// Creates a `GroupPollResult` with all fields.
     /// - Parameters:
     ///   - display: Groups to show in the popover.
     ///   - newGroupCache: Updated group cache.
     ///   - newPrevLiveGroups: Live-group snapshot for the next poll's diff.
+    ///   - pendingFinalGroups: Groups awaiting final-state resolution.
     public init(
         display: [WorkflowActionGroup],
         newGroupCache: [String: WorkflowActionGroup],
-        newPrevLiveGroups: [String: WorkflowActionGroup]
+        newPrevLiveGroups: [String: WorkflowActionGroup],
+        pendingFinalGroups: [String: PendingFinalGroup] = [:]
     ) {
         self.display = display
         self.newGroupCache = newGroupCache
         self.newPrevLiveGroups = newPrevLiveGroups
+        self.pendingFinalGroups = pendingFinalGroups
     }
 }

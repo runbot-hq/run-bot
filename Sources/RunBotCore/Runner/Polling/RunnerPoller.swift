@@ -69,6 +69,11 @@ public actor RunnerPoller {
   /// Group cache keyed by group ID; capped at `PollResultBuilder.groupCacheLimit`.
   /// Written by `applyFetchResult` (via `RunnerPoller+ApplyResult`).
   var actionGroupCache: [String: WorkflowActionGroup] = [:]
+  /// Groups that vanished from the API response but whose final state could not
+  /// yet be resolved. Keyed by `compositeCacheKey`. Retried on each poll cycle
+  /// up to `PendingFinalGroup.maxAttempts` attempts (issue #2859, #2863).
+  /// Written by `applyFetchResult` (via `RunnerPoller+ApplyResult`).
+  var pendingFinalGroups: [String: PendingFinalGroup] = [:]
   /// Whether the GitHub API is currently rate-limiting this client.
   /// Written by `applyFetchResult` and `applyError` (via `RunnerPoller+ApplyResult`).
   private(set) var isRateLimited = false
