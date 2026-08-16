@@ -13,10 +13,11 @@ import SwiftUI
 /// `@main` is intentionally absent because `main.swift` invokes `main()`.
 struct RunBotDesktopApp: App {
     /// Single domain-level state coordinator owned by this process.
-    /// The same `AppState` instance is used by the menu-bar panel (via `AppDelegate`),
-    /// ensuring the windowed app and the panel observe the identical `RunnerState`.
+    /// The windowed app uses the same `AppState` runtime implementation and
+    /// event-publication chain that the menu-bar interface used — the same
+    /// `RunnerState`, `RunnerPoller`, `GitHubClient`, and `OAuthCredentialController`.
     /// When the poller publishes a completed snapshot, all views invalidate reactively.
-    @State private var appState = AppState()
+    @State private var appState: AppState
 
     /// Runner dependencies configured as a thin adapter around `AppState`.
     /// Constructed in `init()` so it shares the same `appState` instance.
@@ -39,15 +40,31 @@ struct RunBotDesktopApp: App {
     ///
     /// Startup ordering (mirrors `AppDelegate+StoreSetup.swift`):
     ///   1. `LocalRunnerStore.configure(viewModel:)` — synchronous, before any await.
-    ///   2. `MigrationAppDependencies` is constructed with the `AppState` instance
-    ///      that will be shared across the menu-bar panel and the windowed app.
+    ///   2. `MigrationAppDependencies` is constructed with the single `AppState` instance.
+    ///      The windowed app now uses the same `AppState` runtime implementation and
+    ///      event-publication chain that the menu-bar interface used.
     init() {
         // ⚠️ MUST be synchronous and before any Task — see AppDelegate+StoreSetup.swift
         // for the ordering rule (fix for issue #1741).
         let state = AppState()
-        _appState = State(initialValue: state)
+
+        // Configure LocalRunnerStore before any SwiftUI body access.
         LocalRunnerStore.configure(viewModel: state.runnerState)
-        _deps = State(initialValue: MigrationAppDependencies(appState: state))
+
+        // Capture the already-configured singleton. This is the same store instance
+        // AppState will adopt during start() — no duplicate graph.
+        let localRunnerStore = LocalRunnerStore.shared
+
+        // Build dependencies with the captured store so the Window body can safely
+        // read deps.localRunnerStore without hitting AppState's not-yet-seeded
+        // private _localRunnerStore (which would assertion-fail).
+        let dependencies = MigrationAppDependencies(
+            appState: state,
+            localRunnerStore: localRunnerStore
+        )
+
+        _appState = State(initialValue: state)
+        _deps = State(initialValue: dependencies)
         _overlayGate = State(initialValue: MBKOverlayGate())
         _logFetcher = State(initialValue: state.logFetcher)
     }

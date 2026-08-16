@@ -31,16 +31,22 @@ final class MigrationAppDependencies {
     /// Observable runner state forwarded from `appState`.
     var runnerState: RunnerState { appState.runnerState }
 
-    /// Configured local-runner store forwarded from `appState`.
-    var localRunnerStore: LocalRunnerStore { appState.localRunnerStore }
+    /// Configured local-runner store captured at init time.
+    /// Captured from `LocalRunnerStore.shared` after `configure()` is called
+    /// synchronously in `RunBotDesktopApp.init()`. This avoids reading `AppState`'s
+    /// not-yet-seeded private `_localRunnerStore` during SwiftUI body construction.
+    let localRunnerStore: LocalRunnerStore
 
     /// Dependencies for the Settings scene (accounts, preferences, scopes).
     let settingsDependencies: MigrationSettingsDependencies
 
     /// Creates the adapter and constructs settings dependencies from `AppState`.
-    /// - Parameter appState: The single `AppState` instance owned by the process.
-    init(appState: AppState) {
+    /// - Parameters:
+    ///   - appState: The single `AppState` instance owned by the process.
+    ///   - localRunnerStore: The already-configured `LocalRunnerStore` singleton.
+    init(appState: AppState, localRunnerStore: LocalRunnerStore) {
         self.appState = appState
+        self.localRunnerStore = localRunnerStore
 
         // Build settings dependencies from AppState's services.
         self.settingsDependencies = MigrationSettingsDependencies(
