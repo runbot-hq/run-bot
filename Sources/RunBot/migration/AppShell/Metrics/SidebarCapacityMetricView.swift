@@ -5,50 +5,86 @@ import SwiftUI
 
 // MARK: - SidebarCapacityMetricView
 
-/// Compact two-line metric row showing used / total GB and available GB.
+/// Three-zone metric row: header with used/total, capacity progress bar, used/free footer.
 ///
 /// Used for Memory and Disk in the sidebar metrics footer.
-/// Values are expressed in GB (Double) to match `SystemStats` storage;
-/// `formatGB(_:)` trims trailing zeros and appends "GB".
+/// Values are expressed in GB (Double) to match `SystemStats` storage.
+/// Adaptive precision: values below 100 GB show one decimal; 100+ show none.
 struct SidebarCapacityMetricView: View {
 
-    /// Short uppercase label, e.g. "MEM" or "DISK".
+    /// Short uppercase label shown as the row heading, e.g. "MEM" or "DISK".
     let title: String
+    /// Full spoken label used by VoiceOver, e.g. "Memory" or "Disk".
+    let accessibilityTitle: String
     /// Used capacity in gigabytes.
     let used: Double
     /// Total capacity in gigabytes.
     let total: Double
+    /// Progress bar and footer tint (e.g. `.rbMetricCapacity`).
+    let tint: Color
 
-    /// Available capacity derived from inputs; clamped to zero.
-    private var available: Double { max(total - used, 0) }
+    /// Free capacity clamped to zero.
+    private var free: Double { max(total - used, 0) }
 
-    /// Formats a GB value compactly with one decimal place.
-    private func formatGB(_ gb: Double) -> String {
-        String(format: "%.1f GB", gb)
+    /// Filled fraction clamped to 0-1; zero when total is zero.
+    private var fraction: Double {
+        guard total > 0 else { return 0 }
+        return min(max(used / total, 0), 1)
+    }
+
+    /// Adaptive GB string: one decimal below 100, no decimals at 100+.
+    private func formatted(_ value: Double) -> String {
+        value >= 100
+            ? String(format: "%.0f", value)
+            : String(format: "%.1f", value)
     }
 
     /// Full textual description for VoiceOver.
-    private var accessibilityText: String {
-        "\(title), \(formatGB(used)) used, \(formatGB(total)) capacity, \(formatGB(available)) available"
+    private var accessibilityDescription: String {
+        "\(accessibilityTitle), "
+            + "\(formatted(used)) gigabytes used, "
+            + "\(formatted(total)) gigabytes total, "
+            + "\(formatted(free)) gigabytes free"
     }
 
-    /// The compact two-line capacity row.
+    /// Header, capacity bar, and used/free footer.
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: 4) {
             HStack {
                 Text(title)
                     .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .tracking(0.5)
+
                 Spacer()
-                Text("\(formatGB(used)) / \(formatGB(total))")
-                    .font(.caption2.monospacedDigit())
+
+                Text("\(formatted(used)) / \(formatted(total)) GB")
+                    .font(.callout.monospacedDigit())
                     .lineLimit(1)
+                    .minimumScaleFactor(0.8)
             }
-            Text("\(formatGB(available)) available")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
+
+            GeometryReader { geometry in
+                ZStack(alignment: .leading) {
+                    Capsule()
+                        .fill(Color.rbMetricTrack)
+
+                    Capsule()
+                        .fill(tint)
+                        .frame(width: geometry.size.width * fraction)
+                }
+            }
+            .frame(height: 6)
+
+            HStack {
+                Text("used \(formatted(used))")
+                Spacer()
+                Text("free \(formatted(free))")
+            }
+            .font(.caption2.monospacedDigit())
+            .foregroundStyle(.secondary)
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(accessibilityText)
+        .accessibilityLabel(accessibilityDescription)
     }
 }

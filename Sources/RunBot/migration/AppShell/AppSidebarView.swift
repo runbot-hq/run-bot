@@ -24,7 +24,6 @@ struct AppSidebarView: View {
             Divider()
 
             SidebarMetricsView()
-                .padding(10)
         }
         .navigationTitle("RunBot")
     }
