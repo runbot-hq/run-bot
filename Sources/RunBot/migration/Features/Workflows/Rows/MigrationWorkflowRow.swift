@@ -30,7 +30,7 @@ struct MigrationWorkflowRow: View {
     /// The row layout.
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
-            MigrationStatusIndicator(status: workflow.groupStatus.rbStatus)
+            MigrationStatusIndicator(status: workflow.rbStatus)
                 .padding(.top, 4)
 
             VStack(alignment: .leading, spacing: 2) {
