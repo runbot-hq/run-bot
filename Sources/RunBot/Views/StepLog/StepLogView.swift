@@ -116,8 +116,8 @@ struct StepLogView: View {
                 job: job,
                 step: step,
                 logFetcher: $logFetcher,
-                scopeStore: scopeStore,
-                onLogLoaded: onLogLoaded
+                onLogLoaded: onLogLoaded,
+                scopeStore: scopeStore
             )
             // ⚠️ REQUIRED -- caps preferredContentSize.height. Prevents panel growing off-screen.
             // ❌ NEVER remove this modifier.

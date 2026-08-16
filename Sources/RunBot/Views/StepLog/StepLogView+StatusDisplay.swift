@@ -6,7 +6,7 @@ import SwiftUI
 /// Status-display computed properties for `StepLogView`.
 ///
 /// Extracted to keep `StepLogView.swift` under the `file_length` lint limit.
-extension StepLogView {
+extension StepLogContentView {
 
     /// Human-readable label derived from the step's conclusion and status.
     ///

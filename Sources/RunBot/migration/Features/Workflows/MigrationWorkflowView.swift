@@ -14,6 +14,8 @@ struct MigrationWorkflowView: View {
 
     /// Workflow data provided by the caller. Empty until production data is wired.
     let workflows: [WorkflowActionGroup]
+    /// Shared log fetcher threaded from the composition root.
+    @Binding var logFetcher: LogFetcher
 
     /// In-memory selection state for the three-level hierarchy.
     @State private var selection = MigrationWorkflowSelection()
@@ -58,7 +60,11 @@ struct MigrationWorkflowView: View {
             )
             .frame(minWidth: 150, idealWidth: 190, maxWidth: 320)
 
-            MigrationStepLogView(selectedStep: selectedStep)
+            MigrationStepLogView(
+                selectedJob: selectedJob,
+                selectedStep: selectedStep,
+                logFetcher: $logFetcher
+            )
             .frame(minWidth: 260, idealWidth: 380, maxWidth: 800)
         }
     }
