@@ -19,7 +19,7 @@ import RunBotCore
 ///   oauthCredentials.reconcile    <- sync, in start() before first await
 ///   oauthCredentials.start        <- sync, in start() before first await
 ///   localRunnerStore.refreshAsync <- first suspension point
-///   runnerStore.start             <- begins poll loop
+///   runnerStore.start             <- begins poll loop (owned by pollDriver Task)
 @MainActor
 @Observable
 final class MigrationAppDependencies {
@@ -41,15 +41,11 @@ final class MigrationAppDependencies {
     private let oauthCredentials: OAuthCredentialController
     /// The live runner poller; `nil` until `start()` has been called once.
     private var runnerStore: (any RunnerPollerProtocol)?
-    /// Guards against duplicate `start()` calls (SwiftUI `.task` can fire more than once).
-    private var didStart = false
-    /// Guards against re-entrant `start()` while an async startup sequence is in flight.
-    /// Without this, an activation `refresh()` that fires before `start()` completes
-    /// would either crash (nil `runnerStore`) or start a redundant poll loop.
-    private var isStarting = false
-    /// Set when `refresh()` is called before startup finishes; the deferred refresh
-    /// runs immediately after `start()` completes.
-    private var pendingRefresh = false
+    /// Unstructured task that owns the poll loop outside SwiftUI's `.task` lifecycle.
+    /// `nil` until `start()` has been called once. `CancellationError` is the only
+    /// reason to set this back to `nil` — the Task wrapper protects the loop from
+    /// SwiftUI cancellation.
+    private var pollDriver: Task<Void, Never>?
 
     /// Creates the dependency graph for the windowed migration app shell.
     /// - Parameters:
@@ -135,15 +131,15 @@ final class MigrationAppDependencies {
 extension MigrationAppDependencies {
     /// Starts the domain pipeline: credential reconcile -> local refresh -> poll loop.
     ///
-    /// Idempotent - SwiftUI may recreate the root .task; subsequent calls are no-ops.
+    /// Idempotent — the `pollDriver` guard prevents duplicate runs.
     ///
     /// Ordering mirrors the domain subset of AppState.start():
     ///   1. reconcile + start observations - sync, before first await
     ///   2. localRunnerStore.refreshAsync  - hydrates local runners
-    ///   3. runnerStore.start              - begins GitHub poll loop
+    ///   3. pollDriver Task                - begins GitHub poll loop (unstructured,
+    ///      outside SwiftUI lifecycle)
     func start() async {
-        guard !didStart, !isStarting else { return }
-        isStarting = true
+        guard pollDriver == nil else { return }
 
         // Step 1 - sync, before first suspension point.
         oauthCredentials.reconcile()
@@ -152,28 +148,39 @@ extension MigrationAppDependencies {
         // Step 2 - hydrate local runners before the poll loop fires.
         await localRunnerStore.refreshAsync()
 
-        // Step 3 - begin GitHub Actions poll loop.
-        guard let store = runnerStore else { isStarting = false; return }
-        await store.start()
-        didStart = true
-        isStarting = false
-        pendingRefresh = false
+        // Step 3 - begin GitHub Actions poll loop in an unstructured Task
+        // so it survives SwiftUI `.task` cancellation.
+        guard let store = runnerStore else { return }
+        pollDriver = Task { [store] in
+            while !Task.isCancelled {
+                await store.start()
+                log("poll cycle returned, dimmed groups=\(runnerState.actions.filter(\.isDimmed).count)")
+                do {
+                    try await Task.sleep(for: .seconds(15))
+                } catch is CancellationError {
+                    break
+                } catch {
+                    break
+                }
+            }
+        }
     }
 
     /// Triggers a poll-loop restart without the full startup sequence.
     ///
     /// Unlike `start()`, this method is **not** idempotent — it cancels the
-    /// current poll task and begins a fresh fetch cycle immediately. Designed
+    /// current poll driver and begins a fresh fetch cycle immediately. Designed
     /// to be called from scene-phase transitions (e.g. returning from sleep,
     /// reactivating the window) so the UI reflects the latest GitHub state
     /// without waiting for the next scheduled tick.
     ///
-    /// If startup has not yet completed, the refresh is deferred via
-    /// `pendingRefresh`; the startup's initial `store.start()` already
-    /// begins an immediate fresh cycle, so no second `start()` is needed.
+    /// If the poll driver is not yet running, this method kicks off the full
+    /// startup sequence (same as `start()`).
     func refresh() async {
-        guard didStart else {
-            pendingRefresh = true
+        await localRunnerStore.refreshAsync()
+        if pollDriver == nil || pollDriver?.isCancelled == true {
+            pollDriver = nil
+            await start()
             return
         }
         guard let store = runnerStore else { return }
