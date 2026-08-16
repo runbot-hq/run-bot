@@ -12,20 +12,23 @@ import SwiftUI
 ///
 /// Mirrors `AddRunnerSheet` in structure: segmented type toggle at the top,
 /// a searchable `RepoSelectorSheet` when authenticated (populated from the
-/// GitHub API) with a plain `TextField` fallback, and Cancel / Add buttons.
+/// GitHub API) with an explicit load-failure fallback, and Cancel / Add buttons.
 ///
 /// On confirmation calls `ScopeStore.shared.add(_:)`. No `onRestartPolling`
 /// callback is needed — `ScopeStore` mutation is observed by `RunnerStore`'s
 /// `withObservationTracking` loop, which triggers restart automatically.
 ///
 /// ## Why `.sheet` is on the root VStack, not the picker Button
-/// `RepoSelectorSheet` is presented via `.sheet(isPresented: $showScopeSelector)`.
-/// Attaching that modifier to the `Button` (nested inside a `ScrollView`) constrains
+/// `RepoSelectorSheet` is presented via `.sheet(isPresented: $showRepoSelector)`
+/// and `.sheet(isPresented: $showOrgSelector)`.
+/// Attaching those modifiers to the `Button` (nested inside a `VStack`) constrains
 /// sheet presentation to the parent view bounds — i.e. the NSPopover panel size —
-/// instead of escaping to the window level. Lifting it to the root `VStack` causes
+/// instead of escaping to the window level. Lifting them to the root `VStack` causes
 /// AppKit to attach the sheet to `NSPopoverWindowFrame` directly, matching the
-/// behaviour of `AddRunnerSheet` and `AddScopeSheet`'s own outer presentation.
-/// ❌ NEVER move `.sheet(isPresented: $showScopeSelector)` back onto the Button.
+/// behaviour of `AddRunnerSheet` and preserving compatibility with the legacy
+/// status-bar hierarchy that still reuses this sheet.
+/// ❌ NEVER move `.sheet(isPresented: $showRepoSelector)` or `.sheet(isPresented: $showOrgSelector)`
+/// back onto the individual Buttons.
 ///
 /// ## Why no ScrollView in body
 /// The content is a fixed set of controls (segmented picker, one field or button,
@@ -42,13 +45,16 @@ struct AddScopeSheet: View {
     /// Used to check active-mode credential availability before attempting GitHub API fetches.
     let authentication: GitHubAuthentication
 
-    /// Whether the scope is org-level or repo-level.
-    @State private var scopeType: ScopeType = .org
-    /// The scope string chosen from the picker.
+    /// Whether the scope is repo-level or org-level.
+    /// Defaults to `.repo` to match `AddRunnerSheet` and the primary use case.
+    @State private var scopeType: ScopeType = .repo
+    /// The scope string chosen from the repository picker.
+    /// Preserved independently across segment switches.
     @State private var selectedRepo: String = ""
-    /// Organisation chosen from the org picker (kept independently across segment switches).
+    /// Organisation chosen from the org picker.
+    /// Preserved independently across segment switches.
     @State private var selectedOrg: String = ""
-    /// Manual text-field input; used when picker data is unavailable.
+    /// Manual text-field input; used only when the user explicitly taps "Enter manually".
     @State private var manualScope: String = ""
     /// Available organisation names fetched from GitHub.
     @State private var orgs: [String] = []
@@ -58,8 +64,10 @@ struct AddScopeSheet: View {
     @State private var isFetching = false
     /// Non-nil when fetching or validation fails.
     @State private var errorMessage: String?
-    /// `true` when the picker UI is shown instead of the text field.
+    /// `true` when the picker UI is shown instead of the load-failure view.
     @State private var usePicker = false
+    /// `true` when the user has explicitly opted in to manual text entry after a failed fetch.
+    @State private var allowsManualEntry = false
     /// `true` while the repository selector sheet is presented.
     @State private var showRepoSelector = false
     /// `true` while the organisation selector sheet is presented.
@@ -67,7 +75,7 @@ struct AddScopeSheet: View {
 
     /// The picker selection for the currently active segment.
     private var selectedScopeForCurrentType: String {
-        scopeType == .org ? selectedOrg : selectedRepo
+        scopeType == .repo ? selectedRepo : selectedOrg
     }
 
     /// The scope string that will be saved.
@@ -88,11 +96,11 @@ struct AddScopeSheet: View {
 
     /// Root layout: header, form fields, and footer action bar.
     ///
-    /// No ScrollView — see type comment for why. `.sheet(isPresented: $showScopeSelector)`
-    /// is attached at the root so AppKit attaches `RepoSelectorSheet` at window level.
+    /// No ScrollView — see type comment for why. Both `.sheet` modifiers
+    /// are attached at the root so AppKit attaches selectors at window level.
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // ── Header ─────────────────────────────────────────────────────
+            // ── Header ──────────────────────────────────────────────────────────────────
             Text("Add remote scope")
                 .font(.headline)
                 .padding(.horizontal, RBSpacing.md)
@@ -103,7 +111,7 @@ struct AddScopeSheet: View {
 
             VStack(alignment: .leading, spacing: RBSpacing.md) {
 
-                // ── Type toggle ──────────────────────────────────────────
+                // ── Type toggle ──────────────────────────────────────────────────
                 Picker("", selection: $scopeType) {
                     ForEach(ScopeType.allCases) { scopeOption in
                         Text(scopeOption.rawValue).tag(scopeOption)
@@ -111,70 +119,69 @@ struct AddScopeSheet: View {
                 }
                 .pickerStyle(.segmented)
                 .onChange(of: scopeType) { _, _ in
-                    // Reset picker selection to the first item in the new segment (or "" if not
-                    // loaded yet). Also clear manualScope so the text field doesn't show stale
-                    // input from the previous segment when falling back to manual mode.
+                    // Each segment preserves its own selection independently.
+                    // Only dismiss any open selector sheet and clear stale manual input.
                     manualScope = ""
                     showRepoSelector = false
                     showOrgSelector = false
                 }
 
-                // -- Repository picker
-                if scopeType == .repo {
+                // ── Scope field (repo or org) ─────────────────────────────────────
+                if isFetching {
+                    HStack {
+                        ProgressView().scaleEffect(0.7)
+                        Text("Loading repositories…")
+                            .font(.caption)
+                            .foregroundColor(Color.rbTextSecondary)
+                    }
+                } else if usePicker {
+                    if scopeType == .repo {
+                        selectorButton(
+                            label: "Repository",
+                            selection: selectedRepo,
+                            action: { showRepoSelector = true }
+                        )
+                    } else {
+                        selectorButton(
+                            label: "Organisation",
+                            selection: selectedOrg,
+                            action: { showOrgSelector = true }
+                        )
+                    }
+                } else if allowsManualEntry {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Repository").font(.caption).foregroundColor(Color.rbTextSecondary)
-                        if isFetching {
-                            ProgressView().scaleEffect(0.7).frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 6)
-                        } else if usePicker && !repos.isEmpty {
-                            Button(action: { showRepoSelector = true }) {
-                                HStack {
-                                    Text(selectedRepo.isEmpty ? "select repo" : selectedRepo)
-                                        .font(.system(size: 12)).frame(maxWidth: .infinity, alignment: .leading)
-                                    Image(systemName: "chevron.up.chevron.down").font(.system(size: 10))
-                                }
-                                .padding(.horizontal, 8).padding(.vertical, 6)
-                                .background(Color(nsColor: .controlBackgroundColor))
-                                .cornerRadius(5)
-                            }
-                            .buttonStyle(.plain)
-                            .sheet(isPresented: $showRepoSelector) {
-                                RepoSelectorSheet(items: repos, label: "Repository", onDismiss: { showRepoSelector = false }, onSelect: { item in selectedRepo = item })
-                            }
-                        } else {
-                            TextField("e.g. myorg/myrepo", text: $manualScope).textFieldStyle(.roundedBorder).font(.system(size: 12))
+                        Text(scopeType == .repo ? "Repository" : "Organisation")
+                            .font(.caption)
+                            .foregroundColor(Color.rbTextSecondary)
+                        TextField(
+                            scopeType == .repo ? "e.g. myorg/myrepo" : "e.g. myorg",
+                            text: $manualScope
+                        )
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(size: 12))
+                    }
+                } else {
+                    // Load failure — explicit error with Retry and manual fallback.
+                    VStack(alignment: .leading, spacing: RBSpacing.sm) {
+                        if let err = errorMessage {
+                            Text(err)
+                                .font(.caption)
+                                .foregroundColor(Color.rbDanger)
                         }
-                        if let err = errorMessage { Text(err).font(.caption).foregroundColor(Color.rbDanger) }
+                        HStack(spacing: RBSpacing.sm) {
+                            Button("Retry") {
+                                fetchScopeOptions()
+                            }
+                            .controlSize(.small)
+                            Button("Enter manually") {
+                                allowsManualEntry = true
+                            }
+                            .controlSize(.small)
+                        }
                     }
                 }
 
-                // -- Organisation picker
-                if scopeType == .org {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Organisation").font(.caption).foregroundColor(Color.rbTextSecondary)
-                        if isFetching {
-                            ProgressView().scaleEffect(0.7).frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 6)
-                        } else if usePicker && !orgs.isEmpty {
-                            Button(action: { showOrgSelector = true }) {
-                                HStack {
-                                    Text(selectedOrg.isEmpty ? "select org" : selectedOrg)
-                                        .font(.system(size: 12)).frame(maxWidth: .infinity, alignment: .leading)
-                                    Image(systemName: "chevron.up.chevron.down").font(.system(size: 10))
-                                }
-                                .padding(.horizontal, 8).padding(.vertical, 6)
-                                .background(Color(nsColor: .controlBackgroundColor))
-                                .cornerRadius(5)
-                            }
-                            .buttonStyle(.plain)
-                            .sheet(isPresented: $showOrgSelector) {
-                                RepoSelectorSheet(items: orgs, label: "Organisation", onDismiss: { showOrgSelector = false }, onSelect: { item in selectedOrg = item })
-                            }
-                        } else {
-                            TextField("e.g. myorg", text: $manualScope).textFieldStyle(.roundedBorder).font(.system(size: 12))
-                        }
-                        if let err = errorMessage { Text(err).font(.caption).foregroundColor(Color.rbDanger) }
-                    }
-                }
-                // ── Helper caption ───────────────────────────────────────
+                // ── Helper caption ───────────────────────────────────────────────────
                 Text(scopeType == .org
                         ? "Monitors all runners in the organisation."
                         : "Monitors runners registered to this repository.")
@@ -185,7 +192,7 @@ struct AddScopeSheet: View {
 
             Divider()
 
-            // ── Button row ─────────────────────────────────────────────────
+            // ── Button row ─────────────────────────────────────────────────────────────
             HStack {
                 Spacer()
 
@@ -204,39 +211,105 @@ struct AddScopeSheet: View {
             .padding(.vertical, RBSpacing.sm)
         }
         .frame(width: 420)
+        // Both selector sheets are attached to the root VStack so AppKit presents them
+        // at window level. Do NOT move these back onto the individual selector buttons.
+        .sheet(isPresented: $showRepoSelector) {
+            RepoSelectorSheet(
+                items: repos,
+                label: "Repository",
+                onDismiss: { showRepoSelector = false },
+                onSelect: { item in selectedRepo = item }
+            )
+        }
+        .sheet(isPresented: $showOrgSelector) {
+            RepoSelectorSheet(
+                items: orgs,
+                label: "Organisation",
+                onDismiss: { showOrgSelector = false },
+                onSelect: { item in selectedOrg = item }
+            )
+        }
         .onAppear(perform: fetchScopeOptions)
+    }
+
+    // MARK: - Sub-views
+
+    /// Selector button matching the established `AddRunnerSheet+FormFields` design.
+    ///
+    /// Shows the current selection or the "\u2014 select \u2014" placeholder.
+    /// Uses the same label typography, insets, border, background, and chevron as
+    /// `AddRunnerSheet.selectorButton`. Both sheets must stay visually identical.
+    @ViewBuilder
+    private func selectorButton(
+        label: String,
+        selection: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(label).font(.caption).foregroundColor(Color.rbTextSecondary)
+            Button(action: action) {
+                HStack {
+                    Text(selection.isEmpty ? "\u2014 select \u2014" : selection)
+                        .font(.system(size: 12))
+                        .foregroundStyle(
+                            selection.isEmpty
+                                ? Color.rbTextSecondary
+                                : Color.rbTextPrimary
+                        )
+                        .multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .layoutPriority(1)
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.system(size: 10))
+                        .foregroundColor(.secondary)
+                        .fixedSize()
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
+                .background(Color(nsColor: .controlBackgroundColor))
+                .cornerRadius(5)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 5)
+                        .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
+                )
+            }
+            .buttonStyle(.plain)
+        }
     }
 
     // MARK: - Actions
 
-    /// Fetches orgs and repos from GitHub on a background thread.
-    /// Falls back to manual text entry when no token is present or the fetch returns empty results.
-    /// Pattern matches `LocalRunnerStore.refresh()`: background work is off-actor via
-    /// `Task.detached`, then the `Task` continuation returns to `@MainActor` automatically.
+    /// Fetches orgs and repos via the shared `GitHubScopeOptionsLoader`.
+    ///
+    /// Uses the same loader as `AddRunnerSheet` so both sheets cannot diverge.
+    /// Shows an explicit load-failure view (with Retry and Enter-manually actions)
+    /// instead of silently falling back to a text field.
     @MainActor private func fetchScopeOptions() {
         guard authentication.isAuthenticated else {
-            log("AddScopeSheet \u{203a} active auth mode has no usable credential \u{2014} falling back to text field")
+            log("AddScopeSheet \u203a active auth mode has no usable credential \u2014 showing load failure")
             usePicker = false
+            errorMessage = "Could not load repositories and organisations."
             return
         }
         isFetching = true
         errorMessage = nil
         Task(priority: .userInitiated) {
-            async let fetchedOrgs = fetchUserOrgs()
-            async let fetchedRepos = fetchUserRepos()
-            let (resolvedOrgs, resolvedRepos) = await (fetchedOrgs, fetchedRepos)
-            isFetching = false
-            if resolvedOrgs.isEmpty && resolvedRepos.isEmpty {
-                log("AddScopeSheet \u{203a} fetch returned no orgs or repos \u{2014} using text field")
-                usePicker = false
-                errorMessage = "Could not load orgs/repos. Enter manually."
-            } else {
-                orgs = resolvedOrgs
-                repos = resolvedRepos
+            let options = await GitHubScopeOptionsLoader.load()
+            await MainActor.run {
+                repos = options.repositories
+                orgs = options.organizations
+                isFetching = false
+                if options.isEmpty {
+                    log("AddScopeSheet \u203a fetch returned no orgs or repos \u2014 showing load failure")
+                    usePicker = false
+                    errorMessage = "Could not load repositories and organisations."
+                    return
+                }
                 usePicker = true
-                selectedRepo = repos.first ?? ""
-                selectedOrg = orgs.first ?? ""
-                log("AddScopeSheet \u{203a} loaded orgs=\(orgs.count) repos=\(repos.count)")
+                selectedRepo = selectedRepo.isEmpty ? repos.first ?? "" : selectedRepo
+                selectedOrg = selectedOrg.isEmpty ? orgs.first ?? "" : selectedOrg
+                log("AddScopeSheet \u203a loaded orgs=\(orgs.count) repos=\(repos.count)")
             }
         }
     }
@@ -248,7 +321,7 @@ struct AddScopeSheet: View {
         let scope = effectiveScope
         guard !scope.isEmpty else { return }
         ScopeStore.shared.add(scope)
-        log("AddScopeSheet \u{203a} added scope: \(scope)")
+        log("AddScopeSheet \u203a added scope: \(scope)")
         isPresented = false
     }
 }
