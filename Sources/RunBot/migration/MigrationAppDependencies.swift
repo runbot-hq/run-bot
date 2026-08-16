@@ -23,19 +23,32 @@ import RunBotCore
 @MainActor
 @Observable
 final class MigrationAppDependencies {
+    /// Live runner state tree shared across all views in the windowed app.
     let runnerState: RunnerState
+    /// Store that manages local (self-hosted) runner registration and refresh.
     let localRunnerStore: LocalRunnerStore
+    /// Dependencies for the Settings scene (accounts, preferences, scopes).
     let settingsDependencies: MigrationSettingsDependencies
     /// Shared log fetcher — owns the ZIP cache for the windowed app lifetime.
     /// Exposed so views can thread it via `@Binding` into `StepLogContentView`.
     let logFetcher: LogFetcher
 
+    /// GitHub authentication controller used for credential reconcile and OAuth flow.
     private let authentication: GitHubAuthentication
+    /// Configured GitHub API client shared across all domain objects.
     private let github: GitHubClient
+    /// Manages OAuth credential storage, refresh, and sign-out.
     private let oauthCredentials: OAuthCredentialController
+    /// The live runner poller; `nil` until `start()` has been called once.
     private var runnerStore: (any RunnerPollerProtocol)?
+    /// Guards against duplicate `start()` calls (SwiftUI `.task` can fire more than once).
     private var didStart = false
 
+    /// Creates the dependency graph for the windowed migration app shell.
+    /// - Parameters:
+    ///   - authentication: GitHub authentication controller.
+    ///   - onSignIn: Closure called on the main actor after a successful sign-in.
+    ///   - onSignOut: Async closure called on the main actor after sign-out completes.
     init(
         authentication: GitHubAuthentication,
         onSignIn: @escaping @MainActor () -> Void,
@@ -111,6 +124,7 @@ final class MigrationAppDependencies {
 
 // MARK: - Startup
 
+/// Startup lifecycle for `MigrationAppDependencies`.
 extension MigrationAppDependencies {
     /// Starts the domain pipeline: credential reconcile -> local refresh -> poll loop.
     ///
