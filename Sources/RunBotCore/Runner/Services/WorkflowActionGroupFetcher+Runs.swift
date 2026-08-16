@@ -54,7 +54,7 @@ func groupEvent(_ event: String) -> String {
 /// `status` and `conclusion` are decoded directly as typed `JobStatus`/`JobConclusion`
 /// values via their `Codable` conformances. Unknown raw strings fall through to
 /// `.unknown(String)` rather than failing the decode.
-public struct RunPayload: Codable, Sendable {
+public struct RunPayload: Codable {
   /// The unique run identifier.
   let id: Int
   /// Stable GitHub identifier for the workflow definition.

@@ -157,15 +157,23 @@ public enum PollResultBuilder {
       newCache[group.compositeCacheKey] = group.copying(isDimmed: true)
     }
     // Resolve groups that vanished from the live and completed responses entirely.
-    var (updatedCache, pendingFinalGroups) = await resolveVanishedAndFreeze(
-      snapPrevGroups: snapPrevGroups,
-      newCache: newCache,
-      liveIDs: liveIDs,
-      allFetched: allFetched,
-      fetchFinalRuns: fetchFinalRuns,
-      now: now
-    )
-    trimGroupCache(&updatedCache, limit: groupCacheLimit)
+    // These are groups in snapPrevGroups that appear neither in liveGroups nor in doneGroups.
+    // Without this step they would be frozen with stale `conclusion: nil` from the previous
+    // active snapshot, keeping the indicator blue indefinitely (issue #2859).
+    let fetchedIDs = Set(allFetched.map { $0.id })
+    let vanishedGroups = snapPrevGroups.values.filter {
+      !$0.isCompleted && !fetchedIDs.contains($0.id)
+    }
+    if !vanishedGroups.isEmpty, let fetchFinalRuns {
+      await resolveVanishedGroups(
+        vanished: Array(vanishedGroups),
+        fetchFinalRuns: fetchFinalRuns,
+        now: now,
+        into: &newCache
+      )
+    }
+    freezeVanishedGroups(snapPrev: snapPrevGroups, liveIDs: liveIDs, now: now, into: &newCache)
+    trimGroupCache(&newCache, limit: groupCacheLimit)
     // Dedupe liveGroups by stable composite id before any downstream use.
     // Dictionary(uniqueKeysWithValues:) traps on duplicate keys — use uniquingKeysWith
     // here so a transitional duplicate (same composite key, two run-count snapshots)
@@ -185,7 +193,7 @@ public enum PollResultBuilder {
     // Build newPrevLive from dedupedLive — safe because ids are now guaranteed unique.
     let newPrevLive = [String: WorkflowActionGroup](
       uniqueKeysWithValues: dedupedLive.map { ($0.id, $0) })
-    let display = buildGroupDisplay(live: dedupedLive, cache: updatedCache)
+    let display = buildGroupDisplay(live: dedupedLive, cache: newCache)
     // Count from dedupedLive so a transitional duplicate does not inflate cadence
     // thresholds or badge counts (#2688).
     let inProgCount = dedupedLive.filter { $0.groupStatus == .inProgress }.count
@@ -193,29 +201,36 @@ public enum PollResultBuilder {
     let loadingCount = dedupedLive.filter { $0.groupStatus == .loading }.count
     log(
       "PollResultBuilder › groups: \(inProgCount) in_progress \(queuedCount) queued \(loadingCount) loading"
-        + " | cache: \(updatedCache.count) | display: \(display.count)",
+        + " | cache: \(newCache.count) | display: \(display.count)",
       category: .runner
     )
     #if DEBUG
     for group in display {
       let dStart = group.jobs.compactMap { $0.raw.startDate }.min()
       let dEnd   = group.jobs.compactMap { $0.raw.completedDate }.max()
-      log("[TimingTrace][display-group] id=\(group.id) status=\(group.groupStatus) jobs=\(group.jobs.count)", category: .runner)
-      log("  storedStart=\(String(describing: group.firstJobStartedAt))", category: .runner)
-      log("  storedEnd=\(String(describing: group.lastJobCompletedAt))", category: .runner)
-      log("  derivedStart=\(String(describing: dStart)) derivedEnd=\(String(describing: dEnd)) duration=\(String(describing: group.completedDuration))", category: .runner)
+      log(
+        "[TimingTrace][display-group] "
+          + "id=\(group.id) "
+          + "status=\(group.groupStatus) "
+          + "jobs=\(group.jobs.count) "
+          + "storedStart=\(String(describing: group.firstJobStartedAt)) "
+          + "storedEnd=\(String(describing: group.lastJobCompletedAt)) "
+          + "derivedStart=\(String(describing: dStart)) "
+          + "derivedEnd=\(String(describing: dEnd)) "
+          + "duration=\(String(describing: group.completedDuration))",
+        category: .runner
+      )
     }
     #endif
     let enriched = await enrichDisplay(display, enrichJobs: enrichJobs)
     // Intentionally enriches the full newCache, not just live groups. The cache feeds
     // the next poll's display list; dimmed/completed groups that carry stale job data
     // would surface as incorrect enrichment on the following cycle if skipped here.
-    let enrichedCache = await enrichCache(updatedCache, enrichJobs: enrichJobs)
+    let enrichedCache = await enrichCache(newCache, enrichJobs: enrichJobs)
     return GroupPollResult(
       display: enriched,
       newGroupCache: enrichedCache,
-      newPrevLiveGroups: newPrevLive,
-      pendingFinalGroups: pendingFinalGroups
+      newPrevLiveGroups: newPrevLive
     )
   }
 
@@ -244,66 +259,6 @@ public enum PollResultBuilder {
       guard cache[jobID] == nil else { continue }
       cache[jobID] = job.asCompleted(at: now)
     }
-  }
-
-  /// Resolves vanished groups and freezes remaining gaps into the cache.
-  ///
-  /// Identifies groups in `snapPrevGroups` that are absent from the fetched results
-  /// (by `compositeCacheKey`), attempts to resolve their final state via
-  /// `fetchFinalRuns`, and freezes any still-unresolved groups as dimmed.
-  ///
-  /// Identity is compared by `compositeCacheKey` so that a rerun with a new run ID
-  /// but the same repo/SHA/event is not treated as a "vanished" group that could
-  /// overwrite the newer entry (issue #2863).
-  ///
-  /// - Parameters:
-  ///   - snapPrevGroups: The previous live groups snapshot.
-  ///   - newCache: The group cache to mutate in place.
-  ///   - liveIDs: IDs of groups in the current live response.
-  ///   - allFetched: All groups fetched from the API this cycle.
-  ///   - fetchFinalRuns: Optional closure that fetches terminal `RunPayload` values.
-  ///   - now: The current timestamp.
-  /// - Returns: The updated cache and a dictionary of pending final groups.
-  private static func resolveVanishedAndFreeze(
-    snapPrevGroups: [String: WorkflowActionGroup],
-    newCache: [String: WorkflowActionGroup],
-    liveIDs: Set<String>,
-    allFetched: [WorkflowActionGroup],
-    fetchFinalRuns: (@Sendable ([WorkflowRunRef], String) async -> [RunPayload])?,
-    now: Date
-  ) async -> (newCache: [String: WorkflowActionGroup], pendingFinalGroups: [String: PendingFinalGroup]) {
-    let fetchedCompositeKeys = Set(allFetched.map { $0.compositeCacheKey })
-    var pendingFinalGroups: [String: PendingFinalGroup] = [:]
-    var newCache = newCache
-    let vanishedGroups = snapPrevGroups.values.filter { group in
-      guard !group.isCompleted else { return false }
-      guard !fetchedCompositeKeys.contains(group.compositeCacheKey) else { return false }
-      return true
-    }
-    if !vanishedGroups.isEmpty, let fetchFinalRuns {
-      let resolution = await resolveVanishedGroups(
-        vanished: Array(vanishedGroups),
-        fetchFinalRuns: fetchFinalRuns,
-        now: now
-      )
-      for (key, resolvedGroup) in resolution.resolved where !fetchedCompositeKeys.contains(key) {
-        newCache[key] = resolvedGroup
-      }
-      for pending in resolution.unresolved where !fetchedCompositeKeys.contains(pending.group.compositeCacheKey) {
-        pendingFinalGroups[pending.group.compositeCacheKey] = pending
-      }
-    }
-    // freezeVanishedGroups must skip groups that are pending resolution — otherwise
-    // it would freeze the stale blue snapshot before the retry has a chance to succeed.
-    let pendingKeys = Set(pendingFinalGroups.keys)
-    freezeVanishedGroups(
-      snapPrev: snapPrevGroups,
-      liveIDs: liveIDs,
-      pendingKeys: pendingKeys,
-      now: now,
-      into: &newCache
-    )
-    return (newCache, pendingFinalGroups)
   }
 
   /// Trims the job cache to at most `limit` entries, keeping the most recently completed.
@@ -417,27 +372,25 @@ public enum PollResultBuilder {
   ///
   /// For each vanished group, fetches every run's terminal state concurrently.
   /// If all runs now have a conclusion, builds an updated group with resolved
-  /// `WorkflowRunRef` values and returns it as resolved.
+  /// `WorkflowRunRef` values and writes it into the cache as dimmed.
   ///
-  /// Groups whose runs cannot be resolved (API error, missing conclusion, or
-  /// partial data) are returned as unresolved so the caller can retry on the
-  /// next poll cycle (issue #2859, #2863).
+  /// Groups whose runs cannot be resolved (API error) fall through to the
+  /// existing `freezeVanishedGroups` path which freezes the stale snapshot.
   ///
   /// - Parameters:
   ///   - vanished: Groups present in `snapPrevGroups` but absent from `allFetched`.
   ///   - fetchFinalRuns: Closure that fetches terminal `RunPayload` values for the
   ///     given run refs and scope. Returns resolved payloads (may be partial).
   ///   - now: Timestamp used as `lastJobCompletedAt` when none is recorded.
-  /// - Returns: A tuple containing resolved groups (keyed by compositeCacheKey) and
-  ///   unresolved groups that should be retried.
+  ///   - cache: Group cache to mutate in place.
   static func resolveVanishedGroups(
     vanished: [WorkflowActionGroup],
-    fetchFinalRuns: @escaping @Sendable ([WorkflowRunRef], String) async -> [RunPayload],
-    now: Date
-  ) async -> (resolved: [(String, WorkflowActionGroup)], unresolved: [PendingFinalGroup]) {
+    fetchFinalRuns: @Sendable ([WorkflowRunRef], String) async -> [RunPayload],
+    now: Date,
+    into cache: inout [String: WorkflowActionGroup]
+  ) async {
     var resolved: [(String, WorkflowActionGroup)] = []
-    var unresolved: [PendingFinalGroup] = []
-    await withTaskGroup(of: (String, WorkflowActionGroup, PendingFinalGroup?)?.self) { group in
+    await withTaskGroup(of: (String, WorkflowActionGroup)?.self) { group in
       for wag in vanished {
         let key = wag.compositeCacheKey
         let runs = wag.runs
@@ -461,16 +414,7 @@ public enum PollResultBuilder {
             )
           }
           // Only resolve when every run has a conclusion — partial data is unsafe.
-          guard updatedRuns.allSatisfy({ $0.conclusion != nil }) else {
-            // Return unresolved for retry on the next poll cycle.
-            let pending = PendingFinalGroup(group: wag, attempts: 1)
-            log(
-              "PollResultBuilder › resolveVanishedGroups — UNRESOLVED groupID=\(wag.id) "
-                + "runs=\(updatedRuns.map { "\($0.id):\($0.conclusion?.rawValue ?? "nil")" }.joined(separator: ", "))",
-              category: .runner
-            )
-            return (key, wag, pending)
-          }
+          guard updatedRuns.allSatisfy({ $0.conclusion != nil }) else { return nil }
           let updatedGroup = WorkflowActionGroup(
             headSha: wag.headSha,
             label: wag.label,
@@ -490,55 +434,28 @@ public enum PollResultBuilder {
               + "runs=\(updatedRuns.map { "\($0.id):\($0.conclusion?.rawValue ?? "nil")" }.joined(separator: ", "))",
             category: .runner
           )
-          return (key, updatedGroup, nil)
+          return (key, updatedGroup)
         }
       }
-      for await result in group {
-        guard let (key, wagOrResolved, pending) = result else { continue }
-        if let pending {
-          unresolved.append(pending)
-        } else {
-          resolved.append((key, wagOrResolved))
-        }
+      for await pair in group {
+        if let pair { resolved.append(pair) }
       }
     }
-    return (resolved, unresolved)
+    for (key, updatedGroup) in resolved {
+      cache[key] = updatedGroup
+    }
   }
 
-  /// Freezes groups that have vanished from the live feed into the cache as dimmed.
-  ///
-  /// A group "vanishes" when it appeared in `snapPrev` but is absent from the current
-  /// live set (`liveIDs`). Such groups are frozen into the cache with `isDimmed: true`
-  /// so they remain visible in the display until evicted.
-  ///
-  /// Groups whose `compositeCacheKey` is in `pendingKeys` are skipped — they are awaiting
-  /// final-state resolution and will be retried on the next poll cycle (issue #2859, #2863).
-  ///
-  /// - Parameters:
-  ///   - snapPrev: The previous live groups snapshot.
-  ///   - liveIDs: IDs of groups in the current live response.
-  ///   - pendingKeys: Set of `compositeCacheKey` values to skip (pending resolution).
-  ///   - now: The current timestamp, used as `lastJobCompletedAt` when none is recorded.
-  ///   - cache: The group cache to mutate in place.
   static func freezeVanishedGroups(
     snapPrev: [String: WorkflowActionGroup],
     liveIDs: Set<String>,
-    pendingKeys: Set<String> = [],
     now: Date,
     into cache: inout [String: WorkflowActionGroup]
   ) {
     log(
-      "PollResultBuilder › freezeVanishedGroups — snapPrev=\(snapPrev.count) liveIDs=\(liveIDs.count) pendingKeys=\(pendingKeys.count)",
+      "PollResultBuilder › freezeVanishedGroups — snapPrev=\(snapPrev.count) liveIDs=\(liveIDs.count)",
       category: .runner)
     for (groupID, group) in snapPrev where !liveIDs.contains(groupID) {
-      // Skip groups that are pending final-state resolution — they will be retried
-      // on the next poll cycle (issue #2859, #2863).
-      if pendingKeys.contains(group.compositeCacheKey) {
-        log(
-          "PollResultBuilder › freezeVanishedGroups — groupID=\(group.id) skipped (pending resolution)",
-          category: .runner)
-        continue
-      }
       if let existing = cache[groupID], existing.isDimmed, existing.jobs.count >= group.jobs.count {
         log(
           "PollResultBuilder › freezeVanishedGroups — groupID=\(group.id) skipped (already cached+dimmed, jobs=\(existing.jobs.count)>=\(group.jobs.count))",
@@ -615,5 +532,73 @@ public enum PollResultBuilder {
     return display
   }
 
-  // MARK: - Private helpers — moved to PollResultBuilder+Enrichment.swift
+  // MARK: - Private helpers
+
+  /// Enriches the display array by running `enrichJobs` over each group's jobs
+  /// concurrently via a `withTaskGroup`, preserving the original display sort order.
+  ///
+  /// `enrichJobs` must be `@escaping` because `addTask` captures it in an escaping closure.
+  /// Keyed by `Int` (array index) so the order produced by `buildGroupDisplay` is
+  /// faithfully restored after `withTaskGroup` yields results in completion order.
+  private static func enrichDisplay(
+    _ display: [WorkflowActionGroup],
+    enrichJobs: @escaping @Sendable ([ActiveJob]) async -> [ActiveJob]
+  ) async -> [WorkflowActionGroup] {
+    await withTaskGroup(of: (Int, WorkflowActionGroup).self) { group in
+      for (idx, actionGroup) in display.enumerated() {
+        group.addTask { (idx, actionGroup.withJobs(await enrichJobs(actionGroup.jobs))) }
+      }
+      var out: [(Int, WorkflowActionGroup)] = []
+      for await pair in group { out.append(pair) }
+      return out.sorted { $0.0 < $1.0 }.map { $0.1 }
+    }
+  }
+
+  /// Enriches the group cache by running `enrichJobs` over each cached group's
+  /// jobs concurrently via a `withTaskGroup`.
+  ///
+  /// `enrichJobs` must be `@escaping` because `addTask` captures it in an escaping closure.
+  /// Keyed by `String` (group ID) because `newCache` is a dictionary and its
+  /// semantic identity IS the group ID. Kept separate from `enrichDisplay` because
+  /// the key types differ (Int vs String) and the source collections differ
+  /// (display array vs cache dict).
+  private static func enrichCache(
+    _ cache: [String: WorkflowActionGroup],
+    enrichJobs: @escaping @Sendable ([ActiveJob]) async -> [ActiveJob]
+  ) async -> [String: WorkflowActionGroup] {
+    await withTaskGroup(of: (String, WorkflowActionGroup).self) { group in
+      for (key, actionGroup) in cache {
+        group.addTask { (key, actionGroup.withJobs(await enrichJobs(actionGroup.jobs))) }
+      }
+      var out: [String: WorkflowActionGroup] = [:]
+      for await (key, actionGroup) in group { out[key] = actionGroup }
+      return out
+    }
+  }
+}
+
+// MARK: - Array fill helper
+
+/// Sequence-filling helpers used by `PollResultBuilder` to top up display arrays.
+private extension Array {
+  /// Appends elements from `source` until `self.count` reaches `limit`.
+  ///
+  /// Elements are appended in source order. An optional predicate can skip
+  /// individual elements (e.g. cached groups that are already live) without
+  /// breaking the "fill until full" semantics.
+  ///
+  /// Declared inside a `private extension` so it is file-scoped and not
+  /// visible outside `PollResultBuilder.swift`. Not intended for use outside
+  /// the polling pipeline; treat it as an implementation detail of
+  /// `buildJobDisplay` and `buildGroupDisplay`.
+  mutating func appendUpTo<S>(
+    _ limit: Int,
+    from source: S,
+    where shouldAppend: (S.Element) -> Bool = { _ in true }
+  ) where S: Sequence, S.Element == Element {
+    guard count < limit else { return }
+    for element in source where count < limit && shouldAppend(element) {
+      append(element)
+    }
+  }
 }

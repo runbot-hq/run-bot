@@ -53,8 +53,7 @@ extension RunnerPoller {
     func applyFetchResult(
         enrichedRunners: [GitHubRunner],
         jobResult: JobPollResult,
-        groupResult: GroupPollResult,
-        pendingToRetry: [String: PendingFinalGroup] = [:]
+        groupResult: GroupPollResult
     ) async -> Bool {
         // Capture the pre-update prevLiveJobs snapshot before writing new state.
         // Jobs that were live last cycle but are now in newCache concluded this cycle.
@@ -74,28 +73,6 @@ extension RunnerPoller {
         prevLiveJobs = jobResult.newPrevLive
         actionGroupCache = groupResult.newGroupCache
         prevLiveGroups = groupResult.newPrevLiveGroups
-        // Merge the new pending groups from this cycle with the retried ones.
-        // The retried entries (from prior cycles, now re-attempted) carry the
-        // incremented attempt count. Newly unresolved groups from this cycle
-        // carry `attempts: 1`. When both exist for the same key, the higher
-        // attempt count wins (preserves the retry history).
-        var mergedPending = groupResult.pendingFinalGroups
-        for (key, retried) in pendingToRetry {
-          // If the group was resolved into the cache this cycle, drop it.
-          if groupResult.newGroupCache.keys.contains(key) { continue }
-          // If the group was newly unresolved by buildGroupState, keep the
-          // higher attempt count (the retried entry has more history).
-          if let existing = mergedPending[key] {
-            if retried.attempts > existing.attempts {
-              mergedPending[key] = retried
-            }
-          } else {
-            // The group was not resolved and not re-detected as vanished —
-            // carry it forward for another retry.
-            mergedPending[key] = retried
-          }
-        }
-        pendingFinalGroups = mergedPending
         // Detect active → completed transitions and enqueue one ZIP per run (#2488).
         // Must run before setDisplayState overwrites self.actions with the new state.
         await enqueueCompletionZIPs(groupResult: groupResult)
