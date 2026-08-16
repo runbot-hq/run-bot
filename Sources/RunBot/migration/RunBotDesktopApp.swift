@@ -50,6 +50,9 @@ struct RunBotDesktopApp: App {
             )
             .environment(authentication)
             .environment(overlayGate)
+            .task {
+                await deps.start()
+            }
         }
         .windowStyle(.hiddenTitleBar)
         .defaultSize(width: 1_200, height: 760)
