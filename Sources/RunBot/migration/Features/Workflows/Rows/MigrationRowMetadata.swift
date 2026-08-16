@@ -26,6 +26,7 @@ struct MigrationRowMetadata: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
+                .truncationMode(.tail)
         }
     }
 }
