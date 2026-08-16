@@ -25,40 +25,30 @@ struct MigrationRunnerListView: View {
 
     /// The column layout: header with Add action, divider, list or empty placeholder.
     var body: some View {
-        MigrationWorkflowColumn(title: "Local runners") {
-            VStack(spacing: 0) {
-                HStack {
-                    Button(action: onAdd) {
-                        Label("Add local runner", systemImage: "plus")
-                            .font(.caption)
-                    }
-                    .buttonStyle(.plain)
-                    Spacer()
-                }
-                .padding(12)
-
-                Divider()
-
-                if runners.isEmpty {
-                    MigrationColumnPlaceholder(
-                        title: "No local runners",
-                        systemImage: "desktopcomputer",
-                        description: "Add a local self-hosted runner to manage it."
+        MigrationManagementColumn(
+            title: "Local runners",
+            addTitle: "Add local runner",
+            onAdd: onAdd
+        ) {
+            if runners.isEmpty {
+                MigrationColumnPlaceholder(
+                    title: "No local runners",
+                    systemImage: "desktopcomputer",
+                    description: "Add a local self-hosted runner to manage it."
+                )
+            } else {
+                List(runners, selection: $selectedRunnerID) { runner in
+                    LocalRunnerRowView(
+                        runner: runner,
+                        onSelect: { selectedRunnerID = runner.id },
+                        onSetRunning: { onSetRunning(runner, $0) },
+                        onDelete: { onDelete(runner) }
                     )
-                } else {
-                    List(runners, selection: $selectedRunnerID) { runner in
-                        LocalRunnerRowView(
-                            runner: runner,
-                            onSelect: { selectedRunnerID = runner.id },
-                            onSetRunning: { onSetRunning(runner, $0) },
-                            onDelete: { onDelete(runner) }
-                        )
-                        .tag(runner.id)
-                        .listRowInsets(EdgeInsets())
-                        .listRowSeparator(.hidden)
-                    }
-                    .listStyle(.plain)
+                    .tag(runner.id)
+                    .listRowInsets(EdgeInsets())
+                    .listRowSeparator(.hidden)
                 }
+                .listStyle(.plain)
             }
         }
     }
