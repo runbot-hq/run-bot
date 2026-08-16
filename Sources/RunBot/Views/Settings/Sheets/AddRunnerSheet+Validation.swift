@@ -75,10 +75,10 @@ extension AddRunnerSheet {
             && !effectiveGitHubURL.isEmpty
     }
 
-    /// Returns `true` when the given runner name is already present in the pushed
-    /// `appState.runnerState.localRunners` snapshot — avoids crossing the actor boundary in a
-    /// synchronous computed property.
+    /// Returns `true` when the given runner name is already present in the
+    /// `localRunners` snapshot injected at the sheet boundary — avoids crossing
+    /// the actor boundary in a synchronous computed property.
     func checkDuplicate(runnerName: String) -> Bool {
-        appState.runnerState.localRunners.contains(where: { $0.runnerName == runnerName })
+        localRunners.contains(where: { $0.runnerName == runnerName })
     }
 }
