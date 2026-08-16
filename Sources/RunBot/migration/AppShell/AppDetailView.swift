@@ -25,7 +25,7 @@ struct AppDetailView: View {
     var body: some View {
         switch selection {
         case .workflows:
-            MigrationWorkflowView(workflows: [])
+            MigrationWorkflowView(workflows: runnerState.actions)
         case .localRunners:
             MigrationRunnerView(
                 runnerState: runnerState,

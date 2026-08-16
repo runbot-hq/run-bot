@@ -8,7 +8,8 @@ import SwiftUI
 /// Root view for the Workflows destination.
 ///
 /// Owns the four-pane `HSplitView` and the in-memory selection chain.
-/// Production callers pass `workflows: []` until the store is wired in step 5+.
+/// Receives live `[WorkflowActionGroup]` from `RunnerState.actions` via
+/// the composition root. Does not fetch data.
 struct MigrationWorkflowView: View {
 
     /// Workflow data provided by the caller. Empty until production data is wired.
