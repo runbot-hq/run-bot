@@ -45,10 +45,6 @@ public protocol WorkflowActionGroupFetcherProtocol: Sendable {
     ///   An actor-isolated conformer will fail to satisfy this requirement at compile time.
     @concurrent
     func fetch(for scope: String, cache: [String: WorkflowActionGroup]) async -> [WorkflowActionGroup]
-
-    /// Fetches the terminal state of a single workflow run by its run ID.
-    /// Used to resolve runs that vanished from the active-runs response (issue #2859).
-    func fetchRunPayload(runID: Int, scope: String) async -> RunPayload?
 }
 
 // MARK: - Default parameter conformance

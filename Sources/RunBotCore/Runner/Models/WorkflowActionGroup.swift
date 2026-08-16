@@ -393,11 +393,6 @@ public struct WorkflowActionGroup: Identifiable, Equatable, Sendable {
         return .success
     }
 
-    /// `true` when all runs have concluded and the group is in a terminal state.
-    /// Used by `PollResultBuilder.buildGroupState` to skip resolution for already-completed
-    /// groups and avoid unnecessary API calls (issue #2859).
-    public var isCompleted: Bool { groupStatus == .completed }
-
     /// Number of jobs with a concluded result across all sibling runs.
     public var jobsDone: Int { jobs.filter { $0.jobConclusion != nil }.count }
 

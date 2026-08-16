@@ -112,8 +112,7 @@ public enum PollResultBuilder {
     snapPrevGroups: [String: WorkflowActionGroup],
     snapGroupCache: [String: WorkflowActionGroup],
     fetchGroups: @escaping @Sendable ([String: WorkflowActionGroup]) async -> [WorkflowActionGroup],
-    enrichJobs: @escaping @Sendable ([ActiveJob]) async -> [ActiveJob],
-    fetchFinalRuns: (@Sendable ([WorkflowRunRef], String) async -> [RunPayload])? = nil
+    enrichJobs: @escaping @Sendable ([ActiveJob]) async -> [ActiveJob]
   ) async -> GroupPollResult {
     log(
       "PollResultBuilder › buildGroupState — snapPrevGroups=\(snapPrevGroups.count) snapGroupCache=\(snapGroupCache.count)",
@@ -155,22 +154,6 @@ public enum PollResultBuilder {
         "PollResultBuilder › doneGroups — groupID=\(group.id) runs=[\(runSummary)]",
         category: .runner)
       newCache[group.compositeCacheKey] = group.copying(isDimmed: true)
-    }
-    // Resolve groups that vanished from the live and completed responses entirely.
-    // These are groups in snapPrevGroups that appear neither in liveGroups nor in doneGroups.
-    // Without this step they would be frozen with stale `conclusion: nil` from the previous
-    // active snapshot, keeping the indicator blue indefinitely (issue #2859).
-    let fetchedIDs = Set(allFetched.map { $0.id })
-    let vanishedGroups = snapPrevGroups.values.filter {
-      !$0.isCompleted && !fetchedIDs.contains($0.id)
-    }
-    if !vanishedGroups.isEmpty, let fetchFinalRuns {
-      await resolveVanishedGroups(
-        vanished: Array(vanishedGroups),
-        fetchFinalRuns: fetchFinalRuns,
-        now: now,
-        into: &newCache
-      )
     }
     freezeVanishedGroups(snapPrev: snapPrevGroups, liveIDs: liveIDs, now: now, into: &newCache)
     trimGroupCache(&newCache, limit: groupCacheLimit)
@@ -368,84 +351,6 @@ public enum PollResultBuilder {
   ///     `buildGroupState` for why completed groups are intentionally excluded).
   ///   - now: Timestamp used as `lastJobCompletedAt` for vanished groups that lack one.
   ///   - cache: Group cache to mutate in place.
-  /// Resolves groups that disappeared from both the live and completed API responses.
-  ///
-  /// For each vanished group, fetches every run's terminal state concurrently.
-  /// If all runs now have a conclusion, builds an updated group with resolved
-  /// `WorkflowRunRef` values and writes it into the cache as dimmed.
-  ///
-  /// Groups whose runs cannot be resolved (API error) fall through to the
-  /// existing `freezeVanishedGroups` path which freezes the stale snapshot.
-  ///
-  /// - Parameters:
-  ///   - vanished: Groups present in `snapPrevGroups` but absent from `allFetched`.
-  ///   - fetchFinalRuns: Closure that fetches terminal `RunPayload` values for the
-  ///     given run refs and scope. Returns resolved payloads (may be partial).
-  ///   - now: Timestamp used as `lastJobCompletedAt` when none is recorded.
-  ///   - cache: Group cache to mutate in place.
-  static func resolveVanishedGroups(
-    vanished: [WorkflowActionGroup],
-    fetchFinalRuns: @Sendable ([WorkflowRunRef], String) async -> [RunPayload],
-    now: Date,
-    into cache: inout [String: WorkflowActionGroup]
-  ) async {
-    var resolved: [(String, WorkflowActionGroup)] = []
-    await withTaskGroup(of: (String, WorkflowActionGroup)?.self) { group in
-      for wag in vanished {
-        let key = wag.compositeCacheKey
-        let runs = wag.runs
-        let scope = wag.repo
-        group.addTask {
-          let payloads = await fetchFinalRuns(runs, scope)
-          let payloadByID: [Int: RunPayload] = Dictionary(
-            payloads.map { ($0.id, $0) },
-            uniquingKeysWith: { lhs, _ in lhs }
-          )
-          // Build updated WorkflowRunRef values from fetched payloads.
-          let updatedRuns: [WorkflowRunRef] = runs.map { ref in
-            guard let payload = payloadByID[ref.id] else { return ref }
-            return WorkflowRunRef(
-              id: ref.id,
-              name: ref.name,
-              status: payload.status,
-              conclusion: payload.conclusion,
-              htmlUrl: ref.htmlUrl,
-              runAttempt: ref.runAttempt
-            )
-          }
-          // Only resolve when every run has a conclusion — partial data is unsafe.
-          guard updatedRuns.allSatisfy({ $0.conclusion != nil }) else { return nil }
-          let updatedGroup = WorkflowActionGroup(
-            headSha: wag.headSha,
-            label: wag.label,
-            title: wag.title,
-            headBranch: wag.headBranch,
-            repo: wag.repo,
-            runs: updatedRuns,
-            jobs: wag.jobs,
-            firstJobStartedAt: wag.firstJobStartedAt,
-            lastJobCompletedAt: wag.lastJobCompletedAt ?? now,
-            createdAt: wag.createdAt,
-            normalizedEvent: wag.normalizedEvent,
-            isDimmed: true
-          )
-          log(
-            "PollResultBuilder › resolveVanishedGroups — resolved groupID=\(wag.id) "
-              + "runs=\(updatedRuns.map { "\($0.id):\($0.conclusion?.rawValue ?? "nil")" }.joined(separator: ", "))",
-            category: .runner
-          )
-          return (key, updatedGroup)
-        }
-      }
-      for await pair in group {
-        if let pair { resolved.append(pair) }
-      }
-    }
-    for (key, updatedGroup) in resolved {
-      cache[key] = updatedGroup
-    }
-  }
-
   static func freezeVanishedGroups(
     snapPrev: [String: WorkflowActionGroup],
     liveIDs: Set<String>,
