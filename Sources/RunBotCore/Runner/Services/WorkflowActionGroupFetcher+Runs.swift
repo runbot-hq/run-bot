@@ -54,7 +54,7 @@ func groupEvent(_ event: String) -> String {
 /// `status` and `conclusion` are decoded directly as typed `JobStatus`/`JobConclusion`
 /// values via their `Codable` conformances. Unknown raw strings fall through to
 /// `.unknown(String)` rather than failing the decode.
-struct RunPayload: Codable {
+public struct RunPayload: Codable {
   /// The unique run identifier.
   let id: Int
   /// Stable GitHub identifier for the workflow definition.
@@ -145,6 +145,29 @@ struct PRRef: Codable {
 struct GitHubJobsWrapper: Decodable {
   /// The list of jobs returned by the API.
   let jobs: [GitHubJob]
+}
+
+// MARK: - Single-run fetch
+
+/// Extension providing a single-run fetch helper for ``WorkflowActionGroupFetcher``.
+extension WorkflowActionGroupFetcher {
+
+  /// Fetches the terminal state of one workflow run by its GitHub run ID.
+  ///
+  /// Used by `PollResultBuilder.buildGroupState` to resolve runs that
+  /// disappeared from the active-runs response before their final
+  /// `status`/`conclusion` was stored in the cached snapshot.
+  ///
+  /// - Parameters:
+  ///   - runID: The GitHub Actions run ID to fetch.
+  ///   - scope: The `owner/repo` scope string.
+  /// - Returns: A decoded `RunPayload` if the API call succeeds; `nil` otherwise.
+  public func fetchRunPayload(runID: Int, scope: String) async -> RunPayload? {
+    guard let data = await transport.apiAsync(
+      "repos/\(scope)/actions/runs/\(runID)"
+    ) else { return nil }
+    return try? decoder.decode(RunPayload.self, from: data)
+  }
 }
 
 // MARK: - Run-page loading helpers

@@ -86,6 +86,21 @@ extension RunnerPoller {
             enrichJobs: { [weak self] jobs in
                 // weak: see [weak self] note above.
                 self?.enrichGroupJobs(jobs, jobCache: jobCache) ?? jobs
+            },
+            fetchFinalRuns: { [weak self] (runs: [WorkflowRunRef], scope: String) in
+                guard let self else { return [] }
+                return await withTaskGroup(of: RunPayload?.self) { group in
+                    for ref in runs {
+                        group.addTask {
+                            await self.actionGroupFetcher.fetchRunPayload(runID: ref.id, scope: scope)
+                        }
+                    }
+                    var results: [RunPayload] = []
+                    for await payload in group {
+                        if let payload { results.append(payload) }
+                    }
+                    return results
+                }
             }
         )
     }
