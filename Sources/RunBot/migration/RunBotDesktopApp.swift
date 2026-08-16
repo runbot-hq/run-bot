@@ -2,6 +2,7 @@
 // RunBot
 
 import GitHubClient
+import MenuBarKit
 import SwiftUI
 
 // @main removed: Sources/RunBot/main.swift is top-level code.
@@ -16,6 +17,12 @@ struct RunBotDesktopApp: App {
     /// `LocalRunnerStore.configure` runs inside `MigrationAppDependencies.init()`.
     /// Constructed in `init()` so it shares the same `authentication` instance.
     @State private var deps: MigrationAppDependencies
+    /// Single overlay gate for the scene lifetime.
+    ///
+    /// Injected at the root of both the legacy panel hierarchy and the windowed
+    /// app hierarchy. `MBKOverlayGate` is presentation infrastructure; it is not
+    /// placed in `MigrationAppDependencies`.
+    @State private var overlayGate: MBKOverlayGate
 
     /// Initialises shared authentication and dependency bundle before first render.
     init() {
@@ -41,6 +48,7 @@ struct RunBotDesktopApp: App {
                 settingsDependencies: deps.settingsDependencies
             )
             .environment(authentication)
+            .environment(overlayGate)
         }
         .defaultSize(width: 1_200, height: 760)
         .windowResizability(.contentMinSize)
