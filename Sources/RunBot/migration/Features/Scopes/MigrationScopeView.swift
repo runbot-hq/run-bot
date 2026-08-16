@@ -24,9 +24,6 @@ struct MigrationScopeView: View {
     /// The shared scope store, injected at the composition boundary.
     let scopeStore: ScopeStore
 
-    /// Authentication forwarded from the app shell for `AddScopeSheet`.
-    let authentication: GitHubAuthentication
-
     // MARK: - Environment
 
     /// Overlay gate injected from the window root; forwarded to sheet boundaries.
@@ -75,8 +72,7 @@ struct MigrationScopeView: View {
         }
         .sheet(isPresented: $isAddScopePresented) {
             AddScopeSheet(
-                isPresented: $isAddScopePresented,
-                authentication: authentication
+                isPresented: $isAddScopePresented
             )
             .environment(overlayGate)
         }

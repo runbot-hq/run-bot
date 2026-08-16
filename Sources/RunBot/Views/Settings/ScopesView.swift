@@ -24,10 +24,6 @@ struct ScopesView: View {
     /// Callback invoked when the user taps the back button.
     let onBack: () -> Void
 
-    /// Shared authentication state injected from `SettingsView`.
-    /// Forwarded into `AddScopeSheet` to check active-mode credential availability.
-    let authentication: GitHubAuthentication
-
     // MARK: - Observed stores
 
     /// Registered remote runner scopes (org / repo URLs).
@@ -111,7 +107,7 @@ struct ScopesView: View {
         .frame(idealWidth: 480)
         // Use mbkSheet so MBKOverlayGate.hasActiveOverlay is set/cleared automatically.
         .mbkSheet(isPresented: $showAddScopeSheet) {
-            AddScopeSheet(isPresented: $showAddScopeSheet, authentication: authentication)
+            AddScopeSheet(isPresented: $showAddScopeSheet)
         }
         // Sheet is presented only once both entry and preferences snapshot are ready.
         // isScopeEditSheetPresented maps selectedScopeEntry nil/non-nil → Bool so
