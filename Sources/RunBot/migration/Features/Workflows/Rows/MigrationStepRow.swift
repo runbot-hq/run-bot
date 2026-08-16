@@ -5,11 +5,12 @@ import GitHubClient
 import RunBotCore
 import SwiftUI
 
+// MARK: - MigrationStepRow
+
 /// A single row in the Steps column.
 ///
-/// Displays status indicator, step name, and elapsed time.
-/// Elapsed is omitted for queued/unstarted steps — mirrors the existing
-/// `InlineJobRowsView` timing guard.
+/// Two lines: step title (line 1), step number and elapsed time (line 2).
+/// Elapsed is omitted for queued or unstarted steps.
 struct MigrationStepRow: View {
     /// The step to render.
     let step: GitHubStep
@@ -17,21 +18,28 @@ struct MigrationStepRow: View {
     /// Elapsed text only for started steps; nil for queued/waiting.
     private var elapsedText: String? {
         guard step.startDate != nil else { return nil }
-        let elapsedText = step.elapsed
-        return elapsedText.isEmpty ? nil : elapsedText
+        let text = step.elapsed
+        return text.isEmpty ? nil : text
     }
 
     /// The row layout.
     var body: some View {
-        HStack(alignment: .top, spacing: 10) {
+        HStack(alignment: .top, spacing: 8) {
             MigrationStatusIndicator(status: step.rbStatus)
+                .padding(.top, 4)
 
-            VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: 2) {
                 Text(step.name)
                     .font(.headline)
-                    .lineLimit(2)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
 
-                MigrationRowMetadata(values: [elapsedText])
+                MigrationRowMetadata(
+                    values: [
+                        "step \(step.number)",
+                        elapsedText
+                    ]
+                )
             }
         }
         .padding(.vertical, 6)
