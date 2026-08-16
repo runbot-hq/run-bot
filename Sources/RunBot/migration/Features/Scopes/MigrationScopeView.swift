@@ -40,6 +40,11 @@ struct MigrationScopeView: View {
     @State private var isAddScopePresented = false
     /// Non-nil while `ScopeEditSheet` is being prepared or presented.
     @State private var scopeEditPresentation: ScopeEditPresentation?
+    /// `true` from the moment `prepareEdit` is called until the preferences fetch
+    /// completes and `scopeEditPresentation` is set. Blocks duplicate Edit taps
+    /// that arrive before the async fetch returns (at which point
+    /// `scopeEditPresentation` is still `nil` and the old guard would pass).
+    @State private var isPreparingEdit = false
 
     // MARK: - Computed
 
@@ -111,11 +116,17 @@ struct MigrationScopeView: View {
     }
 
     /// Fetches preferences asynchronously then presents the edit sheet.
+    ///
+    /// `isPreparingEdit` is set synchronously before the `Task` is created so
+    /// any second Edit tap that arrives during the async fetch is blocked at the
+    /// guard, even though `scopeEditPresentation` is still `nil` at that point.
     private func prepareEdit(_ entry: ScopeEntry) {
-        guard scopeEditPresentation == nil else { return }
+        guard !isPreparingEdit, scopeEditPresentation == nil else { return }
+        isPreparingEdit = true
         Task {
             let prefs = await ScopePreferencesStore.shared.preferences(for: entry.scope)
             scopeEditPresentation = ScopeEditPresentation(entry: entry, preferences: prefs)
+            isPreparingEdit = false
         }
     }
 }

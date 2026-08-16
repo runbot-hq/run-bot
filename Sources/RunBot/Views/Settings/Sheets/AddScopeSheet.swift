@@ -89,9 +89,16 @@ struct AddScopeSheet: View {
     }
 
     /// Guards the Add button: non-empty selection not already registered.
+    ///
+    /// `effectiveScope` is lowercased before the duplicate check because
+    /// `ScopeStore.add` lowercases at the point of entry. Without normalisation
+    /// a scope that differs only by case (e.g. `MyOrg/Repo` vs `myorg/repo`)
+    /// would pass this guard, the sheet would close, but `ScopeStore.add`
+    /// would silently no-op — leaving the user with no new scope and no error.
     private var canAdd: Bool {
-        !effectiveScope.isEmpty
-            && !ScopeStore.shared.entries.contains { $0.scope == effectiveScope }
+        let normalised = effectiveScope.lowercased()
+        return !normalised.isEmpty
+            && !ScopeStore.shared.entries.contains { $0.scope == normalised }
     }
 
     /// Root layout: header, form fields, and footer action bar.
