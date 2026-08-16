@@ -45,8 +45,10 @@ struct AddScopeSheet: View {
     /// Whether the scope is org-level or repo-level.
     @State private var scopeType: ScopeType = .org
     /// The scope string chosen from the picker.
-    @State private var selectedScope: String = ""
-    /// The scope string typed manually.
+    @State private var selectedRepo: String = ""
+    /// Organisation chosen from the org picker (kept independently across segment switches).
+    @State private var selectedOrg: String = ""
+    /// Manual text-field input; used when picker data is unavailable.
     @State private var manualScope: String = ""
     /// Available organisation names fetched from GitHub.
     @State private var orgs: [String] = []
@@ -56,31 +58,33 @@ struct AddScopeSheet: View {
     @State private var isFetching = false
     /// Non-nil when fetching or validation fails.
     @State private var errorMessage: String?
-    /// `true` when the picker is shown instead of the text field.
+    /// `true` when the picker UI is shown instead of the text field.
     @State private var usePicker = false
-    /// `true` while the scope-selector sheet is presented.
-    /// Bound to the root-level `.sheet` modifier (see type comment for why).
-    @State private var showScopeSelector = false
+    /// `true` while the repository selector sheet is presented.
+    @State private var showRepoSelector = false
+    /// `true` while the organisation selector sheet is presented.
+    @State private var showOrgSelector = false
 
-    /// The list of picker options matching the current `scopeType` (orgs or repos).
-    private var pickerItems: [String] {
-        scopeType == .org ? orgs : repos
+    /// The picker selection for the currently active segment.
+    private var selectedScopeForCurrentType: String {
+        scopeType == .org ? selectedOrg : selectedRepo
     }
 
-    /// `true` only when picker mode is active **and** the current segment has items.
-    /// Prevents `effectiveScope` from reading `selectedScope` when the active segment is empty.
-    private var usesPickerForCurrentScope: Bool {
-        usePicker && !pickerItems.isEmpty
-    }
-
-    /// The scope string that will be saved: the selected picker value when the current segment
-    /// has picker items, otherwise the trimmed manual text-field input.
+    /// The scope string that will be saved.
+    /// Uses the per-type picker selection when available, otherwise trimmed manual input.
     private var effectiveScope: String {
-        usesPickerForCurrentScope ? selectedScope : manualScope.trimmingCharacters(in: .whitespacesAndNewlines)
+        if usePicker {
+            let pick = selectedScopeForCurrentType
+            if !pick.isEmpty { return pick }
+        }
+        return manualScope.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    /// Guards the Add button: `true` when `effectiveScope` is non-empty.
-    private var canAdd: Bool { !effectiveScope.isEmpty }
+    /// Guards the Add button: non-empty selection not already registered.
+    private var canAdd: Bool {
+        !effectiveScope.isEmpty
+            && !ScopeStore.shared.entries.contains { $0.scope == effectiveScope }
+    }
 
     /// Root layout: header, form fields, and footer action bar.
     ///
@@ -110,70 +114,66 @@ struct AddScopeSheet: View {
                     // Reset picker selection to the first item in the new segment (or "" if not
                     // loaded yet). Also clear manualScope so the text field doesn't show stale
                     // input from the previous segment when falling back to manual mode.
-                    selectedScope = pickerItems.first ?? ""
                     manualScope = ""
-                    showScopeSelector = false
+                    showRepoSelector = false
+                    showOrgSelector = false
                 }
 
-                // ── Scope picker / text field ────────────────────────────
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(scopeType == .org ? "Organisation" : "Repository")
-                        .font(.caption)
-                        .foregroundColor(Color.rbTextSecondary)
-
-                    if isFetching {
-                        HStack(spacing: 8) {
-                            ProgressView().scaleEffect(0.7)
-                            Text("Fetching from GitHub\u{2026}")
-                                .font(.caption)
-                                .foregroundColor(Color.rbTextSecondary)
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.vertical, 6)
-                    } else if usesPickerForCurrentScope {
-                        // ── Searchable sheet trigger ─────────────────────
-                        // .sheet is on the root VStack, not here — see type comment.
-                        Button(action: { showScopeSelector = true }) {
-                            HStack {
-                                Text(selectedScope.isEmpty ? "\u{2014} select \u{2014}" : selectedScope)
-                                    .font(.system(size: 12))
-                                    .foregroundColor(
-                                        selectedScope.isEmpty
-                                            ? Color.rbTextTertiary
-                                            : Color.rbTextPrimary
-                                    )
-                                    .lineLimit(1)
-                                    .truncationMode(.middle)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                Image(systemName: "chevron.up.chevron.down")
-                                    .font(.system(size: 10))
-                                    .foregroundColor(Color.rbTextTertiary)
+                // -- Repository picker
+                if scopeType == .repo {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Repository").font(.caption).foregroundColor(Color.rbTextSecondary)
+                        if isFetching {
+                            ProgressView().scaleEffect(0.7).frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 6)
+                        } else if usePicker && !repos.isEmpty {
+                            Button(action: { showRepoSelector = true }) {
+                                HStack {
+                                    Text(selectedRepo.isEmpty ? "select repo" : selectedRepo)
+                                        .font(.system(size: 12)).frame(maxWidth: .infinity, alignment: .leading)
+                                    Image(systemName: "chevron.up.chevron.down").font(.system(size: 10))
+                                }
+                                .padding(.horizontal, 8).padding(.vertical, 6)
+                                .background(Color(nsColor: .controlBackgroundColor))
+                                .cornerRadius(5)
                             }
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 7)
-                            .background(Color.rbSurface)
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 6)
-                                    .strokeBorder(Color.rbBorderSubtle, lineWidth: 0.5)
-                            )
+                            .buttonStyle(.plain)
+                            .sheet(isPresented: $showRepoSelector) {
+                                RepoSelectorSheet(items: repos, label: "Repository", onDismiss: { showRepoSelector = false }, onSelect: { item in selectedRepo = item })
+                            }
+                        } else {
+                            TextField("e.g. myorg/myrepo", text: $manualScope).textFieldStyle(.roundedBorder).font(.system(size: 12))
                         }
-                        .buttonStyle(.plain)
-                    } else {
-                        TextField(
-                            scopeType == .org ? "e.g. myorg" : "e.g. myorg/myrepo",
-                            text: $manualScope
-                        )
-                        .textFieldStyle(.roundedBorder)
-                        .font(.system(size: 12))
-                    }
-
-                    if let err = errorMessage {
-                        Text(err)
-                            .font(.caption)
-                            .foregroundColor(Color.rbDanger)
+                        if let err = errorMessage { Text(err).font(.caption).foregroundColor(Color.rbDanger) }
                     }
                 }
 
+                // -- Organisation picker
+                if scopeType == .org {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Organisation").font(.caption).foregroundColor(Color.rbTextSecondary)
+                        if isFetching {
+                            ProgressView().scaleEffect(0.7).frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 6)
+                        } else if usePicker && !orgs.isEmpty {
+                            Button(action: { showOrgSelector = true }) {
+                                HStack {
+                                    Text(selectedOrg.isEmpty ? "select org" : selectedOrg)
+                                        .font(.system(size: 12)).frame(maxWidth: .infinity, alignment: .leading)
+                                    Image(systemName: "chevron.up.chevron.down").font(.system(size: 10))
+                                }
+                                .padding(.horizontal, 8).padding(.vertical, 6)
+                                .background(Color(nsColor: .controlBackgroundColor))
+                                .cornerRadius(5)
+                            }
+                            .buttonStyle(.plain)
+                            .sheet(isPresented: $showOrgSelector) {
+                                RepoSelectorSheet(items: orgs, label: "Organisation", onDismiss: { showOrgSelector = false }, onSelect: { item in selectedOrg = item })
+                            }
+                        } else {
+                            TextField("e.g. myorg", text: $manualScope).textFieldStyle(.roundedBorder).font(.system(size: 12))
+                        }
+                        if let err = errorMessage { Text(err).font(.caption).foregroundColor(Color.rbDanger) }
+                    }
+                }
                 // ── Helper caption ───────────────────────────────────────
                 Text(scopeType == .org
                         ? "Monitors all runners in the organisation."
@@ -204,20 +204,6 @@ struct AddScopeSheet: View {
             .padding(.vertical, RBSpacing.sm)
         }
         .frame(width: 420)
-        // #1263: .sheet is here at the root so AppKit attaches RepoSelectorSheet as a child
-        // sheet of NSPopoverWindowFrame, escaping the view-hierarchy bounds constraint.
-        // See type comment for full rationale. ❌ Do not move this back onto the Button.
-        .sheet(isPresented: $showScopeSelector) {
-            RepoSelectorSheet(
-                items: pickerItems,
-                label: scopeType == .org ? "Organisation" : "Repository",
-                onDismiss: { showScopeSelector = false },
-                onSelect: { item in
-                    // No dismiss here -- RepoSelectorSheet.itemRow calls onDismiss after onSelect.
-                    selectedScope = item
-                }
-            )
-        }
         .onAppear(perform: fetchScopeOptions)
     }
 
@@ -248,7 +234,8 @@ struct AddScopeSheet: View {
                 orgs = resolvedOrgs
                 repos = resolvedRepos
                 usePicker = true
-                selectedScope = pickerItems.first ?? ""
+                selectedRepo = repos.first ?? ""
+                selectedOrg = orgs.first ?? ""
                 log("AddScopeSheet \u{203a} loaded orgs=\(orgs.count) repos=\(repos.count)")
             }
         }
