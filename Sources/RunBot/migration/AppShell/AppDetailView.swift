@@ -34,7 +34,7 @@ struct AppDetailView: View {
                 localRunnerStore: localRunnerStore
             )
         case .scopes:
-            MigrationScopeView(scopeStore: .shared, authentication: authentication)
+            MigrationScopeView(scopeStore: .shared)
         case .settings:
             MigrationSettingsView(dependencies: settingsDependencies)
         case nil:
