@@ -37,6 +37,7 @@ struct RunBotDesktopApp: App {
             },
             onSignOut: {}
         ))
+        _overlayGate = State(initialValue: MBKOverlayGate())
     }
 
     /// The scene graph for the windowed application.
