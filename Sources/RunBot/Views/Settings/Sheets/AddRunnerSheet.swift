@@ -60,10 +60,11 @@ struct AddRunnerSheet: View {
     let onComplete: () -> Void
     /// Injected local runner store — avoids direct `.shared` references inside the sheet.
     var localRunnerStore: LocalRunnerStore = .shared
-    /// Core runner state — read for synchronous duplicate checks against localRunners.
-    /// No default is provided: the value is injected at the root of both the legacy
-    /// panel hierarchy and the windowed app hierarchy.
-    @Environment(AppState.self) var appState
+    /// Snapshot of already-registered local runners used for synchronous duplicate checks.
+    /// Pass `appState.runnerState.localRunners` from the legacy hierarchy, or
+    /// `runnerState.localRunners` from the migration hierarchy.
+    /// Defaults to empty so callers that have not yet migrated still compile.
+    var localRunners: [RunnerModel] = []
     /// Gate that tracks whether any overlay (sheet or file picker) is active.
     /// Used by `pickExistingFolder()` to arm the dismiss gate before opening the picker.
     /// Injected at the root of both the legacy panel hierarchy and the windowed app hierarchy.

@@ -62,8 +62,10 @@ struct MigrationRunnerView: View {
                 isPresented: $isAddRunnerPresented,
                 onComplete: {
                     Task { await localRunnerStore.refreshAsync() }
-                }
+                },
+                localRunners: runnerState.localRunners
             )
+            .environment(authentication)
             .environment(overlayGate)
         }
         .onChange(of: runnerState.localRunners) { _, runners in

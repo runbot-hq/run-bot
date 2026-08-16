@@ -320,7 +320,8 @@ struct LocalRunnersView: View {
         AddRunnerSheet(
             isPresented: $showAddRunnerSheet,
             onComplete: { Task { await localRunnerStore.refresh() } },
-            localRunnerStore: localRunnerStore
+            localRunnerStore: localRunnerStore,
+            localRunners: appState.runnerState.localRunners
         )
     }
 
