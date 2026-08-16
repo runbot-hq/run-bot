@@ -142,6 +142,26 @@ extension Color {
     /// Primary accent alias — resolves to `rbBlue`.
     static let rbAccent = rbBlue
 
+    // MARK: Sidebar Metric Tint Tokens
+
+    /// Fixed tint for the CPU sparkline in the sidebar metrics footer.
+    static let rbMetricCPU = Color.adaptive(
+        light: Color(red: 0.18, green: 0.64, blue: 0.18),
+        dark: Color(red: 0.25, green: 0.80, blue: 0.25)
+    )
+    /// Fixed tint for the GPU sparkline in the sidebar metrics footer.
+    static let rbMetricGPU = Color.adaptive(
+        light: Color(red: 0.0, green: 0.48, blue: 1.0),
+        dark: Color(red: 0.3, green: 0.64, blue: 1.0)
+    )
+    /// Fixed tint for memory and disk capacity bars in the sidebar metrics footer.
+    static let rbMetricCapacity = Color.adaptive(
+        light: Color(red: 0.80, green: 0.55, blue: 0.05),
+        dark: Color(red: 1.0, green: 0.75, blue: 0.20)
+    )
+    /// Neutral track fill for empty sparkline and capacity-bar backgrounds.
+    static let rbMetricTrack = Color.secondary.opacity(0.18)
+
     // MARK: Surface & Border Tokens
     //
     // DESIGN TOKEN NOTE:

@@ -12,6 +12,12 @@ struct SparklineView: View {
     let history: [Double]
     /// Current value used to determine the theme color (0-100).
     let currentPct: Double
+    /// Optional fixed tint that overrides the threshold-driven color.
+    ///
+    /// When `nil` (the default) the existing green/orange/red threshold
+    /// behavior is preserved. Sidebar CPU and GPU pass a fixed tint so their
+    /// sparkline color does not shift with load level.
+    var tint: Color?
 
     /// Renders a gradient fill path and a stroke polyline scaled to the available geometry.
     var body: some View {
@@ -27,14 +33,17 @@ struct SparklineView: View {
             fillPath(in: size)
                 .fill(
                     LinearGradient(
-                        colors: [themeColor.opacity(0.85), themeColor.opacity(0.05)],
+                        colors: [resolvedColor.opacity(0.85), resolvedColor.opacity(0.05)],
                         startPoint: .top,
                         endPoint: .bottom
                     )
                 )
             strokePath(in: size)
-                .stroke(themeColor, lineWidth: 1.5)
+                .stroke(resolvedColor, lineWidth: 1.5)
         }
+
+    /// Resolved color: explicit tint when provided, otherwise threshold-driven color.
+    private var resolvedColor: Color { tint ?? themeColor }
     }
 
     /// Accent color shifting green -> orange -> red as `currentPct` crosses 60 and 85.
