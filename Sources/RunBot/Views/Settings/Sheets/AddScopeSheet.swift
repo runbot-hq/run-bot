@@ -41,10 +41,6 @@ struct AddScopeSheet: View {
     /// Controls whether the sheet is shown.
     @Binding var isPresented: Bool
 
-    /// Shared authentication state injected from `ScopesView`.
-    /// Used to check active-mode credential availability before attempting GitHub API fetches.
-    let authentication: GitHubAuthentication
-
     /// Whether the scope is repo-level or org-level.
     /// Defaults to `.repo` to match `AddRunnerSheet` and the primary use case.
     @State private var scopeType: ScopeType = .repo
@@ -293,12 +289,6 @@ struct AddScopeSheet: View {
     /// Shows an explicit load-failure view (with Retry and Enter-manually actions)
     /// instead of silently falling back to a text field.
     @MainActor private func fetchScopeOptions() {
-        guard authentication.isAuthenticated else {
-            log("AddScopeSheet › active auth mode has no usable credential — showing load failure")
-            usePicker = false
-            errorMessage = "Could not load repositories and organisations."
-            return
-        }
         isFetching = true
         errorMessage = nil
         Task(priority: .userInitiated) {
