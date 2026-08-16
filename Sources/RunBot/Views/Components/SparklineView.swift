@@ -46,11 +46,9 @@ struct SparklineView: View {
     /// Resolved color: explicit tint when provided, otherwise threshold-driven color.
     private var resolvedColor: Color { tint ?? themeColor }
 
-    /// Accent color shifting green -> orange -> red as `currentPct` crosses 60 and 85.
+    /// Accent color derived from the shared severity helper (green/orange/red).
     private var themeColor: Color {
-        if currentPct > 85 { return .rbDanger }
-        if currentPct > 60 { return .rbWarning }
-        return .rbSuccess
+        .rbMetricSeverity(percentage: currentPct)
     }
 
     /// Builds the open polyline `Path` used for the stroke layer.
