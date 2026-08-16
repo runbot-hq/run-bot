@@ -1,5 +1,6 @@
 // MigrationRunnerView.swift
 // RunBot
+import GitHubClient
 import MenuBarKit
 import RunBotCore
 import SwiftUI
@@ -19,6 +20,11 @@ struct MigrationRunnerView: View {
     let runnerState: RunnerState
     /// The configured local-runner store; must be configured before this view mounts.
     let localRunnerStore: LocalRunnerStore
+
+    // swiftlint:disable:next missing_docs
+    @Environment(GitHubAuthentication.self) private var authentication
+    // swiftlint:disable:next missing_docs
+    @Environment(MBKOverlayGate.self) private var overlayGate
 
     // MARK: - Local UI state
 
@@ -51,13 +57,14 @@ struct MigrationRunnerView: View {
             MigrationRunnerDetailView(runner: selectedRunner)
                 .frame(minWidth: 360, idealWidth: 520, maxWidth: 900)
         }
-        .mbkSheet(isPresented: $isAddRunnerPresented) {
+        .sheet(isPresented: $isAddRunnerPresented) {
             AddRunnerSheet(
                 isPresented: $isAddRunnerPresented,
                 onComplete: {
                     Task { await localRunnerStore.refreshAsync() }
                 }
             )
+            .environment(overlayGate)
         }
         .onChange(of: runnerState.localRunners) { _, runners in
             if let id = selectedRunnerID, !runners.contains(where: { $0.id == id }) {
