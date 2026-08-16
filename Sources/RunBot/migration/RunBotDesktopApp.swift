@@ -73,11 +73,11 @@ struct RunBotDesktopApp: App {
     var body: some Scene {
         Window("RunBot", id: "main") {
             AppShellView(
-                runnerState: deps.runnerState,
                 localRunnerStore: deps.localRunnerStore,
                 settingsDependencies: deps.settingsDependencies,
                 logFetcher: $logFetcher
             )
+            .environment(deps.runnerState)
             .environment(deps.appState.authentication)
             .environment(overlayGate)
             .task {

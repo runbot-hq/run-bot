@@ -8,13 +8,16 @@ import SwiftUI
 /// Root view for the Workflows destination.
 ///
 /// Owns the four-pane `HSplitView` and the in-memory selection chain.
-/// Observes `RunnerState` directly so each poll snapshot updates all three
-/// hierarchy columns in place without a selection reset.
+/// Observes `RunnerState` directly via `@Environment` so each poll
+/// snapshot updates all three hierarchy columns in place without a
+/// selection reset.
 @MainActor
 struct MigrationWorkflowView: View {
 
-    /// Observable runner state. Observed directly to stay live across polls.
-    @Bindable var runnerState: RunnerState
+    /// Observable runner state injected via `.environment()` at the
+    /// composition root. `@Environment` tracks property accesses for
+    /// SwiftUI observation, so every poll snapshot triggers a re-render.
+    @Environment(RunnerState.self) private var runnerState
     /// Shared log fetcher threaded from the composition root.
     @Binding var logFetcher: LogFetcher
 

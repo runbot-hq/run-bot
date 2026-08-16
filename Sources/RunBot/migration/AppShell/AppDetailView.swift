@@ -11,8 +11,6 @@ struct AppDetailView: View {
     /// The currently selected sidebar section.
     let selection: AppSection?
 
-    /// Observable runner state pushed by `LocalRunnerStore`.
-    let runnerState: RunnerState
     /// Configured local-runner store forwarded from the composition root.
     let localRunnerStore: LocalRunnerStore
     /// Settings services forwarded from the composition root.
@@ -24,10 +22,9 @@ struct AppDetailView: View {
     var body: some View {
         switch selection {
         case .workflows:
-            MigrationWorkflowView(runnerState: runnerState, logFetcher: $logFetcher)
+            MigrationWorkflowView(logFetcher: $logFetcher)
         case .localRunners:
             MigrationRunnerView(
-                runnerState: runnerState,
                 localRunnerStore: localRunnerStore
             )
         case .scopes:

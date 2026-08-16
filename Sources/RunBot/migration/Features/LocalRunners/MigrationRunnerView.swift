@@ -11,15 +11,20 @@ import SwiftUI
 ///
 /// Receives an already-configured `LocalRunnerStore` from the composition root.
 /// The store must be configured before this view is mounted.
+/// `RunnerState` is injected via `.environment()` so local-runner list
+/// mutations trigger reactive re-renders.
 @MainActor
 struct MigrationRunnerView: View {
 
     // MARK: - Inputs
 
-    /// Observable runner state pushed by `LocalRunnerStore` via `MigrationAppDependencies`.
-    let runnerState: RunnerState
     /// The configured local-runner store; must be configured before this view mounts.
     let localRunnerStore: LocalRunnerStore
+
+    /// Observable runner state injected via `.environment()` at the
+    /// composition root. Accessed via `@Environment` so the view
+    /// re-renders when `localRunners` changes.
+    @Environment(RunnerState.self) private var runnerState
 
     // swiftlint:disable:next missing_docs
     @Environment(GitHubAuthentication.self) private var authentication

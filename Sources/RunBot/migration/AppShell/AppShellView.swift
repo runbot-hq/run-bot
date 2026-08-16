@@ -10,8 +10,6 @@ struct AppShellView: View {
     /// Currently selected sidebar section. Defaults to Workflows.
     @State private var selection: AppSection? = .workflows
 
-    /// Runner store forwarded from the composition root.
-    let runnerState: RunnerState
     /// Configured local-runner store forwarded from the composition root.
     let localRunnerStore: LocalRunnerStore
     /// Settings services forwarded from the composition root.
@@ -32,7 +30,6 @@ struct AppShellView: View {
         } detail: {
             AppDetailView(
                 selection: selection,
-                runnerState: runnerState,
                 localRunnerStore: localRunnerStore,
                 settingsDependencies: settingsDependencies,
                 logFetcher: $logFetcher
