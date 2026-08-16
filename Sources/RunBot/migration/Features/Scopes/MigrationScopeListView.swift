@@ -26,40 +26,30 @@ struct MigrationScopeListView: View {
 
     /// The list pane layout.
     var body: some View {
-        MigrationWorkflowColumn(title: "Scopes") {
-            VStack(spacing: 0) {
-                HStack {
-                    Button("Add scope", systemImage: "plus") {
-                        onAdd()
-                    }
-                    .buttonStyle(.plain)
-                    .font(.caption)
-                    Spacer()
-                }
-                .padding(12)
-
-                Divider()
-
-                if scopes.isEmpty {
-                    MigrationColumnPlaceholder(
-                        title: "No scopes",
-                        systemImage: "scope",
-                        description: "Add a repository or organization to monitor."
+        MigrationManagementColumn(
+            title: "Scopes",
+            addTitle: "Add scope",
+            onAdd: onAdd
+        ) {
+            if scopes.isEmpty {
+                MigrationColumnPlaceholder(
+                    title: "No scopes",
+                    systemImage: "scope",
+                    description: "Add a repository or organization to monitor."
+                )
+            } else {
+                List(scopes, selection: $selectedScopeID) { scope in
+                    ScopeRowView(
+                        scope: scope,
+                        onSelect: { selectedScopeID = scope.id },
+                        onSetEnabled: { onSetEnabled(scope, $0) },
+                        onDelete: { onDelete(scope) }
                     )
-                } else {
-                    List(scopes, selection: $selectedScopeID) { scope in
-                        ScopeRowView(
-                            scope: scope,
-                            onSelect: { selectedScopeID = scope.id },
-                            onSetEnabled: { onSetEnabled(scope, $0) },
-                            onDelete: { onDelete(scope) }
-                        )
-                        .tag(scope.id)
-                        .listRowInsets(EdgeInsets())
-                        .listRowSeparator(.hidden)
-                    }
-                    .listStyle(.plain)
+                    .tag(scope.id)
+                    .listRowInsets(EdgeInsets())
+                    .listRowSeparator(.hidden)
                 }
+                .listStyle(.plain)
             }
         }
     }
