@@ -36,12 +36,6 @@ struct AuthenticationSourceCard<Content: View>: View {
     /// Edge highlights and refraction come exclusively from `.glassEffect(.regular)`.
     var body: some View {
         content()
-            .frame(
-                maxWidth: .infinity,
-                minHeight: 100,
-                alignment: .topLeading
-            )
-            .padding(20)
             .background(
                 RoundedRectangle(cornerRadius: 15, style: .continuous)
                     .fill(glassBackground)

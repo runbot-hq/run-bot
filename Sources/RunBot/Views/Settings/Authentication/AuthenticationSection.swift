@@ -6,15 +6,15 @@ import SwiftUI
 
 // MARK: - AuthenticationSection
 
-/// Two-card authentication section for the Settings view.
+/// Two-row authentication section for the Settings view.
 ///
 /// Replaces the single-branch `accountSection` in `SettingsView+Sections.swift`.
 /// Reads `GitHubAuthentication` state directly and fires action callbacks so the
 /// parent (`SettingsView`) keeps ownership of service calls.
 ///
-/// ## Layout (from #2456 / #2459 §4.3)
-/// Both cards sit inside one "Authentication" section.
-/// Environment card is on the left; OAuth card is on the right.
+/// ## Layout (from #2892)
+/// Both cards stack vertically as full-width rows so titles never wrap.
+/// Each card owns its own background fill; no outer GlassEffectContainer.
 struct AuthenticationSection: View {
 
     /// The shared authentication state model. Read-only in this view.
@@ -29,19 +29,15 @@ struct AuthenticationSection: View {
     // MARK: - Derived
 
     /// `true` when environment token is the active source.
-    /// The OAuth sign-in button is disabled while env is active.
     private var envIsActive: Bool { authentication.selectedSource == .environment }
 
     /// `true` when OAuth is the active source.
-    /// Derived from `oauthState` — Keychain token presence is the only truth.
     private var oauthIsActive: Bool {
         if case .signedIn = authentication.oauthState { return true }
         return false
     }
 
     /// `true` while an OAuth credential is present (signed in).
-    /// The environment toggle is disabled so the user cannot switch away
-    /// while OAuth credentials are present.
     private var oauthBlocksEnvironment: Bool {
         if case .signedIn = authentication.oauthState { return true }
         return false
@@ -49,70 +45,45 @@ struct AuthenticationSection: View {
 
     /// `true` when an environment token has been discovered.
     private var environmentIsAvailable: Bool {
-        if case .available = authentication.environmentState {
-            return true
-        }
+        if case .available = authentication.environmentState { return true }
         return false
     }
 
     /// `true` when the environment toggle should be disabled.
     ///
-    /// Environment activation is intentionally unavailable until a token has been
-    /// discovered. The selected-but-missing state is still representable when a
-    /// token disappears after Environment mode was enabled.
-    ///
-    /// `envIsActive` is handled first so the user can always turn Environment off,
-    /// even after its token becomes unavailable.
-    ///
-    /// REVIEWERS: Do not remove the availability gate to allow selecting a missing
-    /// token; that is not a supported entry flow.
+    /// `envIsActive` is checked first so the user can always turn Environment off.
+    /// REVIEWERS: Do not remove the availability gate.
     private var environmentToggleDisabled: Bool {
-        if envIsActive {
-            // Always allow the user to turn Environment mode off.
-            return false
-        }
+        if envIsActive { return false }
         return oauthBlocksEnvironment || !environmentIsAvailable
     }
 
     // MARK: - Body
 
-    /// Two-card layout: environment token card on the left, OAuth card on the right.
+    /// Group heading + two full-width source rows stacked vertically.
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        VStack(alignment: .leading, spacing: 10) {
             Text("Authentication")
-                .font(RBFont.sectionHeader)
-                .foregroundColor(Color.rbTextSecondary)
-                .padding(.horizontal, RBSpacing.md)
-                .padding(.top, 8)
-                .padding(.bottom, 4)
+                .font(.system(size: 15, weight: .semibold))
 
-            GlassEffectContainer {
-                HStack(alignment: .top, spacing: 8) {
-                    // Env card: disabled when the environment toggle should be disabled
-                    // (env not active and either OAuth is blocking or no env token is available).
-                    // Always allows turning off if env is already active.
-                    EnvironmentTokenCard(
-                        envState: authentication.environmentState,
-                        isActive: envIsActive,
-                        isDisabled: environmentToggleDisabled,
-                        onToggle: onToggleEnvironment
-                    )
+            VStack(spacing: 12) {
+                EnvironmentTokenCard(
+                    envState: authentication.environmentState,
+                    isActive: envIsActive,
+                    isDisabled: environmentToggleDisabled,
+                    onToggle: onToggleEnvironment
+                )
+                .frame(maxWidth: .infinity)
 
-                    // OAuth card: sign-in button disabled while env is the active source.
-                    // The user must turn env off before signing in with OAuth so the transition
-                    // is always explicit. Sign-out is always available regardless of source.
-                    GitHubOAuthCard(
-                        oauthState: authentication.oauthState,
-                        isActive: oauthIsActive,
-                        isSignInDisabled: envIsActive,
-                        onSignIn: onSignIn,
-                        onSignOut: onSignOut
-                    )
-                }
-                .fixedSize(horizontal: false, vertical: true)
+                GitHubOAuthCard(
+                    oauthState: authentication.oauthState,
+                    isActive: oauthIsActive,
+                    isSignInDisabled: envIsActive,
+                    onSignIn: onSignIn,
+                    onSignOut: onSignOut
+                )
+                .frame(maxWidth: .infinity)
             }
-            .padding(.horizontal, RBSpacing.md)
-            .padding(.vertical, 8)
         }
     }
 }

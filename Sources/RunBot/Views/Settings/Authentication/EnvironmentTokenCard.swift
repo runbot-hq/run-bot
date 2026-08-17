@@ -6,23 +6,21 @@ import SwiftUI
 
 // MARK: - EnvironmentTokenCard
 
-/// Settings card for the environment-token authentication source.
+/// Settings row for the environment-token authentication source.
 ///
-/// Shows the current `EnvironmentTokenState` and lets the user toggle the
-/// environment token on/off. Implements the interaction rules from #2459 §4.5:
+/// Full-width row layout matching the standard settings card pattern (#2892).
+/// The background fill comes from `AuthenticationSourceCard`.
 ///
+/// Interaction rules from #2459 §4.5:
 /// - Toggle **on**  → selects environment even when token is missing (shows inline error).
 /// - Toggle **off** → selects OAuth if signed in; otherwise app becomes unauthenticated.
 struct EnvironmentTokenCard: View {
 
     /// Current environment token discovery state.
     let envState: EnvironmentTokenState
-    /// Whether the environment token source is the user's currently-selected source.
+    /// Whether the environment token source is the user’s currently-selected source.
     let isActive: Bool
     /// When `true`, the toggle is disabled and dimmed.
-    ///
-    /// Set to `true` when the OAuth card is the active source so the two cards are
-    /// mutually exclusive: the user must explicitly turn OAuth off before enabling env.
     let isDisabled: Bool
     /// Called when the toggle is flipped. `true` means the user wants env token active.
     let onToggle: (Bool) -> Void
@@ -36,33 +34,39 @@ struct EnvironmentTokenCard: View {
 
     // MARK: - Body
 
-    /// Card body: status dot, label, and on/off toggle.
+    /// Full-width row: label block on the left, toggle on the right.
     var body: some View {
         AuthenticationSourceCard(isActive: isActive, isError: isError) {
-            HStack(alignment: .center, spacing: 8) {
-                VStack(alignment: .leading, spacing: 3) {
+            HStack(alignment: .center, spacing: 20) {
+                VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 6) {
                         statusDot
                         Text("Environment Token")
                             .font(.system(size: 15, weight: .medium))
+                            .lineLimit(1)
                     }
                     statusLine
                         .font(.system(size: 13))
                         .foregroundStyle(isError ? Color.rbDanger : Color.rbTextSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 .opacity(isActive ? 1.0 : 0.75)
-                Spacer()
+
+                Spacer(minLength: 24)
+
                 Toggle("", isOn: Binding(
                     get: { isActive },
                     set: { onToggle($0) }
                 ))
                 .toggleStyle(.switch)
                 .labelsHidden()
-                .scaleEffect(0.8)
                 .disabled(isDisabled)
                 .opacity(isDisabled ? 0.35 : isActive ? 1.0 : 0.65)
                 .help(isDisabled ? "Turn off GitHub OAuth before enabling environment token" : "")
             }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 15)
+            .frame(maxWidth: .infinity, minHeight: 76, alignment: .leading)
         }
         .accessibilityElement(children: .combine)
         .accessibilityValue(accessibilityValueText)
@@ -85,7 +89,7 @@ struct EnvironmentTokenCard: View {
         }
     }
 
-    /// One-line status text below the title.
+    /// Status description text below the title.
     private var statusLine: some View {
         Group {
             switch envState {
@@ -114,8 +118,7 @@ struct EnvironmentTokenCard: View {
         switch envState {
         case .checking: return "\(source), \(activeText), checking"
         case .unavailable: return "\(source), \(activeText), token not found"
-        case .available:
-            return "\(source), \(activeText), token found"
+        case .available: return "\(source), \(activeText), token found"
         }
     }
 }
