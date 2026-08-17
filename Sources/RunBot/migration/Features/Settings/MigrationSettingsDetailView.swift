@@ -10,9 +10,16 @@ import SwiftUI
 
 /// Detail column for the settings destination.
 ///
-/// Wraps the selected section view in a `ScrollView` so Authentication,
+/// Wraps the selected section in a `ScrollView` so Authentication,
 /// Updates, and future tall sections remain accessible in short windows.
-/// Width is constrained to stay readable in wide windows.
+/// Width is capped at 820 points for readability.
+///
+/// ## Section composition
+/// Each section is wrapped in a `MigrationSettingsSectionLayout` (title +
+/// spacing) and the shared section views are wrapped with
+/// `.migrationSettingsCard()` where appropriate. The shared section files
+/// (`AuthenticationSection`, `GeneralSettingsSection`, etc.) are not modified
+/// so they remain safe to reuse from the menu-bar interface.
 ///
 /// ## Dependency rules
 /// - `GitHubAuthentication` is read from the environment (owned by
@@ -37,48 +44,61 @@ struct MigrationSettingsDetailView: View {
 
     // MARK: - Body
 
-    /// Scrollable detail view with readable-width constraint.
+    /// Scrollable detail view with breathing-room padding and readable-width cap.
     var body: some View {
         ScrollView {
-            detailContent
-                .padding(24)
-                .frame(
-                    minWidth: 520,
-                    maxWidth: 760,
-                    alignment: .topLeading
-                )
+            VStack(alignment: .leading, spacing: 28) {
+                detailContent
+            }
+            .padding(.horizontal, 32)
+            .padding(.vertical, 28)
+            .frame(
+                maxWidth: 820,
+                alignment: .topLeading
+            )
         }
     }
 
     // MARK: - Detail content
 
-    /// Routes the selected section to the appropriate settings view.
+    /// Routes the selected section to the appropriate wrapped settings view.
     @ViewBuilder
     private var detailContent: some View {
         switch selection ?? .authentication {
         case .authentication:
-            AuthenticationSection(
-                authentication: authentication,
-                onSignIn: dependencies.onSignIn,
-                onSignOut: { Task { await dependencies.onSignOut() } },
-                onToggleEnvironment: { enabled in
-                    if enabled {
-                        authentication.setSelectedSource(.environment)
-                    } else {
-                        authentication.setSelectedSource(.unauthenticated)
+            MigrationSettingsSectionLayout(title: "Authentication") {
+                AuthenticationSection(
+                    authentication: authentication,
+                    onSignIn: dependencies.onSignIn,
+                    onSignOut: { Task { await dependencies.onSignOut() } },
+                    onToggleEnvironment: { enabled in
+                        if enabled {
+                            authentication.setSelectedSource(.environment)
+                        } else {
+                            authentication.setSelectedSource(.unauthenticated)
+                        }
                     }
-                }
-            )
+                )
+            }
         case .general:
-            GeneralSettingsSection()
+            MigrationSettingsSectionLayout(title: "General") {
+                GeneralSettingsSection()
+                    .migrationSettingsCard()
+            }
         case .updates:
-            UpdateSettingsSection(
-                settings: dependencies.settings,
-                runnerState: dependencies.runnerState,
-                autoUpdater: dependencies.autoUpdater
-            )
+            MigrationSettingsSectionLayout(title: "Updates") {
+                UpdateSettingsSection(
+                    settings: dependencies.settings,
+                    runnerState: dependencies.runnerState,
+                    autoUpdater: dependencies.autoUpdater
+                )
+                .migrationSettingsCard()
+            }
         case .about:
-            AboutSettingsSection()
+            MigrationSettingsSectionLayout(title: "About") {
+                AboutSettingsSection()
+                    .migrationSettingsCard()
+            }
         }
     }
 }
