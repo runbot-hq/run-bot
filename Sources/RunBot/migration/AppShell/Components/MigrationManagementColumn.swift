@@ -9,8 +9,8 @@ import SwiftUI
 /// Renders a 44-pt header with the column title on the left and an Add action on
 /// the right, a divider, then the caller-provided content.
 ///
-/// Use instead of `MigrationWorkflowColumn` for any pane that owns a top-level Add action.
-/// `MigrationWorkflowColumn` is retained unchanged for the read-only Workflow columns.
+/// Use for any pane that owns a top-level Add action. The read-only workflow
+/// hierarchy and step-log panes render without a header (#2880).
 struct MigrationManagementColumn<Content: View>: View {
     /// The column heading displayed in the header bar.
     let title: String
