@@ -7,9 +7,9 @@ import SwiftUI
 
 /// Settings section list shown in the content column of the app shell.
 ///
-/// Deliberately omits a header row: the sidebar already identifies the
-/// Settings destination. Selection is owned by `AppShellView` and flows
-/// down as a binding.
+/// Shows a compact "Settings" title above the section list, then the
+/// section rows. Selection is owned by `AppShellView` and flows down
+/// as a binding. (#2898)
 ///
 /// ## Row styling
 /// Rows use 15-point medium-weight text, a 32-point label height, and
@@ -26,24 +26,33 @@ struct MigrationSettingsListView: View {
 
     // MARK: - Body
 
-    /// The settings section list.
+    /// The settings section list, prefixed by a compact page title.
     var body: some View {
-        List(MigrationSettingsSection.allCases, selection: $selection) { section in
-            Label(section.title, systemImage: section.systemImage)
-                .font(.system(size: 15, weight: .medium))
-                .imageScale(.medium)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .frame(height: 32)
-                .tag(section)
-                .listRowInsets(
-                    EdgeInsets(
-                        top: 3,
-                        leading: 12,
-                        bottom: 3,
-                        trailing: 12
+        VStack(alignment: .leading, spacing: 0) {
+            Text("Settings")
+                .font(.title2.weight(.semibold))
+                .padding(.horizontal, 20)
+                .padding(.top, 28)
+                .padding(.bottom, 14)
+
+            List(MigrationSettingsSection.allCases, selection: $selection) { section in
+                Label(section.title, systemImage: section.systemImage)
+                    .font(.system(size: 15, weight: .medium))
+                    .imageScale(.medium)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .frame(height: 32)
+                    .tag(section)
+                    .listRowInsets(
+                        EdgeInsets(
+                            top: 3,
+                            leading: 12,
+                            bottom: 3,
+                            trailing: 12
+                        )
                     )
-                )
+            }
+            .listStyle(.sidebar)
+            .scrollContentBackground(.hidden)
         }
-        .listStyle(.sidebar)
     }
 }
