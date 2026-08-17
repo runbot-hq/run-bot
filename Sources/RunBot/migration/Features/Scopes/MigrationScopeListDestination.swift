@@ -1,7 +1,6 @@
 // MigrationScopeListDestination.swift
 // RunBot
 
-import GitHubClient
 import MenuBarKit
 import RunBotCore
 import SwiftUI
@@ -33,10 +32,6 @@ struct MigrationScopeListDestination: View {
 
     /// Controls presentation of `AddScopeSheet`.
     @State private var isAddScopePresented = false
-    /// Non-nil while `ScopeEditSheet` is being prepared or presented.
-    @State private var scopeEditPresentation: ScopeEditPresentation?
-    /// Guards against duplicate edit taps during async fetch.
-    @State private var isPreparingEdit = false
 
     // MARK: - Body
 
@@ -52,17 +47,6 @@ struct MigrationScopeListDestination: View {
         .sheet(isPresented: $isAddScopePresented) {
             AddScopeSheet(isPresented: $isAddScopePresented)
                 .environment(overlayGate)
-        }
-        .sheet(item: $scopeEditPresentation) { presentation in
-            ScopeEditSheet(
-                scopeEntry: presentation.entry,
-                preferences: presentation.preferences,
-                isPresented: Binding(
-                    get: { scopeEditPresentation != nil },
-                    set: { if !$0 { scopeEditPresentation = nil } }
-                )
-            )
-            .environment(overlayGate)
         }
         .onChange(of: scopeStore.entries) { _, newEntries in
             if let id = selectedScopeID,
@@ -85,17 +69,6 @@ struct MigrationScopeListDestination: View {
         Task {
             await ScopePreferencesStore.shared.cleanUp(scope: entry.scope)
             scopeStore.remove(id: entry.id)
-        }
-    }
-
-    /// Fetches preferences asynchronously then presents the edit sheet.
-    private func prepareEdit(_ entry: ScopeEntry) {
-        guard !isPreparingEdit, scopeEditPresentation == nil else { return }
-        isPreparingEdit = true
-        Task {
-            let prefs = await ScopePreferencesStore.shared.preferences(for: entry.scope)
-            scopeEditPresentation = ScopeEditPresentation(entry: entry, preferences: prefs)
-            isPreparingEdit = false
         }
     }
 }
