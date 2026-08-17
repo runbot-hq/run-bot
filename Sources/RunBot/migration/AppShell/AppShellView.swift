@@ -17,6 +17,10 @@ struct AppShellView: View {
     /// because the hierarchy and step-log columns both read and mutate it.
     @State private var workflowSelection = MigrationWorkflowSelection()
 
+    /// Shared settings section selection. Owned at the shell level so the
+    /// content column (list) and detail column (section view) stay in sync.
+    @State private var settingsSelection: MigrationSettingsSection? = .authentication
+
     /// Runner store forwarded from the composition root.
     let runnerState: RunnerState
     /// Configured local-runner store forwarded from the composition root.
@@ -42,13 +46,16 @@ struct AppShellView: View {
                 runnerState: runnerState,
                 localRunnerStore: localRunnerStore,
                 settingsDependencies: settingsDependencies,
-                workflowSelection: workflowSelection
+                workflowSelection: workflowSelection,
+                settingsSelection: $settingsSelection
             )
         } detail: {
             AppDetailView(
                 selection: selection,
                 runnerState: runnerState,
                 workflowSelection: workflowSelection,
+                settingsSelection: settingsSelection,
+                settingsDependencies: settingsDependencies,
                 logFetcher: $logFetcher
             )
         }

@@ -1,58 +1,30 @@
 // MigrationSettingsView.swift
 // RunBot
 
-import AppUpdater
-import GitHubClient
 import RunBotCore
 import SwiftUI
 
 // MARK: - MigrationSettingsView
 
-/// Two-pane settings destination for the windowed app shell.
+/// Thin bridge retained for any call-sites that still reference
+/// `MigrationSettingsView`. The three-column shell now routes Settings
+/// directly through `AppContentView` (list) and `AppDetailView` (detail)
+/// so this wrapper is no longer the settings root.
 ///
-/// Hosts a horizontal split view with `MigrationSettingsListView` on the left
-/// and `MigrationSettingsDetailView` on the right. Selection is owned here so
-/// both panes share a single source of truth without extra plumbing.
-///
-/// ## Layout
-/// `HSplitView` is used to match the pattern of the other migration
-/// destinations (`MigrationScopeView`, `MigrationWorkflowView`).
-///
-/// ## Dependency rules
-/// - `GitHubAuthentication` is read from the SwiftUI environment (owned by
-///   `RunBotDesktopApp`). Do not create a second instance here.
-/// - OAuth sign-in / sign-out closures and other services are forwarded to the
-///   detail view via `MigrationSettingsDependencies`, unchanged from before.
+/// If no remaining call-sites reference this view it can be deleted once
+/// all feature branches have landed.
 @MainActor
 struct MigrationSettingsView: View {
 
-    // MARK: - Environment
-
-    /// The active GitHub authentication state, injected from the environment.
-    @Environment(GitHubAuthentication.self)
-    private var authentication
-
     // MARK: - Inputs
 
-    /// Services required by the settings sections.
+    /// Services required by the settings sections (forwarded for compatibility).
     let dependencies: MigrationSettingsDependencies
-
-    // MARK: - State
-
-    /// The currently selected settings section.
-    @State private var selectedSection: MigrationSettingsSection? = .authentication
 
     // MARK: - Body
 
-    /// The two-pane settings layout.
+    /// Empty placeholder — layout is now owned by the app shell columns.
     var body: some View {
-        HSplitView {
-            MigrationSettingsListView(selection: $selectedSection)
-            MigrationSettingsDetailView(
-                selection: selectedSection,
-                dependencies: dependencies
-            )
-        }
-        .navigationTitle("Settings")
+        EmptyView()
     }
 }

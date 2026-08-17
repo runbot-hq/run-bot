@@ -18,6 +18,12 @@ struct AppDetailView: View {
     let runnerState: RunnerState
     /// Shared workflow → job → step selection owned by `AppShellView`.
     var workflowSelection: MigrationWorkflowSelection
+    /// Selected settings section forwarded from `AppShellView`.
+    let settingsSelection: MigrationSettingsSection?
+
+    /// Settings services forwarded from the composition root.
+    let settingsDependencies: MigrationSettingsDependencies
+
     /// Shared log fetcher — threaded from `AppShellView`.
     @Binding var logFetcher: LogFetcher
 
@@ -48,6 +54,11 @@ struct AppDetailView: View {
                 selectedJob: selectedJob,
                 selectedStep: selectedStep,
                 logFetcher: $logFetcher
+            )
+        case .settings:
+            MigrationSettingsDetailView(
+                selection: settingsSelection,
+                dependencies: settingsDependencies
             )
         default:
             ContentUnavailableView(
