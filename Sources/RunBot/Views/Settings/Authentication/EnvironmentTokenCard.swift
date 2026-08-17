@@ -44,11 +44,11 @@ struct EnvironmentTokenCard: View {
                     HStack(spacing: 6) {
                         statusDot
                         Text("Environment Token")
-                            .font(.system(size: 12, weight: .medium))
+                            .font(.system(size: 15, weight: .medium))
                     }
                     statusLine
-                        .font(.caption)
-                        .foregroundColor(isError ? Color.rbDanger : Color.rbTextSecondary)
+                        .font(.system(size: 13))
+                        .foregroundStyle(isError ? Color.rbDanger : Color.rbTextSecondary)
                 }
                 .opacity(isActive ? 1.0 : 0.75)
                 Spacer()
