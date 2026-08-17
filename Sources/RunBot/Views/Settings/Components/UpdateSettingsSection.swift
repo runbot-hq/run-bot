@@ -20,7 +20,7 @@ import SwiftUI
 ///
 /// ## Layout
 /// The outer section title is provided by `MigrationSettingsSectionLayout`.
-/// This view renders the "Channel" group heading and one multi-row card.
+/// This view renders the "Update preferences" group heading and one multi-row card.
 struct UpdateSettingsSection: View {
 
     /// App-wide preference store; needs `@Bindable` for two-way toggle bindings.
@@ -35,7 +35,7 @@ struct UpdateSettingsSection: View {
     /// Group heading + update settings card.
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Channel")
+            Text("Update preferences")
                 .font(.system(size: 15, weight: .semibold))
 
             VStack(spacing: 0) {
