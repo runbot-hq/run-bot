@@ -1,5 +1,6 @@
 // MigrationAppDependencies.swift
 // RunBot
+import AppKit
 import AppUpdater
 import Foundation
 import GitHubClient
@@ -116,8 +117,22 @@ final class MigrationAppDependencies {
                 betaChannelProvider: { AppPreferencesStore.shared.betaChannel }
             ),
             notifications: NotificationPreferences.shared,
-            onSignIn: onSignIn,
-            onSignOut: onSignOut
+            onSignIn: { [weak credentials] in
+                guard let url = credentials?.makeSignInURL() else { return }
+                NSWorkspace.shared.open(url)
+            },
+            onSignOut: { [weak credentials] in
+                await credentials?.signOut()
+            },
+            refreshAuthentication: { [weak authentication, weak client] in
+                guard let authentication, let client else { return }
+                authentication.syncOAuthState(
+                    isAuthenticated: client.oauthService.isAuthenticated
+                )
+                authentication.setEnvironmentState(.checking)
+                let environmentState = await client.discoverEnvironmentState()
+                authentication.setEnvironmentState(environmentState)
+            }
         )
         self.logFetcher = LogFetcher()
     }

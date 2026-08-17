@@ -35,6 +35,11 @@ final class MigrationSettingsDependencies {
     let onSignIn: @MainActor () -> Void
     /// Called to sign out and remove the stored OAuth token.
     let onSignOut: @MainActor () async -> Void
+    /// Runs environment-token discovery and OAuth-state sync so the
+    /// Authentication card exits `.checking` when it mounts.
+    /// Must use the same `GitHubAuthentication` and `GitHubClient`
+    /// instances already owned by the dependency graph.
+    let refreshAuthentication: @MainActor () async -> Void
 
     /// Creates a fully configured settings dependency bundle.
     init(
@@ -43,7 +48,8 @@ final class MigrationSettingsDependencies {
         autoUpdater: AppUpdater,
         notifications: NotificationPreferences,
         onSignIn: @escaping @MainActor () -> Void,
-        onSignOut: @escaping @MainActor () async -> Void
+        onSignOut: @escaping @MainActor () async -> Void,
+        refreshAuthentication: @escaping @MainActor () async -> Void
     ) {
         self.settings = settings
         self.runnerState = runnerState
@@ -51,5 +57,6 @@ final class MigrationSettingsDependencies {
         self.notifications = notifications
         self.onSignIn = onSignIn
         self.onSignOut = onSignOut
+        self.refreshAuthentication = refreshAuthentication
     }
 }

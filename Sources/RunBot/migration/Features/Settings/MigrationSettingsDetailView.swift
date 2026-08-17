@@ -28,7 +28,10 @@ import SwiftUI
 /// ## Dependency rules
 /// - `GitHubAuthentication` is read from the environment (owned by
 ///   `RunBotDesktopApp`). No second instance is created here.
-/// - `onToggleEnvironment` calls `authentication.setSelectedSource` directly.
+/// - `onToggleEnvironment` selects `.environment`, `.oauth` (when signed in),
+///   or `.unauthenticated` to match main's toggle logic.
+/// - A `.task` on `AuthenticationSection` runs `refreshAuthentication()` once
+///   on mount so `environmentState` exits `.checking`.
 @MainActor
 struct MigrationSettingsDetailView: View {
 
@@ -82,11 +85,16 @@ struct MigrationSettingsDetailView: View {
                     onToggleEnvironment: { enabled in
                         if enabled {
                             authentication.setSelectedSource(.environment)
+                        } else if case .signedIn = authentication.oauthState {
+                            authentication.setSelectedSource(.oauth)
                         } else {
                             authentication.setSelectedSource(.unauthenticated)
                         }
                     }
                 )
+                .task {
+                    await dependencies.refreshAuthentication()
+                }
             }
         case .general:
             MigrationSettingsSectionLayout(title: "General") {
