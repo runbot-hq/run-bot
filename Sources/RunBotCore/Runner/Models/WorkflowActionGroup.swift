@@ -90,7 +90,7 @@ extension WorkflowActionGroup {
 ///
 /// Holds only the data needed for display and job fetching — deliberately
 /// minimal so the full job list lives on the parent `WorkflowActionGroup` instead.
-public struct WorkflowRunRef: Identifiable, Sendable {
+public struct WorkflowRunRef: Identifiable, Equatable, Sendable {
     /// The unique GitHub run ID.
     public let id: Int
     /// Workflow file name, e.g. `"SonarQube"`, `"vitest"`.
@@ -210,19 +210,26 @@ public struct WorkflowActionGroup: Identifiable, Equatable, Sendable {
 
     // MARK: Equatable
 
-    /// Identity-based equality: two groups are equal when their stable `id` matches.
-    ///
-    /// This satisfies the `onChange(of: store.actions)` requirement in `PanelMainView`
-    /// without deep-comparing mutable job arrays on every poll.
-    ///
-    /// ⚠️ `copying()` can produce structurally different instances — for example,
-    /// toggling `isDimmed` or updating `lastJobCompletedAt` — that this operator
-    /// still treats as equal because only `id` is compared. Any caller that needs
-    /// to detect snapshot-level field changes (e.g. freeze-state transitions) must
-    /// compare fields directly; `==` will not fire for those differences.
-    public static func == (lhs: WorkflowActionGroup, rhs: WorkflowActionGroup) -> Bool {
-        lhs.id == rhs.id
-    }
+    // Equality is SYNTHESIZED (memberwise) — deliberately no custom `==`.
+    //
+    // ⚠️ Do NOT reintroduce identity-based (`lhs.id == rhs.id`) equality here.
+    // SwiftUI decides whether to re-invoke a view's `body` by comparing the view's
+    // stored properties with `==`. The migration shell rows and columns
+    // (`MigrationWorkflowRow`, `MigrationWorkflowListView`) store a
+    // `WorkflowActionGroup` / `[WorkflowActionGroup]` directly, so an id-only `==`
+    // made every post-conclusion snapshot compare "equal" and SwiftUI skipped the
+    // re-render — the status dot stayed blue until the view was recreated by
+    // navigating away and back (#2859, #2870).
+    //
+    // Memberwise equality covers `runs`, `jobs`, and `isDimmed`, which are exactly
+    // the inputs of the derived `groupStatus` / `conclusion` / `rbStatus`, so any
+    // status or conclusion change now invalidates the observing views in place.
+    // `id` remains stable across polls, so `List`/`ForEach` still diff groups as
+    // in-place updates rather than remove+insert pairs (#2688 stays fixed).
+    //
+    // Cost note: `onChange(of: store.actions)` in `PanelMainView` now deep-compares
+    // job arrays once per poll snapshot. The lists involved are tens of value
+    // structs — negligible next to the network fetch that produced them.
 
     /// Returns a copy of this group with a replacement jobs array.
     ///
