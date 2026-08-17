@@ -10,6 +10,11 @@ import SwiftUI
 /// Deliberately omits a header row: the sidebar already identifies the
 /// Settings destination. Selection is owned by `AppShellView` and flows
 /// down as a binding.
+///
+/// ## Row styling
+/// Rows use 15-point medium-weight text, 46-point height, and 12-point
+/// horizontal inset so they feel proportionate at the 240–280-point column
+/// width owned by `AppContentView`.
 @MainActor
 struct MigrationSettingsListView: View {
 
@@ -24,6 +29,9 @@ struct MigrationSettingsListView: View {
     var body: some View {
         List(MigrationSettingsSection.allCases, selection: $selection) { section in
             Label(section.title, systemImage: section.systemImage)
+                .font(.system(size: 15, weight: .medium))
+                .padding(.horizontal, 12)
+                .frame(height: 46)
                 .tag(section)
         }
         .listStyle(.sidebar)
