@@ -90,7 +90,9 @@ struct MigrationSettingsDetailView: View {
             }
         case .general:
             MigrationSettingsSectionLayout(title: "General") {
-                GeneralSettingsSection()
+                GeneralSettingsSection(
+                    notifications: dependencies.notifications
+                )
             }
         case .updates:
             MigrationSettingsSectionLayout(title: "Updates") {

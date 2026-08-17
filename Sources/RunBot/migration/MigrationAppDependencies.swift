@@ -115,6 +115,7 @@ final class MigrationAppDependencies {
                 schedulerIdentifier: "io.github.runbot-hq.update-check",
                 betaChannelProvider: { AppPreferencesStore.shared.betaChannel }
             ),
+            notifications: NotificationPreferences.shared,
             onSignIn: onSignIn,
             onSignOut: onSignOut
         )
