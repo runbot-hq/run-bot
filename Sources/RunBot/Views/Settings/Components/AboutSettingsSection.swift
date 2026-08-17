@@ -53,7 +53,10 @@ struct AboutSettingsSection: View {
             .padding(.horizontal, RBSpacing.md)
             .padding(.vertical, 5)
         }
-        .settingsTintedGlassCard(color: .rbAccent, cornerRadius: 8)
+        .background(
+        RoundedRectangle(cornerRadius: 15, style: .continuous)
+            .fill(Color.rbSettingsCardBackground)
+    )
         .padding(.horizontal, RBSpacing.md)
         .padding(.vertical, 8)
     }

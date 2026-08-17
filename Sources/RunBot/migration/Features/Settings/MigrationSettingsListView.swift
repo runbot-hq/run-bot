@@ -12,9 +12,10 @@ import SwiftUI
 /// down as a binding.
 ///
 /// ## Row styling
-/// Rows use 15-point medium-weight text, 46-point height, and 12-point
-/// horizontal inset so they feel proportionate at the 240–280-point column
-/// width owned by `AppContentView`.
+/// Rows use 15-point medium-weight text, a 32-point label height, and
+/// 3-point vertical list insets, producing a native selected-row height
+/// around 40–44 points. The native sidebar selection background is used
+/// directly — no manual selection overlay is drawn.
 @MainActor
 struct MigrationSettingsListView: View {
 
@@ -30,9 +31,18 @@ struct MigrationSettingsListView: View {
         List(MigrationSettingsSection.allCases, selection: $selection) { section in
             Label(section.title, systemImage: section.systemImage)
                 .font(.system(size: 15, weight: .medium))
-                .padding(.horizontal, 12)
-                .frame(height: 46)
+                .imageScale(.medium)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(height: 32)
                 .tag(section)
+                .listRowInsets(
+                    EdgeInsets(
+                        top: 3,
+                        leading: 12,
+                        bottom: 3,
+                        trailing: 12
+                    )
+                )
         }
         .listStyle(.sidebar)
     }
