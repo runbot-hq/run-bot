@@ -10,19 +10,19 @@ extension Color {
 
     /// Adaptive card-background color for migration settings section cards.
     ///
-    /// Light: calibrated white 0.94 (subtly lighter than the window surface).
-    /// Dark:  calibrated white 0.16 (subtly lighter than the dark column background).
+    /// Dark:  6% white overlay — surface slightly lifted above the detail background.
+    /// Light: 3.5% black overlay — surface slightly tinted below the light background.
     ///
-    /// Using a dedicated adaptive token avoids the wash-out that `Color.primary.opacity(…)`
-    /// produces when the system accent or vibrancy changes.
+    /// Opacity is applied only to the background shape; card content remains fully opaque.
+    /// Borderless, shadowless, non-glass. (#2896)
     static let rbSettingsCardBackground = Color(
         nsColor: NSColor(
             name: nil,
             dynamicProvider: { appearance in
                 let isDark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
                 return isDark
-                    ? NSColor(calibratedWhite: 0.16, alpha: 1)
-                    : NSColor(calibratedWhite: 0.94, alpha: 1)
+                    ? NSColor(calibratedWhite: 1, alpha: 0.06)
+                    : NSColor(calibratedWhite: 0, alpha: 0.035)
             }
         )
     )

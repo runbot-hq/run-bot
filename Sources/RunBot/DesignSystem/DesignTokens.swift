@@ -260,27 +260,29 @@ extension Color {
     )
 
     /// Final resolved active-authentication card glass background.
-    /// Uses the same green hue as `rbSuccess` — 0.22 opacity in light mode, 0.15 in dark mode.
+    /// Uses the same green hue as `rbSuccess` — 0.12 opacity in both modes.
+    /// Reduced from 0.22/0.15 per #2896: semantic distinction without a status-banner weight.
     ///
     /// ⚠️ This token already contains its final opacity.
     /// Do NOT append `.opacity(...)` at call sites.
     /// Use only for the active state of `AuthenticationSourceCard`.
     static let rbAuthActiveGlassBackground = Color.adaptive(
-        light: Color(red: 0.18, green: 0.64, blue: 0.18, opacity: 0.22),
-        dark: Color(red: 0.25, green: 0.80, blue: 0.25, opacity: 0.15)
+        light: Color(red: 0.18, green: 0.64, blue: 0.18, opacity: 0.12),
+        dark: Color(red: 0.25, green: 0.80, blue: 0.25, opacity: 0.12)
     )
 
     /// Final resolved inactive-authentication card glass background.
-    /// Black 0.08 in light mode (softer than the general neutral foreground at 0.15);
-    /// white 0.07 in dark mode (matches the reduced neutral foreground strength).
+    /// Aligned with `rbSettingsCardBackground` per #2896:
+    /// black 0.035 in light mode, white 0.06 in dark mode.
+    /// Inactive OAuth card blends into the detail surface identically to other section cards.
     ///
     /// ⚠️ This token already contains its final opacity.
     /// Do NOT append `.opacity(...)` at call sites.
     /// Use only for the inactive state of `AuthenticationSourceCard`.
     /// `rbGlassNeutralBackground` remains the token for all other neutral foreground surfaces.
     static let rbAuthInactiveGlassBackground = Color.adaptiveGrayscale(
-        light: (white: 0, alpha: 0.08),
-        dark: (white: 1, alpha: 0.07)
+        light: (white: 0, alpha: 0.035),
+        dark: (white: 1, alpha: 0.06)
     )
 
     /// Adaptive stroke color for job-row cards in `InlineJobRowsView`.
