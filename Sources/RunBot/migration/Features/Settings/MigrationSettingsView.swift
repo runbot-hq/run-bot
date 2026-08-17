@@ -44,6 +44,7 @@ struct MigrationSettingsView: View {
 
     // MARK: - Body
 
+    /// The two-pane settings layout.
     var body: some View {
         HSplitView {
             MigrationSettingsListView(selection: $selectedSection)

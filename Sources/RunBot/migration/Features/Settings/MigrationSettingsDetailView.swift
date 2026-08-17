@@ -39,6 +39,7 @@ struct MigrationSettingsDetailView: View {
 
     // MARK: - Body
 
+    /// Routes the selected section to the appropriate settings view.
     var body: some View {
         switch selection ?? .authentication {
         case .authentication:
