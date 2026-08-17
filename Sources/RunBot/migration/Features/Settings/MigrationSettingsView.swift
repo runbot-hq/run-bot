@@ -8,23 +8,21 @@ import SwiftUI
 
 // MARK: - MigrationSettingsView
 
-/// Single-column scrollable settings destination for the windowed app shell.
+/// Two-pane settings destination for the windowed app shell.
 ///
-/// Replaces the Step-7 placeholder with a finite-width scroll view that
-/// reuses existing authentication, general, update, and about sections.
+/// Hosts a horizontal split view with `MigrationSettingsListView` on the left
+/// and `MigrationSettingsDetailView` on the right. Selection is owned here so
+/// both panes share a single source of truth without extra plumbing.
 ///
 /// ## Layout
-/// Content is constrained to 520–760 pt so settings remain readable
-/// in a wide application window without stretching labels and controls.
+/// `HSplitView` is used to match the pattern of the other migration
+/// destinations (`MigrationScopeView`, `MigrationWorkflowView`).
 ///
 /// ## Dependency rules
 /// - `GitHubAuthentication` is read from the SwiftUI environment (owned by
 ///   `RunBotDesktopApp`). Do not create a second instance here.
-/// - OAuth sign-in / sign-out are closures on `MigrationSettingsDependencies`
-///   built at the app root, so this view never touches `OAuthCredentialController`
-///   or `GitHubClient` directly.
-/// - `setSelectedSource` is called directly on the environment `authentication`
-///   object — the same instance observed by `MigrationScopeView`.
+/// - OAuth sign-in / sign-out closures and other services are forwarded to the
+///   detail view via `MigrationSettingsDependencies`, unchanged from before.
 @MainActor
 struct MigrationSettingsView: View {
 
@@ -39,44 +37,19 @@ struct MigrationSettingsView: View {
     /// Services required by the settings sections.
     let dependencies: MigrationSettingsDependencies
 
+    // MARK: - State
+
+    /// The currently selected settings section.
+    @State private var selectedSection: MigrationSettingsSection? = .authentication
+
     // MARK: - Body
 
-    /// The scrollable settings layout.
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
-                Text("Settings")
-                    .font(.largeTitle.weight(.semibold))
-
-                AuthenticationSection(
-                    authentication: authentication,
-                    onSignIn: dependencies.onSignIn,
-                    onSignOut: { Task { await dependencies.onSignOut() } },
-                    onToggleEnvironment: { enabled in
-                        if enabled {
-                            authentication.setSelectedSource(.environment)
-                        } else {
-                            authentication.setSelectedSource(.unauthenticated)
-                        }
-                    }
-                )
-
-                GeneralSettingsSection()
-
-                UpdateSettingsSection(
-                    settings: dependencies.settings,
-                    runnerState: dependencies.runnerState,
-                    autoUpdater: dependencies.autoUpdater
-                )
-
-                AboutSettingsSection()
-            }
-            .padding(24)
-            .frame(
-                minWidth: 520,
-                idealWidth: 680,
-                maxWidth: 760,
-                alignment: .leading
+        HSplitView {
+            MigrationSettingsListView(selection: $selectedSection)
+            MigrationSettingsDetailView(
+                selection: selectedSection,
+                dependencies: dependencies
             )
         }
         .navigationTitle("Settings")
