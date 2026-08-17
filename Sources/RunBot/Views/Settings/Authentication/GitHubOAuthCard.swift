@@ -45,11 +45,11 @@ struct GitHubOAuthCard: View {
                     HStack(spacing: 6) {
                         statusDot
                         Text("GitHub OAuth")
-                            .font(.system(size: 12, weight: .medium))
+                            .font(.system(size: 15, weight: .medium))
                     }
                     statusLine
-                        .font(.caption)
-                        .foregroundColor(statusLineColor)
+                        .font(.system(size: 13))
+                        .foregroundStyle(statusLineColor)
                 }
                 .opacity(isActive ? 1.0 : 0.75)
                 Spacer()
@@ -104,7 +104,7 @@ struct GitHubOAuthCard: View {
         switch oauthState {
         case .signedOut:
             Button(action: onSignIn) {
-                Text("Sign in").font(.caption2)
+                Text("Sign in").font(.system(size: 13))
             }
             .buttonStyle(.bordered)
             .disabled(isSignInDisabled)
@@ -115,7 +115,7 @@ struct GitHubOAuthCard: View {
             )
         case .signedIn:
             Button(action: onSignOut) {
-                Text("Sign out").font(.caption2)
+                Text("Sign out").font(.system(size: 13))
             }
             .buttonStyle(.bordered)
             .tint(Color.rbDanger)

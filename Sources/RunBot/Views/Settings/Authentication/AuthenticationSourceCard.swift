@@ -38,10 +38,13 @@ struct AuthenticationSourceCard<Content: View>: View {
         content()
             .frame(
                 maxWidth: .infinity,
-                maxHeight: .infinity,
+                minHeight: 100,
                 alignment: .topLeading
             )
-            .padding(10)
-            .settingsGlassCard(background: glassBackground, cornerRadius: 8)
+            .padding(20)
+            .background(
+                RoundedRectangle(cornerRadius: 15, style: .continuous)
+                    .fill(glassBackground)
+            )
     }
 }
