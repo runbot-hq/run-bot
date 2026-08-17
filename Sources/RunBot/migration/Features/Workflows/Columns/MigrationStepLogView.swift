@@ -5,6 +5,14 @@ import GitHubClient
 import RunBotCore
 import SwiftUI
 
+/// Composite identity used to reset `StepLogContentView` state when the
+/// selected job/step pair changes. Step numbers repeat across jobs, so
+/// both values are required.
+private struct StepLogSelectionID: Hashable, Sendable {
+    let jobID: Int
+    let stepNumber: Int
+}
+
 /// Step-log pane — renders the full step log using the shared `StepLogContentView`.
 struct MigrationStepLogView: View {
     /// The job that owns the selected step.
@@ -23,6 +31,7 @@ struct MigrationStepLogView: View {
                     step: step,
                     logFetcher: $logFetcher
                 )
+                .id(StepLogSelectionID(jobID: job.id, stepNumber: step.number))
             } else {
                 MigrationColumnPlaceholder(
                     title: "Select a step",
