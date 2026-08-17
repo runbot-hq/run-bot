@@ -45,7 +45,6 @@ struct AppShellView: View {
                 selection: selection,
                 runnerState: runnerState,
                 localRunnerStore: localRunnerStore,
-                settingsDependencies: settingsDependencies,
                 workflowSelection: workflowSelection,
                 settingsSelection: $settingsSelection
             )
