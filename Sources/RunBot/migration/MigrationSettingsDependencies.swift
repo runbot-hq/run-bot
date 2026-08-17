@@ -27,6 +27,9 @@ final class MigrationSettingsDependencies {
     let runnerState: RunnerState
     /// Shared auto-updater; must be owned at the composition root.
     let autoUpdater: AppUpdater
+    /// Notification delivery preferences; must use `NotificationPreferences.shared`
+    /// so the poller and Settings picker read the same object.
+    let notifications: NotificationPreferences
 
     /// Called to initiate the OAuth sign-in browser flow.
     let onSignIn: @MainActor () -> Void
@@ -38,12 +41,14 @@ final class MigrationSettingsDependencies {
         settings: AppPreferencesStore,
         runnerState: RunnerState,
         autoUpdater: AppUpdater,
+        notifications: NotificationPreferences,
         onSignIn: @escaping @MainActor () -> Void,
         onSignOut: @escaping @MainActor () async -> Void
     ) {
         self.settings = settings
         self.runnerState = runnerState
         self.autoUpdater = autoUpdater
+        self.notifications = notifications
         self.onSignIn = onSignIn
         self.onSignOut = onSignOut
     }
