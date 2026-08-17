@@ -147,7 +147,7 @@ extension WorkflowActionGroup {
 ///
 /// Holds only the data needed for display and job fetching — deliberately
 /// minimal so the full job list lives on the parent `WorkflowActionGroup` instead.
-public struct WorkflowRunRef: Identifiable, Sendable {
+public struct WorkflowRunRef: Identifiable, Equatable, Sendable {
     /// The unique GitHub run ID.
     public let id: Int
     /// Workflow file name, e.g. `"SonarQube"`, `"vitest"`.
@@ -267,18 +267,30 @@ public struct WorkflowActionGroup: Identifiable, Equatable, Sendable {
 
     // MARK: Equatable
 
-    /// Identity-based equality: two groups are equal when their stable `id` matches.
+    /// Structural (memberwise) equality: two groups are equal when every stored
+    /// property matches.
     ///
-    /// This satisfies the `onChange(of: store.actions)` requirement in `PanelMainView`
-    /// without deep-comparing mutable job arrays on every poll.
-    ///
-    /// ⚠️ `copying()` can produce structurally different instances — for example,
-    /// toggling `isDimmed` or updating `lastJobCompletedAt` — that this operator
-    /// still treats as equal because only `id` is compared. Any caller that needs
-    /// to detect snapshot-level field changes (e.g. freeze-state transitions) must
-    /// compare fields directly; `==` will not fire for those differences.
+    /// This is crucial for SwiftUI's diffing: when a workflow run concludes, the
+    /// poller writes a new snapshot with updated `status`, `conclusion`, `jobs`,
+    /// etc. — and `==` must return `false` so that `@Observable` observation
+    /// tracking on `RunnerState.actions` (which relies on `Array` element equality)
+    /// correctly detects the change, invalidates the view, and re-renders the
+    /// workflow list. The previous id-only comparison caused every poll cycle to
+    /// produce a "structurally equal" array, and SwiftUI skipped re-rendering
+    /// the workflow rows — leaving the status indicator stuck at blue.
     public static func == (lhs: WorkflowActionGroup, rhs: WorkflowActionGroup) -> Bool {
-        lhs.id == rhs.id
+        lhs.headSha == rhs.headSha
+            && lhs.label == rhs.label
+            && lhs.title == rhs.title
+            && lhs.headBranch == rhs.headBranch
+            && lhs.repo == rhs.repo
+            && lhs.normalizedEvent == rhs.normalizedEvent
+            && lhs.runs == rhs.runs
+            && lhs.jobs == rhs.jobs
+            && lhs.firstJobStartedAt == rhs.firstJobStartedAt
+            && lhs.lastJobCompletedAt == rhs.lastJobCompletedAt
+            && lhs.createdAt == rhs.createdAt
+            && lhs.isDimmed == rhs.isDimmed
     }
 
     /// Returns a copy of this group with a replacement jobs array.
