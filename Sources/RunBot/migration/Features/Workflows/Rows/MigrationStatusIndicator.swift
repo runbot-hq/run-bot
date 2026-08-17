@@ -14,6 +14,5 @@ struct MigrationStatusIndicator: View {
         Circle()
             .fill(status.color)
             .frame(width: 10, height: 10)
-            .padding(.top, 5)
     }
 }

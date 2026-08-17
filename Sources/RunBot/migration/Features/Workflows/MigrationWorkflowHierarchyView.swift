@@ -30,8 +30,11 @@ struct MigrationWorkflowHierarchyView: View {
     private var workflows: [WorkflowActionGroup] { runnerState.actions }
 
     /// The column layout: hierarchy list or an empty-state placeholder.
+    ///
+    /// No column header — in the three-column shell the sidebar already names
+    /// the active section, so a "Workflows" title would be redundant.
     var body: some View {
-        MigrationWorkflowColumn(title: "Workflows") {
+        Group {
             if workflows.isEmpty {
                 MigrationColumnPlaceholder(
                     title: "No workflows",
