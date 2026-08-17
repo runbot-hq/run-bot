@@ -3,8 +3,8 @@
 
 import SwiftUI
 
-/// Shared pane container for workflow split-view columns.
-/// Provides a consistent native header and content layout across all four panes.
+/// Shared pane container for workflow columns.
+/// Provides a consistent native header and content layout across panes.
 struct MigrationWorkflowColumn<Content: View>: View {
     /// The column heading displayed in the header bar.
     let title: String

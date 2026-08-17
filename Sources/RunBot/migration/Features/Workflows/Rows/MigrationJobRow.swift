@@ -7,14 +7,19 @@ import SwiftUI
 
 // MARK: - MigrationJobRow
 
-/// A single row in the Jobs column.
+/// A single job row in the workflow hierarchy.
 ///
-/// Two lines: job title (line 1), elapsed time and step progress (line 2).
-/// The numeric job ID is not displayed.
+/// Two lines: runner-type icon and job title (line 1), elapsed time and step
+/// progress (line 2). The numeric job ID is not displayed.
 /// All text uses `.lineLimit(1)` so the pane minimum width is never widened.
 struct MigrationJobRow: View {
     /// The job to render.
     let job: ActiveJob
+
+    /// SF Symbol indicating a self-hosted (local) or GitHub-hosted (cloud) runner.
+    private var runnerSymbolName: String {
+        job.isLocalRunner == true ? "desktopcomputer" : "cloud"
+    }
 
     /// Step progress text, or nil when the step list is empty.
     private var stepProgress: String? {
@@ -30,10 +35,16 @@ struct MigrationJobRow: View {
                 .padding(.top, 4)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(job.displayTitle)
-                    .font(.headline)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
+                HStack(spacing: 5) {
+                    Image(systemName: runnerSymbolName)
+                        .font(.system(size: 10))
+                        .foregroundStyle(.secondary)
+
+                    Text(job.displayTitle)
+                        .font(.headline)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
 
                 MigrationRowMetadata(
                     values: [

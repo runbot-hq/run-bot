@@ -6,7 +6,7 @@ import SwiftUI
 
 // MARK: - MigrationWorkflowRow
 
-/// A single row in the Workflows column.
+/// A single workflow row in the workflow hierarchy.
 ///
 /// Three lines: workflow title (line 1), repository and branch (line 2),
 /// elapsed time, relative start time, and progress (line 3).

@@ -7,7 +7,7 @@ import SwiftUI
 
 // MARK: - MigrationStepRow
 
-/// A single row in the Steps column.
+/// A single step row in the workflow hierarchy.
 ///
 /// Two lines: step title (line 1), step number and elapsed time (line 2).
 /// Elapsed is omitted for queued or unstarted steps.
