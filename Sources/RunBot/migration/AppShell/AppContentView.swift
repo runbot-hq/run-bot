@@ -18,8 +18,6 @@ struct AppContentView: View {
     let runnerState: RunnerState
     /// Configured local-runner store forwarded from the composition root.
     let localRunnerStore: LocalRunnerStore
-    /// Settings services forwarded from the composition root.
-    let settingsDependencies: MigrationSettingsDependencies
     /// Shared workflow → job → step selection owned by `AppShellView`.
     var workflowSelection: MigrationWorkflowSelection
 
