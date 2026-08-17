@@ -60,6 +60,13 @@ struct RunBotDesktopApp: App {
             .task {
                 await deps.start()
             }
+            .onOpenURL { url in
+                guard
+                    url.scheme == GitHubConstants.oauthScheme,
+                    url.host == GitHubConstants.oauthHost
+                else { return }
+                deps.handleOAuthCallback(url)
+            }
         }
         .windowStyle(.hiddenTitleBar)
         .defaultSize(width: 1_200, height: 760)
