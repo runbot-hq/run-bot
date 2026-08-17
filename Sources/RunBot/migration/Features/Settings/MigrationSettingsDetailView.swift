@@ -8,18 +8,16 @@ import SwiftUI
 
 // MARK: - MigrationSettingsDetailView
 
-/// Right-hand detail pane for the two-pane settings layout.
+/// Detail column for the settings destination.
 ///
-/// Routes the selected `MigrationSettingsSection` to the appropriate
-/// existing settings section view. All section views are reused unchanged;
-/// this view is purely a router.
+/// Wraps the selected section view in a `ScrollView` so Authentication,
+/// Updates, and future tall sections remain accessible in short windows.
+/// Width is constrained to stay readable in wide windows.
 ///
 /// ## Dependency rules
-/// - `GitHubAuthentication` is read from the environment (same instance as
-///   `MigrationSettingsView` used to own).
-/// - `onToggleEnvironment` calls `authentication.setSelectedSource` directly
-///   on that environment object, preserving the existing behaviour.
-/// - No new plumbing through `AppShellView` or `AppDetailView` is required.
+/// - `GitHubAuthentication` is read from the environment (owned by
+///   `RunBotDesktopApp`). No second instance is created here.
+/// - `onToggleEnvironment` calls `authentication.setSelectedSource` directly.
 @MainActor
 struct MigrationSettingsDetailView: View {
 
@@ -39,8 +37,24 @@ struct MigrationSettingsDetailView: View {
 
     // MARK: - Body
 
-    /// Routes the selected section to the appropriate settings view.
+    /// Scrollable detail view with readable-width constraint.
     var body: some View {
+        ScrollView {
+            detailContent
+                .padding(24)
+                .frame(
+                    minWidth: 520,
+                    maxWidth: 760,
+                    alignment: .topLeading
+                )
+        }
+    }
+
+    // MARK: - Detail content
+
+    /// Routes the selected section to the appropriate settings view.
+    @ViewBuilder
+    private var detailContent: some View {
         switch selection ?? .authentication {
         case .authentication:
             AuthenticationSection(

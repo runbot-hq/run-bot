@@ -5,14 +5,11 @@ import SwiftUI
 
 // MARK: - MigrationSettingsListView
 
-/// Left-hand list pane for the two-pane settings layout.
+/// Settings section list shown in the content column of the app shell.
 ///
-/// Mirrors the header style of `MigrationManagementColumn` but omits the Add
-/// button because settings sections are static.
-///
-/// ## Selection
-/// Selection is owned by the parent `MigrationSettingsView` so that
-/// the detail pane can react to it without prop-drilling through this view.
+/// Deliberately omits a header row: the sidebar already identifies the
+/// Settings destination. Selection is owned by `AppShellView` and flows
+/// down as a binding.
 @MainActor
 struct MigrationSettingsListView: View {
 
@@ -23,24 +20,12 @@ struct MigrationSettingsListView: View {
 
     // MARK: - Body
 
-    /// The settings list column.
+    /// The settings section list.
     var body: some View {
-        VStack(spacing: 0) {
-            HStack {
-                Text("Settings")
-                    .font(.headline)
-                Spacer()
-            }
-            .padding(.horizontal, 12)
-            .frame(height: 44)
-
-            Divider()
-
-            List(MigrationSettingsSection.allCases, selection: $selection) { section in
-                Label(section.title, systemImage: section.systemImage)
-                    .tag(section)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        List(MigrationSettingsSection.allCases, selection: $selection) { section in
+            Label(section.title, systemImage: section.systemImage)
+                .tag(section)
         }
+        .listStyle(.sidebar)
     }
 }
