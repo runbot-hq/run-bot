@@ -21,6 +21,14 @@ struct AppShellView: View {
     /// content column (list) and detail column (section view) stay in sync.
     @State private var settingsSelection: MigrationSettingsSection? = .authentication
 
+    /// Shared runner selection. Owned here so the content list and detail column
+    /// resolve the same model. (#2900)
+    @State private var selectedRunnerID: RunnerModel.ID?
+
+    /// Shared scope selection. Owned here so the content list and detail column
+    /// resolve the same model. (#2900)
+    @State private var selectedScopeID: ScopeEntry.ID?
+
     /// Runner store forwarded from the composition root.
     let runnerState: RunnerState
     /// Configured local-runner store forwarded from the composition root.
@@ -46,7 +54,9 @@ struct AppShellView: View {
                 runnerState: runnerState,
                 localRunnerStore: localRunnerStore,
                 workflowSelection: workflowSelection,
-                settingsSelection: $settingsSelection
+                settingsSelection: $settingsSelection,
+                selectedRunnerID: $selectedRunnerID,
+                selectedScopeID: $selectedScopeID
             )
         } detail: {
             AppDetailView(
@@ -55,6 +65,8 @@ struct AppShellView: View {
                 workflowSelection: workflowSelection,
                 settingsSelection: settingsSelection,
                 settingsDependencies: settingsDependencies,
+                selectedRunnerID: selectedRunnerID,
+                selectedScopeID: selectedScopeID,
                 logFetcher: $logFetcher
             )
         }

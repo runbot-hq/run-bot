@@ -24,6 +24,11 @@ struct AppDetailView: View {
     /// Settings services forwarded from the composition root.
     let settingsDependencies: MigrationSettingsDependencies
 
+    /// Shell-owned runner selection forwarded from `AppShellView`. (#2900)
+    let selectedRunnerID: RunnerModel.ID?
+    /// Shell-owned scope selection forwarded from `AppShellView`. (#2900)
+    let selectedScopeID: ScopeEntry.ID?
+
     /// Shared log fetcher — threaded from `AppShellView`.
     @Binding var logFetcher: LogFetcher
 
@@ -60,7 +65,15 @@ struct AppDetailView: View {
                 selection: settingsSelection,
                 dependencies: settingsDependencies
             )
-        default:
+        case .localRunners:
+            MigrationRunnerDetailView(
+                runner: runnerState.localRunners.first { $0.id == selectedRunnerID }
+            )
+        case .scopes:
+            MigrationScopeDetailDestination(
+                scope: ScopeStore.shared.entries.first { $0.id == selectedScopeID }
+            )
+        case nil:
             ContentUnavailableView(
                 "No details",
                 systemImage: "sidebar.right"
