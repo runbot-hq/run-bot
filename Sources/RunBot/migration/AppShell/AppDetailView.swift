@@ -58,6 +58,7 @@ struct AppDetailView: View {
             MigrationStepLogView(
                 selectedJob: selectedJob,
                 selectedStep: selectedStep,
+                workflowName: selectedWorkflow?.title,
                 logFetcher: $logFetcher
             )
         case .settings:
