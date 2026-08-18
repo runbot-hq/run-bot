@@ -1,6 +1,7 @@
 // AppDetailView.swift
 // RunBot
 
+import GitHubClient
 import SwiftUI
 
 /// Detail column router. Switches on the current sidebar selection.
@@ -8,6 +9,9 @@ import SwiftUI
 struct AppDetailView: View {
     /// The currently selected sidebar section.
     let selection: AppSection?
+
+    /// Injected from `AppShellView`; forwarded to scope management.
+    let authentication: GitHubAuthentication
 
     /// Routes to the corresponding feature-root view.
     var body: some View {
@@ -17,7 +21,7 @@ struct AppDetailView: View {
         case .localRunners:
             MigrationRunnerView()
         case .scopes:
-            MigrationScopeView()
+            MigrationScopeView(scopeStore: .shared, authentication: authentication)
         case .settings:
             MigrationSettingsView()
         case nil:
