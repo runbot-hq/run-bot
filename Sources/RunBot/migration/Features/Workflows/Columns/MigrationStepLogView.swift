@@ -21,36 +21,18 @@ struct MigrationStepLogView: View {
     let selectedJob: ActiveJob?
     /// The currently selected step, or `nil` when none is selected.
     let selectedStep: GitHubStep?
-    /// Commit message / PR title of the selected workflow, shown as the detail heading.
-    let workflowName: String?
     /// Shared log fetcher threaded from the composition root.
     @Binding var logFetcher: LogFetcher
 
-    /// The pane content: optional workflow title header, then step log or placeholder.
+    /// The pane content: step log when a step is selected, placeholder otherwise.
     var body: some View {
         if let job = selectedJob, let step = selectedStep {
-            VStack(spacing: 0) {
-                if let name = workflowName {
-                    HStack {
-                        Text(name)
-                            .font(.title2.weight(.semibold))
-                            .lineLimit(1)
-                            .layoutPriority(1)
-                        Spacer()
-                    }
-                    .padding(.horizontal, 20)
-                    .frame(height: 44)
-
-                    Divider()
-                }
-
-                StepLogContentView(
-                    job: job,
-                    step: step,
-                    logFetcher: $logFetcher
-                )
-                .id(StepLogSelectionID(jobID: job.id, stepNumber: step.number))
-            }
+            StepLogContentView(
+                job: job,
+                step: step,
+                logFetcher: $logFetcher
+            )
+            .id(StepLogSelectionID(jobID: job.id, stepNumber: step.number))
         } else {
             MigrationColumnPlaceholder(
                 title: "Select a step",

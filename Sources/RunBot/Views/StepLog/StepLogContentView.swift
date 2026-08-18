@@ -158,6 +158,14 @@ struct StepLogContentView: View {
     /// Root body -- top bar, step name, meta rows, and the capped log scroll view.
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            Text(step.name)
+                .font(.title2.weight(.semibold))
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, RBSpacing.md)
+                .padding(.top, 10)
+                .padding(.bottom, 4)
+
             HStack(spacing: 8) {
                 if let urlString = job.htmlUrl, let url = URL(string: urlString) {
                     Button {
@@ -180,13 +188,6 @@ struct StepLogContentView: View {
             .padding(.horizontal, RBSpacing.md)
             .padding(.top, 10)
             .padding(.bottom, 4)
-
-            Text(step.name)
-                .font(.system(size: 13, weight: .semibold))
-                .lineLimit(2)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.horizontal, RBSpacing.md)
-                .padding(.bottom, 5)
 
             HStack(spacing: 6) {
                 Image(systemName: "briefcase").font(.system(size: 10)).foregroundColor(Color.rbTextSecondary)
