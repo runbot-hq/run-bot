@@ -11,17 +11,34 @@ import SwiftUI
 /// `@main` is intentionally absent because `main.swift` invokes `main()`.
 struct RunBotDesktopApp: App {
     /// Authentication state owned at the window level and injected into the view hierarchy.
-    @State private var authentication = GitHubAuthentication()
+    @State private var authentication: GitHubAuthentication
     /// Runner dependencies configured synchronously before any view is mounted.
     /// `LocalRunnerStore.configure` runs inside `MigrationAppDependencies.init()`.
-    @State private var deps = MigrationAppDependencies()
+    /// Constructed in `init()` so it shares the same `authentication` instance.
+    @State private var deps: MigrationAppDependencies
+
+    /// Initialises shared authentication and dependency bundle before first render.
+    init() {
+        let auth = GitHubAuthentication()
+        _authentication = State(initialValue: auth)
+        _deps = State(initialValue: MigrationAppDependencies(
+            authentication: auth,
+            onSignIn: {
+                // OAuthCredentialController lives in AppState (legacy layer).
+                // For the migration shell, sign-in is a no-op placeholder.
+                // TODO: wire real coordinator when AppState is retired (#2815).
+            },
+            onSignOut: {}
+        ))
+    }
 
     /// The scene graph for the windowed application.
     var body: some Scene {
         Window("RunBot", id: "main") {
             AppShellView(
                 runnerState: deps.runnerState,
-                localRunnerStore: deps.localRunnerStore
+                localRunnerStore: deps.localRunnerStore,
+                settingsDependencies: deps.settingsDependencies
             )
             .environment(authentication)
         }
