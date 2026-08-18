@@ -19,6 +19,7 @@ struct MigrationScopeDetailDestination: View {
 
     // MARK: - Body
 
+    /// Passes store and selection to `MigrationScopeDetailView`.
     var body: some View {
         MigrationScopeDetailView(
             scopeStore: scopeStore,

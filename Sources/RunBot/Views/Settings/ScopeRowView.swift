@@ -25,6 +25,7 @@ struct ScopeRowView: View {
 
     // MARK: - Body
 
+    /// The row layout: status dot, name, type label, toggle, and delete button.
     var body: some View {
         Button(action: onSelect) {
             HStack(spacing: 6) {
