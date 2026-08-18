@@ -8,17 +8,23 @@ import SwiftUI
 /// Root view for the Workflows destination.
 ///
 /// Owns the four-pane `HSplitView` and the in-memory selection chain.
-/// Receives live `[WorkflowActionGroup]` from `RunnerState.actions` via
-/// the composition root. Does not fetch data.
+/// Observes `RunnerState` directly so each poll snapshot updates all three
+/// hierarchy columns in place without a selection reset.
+@MainActor
 struct MigrationWorkflowView: View {
 
-    /// Workflow data provided by the caller. Empty until production data is wired.
-    let workflows: [WorkflowActionGroup]
+    /// Observable runner state. Observed directly to stay live across polls.
+    @Bindable var runnerState: RunnerState
     /// Shared log fetcher threaded from the composition root.
     @Binding var logFetcher: LogFetcher
 
     /// In-memory selection state for the three-level hierarchy.
     @State private var selection = MigrationWorkflowSelection()
+
+    // MARK: - Derived data
+
+    /// Current workflow snapshot derived from the observable runner state.
+    private var workflows: [WorkflowActionGroup] { runnerState.actions }
 
     // MARK: - Derived selection
 
@@ -66,6 +72,9 @@ struct MigrationWorkflowView: View {
                 logFetcher: $logFetcher
             )
             .frame(minWidth: 260, idealWidth: 380, maxWidth: 800)
+        }
+        .onChange(of: runnerState.actions) { _, actions in
+            selection.reconcile(workflows: actions)
         }
     }
 }
