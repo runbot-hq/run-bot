@@ -6,56 +6,108 @@ import SwiftUI
 
 // MARK: - MigrationWorkflowRow
 
-/// A single row in the Workflows column.
+/// A single workflow row in the workflow hierarchy.
 ///
-/// Three lines: workflow title (line 1), repository and branch (line 2),
-/// elapsed time, relative start time, and progress (line 3).
-/// All text uses `.lineLimit(1)` so the pane minimum width is never widened.
+/// Mirrors the main-branch `ActionRowView` text layout (#2880):
+/// status dot · repo-name · commit-title · branch · Spacer
+/// · time-ago · completed-duration · jobs-progress.
+/// The animated donut is replaced by the flat `MigrationStatusIndicator` dot.
 struct MigrationWorkflowRow: View {
     /// The workflow to render.
     let workflow: WorkflowActionGroup
 
-    /// Relative time string derived from the earliest available timestamp, e.g. "23 min ago".
-    private var relativeStartText: String? {
-        guard let date = workflow.firstJobStartedAt ?? workflow.createdAt else { return nil }
-        return RelativeTimeFormatter.string(from: date)
-    }
-
-    /// Job progress with explicit 'jobs' suffix, e.g. "5/6 jobs".
-    private var jobProgressText: String? {
-        guard !workflow.jobs.isEmpty else { return nil }
-        return workflow.jobProgress + " jobs"
-    }
-
-    /// The row layout.
+    /// The single-line row layout.
     var body: some View {
-        HStack(alignment: .top, spacing: 8) {
+        HStack(spacing: 6) {
             MigrationStatusIndicator(status: workflow.rbStatus)
-                .padding(.top, 4)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(workflow.title)
-                    .font(.headline)
+            Text(workflow.repoShortName)
+                .font(RBFont.mono)
+                .foregroundColor(Color.rbTextSecondary)
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
+            Text(workflow.title)
+                .font(.system(.caption, design: .monospaced, weight: .semibold))
+                .foregroundColor(workflow.isDimmed ? .secondary : .primary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(maxWidth: RBMetrics.actionRowTitleMaxWidth, alignment: .leading)
+                .help(workflow.title)
+                .layoutPriority(1)
+            // Branch — middle-truncated, full value available through the tooltip;
+            // hidden when nil, matching main-branch behaviour (#1194, #2610).
+            if let branch = workflow.headBranch {
+                Text(branch)
+                    .font(RBFont.mono)
+                    .foregroundColor(Color.rbTextSecondary)
                     .lineLimit(1)
-                    .truncationMode(.tail)
+                    .truncationMode(.middle)
+                    .frame(maxWidth: RBMetrics.actionRowBranchMaxWidth, alignment: .leading)
+                    .help(branch)
+                    .layoutPriority(0)
+            }
+            Spacer(minLength: 4)
+            metaTrailing
+        }
+        .padding(.vertical, 4)
+        .contentShape(.rect)
+    }
 
-                MigrationRowMetadata(
-                    values: [
-                        workflow.repoShortName,
-                        workflow.headBranch
-                    ]
-                )
+    /// Trailing metadata group: time-ago · completed-duration · jobs-progress.
+    ///
+    /// Mirrors the main-branch trailing metadata: `.fixedSize` prevents members
+    /// being compressed to zero and `.layoutPriority(2)` lets the group win
+    /// horizontal space before the title and branch text.
+    @ViewBuilder private var metaTrailing: some View {
+        let relativeStart = workflow.firstJobStartedAt ?? workflow.createdAt
+        let duration = workflow.completedDuration
+        let hasProgress = !workflow.jobs.isEmpty
 
-                MigrationRowMetadata(
-                    values: [
-                        workflow.elapsed.isEmpty ? nil : workflow.elapsed,
-                        relativeStartText,
-                        jobProgressText
-                    ]
-                )
+        HStack(spacing: RBSpacing.xs) {
+            if let relativeStart {
+                Text(RelativeTimeFormatter.string(from: relativeStart))
+                    .font(RBFont.mono)
+                    .foregroundStyle(Color.rbTextSecondary)
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
+            }
+
+            if relativeStart != nil, duration != nil || hasProgress {
+                metadataSeparator
+            }
+
+            // Completed-duration label: only for terminal workflows with valid
+            // timestamps. Active, queued, and loading rows show nothing here.
+            if let duration {
+                Text(WorkflowDurationFormatter.string(from: duration))
+                    .font(RBFont.mono)
+                    .monospacedDigit()
+                    .foregroundStyle(Color.rbTextSecondary)
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
+            }
+
+            if duration != nil, hasProgress {
+                metadataSeparator
+            }
+
+            if hasProgress {
+                Text(workflow.jobProgress)
+                    .font(RBFont.mono)
+                    .monospacedDigit()
+                    .foregroundStyle(Color.rbTextSecondary)
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
             }
         }
-        .padding(.vertical, 6)
-        .contentShape(.rect)
+        .fixedSize(horizontal: true, vertical: false)
+        .layoutPriority(2)
+    }
+
+    /// Decorative centered-dot separator between metadata values.
+    private var metadataSeparator: some View {
+        Text("·")
+            .font(RBFont.mono)
+            .foregroundStyle(Color.rbTextTertiary)
+            .accessibilityHidden(true)
     }
 }

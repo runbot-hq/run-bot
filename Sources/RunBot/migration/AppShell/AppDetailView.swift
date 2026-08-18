@@ -5,42 +5,54 @@ import GitHubClient
 import RunBotCore
 import SwiftUI
 
-/// Detail column router. Switches on the current sidebar selection.
-/// The `nil` case is defensive; Workflows is always selected on launch.
+/// Detail-column router. Shows the step log for the Workflows section and a
+/// neutral placeholder for sections whose content column is self-contained.
+///
+/// Selected job and step are derived here from the shared selection plus the
+/// live runner snapshot so the log always reflects current data.
 struct AppDetailView: View {
     /// The currently selected sidebar section.
     let selection: AppSection?
 
-    /// Injected from `AppShellView`; forwarded to scope management.
-    let authentication: GitHubAuthentication
-
     /// Observable runner state pushed by `LocalRunnerStore`.
     let runnerState: RunnerState
-    /// Configured local-runner store forwarded from the composition root.
-    let localRunnerStore: LocalRunnerStore
-    /// Settings services forwarded from the composition root.
-    let settingsDependencies: MigrationSettingsDependencies
+    /// Shared workflow → job → step selection owned by `AppShellView`.
+    var workflowSelection: MigrationWorkflowSelection
     /// Shared log fetcher — threaded from `AppShellView`.
     @Binding var logFetcher: LogFetcher
 
-    /// Routes to the corresponding feature-root view.
+    // MARK: - Derived selection
+
+    /// The workflow matching the current selection, or `nil`.
+    private var selectedWorkflow: WorkflowActionGroup? {
+        runnerState.actions.first { $0.id == workflowSelection.workflowID }
+    }
+
+    /// The job matching the current selection within the selected workflow, or `nil`.
+    private var selectedJob: ActiveJob? {
+        selectedWorkflow?.jobs.first { $0.id == workflowSelection.jobID }
+    }
+
+    /// The step matching the current selection within the selected job, or `nil`.
+    private var selectedStep: GitHubStep? {
+        selectedJob?.steps.first { $0.number == workflowSelection.stepNumber }
+    }
+
+    // MARK: - Body
+
+    /// Routes to the corresponding detail-column view.
     var body: some View {
         switch selection {
         case .workflows:
-            MigrationWorkflowView(runnerState: runnerState, logFetcher: $logFetcher)
-        case .localRunners:
-            MigrationRunnerView(
-                runnerState: runnerState,
-                localRunnerStore: localRunnerStore
+            MigrationStepLogView(
+                selectedJob: selectedJob,
+                selectedStep: selectedStep,
+                logFetcher: $logFetcher
             )
-        case .scopes:
-            MigrationScopeView(scopeStore: .shared)
-        case .settings:
-            MigrationSettingsView(dependencies: settingsDependencies)
-        case nil:
+        default:
             ContentUnavailableView(
-                "Select an item",
-                systemImage: "sidebar.left"
+                "No details",
+                systemImage: "sidebar.right"
             )
         }
     }

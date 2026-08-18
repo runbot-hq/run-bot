@@ -4,7 +4,7 @@
 import Observation
 import RunBotCore
 
-/// In-memory selection state for the four-pane workflow layout.
+/// In-memory selection state for the workflow hierarchy and step-log detail.
 ///
 /// Owns workflow → job → step selection using stable domain identifiers only.
 /// Downstream selections are cleared whenever an upstream selection changes.
@@ -35,6 +35,27 @@ final class MigrationWorkflowSelection {
 
     /// Selects a step.
     func selectStep(_ number: Int?) {
+        stepNumber = number
+    }
+
+    /// Selects a job within its owning workflow.
+    ///
+    /// Hierarchy rows stay visible for workflows other than the selected one,
+    /// so the full path must be set on tap. Keeps the current step selection
+    /// when the job is unchanged (e.g. a collapse tap); clears it otherwise.
+    func selectJob(_ id: Int, inWorkflow workflowID: String) {
+        self.workflowID = workflowID
+        if jobID != id { stepNumber = nil }
+        jobID = id
+    }
+
+    /// Selects a step within its owning workflow and job.
+    ///
+    /// Sets the full path so a step tap in any expanded workflow shows the
+    /// correct log, even when a different workflow or job was selected before.
+    func selectStep(_ number: Int, ofJob jobID: Int, inWorkflow workflowID: String) {
+        self.workflowID = workflowID
+        self.jobID = jobID
         stepNumber = number
     }
 

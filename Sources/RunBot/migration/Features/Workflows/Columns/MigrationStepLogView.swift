@@ -25,21 +25,22 @@ struct MigrationStepLogView: View {
     @Binding var logFetcher: LogFetcher
 
     /// The pane content.
+    ///
+    /// No column header — the selected step is already evident from the
+    /// hierarchy column, so a "Step log" title would be redundant.
     var body: some View {
-        MigrationWorkflowColumn(title: "Step log") {
-            if let job = selectedJob, let step = selectedStep {
-                StepLogContentView(
-                    job: job,
-                    step: step,
-                    logFetcher: $logFetcher
-                )
-                .id(StepLogSelectionID(jobID: job.id, stepNumber: step.number))
-            } else {
-                MigrationColumnPlaceholder(
-                    title: "Select a step",
-                    systemImage: "doc.plaintext"
-                )
-            }
+        if let job = selectedJob, let step = selectedStep {
+            StepLogContentView(
+                job: job,
+                step: step,
+                logFetcher: $logFetcher
+            )
+            .id(StepLogSelectionID(jobID: job.id, stepNumber: step.number))
+        } else {
+            MigrationColumnPlaceholder(
+                title: "Select a step",
+                systemImage: "doc.plaintext"
+            )
         }
     }
 }
