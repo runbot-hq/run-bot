@@ -17,6 +17,10 @@ import SwiftUI
 /// The updater is injected so it is never instantiated inside this view.
 /// Instantiate once at the composition root and thread through
 /// `MigrationSettingsDependencies`.
+///
+/// ## Layout
+/// The outer section title is provided by `MigrationSettingsSectionLayout`.
+/// This view renders the "Update preferences" group heading and one multi-row card.
 struct UpdateSettingsSection: View {
 
     /// App-wide preference store; needs `@Bindable` for two-way toggle bindings.
@@ -26,32 +30,40 @@ struct UpdateSettingsSection: View {
     /// The shared auto-updater; must be owned at the composition root.
     let autoUpdater: AppUpdater
 
-    /// The updates settings card.
+    // MARK: - Body
+
+    /// Group heading + update settings card.
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text("Updates")
-                .font(RBFont.sectionHeader)
-                .foregroundColor(Color.rbTextSecondary)
-                .padding(.horizontal, RBSpacing.md)
-                .padding(.top, 8)
-                .padding(.bottom, 4)
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Update preferences")
+                .font(.system(size: 15, weight: .semibold))
 
             VStack(spacing: 0) {
                 automaticUpdatesRow
+                    .frame(minHeight: 72)
+
                 if settings.automaticUpdatesEnabled {
-                    Divider().padding(.leading, RBSpacing.md)
+                    Divider()
+                        .opacity(0.10)
+                        .padding(.leading, 20)
+
                     betaChannelRow
+                        .frame(minHeight: 72)
                 }
+
                 if settings.automaticUpdatesEnabled && runnerState.currentPhase != .idle {
-                    Divider().padding(.leading, RBSpacing.md)
-                    GlassEffectContainer {
-                        updateActionRow
-                    }
+                    Divider()
+                        .opacity(0.10)
+                        .padding(.leading, 20)
+
+                    updateActionRow
+                        .frame(minHeight: 68)
                 }
             }
-            .settingsTintedGlassCard(color: .rbAccent, cornerRadius: 8)
-            .padding(.horizontal, RBSpacing.md)
-            .padding(.vertical, 8)
+            .background(
+                RoundedRectangle(cornerRadius: 15, style: .continuous)
+                    .fill(Color.rbSettingsCardBackground)
+            )
         }
     }
 
@@ -59,13 +71,19 @@ struct UpdateSettingsSection: View {
 
     /// Row toggling automatic update downloads.
     private var automaticUpdatesRow: some View {
-        HStack(alignment: .center) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Automatic updates").font(.system(size: 12))
+        HStack(alignment: .center, spacing: 20) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Automatic updates")
+                    .font(.system(size: 15, weight: .medium))
+
                 Text("Automatically downloads updates from GitHub Releases, verified with Ed25519.")
-                    .font(.caption2).foregroundColor(Color.rbTextSecondary)
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            Spacer()
+
+            Spacer(minLength: 24)
+
             Toggle("", isOn: $settings.automaticUpdatesEnabled)
                 .toggleStyle(.switch)
                 .tint(Color.rbSuccess)
@@ -76,19 +94,25 @@ struct UpdateSettingsSection: View {
                     }
                 }
         }
-        .padding(.horizontal, RBSpacing.md)
-        .padding(.vertical, 6)
+        .padding(.horizontal, 20)
+        .padding(.vertical, 14)
     }
 
     /// Row toggling the beta update channel.
     private var betaChannelRow: some View {
-        HStack(alignment: .center) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Beta channel").font(.system(size: 12))
+        HStack(alignment: .center, spacing: 20) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Beta channel")
+                    .font(.system(size: 15, weight: .medium))
+
                 Text("Receive pre-release builds when checking for updates. Does not affect your currently installed version.")
-                    .font(.caption2).foregroundColor(Color.rbTextSecondary)
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            Spacer()
+
+            Spacer(minLength: 24)
+
             Toggle("", isOn: $settings.betaChannel)
                 .toggleStyle(.switch)
                 .tint(Color.rbSuccess)
@@ -99,42 +123,49 @@ struct UpdateSettingsSection: View {
                     }
                 }
         }
-        .padding(.horizontal, RBSpacing.md)
-        .padding(.vertical, 6)
+        .padding(.horizontal, 20)
+        .padding(.vertical, 14)
     }
 
     /// Row showing download progress or install action for a pending update.
     @ViewBuilder
     private var updateActionRow: some View {
-        HStack {
+        HStack(alignment: .center, spacing: 20) {
             switch runnerState.currentPhase {
             case .idle:
                 EmptyView()
             case .available(let version):
-                VStack(alignment: .leading, spacing: 1) {
-                    Text("Update available: \(version)").font(.system(size: 12))
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Update available: \(version)")
+                        .font(.system(size: 15, weight: .medium))
                     Text("A new version is available. Click to download and install.")
-                        .font(.caption2).foregroundColor(Color.rbTextSecondary)
+                        .font(.system(size: 13))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-                Spacer()
+                Spacer(minLength: 24)
                 Button("Install & Relaunch") {}
                     .buttonStyle(.borderedProminent)
                     .controlSize(.small)
                     .disabled(true)
             case .downloading(let version):
-                VStack(alignment: .leading, spacing: 1) {
-                    Text("Update available: \(version)").font(.system(size: 12))
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Update available: \(version)")
+                        .font(.system(size: 15, weight: .medium))
                     ProgressView("Downloading update…")
                         .scaleEffect(RBMetrics.updateProgressScale)
                 }
                 Spacer()
             case .ready(let version):
-                VStack(alignment: .leading, spacing: 1) {
-                    Text("Update available: \(version)").font(.system(size: 12))
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Update available: \(version)")
+                        .font(.system(size: 15, weight: .medium))
                     Text("A new version of the app is ready to be installed.")
-                        .font(.caption2).foregroundColor(Color.rbTextSecondary)
+                        .font(.system(size: 13))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-                Spacer()
+                Spacer(minLength: 24)
                 Button("Install & Relaunch") {
                     Task { await autoUpdater.installAndRelaunch(state: runnerState) }
                 }
@@ -142,13 +173,15 @@ struct UpdateSettingsSection: View {
                 .controlSize(.small)
                 .help("Install and relaunch RunBot")
             case .failed(let version):
-                VStack(alignment: .leading, spacing: 1) {
+                VStack(alignment: .leading, spacing: 4) {
                     Text("Update available" + (version.map { ": \($0)" } ?? ""))
-                        .font(.system(size: 12))
+                        .font(.system(size: 15, weight: .medium))
                     Text("Download failed. Check your connection and try again.")
-                        .font(.caption2).foregroundColor(Color.rbTextSecondary)
+                        .font(.system(size: 13))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-                Spacer()
+                Spacer(minLength: 24)
                 Button("Retry") {
                     Task { await autoUpdater.checkAndHandle(state: runnerState) }
                 }
@@ -156,7 +189,7 @@ struct UpdateSettingsSection: View {
                 .controlSize(.small)
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .padding(10)
+        .padding(.horizontal, 20)
+        .padding(.vertical, 14)
     }
 }

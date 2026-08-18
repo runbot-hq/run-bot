@@ -13,6 +13,10 @@ import SwiftUI
 /// The pre-release caption is driven by `Bundle.main.isPreReleaseBuild`
 /// (see `Bundle+Version.swift`) rather than an inline `contains("-")` check,
 /// to keep detection logic in one place. See PR #2085 / #2108.
+///
+/// ## Layout
+/// The outer section title is provided by `MigrationSettingsSectionLayout`.
+/// This view renders the "Version" group heading and one card row.
 struct AboutSettingsSection: View {
 
     // MARK: - Version
@@ -26,35 +30,42 @@ struct AboutSettingsSection: View {
 
     // MARK: - Body
 
-    /// The about section card showing version, build, and pre-release badge.
+    /// Group heading + version card.
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text("About")
-                .font(RBFont.sectionHeader)
-                .foregroundColor(Color.rbTextSecondary)
-                .padding(.horizontal, RBSpacing.md)
-                .padding(.top, 8)
-                .padding(.bottom, 4)
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Version")
+                .font(.system(size: 15, weight: .semibold))
 
-            HStack {
-                Text("RunBot").font(.system(size: 12))
+            HStack(alignment: .center) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("RunBot")
+                        .font(.system(size: 15, weight: .medium))
+
+                    Text("Application version")
+                        .font(.system(size: 13))
+                        .foregroundStyle(.secondary)
+                }
+
                 Spacer()
-                VStack(alignment: .trailing, spacing: 2) {
+
+                VStack(alignment: .trailing, spacing: 4) {
                     Text("\(appVersion) (\(appBuild))")
-                        .font(.system(size: 12))
-                        .foregroundColor(Color.rbTextSecondary)
+                        .font(.system(size: 14, weight: .medium))
+
                     if Bundle.main.isPreReleaseBuild {
                         Text("Pre-release build")
-                            .font(.caption2)
-                            .foregroundColor(Color.rbTextTertiary)
+                            .font(.system(size: 13))
+                            .foregroundStyle(.secondary)
                     }
                 }
             }
-            .padding(.horizontal, RBSpacing.md)
-            .padding(.vertical, 5)
+            .padding(.horizontal, 20)
+            .padding(.vertical, 16)
+            .frame(minHeight: 76)
+            .background(
+                RoundedRectangle(cornerRadius: 15, style: .continuous)
+                    .fill(Color.rbSettingsCardBackground)
+            )
         }
-        .settingsTintedGlassCard(color: .rbAccent, cornerRadius: 8)
-        .padding(.horizontal, RBSpacing.md)
-        .padding(.vertical, 8)
     }
 }

@@ -18,10 +18,11 @@ struct AppContentView: View {
     let runnerState: RunnerState
     /// Configured local-runner store forwarded from the composition root.
     let localRunnerStore: LocalRunnerStore
-    /// Settings services forwarded from the composition root.
-    let settingsDependencies: MigrationSettingsDependencies
     /// Shared workflow → job → step selection owned by `AppShellView`.
     var workflowSelection: MigrationWorkflowSelection
+
+    /// Shared settings section selection owned by `AppShellView`.
+    @Binding var settingsSelection: MigrationSettingsSection?
 
     /// Routes to the corresponding content-column view.
     var body: some View {
@@ -42,8 +43,8 @@ struct AppContentView: View {
             MigrationScopeView(scopeStore: .shared)
                 .navigationSplitViewColumnWidth(min: 600, ideal: 760)
         case .settings:
-            MigrationSettingsView(dependencies: settingsDependencies)
-                .navigationSplitViewColumnWidth(min: 600, ideal: 760)
+            MigrationSettingsListView(selection: $settingsSelection)
+                .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 320)
         case nil:
             ContentUnavailableView(
                 "Select an item",

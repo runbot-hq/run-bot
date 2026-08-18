@@ -6,29 +6,21 @@ import SwiftUI
 
 // MARK: - GitHubOAuthCard
 
-/// Settings card for the GitHub OAuth authentication source.
+/// Settings row for the GitHub OAuth authentication source.
 ///
-/// Displays the current `OAuthState` and provides sign-in / sign-out actions.
+/// Full-width row layout matching the standard settings card pattern (#2892).
+/// The background fill comes from `AuthenticationSourceCard`.
+///
 /// Interaction rules from #2459 §4.5:
-///
 /// - OAuth sign-in selects OAuth **only after success**, not when the browser opens.
 /// - Sign-out removes the credential but does **not** activate environment.
-///
-/// ## Design
-/// Only two states are represented: `.signedOut` and `.signedIn`. The browser
-/// operation is not represented in application state — Keychain token presence
-/// is the only truth.
 struct GitHubOAuthCard: View {
 
     /// Current OAuth flow state.
     let oauthState: OAuthState
-    /// Whether the OAuth source is the user's currently-selected source.
+    /// Whether the OAuth source is the user’s currently-selected source.
     let isActive: Bool
     /// When `true`, the Sign In button is disabled and dimmed.
-    ///
-    /// Set to `true` when the environment-token card is the active source so cards
-    /// are mutually exclusive: the user must turn env off before signing in with OAuth.
-    /// Sign-out is always enabled regardless of this flag.
     let isSignInDisabled: Bool
     /// Called to initiate the OAuth sign-in browser flow.
     let onSignIn: () -> Void
@@ -37,27 +29,32 @@ struct GitHubOAuthCard: View {
 
     // MARK: - Body
 
-    /// Card body: status dot, labels, and action button.
+    /// Full-width row: label block on the left, action button on the right.
     var body: some View {
         AuthenticationSourceCard(isActive: isActive, isError: false) {
-            HStack(alignment: .top, spacing: 8) {
-                VStack(alignment: .leading, spacing: 3) {
+            HStack(alignment: .center, spacing: 20) {
+                VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 6) {
                         statusDot
                         Text("GitHub OAuth")
-                            .font(.system(size: 12, weight: .medium))
+                            .font(.system(size: 15, weight: .medium))
+                            .lineLimit(1)
                     }
                     statusLine
-                        .font(.caption)
-                        .foregroundColor(statusLineColor)
+                        .font(.system(size: 13))
+                        .foregroundStyle(Color.rbTextSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 .opacity(isActive ? 1.0 : 0.75)
-                Spacer()
+
+                Spacer(minLength: 24)
+
                 actionButton
-                    .frame(maxHeight: .infinity, alignment: .center)
                     .opacity(isActive ? 1.0 : 0.65)
             }
-            .frame(maxHeight: .infinity, alignment: .top)
+            .padding(.horizontal, 20)
+            .padding(.vertical, 15)
+            .frame(maxWidth: .infinity, minHeight: 76, alignment: .leading)
         }
         .accessibilityElement(children: .combine)
         .accessibilityValue(accessibilityValueText)
@@ -65,19 +62,18 @@ struct GitHubOAuthCard: View {
 
     // MARK: - Sub-views
 
-    /// Animated dot reflecting the current `oauthState`.
+    /// Dot reflecting the current `oauthState`.
     @ViewBuilder
     private var statusDot: some View {
         switch oauthState {
         case .signedIn:
-            Circle().fill(Color.rbSuccess)
-                .frame(width: 7, height: 7)
+            Circle().fill(Color.rbSuccess).frame(width: 7, height: 7)
         case .signedOut:
             Circle().fill(Color.rbTextTertiary).frame(width: 7, height: 7)
         }
     }
 
-    /// One-line status text below the title.
+    /// One-line status description below the title.
     private var statusLine: some View {
         Group {
             switch oauthState {
@@ -93,18 +89,13 @@ struct GitHubOAuthCard: View {
         }
     }
 
-    /// Status-line foreground color — secondary always (no error state).
-    private var statusLineColor: Color {
-        Color.rbTextSecondary
-    }
-
-    /// Sign-in or Sign-out button.
+    /// Sign-in or Sign-out button, trailing-aligned.
     @ViewBuilder
     private var actionButton: some View {
         switch oauthState {
         case .signedOut:
             Button(action: onSignIn) {
-                Text("Sign in").font(.caption2)
+                Text("Sign in").font(.system(size: 13))
             }
             .buttonStyle(.bordered)
             .disabled(isSignInDisabled)
@@ -115,7 +106,7 @@ struct GitHubOAuthCard: View {
             )
         case .signedIn:
             Button(action: onSignOut) {
-                Text("Sign out").font(.caption2)
+                Text("Sign out").font(.system(size: 13))
             }
             .buttonStyle(.bordered)
             .tint(Color.rbDanger)
@@ -123,7 +114,7 @@ struct GitHubOAuthCard: View {
         }
     }
 
-    /// VoiceOver value string combining source name, active state, and OAuth status.
+    /// VoiceOver value string.
     private var accessibilityValueText: String {
         let source = "GitHub OAuth"
         let activeText = isActive ? "active" : "inactive"

@@ -1,5 +1,6 @@
 // MigrationAppDependencies.swift
 // RunBot
+import AppKit
 import AppUpdater
 import Foundation
 import GitHubClient
@@ -115,10 +116,41 @@ final class MigrationAppDependencies {
                 schedulerIdentifier: "io.github.runbot-hq.update-check",
                 betaChannelProvider: { AppPreferencesStore.shared.betaChannel }
             ),
-            onSignIn: onSignIn,
-            onSignOut: onSignOut
+            notifications: NotificationPreferences.shared,
+            onSignIn: { [weak credentials] in
+                guard let url = credentials?.makeSignInURL() else { return }
+                NSWorkspace.shared.open(url)
+            },
+            onSignOut: { [weak credentials] in
+                await credentials?.signOut()
+            },
+            refreshAuthentication: { [weak authentication, weak client] in
+                guard let authentication, let client else { return }
+                authentication.syncOAuthState(
+                    isAuthenticated: client.oauthService.isAuthenticated
+                )
+                authentication.setEnvironmentState(.checking)
+                let environmentState = await client.discoverEnvironmentState()
+                authentication.setEnvironmentState(environmentState)
+            }
         )
         self.logFetcher = LogFetcher()
+    }
+}
+
+// MARK: - OAuth callback
+
+/// OAuth callback handling for the windowed SwiftUI lifecycle.
+extension MigrationAppDependencies {
+    /// Forwards a macOS open-URL event to the OAuth service so the
+    /// authorization code can be exchanged for a token.
+    ///
+    /// Call this from `.onOpenURL` in the SwiftUI `Window` scene.
+    /// Uses the exact `github.oauthService` instance that created the
+    /// sign-in URL — no second OAuth service is constructed.
+    @MainActor
+    func handleOAuthCallback(_ url: URL) {
+        github.oauthService.handleCallback(url)
     }
 }
 
