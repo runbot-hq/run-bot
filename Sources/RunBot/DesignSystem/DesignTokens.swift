@@ -142,6 +142,28 @@ extension Color {
     /// Primary accent alias — resolves to `rbBlue`.
     static let rbAccent = rbBlue
 
+    // MARK: Sidebar Metric Severity
+
+    /// Returns the severity color for a 0–100 percentage using shared thresholds.
+    ///
+    /// - 0–60 %  → green (`.rbSuccess`)
+    /// - >60–85 % → orange (`.rbWarning`)
+    /// - >85 %    → red (`.rbDanger`)
+    ///
+    /// Used by `SparklineView`, `SidebarUsageMetricView`, and
+    /// `SidebarCapacityMetricView` so threshold logic is defined once.
+    static func rbMetricSeverity(percentage: Double) -> Color {
+        let clamped = min(max(percentage, 0), 100)
+        if clamped > 85 { return .rbDanger }
+        if clamped > 60 { return .rbWarning }
+        return .rbSuccess
+    }
+
+    // MARK: Sidebar Metric Track
+
+    /// Neutral track fill for empty sparkline and capacity-bar backgrounds.
+    static let rbMetricTrack = Color.secondary.opacity(0.18)
+
     // MARK: Surface & Border Tokens
     //
     // DESIGN TOKEN NOTE:

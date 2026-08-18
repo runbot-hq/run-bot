@@ -4,6 +4,19 @@
 import RunBotCore
 import SwiftUI
 
+// MARK: - SidebarMetricLayout
+
+/// Shared layout constants for sidebar metric rows.
+/// Use these instead of hardcoding sizes in individual metric views.
+enum SidebarMetricLayout {
+    /// Fixed total row height for every metric row (usage and capacity).
+    static let rowHeight: CGFloat = 44
+    /// Height of the CPU and GPU sparkline graphs.
+    static let graphHeight: CGFloat = 18
+    /// Height of the Memory and Disk capacity bars.
+    static let barHeight: CGFloat = 5
+}
+
 // MARK: - SidebarMetricsView
 
 /// Pinned sidebar footer showing live CPU, GPU, memory, and disk metrics.
@@ -33,27 +46,38 @@ struct SidebarMetricsView: View {
         VStack(spacing: 8) {
             SidebarUsageMetricView(
                 title: "CPU",
+                accessibilityTitle: "CPU",
                 value: viewModel.stats.cpuPct,
-                history: viewModel.cpuHistory.values
+                history: viewModel.cpuHistory.values,
+                fractionDigits: 1
             )
             SidebarUsageMetricView(
                 title: "GPU",
+                accessibilityTitle: "GPU",
                 value: viewModel.stats.gpuPct,
-                history: viewModel.gpuHistory.values
+                history: viewModel.gpuHistory.values,
+                fractionDigits: 0
             )
+
             SidebarCapacityMetricView(
                 title: "MEM",
+                accessibilityTitle: "Memory",
                 used: viewModel.stats.memUsedGB,
                 total: viewModel.stats.memTotalGB
             )
             SidebarCapacityMetricView(
                 title: "DISK",
+                accessibilityTitle: "Disk",
                 used: viewModel.stats.diskUsedGB,
                 total: viewModel.stats.diskTotalGB
             )
         }
-        .padding(10)
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 10))
+        .padding(12)
+        .background(
+            .thinMaterial,
+            in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+        )
+        .frame(maxHeight: 240)
         .onAppear {
             viewModel.start()
         }
