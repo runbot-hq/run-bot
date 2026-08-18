@@ -24,8 +24,10 @@ struct MigrationScopeView: View {
     /// The shared scope store, injected at the composition boundary.
     let scopeStore: ScopeStore
 
-    /// Authentication forwarded from the app shell for `AddScopeSheet`.
-    let authentication: GitHubAuthentication
+    // MARK: - Environment
+
+    /// Overlay gate injected from the window root; forwarded to sheet boundaries.
+    @Environment(MBKOverlayGate.self) private var overlayGate
 
     // MARK: - Local UI state
 
@@ -34,26 +36,18 @@ struct MigrationScopeView: View {
     /// Controls presentation of `AddScopeSheet`.
     @State private var isAddScopePresented = false
     /// Non-nil while `ScopeEditSheet` is being prepared or presented.
-    @State private var editedScope: ScopeEntry?
-    /// Preferences snapshot for `editedScope`. Fetched async before sheet
-    /// appears so `ScopeEditSheet.init` stays synchronous. (#1538)
-    @State private var editedScopePreferences: ScopePreferences?
+    @State private var scopeEditPresentation: ScopeEditPresentation?
+    /// `true` from the moment `prepareEdit` is called until the preferences fetch
+    /// completes and `scopeEditPresentation` is set. Blocks duplicate Edit taps
+    /// that arrive before the async fetch returns (at which point
+    /// `scopeEditPresentation` is still `nil` and the old guard would pass).
+    @State private var isPreparingEdit = false
 
     // MARK: - Computed
 
     /// The full `ScopeEntry` for the current `selectedScopeID`, if any.
-    /// Full entry for `selectedScopeID`, or `nil` when nothing is selected.
     private var selectedScope: ScopeEntry? {
         scopeStore.entries.first { $0.id == selectedScopeID }
-    }
-
-    /// Bool binding mapping `editedScope` nil/non-nil for `mbkSheet(isPresented:)`.
-    /// Bool binding mapping `editedScope` nil/non-nil for `mbkSheet(isPresented:)`.
-    private var isEditSheetPresented: Binding<Bool> {
-        Binding(
-            get: { editedScope != nil },
-            set: { if !$0 { editedScope = nil; editedScopePreferences = nil } }
-        )
     }
 
     // MARK: - Body
@@ -76,27 +70,23 @@ struct MigrationScopeView: View {
             )
             .frame(minWidth: 360, idealWidth: 520, maxWidth: 900)
         }
-        .mbkSheet(isPresented: $isAddScopePresented) {
+        .sheet(isPresented: $isAddScopePresented) {
             AddScopeSheet(
-                isPresented: $isAddScopePresented,
-                authentication: authentication
+                isPresented: $isAddScopePresented
             )
+            .environment(overlayGate)
         }
-        .mbkSheet(isPresented: isEditSheetPresented) {
-            if let entry = editedScope, let prefs = editedScopePreferences {
-                ScopeEditSheet(
-                    scopeEntry: entry,
-                    preferences: prefs,
-                    isPresented: isEditSheetPresented
+        .sheet(item: $scopeEditPresentation) { presentation in
+            ScopeEditSheet(
+                scopeEntry: presentation.entry,
+                preferences: presentation.preferences,
+                isPresented: Binding(
+                    get: { scopeEditPresentation != nil },
+                    set: { if !$0 { scopeEditPresentation = nil } }
                 )
-            } else {
-                EmptyView()
-            }
+            )
+            .environment(overlayGate)
         }
-        .onChange(of: editedScope) { _, newEntry in
-            if newEntry == nil { editedScopePreferences = nil }
-        }
-        // If a store refresh removes the selected scope, clear the selection.
         .onChange(of: scopeStore.entries) { _, newEntries in
             if let id = selectedScopeID,
                !newEntries.contains(where: { $0.id == id }) {
@@ -122,12 +112,17 @@ struct MigrationScopeView: View {
     }
 
     /// Fetches preferences asynchronously then presents the edit sheet.
+    ///
+    /// `isPreparingEdit` is set synchronously before the `Task` is created so
+    /// any second Edit tap that arrives during the async fetch is blocked at the
+    /// guard, even though `scopeEditPresentation` is still `nil` at that point.
     private func prepareEdit(_ entry: ScopeEntry) {
-        guard editedScope == nil else { return }
+        guard !isPreparingEdit, scopeEditPresentation == nil else { return }
+        isPreparingEdit = true
         Task {
             let prefs = await ScopePreferencesStore.shared.preferences(for: entry.scope)
-            editedScopePreferences = prefs
-            editedScope = entry
+            scopeEditPresentation = ScopeEditPresentation(entry: entry, preferences: prefs)
+            isPreparingEdit = false
         }
     }
 }

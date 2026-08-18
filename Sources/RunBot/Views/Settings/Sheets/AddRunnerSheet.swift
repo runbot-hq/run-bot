@@ -60,10 +60,11 @@ struct AddRunnerSheet: View {
     let onComplete: () -> Void
     /// Injected local runner store — avoids direct `.shared` references inside the sheet.
     var localRunnerStore: LocalRunnerStore = .shared
-    /// Core runner state — read for synchronous duplicate checks against localRunners.
-    /// No default is provided: the value is injected at the root of both the legacy
-    /// panel hierarchy and the windowed app hierarchy.
-    @Environment(AppState.self) var appState
+    /// Snapshot of already-registered local runners used for synchronous duplicate checks.
+    /// Pass `appState.runnerState.localRunners` from the legacy hierarchy, or
+    /// `runnerState.localRunners` from the migration hierarchy.
+    /// Both known call sites supply this argument; the compiler enforces it.
+    let localRunners: [RunnerModel]
     /// Gate that tracks whether any overlay (sheet or file picker) is active.
     /// Used by `pickExistingFolder()` to arm the dismiss gate before opening the picker.
     /// Injected at the root of both the legacy panel hierarchy and the windowed app hierarchy.
@@ -396,7 +397,7 @@ struct AddRunnerSheet: View {
         guard let token = await fetchRegistrationToken(scope: scope) else {
             isRegistering = false
             if currentScopeType == .org {
-                errorMessage = "Not authorised to register org-level runners. Ensure your token has the ‘manage_runners:org’ scope, or sign in via the GitHub button in Settings."
+                errorMessage = "Not authorised to register org-level runners. Ensure your token has the 'manage_runners:org' scope, or sign in via the GitHub button in Settings."
             } else {
                 errorMessage = "Could not get a registration token. Ensure a valid token is available via OAuth sign-in, or the GH_TOKEN / GITHUB_TOKEN environment variable."
             }

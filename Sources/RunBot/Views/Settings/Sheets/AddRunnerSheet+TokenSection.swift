@@ -77,24 +77,21 @@ extension AddRunnerSheet {
 
     // MARK: - Scopes loader
 
-    /// Fetches the user's repos and organisations on a background thread and updates state on `@MainActor`.
+    /// Fetches the user's repos and organisations via `GitHubScopeOptionsLoader` and
+    /// updates state on `@MainActor`.
     ///
-    /// Uses a plain `Task` (not `Task.detached`). Whether the task starts on `@MainActor` is
-    /// **call-site dependent**: `AddRunnerSheet` has no `@MainActor` annotation at the type level,
-    /// so a `Task` created here only inherits `@MainActor` if the *caller* is itself `@MainActor`
-    /// (e.g. `.onAppear` in a SwiftUI body, which is `@MainActor`-isolated). Do not assume
-    /// `@MainActor` inheritance if calling `loadScopes()` from an unannotated context.
-    /// State writes are always confined back to the main actor via `await MainActor.run { … }`.
+    /// Uses the same shared loader as `AddScopeSheet` so both sheets consume identical
+    /// data and cannot diverge. State writes are confined to the main actor via
+    /// `await MainActor.run { … }`.
     func loadScopes() {
         isLoadingScopes = true
         Task(priority: .userInitiated) {
-            let fetchedRepos = await fetchUserRepos()
-            let fetchedOrgs = await fetchUserOrgs()
+            let options = await GitHubScopeOptionsLoader.load()
             await MainActor.run {
-                repos = fetchedRepos
-                orgs = fetchedOrgs
-                if let first = fetchedRepos.first { selectedRepo = first }
-                if let first = fetchedOrgs.first { selectedOrg = first }
+                repos = options.repositories
+                orgs = options.organizations
+                if let first = options.repositories.first { selectedRepo = first }
+                if let first = options.organizations.first { selectedOrg = first }
                 isLoadingScopes = false
             }
         }
