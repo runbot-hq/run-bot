@@ -66,22 +66,46 @@ struct MigrationRunnerDetailView: View {
     private func runnerInformationSection(_ runner: RunnerModel) -> some View {
         detailSection(title: "Runner information") {
             if let url = runner.gitHubUrl {
-                copyableDetailRow(title: "GitHub URL", value: url.absoluteString)
+                copyableDetailRow(
+                    title: "GitHub URL",
+                    description: "Repository or organization this runner is registered with.",
+                    value: url.absoluteString
+                )
                 rowDivider()
             }
-            detailRow(title: "Work folder", value: runner.workFolder ?? "_work")
+            detailRow(
+                title: "Work folder",
+                description: "Directory used to store workflow files and job data.",
+                value: runner.workFolder ?? "_work"
+            )
             rowDivider()
-            detailRow(title: "Ephemeral", value: runner.isEphemeral ? "Yes" : "No")
+            detailRow(
+                title: "Ephemeral",
+                description: "Automatically unregisters after completing one job.",
+                value: runner.isEphemeral ? "Yes" : "No"
+            )
             if !displayOsArch.isEmpty {
                 rowDivider()
-                detailRow(title: "OS / Arch", value: displayOsArch)
+                detailRow(
+                    title: "OS / Arch",
+                    description: "Operating system and processor architecture.",
+                    value: displayOsArch
+                )
             }
             if !displayVersion.isEmpty {
                 rowDivider()
-                detailRow(title: "Version", value: displayVersion)
+                detailRow(
+                    title: "Version",
+                    description: "Installed GitHub Actions runner version.",
+                    value: displayVersion
+                )
             }
             rowDivider()
-            detailRow(title: "Status", value: runner.displayStatus)
+            detailRow(
+                title: "Status",
+                description: "Current availability reported by the runner.",
+                value: runner.displayStatus
+            )
         }
     }
 
@@ -90,10 +114,15 @@ struct MigrationRunnerDetailView: View {
         detailSection(title: "Configuration") {
             detailRow(
                 title: "Labels",
+                description: "Used by workflows to target this runner.",
                 value: runner.labels.isEmpty ? "—" : runner.labels.joined(separator: ", ")
             )
             rowDivider()
-            detailRow(title: "Group", value: runner.runnerGroup ?? "—")
+            detailRow(
+                title: "Group",
+                description: "Controls which repositories can use this runner.",
+                value: runner.runnerGroup ?? "—"
+            )
         }
     }
 
@@ -118,11 +147,17 @@ struct MigrationRunnerDetailView: View {
         }
     }
 
-    /// Standard label / value row.
-    private func detailRow(title: String, value: String) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 24) {
-            Text(title)
-                .font(.system(size: 15, weight: .medium))
+    /// Standard label / description / value row.
+    private func detailRow(title: String, description: String, value: String) -> some View {
+        HStack(alignment: .center, spacing: 24) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.system(size: 15, weight: .medium))
+                Text(description)
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
 
             Spacer(minLength: 24)
 
@@ -133,15 +168,21 @@ struct MigrationRunnerDetailView: View {
                 .textSelection(.enabled)
         }
         .padding(.horizontal, 20)
-        .padding(.vertical, 14)
-        .frame(minHeight: 52)
-    }
+        .padding(.vertical, 15)
+        .frame(minHeight: 72)
+}
 
-    /// Label / value row with an inline copy button; used for the GitHub URL.
-    private func copyableDetailRow(title: String, value: String) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 24) {
-            Text(title)
-                .font(.system(size: 15, weight: .medium))
+    /// Label / description / value row with an inline copy button; used for the GitHub URL.
+    private func copyableDetailRow(title: String, description: String, value: String) -> some View {
+        HStack(alignment: .center, spacing: 24) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.system(size: 15, weight: .medium))
+                Text(description)
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
 
             Spacer(minLength: 24)
 
@@ -163,9 +204,9 @@ struct MigrationRunnerDetailView: View {
             .help("Copy to clipboard")
         }
         .padding(.horizontal, 20)
-        .padding(.vertical, 14)
-        .frame(minHeight: 52)
-    }
+        .padding(.vertical, 15)
+        .frame(minHeight: 72)
+}
 
     /// Subtle inset separator placed between rows inside a card.
     private func rowDivider() -> some View {
