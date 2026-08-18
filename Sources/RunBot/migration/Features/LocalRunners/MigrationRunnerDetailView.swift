@@ -209,10 +209,14 @@ struct MigrationRunnerDetailView: View {
 }
 
     /// Subtle inset separator placed between rows inside a card.
+    ///
+    /// Uses an explicitly coloured 1-pt `Rectangle` rather than a system
+    /// `Divider` so the final opacity is predictable against the card background.
     private func rowDivider() -> some View {
-        Divider()
-            .opacity(0.10)
-            .padding(.leading, 20)
+        Rectangle()
+            .fill(Color.primary.opacity(0.12))
+            .frame(height: 1)
+            .padding(.horizontal, 20)
     }
 
     // MARK: - Async loader

@@ -44,8 +44,9 @@ struct MigrationManagementColumn<Content: View>: View {
                 Spacer()
 
                 Button(addTitle, systemImage: "plus", action: onAdd)
-                    .font(.caption)
-                    .buttonStyle(.plain)
+                    .font(.system(size: 13, weight: .medium))
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
             }
             .padding(.horizontal, 12)
             .frame(height: 44)
