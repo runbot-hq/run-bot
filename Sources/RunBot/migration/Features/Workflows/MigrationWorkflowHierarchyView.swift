@@ -29,12 +29,22 @@ struct MigrationWorkflowHierarchyView: View {
     /// Current workflow snapshot derived from the observable runner state.
     private var workflows: [WorkflowActionGroup] { runnerState.actions }
 
-    /// The column layout: hierarchy list or an empty-state placeholder.
-    ///
-    /// No column header — in the three-column shell the sidebar already names
-    /// the active section, so a "Workflows" title would be redundant.
+    /// The column layout: title header, divider, hierarchy list or empty-state placeholder.
     var body: some View {
-        Group {
+        VStack(spacing: 0) {
+            HStack {
+                Text("Workflows")
+                    .font(.title2.weight(.semibold))
+                    .lineLimit(1)
+                    .layoutPriority(1)
+                Spacer()
+            }
+            .padding(.horizontal, 12)
+            .frame(height: 44)
+
+            Divider()
+
+            Group {
             if workflows.isEmpty {
                 MigrationColumnPlaceholder(
                     title: "No workflows",
@@ -57,9 +67,11 @@ struct MigrationWorkflowHierarchyView: View {
                 }
             }
         }
-        .onChange(of: runnerState.actions) { _, actions in
-            selection.reconcile(workflows: actions)
+            .onChange(of: runnerState.actions) { _, actions in
+                selection.reconcile(workflows: actions)
+            }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     /// Toggles the expanded state of a workflow's job list.
