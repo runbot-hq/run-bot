@@ -159,16 +159,6 @@ struct StepLogContentView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 8) {
-                Picker("Log presentation", selection: logPresentation) {
-                    ForEach(LogPresentation.allCases) { presentation in
-                        Text(presentation.title).tag(presentation)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .controlSize(.small)
-                .fixedSize()
-                .help(isMarkdownMode ? "Showing rendered Markdown" : "Showing ANSI log output")
                 if let urlString = job.htmlUrl, let url = URL(string: urlString) {
                     Button {
                         NSWorkspace.shared.open(url)
@@ -243,6 +233,14 @@ struct StepLogContentView: View {
                     .font(.system(size: 10, weight: .medium)).foregroundColor(stepStatusColor).fixedSize()
             }
             .padding(.horizontal, RBSpacing.md).padding(.bottom, 6)
+
+            HStack {
+                LogPresentationControl(selection: logPresentation)
+                Spacer()
+            }
+            .padding(.horizontal, RBSpacing.md)
+            .padding(.top, 6)
+            .padding(.bottom, 8)
 
             Divider()
 
