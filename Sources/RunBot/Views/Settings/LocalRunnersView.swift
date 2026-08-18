@@ -25,7 +25,8 @@ struct LocalRunnersView: View {
 
     /// The local runner actor. Used only for mutations (refresh, optimistic updates).
     /// Observed state (`localRunners`, `isLocalScanning`) is read from the `RunnerState`
-    /// environment object injected by `AppDelegate.wrapEnv`.
+    /// environment object injected at the root of both the legacy panel hierarchy
+    /// and the windowed app hierarchy.
     /// Injected by the caller; defaults to `LocalRunnerStore.shared` at the `SettingsView` boundary.
     var localRunnerStore: LocalRunnerStore = .shared
 
