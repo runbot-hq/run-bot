@@ -71,7 +71,8 @@ struct AppDetailView: View {
             )
         case .scopes:
             MigrationScopeDetailDestination(
-                scope: ScopeStore.shared.entries.first { $0.id == selectedScopeID }
+                scopeStore: ScopeStore.shared,
+                selectedScopeID: selectedScopeID
             )
         case nil:
             ContentUnavailableView(

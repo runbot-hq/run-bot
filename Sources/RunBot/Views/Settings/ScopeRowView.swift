@@ -6,10 +6,10 @@ import SwiftUI
 
 // MARK: - ScopeRowView
 
-/// Reusable scope row extracted from `ScopesView`.
+/// Reusable scope row matching the Local Runner row hierarchy. (#2907)
 ///
-/// Displays scope identity, enable/disable toggle, and delete button.
-/// Toggle and delete do not also fire `onSelect`.
+/// Status dot, display name, scope type, monitoring toggle, and delete action.
+/// Capsule label, Active / Paused text, and chevron have been removed.
 struct ScopeRowView: View {
 
     // MARK: - Inputs
@@ -25,68 +25,56 @@ struct ScopeRowView: View {
 
     // MARK: - Body
 
-    /// The row layout.
     var body: some View {
-        let isRepo = scope.scope.contains("/")
-        let displayName = scope.displayName ?? scope.scope
-        let hasAlias = scope.displayName != nil
-        return Button {
-            onSelect()
-        } label: {
-            HStack(spacing: 8) {
-                Text(isRepo ? "Repo" : "Org")
-                    .font(.caption2)
-                    .foregroundColor(Color.rbTextSecondary)
-                    .padding(.horizontal, 5)
-                    .padding(.vertical, 2)
-                    .background(Capsule().fill(Color.rbSurfaceElevated))
-                    .overlay(Capsule().strokeBorder(Color.rbBorderSubtle, lineWidth: 0.5))
+        Button(action: onSelect) {
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(scope.isEnabled ? Color.rbSuccess : Color.secondary)
+                    .frame(width: 8, height: 8)
+
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(displayName)
-                        .font(.system(size: 12))
+                    Text(scope.displayName ?? scope.scope)
+                        .font(.system(size: 13))
                         .lineLimit(1)
                         .truncationMode(.middle)
-                    if hasAlias {
-                        Text(scope.scope)
-                            .font(.caption2)
-                            .foregroundColor(Color.rbTextTertiary)
-                            .lineLimit(1).truncationMode(.middle)
-                    }
+
+                    Text(scope.scope.contains("/") ? "Repository" : "Organization")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
                 }
+
                 Spacer()
-                Text(scope.isEnabled ? "Active" : "Paused")
-                    .font(.caption2)
-                    .foregroundColor(scope.isEnabled ? Color.rbSuccess : Color.rbTextTertiary)
-                Toggle("", isOn: Binding(
-                    get: { scope.isEnabled },
-                    set: { onSetEnabled($0) }
-                ))
+
+                Toggle(
+                    "",
+                    isOn: Binding(
+                        get: { scope.isEnabled },
+                        set: { onSetEnabled($0) }
+                    )
+                )
+                .labelsHidden()
                 .toggleStyle(.switch)
                 .tint(Color.rbSuccess)
-                .labelsHidden()
-                .help(scope.isEnabled ? "Pause monitoring" : "Resume monitoring")
                 .scaleEffect(0.8, anchor: .trailing)
                 .buttonStyle(.borderless)
-                Image(systemName: "chevron.right")
-                    .font(.caption2)
-                    .foregroundColor(Color.rbTextTertiary)
-                Button {
-                    onDelete()
-                } label: {
-                    Image(systemName: "minus.circle")
-                        .font(.caption2)
-                        .foregroundColor(Color.rbDanger)
-                }
-                .buttonStyle(.borderless)
+                .help(scope.isEnabled ? "Pause monitoring" : "Resume monitoring")
+
+                Button(
+                    action: onDelete,
+                    label: {
+                        Image(systemName: "minus.circle")
+                            .font(.caption2)
+                            .foregroundStyle(Color.rbDanger)
+                    }
+                )
+                .buttonStyle(.plain)
                 .help("Remove scope")
             }
-            .contentShape(Rectangle())
+            .contentShape(.rect)
         }
         .buttonStyle(.plain)
         .padding(.horizontal, RBSpacing.md)
         .padding(.vertical, 5)
-        .settingsGlassCard(background: .rbGlassNeutralBackground, cornerRadius: RBRadius.small)
-        .padding(.horizontal, RBSpacing.xs)
-        .opacity(scope.isEnabled ? 1.0 : 0.5)
     }
 }
