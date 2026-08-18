@@ -66,14 +66,13 @@ struct LogPresentationControl: View {
 
             segment(.markdown)
         }
-        .frame(height: 28)
+        .frame(height: 24)
         .background(Color.primary.opacity(0.06))
         .overlay {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
                 .stroke(Color.primary.opacity(0.14), lineWidth: 1)
         }
-        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .fixedSize()
+        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
         .accessibilityElement(children: .contain)
     }
 
@@ -83,17 +82,16 @@ struct LogPresentationControl: View {
             selection = presentation
         } label: {
             Text(presentation.title)
-                .font(.system(size: 13, weight: .medium))
+                .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(
                     selection == presentation
                         ? Color.white
                         : Color.secondary
                 )
                 .frame(
-                    minWidth: presentation == .ansi ? 68 : 92,
-                    minHeight: 28
+                    width: presentation == .ansi ? 52 : 78,
+                    height: 24
                 )
-                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .background {
