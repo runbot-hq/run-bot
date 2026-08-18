@@ -1,0 +1,20 @@
+// RunBotDesktopApp.swift
+// RunBot
+
+import SwiftUI
+
+// @main removed: Sources/RunBot/main.swift is top-level code.
+// RunBotDesktopApp.main() is called from main.swift instead.
+
+/// The SwiftUI application entry point for RunBot.
+/// `@main` is intentionally absent because `main.swift` invokes `main()`.
+struct RunBotDesktopApp: App {
+    /// The scene graph for the windowed application.
+    var body: some Scene {
+        Window("RunBot", id: "main") {
+            AppShellView()
+        }
+        .defaultSize(width: 1_200, height: 760)
+        .windowResizability(.contentMinSize)
+    }
+}

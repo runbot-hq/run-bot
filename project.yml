@@ -68,14 +68,11 @@ targets:
         INFOPLIST_FILE: Resources/Info.plist
         ARCHS: arm64
         EXCLUDED_ARCHS: x86_64
-        # LSUIElement makes the app a menu bar agent (no Dock icon) in production.
-        # It lives here as a build setting rather than in Info.plist so that it
-        # is only applied to the RunBot app target. The RunBotUITests target
-        # has its own generated plist and never inherits this key, meaning the app
-        # launches as a normal foreground process during UI tests and app.windows
-        # is fully visible to XCTest.
+        # LSUIElement is NO: app appears in Dock as a regular windowed app.
+        # Kept here as a build setting (not in Info.plist) so RunBotUITests
+        # is unaffected.
         # ❌ NEVER move this back into Resources/Info.plist.
-        INFOPLIST_KEY_LSUIElement: YES
+        INFOPLIST_KEY_LSUIElement: NO
 
   RunBotUITests:
     type: bundle.ui-testing

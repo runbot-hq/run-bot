@@ -1,12 +1,11 @@
 // main.swift
 // RunBot
-/// Entry point — instantiates `AppDelegate` and starts the run loop.
-/// Wrapped in `MainActor.assumeIsolated` because `AppDelegate` is `@MainActor`-isolated
-/// via its `NSApplicationDelegate` conformance on Swift 5.10+. The OS always starts
-/// execution on the main thread, so this assertion is always valid.
-/// ❌ NEVER remove this wrapper — it prevents a strict-concurrency build error.
-import AppKit
-import RunBotCore
+/// Entry point for the SwiftUI windowed application.
+/// `RunBotDesktopApp.main()` is called explicitly because `@main` cannot
+/// coexist with top-level code in `main.swift`.
+/// ❌ NEVER remove the MainActor.assumeIsolated wrapper — the OS always
+/// starts on the main thread and this satisfies strict-concurrency checking.
+import SwiftUI
 
 // RunBot requires Apple Silicon. Building for x86_64 is not supported.
 #if !arch(arm64)
@@ -14,7 +13,5 @@ import RunBotCore
 #endif
 
 MainActor.assumeIsolated {
-    let delegate = AppDelegate()
-    NSApplication.shared.delegate = delegate
-    NSApplication.shared.run()
+    RunBotDesktopApp.main()
 }
