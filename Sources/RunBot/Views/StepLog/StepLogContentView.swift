@@ -158,36 +158,24 @@ struct StepLogContentView: View {
     /// Root body -- top bar, step name, meta rows, and the capped log scroll view.
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 6) {
-                Button {
-                    hasToggledMarkdown = true
-                    isMarkdownMode.toggle()
-                    markdownRenderLogger.notice(
-                        "toggle userToggled=true isMarkdownMode=\(isMarkdownMode, privacy: .public)"
-                    )
-                } label: {
-                    HStack(spacing: 3) {
-                        Image(systemName: isMarkdownMode ? "doc.richtext" : "doc.plaintext")
-                            .font(.caption)
-                        Text("MD").font(.caption)
+            HStack(spacing: 8) {
+                Picker("Log presentation", selection: logPresentation) {
+                    ForEach(LogPresentation.allCases) { presentation in
+                        Text(presentation.title).tag(presentation)
                     }
-                    .foregroundColor(isMarkdownMode ? Color.rbAccent : Color.rbTextSecondary)
-                    .fixedSize()
                 }
-                .buttonStyle(.plain)
-                .help(isMarkdownMode ? "Showing markdown — click for raw" : "Show as markdown")
-                .padding(.horizontal, 5).padding(.vertical, 2)
-                .glassCard(cornerRadius: RBRadius.small)
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .controlSize(.small)
+                .fixedSize()
+                .help(isMarkdownMode ? "Showing rendered Markdown" : "Showing ANSI log output")
                 if let urlString = job.htmlUrl, let url = URL(string: urlString) {
-                    Button { NSWorkspace.shared.open(url) } label: {
-                        HStack(spacing: 3) {
-                            Image(systemName: "safari").font(.caption)
-                            Text("GitHub").font(.caption)
-                        }
-                        .foregroundColor(Color.rbTextSecondary)
-                        .fixedSize()
+                    Button {
+                        NSWorkspace.shared.open(url)
+                    } label: {
+                        Label("GitHub", systemImage: "safari")
                     }
-                    .buttonStyle(.plain)
+                    .stepLogActionStyle()
                     .help("Open job on GitHub")
                     CopyLinkButton(url: urlString)
                 }
