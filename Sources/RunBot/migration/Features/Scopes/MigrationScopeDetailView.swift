@@ -23,12 +23,14 @@ struct MigrationScopeDetailView: View {
     // MARK: - Derived
 
     /// Always-current entry for the selection, or `nil` when nothing is selected.
+    /// Always-current scope entry resolved from the live store.
     private var scope: ScopeEntry? {
         scopeStore.entries.first { $0.id == selectedScopeID }
     }
 
     // MARK: - Body
 
+    /// Shows the Settings-style detail when a scope is selected; placeholder otherwise.
     var body: some View {
         if let scope {
             detailBody(scope)
@@ -42,6 +44,7 @@ struct MigrationScopeDetailView: View {
 
     // MARK: - Detail body
 
+    /// Full Settings-style detail layout for a resolved scope.
     @ViewBuilder
     private func detailBody(_ scope: ScopeEntry) -> some View {
         ScrollView {
@@ -61,6 +64,7 @@ struct MigrationScopeDetailView: View {
 
     // MARK: - Sections
 
+    /// 'Scope information' card section.
     private func scopeInformationSection(_ scope: ScopeEntry) -> some View {
         detailSection(title: "Scope information") {
             detailRow(
@@ -85,6 +89,7 @@ struct MigrationScopeDetailView: View {
         }
     }
 
+    /// 'Monitoring' card section showing current poll state as a read-only value.
     private func monitoringSection(_ scope: ScopeEntry) -> some View {
         detailSection(title: "Monitoring") {
             detailRow(
@@ -100,6 +105,7 @@ struct MigrationScopeDetailView: View {
 
     // MARK: - Layout helpers
 
+    /// Rounded filled card with a compact section heading above it.
     private func detailSection<Content: View>(
         title: String,
         @ViewBuilder content: () -> Content
@@ -118,6 +124,7 @@ struct MigrationScopeDetailView: View {
         }
     }
 
+    /// Standard two-line label / value row.
     private func detailRow(
         title: String,
         description: String,
@@ -147,6 +154,7 @@ struct MigrationScopeDetailView: View {
         .frame(minHeight: 72)
     }
 
+    /// Two-line label / value row with inline copy button; used for the GitHub URL.
     private func copyableDetailRow(
         title: String,
         description: String,
@@ -186,6 +194,7 @@ struct MigrationScopeDetailView: View {
         .frame(minHeight: 72)
     }
 
+    /// Subtle one-point inset separator between card rows.
     private func rowDivider() -> some View {
         Rectangle()
             .fill(Color.primary.opacity(0.12))
