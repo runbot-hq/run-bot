@@ -23,9 +23,6 @@ enum MigrationSettingsSection: String, CaseIterable, Identifiable {
     /// Automatic update preferences.
     case updates
 
-    /// App version and legal information.
-    case about
-
     // MARK: - Identifiable
 
     /// Stable identifier backed by the raw string value.
@@ -39,7 +36,6 @@ enum MigrationSettingsSection: String, CaseIterable, Identifiable {
         case .authentication: return "Authentication"
         case .general:        return "General"
         case .updates:        return "Updates"
-        case .about:          return "About"
         }
     }
 
@@ -49,7 +45,6 @@ enum MigrationSettingsSection: String, CaseIterable, Identifiable {
         case .authentication: return "person.crop.circle"
         case .general:        return "gearshape"
         case .updates:        return "arrow.triangle.2.circlepath"
-        case .about:          return "info.circle"
         }
     }
 }
