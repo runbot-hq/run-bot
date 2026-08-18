@@ -57,7 +57,8 @@ struct MigrationScopeDetailView: View {
                 monitoringSection(scope)
             }
             .padding(.horizontal, 32)
-            .padding(.vertical, 28)
+            .padding(.top, 20)
+            .padding(.bottom, 28)
             .frame(maxWidth: 820, alignment: .topLeading)
         }
     }

@@ -54,7 +54,8 @@ struct MigrationRunnerDetailView: View {
                 configurationSection(runner)
             }
             .padding(.horizontal, 32)
-            .padding(.vertical, 28)
+            .padding(.top, 20)
+            .padding(.bottom, 28)
             .frame(maxWidth: 820, alignment: .topLeading)
         }
         .task(id: runner.id) { await loadDisplayFields(for: runner) }
