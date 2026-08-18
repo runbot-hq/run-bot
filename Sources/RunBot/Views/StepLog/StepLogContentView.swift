@@ -239,8 +239,8 @@ struct StepLogContentView: View {
                 Spacer()
             }
             .padding(.horizontal, RBSpacing.md)
-            .padding(.top, 6)
-            .padding(.bottom, 8)
+            .padding(.top, 4)
+            .padding(.bottom, 6)
 
             Divider()
 
