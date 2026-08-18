@@ -41,39 +41,20 @@ struct CopyLinkButton: View {
             Group {
                 switch phase {
                 case .idle:
-                    HStack(spacing: 4) {
-                        Image(systemName: "link")
-                            .font(.caption)
-                        Text("Copy link")
-                            .font(.caption)
-                            .fixedSize()
-                    }
-                    .foregroundColor(.secondary)
+                    Label("Copy link", systemImage: "link")
                 case .done:
-                    HStack(spacing: 4) {
-                        Image(systemName: "checkmark")
-                            .font(.caption)
-                            .foregroundColor(Color.rbSuccess)
-                        Text("Copied")
-                            .font(.caption)
-                            .foregroundColor(Color.rbSuccess)
-                            .fixedSize()
-                    }
+                    Label("Copied", systemImage: "checkmark")
+                        .foregroundStyle(Color.rbSuccess)
                 case .failed:
-                    HStack(spacing: 4) {
-                        Image(systemName: "xmark")
-                            .font(.caption)
-                            .foregroundColor(Color.rbDanger)
-                        Text("Failed")
-                            .font(.caption)
-                            .foregroundColor(Color.rbDanger)
-                            .fixedSize()
-                    }
+                    Label("Failed", systemImage: "xmark")
+                        .foregroundStyle(Color.rbDanger)
                 }
             }
         }
         .disabled(phase != .idle)
-        .buttonStyle(.plain)
+        .font(.system(size: 13, weight: .medium))
+        .buttonStyle(.bordered)
+        .controlSize(.small)
         .help("Copy GitHub job URL")
         .accessibilityLabel("Copy link")
         .onDisappear {
