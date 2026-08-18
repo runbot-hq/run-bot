@@ -34,17 +34,13 @@ struct LogCopyButton: View {
             switch phase {
             case .idle:
                 Button(action: startCopy) {
-                    HStack(spacing: 4) {
-                        Image(systemName: "doc.on.doc")
-                            .font(.caption)
-                        Text("Copy log")
-                            .font(.caption)
-                            .fixedSize()
-                    }
-                    .foregroundColor(isDisabled ? .secondary.opacity(0.4) : .secondary)
+                    Label("Copy log", systemImage: "doc.on.doc")
                 }
-                .buttonStyle(.plain)
+                .font(.system(size: 13, weight: .medium))
+                .buttonStyle(.bordered)
+                .controlSize(.small)
                 .disabled(isDisabled)
+                .opacity(isDisabled ? 0.4 : 1)
             case .loading:
                 HStack(spacing: 4) {
                     ProgressView().controlSize(.mini)
