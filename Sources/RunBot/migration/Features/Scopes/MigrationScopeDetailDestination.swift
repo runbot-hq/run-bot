@@ -14,7 +14,9 @@ struct MigrationScopeDetailDestination: View {
 
     // MARK: - Inputs
 
+    /// Live scope store injected at the composition boundary.
     let scopeStore: ScopeStore
+    /// Shell-owned selection ID forwarded from `AppDetailView`.
     let selectedScopeID: ScopeEntry.ID?
 
     // MARK: - Body
