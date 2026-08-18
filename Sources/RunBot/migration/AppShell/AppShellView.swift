@@ -2,6 +2,7 @@
 // RunBot
 
 import GitHubClient
+import RunBotCore
 import SwiftUI
 
 /// Root two-column navigation shell.
@@ -13,6 +14,11 @@ struct AppShellView: View {
     /// Authentication injected from `RunBotDesktopApp`.
     @Environment(GitHubAuthentication.self) private var authentication: GitHubAuthentication
 
+    /// Runner store forwarded from the composition root.
+    let runnerState: RunnerState
+    /// Configured local-runner store forwarded from the composition root.
+    let localRunnerStore: LocalRunnerStore
+
     /// The top-level split-view layout.
     var body: some View {
         NavigationSplitView {
@@ -23,7 +29,12 @@ struct AppShellView: View {
                     max: 260
                 )
         } detail: {
-            AppDetailView(selection: selection, authentication: authentication)
+            AppDetailView(
+                selection: selection,
+                authentication: authentication,
+                runnerState: runnerState,
+                localRunnerStore: localRunnerStore
+            )
         }
         .navigationSplitViewStyle(.balanced)
         .frame(minWidth: 720, minHeight: 480)

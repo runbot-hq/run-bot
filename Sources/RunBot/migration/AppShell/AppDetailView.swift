@@ -2,6 +2,7 @@
 // RunBot
 
 import GitHubClient
+import RunBotCore
 import SwiftUI
 
 /// Detail column router. Switches on the current sidebar selection.
@@ -13,13 +14,21 @@ struct AppDetailView: View {
     /// Injected from `AppShellView`; forwarded to scope management.
     let authentication: GitHubAuthentication
 
+    /// Observable runner state pushed by `LocalRunnerStore`.
+    let runnerState: RunnerState
+    /// Configured local-runner store forwarded from the composition root.
+    let localRunnerStore: LocalRunnerStore
+
     /// Routes to the corresponding feature-root view.
     var body: some View {
         switch selection {
         case .workflows:
             MigrationWorkflowView(workflows: [])
         case .localRunners:
-            MigrationRunnerView()
+            MigrationRunnerView(
+                runnerState: runnerState,
+                localRunnerStore: localRunnerStore
+            )
         case .scopes:
             MigrationScopeView(scopeStore: .shared, authentication: authentication)
         case .settings:
