@@ -3,14 +3,17 @@
 
 import SwiftUI
 
-/// Static sidebar column for the migration shell.
-/// Placeholder only — routing rows are added in PR 2.
+/// Sidebar column with selectable navigation rows.
+/// Status indicators and counts are added in later migration steps.
 struct AppSidebarView: View {
-    /// The sidebar list content.
+    /// Binding to the shell's current section selection.
+    @Binding var selection: AppSection?
+
+    /// The selectable section list.
     var body: some View {
-        List {
-            Text("RunBot")
-                .foregroundStyle(.secondary)
+        List(AppSection.allCases, selection: $selection) { section in
+            Label(section.title, systemImage: section.systemImage)
+                .tag(section)
         }
         .navigationTitle("RunBot")
     }
