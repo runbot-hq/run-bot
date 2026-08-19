@@ -83,7 +83,6 @@ struct SidebarCapacityMetricView: View {
                 }
             }
             .frame(height: SidebarMetricLayout.barHeight)
-
         }
         .frame(maxWidth: .infinity, minHeight: SidebarMetricLayout.rowHeight, alignment: .top)
         .padding(.horizontal, 8)
