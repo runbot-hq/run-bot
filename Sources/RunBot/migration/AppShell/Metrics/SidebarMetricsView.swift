@@ -10,11 +10,11 @@ import SwiftUI
 /// Use these instead of hardcoding sizes in individual metric views.
 enum SidebarMetricLayout {
     /// Fixed total row height for every metric row (usage and capacity).
-    static let rowHeight: CGFloat = 44
+    static let rowHeight: CGFloat = 48
     /// Height of the CPU and GPU sparkline graphs.
     static let graphHeight: CGFloat = 18
     /// Height of the Memory and Disk capacity bars.
-    static let barHeight: CGFloat = 5
+    static let barHeight: CGFloat = 6
 }
 
 // MARK: - SidebarMetricsView
@@ -43,7 +43,7 @@ struct SidebarMetricsView: View {
 
     /// The four metric rows grouped in a compact material surface.
     var body: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 0) {
             SidebarUsageMetricView(
                 title: "CPU",
                 accessibilityTitle: "CPU",
