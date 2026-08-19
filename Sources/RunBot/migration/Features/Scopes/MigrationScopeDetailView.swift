@@ -103,5 +103,4 @@ struct MigrationScopeDetailView: View {
             )
         }
     }
-
 }
