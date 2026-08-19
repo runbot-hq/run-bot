@@ -104,15 +104,15 @@ struct MigrationSettingsDetailView: View {
             }
         case .updates:
             MigrationSettingsSectionLayout(title: "Updates") {
-                UpdateSettingsSection(
-                    settings: dependencies.settings,
-                    runnerState: dependencies.runnerState,
-                    autoUpdater: dependencies.autoUpdater
-                )
-            }
-        case .about:
-            MigrationSettingsSectionLayout(title: "About") {
-                AboutSettingsSection()
+                VStack(alignment: .leading, spacing: 28) {
+                    UpdateSettingsSection(
+                        settings: dependencies.settings,
+                        runnerState: dependencies.runnerState,
+                        autoUpdater: dependencies.autoUpdater
+                    )
+
+                    AboutSettingsSection()
+                }
             }
         }
     }

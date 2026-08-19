@@ -23,6 +23,10 @@ struct AppContentView: View {
 
     /// Shared settings section selection owned by `AppShellView`.
     @Binding var settingsSelection: MigrationSettingsSection?
+    /// Shared runner selection owned by `AppShellView`. (#2900)
+    @Binding var selectedRunnerID: RunnerModel.ID?
+    /// Shared scope selection owned by `AppShellView`. (#2900)
+    @Binding var selectedScopeID: ScopeEntry.ID?
 
     /// Routes to the corresponding content-column view.
     var body: some View {
@@ -34,14 +38,18 @@ struct AppContentView: View {
             )
             .navigationSplitViewColumnWidth(min: 320, ideal: 420, max: 640)
         case .localRunners:
-            MigrationRunnerView(
+            MigrationRunnerListDestination(
                 runnerState: runnerState,
-                localRunnerStore: localRunnerStore
+                localRunnerStore: localRunnerStore,
+                selectedRunnerID: $selectedRunnerID
             )
-            .navigationSplitViewColumnWidth(min: 600, ideal: 760)
+            .navigationSplitViewColumnWidth(min: 320, ideal: 420, max: 520)
         case .scopes:
-            MigrationScopeView(scopeStore: .shared)
-                .navigationSplitViewColumnWidth(min: 600, ideal: 760)
+            MigrationScopeListDestination(
+                scopeStore: .shared,
+                selectedScopeID: $selectedScopeID
+            )
+            .navigationSplitViewColumnWidth(min: 320, ideal: 420, max: 520)
         case .settings:
             MigrationSettingsListView(selection: $settingsSelection)
                 .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 320)

@@ -6,48 +6,100 @@ import SwiftUI
 
 // MARK: - MigrationScopeDetailView
 
-/// Right pane of the Scopes split view: displays information for the selected scope.
+/// Settings-style detail column for the Scopes section. (#2907)
+///
+/// Resolves the selected scope live from `ScopeStore` so the monitoring
+/// row stays synchronised with the list toggle without a duplicate control.
+@MainActor
 struct MigrationScopeDetailView: View {
 
     // MARK: - Inputs
 
-    /// The currently selected scope, or `nil` when nothing is selected.
-    let scope: ScopeEntry?
-    /// Called when the Edit scope button is tapped.
-    let onEdit: (ScopeEntry) -> Void
+    /// Live scope store — detail resolves its entry from this on every render.
+    let scopeStore: ScopeStore
+    /// Shell-owned selection ID.
+    let selectedScopeID: ScopeEntry.ID?
+
+    // MARK: - Derived
+
+    /// Always-current entry for the selection, or `nil` when nothing is selected.
+    /// Always-current scope entry resolved from the live store.
+    private var scope: ScopeEntry? {
+        scopeStore.entries.first { $0.id == selectedScopeID }
+    }
 
     // MARK: - Body
 
-    /// The detail pane layout.
+    /// Shows the Settings-style detail when a scope is selected; placeholder otherwise.
     var body: some View {
         if let scope {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    Text(scope.displayName ?? scope.scope)
-                        .font(.title2.weight(.semibold))
-                        .lineLimit(2)
-
-                    LabeledContent("Scope", value: scope.scope)
-                    LabeledContent(
-                        "Type",
-                        value: scope.scope.contains("/") ? "Repository" : "Organization"
-                    )
-                    LabeledContent(
-                        "Status",
-                        value: scope.isEnabled ? "Enabled" : "Disabled"
-                    )
-
-                    Button("Edit scope") {
-                        onEdit(scope)
-                    }
-                }
-                .padding(20)
-                .frame(maxWidth: 640, alignment: .leading)
-            }
+            detailBody(scope)
         } else {
             MigrationColumnPlaceholder(
                 title: "Select a scope",
                 systemImage: "scope"
+            )
+        }
+    }
+
+    // MARK: - Detail body
+
+    /// Full Settings-style detail layout for a resolved scope.
+    @ViewBuilder
+    private func detailBody(_ scope: ScopeEntry) -> some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 28) {
+                Text(scope.displayName ?? scope.scope)
+                    .font(.title2.weight(.semibold))
+                    .lineLimit(2)
+
+                scopeInformationSection(scope)
+                monitoringSection(scope)
+            }
+            .padding(.horizontal, 32)
+            .padding(.top, 12)
+            .padding(.bottom, 28)
+            .frame(maxWidth: 820, alignment: .topLeading)
+        }
+    }
+
+    // MARK: - Sections
+
+    /// 'Scope information' card section.
+    private func scopeInformationSection(_ scope: ScopeEntry) -> some View {
+        migrationDetailSection(title: "Scope information") {
+            migrationDetailRow(
+                title: "Scope",
+                description: "Repository or organization monitored by RunBot.",
+                value: scope.scope
+            )
+            migrationRowDivider()
+            migrationDetailRow(
+                title: "Type",
+                description: "Kind of GitHub scope being monitored.",
+                value: scope.scope.contains("/") ? "Repository" : "Organization"
+            )
+            migrationRowDivider()
+            if let url = URL(string: "https://github.com/" + scope.scope) {
+                migrationCopyableDetailRow(
+                    title: "GitHub",
+                    description: "View this scope on GitHub.",
+                    value: url.absoluteString
+                )
+            }
+        }
+    }
+
+    /// 'Monitoring' card section showing current poll state as a read-only value.
+    private func monitoringSection(_ scope: ScopeEntry) -> some View {
+        migrationDetailSection(title: "Monitoring") {
+            migrationDetailRow(
+                title: "Monitor this scope",
+                description: scope.isEnabled
+                    ? "RunBot actively polls this scope for runner status."
+                    : "RunBot does not poll this scope for runner status.",
+                value: scope.isEnabled ? "Active" : "Paused",
+                valueColor: scope.isEnabled ? Color.rbSuccess : Color.secondary
             )
         }
     }

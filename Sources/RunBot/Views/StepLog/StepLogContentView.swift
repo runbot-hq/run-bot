@@ -135,39 +135,45 @@ struct StepLogContentView: View {
         iso8601FmtFractional.date(from: raw) ?? iso8601Fmt.date(from: raw)
     }
 
+    // MARK: - Format selector
+
+    /// Bridges the Boolean `isMarkdownMode` to the `LogPresentation` segmented picker.
+    private var logPresentation: Binding<LogPresentation> {
+        Binding(
+            get: {
+                isMarkdownMode ? .markdown : .ansi
+            },
+            set: { presentation in
+                hasToggledMarkdown = true
+                isMarkdownMode = presentation == .markdown
+                markdownRenderLogger.notice(
+                    """
+                    toggle userToggled=true isMarkdownMode=\(isMarkdownMode, privacy: .public)
+                    """
+                )
+            }
+        )
+    }
+
     /// Root body -- top bar, step name, meta rows, and the capped log scroll view.
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 6) {
-                Button {
-                    hasToggledMarkdown = true
-                    isMarkdownMode.toggle()
-                    markdownRenderLogger.notice(
-                        "toggle userToggled=true isMarkdownMode=\(isMarkdownMode, privacy: .public)"
-                    )
-                } label: {
-                    HStack(spacing: 3) {
-                        Image(systemName: isMarkdownMode ? "doc.richtext" : "doc.plaintext")
-                            .font(.caption)
-                        Text("MD").font(.caption)
-                    }
-                    .foregroundColor(isMarkdownMode ? Color.rbAccent : Color.rbTextSecondary)
-                    .fixedSize()
-                }
-                .buttonStyle(.plain)
-                .help(isMarkdownMode ? "Showing markdown — click for raw" : "Show as markdown")
-                .padding(.horizontal, 5).padding(.vertical, 2)
-                .glassCard(cornerRadius: RBRadius.small)
+            Text(step.name)
+                .font(.title2.weight(.semibold))
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, RBSpacing.md)
+                .padding(.top, 10)
+                .padding(.bottom, 4)
+
+            HStack(spacing: 8) {
                 if let urlString = job.htmlUrl, let url = URL(string: urlString) {
-                    Button { NSWorkspace.shared.open(url) } label: {
-                        HStack(spacing: 3) {
-                            Image(systemName: "safari").font(.caption)
-                            Text("GitHub").font(.caption)
-                        }
-                        .foregroundColor(Color.rbTextSecondary)
-                        .fixedSize()
+                    Button {
+                        NSWorkspace.shared.open(url)
+                    } label: {
+                        Label("GitHub", systemImage: "safari")
                     }
-                    .buttonStyle(.plain)
+                    .stepLogActionStyle()
                     .help("Open job on GitHub")
                     CopyLinkButton(url: urlString)
                 }
@@ -182,13 +188,6 @@ struct StepLogContentView: View {
             .padding(.horizontal, RBSpacing.md)
             .padding(.top, 10)
             .padding(.bottom, 4)
-
-            Text(step.name)
-                .font(.system(size: 13, weight: .semibold))
-                .lineLimit(2)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.horizontal, RBSpacing.md)
-                .padding(.bottom, 5)
 
             HStack(spacing: 6) {
                 Image(systemName: "briefcase").font(.system(size: 10)).foregroundColor(Color.rbTextSecondary)
@@ -235,6 +234,14 @@ struct StepLogContentView: View {
                     .font(.system(size: 10, weight: .medium)).foregroundColor(stepStatusColor).fixedSize()
             }
             .padding(.horizontal, RBSpacing.md).padding(.bottom, 6)
+
+            HStack {
+                LogPresentationControl(selection: logPresentation)
+                Spacer()
+            }
+            .padding(.horizontal, RBSpacing.md)
+            .padding(.top, 4)
+            .padding(.bottom, 6)
 
             Divider()
 

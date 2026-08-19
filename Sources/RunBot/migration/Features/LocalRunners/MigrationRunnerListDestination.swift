@@ -1,25 +1,32 @@
-// MigrationRunnerView.swift
+// MigrationRunnerListDestination.swift
 // RunBot
+
 import GitHubClient
 import MenuBarKit
 import RunBotCore
 import SwiftUI
 
-// MARK: - MigrationRunnerView
+// MARK: - MigrationRunnerListDestination
 
-/// Root two-pane local runner management view.
+/// Content-column destination for the Local Runners section.
 ///
-/// Receives an already-configured `LocalRunnerStore` from the composition root.
-/// The store must be configured before this view is mounted.
+/// Owns sheet presentation and action dispatch while keeping
+/// `MigrationRunnerListView` purely presentational. Selection is
+/// owned by `AppShellView` and passed in as a binding so the detail
+/// column can resolve the selected runner independently. (#2900)
 @MainActor
-struct MigrationRunnerView: View {
+struct MigrationRunnerListDestination: View {
 
     // MARK: - Inputs
 
-    /// Observable runner state pushed by `LocalRunnerStore` via `MigrationAppDependencies`.
+    /// Observable runner state pushed by `LocalRunnerStore`.
     let runnerState: RunnerState
-    /// The configured local-runner store; must be configured before this view mounts.
+    /// The configured local-runner store.
     let localRunnerStore: LocalRunnerStore
+    /// Shell-owned selection binding shared with `AppDetailView`.
+    @Binding var selectedRunnerID: RunnerModel.ID?
+
+    // MARK: - Environment
 
     // swiftlint:disable:next missing_docs
     @Environment(GitHubAuthentication.self) private var authentication
@@ -28,35 +35,20 @@ struct MigrationRunnerView: View {
 
     // MARK: - Local UI state
 
-    /// The ID of the runner whose detail is displayed in the right pane.
-    @State private var selectedRunnerID: RunnerModel.ID?
     /// Controls presentation of `AddRunnerSheet`.
     @State private var isAddRunnerPresented = false
 
-    // MARK: - Computed
-
-    /// The `RunnerModel` matching `selectedRunnerID`, or `nil` when nothing is selected.
-    private var selectedRunner: RunnerModel? {
-        runnerState.localRunners.first { $0.id == selectedRunnerID }
-    }
-
     // MARK: - Body
 
-    /// Root `HSplitView` with list pane left and detail pane right.
+    /// List view with sheet and action wiring.
     var body: some View {
-        HSplitView {
-            MigrationRunnerListView(
-                runners: runnerState.localRunners,
-                selectedRunnerID: $selectedRunnerID,
-                onAdd: { isAddRunnerPresented = true },
-                onSetRunning: setRunning,
-                onDelete: delete
-            )
-            .frame(minWidth: 220, idealWidth: 280, maxWidth: 400)
-
-            MigrationRunnerDetailView(runner: selectedRunner)
-                .frame(minWidth: 360, idealWidth: 520, maxWidth: 900)
-        }
+        MigrationRunnerListView(
+            runners: runnerState.localRunners,
+            selectedRunnerID: $selectedRunnerID,
+            onAdd: { isAddRunnerPresented = true },
+            onSetRunning: setRunning,
+            onDelete: delete
+        )
         .sheet(isPresented: $isAddRunnerPresented) {
             AddRunnerSheet(
                 isPresented: $isAddRunnerPresented,
@@ -78,7 +70,7 @@ struct MigrationRunnerView: View {
 
     // MARK: - Actions
 
-    /// Optimistically flips the runner service state then refreshes.
+    /// Optimistically flips running state then refreshes.
     private func setRunning(_ runner: RunnerModel, isRunning: Bool) {
         Task {
             await localRunnerStore.optimisticallySetRunning(runner.runnerName, isRunning: isRunning)
@@ -86,7 +78,7 @@ struct MigrationRunnerView: View {
         }
     }
 
-    /// Clears selection immediately then optimistically removes the runner from the store.
+    /// Clears selection immediately, then optimistically removes the runner.
     private func delete(_ runner: RunnerModel) {
         let wasSelected = runner.id == selectedRunnerID
         if wasSelected { selectedRunnerID = nil }

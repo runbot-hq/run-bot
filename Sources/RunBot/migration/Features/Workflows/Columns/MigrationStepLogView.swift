@@ -24,10 +24,7 @@ struct MigrationStepLogView: View {
     /// Shared log fetcher threaded from the composition root.
     @Binding var logFetcher: LogFetcher
 
-    /// The pane content.
-    ///
-    /// No column header — the selected step is already evident from the
-    /// hierarchy column, so a "Step log" title would be redundant.
+    /// The pane content: step log when a step is selected, placeholder otherwise.
     var body: some View {
         if let job = selectedJob, let step = selectedStep {
             StepLogContentView(

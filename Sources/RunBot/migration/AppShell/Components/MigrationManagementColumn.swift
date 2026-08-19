@@ -37,15 +37,19 @@ struct MigrationManagementColumn<Content: View>: View {
     /// The column layout: header with Add action, divider, content.
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 8) {
+            HStack {
                 Text(title)
-                    .font(.headline)
+                    .font(.title2.weight(.semibold))
+                    .lineLimit(1)
+                    .layoutPriority(1)
 
-                Spacer()
+                Spacer(minLength: 12)
 
                 Button(addTitle, systemImage: "plus", action: onAdd)
-                    .font(.caption)
-                    .buttonStyle(.plain)
+                    .font(.system(size: 13, weight: .medium))
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .fixedSize()
             }
             .padding(.horizontal, 12)
             .frame(height: 44)

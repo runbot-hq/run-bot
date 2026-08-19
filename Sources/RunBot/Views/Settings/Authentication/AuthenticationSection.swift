@@ -66,7 +66,7 @@ struct AuthenticationSection: View {
             Text("Authentication")
                 .font(.system(size: 15, weight: .semibold))
 
-            VStack(spacing: 12) {
+            VStack(spacing: 0) {
                 EnvironmentTokenCard(
                     envState: authentication.environmentState,
                     isActive: envIsActive,
@@ -74,6 +74,11 @@ struct AuthenticationSection: View {
                     onToggle: onToggleEnvironment
                 )
                 .frame(maxWidth: .infinity)
+
+                Rectangle()
+                    .fill(Color.primary.opacity(0.12))
+                    .frame(height: 1)
+                    .padding(.horizontal, 20)
 
                 GitHubOAuthCard(
                     oauthState: authentication.oauthState,
@@ -84,6 +89,10 @@ struct AuthenticationSection: View {
                 )
                 .frame(maxWidth: .infinity)
             }
+            .background(Color.rbSettingsCardBackground)
+            .clipShape(
+                RoundedRectangle(cornerRadius: 15, style: .continuous)
+            )
         }
     }
 }
