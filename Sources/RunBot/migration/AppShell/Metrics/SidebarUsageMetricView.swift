@@ -64,15 +64,23 @@ struct SidebarUsageMetricView: View {
                     history: history,
                     currentPct: pct
                 )
+                .frame(maxWidth: .infinity)
                 .frame(height: SidebarMetricLayout.graphHeight)
-                .clipShape(RoundedRectangle(cornerRadius: 6))
+                .padding(.horizontal, 3)
+                .background(
+                    RoundedRectangle(cornerRadius: 4, style: .continuous)
+                        .fill(Color.primary.opacity(0.045))
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
             } else {
-                RoundedRectangle(cornerRadius: 6)
-                    .fill(Color.rbMetricTrack)
+                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                    .fill(Color.primary.opacity(0.045))
                     .frame(height: SidebarMetricLayout.graphHeight)
             }
         }
-        .frame(height: SidebarMetricLayout.rowHeight, alignment: .top)
+        .frame(maxWidth: .infinity, minHeight: SidebarMetricLayout.rowHeight, alignment: .top)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityDescription)
     }

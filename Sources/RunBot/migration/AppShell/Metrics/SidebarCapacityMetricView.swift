@@ -24,6 +24,11 @@ struct SidebarCapacityMetricView: View {
     /// Free capacity clamped to zero.
     private var free: Double { max(total - used, 0) }
 
+    /// Compact header string: "used / total GB · free X".
+    private var compactValue: String {
+        "\(formatted(used)) / \(formatted(total)) GB · free \(formatted(free))"
+    }
+
     /// Filled fraction clamped to 0-1; zero when total is zero.
     private var fraction: Double {
         guard total > 0 else { return 0 }
@@ -61,7 +66,7 @@ struct SidebarCapacityMetricView: View {
 
                 Spacer()
 
-                Text("\(formatted(used)) / \(formatted(total)) GB")
+                Text(compactValue)
                     .font(.callout.monospacedDigit())
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
@@ -79,15 +84,10 @@ struct SidebarCapacityMetricView: View {
             }
             .frame(height: SidebarMetricLayout.barHeight)
 
-            HStack {
-                Text("used \(formatted(used))")
-                Spacer()
-                Text("free \(formatted(free))")
-            }
-            .font(.caption2.monospacedDigit())
-            .foregroundStyle(.secondary)
         }
-        .frame(height: SidebarMetricLayout.rowHeight, alignment: .top)
+        .frame(maxWidth: .infinity, minHeight: SidebarMetricLayout.rowHeight, alignment: .top)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityDescription)
     }
