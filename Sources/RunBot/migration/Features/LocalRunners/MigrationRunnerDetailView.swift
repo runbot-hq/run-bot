@@ -65,44 +65,44 @@ struct MigrationRunnerDetailView: View {
 
     /// 'Runner information' card section.
     private func runnerInformationSection(_ runner: RunnerModel) -> some View {
-        detailSection(title: "Runner information") {
+        migrationDetailSection(title: "Runner information") {
             if let url = runner.gitHubUrl {
-                copyableDetailRow(
+                migrationCopyableDetailRow(
                     title: "GitHub URL",
                     description: "Repository or organization this runner is registered with.",
                     value: url.absoluteString
                 )
-                rowDivider()
+                migrationRowDivider()
             }
-            detailRow(
+            migrationDetailRow(
                 title: "Work folder",
                 description: "Directory used to store workflow files and job data.",
                 value: runner.workFolder ?? "_work"
             )
-            rowDivider()
-            detailRow(
+            migrationRowDivider()
+            migrationDetailRow(
                 title: "Ephemeral",
                 description: "Automatically unregisters after completing one job.",
                 value: runner.isEphemeral ? "Yes" : "No"
             )
             if !displayOsArch.isEmpty {
-                rowDivider()
-                detailRow(
+                migrationRowDivider()
+                migrationDetailRow(
                     title: "OS / Arch",
                     description: "Operating system and processor architecture.",
                     value: displayOsArch
                 )
             }
             if !displayVersion.isEmpty {
-                rowDivider()
-                detailRow(
+                migrationRowDivider()
+                migrationDetailRow(
                     title: "Version",
                     description: "Installed GitHub Actions runner version.",
                     value: displayVersion
                 )
             }
-            rowDivider()
-            detailRow(
+            migrationRowDivider()
+            migrationDetailRow(
                 title: "Status",
                 description: "Current availability reported by the runner.",
                 value: runner.displayStatus
@@ -112,14 +112,14 @@ struct MigrationRunnerDetailView: View {
 
     /// 'Configuration' card section.
     private func configurationSection(_ runner: RunnerModel) -> some View {
-        detailSection(title: "Configuration") {
-            detailRow(
+        migrationDetailSection(title: "Configuration") {
+            migrationDetailRow(
                 title: "Labels",
                 description: "Used by workflows to target this runner.",
                 value: runner.labels.isEmpty ? "—" : runner.labels.joined(separator: ", ")
             )
-            rowDivider()
-            detailRow(
+            migrationRowDivider()
+            migrationDetailRow(
                 title: "Group",
                 description: "Controls which repositories can use this runner.",
                 value: runner.runnerGroup ?? "—"
@@ -149,7 +149,7 @@ struct MigrationRunnerDetailView: View {
     }
 
     /// Standard label / description / value row.
-    private func detailRow(title: String, description: String, value: String) -> some View {
+    private func migrationDetailRow(title: String, description: String, value: String) -> some View {
         HStack(alignment: .center, spacing: 24) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(title)
@@ -174,7 +174,7 @@ struct MigrationRunnerDetailView: View {
 }
 
     /// Label / description / value row with an inline copy button; used for the GitHub URL.
-    private func copyableDetailRow(title: String, description: String, value: String) -> some View {
+    private func migrationCopyableDetailRow(title: String, description: String, value: String) -> some View {
         HStack(alignment: .center, spacing: 24) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(title)
@@ -213,7 +213,7 @@ struct MigrationRunnerDetailView: View {
     ///
     /// Uses an explicitly coloured 1-pt `Rectangle` rather than a system
     /// `Divider` so the final opacity is predictable against the card background.
-    private func rowDivider() -> some View {
+    private func migrationRowDivider() -> some View {
         Rectangle()
             .fill(Color.primary.opacity(0.12))
             .frame(height: 1)
