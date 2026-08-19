@@ -67,21 +67,21 @@ struct MigrationScopeDetailView: View {
 
     /// 'Scope information' card section.
     private func scopeInformationSection(_ scope: ScopeEntry) -> some View {
-        detailSection(title: "Scope information") {
-            detailRow(
+        migrationDetailSection(title: "Scope information") {
+            migrationDetailRow(
                 title: "Scope",
                 description: "Repository or organization monitored by RunBot.",
                 value: scope.scope
             )
-            rowDivider()
-            detailRow(
+            migrationRowDivider()
+            migrationDetailRow(
                 title: "Type",
                 description: "Kind of GitHub scope being monitored.",
                 value: scope.scope.contains("/") ? "Repository" : "Organization"
             )
-            rowDivider()
+            migrationRowDivider()
             if let url = URL(string: "https://github.com/" + scope.scope) {
-                copyableDetailRow(
+                migrationCopyableDetailRow(
                     title: "GitHub",
                     description: "View this scope on GitHub.",
                     value: url.absoluteString
@@ -92,8 +92,8 @@ struct MigrationScopeDetailView: View {
 
     /// 'Monitoring' card section showing current poll state as a read-only value.
     private func monitoringSection(_ scope: ScopeEntry) -> some View {
-        detailSection(title: "Monitoring") {
-            detailRow(
+        migrationDetailSection(title: "Monitoring") {
+            migrationDetailRow(
                 title: "Monitor this scope",
                 description: scope.isEnabled
                     ? "RunBot actively polls this scope for runner status."
@@ -104,102 +104,4 @@ struct MigrationScopeDetailView: View {
         }
     }
 
-    // MARK: - Layout helpers
-
-    /// Rounded filled card with a compact section heading above it.
-    private func detailSection<Content: View>(
-        title: String,
-        @ViewBuilder content: () -> Content
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(title)
-                .font(.system(size: 15, weight: .semibold))
-
-            VStack(spacing: 0) {
-                content()
-            }
-            .background(
-                RoundedRectangle(cornerRadius: 15, style: .continuous)
-                    .fill(Color.rbSettingsCardBackground)
-            )
-        }
-    }
-
-    /// Standard two-line label / value row.
-    private func detailRow(
-        title: String,
-        description: String,
-        value: String,
-        valueColor: Color = Color.secondary
-    ) -> some View {
-        HStack(alignment: .center, spacing: 24) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(title)
-                    .font(.system(size: 15, weight: .medium))
-                Text(description)
-                    .font(.system(size: 13))
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            Spacer(minLength: 24)
-
-            Text(value)
-                .font(.system(size: 14))
-                .foregroundStyle(valueColor)
-                .multilineTextAlignment(.trailing)
-                .textSelection(.enabled)
-        }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 15)
-        .frame(minHeight: 72)
-    }
-
-    /// Two-line label / value row with inline copy button; used for the GitHub URL.
-    private func copyableDetailRow(
-        title: String,
-        description: String,
-        value: String
-    ) -> some View {
-        HStack(alignment: .center, spacing: 24) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(title)
-                    .font(.system(size: 15, weight: .medium))
-                Text(description)
-                    .font(.system(size: 13))
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            Spacer(minLength: 24)
-
-            Text(value)
-                .font(.system(size: 14))
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .truncationMode(.middle)
-                .textSelection(.enabled)
-
-            Button {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(value, forType: .string)
-            } label: {
-                Image(systemName: "doc.on.doc")
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(.secondary)
-            .help("Copy to clipboard")
-        }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 15)
-        .frame(minHeight: 72)
-    }
-
-    /// Subtle one-point inset separator between card rows.
-    private func rowDivider() -> some View {
-        Rectangle()
-            .fill(Color.primary.opacity(0.12))
-            .frame(height: 1)
-            .padding(.horizontal, 20)
-    }
 }
