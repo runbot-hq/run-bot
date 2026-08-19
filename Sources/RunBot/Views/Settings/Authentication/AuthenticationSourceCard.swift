@@ -32,13 +32,10 @@ struct AuthenticationSourceCard<Content: View>: View {
         return .rbAuthInactiveGlassBackground
     }
 
-    /// Card body: content wrapped in the badge-pattern Liquid Glass card.
-    /// Edge highlights and refraction come exclusively from `.glassEffect(.regular)`.
+    /// Card body: content with a flat state-colour fill.
+    /// The parent group in `AuthenticationSection` owns the outer clip shape.
     var body: some View {
         content()
-            .background(
-                RoundedRectangle(cornerRadius: 15, style: .continuous)
-                    .fill(glassBackground)
-            )
+            .background(glassBackground)
     }
 }
