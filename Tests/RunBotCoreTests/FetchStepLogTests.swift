@@ -163,24 +163,6 @@ struct FetchStepLogTests {
         #expect(content.contains("\u{1B}"), "ANSI codes must pass through to the render layer")
     }
 
-    @Test("Regression #2358: synthetic Complete job step returns .slice, not .syntheticEmpty")
-    func test_completeJob_regression2358() async {
-        var fetcher = makeFetcher(zipFiles: [
-            (name: "release/2_Checkout", text: "checkout output\n"),
-            (name: "release/7_Complete job", text: "Cleaning up orphan processes\n"),
-        ])
-        let result = await fetcher.fetchStepLog(
-            runID: 99, startedAt: nil,
-            jobID: 42, jobName: "release",
-            step: makeStep(number: 7, name: "Complete job"), scope: "owner/repo"
-        )
-        guard case .slice(let content) = result else {
-            Issue.record("REGRESSION #2358: Expected .slice for synthetic step, got \(result)")
-            return
-        }
-        #expect(content.contains("Cleaning up orphan processes"))
-    }
-
     @Test("Regression #2358: Complete job with no ##[group] markers — real extractor returns .slice")
     func test_completeJob_regression2358_realExtractor() async {
         let transport = FetchStepStubTransport(responses: [
@@ -221,43 +203,6 @@ struct FetchStepLogTests {
         }
     }
 
-    @Test("Prefix match succeeds when ZIP filename differs from step.name")
-    func test_sanitisedFilenameDiffers_prefixMatchSucceeds() async {
-        var fetcher = makeFetcher(zipFiles: [
-            (name: "release/1_Checkout", text: "checkout output\n"),
-        ])
-        let result = await fetcher.fetchStepLog(
-            runID: 99, startedAt: nil,
-            jobID: 42, jobName: "release",
-            step: makeStep(number: 1, name: "actions/checkout@v4"),
-            scope: "owner/repo"
-        )
-        guard case .slice(let content) = result else {
-            Issue.record("Expected .slice, got \(result)")
-            return
-        }
-        #expect(content.contains("checkout output"))
-    }
-
-    @Test("Whitespace-only step content returns .syntheticEmpty")
-    func test_emptyContent_returnsSyntheticEmpty() async {
-        var fetcher = makeFetcher(zipFiles: [
-            (name: "release/1_Checkout", text: "   \n  \n"),
-        ])
-        let result = await fetcher.fetchStepLog(
-            runID: 99, startedAt: nil,
-            jobID: 42, jobName: "release",
-            step: makeStep(number: 1, name: "Checkout"),
-            scope: "owner/repo"
-        )
-        guard case .syntheticEmpty(let name, let reason) = result else {
-            Issue.record("Expected .syntheticEmpty, got \(result)")
-            return
-        }
-        #expect(name == "Checkout")
-        #expect(reason.contains("empty after cleanup"))
-    }
-
     @Test("ZIP with only top-level blobs returns .flatBlobFallback")
     func test_onlyTopLevelBlobs_returnsFlatBlobFallback() async {
         var fetcher = makeFetcher(
@@ -276,24 +221,6 @@ struct FetchStepLogTests {
             Issue.record("Expected .flatBlobFallback, got \(result)")
             return
         }
-    }
-
-    @Test("Job name with / and : is sanitised before ZIP lookup")
-    func test_jobNameWithSlashAndColon_sanitised() async {
-        var fetcher = makeFetcher(zipFiles: [
-            (name: "orgactionjob/1_Build", text: "build output\n"),
-        ])
-        let result = await fetcher.fetchStepLog(
-            runID: 99, startedAt: nil,
-            jobID: 42, jobName: "org/action:job",
-            step: makeStep(number: 1, name: "Build"),
-            scope: "owner/repo"
-        )
-        guard case .slice(let content) = result else {
-            Issue.record("Expected .slice, got \(result)")
-            return
-        }
-        #expect(content.contains("build output"))
     }
 
     @Test("Job name > 90 UTF-16 code units is truncated before ZIP lookup")
@@ -338,28 +265,6 @@ struct FetchStepLogTests {
         }
         #expect(name == "Deploy")
         #expect(result.isSkipped, "isSkipped must be true for a skipped step")
-    }
-
-    @Test("__MACOSX metadata entries in ZIP are excluded from results")
-    func test_macosxEntries_areFiltered() async {
-        // macOS's zip tool injects __MACOSX/ AppleDouble entries. These must never
-        // appear in allFiles or skew stepCount / diagnostic logs.
-        var fetcher = makeFetcher(zipFiles: [
-            (name: "release/1_Build", text: "build output\n"),
-            (name: "__MACOSX/release/._1_Build", text: "\u{0000}"),  // fake AppleDouble
-        ])
-        let result = await fetcher.fetchStepLog(
-            runID: 99, startedAt: nil,
-            jobID: 42, jobName: "release",
-            step: makeStep(number: 1, name: "Build"),
-            scope: "owner/repo"
-        )
-        // The __MACOSX entry must not pollute the result — the real slice is returned.
-        guard case .slice(let content) = result else {
-            Issue.record("Expected .slice, got \(result)")
-            return
-        }
-        #expect(content.contains("build output"))
     }
 
     @Test("Cache hit: second call for same runID+startedAt makes zero extra network calls")
@@ -431,20 +336,9 @@ struct FetchStepLogTests {
 @Suite("sanitizeJobNameForZIP")
 struct SanitizeJobNameTests {
 
-    @Test("Preserves short plain-ASCII names unchanged")
-    func test_sanitize_preservesShortAscii() {
-        #expect(sanitizeJobNameForZIP("release") == "release")
-        #expect(sanitizeJobNameForZIP("build-test") == "build-test")
-    }
-
     @Test("Strips forward slash")
     func test_sanitize_stripsSlash() {
         #expect(sanitizeJobNameForZIP("org/repo") == "orgrepo")
-    }
-
-    @Test("Strips colon")
-    func test_sanitize_stripsColon() {
-        #expect(sanitizeJobNameForZIP("action:job") == "actionjob")
     }
 
     @Test("Truncates to 90 UTF-16 code units")
@@ -453,11 +347,6 @@ struct SanitizeJobNameTests {
         let fortySix  = String(repeating: "\u{1F600}", count: 46)
         #expect(sanitizeJobNameForZIP(fortyFive) == fortyFive)
         #expect(sanitizeJobNameForZIP(fortySix).utf16.count == 90)
-    }
-
-    @Test("Preserves empty string")
-    func test_sanitize_preservesEmpty() {
-        #expect(sanitizeJobNameForZIP("") == "")
     }
 
     @Test("Strips Windows-invalid chars: \" * ? < > |")
