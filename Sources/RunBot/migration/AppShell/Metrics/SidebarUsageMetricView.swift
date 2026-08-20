@@ -79,7 +79,7 @@ struct SidebarUsageMetricView: View {
             }
         }
         .padding(.vertical, 2)
-        .frame(maxWidth: .infinity, minHeight: SidebarMetricLayout.rowHeight, maxHeight: SidebarMetricLayout.rowHeight, alignment: .top)
+        .frame(maxWidth: .infinity, minHeight: SidebarMetricLayout.rowHeight, maxHeight: SidebarMetricLayout.rowHeight, alignment: .center)
         .padding(.horizontal, 8)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityDescription)
