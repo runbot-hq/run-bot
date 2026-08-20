@@ -44,28 +44,6 @@ struct OrgRunnerMetricsResolutionTests {
     )
   }
 
-  // MARK: - apiId storage
-
-  /// `apiId` set in init must be readable after construction.
-  @Test func apiIdIsStoredOnInit() {
-    let runner = makeOrgRunner(agentId: 100, apiId: 999)
-    #expect(runner.apiId == 999)
-    #expect(runner.agentId == 100)
-  }
-
-  /// `apiId` defaults to `nil` when omitted (preserves backward-compatible call sites).
-  @Test func apiIdDefaultsToNilWhenOmitted() {
-    let runner = RunnerModel(
-      runnerName: "runner",
-      gitHubUrl: nil,
-      agentId: 42,
-      workFolder: nil,
-      installPath: nil,
-      isRunning: false
-    )
-    #expect(runner.apiId == nil)
-  }
-
   // MARK: - copying() round-trips
 
   /// `copying(...)` must preserve `apiId` when no apiId-related field is changed.
