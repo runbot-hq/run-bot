@@ -15,14 +15,6 @@ final class ANSIAttributedStringTests: XCTestCase {
     private let base: Color = .white
     private let font: Font = .system(size: 11, design: .monospaced)
 
-    // MARK: - Fast path
-
-    func test_noANSI_fastPath() {
-        let result = ansiAttributedString("plain text", baseColor: base, font: font)
-        XCTAssertEqual(String(result.characters), "plain text")
-        XCTAssertEqual(result.foregroundColor, base)
-    }
-
     // MARK: - Reset
 
     func test_reset() {

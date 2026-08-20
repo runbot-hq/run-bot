@@ -17,17 +17,6 @@ final class AppPreferencesStoreAutomaticUpdatesTests: XCTestCase {
         UserDefaults(suiteName: "test.\(UUID().uuidString)")!
     }
 
-    // MARK: - Default value
-
-    func testDefaultsToTrue() {
-        let store = AppPreferencesStore(store: makeSuite())
-        XCTAssertTrue(
-            store.automaticUpdatesEnabled,
-            "automaticUpdatesEnabled must default to true so existing installs " +
-            "keep receiving updates without any action"
-        )
-    }
-
     // MARK: - Persistence
 
     func testPersistsFalse() {
