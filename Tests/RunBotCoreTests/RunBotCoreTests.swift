@@ -1016,16 +1016,4 @@ struct SystemStatsGPUTests {
         #expect(stats.gpuPct == nil)
     }
 
-    /// Verifies that `gpuPct` can be `nil` explicitly.
-    @Test func nilGpuPctIsExplicitlyRepresentable() {
-        let stats = SystemStats(
-            cpuPct: 10,
-            gpuPct: nil,
-            memUsedGB: 4,
-            memTotalGB: 8,
-            diskUsedGB: 50,
-            diskTotalGB: 500
-        )
-        #expect(stats.gpuPct == nil)
-    }
 }

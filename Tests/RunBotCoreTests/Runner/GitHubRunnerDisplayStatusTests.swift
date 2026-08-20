@@ -16,22 +16,20 @@ struct GitHubRunnerDisplayStatusTests {
     GitHubRunner(id: 1, name: "r", status: status, busy: busy)
   }
 
-  /// Verifies that a runner with `.offline` status returns "offline" regardless of metrics.
-  @Test func offlineReturnsOffline() {
-    #expect(makeRunner(status: .offline).displayStatus(metrics: nil) == "offline")
-  }
-
-  /// Verifies that a runner with an `.unknown` status returns "offline", treating unrecognised
-  /// statuses as offline to avoid surfacing internal agent state to the UI.
-  @Test func unknownReturnsOffline() {
-    #expect(makeRunner(status: .unknown("draining")).displayStatus(metrics: nil) == "offline")
-  }
-
-  /// #1983 Step 3 — .unknown + busy: true must still return "offline" regardless of busy flag.
-  @Test func unknownBusyTrueReturnsOffline() {
-    #expect(
-      makeRunner(status: .unknown("draining"), busy: true).displayStatus(metrics: nil)
-        == "offline")
+  /// Offline and unknown statuses all return "offline" regardless of busy or metrics.
+  /// #1983 Step 3: busy: true with .unknown must still surface as offline.
+  @Test func terminalStatusesReturnOffline() {
+    let cases: [(RunnerStatus, Bool)] = [
+      (.offline, false),
+      (.unknown("draining"), false),
+      (.unknown("draining"), true),
+    ]
+    for (status, busy) in cases {
+      #expect(
+        makeRunner(status: status, busy: busy).displayStatus(metrics: nil) == "offline",
+        "status \(status) busy=\(busy) should return offline"
+      )
+    }
   }
 
   /// Verifies that an online, idle runner with no metrics returns the dash-placeholder string

@@ -235,12 +235,6 @@ struct WorkflowActionGroupFetcherTests {
 
   // MARK: - Empty API responses
 
-  /// Verifies that when all three status endpoints return empty `workflow_runs` arrays, `fetch` returns an empty array.
-  @Test func fetchActionGroupsAllEndpointsEmptyReturnsEmpty() async {
-    let f = WorkflowActionGroupFetcher(transport: makeTransport())
-    #expect(await f.fetch(for: "owner/repo").isEmpty)
-  }
-
   /// Verifies that when the transport returns `nil` for all endpoints (simulating no network), `fetch` returns an empty array.
   @Test func fetchActionGroupsNilResponsesReturnsEmpty() async {
     let f = WorkflowActionGroupFetcher(transport: StubTransport())

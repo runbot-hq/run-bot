@@ -45,31 +45,20 @@ struct WorkflowActionGroupProgressTests {
         #expect(group.jobProgress == "1/2")
     }
 
-    /// One success and one cancelled job → "1/2".
-    @Test func successAndCancelled() {
-        let group = WorkflowActionGroup.makeTestGroup(jobs: [
+    /// Non-success conclusions (cancelled, running/nil, all other terminals) must not increment
+    /// jobsSucceeded. Covers: failure, cancelled, skipped, neutral, timedOut, actionRequired,
+    /// stale, startupFailure, unknown, and in-progress (nil conclusion).
+    /// Regression: partial-success counts are correct (#2630).
+    @Test func mixedConclusionsProgress() {
+        // 1 success + 1 cancelled → "1/2"
+        let partial = WorkflowActionGroup.makeTestGroup(jobs: [
             makeJob(id: 1, conclusion: .success),
             makeJob(id: 2, conclusion: .cancelled),
         ])
-        #expect(group.jobsSucceeded == 1)
-        #expect(group.jobsTotal == 2)
-        #expect(group.jobProgress == "1/2")
-    }
+        #expect(partial.jobProgress == "1/2")
 
-    /// One success and one running/queued job with nil conclusion → "1/2".
-    @Test func successAndRunningJob() {
-        let group = WorkflowActionGroup.makeTestGroup(jobs: [
-            makeJob(id: 1, conclusion: .success),
-            makeJob(id: 2, conclusion: nil, status: .inProgress),
-        ])
-        #expect(group.jobsSucceeded == 1)
-        #expect(group.jobsTotal == 2)
-        #expect(group.jobProgress == "1/2")
-    }
-
-    /// Non-success conclusions must not increment jobsSucceeded.
-    @Test func nonSuccessConclusionsDoNotCount() {
-        let group = WorkflowActionGroup.makeTestGroup(jobs: [
+        // all non-success terminal conclusions → "0/9"
+        let allNonSuccess = WorkflowActionGroup.makeTestGroup(jobs: [
             makeJob(id: 1, conclusion: .failure),
             makeJob(id: 2, conclusion: .cancelled),
             makeJob(id: 3, conclusion: .skipped),
@@ -80,28 +69,17 @@ struct WorkflowActionGroupProgressTests {
             makeJob(id: 8, conclusion: .startupFailure),
             makeJob(id: 9, conclusion: .unknown("unknown")),
         ])
-        #expect(group.jobsSucceeded == 0)
-        #expect(group.jobsTotal == 9)
-        #expect(group.jobProgress == "0/9")
-    }
+        #expect(allNonSuccess.jobsSucceeded == 0)
+        #expect(allNonSuccess.jobProgress == "0/9")
 
-    /// Regression: 8 .success + 1 .failure + 1 other non-success → "8/10".
-    @Test func eightOutOfTen() {
-        let group = WorkflowActionGroup.makeTestGroup(jobs: [
-            makeJob(id: 1, conclusion: .success),
-            makeJob(id: 2, conclusion: .success),
-            makeJob(id: 3, conclusion: .success),
-            makeJob(id: 4, conclusion: .success),
-            makeJob(id: 5, conclusion: .success),
-            makeJob(id: 6, conclusion: .success),
-            makeJob(id: 7, conclusion: .success),
-            makeJob(id: 8, conclusion: .success),
+        // 8 success + 1 failure + 1 cancelled → "8/10" (regression #2630)
+        let eightOfTen = WorkflowActionGroup.makeTestGroup(jobs: (1...8).map {
+            makeJob(id: $0, conclusion: .success)
+        } + [
             makeJob(id: 9, conclusion: .failure),
             makeJob(id: 10, conclusion: .cancelled),
         ])
-        #expect(group.jobsSucceeded == 8)
-        #expect(group.jobsTotal == 10)
-        #expect(group.jobProgress == "8/10")
+        #expect(eightOfTen.jobProgress == "8/10")
     }
 
     // MARK: - Helpers

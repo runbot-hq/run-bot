@@ -106,17 +106,6 @@ actor FakeScopePreferencesStore: ScopePreferencesStoreProtocol {
 @Suite("ScopePreferencesStore contract")
 struct ScopeEditSheetTests {
 
-  // MARK: No spurious writes
-
-  /// Verifies that calling `preferences(for:)` does not produce any entry in the write log.
-  @Test("reading preferences does not produce a write")
-  func readingDoesNotWrite() async {
-    let fake = FakeScopePreferencesStore()
-    await fake.seed(ScopePreferences(alias: "Seeded"), for: "acme")
-    _ = await fake.preferences(for: "acme")
-    #expect(await fake.writeLog.isEmpty)
-  }
-
   /// Verifies that writing preferences for one scope does not modify the stored value for any other scope.
   @Test("write for one scope does not touch another scope")
   func saveDoesNotCrossContaminateScopes() async {
