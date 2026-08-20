@@ -84,9 +84,9 @@ struct SidebarCapacityMetricView: View {
             }
             .frame(height: SidebarMetricLayout.barHeight)
         }
-        .frame(maxWidth: .infinity, minHeight: SidebarMetricLayout.rowHeight, alignment: .top)
+        .padding(.vertical, 2)
+        .frame(maxWidth: .infinity, minHeight: SidebarMetricLayout.rowHeight, maxHeight: SidebarMetricLayout.rowHeight, alignment: .top)
         .padding(.horizontal, 8)
-        .padding(.vertical, 6)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityDescription)
     }
