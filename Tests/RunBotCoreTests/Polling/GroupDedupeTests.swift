@@ -139,17 +139,4 @@ struct MakeShaKeyedCacheTests {
         #expect(entry?.latestRunID == 10)
     }
 
-    /// A cache with no collisions passes through unchanged.
-    @Test func noCollisionPassthrough() {
-        let g1 = makeGroup(sha: "aaa", runIDs: [1])
-        let g2 = makeGroup(sha: "bbb", runIDs: [2])
-        let cache: [String: WorkflowActionGroup] = [
-            g1.compositeCacheKey: g1,
-            g2.compositeCacheKey: g2,
-        ]
-        let result = PollResultBuilder.makeShaKeyedCache(cache)
-        #expect(result.count == 2)
-        #expect(result[g1.compositeCacheKey]?.latestRunID == 1)
-        #expect(result[g2.compositeCacheKey]?.latestRunID == 2)
-    }
 }

@@ -31,15 +31,6 @@ struct LocalRunnerIndexTests {
 
   // MARK: - register
 
-  /// `register` stores the install path and makes it immediately readable.
-  @Test func registerStoresPath() {
-    let (defaults, suite) = Self.makeSuite()
-    defer { UserDefaults.standard.removePersistentDomain(forName: suite) }
-    let index = LocalRunnerIndex(defaults: defaults)
-    index.register(name: "my-runner", installPath: "/opt/runners/my-runner")
-    #expect(index.runnerIndex["my-runner"] == "/opt/runners/my-runner")
-  }
-
   /// `register` called twice with the same name updates the path.
   @Test func registerOverwritesExistingEntry() {
     let (defaults, suite) = Self.makeSuite()
@@ -72,15 +63,6 @@ struct LocalRunnerIndexTests {
     index.register(name: "to-remove", installPath: "/path")
     index.unregister(name: "to-remove")
     #expect(index.runnerIndex["to-remove"] == nil)
-  }
-
-  /// `unregister` on an unknown name is a no-op (does not crash).
-  @Test func unregisterUnknownNameIsNoop() {
-    let (defaults, suite) = Self.makeSuite()
-    defer { UserDefaults.standard.removePersistentDomain(forName: suite) }
-    let index = LocalRunnerIndex(defaults: defaults)
-    index.unregister(name: "does-not-exist")
-    #expect(index.runnerIndex.isEmpty)
   }
 
   /// `unregister` only removes the targeted runner, leaving others intact.

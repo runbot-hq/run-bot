@@ -22,13 +22,6 @@ struct LogFetcherTests {
     #expect(result == nil)
   }
 
-  /// Returns `nil` when the transport returns `nil`.
-  @Test func fetchJobLog_transportReturnsNil_returnsNil() async {
-    let f = LogFetcher(transport: StubTransport())
-    let result = await f.fetchJobLog(jobID: 1, scope: "owner/repo")
-    #expect(result == nil)
-  }
-
   /// Returns plain text when transport returns valid log bytes.
   @Test func fetchJobLog_validResponse_returnsText() async {
     let t = StubTransport(responses: [

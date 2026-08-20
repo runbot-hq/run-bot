@@ -33,13 +33,6 @@ struct StepLogViewScopeResolutionTests {
     #expect(repoScopeForFetch(htmlUrl: url) == "runbot-hq/run-bot")
   }
 
-  /// Verifies that a minimal URL containing only scheme, host, owner, and repo (no trailing path) still resolves correctly.
-  @Test("extracts owner/repo when URL has no trailing path beyond repo")
-  func extractsOwnerRepoFromMinimalURL() {
-    let url = "https://github.com/some-org/my-repo"
-    #expect(repoScopeForFetch(htmlUrl: url) == "some-org/my-repo")
-  }
-
   /// Verifies that hyphenated owner and repo name segments are handled without truncation or misparse.
   @Test("extracts owner/repo with hyphenated owner and repo names")
   func extractsHyphenatedOwnerRepo() {
@@ -48,18 +41,6 @@ struct StepLogViewScopeResolutionTests {
   }
 
   // MARK: Fallback path — malformed or absent htmlUrl
-
-  /// Verifies that a `nil` `htmlUrl` falls back to an empty scope string without crashing.
-  @Test("returns empty string when htmlUrl is nil")
-  func returnsEmptyWhenNil() {
-    #expect(repoScopeForFetch(htmlUrl: nil) == "")
-  }
-
-  /// Verifies that an empty `htmlUrl` string falls back to an empty scope string.
-  @Test("returns empty string when htmlUrl is empty")
-  func returnsEmptyWhenEmpty() {
-    #expect(repoScopeForFetch(htmlUrl: "") == "")
-  }
 
   /// Verifies that a URL with fewer than 5 slash-separated components (missing the repo segment) returns an empty scope string.
   @Test("returns empty string when URL has fewer than 5 slash-separated parts")

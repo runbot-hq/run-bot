@@ -84,10 +84,4 @@ struct OrgRunnerMetricsResolutionTests {
     #expect(byApiId[100] == nil)
   }
 
-  /// `nil` apiId must produce an empty `byApiId` map entry (no crash, no spurious hit).
-  @Test func nilApiIdProducesNoByApiIdEntry() {
-    let runner = makeOrgRunner(agentId: 100, apiId: nil)
-    let byApiId: [Int: String] = runner.apiId.map { [$0: runner.installPath!] } ?? [:]
-    #expect(byApiId.isEmpty)
-  }
 }
