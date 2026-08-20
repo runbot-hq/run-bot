@@ -80,6 +80,21 @@ struct LogLineParserTests {
         #expect(groupID == nil)
     }
 
+    @Test("##[warning] inside a group retains groupID")
+    func test_warningInsideGroup_retainsGroupID() {
+        let raw = "##[group]Lint\n##[warning]Trailing whitespace\n##[endgroup]"
+        let result = parseLogLines(raw)
+        #expect(result.count == 2)
+        guard case .groupHeader(let gid, _) = result[0] else { Issue.record("Expected .groupHeader at [0]"); return }
+        guard case .annotation(_, let level, let text, _, let groupID) = result[1] else {
+            Issue.record("Expected .annotation at [1]")
+            return
+        }
+        #expect(level == .warning)
+        #expect(text == "Trailing whitespace")
+        #expect(groupID == gid)
+    }
+
     // MARK: - IDs
 
     @Test("IDs are unique and monotonically increasing across all line types")
@@ -112,6 +127,16 @@ struct LogLineParserTests {
         guard case .dimmed(_, let text, let groupID) = result[0] else { Issue.record("Expected .dimmed at [0]"); return }
         #expect(text == directive)
         #expect(groupID == nil)
+    }
+
+    // MARK: - ::add-mask:: privacy filter
+
+    @Test("::add-mask:: directive is suppressed entirely (privacy contract)")
+    func addMaskDirectiveIsSuppressed() {
+        // Build the string programmatically so the runner never sees the literal
+        // ::add-mask:: token and tries to redact the argument in CI log output.
+        let directive = "::" + "add-mask::secret"
+        #expect(parseLogLines(directive).isEmpty)
     }
 
     // MARK: - ::warning / ::error / ::notice (bare, no params)

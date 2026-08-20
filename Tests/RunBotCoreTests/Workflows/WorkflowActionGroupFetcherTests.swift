@@ -285,6 +285,29 @@ struct WorkflowActionGroupFetcherTests {
 
   /// Verifies that a `workflow_dispatch` run on the same SHA as a `push` run
   /// produces two separate groups rather than being merged into one.
+  @Test func fetchActionGroupsDispatchRunOnSameShaProducesSeparateGroup() async {
+    let sha = "shared999"
+    let t = makeTransport(with: [
+      "repos/owner/repo/actions/runs?status=completed": envelope(
+        key: "workflow_runs",
+        [
+          minimalRun(id: 1, sha: sha, status: "completed", conclusion: "success", name: "CI", event: "push"),
+          minimalRun(id: 2, sha: sha, status: "completed", conclusion: "success", name: "Publish", event: "workflow_dispatch"),
+        ]),
+      "repos/owner/repo/actions/runs/1/jobs": envelope(key: "jobs", [minimalJob(id: 10)]),
+      "repos/owner/repo/actions/runs/2/jobs": envelope(key: "jobs", [minimalJob(id: 20)]),
+    ])
+    let f = WorkflowActionGroupFetcher(transport: t)
+    let r = await f.fetch(for: "owner/repo")
+    #expect(r.count == 2, "push and workflow_dispatch runs on the same SHA must be in separate groups")
+    let pushGroup = r.first(where: { $0.runs.first?.name == "CI" })
+    let dispatchGroup = r.first(where: { $0.runs.first?.name == "Publish" })
+    #expect(pushGroup != nil)
+    #expect(dispatchGroup != nil)
+    #expect(pushGroup?.jobs.first?.id == 10)
+    #expect(dispatchGroup?.jobs.first?.id == 20)
+  }
+
   // MARK: - Cache hit
 
   /// Verifies that a concluded cache entry for a given SHA is served directly without re-fetching the `/jobs` endpoint (only 3 status calls are made).
@@ -310,6 +333,81 @@ struct WorkflowActionGroupFetcherTests {
     #expect(t.callCount == 3)
   }
 
+  /// Verifies that a cached entry whose job is concluded but has an in-progress step bypasses the cache and re-fetches jobs from the API (stale-step guard).
+  @Test func fetchActionGroupsConcludedCacheWithInProgressStepRefetchesJobs() async {
+    // A cached entry where a job is concluded but a step is still in-progress
+    // must NOT serve from cache — the stale-step guard re-fetches via API.
+    let sha = "staledash"
+    let cacheKey = "owner/repo:\(sha):commit"
+    let cached = makeCachedGroup(
+      sha: sha,
+      title: "Stale step commit",
+      jobID: 888,
+      jobName: "stale-build",
+      steps: [JobStep(id: 1, name: "lint", status: .inProgress)]
+    )
+    let t = makeCompletedRunTransport(sha: sha)
+    let f = WorkflowActionGroupFetcher(transport: t)
+    let r = await f.fetch(for: "owner/repo", cache: [cacheKey: cached])
+    #expect(r.count == 1)
+    // 3 status calls + 1 jobs-list call = 4 (not 3 — cache was bypassed)
+    #expect(t.callCount == 4)
+  }
+
+  // MARK: - Refresh cap
+
+  /// Verifies that individual job refresh calls are capped at `maxRefreshConcurrency` — when a run has 4 in-progress jobs, only 3 individual `/actions/jobs/{id}` calls are dispatched.
+  @Test func fetchActionGroupsInProgressJobsCappedAtMaxRefreshConcurrency() async {
+    let runID = 1
+    let sha = "capcap"
+    let inProgressJobs = (1...4).map { i in
+      minimalJob(id: 100 + i, status: "in_progress", conclusion: nil)
+    }
+    var extras: [String: Data] = [
+      "repos/owner/repo/actions/runs?status=in_progress": envelope(
+        key: "workflow_runs",
+        [
+          minimalRun(id: runID, sha: sha, status: "in_progress", conclusion: nil)
+        ]),
+      "repos/owner/repo/actions/runs/\(runID)/jobs": envelope(key: "jobs", inProgressJobs),
+    ]
+    for i in 1...3 {
+      let job = minimalJob(id: 100 + i, status: "in_progress", conclusion: nil)
+      extras["repos/owner/repo/actions/jobs/\(100 + i)"] =
+        (try? JSONSerialization.data(withJSONObject: job)) ?? Data()
+    }
+    let t = makeTransport(with: extras)
+    let f = WorkflowActionGroupFetcher(transport: t)
+    let r = await f.fetch(for: "owner/repo")
+    #expect(r.count == 1)
+    #expect(r.first?.jobs.count == 4)
+    // 3 status calls + 1 jobs-list call + 3 refresh calls = 7 (not 8)
+    #expect(t.callCount == 7)
+  }
+
+  // MARK: - Cross-scope cache miss
+
+  /// Verifies that a concluded cache entry whose `repo` field does not match the current fetch scope is not served.
+  @Test func fetchActionGroupsCachedEntryForDifferentRepoNotServedAsCacheHit() async {
+    let sha = "crossreposha"
+    let cacheKey = "owner/repo:\(sha):commit"
+    let cached = makeCachedGroup(
+      sha: sha,
+      title: "Other repo commit",
+      repo: "owner/other-repo",
+      jobID: 777,
+      jobName: "other-build",
+      jobScope: "owner/other-repo"
+    )
+    let t = makeCompletedRunTransport(sha: sha)
+    let f = WorkflowActionGroupFetcher(transport: t)
+    let r = await f.fetch(for: "owner/repo", cache: [cacheKey: cached])
+    #expect(r.count == 1)
+    // Cache was bypassed — live job id 888 is returned, not cached id 777.
+    #expect(r.first?.jobs.first?.id == 888)
+    // 3 status calls + 1 jobs-list call = 4 (not 3 — cache was not served)
+    #expect(t.callCount == 4)
+  }
 
   // MARK: - Three-way status-bucket merge (#1983 Step 6)
 
@@ -467,4 +565,58 @@ struct WorkflowActionGroupFetcherTests {
   // NOTE: Cross-event eviction (fetchActionGroupsFreshPushDoesNotEvictDispatchCacheEntry)
   // is intentionally not tested at this layer. evictFreshShas lives in PollResultBuilder,
   // not in the fetcher — that regression is covered in PollResultBuilderEvictionTests.
+  // MARK: - Job response ordering (#2541 / #2718 / #2724 / #2725)
+
+  /// Regression guard for issue #2541 / #2718: jobs must be returned in GitHub API response order.
+  @Test func fetchPreservesGitHubJobResponseOrder() async {
+    let expectedJobIDs = [303, 101, 202]
+    let t = makeTransport(with: [
+      "repos/owner/repo/actions/runs?status=completed": envelope(
+        key: "workflow_runs",
+        [minimalRun(id: 42, sha: "ordering-sha", status: "completed", conclusion: "success", name: "ordering")]
+      ),
+      "repos/owner/repo/actions/runs/42/jobs": envelope(
+        key: "jobs",
+        expectedJobIDs.map { minimalJob(id: $0, status: "completed", conclusion: "success") }
+      ),
+    ])
+    let f = WorkflowActionGroupFetcher(transport: t)
+    let groups = await f.fetch(for: "owner/repo")
+    #expect(groups.count == 1)
+    #expect(groups[0].jobs.map(\.id) == expectedJobIDs)
+  }
+
+  // Regression guard for workflow-level ordering (issue #2724 / #2725).
+  // Input order conflicts with every candidate sort: input position, run ID,
+  // and workflow ID all disagree. Only ascending workflowID produces the
+  // expected "Job A, Job B, Job C" sequence.
+  @Test func fetchOrdersJobsByWorkflowIdentityAcrossRuns() async {
+    let sha = "workflow-ordering-sha"
+    let runs = [
+      minimalRun(id: 100, workflowID: 30, sha: sha, name: "Workflow C"),
+      minimalRun(id: 300, workflowID: 10, sha: sha, name: "Workflow A"),
+      minimalRun(id: 200, workflowID: 20, sha: sha, name: "Workflow B"),
+    ]
+    let t = makeTransport(with: [
+      "repos/owner/repo/actions/runs?status=completed": envelope(
+        key: "workflow_runs", runs
+      ),
+      "repos/owner/repo/actions/runs/100/jobs": envelope(
+        key: "jobs", [minimalJob(id: 1001, name: "Job C")]
+      ),
+      "repos/owner/repo/actions/runs/300/jobs": envelope(
+        key: "jobs", [minimalJob(id: 3001, name: "Job A")]
+      ),
+      "repos/owner/repo/actions/runs/200/jobs": envelope(
+        key: "jobs", [minimalJob(id: 2001, name: "Job B")]
+      ),
+    ])
+    let f = WorkflowActionGroupFetcher(transport: t)
+    let groups = await f.fetch(for: "owner/repo")
+    #expect(groups.count == 1)
+    // workflowID order: 10 (A) → 20 (B) → 30 (C)
+    // Old run-ID sort would produce: Job C (100), Job B (200), Job A (300)
+    #expect(groups[0].jobs.map(\.name) == ["Job A", "Job B", "Job C"])
+  }
+
 }
