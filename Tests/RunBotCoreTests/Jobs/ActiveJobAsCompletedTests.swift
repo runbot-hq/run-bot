@@ -44,17 +44,11 @@ struct ActiveJobAsCompletedTests {
     )
   }
 
-  // MARK: Status
+  // MARK: Status and isDimmed
 
-  @Test func asCompleted_setsStatusToCompleted() {
+  @Test func asCompleted_setsStatusCompletedAndDimmed() {
     let result = makeJob().asCompleted(at: Self.fallback)
     #expect(result.jobStatus == .completed)
-  }
-
-  // MARK: isDimmed
-
-  @Test func asCompleted_setsDimmedTrue() {
-    let result = makeJob().asCompleted(at: Self.fallback)
     #expect(result.isDimmed)
   }
 

@@ -11,14 +11,15 @@ struct ActiveJobRBStatusTests {
 
   // MARK: Conclusion cases
 
-  @Test func successConclusionMapsToSuccess() {
-    let job = ActiveJob(id: 1, name: "j", status: .completed, conclusion: .success)
-    #expect(job.rbStatus == .success)
-  }
-
-  @Test func failureConclusionMapsToFailed() {
-    let job = ActiveJob(id: 2, name: "j", status: .completed, conclusion: .failure)
-    #expect(job.rbStatus == .failed)
+  @Test func conclusionStatusMapping() {
+    let cases: [(JobConclusion, RBStatus)] = [
+      (.success, .success),
+      (.failure, .failed),
+    ]
+    for (conclusion, expected) in cases {
+      let job = ActiveJob(id: 1, name: "j", status: .completed, conclusion: conclusion)
+      #expect(job.rbStatus == expected, "conclusion \(conclusion) should map to \(expected)")
+    }
   }
 
   @Test func cancelledConclusionMapsToCancelled() {

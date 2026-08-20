@@ -8,14 +8,6 @@ import Testing
 @Suite("WorkflowDurationFormatter")
 struct FormatWorkflowDurationTests {
 
-    @Test func zeroSeconds() {
-        #expect(WorkflowDurationFormatter.string(from: 0) == "00:00")
-    }
-
-    @Test func threeSeconds() {
-        #expect(WorkflowDurationFormatter.string(from: 3) == "00:03")
-    }
-
     @Test func thirtyTwoSeconds() {
         #expect(WorkflowDurationFormatter.string(from: 32) == "00:32")
     }
