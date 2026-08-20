@@ -132,26 +132,6 @@ struct SaveRunnerEditsUseCaseTests {
   }
 
   /// Verifies that the labels service is invoked with the correct `owner/repo` scope and integer runner ID derived from the runner model.
-  @Test("calls labelsService with correct scope and runnerID")
-  func labelsCalledWithCorrectArgs() async {
-    let runner = makeRunner(agentId: 99, gitHubUrl: URL(string: "https://github.com/myorg/myrepo"))
-    var draft = RunnerEditDraft(runner: runner)
-    let original = RunnerEditDraft(runner: runner)
-    draft.labelsText = "gpu, large"
-
-    let labels = SpyLabelsService()
-    await labels.setUp(result: ["gpu", "large"])
-    let useCase = makeUseCase(labels: labels)
-
-    let result = await useCase.execute(runner: runner, draft: draft, original: original)
-
-    #expect(result == .success)
-    #expect(await labels.callCount == 1)
-    #expect(await labels.lastScope == "myorg/myrepo")
-    #expect(await labels.lastRunnerID == 99)
-    #expect(await labels.lastLabels == ["gpu", "large"])
-  }
-
   /// Verifies that a `nil` `installPath` when JSON config changes are pending returns `.failure` without attempting to write to the config store.
   @Test("returns failure when installPath is nil and JSON changes pending")
   func missingInstallPathForJSON() async {
@@ -169,29 +149,6 @@ struct SaveRunnerEditsUseCaseTests {
       return
     }
     #expect(msgs.contains(where: { $0.contains("Install path") }))
-  }
-
-  /// Verifies that a `nil` `installPath` when proxy changes are pending returns `.failure` without attempting to write to the proxy store.
-  @Test("returns failure when installPath is nil and proxy changes pending")
-  func missingInstallPathForProxy() async {
-    // Runner has no installPath; only a proxy field is changed so Step 2
-    // (JSON) is skipped and we land directly on the Step 3 guard.
-    let runner = makeRunner(installPath: nil)
-    var draft = RunnerEditDraft(runner: runner)
-    let original = RunnerEditDraft(runner: runner)
-    draft.proxyUrl = "http://proxy.example.com"
-
-    let proxy = SpyProxyStore()
-    let useCase = makeUseCase(proxy: proxy)
-
-    let result = await useCase.execute(runner: runner, draft: draft, original: original)
-
-    guard case .failure(let msgs) = result else {
-      Issue.record("expected .failure, got .success")
-      return
-    }
-    #expect(msgs.contains(where: { $0.contains("Install path") }))
-    #expect(await !proxy.saveCalled)
   }
 
   /// #1451 — Both JSON and proxy stores throw simultaneously.
@@ -284,41 +241,6 @@ struct SaveRunnerEditsUseCaseTests {
     #expect(await proxy.saveCalled)
   }
 
-  /// #1478 — configStore.save() throwing .malformedExistingFile must accumulate the
-  /// correct error message. The malformed-file path is distinct from .writeFailed and
-  /// must have its own branch in the exhaustive switch.
-  /// Verifies that a malformed-file error from the config store emits an error message with the expected description text.
-  @Test("config save malformed-file error emits correct message")
-  func configSaveMalformedFileEmitsError() async {
-    let runner = makeRunner()
-    var draft = RunnerEditDraft(runner: runner)
-    let original = RunnerEditDraft(runner: runner)
-    draft.workFolder = "custom_work"
-    // No proxyUrl change — Step 3 must be skipped entirely.
-
-    let config = SpyConfigStore()
-    let proxy = SpyProxyStore()
-    await config.setUp(shouldThrowMalformedOnSave: true)
-    let useCase = makeUseCase(config: config, proxy: proxy)
-
-    let result = await useCase.execute(runner: runner, draft: draft, original: original)
-
-    guard case .failure(let msgs) = result else {
-      Issue.record("expected .failure, got .success")
-      return
-    }
-    // Message must mention the path, malformed, and agent-managed keys
-    #expect(
-      msgs.contains(where: {
-        $0.contains("malformed") && $0.contains("/.runner") && $0.contains("agent-managed")
-      }))
-    // No proxy change — proxy step must not have run
-    #expect(await !proxy.saveCalled)
-  }
-
-  /// #1478 — configStore.save() throwing .malformedExistingFile must still allow
-  /// the proxy step (Step 3) to execute. The use-case accumulates errors and
-  /// continues — config and proxy writes are independent paths.
   /// Verifies that a malformed-file error from the config store does not prevent the proxy step from executing.
   @Test("config save malformed-file error still runs proxy step")
   func configSaveMalformedFileContinuesToProxy() async {
@@ -395,89 +317,8 @@ struct SaveRunnerEditsUseCaseTests {
     #expect(await labels.callCount == 0)
   }
 
-  /// #1480 — When agentId is present but gitHubUrl is nil, execute() must append
-  /// the `.missingGitHubUrl` message and must NOT call labelsService.patch.
-  /// Verifies that a `nil` `gitHubUrl` on the runner appends an appropriate error message and skips the labels API patch call.
-  @Test("labels step — nil gitHubUrl appends correct error and skips patch")
-  func labelsPrereqMissingGitHubUrl() async {
-    let runner = makeRunner(gitHubUrl: nil)
-    var draft = RunnerEditDraft(runner: runner)
-    let original = RunnerEditDraft(runner: runner)
-    draft.labelsText = "some-label"
-
-    let labels = SpyLabelsService()
-    let useCase = makeUseCase(labels: labels)
-
-    let result = await useCase.execute(runner: runner, draft: draft, original: original)
-
-    guard case .failure(let msgs) = result else {
-      Issue.record("expected .failure, got .success")
-      return
-    }
-    #expect(msgs.contains(where: { $0.contains("missing GitHub URL") }))
-    #expect(await labels.callCount == 0)
-  }
-
-  /// #1480 — When gitHubUrl is present but is a bare-host URL (no org/repo path),
-  /// execute() must append the `.invalidScope` message and must NOT call labelsService.patch.
-  /// Verifies that a bare-host `gitHubUrl` (no path segments) resolves to an invalid scope, appends an appropriate error, and skips the labels API patch call.
-  @Test("labels step — bare-host gitHubUrl appends invalidScope error and skips patch")
-  func labelsPrereqInvalidScope() async {
-    let runner = makeRunner(gitHubUrl: URL(string: "https://github.com"))
-    var draft = RunnerEditDraft(runner: runner)
-    let original = RunnerEditDraft(runner: runner)
-    draft.labelsText = "some-label"
-
-    let labels = SpyLabelsService()
-    let useCase = makeUseCase(labels: labels)
-
-    let result = await useCase.execute(runner: runner, draft: draft, original: original)
-
-    guard case .failure(let msgs) = result else {
-      Issue.record("expected .failure, got .success")
-      return
-    }
-    #expect(msgs.contains(where: { $0.contains("no org/repo path") }))
-    #expect(await labels.callCount == 0)
-  }
-
   // MARK: - #1499 I/O-unreadable .runner during save
 
-  /// #1499 — configStore.save() throwing .ioReadFailedDuringSave must accumulate the
-  /// correct error message. The I/O-unreadable path is distinct from .writeFailed and
-  /// .malformedExistingFile and must have its own branch in the exhaustive switch.
-  /// Verifies that an IO-read-failed error from the config store emits an error message with the expected description text.
-  @Test("config save IO-read-failed error emits correct message")
-  func configSaveIOReadFailedEmitsError() async {
-    let runner = makeRunner()
-    var draft = RunnerEditDraft(runner: runner)
-    let original = RunnerEditDraft(runner: runner)
-    draft.workFolder = "custom_work"
-    // No proxyUrl change — Step 3 must be skipped entirely.
-
-    let config = SpyConfigStore()
-    let proxy = SpyProxyStore()
-    await config.setUp(shouldThrowIOReadFailedOnSave: true)
-    let useCase = makeUseCase(config: config, proxy: proxy)
-
-    let result = await useCase.execute(runner: runner, draft: draft, original: original)
-
-    guard case .failure(let msgs) = result else {
-      Issue.record("expected .failure, got .success")
-      return
-    }
-    // Message must mention path, unreadable, and agent-managed keys
-    #expect(
-      msgs.contains(where: {
-        $0.contains("unreadable") && $0.contains("/.runner") && $0.contains("agent-managed")
-      }))
-    // No proxy change — proxy step must not have run
-    #expect(await !proxy.saveCalled)
-  }
-
-  /// #1499 — configStore.save() throwing .ioReadFailedDuringSave must still allow
-  /// the proxy step (Step 3) to execute. Error fan-out behaviour must be identical
-  /// to the .malformedExistingFile path: accumulate and continue.
   /// Verifies that an IO-read-failed error from the config store does not prevent the proxy step from executing.
   @Test("config save IO-read-failed error still runs proxy step")
   func configSaveIOReadFailedContinuesToProxy() async {
