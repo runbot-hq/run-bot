@@ -24,38 +24,36 @@ struct OAuthServiceRedirectURITests {
         return comps.queryItems?.first(where: { $0.name == "redirect_uri" })?.value
     }
 
-    // MARK: - Test 1: default redirectURI regression guard
+    // MARK: - redirectURI encoding contract (default + custom)
 
-    /// Verifies that an `OAuthService` created without an explicit `redirectURI`
-    /// argument encodes `OAuthService.defaultRedirectURI` in the authorize URL.
-    ///
-    /// Regression guard: if `GitHubConstants.oauthRedirectURI` is ever accidentally
-    /// changed, this test will catch the drift.
-    @Test("default redirectURI is encoded as redirect_uri query item")
-    func defaultRedirectURIIsEncodedCorrectly() throws {
-        let service = OAuthService(
-            clientID: "test-client-id",
-            clientSecret: "test-client-secret",
-            tokenStore: MockTokenStore()
-            // redirectURI: omitted — should default to OAuthService.defaultRedirectURI
-        )
-        let uri = try #require(redirectURIQueryItem(for: service))
-        #expect(uri == OAuthService.defaultRedirectURI)
-    }
-
-    // MARK: - Test 2: custom redirectURI encoding
-
-    /// Verifies that a custom `redirectURI` string passed at init time is
-    /// serialised correctly into the `redirect_uri` query item.
-    @Test("custom redirectURI appears as redirect_uri query item")
-    func customRedirectURIIsEncodedCorrectly() throws {
-        let service = OAuthService(
-            clientID: "test-client-id",
-            clientSecret: "test-client-secret",
-            tokenStore: MockTokenStore(),
-            redirectURI: "myapp-staging://oauth/callback"
-        )
-        let uri = try #require(redirectURIQueryItem(for: service))
-        #expect(uri == "myapp-staging://oauth/callback")
+    /// Merges the former defaultRedirectURIIsEncodedCorrectly and
+    /// customRedirectURIIsEncodedCorrectly tests into one loop-based contract.
+    @Test("redirectURIs are serialised correctly for default and custom values")
+    func redirectURIsAreEncodedCorrectly() throws {
+        let cases: [(redirectURI: String?, expected: String)] = [
+            // Default: omit redirectURI — should encode OAuthService.defaultRedirectURI.
+            (nil, OAuthService.defaultRedirectURI),
+            // Custom: explicit URI is forwarded verbatim.
+            ("myapp-staging://oauth/callback", "myapp-staging://oauth/callback"),
+        ]
+        for testCase in cases {
+            let service: OAuthService
+            if let redirectURI = testCase.redirectURI {
+                service = OAuthService(
+                    clientID: "test-client-id",
+                    clientSecret: "test-client-secret",
+                    tokenStore: MockTokenStore(),
+                    redirectURI: redirectURI
+                )
+            } else {
+                service = OAuthService(
+                    clientID: "test-client-id",
+                    clientSecret: "test-client-secret",
+                    tokenStore: MockTokenStore()
+                )
+            }
+            let uri = try #require(redirectURIQueryItem(for: service))
+            #expect(uri == testCase.expected, "redirectURI=\(String(describing: testCase.redirectURI))")
+        }
     }
 }

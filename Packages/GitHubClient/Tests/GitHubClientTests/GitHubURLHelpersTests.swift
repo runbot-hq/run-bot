@@ -30,74 +30,31 @@ import Testing
 @Suite("scopeFromUrl")
 struct ScopeFromUrlTests {
 
-  // MARK: Happy paths
+  // MARK: Standard URL shapes (matrix)
 
-  /// Repo-scoped URL returns "owner/repo".
-  @Test func repoScoped_returnsOwnerSlashRepo() {
-    let url = URL(string: "https://github.com/acme/my-repo")!
-    #expect(scopeFromUrl(url) == "acme/my-repo")
+  /// Consolidates repo, org, trailing-slash, percent-encoded, query-string,
+  /// bare-host nil paths, empty-segment, and truncation cases into one matrix.
+  @Test func standardURLShapesResolveScope() {
+    // (urlString, expected) — nil expected means scopeFromUrl should return nil.
+    let cases: [(url: URL, expected: String?)] = [
+      (URL(string: "https://github.com/acme/my-repo")!,       "acme/my-repo"),
+      (URL(string: "https://github.com/acme")!,               "acme"),
+      (URL(string: "https://github.com/acme/my-repo/")!,      "acme/my-repo"),
+      (URL(string: "https://github.com/acme%20corp/my-repo")!, "acme corp/my-repo"),
+      (URL(string: "https://github.com/acme/repo?foo=bar")!,  "acme/repo"),
+      (URL(string: "https://github.com")!,                    nil),
+      (URL(string: "https://github.com/")!,                   nil),
+      (URL(string: "file:///")!,                              nil),
+      (URL(string: "https://github.com/owner/repo/tree")!,    "owner/repo"),
+      (URL(string: "https://github.com/owner/repo/tree/main")!, "owner/repo"),
+    ]
+    for testCase in cases {
+      #expect(scopeFromUrl(testCase.url) == testCase.expected,
+              "url=\(testCase.url)")
+    }
   }
 
-  /// Org-scoped URL (single path component) returns the org name.
-  @Test func orgScoped_returnsOrgName() {
-    let url = URL(string: "https://github.com/acme")!
-    #expect(scopeFromUrl(url) == "acme")
-  }
-
-  /// Trailing slash on a repo URL is handled correctly.
-  @Test func repoScoped_trailingSlash_returnsOwnerSlashRepo() {
-    let url = URL(string: "https://github.com/acme/my-repo/")!
-    #expect(scopeFromUrl(url) == "acme/my-repo")
-  }
-
-  // MARK: Percent-encoded path components
-
-  /// Foundation decodes percent-encoding in `pathComponents`, so a URL with
-  /// `%20` in the owner segment must return the decoded form "acme corp/my-repo"
-  /// rather than the raw escaped string. This ensures callers that match scope
-  /// strings against API responses (which are never percent-encoded) work correctly.
-  @Test func percentEncodedOwner_returnsDecodedScope() {
-    let url = URL(string: "https://github.com/acme%20corp/my-repo")!
-    #expect(scopeFromUrl(url) == "acme corp/my-repo")
-  }
-
-  // MARK: Query string is ignored
-
-  /// `URL.pathComponents` never includes query parameters.
-  /// A URL like `https://github.com/acme/repo?foo=bar` must return "acme/repo"
-  /// — the query string must not appear in the scope string or cause an error.
-  @Test func queryString_isIgnored() {
-    let url = URL(string: "https://github.com/acme/repo?foo=bar")!
-    #expect(scopeFromUrl(url) == "acme/repo")
-  }
-
-  // MARK: Nil path
-
-  /// A bare host with no path components returns nil.
-  @Test func bareHost_returnsNil() {
-    let url = URL(string: "https://github.com")!
-    #expect(scopeFromUrl(url) == nil)
-  }
-
-  /// A bare host with a trailing slash (single "/" component only) returns nil.
-  @Test func bareHostTrailingSlash_returnsNil() {
-    let url = URL(string: "https://github.com/")!
-    #expect(scopeFromUrl(url) == nil)
-  }
-
-  /// A URL whose only pathComponent is "/" (e.g. file:// root) returns nil.
-  /// This is a portable way to exercise the no-meaningful-components branch.
-  @Test func noPathComponentsURL_returnsNil() {
-    let url = URL(string: "file:///")!
-    #expect(scopeFromUrl(url) == nil)
-  }
-
-  // MARK: Empty path component guard (programmatic URL construction)
-
-  /// Verifies that the !$0.isEmpty guard strips empty segments introduced by
-  /// URLComponents when a path segment is set to an empty string programmatically.
-  /// This is the scenario the guard protects against; string-parsed URLs are
-  /// normalised by Foundation before pathComponents is evaluated.
+  /// Verifies the !$0.isEmpty guard strips empty segments from programmatic URLComponents construction.
   @Test func emptySegmentViaURLComponents_filtersEmptyComponent() {
     var components = URLComponents()
     components.scheme = "https"
@@ -107,21 +64,7 @@ struct ScopeFromUrlTests {
     #expect(scopeFromUrl(url) == "acme")
   }
 
-  // MARK: 3+ path segments (intentional truncation)
-
-  /// URLs with more than two path segments return only the first two.
-  /// This is intentional: GitHub runner URLs are always owner/repo or org.
-  @Test func threeSegments_returnsFirstTwo() {
-    let url = URL(string: "https://github.com/owner/repo/tree")!
-    #expect(scopeFromUrl(url) == "owner/repo")
-  }
-
-  @Test func fourSegments_returnsFirstTwo() {
-    let url = URL(string: "https://github.com/owner/repo/tree/main")!
-    #expect(scopeFromUrl(url) == "owner/repo")
-  }
-
-  // MARK: Non-github.com host
+  // MARK: Non-github.com host (separate: host compatibility is distinct from path parsing)
 
   /// Works identically for non-github.com hosts (e.g. GitHub Enterprise).
   @Test func enterpriseHost_repoScoped_returnsOwnerSlashRepo() {
@@ -140,33 +83,20 @@ struct ScopeFromUrlTests {
 @Suite("scopeFromHtmlUrl")
 struct ScopeFromHtmlUrlTests {
 
-  // MARK: Happy paths — delegates to scopeFromUrl
+  // MARK: Happy paths — standard shapes (matrix)
 
-  /// Repo-scoped URL string returns "owner/repo".
-  @Test func repoScoped_returnsOwnerSlashRepo() {
-    #expect(scopeFromHtmlUrl("https://github.com/acme/my-repo") == "acme/my-repo")
-  }
-
-  /// Org-scoped URL string returns the org name.
-  @Test func orgScoped_returnsOrgName() {
-    #expect(scopeFromHtmlUrl("https://github.com/acme") == "acme")
-  }
-
-  // MARK: Percent-encoded path components
-
-  /// Foundation decodes percent-encoding in `pathComponents`; the returned scope
-  /// must be the decoded form. Mirrors scopeFromUrl's percent-encoding test
-  /// through the String? wrapper.
-  @Test func percentEncodedOwner_returnsDecodedScope() {
-    #expect(scopeFromHtmlUrl("https://github.com/acme%20corp/my-repo") == "acme corp/my-repo")
-  }
-
-  // MARK: Query string is ignored
-
-  /// Query parameters must not appear in the returned scope string.
-  /// Mirrors scopeFromUrl's queryString_isIgnored test through the String? wrapper.
-  @Test func queryString_isIgnored() {
-    #expect(scopeFromHtmlUrl("https://github.com/acme/repo?foo=bar") == "acme/repo")
+  /// Consolidates repo, org, percent-encoded, and query-string cases.
+  @Test func standardStringShapesResolveScope() {
+    let cases: [(input: String, expected: String)] = [
+      ("https://github.com/acme/my-repo",       "acme/my-repo"),
+      ("https://github.com/acme",               "acme"),
+      ("https://github.com/acme%20corp/my-repo", "acme corp/my-repo"),
+      ("https://github.com/acme/repo?foo=bar",  "acme/repo"),
+    ]
+    for testCase in cases {
+      #expect(scopeFromHtmlUrl(testCase.input) == testCase.expected,
+              "input=\(testCase.input)")
+    }
   }
 
   // MARK: Nil / no-scope input
