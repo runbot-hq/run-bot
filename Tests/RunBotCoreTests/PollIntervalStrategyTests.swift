@@ -158,9 +158,9 @@ struct PollIntervalStrategyTests {
     let expectedInterval: TimeInterval
   }
 
-  @Test(
-    "Active mode runner ladder",
-    arguments: [
+  @Test("Active mode runner ladder")
+  func activeModeLadder() {
+    let cases: [ActiveCase] = [
       ActiveCase(busyRunnerCount: 0,  expectedInterval: PollIntervalStrategy.activeIntervalFast),
       ActiveCase(busyRunnerCount: 1,  expectedInterval: PollIntervalStrategy.activeIntervalFast),
       ActiveCase(busyRunnerCount: 5,  expectedInterval: PollIntervalStrategy.activeIntervalFast),
@@ -169,17 +169,18 @@ struct PollIntervalStrategyTests {
       ActiveCase(busyRunnerCount: 10, expectedInterval: PollIntervalStrategy.activeIntervalSlow),
       ActiveCase(busyRunnerCount: 20, expectedInterval: PollIntervalStrategy.activeIntervalSlow),
     ]
-  )
-  func activeModeLadder(_ testCase: ActiveCase) {
-    let result = PollIntervalStrategy.next(
-      hasActiveWork: true,
-      consecutiveIdleTicks: 0,
-      busyRunnerCount: testCase.busyRunnerCount,
-      isRateLimited: false,
-      rateLimitResetDate: nil,
-      rateLimitRemaining: PollIntervalStrategy.rateLimitUnavailable
-    )
-    #expect(result == testCase.expectedInterval)
+    for testCase in cases {
+      let result = PollIntervalStrategy.next(
+        hasActiveWork: true,
+        consecutiveIdleTicks: 0,
+        busyRunnerCount: testCase.busyRunnerCount,
+        isRateLimited: false,
+        rateLimitResetDate: nil,
+        rateLimitRemaining: PollIntervalStrategy.rateLimitUnavailable
+      )
+      #expect(result == testCase.expectedInterval,
+              "busyRunnerCount=\(testCase.busyRunnerCount)")
+    }
   }
 
   // MARK: - Idle mode (exponential backoff)
@@ -189,9 +190,9 @@ struct PollIntervalStrategyTests {
     let expectedInterval: TimeInterval
   }
 
-  @Test(
-    "Idle mode exponential backoff",
-    arguments: [
+  @Test("Idle mode exponential backoff")
+  func idleModeBackoff() {
+    let cases: [IdleCase] = [
       // tick 0: error-only path (15 * 2^(0-1) = 15 * 0.5 = 7.5 s)
       IdleCase(consecutiveIdleTicks: 0,  expectedInterval: 7.5),
       // normal production curve starts at tick 1
@@ -204,17 +205,18 @@ struct PollIntervalStrategyTests {
       IdleCase(consecutiveIdleTicks: 7,  expectedInterval: 300),  // still capped
       IdleCase(consecutiveIdleTicks: 99, expectedInterval: 300),  // deep idle — still capped
     ]
-  )
-  func idleModeBackoff(_ testCase: IdleCase) {
-    let result = PollIntervalStrategy.next(
-      hasActiveWork: false,
-      consecutiveIdleTicks: testCase.consecutiveIdleTicks,
-      busyRunnerCount: 0,
-      isRateLimited: false,
-      rateLimitResetDate: nil,
-      rateLimitRemaining: PollIntervalStrategy.rateLimitUnavailable
-    )
-    #expect(result == testCase.expectedInterval)
+    for testCase in cases {
+      let result = PollIntervalStrategy.next(
+        hasActiveWork: false,
+        consecutiveIdleTicks: testCase.consecutiveIdleTicks,
+        busyRunnerCount: 0,
+        isRateLimited: false,
+        rateLimitResetDate: nil,
+        rateLimitRemaining: PollIntervalStrategy.rateLimitUnavailable
+      )
+      #expect(result == testCase.expectedInterval,
+              "consecutiveIdleTicks=\(testCase.consecutiveIdleTicks)")
+    }
   }
 
   // MARK: - Priority ordering
@@ -274,6 +276,4 @@ struct PollIntervalStrategyTests {
   }
 }
 
-// MARK: - ActiveCase + IdleCase Sendable conformances (required by @Test arguments)
-extension PollIntervalStrategyTests.ActiveCase: Sendable {}
-extension PollIntervalStrategyTests.IdleCase: Sendable {}
+
