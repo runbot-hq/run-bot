@@ -117,17 +117,20 @@ struct ActiveJobIsLocalRunnerTests {
   }
 
   /// All known hosted-runner name patterns return false — they are not local runners.
-  @Test(arguments: [
-    "ubuntu-latest",
-    "macos-14",
-    "windows-2022",
-    "buildjet-4vcpu-ubuntu-2204",
-    "depot-ubuntu-22.04",
-    "GitHub Actions 12",
-  ])
-  func isLocalRunnerFalseForHostedRunners(runnerName: String) {
-    let job = ActiveJob(id: 1, name: "J", status: "completed", runnerName: runnerName)
-    #expect(job.isLocalRunner == false)
+  @Test
+  func hostedRunnerNamesAreNotLocal() {
+    let names = [
+      "ubuntu-latest",
+      "macos-14",
+      "windows-2022",
+      "buildjet-4vcpu-ubuntu-2204",
+      "depot-ubuntu-22.04",
+      "GitHub Actions 12",
+    ]
+    for name in names {
+      let job = ActiveJob(id: 1, name: "J", status: "completed", runnerName: name)
+      #expect(job.isLocalRunner == false, "Expected \(name) to be hosted")
+    }
   }
 
   /// An arbitrary self-hosted runner name is identified as local.
@@ -460,25 +463,23 @@ struct PollResultBuilderTests {
 @Suite("JobStatus.isActive")
 struct JobStatusIsActiveTests {
 
-  /// Verifies that each active status returns `true` for `isActive`.
-  @Test(arguments: [
-    JobStatus.queued,
-    .inProgress,
-    .waiting,
-    .requested,
-    .pending,
-  ])
-  func isActiveTrue(status: JobStatus) {
-    #expect(status.isActive)
-  }
-
-  /// Verifies that each inactive status returns `false` for `isActive`.
-  @Test(arguments: [
-    JobStatus.completed,
-    .unknown("draining"),
-  ])
-  func isActiveFalse(status: JobStatus) {
-    #expect(!status.isActive)
+  @Test
+  func activeClassification() {
+    let cases: [(status: JobStatus, expected: Bool)] = [
+      (.queued,              true),
+      (.inProgress,          true),
+      (.waiting,             true),
+      (.requested,           true),
+      (.pending,             true),
+      (.completed,           false),
+      (.unknown("draining"), false),
+    ]
+    for testCase in cases {
+      #expect(
+        testCase.status.isActive == testCase.expected,
+        "status=\(testCase.status) expected isActive=\(testCase.expected)"
+      )
+    }
   }
 }
 
