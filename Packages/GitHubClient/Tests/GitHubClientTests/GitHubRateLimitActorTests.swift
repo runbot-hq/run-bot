@@ -32,20 +32,20 @@ struct RateLimitActorTests {
   /// flake on a particularly slow runner.
   private static let clampTolerance: Double = 0.5
 
-  // MARK: - Basic set / clear
+  // MARK: - Basic set / clear lifecycle
 
-  /// Verifies that `set(resetAt:)` arms `isLimited` and populates `resetDate` within 1 second of the requested reset timestamp.
-  @Test("set arms the flag and schedules a reset date")
-  func setArmsFlag() async {
+  /// Merges the former setArmsFlag and clearDisarms tests:
+  /// verifies set() arms the flag with a valid resetDate, then clear() disarms both.
+  @Test("set then clear lifecycle")
+  func setAndClearLifecycle() async {
     let actor = RateLimitActor()
     let now = Date()
     let resetTS = now.timeIntervalSince1970 + 120
 
     await actor.set(resetAt: resetTS)
-    let snap = await actor.snapshot()
-
-    #expect(snap.isLimited)
-    if let date = snap.resetDate {
+    let snapAfterSet = await actor.snapshot()
+    #expect(snapAfterSet.isLimited)
+    if let date = snapAfterSet.resetDate {
       let diff =
         date.timeIntervalSinceReferenceDate
         - now.addingTimeInterval(120).timeIntervalSinceReferenceDate
@@ -53,18 +53,11 @@ struct RateLimitActorTests {
     } else {
       Issue.record("resetDate should not be nil after set(resetAt:)")
     }
-  }
 
-  /// Verifies that `clear()` sets `isLimited` to `false` and nils out `resetDate` after a prior `set(resetAt:)` call.
-  @Test("clear disarms the flag and removes the reset date")
-  func clearDisarms() async {
-    let actor = RateLimitActor()
-    await actor.set(resetAt: Date().timeIntervalSince1970 + 120)
     await actor.clear()
-    let snap = await actor.snapshot()
-
-    #expect(!snap.isLimited)
-    #expect(snap.resetDate == nil)
+    let snapAfterClear = await actor.snapshot()
+    #expect(!snapAfterClear.isLimited)
+    #expect(snapAfterClear.resetDate == nil)
   }
 
   /// Verifies that a newly initialised `RateLimitActor` starts with `isLimited == false` and `resetDate == nil`.

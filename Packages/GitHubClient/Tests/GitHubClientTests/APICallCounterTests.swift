@@ -117,37 +117,27 @@ struct APICallCounterTests {
 
   // MARK: - fraction clamping
 
-  @Test("fraction returns 0.0 when limit is zero to prevent NaN propagation")
-  func fractionWithZeroLimitIsZero() {
-    let snap = APICallCounterSnapshot(count: 42, limit: 0)
-    #expect(snap.fraction == 0.0)
-  }
-
-  @Test("fraction is clamped to 1.0 when count exceeds limit")
-  func fractionClampedToOne() {
-    let snap = APICallCounterSnapshot(count: 9_999, limit: APICallCounter.hourlyLimit)
-    #expect(snap.fraction == 1.0)
-  }
-
-  @Test("fraction is clamped to 0.0 when count is negative")
-  func fractionClampedToZeroForNegativeCount() {
-    let snap = APICallCounterSnapshot(count: -1, limit: APICallCounter.hourlyLimit)
-    #expect(snap.fraction == 0.0)
-  }
-
-  @Test("fraction is exactly 0.5 at half the limit")
-  func fractionAtHalf() {
-    let snap = APICallCounterSnapshot(
-      count: APICallCounter.hourlyLimit / 2, limit: APICallCounter.hourlyLimit)
-    #expect(snap.fraction == 0.5)
-  }
-
-  @Test("fraction stays within [0, 1] for any count")
-  func fractionBounded() {
-    for count in [0, 1, 2_500, 5_000, 7_500, 10_000] {
-      let snap = APICallCounterSnapshot(count: count, limit: APICallCounter.hourlyLimit)
-      #expect(snap.fraction >= 0.0)
-      #expect(snap.fraction <= 1.0)
+  /// Consolidates fractionWithZeroLimitIsZero, fractionClampedToOne,
+  /// fractionClampedToZeroForNegativeCount, fractionAtHalf, and fractionBounded
+  /// into one loop covering all boundary behaviors.
+  @Test("fraction clamping covers all boundary cases")
+  func fractionClampingBoundaries() {
+    let limit = APICallCounter.hourlyLimit
+    let cases: [(count: Int, limit: Int, expected: Double)] = [
+      (42,       0,         0.0),           // zero-limit guard — prevents NaN
+      (9_999,    limit,     1.0),           // count exceeds limit — clamped to 1.0
+      (-1,       limit,     0.0),           // negative count — clamped to 0.0
+      (limit / 2, limit,    0.5),           // exactly half
+      (0,        limit,     0.0),           // boundary: zero count
+      (1,        limit,     1.0 / Double(limit)), // boundary: single call
+      (limit,    limit,     1.0),           // boundary: exactly at limit
+    ]
+    for testCase in cases {
+      let snap = APICallCounterSnapshot(count: testCase.count, limit: testCase.limit)
+      #expect(snap.fraction == testCase.expected,
+              "count=\(testCase.count) limit=\(testCase.limit)")
+      #expect(snap.fraction >= 0.0, "fraction must be >= 0 for count=\(testCase.count)")
+      #expect(snap.fraction <= 1.0, "fraction must be <= 1 for count=\(testCase.count)")
     }
   }
 

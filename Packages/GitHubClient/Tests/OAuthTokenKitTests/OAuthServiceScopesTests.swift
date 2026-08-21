@@ -23,41 +23,38 @@ struct OAuthServiceScopesTests {
         return comps.queryItems?.first(where: { $0.name == "scope" })?.value
     }
 
-    // MARK: - Test 1: default scopes regression guard
+    // MARK: - Scope encoding contract (default + custom)
 
-    /// Verifies that an `OAuthService` created without an explicit `scopes`
-    /// argument encodes all five default scopes in the correct order.
-    ///
-    /// Regression guard: if `OAuthService.defaultScopes` is ever accidentally
-    /// modified, this test will catch it before it ships.
-    @Test("default scopes produce the correct scope query item")
-    func defaultScopesAreEncodedCorrectly() throws {
-        let store = MockTokenStore()
-        let service = OAuthService(
-            clientID: "test-client-id",
-            clientSecret: "test-client-secret",
-            tokenStore: store
-            // scopes: omitted — should default to OAuthService.defaultScopes
-        )
-        let scope = try #require(scopeQueryItem(for: service))
-        #expect(scope == "repo read:org admin:org manage_runners:org workflow")
-    }
-
-    // MARK: - Test 2: custom scopes encoding
-
-    /// Verifies that a custom `scopes` array is serialised correctly into the
-    /// `scope` query item as a single space-separated string.
-    @Test("custom scopes are space-joined in the scope query item")
-    func customScopesAreEncodedCorrectly() throws {
-        let store = MockTokenStore()
-        let service = OAuthService(
-            clientID: "test-client-id",
-            clientSecret: "test-client-secret",
-            tokenStore: store,
-            scopes: [GitHubScopes.readUser, GitHubScopes.repo]
-        )
-        let scope = try #require(scopeQueryItem(for: service))
-        #expect(scope == "read:user repo")
+    /// Merges the former defaultScopesAreEncodedCorrectly and
+    /// customScopesAreEncodedCorrectly tests into one loop-based contract.
+    @Test("scopes are encoded correctly for default and custom configurations")
+    func scopesAreEncodedCorrectly() throws {
+        let cases: [(scopes: [String]?, expected: String)] = [
+            // Default: omit scopes argument — should encode OAuthService.defaultScopes.
+            (nil, "repo read:org admin:org manage_runners:org workflow"),
+            // Custom: explicit scope list serialised as space-separated string.
+            ([GitHubScopes.readUser, GitHubScopes.repo], "read:user repo"),
+        ]
+        for testCase in cases {
+            let store = MockTokenStore()
+            let service: OAuthService
+            if let scopes = testCase.scopes {
+                service = OAuthService(
+                    clientID: "test-client-id",
+                    clientSecret: "test-client-secret",
+                    tokenStore: store,
+                    scopes: scopes
+                )
+            } else {
+                service = OAuthService(
+                    clientID: "test-client-id",
+                    clientSecret: "test-client-secret",
+                    tokenStore: store
+                )
+            }
+            let scope = try #require(scopeQueryItem(for: service))
+            #expect(scope == testCase.expected, "scopes=\(String(describing: testCase.scopes))")
+        }
     }
 
     // MARK: - Test 3: empty scopes precondition (NOT executable in-process)

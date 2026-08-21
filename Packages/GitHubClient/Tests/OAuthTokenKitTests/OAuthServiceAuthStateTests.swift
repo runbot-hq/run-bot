@@ -85,18 +85,13 @@ struct OAuthServiceAuthStateTests {
         )
     }
 
-    // MARK: - isAuthenticated
+    // MARK: - isAuthenticated lifecycle
 
-    /// `isAuthenticated` is `false` when the token store is empty.
-    @Test func isAuthenticated_noToken_returnsFalse() {
-        let service = makeService()
-        #expect(service.isAuthenticated == false)
-    }
-
-    /// `isAuthenticated` is `true` when the token store holds a valid token.
-    @Test func isAuthenticated_withToken_returnsTrue() {
-        let service = makeService(storeToken: "oauth-token-xyz")
-        #expect(service.isAuthenticated == true)
+    /// Merges the former isAuthenticated_noToken_returnsFalse and
+    /// isAuthenticated_withToken_returnsTrue into one lifecycle test.
+    @Test func authenticationTracksTokenPresence() {
+        #expect(makeService().isAuthenticated == false)
+        #expect(makeService(storeToken: "oauth-token-xyz").isAuthenticated == true)
     }
 
     // MARK: - hasAnyToken
