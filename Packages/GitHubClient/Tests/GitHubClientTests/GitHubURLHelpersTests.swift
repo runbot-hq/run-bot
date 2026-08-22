@@ -25,7 +25,10 @@ struct GitHubURLScopeTests {
             ("https://github.com",                     nil),
         ]
         for testCase in cases {
-            let url = URL(string: testCase.input)!
+            guard let url = URL(string: testCase.input) else {
+                XCTFail("Invalid URL: \(testCase.input)")
+                continue
+            }
             #expect(
                 scopeFromUrl(url) == testCase.expected,
                 #"input=\#(testCase.input)"#

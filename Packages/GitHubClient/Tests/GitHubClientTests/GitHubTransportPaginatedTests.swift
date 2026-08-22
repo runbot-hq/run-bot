@@ -71,16 +71,23 @@ final class StubURLProtocol: URLProtocol, @unchecked Sendable {
       return
     }
     let stub = StubURLProtocol.lock.withLock { StubURLProtocol.stubs[key] }
-    guard let stub else {
+    guard let stub = stub else {
       client?.urlProtocol(self, didFailWithError: URLError(.fileDoesNotExist))
       return
     }
-    let response = HTTPURLResponse(
-      url: request.url!,
+    guard let url = request.url else {
+      client?.urlProtocol(self, didFailWithError: URLError(.badURL))
+      return
+    }
+    guard let response = HTTPURLResponse(
+      url: url,
       statusCode: stub.statusCode,
       httpVersion: "HTTP/1.1",
       headerFields: stub.headers
-    )!
+    ) else {
+      client?.urlProtocol(self, didFailWithError: URLError(.cannotParseResponse))
+      return
+    }
     client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
     client?.urlProtocol(self, didLoad: stub.data)
     client?.urlProtocolDidFinishLoading(self)
@@ -168,7 +175,7 @@ final class GitHubTransportPaginatedTests {
     #expect(result != nil)
     let items = decodeItems(result)
     #expect(items != nil)
-    #expect(items?.count == 0)
+    #expect(items?.isEmpty == true)
   }
 
   // MARK: - Rate-limit partial return
@@ -239,8 +246,12 @@ final class GitHubTransportPaginatedTests {
       (
         name: "HTTP 404",
         configure: {
+          guard let data = "{\"message\":\"Not found\"}".data(using: .utf8) else {
+            XCTFail("Failed to encode JSON for HTTP 404")
+            return
+          }
           StubURLProtocol.register(
-            .init(data: "{\"message\":\"Not found\"}".data(using: .utf8)!,
+            .init(data: data,
                   statusCode: 404, headers: [:]),
             for: apiBase + "orgs/test/actions/runners")
         },
@@ -249,8 +260,12 @@ final class GitHubTransportPaginatedTests {
       (
         name: "HTTP 500",
         configure: {
+          guard let data = "{\"message\":\"Internal Server Error\"}".data(using: .utf8) else {
+            XCTFail("Failed to encode JSON for HTTP 500")
+            return
+          }
           StubURLProtocol.register(
-            .init(data: "{\"message\":\"Internal Server Error\"}".data(using: .utf8)!,
+            .init(data: data,
                   statusCode: 500, headers: [:]),
             for: apiBase + "orgs/test/actions/runners")
         },
@@ -269,8 +284,12 @@ final class GitHubTransportPaginatedTests {
       (
         name: "non-array body",
         configure: {
+          guard let data = "{\"message\":\"unexpected\"}".data(using: .utf8) else {
+            XCTFail("Failed to encode JSON for non-array body")
+            return
+          }
           StubURLProtocol.register(
-            .init(data: "{\"message\":\"unexpected\"}".data(using: .utf8)!,
+            .init(data: data,
                   statusCode: 200, headers: [:]),
             for: apiBase + "orgs/test/actions/runners")
         },
@@ -287,7 +306,8 @@ final class GitHubTransportPaginatedTests {
         """
         case \(testCase.name): \
         first-page failure must return nil
-        """)
+        """
+      )
       let wasSetCalled = await spy.setCalled
       #expect(wasSetCalled == testCase.expectSetCalled,
         "case \(testCase.name): spy.setCalled mismatch")
@@ -330,8 +350,11 @@ final class GitHubTransportPaginatedTests {
       (
         name: "HTTP 503",
         configure: {
+          guard let data = "{\"message\":\"Service Unavailable\"}".data(using: .utf8) else {
+            fatalError("Failed to encode Service Unavailable message to UTF-8 data")
+          }
           StubURLProtocol.register(
-            .init(data: "{\"message\":\"Service Unavailable\"}".data(using: .utf8)!,
+            .init(data: data,
                   statusCode: 503, headers: [:]),
             for: apiBase + "orgs/test/actions/runners?page=2")
         }
@@ -339,8 +362,11 @@ final class GitHubTransportPaginatedTests {
       (
         name: "non-array body",
         configure: {
+          guard let data = "{\"message\":\"unexpected\"}".data(using: .utf8) else {
+            fatalError("Failed to encode unexpected message to UTF-8 data")
+          }
           StubURLProtocol.register(
-            .init(data: "{\"message\":\"unexpected\"}".data(using: .utf8)!,
+            .init(data: data,
                   statusCode: 200, headers: [:]),
             for: apiBase + "orgs/test/actions/runners?page=2")
         }
@@ -381,8 +407,11 @@ final class GitHubTransportPaginatedTests {
       (
         name: "401 Unauthorized",
         configure: {
+          guard let data = "{\"message\":\"Bad credentials\"}".data(using: .utf8) else {
+            fatalError("Failed to encode Bad credentials message to UTF-8 data")
+          }
           StubURLProtocol.register(
-            .init(data: "{\"message\":\"Bad credentials\"}".data(using: .utf8)!,
+            .init(data: data,
                   statusCode: 401, headers: [:]),
             for: apiBase + "orgs/test/actions/runners?page=2")
         }
@@ -390,8 +419,11 @@ final class GitHubTransportPaginatedTests {
       (
         name: "403 permission-denied",
         configure: {
+          guard let data = "{\"message\":\"Must have admin rights\"}".data(using: .utf8) else {
+            fatalError("Failed to encode Must have admin rights message to UTF-8 data")
+          }
           StubURLProtocol.register(
-            .init(data: "{\"message\":\"Must have admin rights\"}".data(using: .utf8)!,
+            .init(data: data,
                   statusCode: 403, headers: [:]),
             for: apiBase + "orgs/test/actions/runners?page=2")
         }

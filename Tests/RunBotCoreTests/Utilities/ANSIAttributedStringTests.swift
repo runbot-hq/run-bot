@@ -107,8 +107,8 @@ final class ANSIAttributedStringTests: XCTestCase {
                 baseColor: base, font: font
             )
             XCTAssertEqual(String(result.characters), "text", "code \(code)")
-            let coloured = Array(result.runs).first {
-                $0.foregroundColor != base && $0.foregroundColor != nil
+            let coloured = Array(result.runs).first { run in
+                run.foregroundColor != base && run.foregroundColor != nil
             }
             XCTAssertNotNil(coloured, "code \(code): expected a coloured run")
         }

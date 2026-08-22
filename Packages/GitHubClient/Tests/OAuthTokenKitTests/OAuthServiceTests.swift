@@ -67,16 +67,25 @@ private func makeService(
 }
 
 private func callbackURL(code: String? = "abc123", state: String? = "some-state") -> URL {
-    var comps = URLComponents(string: "runbot://oauth/callback")!
+    guard var comps = URLComponents(string: "runbot://oauth/callback") else {
+        fatalError("Invalid base URL for callback")
+    }
     var items: [URLQueryItem] = []
     if let c = code  { items.append(URLQueryItem(name: "code",  value: c)) }
     if let s = state { items.append(URLQueryItem(name: "state", value: s)) }
     comps.queryItems = items
-    return comps.url!
+    guard let url = comps.url else {
+        fatalError("Failed to construct callback URL")
+    }
+    return url
 }
 
 private func successPayload(token: String = "ghs_test_token") -> Data {
-    try! JSONEncoder().encode(["access_token": token])
+    do {
+        return try JSONEncoder().encode(["access_token": token])
+    } catch {
+        fatalError("Failed to encode payload: \(error)")
+    }
 }
 
 // MARK: - OAuthServiceTests
@@ -255,11 +264,25 @@ struct OAuthServiceTests {
             let sessionResult: Result<Data, any Error>
             let saveShouldFail: Bool
         }
+        let githubErrorData: Data
+        do {
+            githubErrorData = try JSONEncoder().encode(["error": "bad_verification_code"])
+        } catch {
+            XCTFail("Failed to encode JSON for error field: \(error)")
+            githubErrorData = Data()
+        }
+        let emptyTokenData: Data
+        do {
+            emptyTokenData = try JSONEncoder().encode(["access_token": ""])            
+        } catch {
+            XCTFail("Failed to encode JSON for access_token: \(error)")
+            emptyTokenData = Data()
+        }
         let cases: [Case] = [
             Case(label: "network error",       sessionResult: .failure(URLError(.notConnectedToInternet)), saveShouldFail: false),
             Case(label: "invalid JSON",         sessionResult: .success(Data("not json".utf8)),             saveShouldFail: false),
-            Case(label: "github error field",   sessionResult: .success(try! JSONEncoder().encode(["error": "bad_verification_code"])), saveShouldFail: false),
-            Case(label: "empty access_token",   sessionResult: .success(try! JSONEncoder().encode(["access_token": ""])),              saveShouldFail: false),
+            Case(label: "github error field",   sessionResult: .success(githubErrorData), saveShouldFail: false),
+            Case(label: "empty access_token",   sessionResult: .success(emptyTokenData),              saveShouldFail: false),
             Case(label: "store.save fails",     sessionResult: .success(successPayload()),                 saveShouldFail: true),
         ]
         for testCase in cases {

@@ -111,8 +111,8 @@ private func withConclusion(_ d: inout [String: Any], _ conclusion: String?) {
 /// dispatch-triggered runs that must be placed in their own group.
 private func minimalRun(
   id: Int,
-  workflowID: Int? = nil,
   sha: String,
+  workflowID: Int? = nil,
   status: String = "completed",
   conclusion: String? = "success",
   name: String = "CI",

@@ -45,7 +45,10 @@ struct OAuthCredentialControllerTests {
         let service = MockOAuthService()
         service.signInURLToReturn = signInURL
         service.isAuthenticated = isAuthenticated
-        let auth = GitHubAuthentication(defaults: UserDefaults(suiteName: UUID().uuidString)!)
+        guard let defaults = UserDefaults(suiteName: UUID().uuidString) else {
+            fatalError("Failed to create UserDefaults with suite name")
+        }
+        let auth = GitHubAuthentication(defaults: defaults)
         let controller = OAuthCredentialController(
             service: service,
             authentication: auth
@@ -152,7 +155,11 @@ struct OAuthCredentialControllerTests {
     func deinitCancelsTask() async {
         let service = MockOAuthService()
         service.signInURLToReturn = URL(string: "https://example.com")
-        let auth = GitHubAuthentication(defaults: UserDefaults(suiteName: UUID().uuidString)!)
+        guard let defaults = UserDefaults(suiteName: UUID().uuidString) else {
+            XCTFail("Failed to create UserDefaults")
+            return
+        }
+        let auth = GitHubAuthentication(defaults: defaults)
 
         do {
             let controller = OAuthCredentialController(
