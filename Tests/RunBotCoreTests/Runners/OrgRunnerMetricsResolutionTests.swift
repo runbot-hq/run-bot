@@ -101,7 +101,12 @@ struct OrgRunnerMetricsResolutionTests {
   /// This is the `byApiId` lookup path used when metrics arrive keyed by GitHub's runner id.
   @Test func apiIdMatchesGitHubApiRunnerIdForLookup() {
     let runner = makeOrgRunner(agentId: 100, apiId: 5001)
-    let byApiId: [Int: String] = runner.apiId.map { [$0: runner.installPath!] } ?? [:]
+    let byApiId: [Int: String]
+    if let apiId = runner.apiId, let installPath = runner.installPath {
+      byApiId = [apiId: installPath]
+    } else {
+      byApiId = [:]
+    }
     #expect(byApiId[5001] != nil)
     #expect(byApiId[100] == nil)
   }
@@ -109,7 +114,16 @@ struct OrgRunnerMetricsResolutionTests {
   /// `nil` apiId must produce an empty `byApiId` map entry (no crash, no spurious hit).
   @Test func nilApiIdProducesNoByApiIdEntry() {
     let runner = makeOrgRunner(agentId: 100, apiId: nil)
-    let byApiId: [Int: String] = runner.apiId.map { [$0: runner.installPath!] } ?? [:]
+    let byApiId: [Int: String]
+    if let apiId = runner.apiId {
+      if let installPath = runner.installPath {
+        byApiId = [apiId: installPath]
+      } else {
+        byApiId = [:]
+      }
+    } else {
+      byApiId = [:]
+    }
     #expect(byApiId.isEmpty)
   }
 }
