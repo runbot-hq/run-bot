@@ -65,8 +65,8 @@ func fetchRunnerDownloadURL() async -> String? {
         log("fetchRunnerDownloadURL › decode failed")
         return nil
     }
-    let match = release.assets.first {
-        $0.name.hasPrefix(assetName) && $0.name.hasSuffix(".tar.gz")
+    let match = release.assets.first { asset in
+        asset.name.hasPrefix(assetName) && asset.name.hasSuffix(".tar.gz")
     }
     log("fetchRunnerDownloadURL › match=\(match?.name ?? "nil")")
     return match?.browserDownloadUrl

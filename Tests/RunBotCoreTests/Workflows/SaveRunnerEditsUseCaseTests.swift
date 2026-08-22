@@ -309,8 +309,8 @@ struct SaveRunnerEditsUseCaseTests {
     }
     // Message must mention the path, malformed, and agent-managed keys
     #expect(
-      msgs.contains(where: {
-        $0.contains("malformed") && $0.contains("/.runner") && $0.contains("agent-managed")
+      msgs.contains(where: { msg in
+        msg.contains("malformed") && msg.contains("/.runner") && msg.contains("agent-managed")
       }))
     // No proxy change — proxy step must not have run
     #expect(await !proxy.saveCalled)
@@ -341,8 +341,8 @@ struct SaveRunnerEditsUseCaseTests {
     }
     // Message must mention path, malformed, and agent-managed keys (same contract as the sibling test)
     #expect(
-      msgs.contains(where: {
-        $0.contains("malformed") && $0.contains("/.runner") && $0.contains("agent-managed")
+      msgs.contains(where: { msg in
+        msg.contains("malformed") && msg.contains("/.runner") && msg.contains("agent-managed")
       }))
     // Proxy step must still execute despite the malformed-file config error
     #expect(await proxy.saveCalled)
@@ -468,8 +468,8 @@ struct SaveRunnerEditsUseCaseTests {
     }
     // Message must mention path, unreadable, and agent-managed keys
     #expect(
-      msgs.contains(where: {
-        $0.contains("unreadable") && $0.contains("/.runner") && $0.contains("agent-managed")
+      msgs.contains(where: { msg in
+        msg.contains("unreadable") && msg.contains("/.runner") && msg.contains("agent-managed")
       }))
     // No proxy change — proxy step must not have run
     #expect(await !proxy.saveCalled)
@@ -500,8 +500,8 @@ struct SaveRunnerEditsUseCaseTests {
     }
     // Message must mention path, unreadable, and agent-managed keys
     #expect(
-      msgs.contains(where: {
-        $0.contains("unreadable") && $0.contains("/.runner") && $0.contains("agent-managed")
+      msgs.contains(where: { message in
+        message.contains("unreadable") && message.contains("/.runner") && message.contains("agent-managed")
       }))
     // Proxy step must still execute despite the I/O read error
     #expect(await proxy.saveCalled)

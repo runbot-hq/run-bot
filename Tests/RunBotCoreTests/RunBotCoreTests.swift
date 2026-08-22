@@ -320,8 +320,8 @@ struct PollResultBuilderTests {
 
   /// Verifies that `buildJobDisplay` does not cap live jobs at the cache limit — live jobs must always be shown in full.
   @Test func buildJobDisplayDoesNotCapLiveJobsAtCacheLimit() {
-    let live: [ActiveJob] = (1...5).map {
-      ActiveJob(id: $0, name: "Job \($0)", status: "in_progress")
+    let live: [ActiveJob] = (1...5).map { i in
+      ActiveJob(id: i, name: "Job \(i)", status: "in_progress")
     }
     let display = PollResultBuilder.buildJobDisplay(live: live, cache: [:])
     #expect(display.count == 5, "jobCacheLimit must not truncate live jobs")
@@ -329,17 +329,17 @@ struct PollResultBuilderTests {
 
   /// Verifies that `buildJobDisplay` caps the total displayed jobs at `jobDisplayLimit` when live + cached entries exceed it.
   @Test func buildJobDisplayCapsAtJobDisplayLimit() {
-    let live: [ActiveJob] = (1...8).map {
-      ActiveJob(id: $0, name: "Job \($0)", status: "in_progress")
+    let live: [ActiveJob] = (1...8).map { id in
+      ActiveJob(id: id, name: "Job \(id)", status: "in_progress")
     }
     let cached: [Int: ActiveJob] = Dictionary(
-      uniqueKeysWithValues: (100...106).map {
+      uniqueKeysWithValues: (100...106).map { id in
         (
-          $0,
+          id,
           ActiveJob(
-            id: $0, name: "Done \($0)", status: "completed",
+            id: id, name: "Done \(id)", status: "completed",
             conclusion: "success",
-            completedAt: Date(timeIntervalSinceReferenceDate: Double($0)))
+            completedAt: Date(timeIntervalSinceReferenceDate: Double(id)))
         )
       })
     let display = PollResultBuilder.buildJobDisplay(live: live, cache: cached)

@@ -227,9 +227,9 @@ final class SystemStatsViewModel {
     private func sampleMemory() -> (used: Double, total: Double) {
         var vmStats = vm_statistics64()
         var count = mach_msg_type_number_t(MemoryLayout<vm_statistics64_data_t>.size / MemoryLayout<integer_t>.size)
-        let kr = withUnsafeMutablePointer(to: &vmStats) {
-            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
-                host_statistics64(mach_host_self(), HOST_VM_INFO64, $0, &count)
+        let kr = withUnsafeMutablePointer(to: &vmStats) { vmStatsPtr in
+            vmStatsPtr.withMemoryRebound(to: integer_t.self, capacity: Int(count)) { intPtr in
+                host_statistics64(mach_host_self(), HOST_VM_INFO64, intPtr, &count)
             }
         }
         let pageSize = Double(Int(vm_kernel_page_size))

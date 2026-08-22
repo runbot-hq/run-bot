@@ -96,8 +96,8 @@ struct LogFetcherTests {
 
   /// Calls `transport.raw` once per run in the group.
   @Test func fetchActionLogs_callsTransportPerRun() async {
-    let runs = [1, 2, 3].map {
-      WorkflowRunRef(id: $0, name: "Job \($0)", status: .inProgress, conclusion: nil, htmlUrl: nil)
+    let runs = [1, 2, 3].map { id in
+      WorkflowRunRef(id: id, name: "Job \(id)", status: .inProgress, conclusion: nil, htmlUrl: nil)
     }
     let group = WorkflowActionGroup(
       headSha: "sha", label: "sha", title: "", headBranch: nil,

@@ -71,8 +71,8 @@ struct ScopeEditSheet: View {
         // assigned result. The previous code trimmed only to check emptiness but
         // returned the original $0, so leading/trailing whitespace could survive
         // into headerDisplayName if the stored alias arrived un-trimmed. (#1538)
-        let alias = preferences.alias.flatMap {
-            let trimmed = $0.trimmingCharacters(in: .whitespacesAndNewlines)
+        let alias = preferences.alias.flatMap { rawAlias in
+            let trimmed = rawAlias.trimmingCharacters(in: .whitespacesAndNewlines)
             return trimmed.isEmpty ? nil : trimmed
         }
         self.headerDisplayName = alias ?? scopeEntry.scope
