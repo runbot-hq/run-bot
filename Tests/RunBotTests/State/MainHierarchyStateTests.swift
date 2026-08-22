@@ -75,29 +75,46 @@ struct MainHierarchyStateTests {
     func statusTransitionContract() {
         typealias E = MainHierarchyState.WorkflowExpansion
 
-        // Parallel typed arrays avoid Swift tuple-inference degradation on 5+ element tuples.
-        let initialStatuses:    [RBStatus] = [.inProgress, .inProgress, .queued,  .success, .failed]
-        let initialExpansions:  [E]        = [.partial,    .partial,    .collapsed, .full,   .full]
-        let newStatuses:        [RBStatus] = [.success,    .failed,     .inProgress, .success, .success]
-        let expectedExpansions: [E]        = [.collapsed,  .collapsed,  .partial,  .full,    .full]
-        let expectedChanges:    [Bool]     = [true,        true,        true,      false,    false]
-        let shouldClearJobs:    [Bool]     = [true,        true,        false,     false,    false]
+        struct TransitionCase {
+            let initialStatus: RBStatus
+            let initialExpansion: E
+            let newStatus: RBStatus
+            let expectedExpansion: E
+            let expectedChanged: Bool
+            let shouldClearJobs: Bool
+        }
 
-        for i in initialStatuses.indices {
+        let transitions: [TransitionCase] = [
+            // Terminal status on a partial expansion collapses and clears jobs.
+            .init(initialStatus: .inProgress, initialExpansion: .partial, newStatus: .success,
+                  expectedExpansion: .collapsed, expectedChanged: true, shouldClearJobs: true),
+            .init(initialStatus: .inProgress, initialExpansion: .partial, newStatus: .failed,
+                  expectedExpansion: .collapsed, expectedChanged: true, shouldClearJobs: true),
+            // Work resuming from queued expands collapsed -> partial, jobs untouched.
+            .init(initialStatus: .queued, initialExpansion: .collapsed, newStatus: .inProgress,
+                  expectedExpansion: .partial, expectedChanged: true, shouldClearJobs: false),
+            // Same-status reconciles leave full expansions and jobs intact.
+            .init(initialStatus: .success, initialExpansion: .full, newStatus: .success,
+                  expectedExpansion: .full, expectedChanged: false, shouldClearJobs: false),
+            .init(initialStatus: .failed, initialExpansion: .full, newStatus: .success,
+                  expectedExpansion: .full, expectedChanged: false, shouldClearJobs: false)
+        ]
+
+        for (index, transition) in transitions.enumerated() {
             let state   = MainHierarchyState()
-            let groupID = "wf-\(i)"
+            let groupID = "wf-\(index)"
 
-            state.reconcile(status: initialStatuses[i], for: groupID)
-            state.setExpansion(initialExpansions[i], for: groupID)
+            state.reconcile(status: transition.initialStatus, for: groupID)
+            state.setExpansion(transition.initialExpansion, for: groupID)
             state.setJobs([1, 2], for: groupID)
 
-            let changed = state.reconcile(status: newStatuses[i], for: groupID)
+            let changed = state.reconcile(status: transition.newStatus, for: groupID)
 
-            #expect(state.expansion(for: groupID) == expectedExpansions[i])
-            #expect(changed == expectedChanges[i])
-            #expect(state.status(for: groupID) == newStatuses[i])
+            #expect(state.expansion(for: groupID) == transition.expectedExpansion)
+            #expect(changed == transition.expectedChanged)
+            #expect(state.status(for: groupID) == transition.newStatus)
 
-            if shouldClearJobs[i] {
+            if transition.shouldClearJobs {
                 #expect(state.jobs(for: groupID).isEmpty)
             } else {
                 #expect(state.jobs(for: groupID) == [1, 2])
