@@ -593,9 +593,9 @@ struct WorkflowActionGroupFetcherTests {
   @Test func fetchOrdersJobsByWorkflowIdentityAcrossRuns() async {
     let sha = "workflow-ordering-sha"
     let runs = [
-      minimalRun(id: 100, workflowID: 30, sha: sha, name: "Workflow C"),
-      minimalRun(id: 300, workflowID: 10, sha: sha, name: "Workflow A"),
-      minimalRun(id: 200, workflowID: 20, sha: sha, name: "Workflow B"),
+      minimalRun(id: 100, sha: sha, workflowID: 30, name: "Workflow C"),
+      minimalRun(id: 300, sha: sha, workflowID: 10, name: "Workflow A"),
+      minimalRun(id: 200, sha: sha, workflowID: 20, name: "Workflow B"),
     ]
     let t = makeTransport(with: [
       "repos/owner/repo/actions/runs?status=completed": envelope(
