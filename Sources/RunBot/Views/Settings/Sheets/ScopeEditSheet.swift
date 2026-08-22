@@ -117,85 +117,88 @@ struct ScopeEditSheet: View {
 
 // MARK: - Header & Footer
 /// Header and footer views for the scope edit sheet.
-extension ScopeEditSheet {
-    /// Sheet-style title header showing scope display name and type badge.
-    var sheetHeader: some View {
+/// Sheet-style title header showing scope display name and type badge.
+var sheetHeader: some View {
+    HStack(spacing: 6) {
+        Text("Edit Scope")
+            .font(.headline)
+        Spacer()
         HStack(spacing: 6) {
-            Text("Edit Scope")
-                .font(.headline)
-            Spacer()
-            HStack(spacing: 6) {
-                Text(isRepo ? "Repo" : "Org")
-                    .font(.caption2)
-                    .foregroundColor(Color.rbTextSecondary)
-                    .padding(.horizontal, 6).padding(.vertical, 2)
-                    .background(Capsule().fill(Color.rbSurfaceElevated))
-                    .overlay(Capsule().strokeBorder(Color.rbBorderSubtle, lineWidth: 0.5))
-                // Shows alias when set, raw scope string otherwise.
-                // `headerDisplayName` is derived from the pre-fetched ScopePreferences
-                // snapshot in init — no extra actor hop needed. (#1538)
-                Text(headerDisplayName)
-                    .font(.system(size: 13, weight: .semibold))
-                    .lineLimit(1).truncationMode(.middle)
-            }
+            Text(isRepo ? "Repo" : "Org")
+                .font(.caption2)
+                .foregroundColor(Color.rbTextSecondary)
+                .padding(.horizontal, 6).padding(.vertical, 2)
+                .background(Capsule().fill(Color.rbSurfaceElevated))
+                .overlay(Capsule().strokeBorder(Color.rbBorderSubtle, lineWidth: 0.5))
+            // Shows alias when set, raw scope string otherwise.
+            // `headerDisplayName` is derived from the pre-fetched ScopePreferences
+            // snapshot in init — no extra actor hop needed. (#1538)
+            Text(headerDisplayName)
+                .font(.system(size: 13, weight: .semibold))
+                .lineLimit(1).truncationMode(.middle)
         }
-        .padding(.horizontal, RBSpacing.md)
-        .padding(.top, RBSpacing.md)
-        .padding(.bottom, RBSpacing.sm)
     }
+    .padding(.horizontal, RBSpacing.md)
+    .padding(.top, RBSpacing.md)
+    .padding(.bottom, RBSpacing.sm)
+}
 
-    /// Cancel / Save button row at the bottom of the sheet.
-    var buttonFooter: some View {
-        HStack {
-            Spacer()
-            Button("Cancel") { isPresented = false }
-                .keyboardShortcut(.escape, modifiers: [])
-            // ⚠️ DO NOT simplify to a sync call. confirmSave() is intentionally
-            // async so this Task{} call site needs no rewiring when editable fields
-            // (alias, polling interval, etc.) are re-added and restore actual awaits.
-            // The async boundary is a load-bearing placeholder, not dead code. (#2009)
-            Button {
-                Task { await confirmSave() }
-            } label: {
-                Text("Save")
-                    .font(.system(size: 13, weight: .medium))
-            }
-            .buttonStyle(.borderedProminent)
-            .keyboardShortcut(.return, modifiers: [])
+/// Cancel / Save button row at the bottom of the sheet.
+var buttonFooter: some View {
+    HStack {
+        Spacer()
+        Button("Cancel") { isPresented = false }
+            .keyboardShortcut(.escape, modifiers: [])
+        // ⚠️ DO NOT simplify to a sync call. confirmSave() is intentionally
+        // async so this Task{} call site needs no rewiring when editable fields
+        // (alias, polling interval, etc.) are re-added and restore actual awaits.
+        // The async boundary is a load-bearing placeholder, not dead code. (#2009)
+        Button {
+            Task { await confirmSave() }
+        } label: {
+            Text("Save")
+                .font(.system(size: 13, weight: .medium))
         }
-        .padding(.horizontal, RBSpacing.md)
-        .padding(.vertical, RBSpacing.sm)
+        .buttonStyle(.borderedProminent)
+        .keyboardShortcut(.return, modifiers: [])
     }
+    .padding(.horizontal, RBSpacing.md)
+    .padding(.vertical, RBSpacing.sm)
 }
 
 // MARK: - Sections
 /// Content section views: scope info and monitoring status.
-extension ScopeEditSheet {
-    /// Card section displaying read-only scope metadata: raw scope string,
-    /// type (repo vs org), and a link to open the scope on GitHub.
-    var infoSection: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            sectionHeader("Scope Info")
-            infoCard {
-                infoRow(label: "Scope", value: scope, copyable: true)
+
+/// Card section displaying read-only scope metadata: raw scope string,
+/// type (repo vs org), and a link to open the scope on GitHub.
+var infoSection: some View {
+    VStack(alignment: .leading, spacing: 0) {
+        sectionHeader("Scope Info")
+        infoCard {
+            infoRow(label: "Scope", value: scope, copyable: true)
+            Divider().padding(.leading, RBSpacing.md)
+            infoRow(label: "Type", value: isRepo ? "Repository" : "Organisation")
+            if let url = gitHURL {
                 Divider().padding(.leading, RBSpacing.md)
-                infoRow(label: "Type", value: isRepo ? "Repository" : "Organisation")
-                if let url = gitHURL {
-                    Divider().padding(.leading, RBSpacing.md)
-                    HStack(alignment: .top, spacing: 8) {
-                        Text("GitHub")
-                            .font(.system(size: 12)).foregroundColor(Color.rbTextSecondary)
-                            .frame(width: 100, alignment: .leading).fixedSize()
-                        Button { NSWorkspace.shared.open(url) } label: {
-                            HStack(spacing: 4) {
-                                Text("Open on GitHub")
-                                    .font(.system(size: 12))
-                                    .foregroundColor(Color.rbAccent)
-                                Image(systemName: "arrow.up.right")
-                                    .font(.system(size: 10))
-                                    .foregroundColor(Color.rbAccent)
-                            }
+                HStack(alignment: .top, spacing: 8) {
+                    Text("GitHub")
+                        .font(.system(size: 12)).foregroundColor(Color.rbTextSecondary)
+                        .frame(width: 100, alignment: .leading).fixedSize()
+                    Button { NSWorkspace.shared.open(url) } label: {
+                        HStack(spacing: 4) {
+                            Text("Open on GitHub")
+                                .font(.system(size: 12))
+                                .foregroundColor(Color.rbAccent)
+                            Image(systemName: "arrow.up.right")
+                                .font(.system(size: 10))
+                                .foregroundColor(Color.rbAccent)
                         }
+                    }
+                }
+            }
+        }
+    }
+}
                         .buttonStyle(.plain)
                         .help(url.absoluteString)
                         Spacer()
@@ -236,73 +239,69 @@ extension ScopeEditSheet {
 
 // MARK: - Actions
 /// User-initiated actions: save and cancel.
-extension ScopeEditSheet {
-    /// Commits the sheet action and dismisses.
-    ///
-    /// ## Why `async` with no `await`
-    /// The sheet is currently read-only (`#2009` removed all editable fields), so
-    /// there is nothing to persist and no actor hop required. The `async` signature
-    /// is **intentionally kept** so the `Task { await confirmSave() }` call site in
-    /// `buttonFooter` requires zero rewiring when editable fields return.
-    ///
-    /// Swift does **not** emit a no-`await` warning for `async` functions on
-    /// `@MainActor` types, so this is CI-clean as-is — no suppression needed.
-    ///
-    /// **Do not remove `async` or collapse this to a direct `isPresented = false`**
-    /// at the call site — doing so will force a button-action rewrite when the next
-    /// field is added.
-    @MainActor func confirmSave() async {
-        isPresented = false
-    }
+/// Commits the sheet action and dismisses.
+///
+/// ## Why `async` with no `await`
+/// The sheet is currently read-only (`#2009` removed all editable fields), so
+/// there is nothing to persist and no actor hop required. The `async` signature
+/// is **intentionally kept** so the `Task { await confirmSave() }` call site in
+/// `buttonFooter` requires zero rewiring when editable fields return.
+///
+/// Swift does **not** emit a no-`await` warning for `async` functions on
+/// `@MainActor` types, so this is CI-clean as-is — no suppression needed.
+///
+/// **Do not remove `async` or collapse this to a direct `isPresented = false`**
+/// at the call site — doing so will force a button-action rewrite when the next
+/// field is added.
+@MainActor func confirmSave() async {
+    isPresented = false
 }
 
 // MARK: - Sub-view helpers
 /// Reusable sub-view factory methods shared across section extensions.
-extension ScopeEditSheet {
-    /// Renders a styled section-header label.
-    /// - Parameter title: The display text for the section heading.
-    func sectionHeader(_ title: String) -> some View {
-        Text(title)
-            .font(RBFont.sectionHeader).foregroundColor(Color.rbTextSecondary)
-            .padding(.horizontal, RBSpacing.md).padding(.top, 12).padding(.bottom, 4)
-    }
+/// Renders a styled section-header label.
+/// - Parameter title: The display text for the section heading.
+func sectionHeader(_ title: String) -> some View {
+    Text(title)
+        .font(RBFont.sectionHeader).foregroundColor(Color.rbTextSecondary)
+        .padding(.horizontal, RBSpacing.md).padding(.top, 12).padding(.bottom, 4)
+}
 
-    /// Wraps `content` in the standard rounded-card background used across all
-    /// settings sections.
-    /// - Parameter content: The view builder producing the card's contents.
-    func infoCard<Content: View>(@ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            content()
-        }
-        .glassCard(cornerRadius: RBRadius.small)
-        .padding(.horizontal, RBSpacing.md)
-        .padding(.bottom, 8)
+/// Wraps `content` in the standard rounded-card background used across all
+/// settings sections.
+/// - Parameter content: The view builder producing the card's contents.
+func infoCard<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+    VStack(alignment: .leading, spacing: 0) {
+        content()
     }
+    .glassCard(cornerRadius: RBRadius.small)
+    .padding(.horizontal, RBSpacing.md)
+    .padding(.bottom, 8)
+}
 
-    /// Renders a label–value row inside an info card.
-    /// - Parameters:
-    ///   - label: The left-aligned field name (fixed 100 pt width).
-    ///   - value: The monospaced value string displayed to the right.
-    ///   - copyable: When `true`, a copy-to-clipboard button is appended.
-    func infoRow(label: String, value: String, copyable: Bool = false) -> some View {
-        HStack(alignment: .top, spacing: 8) {
-            Text(label)
-                .font(.system(size: 12)).foregroundColor(Color.rbTextSecondary)
-                .frame(width: 100, alignment: .leading).fixedSize()
-            Text(value)
-                .font(.system(size: 12, design: .monospaced)).foregroundColor(Color.rbTextPrimary)
-                .lineLimit(2).truncationMode(.middle)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            if copyable {
-                Button {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(value, forType: .string)
-                } label: {
-                    Image(systemName: "doc.on.doc").font(.system(size: 10)).foregroundColor(Color.rbTextTertiary)
-                }
-                .buttonStyle(.plain).help("Copy to clipboard")
+/// Renders a label–value row inside an info card.
+/// - Parameters:
+///   - label: The left-aligned field name (fixed 100 pt width).
+///   - value: The monospaced value string displayed to the right.
+///   - copyable: When `true`, a copy-to-clipboard button is appended.
+func infoRow(label: String, value: String, copyable: Bool = false) -> some View {
+    HStack(alignment: .top, spacing: 8) {
+        Text(label)
+            .font(.system(size: 12)).foregroundColor(Color.rbTextSecondary)
+            .frame(width: 100, alignment: .leading).fixedSize()
+        Text(value)
+            .font(.system(size: 12, design: .monospaced)).foregroundColor(Color.rbTextPrimary)
+            .lineLimit(2).truncationMode(.middle)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        if copyable {
+            Button {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(value, forType: .string)
+            } label: {
+                Image(systemName: "doc.on.doc").font(.system(size: 10)).foregroundColor(Color.rbTextTertiary)
             }
+            .buttonStyle(.plain).help("Copy to clipboard")
         }
-        .padding(.horizontal, RBSpacing.md).padding(.vertical, 7)
     }
+    .padding(.horizontal, RBSpacing.md).padding(.vertical, 7)
 }

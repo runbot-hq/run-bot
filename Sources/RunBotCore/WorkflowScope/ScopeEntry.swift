@@ -105,16 +105,3 @@ public struct ScopeEntry: Identifiable, Codable, Equatable, Hashable, Sendable {
 
 /// Helpers for deriving immutable `ScopeEntry` copies with a single field replaced.
 /// Follows the same `copying(…)` pattern used by `ActiveJob` and `RunnerModel`.
-extension ScopeEntry {
-    /// Returns a copy of this entry with `isEnabled` replaced, preserving all other fields.
-    /// Use this instead of mutating `isEnabled` directly — the field is `let`.
-    public func copying(isEnabled newValue: Bool) -> ScopeEntry {
-        ScopeEntry(id: id, scope: scope, isEnabled: newValue, displayName: displayName)
-    }
-
-    /// Returns a copy of this entry with `displayName` replaced, preserving all other fields.
-    /// Used by `ScopeStore.refreshDisplayNames()` to hydrate aliases from `ScopePreferencesStore`.
-    public func copying(displayName newValue: String?) -> ScopeEntry {
-        ScopeEntry(id: id, scope: scope, isEnabled: isEnabled, displayName: newValue)
-    }
-}

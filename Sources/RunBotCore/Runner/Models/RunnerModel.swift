@@ -222,57 +222,10 @@ public struct RunnerModel: Sendable, Identifiable, Equatable {
         }
     }
 
-    /// Dot colour category used by `SettingsView.localRunnerDotColor(for:)`.
-    public var statusColor: StatusColor {
-        switch resolvedState {
-        case .warning: return .offline
-        case .busy: return .busy
-        case .running: return .running
-        case .githubOnline: return .idle
-        case .offline: return .offline
-        }
-    }
-
-    /// Dot colour categories for the runner status indicator.
-    public enum StatusColor {
-        /// Runner process is up and not busy.
-        case running
-        /// Runner is executing a job.
-        case busy
-        /// Runner is not running locally but online per GitHub.
-        case idle
-        /// Runner is offline or a lifecycle error occurred.
-        case offline
-    }
-}
-
-// MARK: - Copying
-
-/// Provides a `copying(…)` method for producing modified `RunnerModel` values.
-extension RunnerModel {
-    /// Returns a new `RunnerModel` with selected fields replaced.
-    ///
-    /// Pass only the fields you want to change; all others are forwarded unchanged.
-    /// Uses `Optional<Optional<T>>` (double-optional) for nullable fields so callers
-    /// can distinguish "set to nil" (`.some(nil)`) from "leave unchanged" (`.none`).
-    ///
-    /// `apiId` is intentionally not a parameter — it is set once by
-    /// `RunnerStatusEnricher.applyEnrichment` via `init` and must not be
-    /// overwritten by any other code path. It is always forwarded as-is.
-    ///
-    /// Example:
-    /// ```swift
-    /// runners[idx] = runners[idx].copying(isRunning: true)
-    /// let noWarning: String? = nil
-    /// runners[idx] = runners[idx].copying(lifecycleWarning: noWarning)  // clears warning — a bare `nil` literal would be a no-op
-    /// ```
-    public func copying(
-        gitHubUrl: URL?? = nil,
-        isRunning: Bool? = nil,
-        githubStatus: RunnerStatus?? = nil,
-        isBusy: Bool? = nil,
-        lifecycleWarning: String?? = nil,
-        runnerGroup: String?? = nil,
+/// runners[idx] = runners[idx].copying(isRunning: true)
+/// let noWarning: String? = nil
+/// runners[idx] = runners[idx].copying(lifecycleWarning: noWarning)  // clears warning — a bare `nil` literal would be a no-op
+/// 
         metrics: RunnerMetrics?? = nil
     ) -> RunnerModel {
         RunnerModel(

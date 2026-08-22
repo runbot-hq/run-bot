@@ -51,22 +51,5 @@ public enum RunnerStatus: Hashable, Sendable {
 }
 
 /// `Codable` conformance for `RunnerStatus` — encodes and decodes as a plain string.
-extension RunnerStatus: Codable {
-    /// Decodes from a single-value string container.
-    public init(from decoder: Decoder) throws {
-        let raw = try decoder.singleValueContainer().decode(String.self)
-        self = RunnerStatus(rawString: raw)
-    }
-
-    /// Encodes as a single-value string container.
-    public func encode(to encoder: Encoder) throws {
-        var container = encoder.singleValueContainer()
-        try container.encode(rawValue)
-    }
-}
 
 /// `CustomStringConvertible` conformance for `RunnerStatus`.
-extension RunnerStatus: CustomStringConvertible {
-    /// Returns the raw API string value.
-    public var description: String { rawValue }
-}

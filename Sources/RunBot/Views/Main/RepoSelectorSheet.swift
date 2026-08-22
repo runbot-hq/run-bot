@@ -34,57 +34,54 @@ struct RepoSelectorSheet: View {
     /// Current search query; filters `items` into `filtered`.
     @State private var searchText = ""
 
-    /// Items matching `searchText` (case-insensitive); equals `items` when `searchText` is empty.
-    private var filtered: [String] {
-        searchText.isEmpty
-            ? items
-            : items.filter { $0.localizedCaseInsensitiveContains(searchText) }
-    }
+/// Items matching `searchText` (case-insensitive); equals `items` when `searchText` is empty.
+private var filtered: [String] {
+    searchText.isEmpty
+        ? items
+        : items.filter { $0.localizedCaseInsensitiveContains(searchText) }
+}
 
-    /// Root body -- header, search field, item list, and cancel footer.
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            headerSection
-            searchSection
-            Divider()
-            listSection
-            Divider()
-            footerSection
-        }
-        .frame(width: 360, height: 420)
-        .glassCard(cornerRadius: 10)
+/// Root body -- header, search field, item list, and cancel footer.
+var body: some View {
+    VStack(alignment: .leading, spacing: 0) {
+        headerSection
+        searchSection
+        Divider()
+        listSection
+        Divider()
+        footerSection
     }
+    .frame(width: 360, height: 420)
+    .glassCard(cornerRadius: 10)
 }
 
 // MARK: - Subviews
 
-/// Subview factories for `RepoSelectorSheet`.
-extension RepoSelectorSheet {
-    /// Title and subtitle header shown at the top of the sheet.
-    var headerSection: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text("Select \(label)")
-                .font(.system(size: 13, weight: .semibold))
-            Text("Choose the \(label.lowercased()) to use as the runner scope.")
-                .font(.caption)
-                .foregroundColor(Color.rbTextSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .padding(.horizontal, 16)
-        .padding(.top, 16)
-        .padding(.bottom, 10)
+/// Title and subtitle header shown at the top of the sheet.
+var headerSection: some View {
+    VStack(alignment: .leading, spacing: 3) {
+        Text("Select \(label)")
+            .font(.system(size: 13, weight: .semibold))
+        Text("Choose the \(label.lowercased()) to use as the runner scope.")
+            .font(.caption)
+            .foregroundColor(Color.rbTextSecondary)
+            .fixedSize(horizontal: false, vertical: true)
     }
+    .padding(.horizontal, 16)
+    .padding(.top, 16)
+    .padding(.bottom, 10)
+}
 
-    /// Search field row with clear button.
-    var searchSection: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: 11))
-                .foregroundColor(Color.rbTextTertiary)
-            TextField("Search \(label.lowercased())s\u{2026}", text: $searchText)
-                .font(.system(size: 12))
-                .textFieldStyle(.plain)
-            if !searchText.isEmpty {
+/// Search field row with clear button.
+var searchSection: some View {
+    HStack(spacing: 6) {
+        Image(systemName: "magnifyingglass")
+            .font(.system(size: 11))
+            .foregroundColor(Color.rbTextTertiary)
+        TextField("Search \(label.lowercased())s\u{2026}", text: $searchText)
+            .font(.system(size: 12))
+            .textFieldStyle(.plain)
+        if !searchText.isEmpty {
                 Button(action: { searchText = "" }) {
                     Image(systemName: "xmark.circle.fill")
                         .font(.system(size: 11))
