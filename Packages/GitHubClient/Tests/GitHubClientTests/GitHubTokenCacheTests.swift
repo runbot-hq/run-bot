@@ -140,12 +140,58 @@ struct GitHubTokenCacheTests {
   ///
   /// Absorbs: token_ghTokenEnvVar_returnsToken, token_githubTokenEnvVarFallback_returnsToken,
   /// token_bothEnvVarsSet_prefersGhToken.
+  /// Verifies all three environment-variable precedence cases:
+  ///   1. GH_TOKEN only          → GH_TOKEN wins
+  ///   2. GITHUB_TOKEN only      → GITHUB_TOKEN wins  (previously missing)
+  ///   3. Both vars present      → GH_TOKEN wins (higher priority)
+  ///
+  /// Absorbs: token_githubTokenEnvVarFallback_returnsToken
   @Test func environmentTokenPrecedence() async {
-    await withCleanEnv {
-      setenv("GH_TOKEN", "gh-token", 1)
-      setenv("GITHUB_TOKEN", "github-token", 1)
-      let result = await makeCache(envProvider: EnvReadingStubProvider()).token()
-      #expect(result == "gh-token")
+    let cases: [
+      (
+        ghToken: String?,
+        gitHubToken: String?,
+        expected: String?
+      )
+    ] = [
+      (
+        "gh-token",
+        nil,
+        "gh-token"
+      ),
+      (
+        nil,
+        "github-token",
+        "github-token"
+      ),
+      (
+        "gh-token",
+        "github-token",
+        "gh-token"
+      )
+    ]
+
+    for testCase in cases {
+      await withCleanEnv {
+        if let value = testCase.ghToken {
+          setenv("GH_TOKEN", value, 1)
+        }
+        if let value = testCase.gitHubToken {
+          setenv("GITHUB_TOKEN", value, 1)
+        }
+        let result = await makeCache(
+          envProvider: EnvReadingStubProvider()
+        ).token()
+        #expect(
+          result == testCase.expected,
+          """
+          GH_TOKEN=\
+          \(String(describing: testCase.ghToken)) \
+          GITHUB_TOKEN=\
+          \(String(describing: testCase.gitHubToken))
+          """
+        )
+      }
     }
   }
 
