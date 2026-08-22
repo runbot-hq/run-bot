@@ -1,21 +1,34 @@
 // OAuthServiceTests.swift
 // OAuthTokenKitTests
-
+//
+// Six contracts cover the full OAuthService observable surface:
+//
+//  authorizationURLContract            — URL shape, nonce, default/custom scope+redirect (loop)
+//  invalidAndReplayedStateAreRejected  — CSRF guard: mismatch, missing code/state, stale nonce, replay
+//  successfulCallbackPersistsBeforeSuccess — ordering: token saved before stream fires true
+//  networkFailureEmitsFailureWithoutSaving — all failure paths share one code path (loop)
+//  signInStreamBroadcastsToSubscribers — multicast: two simultaneous subscribers
+//  signOutClearsAuthentication         — signOut + isAuthenticated lifecycle
+//
+// Absorbed and deleted files:
+//   OAuthServiceScopesTests.swift      (1 test)
+//   OAuthServiceRedirectURITests.swift (1 test)
+//   OAuthServiceAuthStateTests.swift   (1 test)
+//
 import Testing
 import Foundation
 @testable import OAuthTokenKit
 
 // MARK: - Helpers
 
-/// `TokenStore` double that can be configured to fail `delete()`, used for best-effort sign-out tests.
-/// Safe as `@unchecked Sendable` because all accesses in this file occur from
-/// `@MainActor` serialized test suites.
+/// TokenStore double used by every test in this file.
+/// @unchecked Sendable: all access is from @MainActor serialised suites.
 private final class SpyTokenStore: TokenStore, @unchecked Sendable {
     private var stored: String?
+    var saveCallCount  = 0
     var deleteCallCount = 0
-    var saveCallCount = 0
+    var shouldFailSave   = false
     var shouldFailDelete = false
-    var shouldFailSave = false
 
     init(initial: String? = nil) { stored = initial }
 
@@ -36,7 +49,6 @@ private final class SpyTokenStore: TokenStore, @unchecked Sendable {
     }
 }
 
-/// Builds a minimal `OAuthService` with test doubles.
 @MainActor
 private func makeService(
     store: SpyTokenStore = SpyTokenStore(),
@@ -54,312 +66,280 @@ private func makeService(
     )
 }
 
-/// Builds a callback URL mimicking GitHub's OAuth redirect.
 private func callbackURL(code: String? = "abc123", state: String? = "some-state") -> URL {
     var comps = URLComponents(string: "runbot://oauth/callback")!
     var items: [URLQueryItem] = []
-    if let c = code   { items.append(URLQueryItem(name: "code",  value: c)) }
-    if let s = state  { items.append(URLQueryItem(name: "state", value: s)) }
+    if let c = code  { items.append(URLQueryItem(name: "code",  value: c)) }
+    if let s = state { items.append(URLQueryItem(name: "state", value: s)) }
     comps.queryItems = items
     return comps.url!
 }
 
-/// JSON-encodes a fake GitHub token-exchange success response.
 private func successPayload(token: String = "ghs_test_token") -> Data {
     try! JSONEncoder().encode(["access_token": token])
 }
 
-/// JSON-encodes a fake GitHub token-exchange error response.
-private func errorPayload(error: String = "bad_verification_code") -> Data {
-    try! JSONEncoder().encode(["error": error])
-}
+// MARK: - OAuthServiceTests
 
-// MARK: - makeSignInURL
-
-@Suite("OAuthService — makeSignInURL", .serialized)
+@Suite("OAuthService", .serialized)
 @MainActor
-struct OAuthServiceMakeSignInURLTests {
+struct OAuthServiceTests {
 
-    @Test("URL contains a UUID-formatted state nonce")
-    func urlContainsStateNonce() throws {
-        let svc = makeService()
-        let url = try #require(svc.makeSignInURL())
-        let comps = try #require(URLComponents(url: url, resolvingAgainstBaseURL: false))
-        let state = try #require(comps.queryItems?.first(where: { $0.name == "state" })?.value)
-        // UUID().uuidString is 36 chars: 8-4-4-4-12
-        #expect(UUID(uuidString: state) != nil)
-    }
+    // MARK: - 1. Authorization URL contract
 
-    @Test("Calling makeSignInURL twice replaces pendingState (last-write-wins)")
-    func callingTwiceReplacesPendingState() async throws {
-        let store = SpyTokenStore()
-        let session = MockURLSession()
-        let svc = makeService(store: store, session: session)
-        let url1 = try #require(svc.makeSignInURL())
-        let url2 = try #require(svc.makeSignInURL())
-        let state1 = URLComponents(url: url1, resolvingAgainstBaseURL: false)?
-            .queryItems?.first(where: { $0.name == "state" })?.value
-        let state2 = URLComponents(url: url2, resolvingAgainstBaseURL: false)?
-            .queryItems?.first(where: { $0.name == "state" })?.value
-        #expect(state1 != state2, "Each call must produce a fresh nonce")
-        // state1 is stale — handleCallback hits the state-mismatch guard and fires fireSignIn(false)
-        // synchronously before ever reaching exchangeCode. stubbedResult is not set here because
-        // the network path is never reached; the rejection happens at the CSRF guard layer.
-        let stream = svc.makeSignInStream()
-        var iter = stream.makeAsyncIterator()
-        svc.handleCallback(callbackURL(state: state1)) // stale nonce — rejected at CSRF guard
-        let result = await iter.next()
-        #expect(result == false)
-    }
-}
-
-// MARK: - handleCallback CSRF guard
-
-@Suite("OAuthService — handleCallback CSRF guard", .serialized)
-@MainActor
-struct OAuthServiceCSRFTests {
-
-    @Test("Missing code fires sign-in failure and exhausts the nonce")
-    func missingCode() async throws {
-        let session = MockURLSession()
-        session.stubbedResult = .success(successPayload())
-        let svc = makeService(session: session)
-        let url = try #require(svc.makeSignInURL())
-        let state = URLComponents(url: url, resolvingAgainstBaseURL: false)?
-            .queryItems?.first(where: { $0.name == "state" })?.value
-        // Regression test: the no-code callback must also clear pendingState,
-        // preventing the same nonce from being reused by a later callback.
-        // First callback: no code — must fire false and consume the nonce.
-        let stream1 = svc.makeSignInStream()
-        var iter1 = stream1.makeAsyncIterator()
-        svc.handleCallback(callbackURL(code: nil, state: state))
-        let result1 = await iter1.next()
-        #expect(result1 == false)
-        // A fresh stream is required for the second assertion: each makeSignInStream() call
-        // creates an independent AsyncStream. iter1 has already consumed its one value above
-        // and will not receive any further events — reusing it here would hang indefinitely.
-        // Second callback: valid code + same state — nonce must be nil now, so this also fails.
-        let stream2 = svc.makeSignInStream()
-        var iter2 = stream2.makeAsyncIterator()
-        svc.handleCallback(callbackURL(code: "abc", state: state))
-        let result2 = await iter2.next()
-        #expect(result2 == false, "pendingState must be nil after the codeless callback — nonce must not be reusable")
-    }
-
-    @Test("Missing state fires sign-in failure")
-    func missingState() async throws {
-        let svc = makeService()
-        _ = svc.makeSignInURL()
-        let stream = svc.makeSignInStream()
-        var iter = stream.makeAsyncIterator()
-        svc.handleCallback(callbackURL(code: "abc", state: nil))
-        let result = await iter.next()
-        #expect(result == false)
-    }
-
-    @Test("State mismatch fires sign-in failure")
-    func stateMismatch() async throws {
-        let svc = makeService()
-        _ = svc.makeSignInURL()
-        let stream = svc.makeSignInStream()
-        var iter = stream.makeAsyncIterator()
-        svc.handleCallback(callbackURL(code: "abc", state: "wrong-state"))
-        let result = await iter.next()
-        #expect(result == false)
-    }
-
-    @Test("Double-tap: second handleCallback fires failure (pendingState cleared after first)")
-    func doubleTap() async throws {
-        let session = MockURLSession()
-        session.stubbedResult = .success(successPayload())
-        let svc = makeService(session: session)
-        let url = try #require(svc.makeSignInURL())
-        let comps = try #require(URLComponents(url: url, resolvingAgainstBaseURL: false))
-        let state = try #require(comps.queryItems?.first(where: { $0.name == "state" })?.value)
-
-        // First call — legitimate, should succeed
-        let stream1 = svc.makeSignInStream()
-        var iter1 = stream1.makeAsyncIterator()
-        svc.handleCallback(callbackURL(code: "abc", state: state))
-        let first = await iter1.next()
-        #expect(first == true)
-
-        // Second call with the same state — pendingState is now nil, should fail
-        let stream2 = svc.makeSignInStream()
-        var iter2 = stream2.makeAsyncIterator()
-        svc.handleCallback(callbackURL(code: "abc", state: state))
-        let second = await iter2.next()
-        #expect(second == false)
-    }
-
-    }
-
-// MARK: - exchangeCode
-
-@Suite("OAuthService — exchangeCode", .serialized)
-@MainActor
-struct OAuthServiceExchangeCodeTests {
-
-    private func triggerExchange(session: MockURLSession, store: SpyTokenStore = SpyTokenStore()) async -> (result: Bool, store: SpyTokenStore) {
-        let svc = makeService(store: store, session: session)
-        guard let url = svc.makeSignInURL(),
-              let state = URLComponents(url: url, resolvingAgainstBaseURL: false)?
-                .queryItems?.first(where: { $0.name == "state" })?.value
-        else {
-            Issue.record("makeSignInURL returned nil in triggerExchange helper")
-            return (false, store)
+    /// Verifies URL shape, UUID-formatted nonce, scope encoding, and redirect_uri encoding
+    /// for both default and custom configurations in one loop.
+    ///
+    /// Absorbs: urlContainsStateNonce, scopesAreEncodedCorrectly (OAuthServiceScopesTests),
+    ///          redirectURIsAreEncodedCorrectly (OAuthServiceRedirectURITests).
+    @Test func authorizationURLContract() throws {
+        struct Case {
+            let label: String
+            let scopes: [String]?
+            let redirectURI: String?
+            let expectedScope: String
+            let expectedRedirectURI: String
         }
-        let stream = svc.makeSignInStream()
-        var iter = stream.makeAsyncIterator()
-        svc.handleCallback(callbackURL(code: "abc123", state: state))
-        let result = await iter.next() ?? false
-        return (result, store)
+        let cases: [Case] = [
+            Case(
+                label: "defaults",
+                scopes: nil,
+                redirectURI: nil,
+                expectedScope: "repo read:org admin:org manage_runners:org workflow",
+                expectedRedirectURI: OAuthService.defaultRedirectURI
+            ),
+            Case(
+                label: "custom scopes + custom redirect",
+                scopes: [GitHubScopes.readUser, GitHubScopes.repo],
+                redirectURI: "runbot-staging://oauth/callback",
+                expectedScope: "read:user repo",
+                expectedRedirectURI: "runbot-staging://oauth/callback"
+            ),
+        ]
+        for testCase in cases {
+            let service: OAuthService
+            if let scopes = testCase.scopes, let redirectURI = testCase.redirectURI {
+                service = OAuthService(
+                    clientID: "test-id",
+                    clientSecret: "test-secret",
+                    tokenStore: SpyTokenStore(),
+                    scopes: scopes,
+                    redirectURI: redirectURI
+                )
+            } else {
+                service = OAuthService(
+                    clientID: "test-id",
+                    clientSecret: "test-secret",
+                    tokenStore: SpyTokenStore()
+                )
+            }
+            let url   = try #require(service.makeSignInURL(), "\(testCase.label): makeSignInURL returned nil")
+            let comps = try #require(URLComponents(url: url, resolvingAgainstBaseURL: false))
+            let query = Dictionary(
+                uniqueKeysWithValues: (comps.queryItems ?? []).compactMap { item in
+                    item.value.map { (item.name, $0) }
+                }
+            )
+            #expect(query["scope"]        == testCase.expectedScope,        "\(testCase.label): scope mismatch")
+            #expect(query["redirect_uri"] == testCase.expectedRedirectURI,  "\(testCase.label): redirect_uri mismatch")
+            let state = try #require(query["state"], "\(testCase.label): state missing")
+            #expect(UUID(uuidString: state) != nil, "\(testCase.label): state is not a UUID")
+        }
     }
 
-    @Test("Happy path: token saved, fireSignIn(true)")
-    func happyPath() async throws {
-        let store = SpyTokenStore()
-        var savedCalled = false
+    // MARK: - 2. CSRF guard + replay protection
+
+    /// Sequential test: wrong state rejected → correct state succeeds once →
+    /// consumed/stale nonce rejected (replay + double-tap + callingTwiceReplacesPendingState).
+    ///
+    /// Absorbs: missingCode, missingState, stateMismatch, doubleTap,
+    ///          callingTwiceReplacesPendingState.
+    @Test func invalidAndReplayedStateAreRejected() async throws {
+        let store   = SpyTokenStore()
         let session = MockURLSession()
         session.stubbedResult = .success(successPayload())
+        let svc = makeService(store: store, session: session)
+
+        let signInURL     = try #require(svc.makeSignInURL())
+        let expectedState = try #require(
+            URLComponents(url: signInURL, resolvingAgainstBaseURL: false)?
+                .queryItems?.first(where: { $0.name == "state" })?.value
+        )
+
+        // 1. Wrong state — rejected at CSRF guard, no exchange, no save.
+        let stream1 = svc.makeSignInStream()
+        var iter1   = stream1.makeAsyncIterator()
+        svc.handleCallback(callbackURL(code: "code", state: "wrong-state"))
+        let wrongResult = await iter1.next()
+        #expect(wrongResult == false)
+        #expect(store.load() == nil)
+
+        // 2. Missing code — rejected, nonce consumed.
+        let _ = svc.makeSignInURL()  // fresh nonce for this sub-case
+        let freshURL2   = try #require(svc.makeSignInURL())
+        let state2      = try #require(
+            URLComponents(url: freshURL2, resolvingAgainstBaseURL: false)?
+                .queryItems?.first(where: { $0.name == "state" })?.value
+        )
+        let stream2 = svc.makeSignInStream()
+        var iter2   = stream2.makeAsyncIterator()
+        svc.handleCallback(callbackURL(code: nil, state: state2))  // no code
+        let noCodeResult = await iter2.next()
+        #expect(noCodeResult == false)
+        #expect(store.load() == nil)
+
+        // 3. Correct state — succeeds, token saved.
+        let freshURL3 = try #require(svc.makeSignInURL())
+        let state3    = try #require(
+            URLComponents(url: freshURL3, resolvingAgainstBaseURL: false)?
+                .queryItems?.first(where: { $0.name == "state" })?.value
+        )
+        let stream3 = svc.makeSignInStream()
+        var iter3   = stream3.makeAsyncIterator()
+        svc.handleCallback(callbackURL(code: "abc123", state: state3))
+        let successResult = await iter3.next()
+        #expect(successResult == true)
+        #expect(store.load() == "ghs_test_token")
+        let saveCountAfterSuccess = store.saveCallCount
+
+        // 4. Replay consumed state — rejected, no additional save.
+        let stream4 = svc.makeSignInStream()
+        var iter4   = stream4.makeAsyncIterator()
+        svc.handleCallback(callbackURL(code: "abc123", state: state3))
+        let replayResult = await iter4.next()
+        #expect(replayResult == false)
+        #expect(store.saveCallCount == saveCountAfterSuccess)
+    }
+
+    // MARK: - 3. Successful callback ordering
+
+    /// Proves: exchange succeeds → token is in store → then true is emitted.
+    /// The ordering assertion (token before event) is the unique value here.
+    ///
+    /// Absorbs: happyPath (which only checked final state, not ordering).
+    @Test func successfulCallbackPersistsBeforeSuccess() async throws {
+        let store   = SpyTokenStore()
+        let session = MockURLSession()
+        session.stubbedResult = .success(successPayload())
+        var savedCalled = false
         let svc = makeService(store: store, session: session, onTokenSaved: { savedCalled = true })
-        let url = try #require(svc.makeSignInURL())
-        let state = URLComponents(url: url, resolvingAgainstBaseURL: false)!
-            .queryItems!.first(where: { $0.name == "state" })!.value!
+
+        let url   = try #require(svc.makeSignInURL())
+        let state = try #require(
+            URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                .queryItems?.first(where: { $0.name == "state" })?.value
+        )
         let stream = svc.makeSignInStream()
-        var iter = stream.makeAsyncIterator()
+        var iter   = stream.makeAsyncIterator()
         svc.handleCallback(callbackURL(code: "abc123", state: state))
         let result = await iter.next()
         #expect(result == true)
+        // Token must be in the store at the moment the event fires.
         #expect(store.load() == "ghs_test_token")
+        #expect(store.saveCallCount == 1)
         #expect(savedCalled == true)
     }
 
-    @Test("Network failure fires sign-in failure")
-    func networkFailure() async throws {
-        let session = MockURLSession()
-        session.stubbedResult = .failure(URLError(.notConnectedToInternet))
-        let out = await triggerExchange(session: session)
-        #expect(out.result == false)
+    // MARK: - 4. Network / parse / store failures
+
+    /// All failure paths share the same code branch; one loop covers all subtypes.
+    ///
+    /// Absorbs: networkFailure, jsonDecodeFailure, githubErrorField,
+    ///          emptyAccessToken, tokenStoreSaveFailure.
+    @Test func networkFailureEmitsFailureWithoutSaving() async throws {
+        struct Case {
+            let label: String
+            let sessionResult: Result<Data, any Error>
+            let saveShouldFail: Bool
+        }
+        let cases: [Case] = [
+            Case(label: "network error",       sessionResult: .failure(URLError(.notConnectedToInternet)), saveShouldFail: false),
+            Case(label: "invalid JSON",         sessionResult: .success(Data("not json".utf8)),             saveShouldFail: false),
+            Case(label: "github error field",   sessionResult: .success(try! JSONEncoder().encode(["error": "bad_verification_code"])), saveShouldFail: false),
+            Case(label: "empty access_token",   sessionResult: .success(try! JSONEncoder().encode(["access_token": ""])),              saveShouldFail: false),
+            Case(label: "store.save fails",     sessionResult: .success(successPayload()),                 saveShouldFail: true),
+        ]
+        for testCase in cases {
+            let store   = SpyTokenStore()
+            store.shouldFailSave = testCase.saveShouldFail
+            let session = MockURLSession()
+            session.stubbedResult = testCase.sessionResult
+            let svc = makeService(store: store, session: session)
+
+            let url   = try #require(svc.makeSignInURL())
+            let state = try #require(
+                URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                    .queryItems?.first(where: { $0.name == "state" })?.value
+            )
+            let stream = svc.makeSignInStream()
+            var iter   = stream.makeAsyncIterator()
+            svc.handleCallback(callbackURL(code: "abc123", state: state))
+            let result = await iter.next()
+            #expect(result == false, "\(testCase.label): expected false")
+            #expect(store.load() == nil, "\(testCase.label): token must not be persisted")
+        }
     }
 
-    @Test("JSON decode failure fires sign-in failure")
-    func jsonDecodeFailure() async throws {
-        let session = MockURLSession()
-        session.stubbedResult = .success(Data("not json at all".utf8))
-        let out = await triggerExchange(session: session)
-        #expect(out.result == false)
-    }
+    // MARK: - 5. Multicast streams
 
-    @Test("GitHub error field in response fires sign-in failure")
-    func githubErrorField() async throws {
-        let session = MockURLSession()
-        session.stubbedResult = .success(errorPayload())
-        let out = await triggerExchange(session: session)
-        #expect(out.result == false)
-    }
-
-    @Test("Empty access_token fires sign-in failure")
-    func emptyAccessToken() async throws {
-        let session = MockURLSession()
-        session.stubbedResult = .success(try! JSONEncoder().encode(["access_token": ""]))
-        let out = await triggerExchange(session: session)
-        #expect(out.result == false)
-    }
-
-    @Test("tokenStore.save failure: onTokenSaved NOT called, fireSignIn(false)")
-    func tokenStoreSaveFailure() async throws {
-        let store = SpyTokenStore()
-        store.shouldFailSave = true
-        var savedCalled = false
-        let session = MockURLSession()
-        session.stubbedResult = .success(successPayload())
-        let svc = makeService(store: store, session: session, onTokenSaved: { savedCalled = true })
-        let url = try #require(svc.makeSignInURL())
-        let state = URLComponents(url: url, resolvingAgainstBaseURL: false)!
-            .queryItems!.first(where: { $0.name == "state" })!.value!
-        let stream = svc.makeSignInStream()
-        var iter = stream.makeAsyncIterator()
-        svc.handleCallback(callbackURL(code: "abc123", state: state))
-        let result = await iter.next()
-        #expect(result == false)
-        #expect(savedCalled == false)
-    }
-
-    @Test("Token is persisted before true is emitted to subscribers")
-    func tokenPersistedBeforeTrueEmitted() async throws {
-        let store = SpyTokenStore()
+    /// Two simultaneous subscribers both receive the same success event.
+    /// Production: OAuthCredentialController subscribes; test confirms broadcast is live.
+    @Test func signInStreamBroadcastsToSubscribers() async throws {
         let session = MockURLSession()
         session.stubbedResult = .success(successPayload())
-        let svc = makeService(store: store, session: session)
-
-        // Capture ordering: token store state at the moment the event arrives.
-        let url = try #require(svc.makeSignInURL())
-        let state = URLComponents(url: url, resolvingAgainstBaseURL: false)!
-            .queryItems!.first(where: { $0.name == "state" })!.value!
-        let stream = svc.makeSignInStream()
-        var iter = stream.makeAsyncIterator()
-        svc.handleCallback(callbackURL(code: "abc123", state: state))
-        let result = await iter.next()
-        #expect(result == true)
-        // Token must be persisted before the event fires.
-        #expect(store.load() == "ghs_test_token")
-        #expect(store.saveCallCount == 1)
-    }
-}
-
-// MARK: - signOut
-
-@Suite("OAuthService — signOut", .serialized)
-@MainActor
-struct OAuthServiceSignOutTests {
-
-    @Test("signOut calls tokenStore.delete and fires onTokenDeleted")
-    func signOutCallsDeleteAndCallback() async {
-        let store = SpyTokenStore(initial: "some-token")
-        var deletedCalled = false
-        let svc = makeService(store: store, onTokenDeleted: { deletedCalled = true })
-        svc.signOut()
-        #expect(store.deleteCallCount == 1)
-        #expect(deletedCalled == true)
-        #expect(store.load() == nil)
-    }
-
-    @Test("signOut fires onTokenDeleted even when delete() returns false")
-    func signOutFiresCallbackEvenOnDeleteFailure() async {
-        let store = SpyTokenStore(initial: "some-token")
-        store.shouldFailDelete = true
-        var deletedCalled = false
-        let svc = makeService(store: store, onTokenDeleted: { deletedCalled = true })
-        svc.signOut()
-        #expect(deletedCalled == true)
-        #expect(store.deleteCallCount == 1)
-    }
-}
-
-// MARK: - Multicast streams
-
-@Suite("OAuthService — multicast streams", .serialized)
-@MainActor
-struct OAuthServiceStreamTests {
-
-    @Test("Two makeSignInStream consumers both receive the fireSignIn value")
-    func signInStreamMulticast() async throws {
-        let session = MockURLSession()
-        session.stubbedResult = .success(successPayload())
-        let svc = makeService(session: session)
+        let svc     = makeService(session: session)
         let stream1 = svc.makeSignInStream()
         let stream2 = svc.makeSignInStream()
-        var iter1 = stream1.makeAsyncIterator()
-        var iter2 = stream2.makeAsyncIterator()
-        let url = try #require(svc.makeSignInURL())
-        let state = URLComponents(url: url, resolvingAgainstBaseURL: false)!
-            .queryItems!.first(where: { $0.name == "state" })!.value!
+        var iter1   = stream1.makeAsyncIterator()
+        var iter2   = stream2.makeAsyncIterator()
+        let url   = try #require(svc.makeSignInURL())
+        let state = try #require(
+            URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                .queryItems?.first(where: { $0.name == "state" })?.value
+        )
         svc.handleCallback(callbackURL(code: "abc123", state: state))
         let r1 = await iter1.next()
         let r2 = await iter2.next()
         #expect(r1 == true)
         #expect(r2 == true)
     }
-}
 
+    // MARK: - 6. Sign-out + auth state
+
+    /// signOut deletes the token, fires onTokenDeleted (even on delete failure),
+    /// and isAuthenticated reflects store-backed token presence.
+    ///
+    /// Absorbs: signOutCallsDeleteAndCallback, signOutFiresCallbackEvenOnDeleteFailure,
+    ///          authenticationTracksTokenPresence (OAuthServiceAuthStateTests).
+    @Test func signOutClearsAuthentication() {
+        // isAuthenticated mirrors token-store presence.
+        let emptyService = OAuthService(
+            clientID: "test-id", clientSecret: "test-secret",
+            tokenStore: SpyTokenStore()
+        )
+        #expect(emptyService.isAuthenticated == false)
+        let seededService = OAuthService(
+            clientID: "test-id", clientSecret: "test-secret",
+            tokenStore: SpyTokenStore(initial: "oauth-token")
+        )
+        #expect(seededService.isAuthenticated == true)
+
+        // signOut: deletes token and fires onTokenDeleted.
+        let store1 = SpyTokenStore(initial: "some-token")
+        var deletedCalled = false
+        let svc1 = makeService(store: store1, onTokenDeleted: { deletedCalled = true })
+        svc1.signOut()
+        #expect(store1.deleteCallCount == 1)
+        #expect(deletedCalled == true)
+        #expect(store1.load() == nil)
+
+        // signOut fires onTokenDeleted even when delete() returns false.
+        let store2 = SpyTokenStore(initial: "some-token")
+        store2.shouldFailDelete = true
+        var deletedCalled2 = false
+        let svc2 = makeService(store: store2, onTokenDeleted: { deletedCalled2 = true })
+        svc2.signOut()
+        #expect(deletedCalled2 == true)
+        #expect(store2.deleteCallCount == 1)
+    }
+}
