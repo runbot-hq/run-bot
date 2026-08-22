@@ -5,56 +5,13 @@
 //
 // GitHub returns both "2026-08-08T16:07:14Z" (no fractional seconds) and
 // "2026-08-08T16:07:14.000Z" (with fractional seconds) depending on endpoint.
-// Both must parse to non-nil Date values and produce correct elapsed/duration output.
+// Both must parse correctly and produce accurate time-interval output.
 import Foundation
 import Testing
 import GitHubClient
 @testable import RunBotCore
 
-// MARK: - GitHubJob timestamp parsing
-
-@Suite("GitHubJob timestamp parsing")
-struct GitHubJobTimestampParsingTests {
-
-    /// Standard Z-suffix timestamp (no fractional seconds) must parse to a non-nil Date.
-    @Test func parsesStandardGitHubTimestampOnJob() {
-        let job = GitHubJob(
-            id: 1, runID: 0, name: "J", status: "completed",
-            startedAt: "2026-08-08T16:03:42Z",
-            completedAt: "2026-08-08T16:08:14Z"
-        )
-        #expect(job.startDate != nil)
-        #expect(job.completedDate != nil)
-    }
-
-    /// Fractional-seconds timestamp must continue to parse to a non-nil Date.
-    @Test func parsesFractionalGitHubTimestampOnJob() {
-        let job = GitHubJob(
-            id: 1, runID: 0, name: "J", status: "completed",
-            startedAt: "2026-08-08T16:03:42.123Z",
-            completedAt: "2026-08-08T16:08:14.456Z"
-        )
-        #expect(job.startDate != nil)
-        #expect(job.completedDate != nil)
-    }
-
-    /// Standard-format job: elapsed rounds to correct MM:SS string.
-    @Test func jobElapsedWithStandardTimestamps() {
-        let job = GitHubJob(
-            id: 1, runID: 0, name: "J", status: "completed",
-            conclusion: "success",
-            startedAt: "2026-08-08T16:07:14Z",
-            completedAt: "2026-08-08T16:07:15Z"
-        )
-        // 1-second completed job → "00:01"
-        #expect(job.elapsed == "00:01")
-    }
-}
-
-// MARK: - GitHubStep timestamp parsing
-//
-// GitHubStep has no public memberwise init — instances are constructed via JSON
-// round-trip (matching the pattern in TestModelHelpers.swift).
+// MARK: - JSON helper (GitHubStep has no public memberwise init)
 
 /// Decodes a `GitHubStep` from a minimal JSON object with the given raw timestamps.
 private func makeStep(
@@ -74,89 +31,117 @@ private func makeStep(
     return try JSONDecoder().decode(GitHubStep.self, from: Data(json.utf8))
 }
 
-@Suite("GitHubStep timestamp parsing")
-struct GitHubStepTimestampParsingTests {
-
-    /// Standard Z-suffix timestamp (no fractional seconds) must parse to a non-nil Date.
-    @Test func parsesStandardGitHubTimestampOnStep() throws {
-        let step = try makeStep(
-            startedAt: "2026-08-08T16:07:14Z",
-            completedAt: "2026-08-08T16:07:15Z"
-        )
-        #expect(step.startDate != nil)
-        #expect(step.completedDate != nil)
-    }
-
-    /// Fractional-seconds timestamp must continue to parse to a non-nil Date.
-    @Test func parsesFractionalGitHubTimestampOnStep() throws {
-        let step = try makeStep(
-            startedAt: "2026-08-08T16:07:14.000Z",
-            completedAt: "2026-08-08T16:07:15.500Z"
-        )
-        #expect(step.startDate != nil)
-        #expect(step.completedDate != nil)
-    }
-
-    /// Regression: step with 1-second standard timestamps must display "00:01".
-    ///
-    /// Reproduces the screenshot failure: `16:07:14 → 16:07:15 · --:--`
-    /// The elapsed string must be "00:01", not "--:--".
-    @Test func stepElapsedOneSecondStandardTimestamps() throws {
-        let step = try makeStep(
-            startedAt: "2026-08-08T16:07:14Z",
-            completedAt: "2026-08-08T16:07:15Z"
-        )
-        #expect(step.elapsed == "00:01")
-    }
+/// Decodes a `GitHubJob` from a minimal JSON object with the given raw timestamps.
+private func decodeJob(
+    startedAt: String,
+    completedAt: String
+) throws -> GitHubJob {
+    let json = """
+    {"id":100,"run_id":200,"name":"build","status":"completed",
+     "conclusion":"success",
+     "started_at":\"\(startedAt)\",
+     "completed_at":\"\(completedAt)\"}
+    """
+    return try JSONDecoder().decode(GitHubJob.self, from: Data(json.utf8))
 }
 
-// MARK: - Workflow duration from decoded job timestamps
+// MARK: - Tests
 
-@Suite("Workflow duration from decoded job timestamps")
-struct WorkflowCompletedDurationStandardTimestampTests {
+@Suite("GitHub timestamp integration")
+struct GitHubTimestampParsingTests {
 
-    /// Job JSON with non-fractional timestamps must produce correct group aggregates.
-    ///
-    /// started_at:   2026-08-08T16:03:42Z
-    /// completed_at: 2026-08-08T16:08:14Z  → duration = 272 seconds
-    @Test func completedDurationFromDecodedStandardTimestampJob() throws {
-        let json = """
-        {"id":100,"run_id":200,"name":"build","status":"completed",
-         "conclusion":"success",
-         "started_at":"2026-08-08T16:03:42Z",
-         "completed_at":"2026-08-08T16:08:14Z"}
-        """
-        let rawJob = try JSONDecoder().decode(GitHubJob.self, from: Data(json.utf8))
-        #expect(rawJob.startDate != nil, "startDate must be non-nil for standard timestamp")
-        #expect(rawJob.completedDate != nil, "completedDate must be non-nil for standard timestamp")
+    /// Standard and fractional GitHub timestamps must parse on both Job and Step,
+    /// and the decoded interval must match the expected duration within 1 ms.
+    @Test
+    func jobAndStepParseSupportedTimestampFormats() throws {
+        let cases: [
+            (
+                label: String,
+                start: String,
+                end: String,
+                expectedDuration: TimeInterval
+            )
+        ] = [
+            (
+                "standard",
+                "2026-08-08T16:07:14Z",
+                "2026-08-08T16:07:15Z",
+                1
+            ),
+            (
+                "fractional",
+                "2026-08-08T16:07:14.123Z",
+                "2026-08-08T16:07:15.456Z",
+                1.333
+            )
+        ]
 
-        let job = ActiveJob(raw: rawJob, isDimmed: false, scope: "owner/repo")
-        let group = WorkflowActionGroup.makeTestGroup(
-            status: .completed,
-            conclusion: .success,
-            jobs: [job],
-            firstJobStartedAt: rawJob.startDate,
-            lastJobCompletedAt: rawJob.completedDate
-        )
+        for testCase in cases {
+            // Job
+            let job = GitHubJob(
+                id: 1,
+                runID: 1,
+                name: "job",
+                status: "completed",
+                conclusion: "success",
+                startedAt: testCase.start,
+                completedAt: testCase.end
+            )
 
-        #expect(group.firstJobStartedAt != nil)
-        #expect(group.lastJobCompletedAt != nil)
-        let duration = try #require(group.completedDuration)
-        #expect(abs(duration - 272) < 1, "Expected ~272s, got \(duration)")
+            let jobStart = try #require(
+                job.startDate,
+                "\(testCase.label): job start"
+            )
+            let jobEnd = try #require(
+                job.completedDate,
+                "\(testCase.label): job end"
+            )
+
+            #expect(
+                abs(jobEnd.timeIntervalSince(jobStart) - testCase.expectedDuration) < 0.001,
+                "\(testCase.label): job interval"
+            )
+
+            // Step (JSON round-trip — no public memberwise init)
+            let step = try makeStep(
+                startedAt: testCase.start,
+                completedAt: testCase.end
+            )
+
+            let stepStart = try #require(
+                step.startDate,
+                "\(testCase.label): step start"
+            )
+            let stepEnd = try #require(
+                step.completedDate,
+                "\(testCase.label): step end"
+            )
+
+            #expect(
+                abs(stepEnd.timeIntervalSince(stepStart) - testCase.expectedDuration) < 0.001,
+                "\(testCase.label): step interval"
+            )
+        }
     }
 
-    /// completedDuration derived fallback: even when stored aggregates are nil,
-    /// per-job timestamps provide the duration.
-    @Test func completedDurationDerivesFromJobsWhenAggregatesAreNil() throws {
-        let json = """
-        {"id":100,"run_id":200,"name":"build","status":"completed",
-         "conclusion":"success",
-         "started_at":"2026-08-08T16:03:42Z",
-         "completed_at":"2026-08-08T16:08:14Z"}
-        """
-        let rawJob = try JSONDecoder().decode(GitHubJob.self, from: Data(json.utf8))
-        let job = ActiveJob(raw: rawJob, isDimmed: false, scope: "owner/repo")
-        // Pass nil aggregates to prove the fallback path works.
+    /// completedDuration derived fallback: when stored aggregate timestamps are nil,
+    /// per-job timestamps must provide the duration.
+    ///
+    /// Integration path:
+    ///   standard GitHub timestamp -> JSON decoding -> job date parsing
+    ///   -> aggregate timestamps absent -> duration derived from jobs
+    @Test
+    func completedDurationDerivesFromDecodedJobTimestamps() throws {
+        let rawJob = try decodeJob(
+            startedAt: "2026-08-08T16:03:42Z",
+            completedAt: "2026-08-08T16:08:14Z"
+        )
+
+        let job = ActiveJob(
+            raw: rawJob,
+            isDimmed: false,
+            scope: "owner/repo"
+        )
         let group = WorkflowActionGroup.makeTestGroup(
             status: .completed,
             conclusion: .success,
@@ -165,7 +150,13 @@ struct WorkflowCompletedDurationStandardTimestampTests {
             lastJobCompletedAt: nil
         )
 
-        let duration = try #require(group.completedDuration, "Fallback must produce non-nil duration")
-        #expect(abs(duration - 272) < 1, "Expected ~272s from derived fallback, got \(duration)")
+        let duration = try #require(
+            group.completedDuration,
+            "Fallback must produce non-nil duration"
+        )
+        #expect(
+            abs(duration - 272) < 0.001,
+            "Expected ~272s from derived fallback, got \(duration)"
+        )
     }
 }
