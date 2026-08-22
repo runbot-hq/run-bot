@@ -93,7 +93,7 @@ struct MainHierarchyStateTests {
             // Work resuming from queued expands collapsed -> partial, jobs untouched.
             .init(initialStatus: .queued, initialExpansion: .collapsed, newStatus: .inProgress,
                   expectedExpansion: .partial, expectedChanged: true, shouldClearJobs: false),
-            // Same-status reconciles leave full expansions and jobs intact.
+            // Non-running transitions preserve user-selected full expansion and jobs.
             .init(initialStatus: .success, initialExpansion: .full, newStatus: .success,
                   expectedExpansion: .full, expectedChanged: false, shouldClearJobs: false),
             .init(initialStatus: .failed, initialExpansion: .full, newStatus: .success,
