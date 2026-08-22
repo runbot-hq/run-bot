@@ -5,8 +5,9 @@
 //
 // These tests write to the real macOS Keychain using a test-only service /
 // account pair. A defer block cleans up so no test leaves a ghost entry.
-// Tests are skipped automatically when Keychain access is unavailable
-// (sandboxed CI environments where SecItemAdd returns errSecMissingEntitlement).
+// When Keychain access is unavailable the test exits early via a
+// `keychainAvailable()` guard, producing zero known issues rather than
+// recording one known issue per failed assertion.
 //
 // Standalone overwrite and delete-when-empty tests were merged into the
 // single lifecycle contract below to eliminate permanently-known-issue
@@ -55,25 +56,25 @@ struct KeychainTokenStoreTests {
     ///
     /// Absorbs: keychainTokenStore_save_overwrite,
     ///          keychainTokenStore_delete_whenEmpty_returnsTrue.
+    ///
+    /// Skips without recording known issues when Keychain is unavailable.
     @Test func keychainTokenStore_save_load_delete() {
-        withKnownIssue("Keychain unavailable in sandboxed environment", isIntermittent: false) {
-            let store = makeStore()
-            defer { store.delete() }
+        guard keychainAvailable() else { return }
 
-            // 1. Save first token.
-            #expect(store.save("first-token") == true)
-            // 2. Load and verify.
-            #expect(store.load() == "first-token")
-            // 3. Save replacement (overwrite).
-            #expect(store.save("second-token") == true)
-            // 4. Load and verify replacement.
-            #expect(store.load() == "second-token")
-            // 5. Delete.
-            #expect(store.delete() == true)
-            // 6. Load and verify absence.
-            #expect(store.load() == nil)
-        } when: {
-            !keychainAvailable()
-        }
+        let store = makeStore()
+        defer { store.delete() }
+
+        // 1. Save first token.
+        #expect(store.save("first-token") == true)
+        // 2. Load and verify.
+        #expect(store.load() == "first-token")
+        // 3. Save replacement (overwrite).
+        #expect(store.save("second-token") == true)
+        // 4. Load and verify replacement.
+        #expect(store.load() == "second-token")
+        // 5. Delete.
+        #expect(store.delete() == true)
+        // 6. Load and verify absence.
+        #expect(store.load() == nil)
     }
 }
