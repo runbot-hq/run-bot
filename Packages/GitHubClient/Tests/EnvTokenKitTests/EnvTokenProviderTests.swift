@@ -144,8 +144,9 @@ struct EnvTokenProviderTests {
 
     // MARK: - Environment variable precedence
 
-    /// `GH_TOKEN` beats `GITHUB_TOKEN`; `GITHUB_TOKEN` alone is accepted as fallback;
-    /// absent vars return nil without invoking the shell.
+    /// `GH_TOKEN` beats `GITHUB_TOKEN`; `GITHUB_TOKEN` alone is accepted
+    /// as fallback. When neither variable exists, resolution falls through
+    /// to the shell resolver; the injected `.notFound` result produces nil.
     ///
     /// Precedence is implemented inside `EnvTokenProvider` (envLookup iteration),
     /// so it is covered here rather than in `GitHubTokenCacheTests`.
