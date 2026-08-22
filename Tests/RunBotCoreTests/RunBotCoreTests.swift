@@ -494,7 +494,7 @@ struct PollResultBuilderGroupStateTests {
       enrichJobs: { $0 }
     )
     #expect(
-      result.display.filter { !$0.isDimmed }.isEmpty,
+      !result.display.contains { !$0.isDimmed },
       "Completed group must not appear as a live (non-dimmed) row")
     #expect(!result.newGroupCache.isEmpty)
   }
@@ -524,7 +524,7 @@ struct PollResultBuilderGroupStateTests {
       fetchGroups: { _ in [completedGroup] },
       enrichJobs: { $0 }
     )
-    #expect(result.display.filter { !$0.isDimmed }.isEmpty)
+    #expect(!result.display.contains { !$0.isDimmed })
     #expect(result.newGroupCache[completedGroup.id] != nil)
   }
 
@@ -563,7 +563,7 @@ struct PollResultBuilderGroupStateTests {
     let displayForSha = result.display.filter { $0.headSha == sha }
     let cacheForSha = result.newGroupCache.values.filter { $0.headSha == sha }
     #expect(displayForSha.count == 1)
-    #expect(cacheForSha.count == 0)
+    #expect(cacheForSha.isEmpty)
   }
 
 }
@@ -652,8 +652,8 @@ struct PollResultBuilderEvictionTests {
       fetchGroups: { _ in [freshCommit] },
       enrichJobs: { $0 }
     )
-    let dispatchSurvives = result.newGroupCache.values.contains {
-      $0.headSha == sha && $0.normalizedEvent == "workflow_dispatch"
+    let dispatchSurvives = result.newGroupCache.values.contains { group in
+      group.headSha == sha && group.normalizedEvent == "workflow_dispatch"
     }
     #expect(
       dispatchSurvives,

@@ -73,13 +73,13 @@ struct MainHierarchyStateTests {
 
     @Test
     func statusTransitionContract() {
-        typealias E = MainHierarchyState.WorkflowExpansion
+        typealias Expansion = MainHierarchyState.WorkflowExpansion
 
         struct TransitionCase {
             let initialStatus: RBStatus
-            let initialExpansion: E
+            let initialExpansion: Expansion
             let newStatus: RBStatus
-            let expectedExpansion: E
+            let expectedExpansion: Expansion
             let expectedChanged: Bool
             let shouldClearJobs: Bool
         }

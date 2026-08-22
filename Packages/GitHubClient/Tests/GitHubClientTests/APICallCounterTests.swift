@@ -28,7 +28,7 @@ struct APICallCounterTests {
     let counter = APICallCounter()
 
     let initial = await counter.snapshot()
-    #expect(initial.count == 0)
+    #expect(initial.isEmpty)
 
     await counter.record()
     await counter.record()
@@ -64,7 +64,7 @@ struct APICallCounterTests {
     let stale = now.advanced(by: .seconds(-5_400))
     await counter.seed(timestamps: [stale, stale])
     let zeroed = await counter.snapshot()
-    #expect(zeroed.count == 0, "all entries past the window must produce a zero count")
+    #expect(zeroed.isEmpty, "all entries past the window must produce a zero count")
   }
 
   // MARK: - Storage cap
@@ -73,8 +73,8 @@ struct APICallCounterTests {
   func storageIsCappedAtHourlyLimit() async {
     let counter = APICallCounter()
     let now = ContinuousClock.now
-    let fresh = (0..<(APICallCounter.hourlyLimit + 10)).map {
-      now.advanced(by: .milliseconds($0))
+    let fresh = (0..<(APICallCounter.hourlyLimit + 10)).map { offset in
+      now.advanced(by: .milliseconds(offset))
     }
     await counter.seed(timestamps: fresh)
     await counter.record()

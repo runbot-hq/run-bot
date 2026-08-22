@@ -16,15 +16,15 @@ import Testing
 // MARK: - Factory
 
 private func makeGroup(
-    repo: String = "owner/repo",
     sha: String,
-    event: String = "commit",
     runIDs: [Int],
+    repo: String = "owner/repo",
+    event: String = "commit",
     status: JobStatus = JobStatus.inProgress,
     createdAt: Date? = nil
 ) -> WorkflowActionGroup {
-    let runs = runIDs.map {
-        WorkflowRunRef(id: $0, name: "CI", status: status, conclusion: nil, htmlUrl: nil)
+    let runs = runIDs.map { id in
+        WorkflowRunRef(id: id, name: "CI", status: status, conclusion: nil, htmlUrl: nil)
     }
     return WorkflowActionGroup(
         headSha: sha,
