@@ -52,20 +52,20 @@ struct StepLogViewScopeResolutionTests {
   /// Verifies that a `nil` `htmlUrl` falls back to an empty scope string without crashing.
   @Test("returns empty string when htmlUrl is nil")
   func returnsEmptyWhenNil() {
-    #expect(repoScopeForFetch(htmlUrl: nil) == "")
+    #expect(repoScopeForFetch(htmlUrl: nil).isEmpty)
   }
 
   /// Verifies that an empty `htmlUrl` string falls back to an empty scope string.
   @Test("returns empty string when htmlUrl is empty")
   func returnsEmptyWhenEmpty() {
-    #expect(repoScopeForFetch(htmlUrl: "") == "")
+    #expect(repoScopeForFetch(htmlUrl: "").isEmpty)
   }
 
   /// Verifies that a URL with fewer than 5 slash-separated components (missing the repo segment) returns an empty scope string.
   @Test("returns empty string when URL has fewer than 5 slash-separated parts")
   func returnsEmptyWhenTooShort() {
     // e.g. "https://github.com/owner" — only 4 parts
-    #expect(repoScopeForFetch(htmlUrl: "https://github.com/owner") == "")
+    #expect(repoScopeForFetch(htmlUrl: "https://github.com/owner").isEmpty)
   }
 
   /// Verifies that a malformed URL with a double-slash producing an empty owner component returns an empty scope string.
@@ -73,7 +73,7 @@ struct StepLogViewScopeResolutionTests {
   func returnsEmptyWhenOwnerIsEmpty() {
     // malformed: double slash produces an empty owner component
     let url = "https://github.com//run-bot/actions"
-    #expect(repoScopeForFetch(htmlUrl: url) == "")
+    #expect(repoScopeForFetch(htmlUrl: url).isEmpty)
   }
 
   /// Verifies that a malformed URL with a double-slash producing an empty repo component returns an empty scope string.
@@ -81,12 +81,12 @@ struct StepLogViewScopeResolutionTests {
   func returnsEmptyWhenRepoIsEmpty() {
     // malformed: double slash produces an empty repo component
     let url = "https://github.com/runbot-hq//actions/runs/1"
-    #expect(repoScopeForFetch(htmlUrl: url) == "")
+    #expect(repoScopeForFetch(htmlUrl: url).isEmpty)
   }
 
   /// Verifies that a non-GitHub URL with only a hostname (no path segments) returns an empty scope string.
   @Test("returns empty string for a non-GitHub URL with insufficient path depth")
   func returnsEmptyForNonGitHubURL() {
-    #expect(repoScopeForFetch(htmlUrl: "https://example.com") == "")
+    #expect(repoScopeForFetch(htmlUrl: "https://example.com").isEmpty)
   }
 }
