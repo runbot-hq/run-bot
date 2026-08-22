@@ -154,30 +154,33 @@ struct OAuthServiceTests {
     ///
     /// Absorbs: missingCode, missingState, stateMismatch, doubleTap,
     ///          callingTwiceReplacesPendingState.
+    ///
+    /// Step 1 captures state1 from the first URL, then immediately generates a
+    /// second URL so state1 is superseded. Submitting state1 asserts the
+    /// last-write-wins security contract: a stale nonce must not be accepted.
     @Test func invalidAndReplayedStateAreRejected() async throws {
         let store   = SpyTokenStore()
         let session = MockURLSession()
         session.stubbedResult = .success(successPayload())
         let svc = makeService(store: store, session: session)
 
-        let signInURL     = try #require(svc.makeSignInURL())
-        let expectedState = try #require(
-            URLComponents(url: signInURL, resolvingAgainstBaseURL: false)?
+        // 1. Stale nonce rejected (last-write-wins: second makeSignInURL supersedes first).
+        let url1   = try #require(svc.makeSignInURL())
+        let state1 = try #require(
+            URLComponents(url: url1, resolvingAgainstBaseURL: false)?
                 .queryItems?.first(where: { $0.name == "state" })?.value
         )
-
-        // 1. Wrong state — rejected at CSRF guard, no exchange, no save.
+        let _      = try #require(svc.makeSignInURL())  // overwrites pendingState
         let stream1 = svc.makeSignInStream()
         var iter1   = stream1.makeAsyncIterator()
-        svc.handleCallback(callbackURL(code: "code", state: "wrong-state"))
-        let wrongResult = await iter1.next()
-        #expect(wrongResult == false)
+        svc.handleCallback(callbackURL(code: "code", state: state1))  // stale — rejected
+        let staleResult = await iter1.next()
+        #expect(staleResult == false)
         #expect(store.load() == nil)
 
         // 2. Missing code — rejected, nonce consumed.
-        let _ = svc.makeSignInURL()  // fresh nonce for this sub-case
-        let freshURL2   = try #require(svc.makeSignInURL())
-        let state2      = try #require(
+        let freshURL2 = try #require(svc.makeSignInURL())
+        let state2    = try #require(
             URLComponents(url: freshURL2, resolvingAgainstBaseURL: false)?
                 .queryItems?.first(where: { $0.name == "state" })?.value
         )
