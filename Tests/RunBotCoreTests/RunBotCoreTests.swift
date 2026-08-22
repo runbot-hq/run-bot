@@ -38,39 +38,26 @@ struct ModelElapsedIntegrationTests {
 @Suite("ActiveJob.isLocalRunner")
 struct ActiveJobIsLocalRunnerTests {
 
-  /// isLocalRunner returns nil when a job has no runner name.
-  @Test func isLocalRunnerNilWhenNoRunnerName() {
-    let job = ActiveJob(id: 1, name: "J", status: "queued")
-    #expect(job.isLocalRunner == nil)
-  }
-
-  /// All known hosted-runner name patterns return false — they are not local runners.
-  @Test
-  func hostedRunnerNamesAreNotLocal() {
-    let names = [
-      "ubuntu-latest",
-      "macos-14",
-      "windows-2022",
-      "buildjet-4vcpu-ubuntu-2204",
-      "depot-ubuntu-22.04",
-      "GitHub Actions 12",
+  /// Classification matrix: nil, every hosted-prefix family (case-insensitive),
+  /// and an arbitrary self-hosted name. The forwarding itself is trivial; the
+  /// hosted prefixes are the contract worth pinning.
+  @Test func runnerNameClassification() {
+    let cases: [(name: String?, expected: Bool?)] = [
+      (nil,                          nil),
+      ("ubuntu-latest",              false),
+      ("macos-14",                   false),
+      ("windows-2022",               false),
+      ("buildjet-4vcpu-ubuntu-2204", false),
+      ("depot-ubuntu-22.04",         false),
+      ("GitHub Actions 12",          false),
+      ("UBUNTU-LATEST",              false),
+      ("office-mac-mini",            true)
     ]
-    for name in names {
-      let job = ActiveJob(id: 1, name: "J", status: "completed", runnerName: name)
-      #expect(job.isLocalRunner == false, "Expected \(name) to be hosted")
+    for testCase in cases {
+      let job = ActiveJob(id: 1, name: "job", status: "completed", runnerName: testCase.name)
+      #expect(job.isLocalRunner == testCase.expected,
+              "runnerName=\(String(describing: testCase.name))")
     }
-  }
-
-  /// An arbitrary self-hosted runner name is identified as local.
-  @Test func isLocalRunnerTrueForSelfHosted() {
-    let job = ActiveJob(id: 1, name: "J", status: "completed", runnerName: "my-mac-mini")
-    #expect(job.isLocalRunner == true)
-  }
-
-  /// A custom-named runner (e.g., "office-m2-runner") is identified as local.
-  @Test func isLocalRunnerTrueForCustomName() {
-    let job = ActiveJob(id: 1, name: "J", status: "completed", runnerName: "office-m2-runner")
-    #expect(job.isLocalRunner == true)
   }
 }
 
