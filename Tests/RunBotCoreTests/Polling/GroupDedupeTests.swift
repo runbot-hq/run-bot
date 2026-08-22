@@ -52,21 +52,21 @@ struct GroupIdentityTests {
 
     /// push and workflow_dispatch on the same SHA are two distinct groups.
     @Test func eventSeparationPreserved() {
-        let push   = makeGroup(sha: "abc", event: "commit",            runIDs: [100])
-        let manual = makeGroup(sha: "abc", event: "workflow_dispatch", runIDs: [101])
+        let push   = makeGroup(sha: "abc", runIDs: [100], event: "commit")
+        let manual = makeGroup(sha: "abc", runIDs: [101], event: "workflow_dispatch")
         #expect(push.id != manual.id)
     }
 
     /// Same SHA + event under two different repos are two distinct groups.
     @Test func repoSeparationPreserved() {
-        let repoA = makeGroup(repo: "owner/repoA", sha: "abc", runIDs: [100])
-        let repoB = makeGroup(repo: "owner/repoB", sha: "abc", runIDs: [101])
+        let repoA = makeGroup(sha: "abc", runIDs: [100], repo: "owner/repoA")
+        let repoB = makeGroup(sha: "abc", runIDs: [101], repo: "owner/repoB")
         #expect(repoA.id != repoB.id)
     }
 
     /// compositeCacheKey static and instance overloads must agree.
     @Test func compositeCacheKeyConsistency() {
-        let group = makeGroup(repo: "owner/repo", sha: "deadbeef", event: "push", runIDs: [42])
+        let group = makeGroup(sha: "deadbeef", runIDs: [42], repo: "owner/repo", event: "push")
         let staticKey = WorkflowActionGroup.compositeCacheKey(
             repo: "owner/repo", headSha: "deadbeef", normalizedEvent: "push")
         #expect(group.compositeCacheKey == staticKey)
@@ -109,7 +109,7 @@ struct GroupDisplayDedupeTests {
         let groups: [WorkflowActionGroup] = [
             makeGroup(sha: "abc", runIDs: [100], status: JobStatus.inProgress),
             makeGroup(sha: "def", runIDs: [200], status: JobStatus.inProgress),
-            makeGroup(repo: "owner/other", sha: "abc", runIDs: [300], status: JobStatus.inProgress),
+            makeGroup(sha: "abc", runIDs: [300], repo: "owner/other", status: JobStatus.inProgress),
         ]
         let display = PollResultBuilder.buildGroupDisplay(live: groups, cache: [:])
         let ids = display.map(\.id)

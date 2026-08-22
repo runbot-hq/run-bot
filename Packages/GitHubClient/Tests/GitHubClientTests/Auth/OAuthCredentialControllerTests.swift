@@ -8,6 +8,7 @@ import Foundation
 import OAuthTokenKit
 @testable import GitHubClient
 import Testing
+import XCTest
 
 // MARK: - Helpers
 

@@ -17,6 +17,7 @@
 //
 import Testing
 import Foundation
+import XCTest
 @testable import OAuthTokenKit
 
 // MARK: - Helpers

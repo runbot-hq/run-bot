@@ -28,7 +28,7 @@ struct APICallCounterTests {
     let counter = APICallCounter()
 
     let initial = await counter.snapshot()
-    #expect(initial.isEmpty)
+    #expect(initial.count == 0)
 
     await counter.record()
     await counter.record()
@@ -64,7 +64,7 @@ struct APICallCounterTests {
     let stale = now.advanced(by: .seconds(-5_400))
     await counter.seed(timestamps: [stale, stale])
     let zeroed = await counter.snapshot()
-    #expect(zeroed.isEmpty, "all entries past the window must produce a zero count")
+    #expect(zeroed.count == 0, "all entries past the window must produce a zero count")
   }
 
   // MARK: - Storage cap

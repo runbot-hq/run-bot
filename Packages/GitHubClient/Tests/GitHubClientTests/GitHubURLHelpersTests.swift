@@ -9,6 +9,7 @@
 //
 import Testing
 import Foundation
+import XCTest
 @testable import GitHubClient
 
 @Suite("GitHub URL scope")
