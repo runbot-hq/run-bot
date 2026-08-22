@@ -12,9 +12,9 @@ enum SidebarMetricLayout {
     /// Fixed total row height for every metric row (usage and capacity).
     static let rowHeight: CGFloat = 44
     /// Height of the CPU and GPU sparkline graphs.
-    static let graphHeight: CGFloat = 18
+    static let graphHeight: CGFloat = 16
     /// Height of the Memory and Disk capacity bars.
-    static let barHeight: CGFloat = 5
+    static let barHeight: CGFloat = 6
 }
 
 // MARK: - SidebarMetricsView
@@ -43,7 +43,7 @@ struct SidebarMetricsView: View {
 
     /// The four metric rows grouped in a compact material surface.
     var body: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 0) {
             SidebarUsageMetricView(
                 title: "CPU",
                 accessibilityTitle: "CPU",
@@ -72,12 +72,13 @@ struct SidebarMetricsView: View {
                 total: viewModel.stats.diskTotalGB
             )
         }
-        .padding(12)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
         .background(
             .thinMaterial,
             in: RoundedRectangle(cornerRadius: 12, style: .continuous)
         )
-        .frame(maxHeight: 240)
+        .frame(maxHeight: 200)
         .onAppear {
             viewModel.start()
         }
