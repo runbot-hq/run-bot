@@ -283,8 +283,11 @@ final class GitHubTransportPaginatedTests {
       let spy = SpyRateLimitActor()
       let result = await makeTransport(spy: spy).apiPaginated(endpoint)
       #expect(
-        result == nil || result?.isEmpty == true,
-        "case \(testCase.name): expected nil or empty on first-page failure")
+        result == nil,
+        """
+        case \(testCase.name): \
+        first-page failure must return nil
+        """)
       let wasSetCalled = await spy.setCalled
       #expect(wasSetCalled == testCase.expectSetCalled,
         "case \(testCase.name): spy.setCalled mismatch")
@@ -437,13 +440,17 @@ final class GitHubTransportPaginatedTests {
 
   // MARK: - Link-header termination safety
 
-  /// A malformed or empty Link header must terminate pagination after page 1
+  /// A malformed or empty Link header value must terminate pagination after page 1
   /// without crashing or looping indefinitely.
+  ///
+  /// Production has no repeated/cycle-link guard; a self-referencing next URL
+  /// is left for a separate production change. This test covers parse-level
+  /// termination only.
   ///
   /// Cases covered:
   /// - Malformed Link (no angle-bracket wrapping) — extractNextURL returns nil
   /// - Empty string Link value — treated identically to absent header
-  @Test func paginationStopsForInvalidOrRepeatedNextLink() async {
+  @Test func paginationStopsForInvalidNextLink() async {
     typealias Case = (name: String, linkHeader: String, expectedCount: Int)
     let cases: [Case] = [
       (name: "malformed link", linkHeader: "not-a-url; rel=next", expectedCount: 1),
