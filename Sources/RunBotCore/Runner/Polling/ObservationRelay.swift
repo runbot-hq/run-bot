@@ -80,6 +80,12 @@ final class ObservationRelay<Element: Sendable> {
     /// - Important: Must be called exactly once per relay instance. See the
     ///   class-level doc for why no runtime guard is provided.
     func start() {
+        /// Observes changes in the underlying value and yields updates to the continuation.
+        ///
+        /// This method registers a tracking dependency with the observation framework by
+        /// performing an initial side-effect-free read. On subsequent changes, it yields
+        /// the latest value to the continuation and restarts the relay. If the relay is
+        /// deallocated, the continuation is finished to terminate the stream gracefully.
         func observe() {
             // RETAIN: load-bearing local capture. `continuation` must be captured
             // by value here so it remains reachable after `self` is deallocated.

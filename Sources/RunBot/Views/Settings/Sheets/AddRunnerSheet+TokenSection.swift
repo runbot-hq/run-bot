@@ -14,7 +14,7 @@ private struct RunnerAsset: Decodable {
     let name: String
     /// Direct download URL for this asset.
     let browserDownloadUrl: String
-    /// Maps `browser_download_url` (snake_case) to `browserDownloadUrl` (camelCase).
+    /// Maps the JSON keys to the corresponding `Asset` properties for decoding.
     enum CodingKeys: String, CodingKey {
         /// The asset filename key.
         case name

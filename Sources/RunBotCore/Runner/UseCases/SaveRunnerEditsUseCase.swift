@@ -66,6 +66,13 @@ public struct SaveRunnerEditsUseCase: Sendable {
     /// Pass `RunnerConfigStore.shared`, `RunnerProxyStore.shared`, and
     /// `DefaultRunnerLabelsService()` for production use.
     public init(
+    /// Initializes a new instance of SaveRunnerEditsUseCase.
+    ///
+    /// - Parameters:
+    ///   - configStore: The runner configuration store.
+    ///   - proxyStore: The runner proxy store.
+    ///   - labelsService: The service for updating runner labels via GitHub API.
+    init(
         configStore: any RunnerConfigStoreProtocol,
         proxyStore: any RunnerProxyStoreProtocol,
         labelsService: any RunnerLabelsService
@@ -208,6 +215,12 @@ public struct SaveRunnerEditsUseCase: Sendable {
     ///
     /// - Returns: `.success((agentId, scope))` when both fields are present;
     ///   `.failure(LabelsPrerequisiteError)` identifying the first missing field.
+    /**
+     Checks that the runner has a valid agent ID and GitHub URL, and derives the scope from the URL.
+     
+     - Parameter runner: The `RunnerModel` containing the runner data.
+     - Returns: A `Result` containing a tuple `(Int, String)` where the first element is the agent ID and the second is the scope string, or a `LabelsPrerequisiteError` on failure.
+     */
     private func labelsPrerequisite(
         runner: borrowing RunnerModel
     ) -> Result<(Int, String), LabelsPrerequisiteError> {
