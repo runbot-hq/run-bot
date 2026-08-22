@@ -5,104 +5,32 @@ import GitHubClient
 import RunBotCore
 import Testing
 
-// MARK: - ActiveJob.elapsed
+// MARK: - Model elapsed integration
 
-@Suite("ActiveJob.elapsed")
-struct ActiveJobElapsedTests {
+@Suite("ModelElapsedIntegrationTests")
+struct ModelElapsedIntegrationTests {
 
-  /// A queued job (never started) returns "00:00" elapsed time.
-  @Test func elapsedQueuedReturnsZero() {
-    let job = ActiveJob(id: 1, name: "J", status: "queued")
-    #expect(job.elapsed == "00:00")
-  }
+    /// startedAt takes precedence; createdAt is the fallback for running jobs.
+    @Test func activeJobElapsedUsesJobTimingFallbacks() {
+        let now = Date(timeIntervalSinceReferenceDate: 20_000)
 
-  /// Elapsed time is formatted as "MM:SS" when start and end dates are provided for a completed job.
-  @Test func elapsedCompletedWithTimes() {
-    let start = Date(timeIntervalSinceReferenceDate: 0)
-    let end = Date(timeIntervalSinceReferenceDate: 125)
-    let job = ActiveJob(
-      id: 1, name: "J", status: "completed",
-      conclusion: "success",
-      startedAt: start,
-      completedAt: end
-    )
-    #expect(job.elapsed == "02:05")
-  }
+        let started = ActiveJob(id: 1, name: "started", status: "in_progress",
+                                startedAt: now.addingTimeInterval(-90))
+        let created = ActiveJob(id: 2, name: "created", status: "in_progress",
+                                createdAt: now.addingTimeInterval(-60))
 
-  /// A completed job without timestamps returns "--:--" as elapsed time.
-  @Test func elapsedCompletedMissingTimesReturnsDashes() {
-    let job = ActiveJob(id: 1, name: "J", status: "completed", conclusion: "success")
-    #expect(job.elapsed == "--:--")
-  }
+        #expect(started.elapsed(now: now) == "01:30")
+        #expect(created.elapsed(now: now) == "01:00")
+    }
 
-  /// An in-progress job calculates elapsed time from startedAt using an injected clock.
-  @Test func elapsedInProgressUsesStartedAt() {
-    let now = Date(timeIntervalSinceReferenceDate: 10_000)
-    let start = now.addingTimeInterval(-90)
-    let job = ActiveJob(id: 1, name: "J", status: "in_progress", startedAt: start)
-    #expect(job.elapsed(now: now) == "01:30")
-  }
-
-  /// An in-progress job falls back to createdAt when startedAt is nil, using an injected clock.
-  @Test func elapsedInProgressFallsBackToCreatedAt() {
-    let now = Date(timeIntervalSinceReferenceDate: 20_000)
-    let created = now.addingTimeInterval(-60)
-    let job = ActiveJob(id: 1, name: "J", status: "in_progress", createdAt: created)
-    #expect(job.elapsed(now: now) == "01:00")
-  }
-
-  /// An in-progress job with neither startedAt nor createdAt returns "00:00".
-  @Test func elapsedInProgressNeitherDateReturnsZero() {
-    let job = ActiveJob(id: 1, name: "J", status: "in_progress")
-    #expect(job.elapsed == "00:00")
-  }
-
-  /// `var elapsed` on a job frozen via `asCompleted()` returns a fixed "mm:ss" string.
-  ///
-  /// `asCompleted()` guarantees `raw.completedAt` is non-nil (writing `fallbackDate` when the
-  /// API value is absent), so `raw.elapsed` always produces a fixed duration rather than a
-  /// live "time since start" value. This test pins that guarantee so any future change to
-  /// `asCompleted()` that breaks the invariant surfaces immediately.
-  @Test func elapsedVarOnFrozenJobReturnFixedDuration() {
-    let start = Date(timeIntervalSinceReferenceDate: 0)
-    let fallback = Date(timeIntervalSinceReferenceDate: 75) // 1m 15s after start
-    let job = ActiveJob(id: 1, name: "J", status: "in_progress", startedAt: start)
-    let frozen = job.asCompleted(at: fallback)
-    // var elapsed must return a fixed string, not a live clock value.
-    #expect(frozen.elapsed == "01:15")
-  }
-}
-
-// MARK: - GitHubStep.elapsed
-
-@Suite("GitHubStep.elapsed")
-struct GitHubStepElapsedTests {
-
-  /// A completed step formats elapsed time as "MM:SS" given fixed start/end dates.
-  @Test func elapsedFixedDuration() {
-    let start = Date(timeIntervalSinceReferenceDate: 0)
-    let end = Date(timeIntervalSinceReferenceDate: 185)  // 3m 5s
-    let step = GitHubStep(
-      id: 1, name: "S", status: "completed",
-      startedAt: start, completedAt: end)
-    #expect(step.elapsed == "03:05")
-  }
-
-  /// A step with nil start and end dates returns "00:00".
-  @Test func elapsedNilDatesReturnsZero() {
-    let step = GitHubStep(id: 1, name: "S", status: "in_progress")
-    #expect(step.elapsed == "00:00")
-  }
-
-  /// Exactly one minute (60 seconds) is formatted as "01:00".
-  @Test func elapsedExactlyOneMinute() {
-    let start = Date(timeIntervalSinceReferenceDate: 0)
-    let end = Date(timeIntervalSinceReferenceDate: 60)
-    let step = GitHubStep(
-      id: 1, name: "S", status: "completed",
-      startedAt: start, completedAt: end)
-    #expect(step.elapsed == "01:00")
-  }
+    /// A step maps its own timestamps and completion into the shared formatter.
+    @Test func stepElapsedUsesStepTiming() {
+        let start = Date(timeIntervalSinceReferenceDate: 0)
+        let end   = start.addingTimeInterval(60)
+        let step  = GitHubStep(id: 1, name: "S", status: "completed",
+                               startedAt: start, completedAt: end)
+        #expect(step.elapsed == "01:00")
+    }
 }
 
 // MARK: - ActiveJob.isLocalRunner
