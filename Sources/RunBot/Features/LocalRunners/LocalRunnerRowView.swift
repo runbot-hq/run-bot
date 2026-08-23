@@ -7,7 +7,7 @@ import SwiftUI
 
 /// Reusable row for a single configured local runner with start/stop and delete controls.
 ///
-/// Extracted from `LocalRunnersView` for reuse in the migration two-pane layout.
+/// Extracted from the legacy panel flow for reuse in the two-pane layout.
 /// Toggle and delete taps do not propagate to `onSelect`.
 struct LocalRunnerRowView: View {
 

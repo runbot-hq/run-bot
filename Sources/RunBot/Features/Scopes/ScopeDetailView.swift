@@ -68,20 +68,20 @@ struct ScopeDetailView: View {
     /// 'Scope information' card section.
     private func scopeInformationSection(_ scope: ScopeEntry) -> some View {
         detailSection(title: "Scope information") {
-            migrationDetailRow(
+            detailRow(
                 title: "Scope",
                 description: "Repository or organization monitored by RunBot.",
                 value: scope.scope
             )
-            migrationRowDivider()
-            migrationDetailRow(
+            rowDivider()
+            detailRow(
                 title: "Type",
                 description: "Kind of GitHub scope being monitored.",
                 value: scope.scope.contains("/") ? "Repository" : "Organization"
             )
-            migrationRowDivider()
+            rowDivider()
             if let url = URL(string: "https://github.com/" + scope.scope) {
-                migrationCopyableDetailRow(
+                copyableDetailRow(
                     title: "GitHub",
                     description: "View this scope on GitHub.",
                     value: url.absoluteString
@@ -93,7 +93,7 @@ struct ScopeDetailView: View {
     /// 'Monitoring' card section showing current poll state as a read-only value.
     private func monitoringSection(_ scope: ScopeEntry) -> some View {
         detailSection(title: "Monitoring") {
-            migrationDetailRow(
+            detailRow(
                 title: "Monitor this scope",
                 description: scope.isEnabled
                     ? "RunBot actively polls this scope for runner status."
