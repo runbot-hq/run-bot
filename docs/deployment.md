@@ -292,7 +292,7 @@ order) by `GitHubTokenCache` / `OAuthService`:
 3. `GITHUB_TOKEN` environment variable
 
 ```bash
-export GH_TOKEN=ghp_yourtoken   # optional: test with a specific token
+export GH_TOKEN="<paste a personal access token>"   # optional: test with a specific token
 swift run
 ```
 
