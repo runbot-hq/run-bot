@@ -61,85 +61,76 @@ struct ActiveJobIsLocalRunnerTests {
   }
 }
 
-// MARK: - RunnerModel.displayStatus
+// MARK: - RunnerModel presentation
 
-@Suite("RunnerModel.displayStatus")
-struct RunnerModelDisplayStatusTests {
+/// One state-policy matrix for ``RunnerModel``'s twin projections of the same
+/// internal resolved state: `displayStatus` (text) and `statusColor` (colour).
+/// Asserting both in every fixture keeps them from drifting apart.
+@Suite("RunnerModel presentation")
+struct RunnerModelPresentationTests {
 
-  /// Verifies that a running runner reports `"running"` as its display status.
-  @Test func displayStatusRunning() {
-    #expect(makeRunnerModel(isRunning: true).displayStatus == "running")
-  }
+  @Test
+  func presentationFollowsResolvedState() {
+    struct Case {
+      let label: String
+      let isRunning: Bool
+      let githubStatus: RunnerStatus?
+      let isBusy: Bool
+      let warning: String?
+      let expectedText: String
+      let expectedColor: RunnerModel.StatusColor
+    }
 
-  /// Verifies that a runner that is both running and busy reports `"busy"` as its display status.
-  @Test func displayStatusBusy() {
-    #expect(makeRunnerModel(isRunning: true, isBusy: true).displayStatus == "busy")
-  }
+    let cases: [Case] = [
+      // Lifecycle warning outranks running/busy for both text and colour.
+      Case(label: "warning wins",
+           isRunning: true, githubStatus: .online, isBusy: true,
+           warning: "update required",
+           expectedText: "update required", expectedColor: .offline),
+      // Local process up + executing a job.
+      Case(label: "local busy",
+           isRunning: true, githubStatus: nil, isBusy: true,
+           warning: nil,
+           expectedText: "busy", expectedColor: .busy),
+      // GitHub reports busy even though the local process is absent.
+      Case(label: "remote busy",
+           isRunning: false, githubStatus: .busy, isBusy: false,
+           warning: nil,
+           expectedText: "busy", expectedColor: .busy),
+      // Local process up, no job.
+      Case(label: "local process running",
+           isRunning: true, githubStatus: nil, isBusy: false,
+           warning: nil,
+           expectedText: "running", expectedColor: .running),
+      // Not running locally but reachable per GitHub — yellow-dot idle.
+      Case(label: "remote online",
+           isRunning: false, githubStatus: .online, isBusy: false,
+           warning: nil,
+           expectedText: "online", expectedColor: .idle),
+      Case(label: "offline",
+           isRunning: false, githubStatus: .offline, isBusy: false,
+           warning: nil,
+           expectedText: "offline", expectedColor: .offline),
+      // Deliberate fallback policy: unrecognised GitHub statuses read as offline.
+      Case(label: "unknown is offline",
+           isRunning: false, githubStatus: .unknown("draining"), isBusy: false,
+           warning: nil,
+           expectedText: "offline", expectedColor: .offline),
+    ]
 
-  /// Verifies that a non-running runner with GitHub status `.online` reports `"online"`.
-  @Test func displayStatusOnline() {
-    #expect(makeRunnerModel(isRunning: false, githubStatus: .online).displayStatus == "online")
-  }
+    for testCase in cases {
+      let runner = makeRunnerModel(
+        isRunning: testCase.isRunning,
+        isBusy: testCase.isBusy,
+        // `nil` and `.offline` resolve identically when the local process is down;
+        // while running, `githubStatus` only matters when it is `.busy`.
+        githubStatus: testCase.githubStatus ?? .offline,
+        lifecycleWarning: testCase.warning
+      )
 
-  /// Verifies that a non-running runner with GitHub status `.offline` reports `"offline"`.
-  @Test func displayStatusOffline() {
-    #expect(makeRunnerModel(isRunning: false, githubStatus: .offline).displayStatus == "offline")
-  }
-
-  /// Verifies that a lifecycle warning string takes priority over the running state in display status.
-  @Test func displayStatusLifecycleWarningTakesPriority() {
-    let runner = makeRunnerModel(isRunning: true, lifecycleWarning: "update required")
-    #expect(runner.displayStatus == "update required")
-  }
-
-  /// Verifies that a non-running runner whose GitHub status is `.busy` reports `"busy"`.
-  @Test func displayStatusBusyGithubStatusWhenNotRunning() {
-    #expect(makeRunnerModel(isRunning: false, githubStatus: .busy).displayStatus == "busy")
-  }
-
-  /// Verifies that an unknown GitHub status falls back to `"offline"` as the display status.
-  @Test func displayStatusDefaultsToOfflineForUnknownStatus() {
-    #expect(
-      makeRunnerModel(isRunning: false, githubStatus: .unknown("draining")).displayStatus
-        == "offline")
-  }
-}
-
-// MARK: - RunnerModel.statusColor
-
-@Suite("RunnerModel.statusColor")
-struct RunnerModelStatusColorTests {
-
-  /// Verifies that a running runner's status color is `.running`.
-  @Test func statusColorRunning() {
-    #expect(makeRunnerModel(isRunning: true).statusColor == .running)
-  }
-
-  /// Verifies that a running and busy runner's status color is `.busy`.
-  @Test func statusColorBusy() {
-    #expect(makeRunnerModel(isRunning: true, isBusy: true).statusColor == .busy)
-  }
-
-  /// Verifies that a non-running runner with GitHub status `.online` receives the `.idle` color.
-  @Test func statusColorGithubOnlineIsIdle() {
-    #expect(makeRunnerModel(isRunning: false, githubStatus: .online).statusColor == .idle)
-  }
-
-  /// Verifies that a non-running runner with GitHub status `.offline` receives the `.offline` color.
-  @Test func statusColorOffline() {
-    #expect(makeRunnerModel(isRunning: false, githubStatus: .offline).statusColor == .offline)
-  }
-
-  /// Verifies that a lifecycle warning overrides the normal running color and returns `.offline`.
-  @Test func statusColorLifecycleWarning() {
-    #expect(
-      makeRunnerModel(isRunning: true, lifecycleWarning: "restart failed").statusColor == .offline)
-  }
-
-  /// Verifies that an unknown GitHub status results in the `.offline` status color.
-  @Test func statusColorUnknownGithubStatus() {
-    #expect(
-      makeRunnerModel(isRunning: false, githubStatus: .unknown("draining")).statusColor == .offline)
+      #expect(runner.displayStatus == testCase.expectedText, "\(testCase.label)")
+      #expect(runner.statusColor == testCase.expectedColor, "\(testCase.label)")
+    }
   }
 }
 
