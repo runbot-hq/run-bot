@@ -2,7 +2,6 @@
 // RunBot
 
 import GitHubClient
-import MenuBarKit
 import RunBotCore
 import SwiftUI
 
@@ -30,8 +29,6 @@ struct MigrationRunnerListDestination: View {
 
     // swiftlint:disable:next missing_docs
     @Environment(GitHubAuthentication.self) private var authentication
-    // swiftlint:disable:next missing_docs
-    @Environment(MBKOverlayGate.self) private var overlayGate
 
     // MARK: - Local UI state
 
@@ -58,7 +55,6 @@ struct MigrationRunnerListDestination: View {
                 localRunners: runnerState.localRunners
             )
             .environment(authentication)
-            .environment(overlayGate)
         }
         .onChange(of: runnerState.localRunners) { _, runners in
             if let id = selectedRunnerID, !runners.contains(where: { $0.id == id }) {
