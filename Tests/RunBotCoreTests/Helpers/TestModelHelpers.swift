@@ -27,9 +27,9 @@ import GitHubClient
 /// is a programming error that must surface immediately.
 func decodeFixture<T: Decodable>(_ type: T.Type, from json: String) -> T {
     guard let data = json.data(using: .utf8),
-          let decoded = try? JSONDecoder().decode(T.self, from: data)
+          let decoded = try? JSONDecoder().decode(type, from: data)
     else {
-        fatalError("\(T.self) fixture JSON failed to decode: \(json)")
+        fatalError("\(type) fixture JSON failed to decode: \(json)")
     }
     return decoded
 }
