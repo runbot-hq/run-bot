@@ -2,7 +2,6 @@
 // RunBot
 
 import GitHubClient
-import MenuBarKit
 import RunBotCore
 import SwiftUI
 
@@ -335,40 +334,43 @@ extension AddRunnerSheet {
 
     // MARK: - Actions (Add new)
 
-    /// Opens a sheet-safe directory picker for the new runner's parent directory.
+    /// Presents the native directory importer for the new runner's parent directory.
     ///
-    /// Mirrors `pickExistingFolder()` so that `overlayGate` is armed before the
-    /// panel opens — preventing the outside-click monitor from dismissing the sheet.
-    /// On confirmation, writes the chosen URL to `installDir` (the parent directory).
-    /// Does not call `resetExistingState()` or treat the folder as an existing runner.
+    /// Mirrors `pickExistingFolder()` — sets the importer flag consumed by the
+    /// `.fileImporter` attached to the sheet's root view. On confirmation,
+    /// `handleParentDirectoryResult(_:)` writes the chosen URL to `installDir`
+    /// (the parent directory). Does not call `resetExistingState()` or treat
+    /// the folder as an existing runner.
     func chooseNewRunnerParentDirectory() {
-        log("AddRunnerSheet › chooseNewRunnerParentDirectory — opening via mbkOpenFilePicker")
-        mbkOpenFilePicker(
-            overlayGate: overlayGate,
-            message: "Select the parent directory for the new runner"
-        ) { url in
-            log("AddRunnerSheet › chooseNewRunnerParentDirectory — picker closed url=\(String(describing: url))")
-            guard let url else { return }
-            installDir = url.standardizedFileURL.path
-        }
+        log("AddRunnerSheet › chooseNewRunnerParentDirectory — presenting fileImporter")
+        isParentDirectoryPickerPresented = true
     }
 
     // MARK: - Actions (Add pre-existing)
 
-    /// Opens a directory picker via `mbkOpenFilePicker`.
+    /// Presents the directory importer for the pre-existing runner install folder.
     ///
-    /// `mbkOpenFilePicker` arms `overlayGate.hasActiveOverlay` before opening so the
-    /// outside-click monitor is blocked for the full lifetime of the panel.
+    /// Sets the importer flag consumed by the `.fileImporter` attached to the
+    /// sheet's root view; the result is routed through `handlePickedFolder(_:)`.
     func pickExistingFolder() {
-        log("AddRunnerSheet › pickExistingFolder — opening via mbkOpenFilePicker")
-        mbkOpenFilePicker(
-            overlayGate: overlayGate,
-            message: "Select the runner install folder (must contain a .runner file)"
-        ) { url in
-            log("AddRunnerSheet › pickExistingFolder — picker closed url=\(String(describing: url))")
-            guard let url else { return }
-            handlePickedFolder(url)
-        }
+        log("AddRunnerSheet › pickExistingFolder — presenting fileImporter")
+        isExistingFolderPickerPresented = true
+    }
+
+    /// Consumes the parent-directory importer result and updates `installDir`.
+    func handleParentDirectoryResult(_ result: Result<[URL], any Error>) {
+        log("AddRunnerSheet › handleParentDirectoryResult — \(result)")
+        guard case .success(let urls) = result, let url = urls.first else { return }
+        // Non-sandboxed app — the URL is directly usable, no security scope.
+        installDir = url.standardizedFileURL.path
+    }
+
+    /// Consumes the install-folder importer result and detects the runner.
+    func handleExistingFolderResult(_ result: Result<[URL], any Error>) {
+        log("AddRunnerSheet › handleExistingFolderResult — \(result)")
+        guard case .success(let urls) = result, let url = urls.first else { return }
+        // Non-sandboxed app — the URL is directly usable, no security scope.
+        handlePickedFolder(url)
     }
 
     /// Validates the picked folder and populates the detected-runner state.
