@@ -44,7 +44,10 @@ extension RunnerPoller {
       // exits. Without this, ARC may drop `observer` immediately after the `let`
       // binding above goes out of scope (the Task captures `self` weakly and the relay
       // is not otherwise retained), silently stopping scope-change detection.
-      withExtendedLifetime(observer) {}
+      withExtendedLifetime(observer) {
+          // Intentionally empty: body is a no-op — the call itself extends the
+          // relay's lifetime past the for-await loop (see comment above).
+      }
     }
     pollLoop.setScopeObservationTask(newTask)
   }
