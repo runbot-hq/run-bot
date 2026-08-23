@@ -214,7 +214,12 @@ public struct RunnerModel: Sendable, Identifiable, Equatable {
     /// - `"offline"` — runner is not reachable.
     public var displayStatus: String {
         switch resolvedState {
-        case .warning: return lifecycleWarning!  // resolvedState only reaches .warning when lifecycleWarning != nil
+        case .warning:
+            // Invariant: `resolvedState` reaches `.warning` only when
+            // `lifecycleWarning != nil`, so the fallback never fires today.
+            // It guards against a future refactor of that check reintroducing
+            // a crash path. Lowercase matches the sibling labels below.
+            return lifecycleWarning ?? "warning"
         case .busy: return "busy"
         case .running: return "running"
         case .githubOnline: return "online"
