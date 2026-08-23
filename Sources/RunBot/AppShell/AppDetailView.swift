@@ -17,12 +17,12 @@ struct AppDetailView: View {
     /// Observable runner state pushed by `LocalRunnerStore`.
     let runnerState: RunnerState
     /// Shared workflow → job → step selection owned by `AppShellView`.
-    var workflowSelection: MigrationWorkflowSelection
+    var workflowSelection: WorkflowSelection
     /// Selected settings section forwarded from `AppShellView`.
-    let settingsSelection: MigrationSettingsSection?
+    let settingsSelection: SettingsSection?
 
     /// Settings services forwarded from the composition root.
-    let settingsDependencies: MigrationSettingsDependencies
+    let settingsDependencies: SettingsDependencies
 
     /// Shell-owned runner selection forwarded from `AppShellView`. (#2900)
     let selectedRunnerID: RunnerModel.ID?
@@ -55,22 +55,22 @@ struct AppDetailView: View {
     var body: some View {
         switch selection {
         case .workflows:
-            MigrationStepLogView(
+            StepLogPaneView(
                 selectedJob: selectedJob,
                 selectedStep: selectedStep,
                 logFetcher: $logFetcher
             )
         case .settings:
-            MigrationSettingsDetailView(
+            SettingsDetailView(
                 selection: settingsSelection,
                 dependencies: settingsDependencies
             )
         case .localRunners:
-            MigrationRunnerDetailView(
+            RunnerDetailView(
                 runner: runnerState.localRunners.first { $0.id == selectedRunnerID }
             )
         case .scopes:
-            MigrationScopeDetailDestination(
+            ScopeDetailDestination(
                 scopeStore: ScopeStore.shared,
                 selectedScopeID: selectedScopeID
             )

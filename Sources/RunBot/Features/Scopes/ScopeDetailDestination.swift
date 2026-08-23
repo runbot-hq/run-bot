@@ -1,16 +1,16 @@
-// MigrationScopeDetailDestination.swift
+// ScopeDetailDestination.swift
 // RunBot
 
 import RunBotCore
 import SwiftUI
 
-// MARK: - MigrationScopeDetailDestination
+// MARK: - ScopeDetailDestination
 
 /// Thin detail-column destination for the Scopes section. (#2907)
 ///
-/// Passes the live store and selection ID to `MigrationScopeDetailView`.
+/// Passes the live store and selection ID to `ScopeDetailView`.
 /// The edit-sheet machinery has been removed; the detail is read-only.
-struct MigrationScopeDetailDestination: View {
+struct ScopeDetailDestination: View {
 
     // MARK: - Inputs
 
@@ -21,9 +21,9 @@ struct MigrationScopeDetailDestination: View {
 
     // MARK: - Body
 
-    /// Passes store and selection to `MigrationScopeDetailView`.
+    /// Passes store and selection to `ScopeDetailView`.
     var body: some View {
-        MigrationScopeDetailView(
+        ScopeDetailView(
             scopeStore: scopeStore,
             selectedScopeID: selectedScopeID
         )

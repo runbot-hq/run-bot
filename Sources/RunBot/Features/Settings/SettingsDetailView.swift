@@ -1,4 +1,4 @@
-// MigrationSettingsDetailView.swift
+// SettingsDetailView.swift
 // RunBot
 
 import AppUpdater
@@ -6,7 +6,7 @@ import GitHubClient
 import RunBotCore
 import SwiftUI
 
-// MARK: - MigrationSettingsDetailView
+// MARK: - SettingsDetailView
 
 /// Detail column for the settings destination.
 ///
@@ -16,9 +16,9 @@ import SwiftUI
 ///
 /// ## Card layering rule
 /// Each shared section view owns exactly one card surface. This view must
-/// not apply an additional outer `migrationSettingsCard()` around the routed
+/// not apply an additional outer `settingsCard()` around the routed
 /// content — doing so creates a double-background (outer neutral card wrapping
-/// the inner styled card). The `MigrationSettingsSectionLayout` provides the
+/// the inner styled card). The `SettingsSectionLayout` provides the
 /// section title and spacing only.
 ///
 /// ## Authentication
@@ -33,7 +33,7 @@ import SwiftUI
 /// - A `.task` on `AuthenticationSection` runs `refreshAuthentication()` once
 ///   on mount so `environmentState` exits `.checking`.
 @MainActor
-struct MigrationSettingsDetailView: View {
+struct SettingsDetailView: View {
 
     // MARK: - Environment
 
@@ -44,10 +44,10 @@ struct MigrationSettingsDetailView: View {
     // MARK: - Inputs
 
     /// The section currently selected in the list pane.
-    let selection: MigrationSettingsSection?
+    let selection: SettingsSection?
 
     /// Services required by the settings sections.
-    let dependencies: MigrationSettingsDependencies
+    let dependencies: SettingsDependencies
 
     // MARK: - Body
 
@@ -70,14 +70,14 @@ struct MigrationSettingsDetailView: View {
 
     /// Routes the selected section to the appropriate settings view.
     ///
-    /// Each case uses `MigrationSettingsSectionLayout` for the section title
+    /// Each case uses `SettingsSectionLayout` for the section title
     /// and vertical spacing only. The section view itself is responsible for
     /// its own card surface — no outer card is applied here.
     @ViewBuilder
     private var detailContent: some View {
         switch selection ?? .authentication {
         case .authentication:
-            MigrationSettingsSectionLayout(title: "Authentication") {
+            SettingsSectionLayout(title: "Authentication") {
                 AuthenticationSection(
                     authentication: authentication,
                     onSignIn: dependencies.onSignIn,
@@ -97,13 +97,13 @@ struct MigrationSettingsDetailView: View {
                 }
             }
         case .general:
-            MigrationSettingsSectionLayout(title: "General") {
+            SettingsSectionLayout(title: "General") {
                 GeneralSettingsSection(
                     notifications: dependencies.notifications
                 )
             }
         case .updates:
-            MigrationSettingsSectionLayout(title: "Updates") {
+            SettingsSectionLayout(title: "Updates") {
                 VStack(alignment: .leading, spacing: 28) {
                     UpdateSettingsSection(
                         settings: dependencies.settings,

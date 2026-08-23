@@ -1,17 +1,17 @@
-// MigrationScopeDetailView.swift
+// ScopeDetailView.swift
 // RunBot
 
 import RunBotCore
 import SwiftUI
 
-// MARK: - MigrationScopeDetailView
+// MARK: - ScopeDetailView
 
 /// Settings-style detail column for the Scopes section. (#2907)
 ///
 /// Resolves the selected scope live from `ScopeStore` so the monitoring
 /// row stays synchronised with the list toggle without a duplicate control.
 @MainActor
-struct MigrationScopeDetailView: View {
+struct ScopeDetailView: View {
 
     // MARK: - Inputs
 
@@ -35,7 +35,7 @@ struct MigrationScopeDetailView: View {
         if let scope {
             detailBody(scope)
         } else {
-            MigrationColumnPlaceholder(
+            ColumnPlaceholder(
                 title: "Select a scope",
                 systemImage: "scope"
             )
@@ -67,7 +67,7 @@ struct MigrationScopeDetailView: View {
 
     /// 'Scope information' card section.
     private func scopeInformationSection(_ scope: ScopeEntry) -> some View {
-        migrationDetailSection(title: "Scope information") {
+        detailSection(title: "Scope information") {
             migrationDetailRow(
                 title: "Scope",
                 description: "Repository or organization monitored by RunBot.",
@@ -92,7 +92,7 @@ struct MigrationScopeDetailView: View {
 
     /// 'Monitoring' card section showing current poll state as a read-only value.
     private func monitoringSection(_ scope: ScopeEntry) -> some View {
-        migrationDetailSection(title: "Monitoring") {
+        detailSection(title: "Monitoring") {
             migrationDetailRow(
                 title: "Monitor this scope",
                 description: scope.isEnabled

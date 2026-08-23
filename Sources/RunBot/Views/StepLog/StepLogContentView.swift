@@ -16,7 +16,7 @@ private let markdownRenderLogger = Logger(
 /// Reusable step-log content view — fetch lifecycle, toolbar, metadata, and log body.
 ///
 /// Extracted from `StepLogView` so it can be embedded in both the panel-based
-/// popover UI and the windowed `MigrationStepLogView` without duplication.
+/// popover UI and the windowed `StepLogPaneView` without duplication.
 ///
 /// Callers are responsible for the `maxHeight` cap on this view (ref #370).
 @MainActor

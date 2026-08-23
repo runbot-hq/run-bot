@@ -1,4 +1,4 @@
-// MigrationWorkflowSelection.swift
+// WorkflowSelection.swift
 // RunBot
 
 import Observation
@@ -11,7 +11,7 @@ import RunBotCore
 /// No persistence, stores, or runtime integration.
 @MainActor
 @Observable
-final class MigrationWorkflowSelection {
+final class WorkflowSelection {
 
     /// Selected `WorkflowActionGroup` identifier.
     var workflowID: String?

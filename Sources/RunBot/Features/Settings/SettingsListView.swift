@@ -1,9 +1,9 @@
-// MigrationSettingsListView.swift
+// SettingsListView.swift
 // RunBot
 
 import SwiftUI
 
-// MARK: - MigrationSettingsListView
+// MARK: - SettingsListView
 
 /// Settings section list shown in the content column of the app shell.
 ///
@@ -17,12 +17,12 @@ import SwiftUI
 /// around 40–44 points. The native sidebar selection background is used
 /// directly — no manual selection overlay is drawn.
 @MainActor
-struct MigrationSettingsListView: View {
+struct SettingsListView: View {
 
     // MARK: - Binding
 
     /// The currently selected settings section.
-    @Binding var selection: MigrationSettingsSection?
+    @Binding var selection: SettingsSection?
 
     // MARK: - Body
 
@@ -35,7 +35,7 @@ struct MigrationSettingsListView: View {
                 .padding(.top, 28)
                 .padding(.bottom, 14)
 
-            List(MigrationSettingsSection.allCases, selection: $selection) { section in
+            List(SettingsSection.allCases, selection: $selection) { section in
                 Label(section.title, systemImage: section.systemImage)
                     .font(.system(size: 15, weight: .medium))
                     .imageScale(.medium)

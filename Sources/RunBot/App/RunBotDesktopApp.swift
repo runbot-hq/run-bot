@@ -14,11 +14,11 @@ struct RunBotDesktopApp: App {
     /// Authentication state owned at the window level and injected into the view hierarchy.
     @State private var authentication: GitHubAuthentication
     /// Runner dependencies configured synchronously before any view is mounted.
-    /// `LocalRunnerStore.configure` runs inside `MigrationAppDependencies.init()`.
+    /// `LocalRunnerStore.configure` runs inside `AppDependencies.init()`.
     /// Constructed in `init()` so it shares the same `authentication` instance.
-    @State private var deps: MigrationAppDependencies
+    @State private var deps: AppDependencies
     /// App-owned log fetcher so the ZIP cache survives navigation and view
-    /// remounts. Created here (not in `MigrationAppDependencies`) because its
+    /// remounts. Created here (not in `AppDependencies`) because its
     /// lifetime is tied to the scene, threaded into `AppShellView` via
     /// `$logFetcher`.
     @State private var logFetcher: LogFetcher
@@ -27,7 +27,7 @@ struct RunBotDesktopApp: App {
     init() {
         let auth = GitHubAuthentication()
         _authentication = State(initialValue: auth)
-        _deps = State(initialValue: MigrationAppDependencies(
+        _deps = State(initialValue: AppDependencies(
             authentication: auth,
             onSignIn: {
                 // OAuthCredentialController lives in GitHubClient; sign-in UI is

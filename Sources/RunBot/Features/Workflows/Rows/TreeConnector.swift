@@ -1,4 +1,4 @@
-// MigrationTreeConnector.swift
+// TreeConnector.swift
 // RunBot
 
 import SwiftUI
@@ -10,7 +10,7 @@ import SwiftUI
 /// continuing to the bottom edge. Simplified from the menu-bar
 /// `TreeLineLeader` (issue #2881) — no vertical-overlap bridging is needed
 /// because hierarchy rows are stacked without card padding between segments.
-struct MigrationTreeConnector: View {
+struct TreeConnector: View {
     /// Whether this is the last item in the group (bar stops at the elbow).
     let isLast: Bool
     /// Horizontal indent from the leading edge to the vertical bar centre.

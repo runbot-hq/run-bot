@@ -1,25 +1,25 @@
-// MigrationWorkflowHierarchyView.swift
+// WorkflowHierarchyView.swift
 // RunBot
 
 import GitHubClient
 import RunBotCore
 import SwiftUI
 
-// MARK: - MigrationWorkflowHierarchyView
+// MARK: - WorkflowHierarchyView
 
 /// Workflow hierarchy column — workflows with expandable nested jobs and steps.
 ///
 /// Replaces the former workflow/job/step columns (issue #2880) so ownership is
 /// visible in the UI hierarchy instead of being synchronised across columns.
 /// Expansion is purely user-driven: nothing expands or collapses because a
-/// status changed. Selection lives in the shared `MigrationWorkflowSelection`
+/// status changed. Selection lives in the shared `WorkflowSelection`
 /// so the step-log detail column stays in sync.
 @MainActor
-struct MigrationWorkflowHierarchyView: View {
+struct WorkflowHierarchyView: View {
     /// Observable runner state. Observed directly to stay live across polls.
     @Bindable var runnerState: RunnerState
     /// Shared selection state owned by `AppShellView`.
-    var selection: MigrationWorkflowSelection
+    var selection: WorkflowSelection
 
     /// IDs of workflows whose job lists are currently expanded.
     @State private var expandedWorkflows: Set<String> = []
@@ -46,7 +46,7 @@ struct MigrationWorkflowHierarchyView: View {
 
             Group {
             if workflows.isEmpty {
-                MigrationColumnPlaceholder(
+                ColumnPlaceholder(
                     title: "No workflows",
                     systemImage: "bolt.horizontal.circle"
                 )
@@ -54,7 +54,7 @@ struct MigrationWorkflowHierarchyView: View {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 4) {
                         ForEach(workflows) { workflow in
-                            MigrationWorkflowNode(
+                            WorkflowNode(
                                 workflow: workflow,
                                 selection: selection,
                                 isExpanded: expandedWorkflows.contains(workflow.id),
@@ -84,14 +84,14 @@ struct MigrationWorkflowHierarchyView: View {
     }
 }
 
-// MARK: - MigrationWorkflowNode
+// MARK: - WorkflowNode
 
 /// One workflow entry: the selectable workflow row plus its nested job group.
-private struct MigrationWorkflowNode: View {
+private struct WorkflowNode: View {
     /// The workflow this node represents.
     let workflow: WorkflowActionGroup
     /// Shared selection state mutated on row tap.
-    var selection: MigrationWorkflowSelection
+    var selection: WorkflowSelection
     /// Whether this workflow's job group is currently expanded.
     let isExpanded: Bool
     /// IDs of jobs whose step lists are currently expanded, owned by the hierarchy root.
@@ -115,13 +115,13 @@ private struct MigrationWorkflowNode: View {
                 }
                 onToggleExpansion()
             } label: {
-                MigrationWorkflowRow(workflow: workflow)
+                WorkflowRow(workflow: workflow)
                     .padding(.horizontal, 8)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .contentShape(.rect)
             }
             .buttonStyle(.plain)
-            .background(MigrationSelectionBackground(isSelected: isSelected))
+            .background(SelectionBackground(isSelected: isSelected))
 
             if isExpanded, !workflow.jobs.isEmpty {
                 jobsGroup
@@ -133,7 +133,7 @@ private struct MigrationWorkflowNode: View {
     private var jobsGroup: some View {
         VStack(alignment: .leading, spacing: 0) {
             ForEach(Array(workflow.jobs.enumerated()), id: \.element.id) { index, job in
-                MigrationJobNode(
+                JobNode(
                     workflowID: workflow.id,
                     job: job,
                     selection: selection,
@@ -166,16 +166,16 @@ private struct MigrationWorkflowNode: View {
     }
 }
 
-// MARK: - MigrationJobNode
+// MARK: - JobNode
 
 /// One job entry: connector line, selectable job row, and nested step rows.
-private struct MigrationJobNode: View {
+private struct JobNode: View {
     /// Identifier of the workflow that owns this job.
     let workflowID: String
     /// The job this node represents.
     let job: ActiveJob
     /// Shared selection state mutated on row tap.
-    var selection: MigrationWorkflowSelection
+    var selection: WorkflowSelection
     /// Whether this is the last job in the group (controls the connector elbow).
     let isLast: Bool
     /// Whether this job's step list is currently expanded.
@@ -195,7 +195,7 @@ private struct MigrationJobNode: View {
     /// step list instead of terminating at the job row.
     var body: some View {
         HStack(alignment: .top, spacing: 0) {
-            MigrationTreeConnector(isLast: isLast && !isExpanded)
+            TreeConnector(isLast: isLast && !isExpanded)
                 .frame(maxHeight: .infinity)
 
             VStack(alignment: .leading, spacing: 0) {
@@ -203,13 +203,13 @@ private struct MigrationJobNode: View {
                     selection.selectJob(job.id, inWorkflow: workflowID)
                     onToggleExpansion()
                 } label: {
-                    MigrationJobRow(job: job)
+                    JobRow(job: job)
                         .padding(.horizontal, 6)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .contentShape(.rect)
                 }
                 .buttonStyle(.plain)
-                .background(MigrationSelectionBackground(isSelected: isSelected))
+                .background(SelectionBackground(isSelected: isSelected))
 
                 if isExpanded, !job.steps.isEmpty {
                     stepsContainer
@@ -225,7 +225,7 @@ private struct MigrationJobNode: View {
     private var stepsContainer: some View {
         VStack(alignment: .leading, spacing: 0) {
             ForEach(Array(job.steps.enumerated()), id: \.element.number) { index, step in
-                MigrationStepNode(
+                StepNode(
                     workflowID: workflowID,
                     job: job,
                     step: step,
@@ -239,10 +239,10 @@ private struct MigrationJobNode: View {
     }
 }
 
-// MARK: - MigrationStepNode
+// MARK: - StepNode
 
 /// One step entry: connector line and selectable step row.
-private struct MigrationStepNode: View {
+private struct StepNode: View {
     /// Identifier of the workflow that owns this step's job.
     let workflowID: String
     /// The job that owns this step.
@@ -250,7 +250,7 @@ private struct MigrationStepNode: View {
     /// The step this node represents.
     let step: GitHubStep
     /// Shared selection state mutated on row tap.
-    var selection: MigrationWorkflowSelection
+    var selection: WorkflowSelection
     /// Whether this is the last step in the list (controls the connector elbow).
     let isLast: Bool
 
@@ -262,27 +262,27 @@ private struct MigrationStepNode: View {
     /// The connector and step row.
     var body: some View {
         HStack(alignment: .top, spacing: 0) {
-            MigrationTreeConnector(isLast: isLast)
+            TreeConnector(isLast: isLast)
                 .frame(maxHeight: .infinity)
 
             Button {
                 selection.selectStep(step.number, ofJob: job.id, inWorkflow: workflowID)
             } label: {
-                MigrationStepRow(step: step)
+                StepRow(step: step)
                     .padding(.horizontal, 6)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .contentShape(.rect)
             }
             .buttonStyle(.plain)
-            .background(MigrationSelectionBackground(isSelected: isSelected))
+            .background(SelectionBackground(isSelected: isSelected))
         }
     }
 }
 
-// MARK: - MigrationSelectionBackground
+// MARK: - SelectionBackground
 
 /// Rounded highlight shown behind the deepest selected hierarchy row.
-private struct MigrationSelectionBackground: View {
+private struct SelectionBackground: View {
     /// Whether the row this background belongs to is currently selected.
     let isSelected: Bool
 

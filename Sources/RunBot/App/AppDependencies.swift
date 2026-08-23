@@ -1,4 +1,4 @@
-// MigrationAppDependencies.swift
+// AppDependencies.swift
 // RunBot
 import AppKit
 import AppUpdater
@@ -7,7 +7,7 @@ import GitHubClient
 import Observation
 import RunBotCore
 
-// MARK: - MigrationAppDependencies
+// MARK: - AppDependencies
 
 /// Owns and configures the minimum domain dependencies required by the windowed app.
 ///
@@ -23,13 +23,13 @@ import RunBotCore
 ///   runnerStore.start             <- begins poll loop
 @MainActor
 @Observable
-final class MigrationAppDependencies {
+final class AppDependencies {
     /// Live runner state tree shared across all views in the windowed app.
     let runnerState: RunnerState
     /// Store that manages local (self-hosted) runner registration and refresh.
     let localRunnerStore: LocalRunnerStore
     /// Dependencies for the Settings scene (accounts, preferences, scopes).
-    let settingsDependencies: MigrationSettingsDependencies
+    let settingsDependencies: SettingsDependencies
 
     /// GitHub authentication controller used for credential reconcile and OAuth flow.
     private let authentication: GitHubAuthentication
@@ -101,7 +101,7 @@ final class MigrationAppDependencies {
         }
         self.oauthCredentials = credentials
 
-        self.settingsDependencies = MigrationSettingsDependencies(
+        self.settingsDependencies = SettingsDependencies(
             settings: .shared,
             runnerState: state,
             autoUpdater: AppUpdater(
@@ -137,7 +137,7 @@ final class MigrationAppDependencies {
 // MARK: - OAuth callback
 
 /// OAuth callback handling for the windowed SwiftUI lifecycle.
-extension MigrationAppDependencies {
+extension AppDependencies {
     /// Forwards a macOS open-URL event to the OAuth service so the
     /// authorization code can be exchanged for a token.
     ///
@@ -152,8 +152,8 @@ extension MigrationAppDependencies {
 
 // MARK: - Startup
 
-/// Startup lifecycle for `MigrationAppDependencies`.
-extension MigrationAppDependencies {
+/// Startup lifecycle for `AppDependencies`.
+extension AppDependencies {
     /// Starts the domain pipeline: credential reconcile -> local refresh -> poll loop.
     ///
     /// Idempotent - SwiftUI may recreate the root .task; subsequent calls are no-ops.

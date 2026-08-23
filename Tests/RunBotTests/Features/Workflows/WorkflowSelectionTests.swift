@@ -1,17 +1,17 @@
-// MigrationWorkflowSelectionTests.swift
+// WorkflowSelectionTests.swift
 // RunBotTests
 
 import Testing
 @testable import RunBot
 
-/// Smoke test — just enough to confirm MigrationWorkflowSelection exists and basic
+/// Smoke test — just enough to confirm WorkflowSelection exists and basic
 /// select/clear round-trips work. Detailed reconcile behaviour is intentionally
 /// not locked down here until the API is stable.
 @MainActor
-struct MigrationWorkflowSelectionTests {
+struct WorkflowSelectionTests {
 
     @Test func selectAndClearWorkflow() {
-        let sel = MigrationWorkflowSelection()
+        let sel = WorkflowSelection()
         sel.selectWorkflow("sha-1")
         #expect(sel.workflowID == "sha-1")
         sel.selectWorkflow(nil)
@@ -19,7 +19,7 @@ struct MigrationWorkflowSelectionTests {
     }
 
     @Test func selectJobInWorkflowSetsFullPath() {
-        let sel = MigrationWorkflowSelection()
+        let sel = WorkflowSelection()
         sel.selectJob(7, inWorkflow: "sha-1")
         #expect(sel.workflowID == "sha-1")
         #expect(sel.jobID == 7)
@@ -27,7 +27,7 @@ struct MigrationWorkflowSelectionTests {
     }
 
     @Test func selectDifferentJobClearsStep() {
-        let sel = MigrationWorkflowSelection()
+        let sel = WorkflowSelection()
         sel.selectStep(2, ofJob: 7, inWorkflow: "sha-1")
         #expect(sel.stepNumber == 2)
         // Re-selecting the same job keeps the step (collapse tap).
@@ -39,7 +39,7 @@ struct MigrationWorkflowSelectionTests {
     }
 
     @Test func selectStepSetsFullPathAcrossWorkflows() {
-        let sel = MigrationWorkflowSelection()
+        let sel = WorkflowSelection()
         sel.selectWorkflow("sha-1")
         sel.selectStep(3, ofJob: 9, inWorkflow: "sha-2")
         #expect(sel.workflowID == "sha-2")

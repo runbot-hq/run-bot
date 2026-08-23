@@ -12,7 +12,7 @@ import SwiftUI
 /// Both rows share one filled, borderless card with a subtle internal divider.
 ///
 /// ## Layout
-/// The outer section title is provided by `MigrationSettingsSectionLayout`.
+/// The outer section title is provided by `SettingsSectionLayout`.
 /// This view renders the “Startup” group heading and one two-row card.
 ///
 /// ## Notifications

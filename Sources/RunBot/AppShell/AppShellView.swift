@@ -15,11 +15,11 @@ struct AppShellView: View {
 
     /// Shared workflow → job → step selection. Owned at the shell level
     /// because the hierarchy and step-log columns both read and mutate it.
-    @State private var workflowSelection = MigrationWorkflowSelection()
+    @State private var workflowSelection = WorkflowSelection()
 
     /// Shared settings section selection. Owned at the shell level so the
     /// content column (list) and detail column (section view) stay in sync.
-    @State private var settingsSelection: MigrationSettingsSection? = .authentication
+    @State private var settingsSelection: SettingsSection? = .authentication
 
     /// Shared runner selection. Owned here so the content list and detail column
     /// resolve the same model. (#2900)
@@ -34,8 +34,8 @@ struct AppShellView: View {
     /// Configured local-runner store forwarded from the composition root.
     let localRunnerStore: LocalRunnerStore
     /// Settings services forwarded from the composition root.
-    let settingsDependencies: MigrationSettingsDependencies
-    /// Shared log fetcher — owned by `MigrationAppDependencies`, threaded down
+    let settingsDependencies: SettingsDependencies
+    /// Shared log fetcher — owned by `AppDependencies`, threaded down
     /// via `@Binding` so the ZIP cache survives column navigations.
     @Binding var logFetcher: LogFetcher
 

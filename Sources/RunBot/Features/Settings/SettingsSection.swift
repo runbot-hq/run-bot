@@ -1,16 +1,16 @@
-// MigrationSettingsSection.swift
+// SettingsSection.swift
 // RunBot
 
 import Foundation
 
-// MARK: - MigrationSettingsSection
+// MARK: - SettingsSection
 
 /// Identifies each row in the settings list pane.
 ///
 /// Mirrors the shape of `AppSection`: `String`-backed, `CaseIterable`,
 /// `Identifiable` with `id: Self`, so it can drive a `List(selection:)`
 /// binding directly.
-enum MigrationSettingsSection: String, CaseIterable, Identifiable {
+enum SettingsSection: String, CaseIterable, Identifiable {
 
     // MARK: - Cases
 

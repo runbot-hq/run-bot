@@ -1,25 +1,25 @@
-// MigrationWorkflowRow.swift
+// WorkflowRow.swift
 // RunBot
 
 import RunBotCore
 import SwiftUI
 
-// MARK: - MigrationWorkflowRow
+// MARK: - WorkflowRow
 
 /// A single workflow row in the workflow hierarchy.
 ///
 /// Mirrors the main-branch `ActionRowView` text layout (#2880):
 /// status dot · repo-name · commit-title · branch · Spacer
 /// · time-ago · completed-duration · jobs-progress.
-/// The animated donut is replaced by the flat `MigrationStatusIndicator` dot.
-struct MigrationWorkflowRow: View {
+/// The animated donut is replaced by the flat `StatusIndicator` dot.
+struct WorkflowRow: View {
     /// The workflow to render.
     let workflow: WorkflowActionGroup
 
     /// The single-line row layout.
     var body: some View {
         HStack(spacing: 6) {
-            MigrationStatusIndicator(status: workflow.rbStatus)
+            StatusIndicator(status: workflow.rbStatus)
             Text(workflow.repoShortName)
                 .font(RBFont.mono)
                 .foregroundColor(Color.rbTextSecondary)

@@ -43,14 +43,14 @@ main.swift
 └── RunBotDesktopApp
     ├── GitHubAuthentication
     ├── LogFetcher
-    ├── MigrationAppDependencies
+    ├── AppDependencies
     │   ├── GitHubClient
     │   ├── OAuthCredentialController
     │   ├── RunnerState
     │   ├── LocalRunnerStore
     │   ├── RunnerPoller
     │   │   └── PollLoopCoordinator
-    │   └── MigrationSettingsDependencies
+    │   └── SettingsDependencies
     │       └── AppUpdater
     └── AppShellView
         └── NavigationSplitView
@@ -66,7 +66,7 @@ main.swift
 - `RunBotDesktopApp` is the application composition root. It constructs
   authentication and dependencies synchronously before any view is mounted and
   handles the OAuth callback via `.onOpenURL`.
-- `MigrationAppDependencies` owns all long-lived domain services for the app
+- `AppDependencies` owns all long-lived domain services for the app
   lifetime. Views receive shared state and services; they never construct their
   own instances of stores, clients, or pollers.
 - `RunnerState` is the observable read model for the UI. Poll-owned
@@ -81,17 +81,17 @@ main.swift
 
 ## Startup lifecycle
 
-The order below is encoded by `MigrationAppDependencies`:
+The order below is encoded by `AppDependencies`:
 
 ```
 RunBotDesktopApp.init
 → create GitHubAuthentication
-→ create MigrationAppDependencies
+→ create AppDependencies
 → configure LocalRunnerStore synchronously
 → construct GitHubClient and RunnerPoller
 → construct OAuthCredentialController
 → mount AppShellView
-→ MigrationAppDependencies.start()
+→ AppDependencies.start()
 → reconcile OAuth state
 → start OAuth observation
 → refresh local runners
@@ -127,7 +127,7 @@ A three-column `NavigationSplitView` shell:
 State ownership:
 
 - `AppShellView` owns top-level section selection.
-- `MigrationWorkflowSelection` owns workflow → job → step selection.
+- `WorkflowSelection` owns workflow → job → step selection.
 - Runner, scope, and settings selection are owned by the shell and passed down
   as bindings so the content list and detail column stay consistent (#2900).
 - `LogFetcher` is app-owned (`RunBotDesktopApp` creates the single `@State`
@@ -192,7 +192,7 @@ Keychain.
 
 **How RunBot wires it up:**
 
-`MigrationAppDependencies` constructs a single `GitHubClient` instance in
+`AppDependencies` constructs a single `GitHubClient` instance in
 `init()`, passing Keychain credentials (service/account names must match the
 pre-GitHubClient keychain entries — changing them orphans stored tokens) and an
 auth-source closure reading `GitHubAuthentication`. The client's `oauthService`
@@ -206,7 +206,7 @@ and transport references are injected into `RunBotCore` types (`RunnerPoller`,
 - `fetchJobs(runID:scope:)` — called when a run is expanded in the UI to load its jobs and steps
 - `fetchStepLog(jobID:stepNumber:scope:)` — called by `LogFetcher` to retrieve and display per-step CI logs
 - `fetchUserOrgs()` / `fetchUserRepos()` — called by `AddScopeSheet` to populate the scope picker
-- `oauthService.makeSignInURL()` / `oauthService.handleCallback(_:)` — sign-in URL opened from the settings auth card; callbacks arrive via `.onOpenURL` → `MigrationAppDependencies.handleOAuthCallback(_:)`
+- `oauthService.makeSignInURL()` / `oauthService.handleCallback(_:)` — sign-in URL opened from the settings auth card; callbacks arrive via `.onOpenURL` → `AppDependencies.handleOAuthCallback(_:)`
 
 **Token resolution in RunBot's context:**
 
@@ -218,7 +218,7 @@ Credentials never fall back across modes. Discovering an environment token only 
 
 All tests that touch network or Keychain inject mock transports and OAuth services via the `GitHubClient(oauthService:transport:)` test initialiser. No production `GitHubClient` instance is created in the test suite.
 
-- ❌ NEVER construct a second `GitHubClient` instance — the one created by `MigrationAppDependencies` is the single source of truth for tokens and rate-limit state.
+- ❌ NEVER construct a second `GitHubClient` instance — the one created by `AppDependencies` is the single source of truth for tokens and rate-limit state.
 
 ---
 
@@ -242,10 +242,10 @@ The package tracks the `main` branch. Dependency pinning and release behavior ar
 
 **How RunBot wires it up:**
 
-`MigrationAppDependencies.init()` constructs a single `AppUpdater` instance inside `MigrationSettingsDependencies`, initialised with RunBot's GitHub repo slug, the current bundle version, the expected zip asset name, an Ed25519 public key (embedded in the binary as a base64 constant), and the `NSBackgroundActivityScheduler` identifier. Its `UpdateState`-conforming state object drives update UI via observation.
+`AppDependencies.init()` constructs a single `AppUpdater` instance inside `SettingsDependencies`, initialised with RunBot's GitHub repo slug, the current bundle version, the expected zip asset name, an Ed25519 public key (embedded in the binary as a base64 constant), and the `NSBackgroundActivityScheduler` identifier. Its `UpdateState`-conforming state object drives update UI via observation.
 
 ```swift
-// MigrationAppDependencies.swift (illustrative)
+// AppDependencies.swift (illustrative)
 let updater = AppUpdater(
     repo: "runbot-hq/run-bot",
     currentVersion: Bundle.main.rbVersionString,
@@ -267,7 +267,7 @@ let updater = AppUpdater(
 
 **Ed25519 key:**
 
-The public key is embedded as a base64 constant in `MigrationAppDependencies.swift` (not in `UserDefaults` or any plist). The matching private key lives as a GitHub Actions secret and is used by the release workflow to sign each `RunBot.zip` artifact before upload.
+The public key is embedded as a base64 constant in `AppDependencies.swift` (not in `UserDefaults` or any plist). The matching private key lives as a GitHub Actions secret and is used by the release workflow to sign each `RunBot.zip` artifact before upload.
 
 **`fixedZipURL` invariant:**
 
@@ -362,7 +362,7 @@ sign-off (a deliberate Principle #4 exception) so `deinit` can cancel the handle
 
 ### `RunnerPollerProtocol` and `MockPoller`
 
-`MigrationAppDependencies` types the poller as `any RunnerPollerProtocol`
+`AppDependencies` types the poller as `any RunnerPollerProtocol`
 (`func start() async` + `var state: RunnerState { get }`). `RunnerPoller` is the
 production conformer; `MockPoller` is a no-op actor for SwiftUI previews and
 snapshot tests — `start()` is a guaranteed no-op that never touches the network.

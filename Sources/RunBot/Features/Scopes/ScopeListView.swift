@@ -1,13 +1,13 @@
-// MigrationScopeListView.swift
+// ScopeListView.swift
 // RunBot
 
 import RunBotCore
 import SwiftUI
 
-// MARK: - MigrationScopeListView
+// MARK: - ScopeListView
 
 /// Left pane of the Scopes split view: header, add button, and scope list.
-struct MigrationScopeListView: View {
+struct ScopeListView: View {
 
     // MARK: - Inputs
 
@@ -26,13 +26,13 @@ struct MigrationScopeListView: View {
 
     /// The list pane layout.
     var body: some View {
-        MigrationManagementColumn(
+        ManagementColumn(
             title: "Scopes",
             addTitle: "Add scope",
             onAdd: onAdd
         ) {
             if scopes.isEmpty {
-                MigrationColumnPlaceholder(
+                ColumnPlaceholder(
                     title: "No scopes",
                     systemImage: "scope",
                     description: "Add a repository or organization to monitor."

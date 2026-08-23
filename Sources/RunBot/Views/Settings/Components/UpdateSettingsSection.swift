@@ -16,10 +16,10 @@ import SwiftUI
 ///
 /// The updater is injected so it is never instantiated inside this view.
 /// Instantiate once at the composition root and thread through
-/// `MigrationSettingsDependencies`.
+/// `SettingsDependencies`.
 ///
 /// ## Layout
-/// The outer section title is provided by `MigrationSettingsSectionLayout`.
+/// The outer section title is provided by `SettingsSectionLayout`.
 /// This view renders the "Update preferences" group heading and one multi-row card.
 struct UpdateSettingsSection: View {
 

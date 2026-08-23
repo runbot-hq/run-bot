@@ -1,15 +1,15 @@
-// MigrationDetailCard.swift
+// DetailCard.swift
 // RunBot
 
 import SwiftUI
 
-// MARK: - MigrationDetailCard helpers
+// MARK: - DetailCard helpers
 
 /// Rounded filled card with a compact section heading above it.
 ///
-/// Shared by `MigrationRunnerDetailView` and `MigrationScopeDetailView`
+/// Shared by `RunnerDetailView` and `ScopeDetailView`
 /// to eliminate duplicated layout helpers. (#2920)
-func migrationDetailSection<Content: View>(
+func detailSection<Content: View>(
     title: String,
     @ViewBuilder content: () -> Content
 ) -> some View {
