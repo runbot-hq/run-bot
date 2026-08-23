@@ -144,7 +144,10 @@ struct UpdateSettingsSection: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer(minLength: 24)
-                Button("Install & Relaunch") {}
+                Button("Install & Relaunch") {
+                    // Intentionally empty: placeholder — button is disabled until
+                    // install-and-relaunch wiring lands.
+                }
                     .buttonStyle(.borderedProminent)
                     .controlSize(.small)
                     .disabled(true)
