@@ -1,7 +1,6 @@
 // MigrationScopeListDestination.swift
 // RunBot
 
-import MenuBarKit
 import RunBotCore
 import SwiftUI
 
@@ -23,11 +22,6 @@ struct MigrationScopeListDestination: View {
     /// Shell-owned selection binding shared with `AppDetailView`.
     @Binding var selectedScopeID: ScopeEntry.ID?
 
-    // MARK: - Environment
-
-    // swiftlint:disable:next missing_docs
-    @Environment(MBKOverlayGate.self) private var overlayGate
-
     // MARK: - Local UI state
 
     /// Controls presentation of `AddScopeSheet`.
@@ -46,7 +40,6 @@ struct MigrationScopeListDestination: View {
         )
         .sheet(isPresented: $isAddScopePresented) {
             AddScopeSheet(isPresented: $isAddScopePresented)
-                .environment(overlayGate)
         }
         .onChange(of: scopeStore.entries) { _, newEntries in
             if let id = selectedScopeID,

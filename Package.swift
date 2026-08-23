@@ -24,8 +24,6 @@ let package = Package(
         .package(url: "https://github.com/runbot-hq/AppUpdater", branch: "main"),
         // Local path — source of truth is now Packages/GitHubClient in this repo.
         .package(path: "Packages/GitHubClient"),
-        // Local path — source of truth is now Packages/MenuBarKit in this repo.
-        .package(path: "Packages/MenuBarKit"),
         // Organization-owned — tracks main. Source of truth is the runbot-hq/MarkdownKit repo.
         // Do not pin to a revision or exact hash.
         .package(url: "https://github.com/runbot-hq/MarkdownKit", branch: "main"),
@@ -53,11 +51,6 @@ let package = Package(
             dependencies: [
                 "RunBotCore",
                 .product(name: "GitHubClient", package: "GitHubClient"),
-                // MenuBarKit declared here so RunBot can import it incrementally
-                // during the #2027/#2028 migration alongside PopoverLifecycleCoordinator.
-                // No RunBot source imports MenuBarKit yet — the dependency is additive
-                // and costs nothing until the first import statement is written.
-                .product(name: "MenuBarKit", package: "MenuBarKit"),
                 // MarkdownKit — organization-owned package (#2751). Tracks branch: "main".
                 .product(name: "MarkdownKit", package: "MarkdownKit"),
 

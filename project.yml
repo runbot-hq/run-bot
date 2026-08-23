@@ -8,8 +8,6 @@ packages:
     path: .
   GitHubClient:
     path: Packages/GitHubClient
-  MenuBarKit:
-    path: Packages/MenuBarKit
   AppUpdater:
     url: https://github.com/runbot-hq/AppUpdater
     branch: main
@@ -46,8 +44,6 @@ targets:
         product: RunBotCore
       - package: GitHubClient
         product: GitHubClient
-      - package: MenuBarKit
-        product: MenuBarKit
       - package: AppUpdater
         product: AppUpdater
       - package: MarkdownKit
