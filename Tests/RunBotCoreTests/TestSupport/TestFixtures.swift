@@ -98,10 +98,7 @@ func makeGitHubRunner(status: RunnerStatus, id: Int = 1, name: String = "r", bus
     let json = """
     {"id":\(id),"name":"\(name)","status":"\(status.rawValue)","busy":\(busy ? "true" : "false"),"labels":[]}
     """
-    guard let decoded = try? JSONDecoder().decode(GitHubRunner.self, from: Data(json.utf8)) else {
-        fatalError("GitHubRunner fixture JSON failed to decode: \(json)")
-    }
-    return decoded
+    return decodeFixture(GitHubRunner.self, from: json)
 }
 
 // MARK: - WorkflowActionGroup

@@ -17,6 +17,23 @@ import Foundation
 import GitHubClient
 @testable import RunBotCore
 
+// MARK: - Fixture JSON decoding
+
+/// Decodes a fixture `Decodable` type from a JSON string.
+///
+/// Shared by the JSON round-trip fixture constructors so the decode-and-trap
+/// logic lives in exactly one place. Traps with the offending JSON when
+/// decoding fails — fixture strings are compile-time constants, so a failure
+/// is a programming error that must surface immediately.
+func decodeFixture<T: Decodable>(_ type: T.Type, from json: String) -> T {
+    guard let data = json.data(using: .utf8),
+          let decoded = try? JSONDecoder().decode(T.self, from: data)
+    else {
+        fatalError("\(T.self) fixture JSON failed to decode: \(json)")
+    }
+    return decoded
+}
+
 // MARK: - ActiveJob test convenience inits
 
 extension ActiveJob {
@@ -120,10 +137,7 @@ extension GitHubStep {
         let json = """
         {"number":\(n),"name":\"\(name)\","status":\"\(status)\","conclusion":\(conclusionJSON),"started_at":\(startJSON),"completed_at":\(endJSON)}
         """
-        guard let decoded = try? JSONDecoder().decode(GitHubStep.self, from: Data(json.utf8)) else {
-            fatalError("GitHubStep fixture JSON failed to decode: \(json)")
-        }
-        self = decoded
+        self = decodeFixture(GitHubStep.self, from: json)
     }
 
     /// Test-only init: typed `JobStatus` / `JobConclusion` overload.
@@ -163,10 +177,7 @@ extension GitHubRunner {
         let json = """
         {"id":\(id),"name":\"\(name)\","status":\"\(status.rawValue)\","busy":\(busy ? "true" : "false"),"labels":[]}
         """
-        guard let decoded = try? JSONDecoder().decode(GitHubRunner.self, from: Data(json.utf8)) else {
-            fatalError("GitHubRunner fixture JSON failed to decode: \(json)")
-        }
-        self = decoded
+        self = decodeFixture(GitHubRunner.self, from: json)
     }
 
     /// Convenience forwarder for tests that call `runner.displayStatus` without args.
