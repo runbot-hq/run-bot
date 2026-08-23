@@ -90,24 +90,33 @@ extension RunnerPoller {
       Task { [weak self] in
         await self?.fetch()
         while let self, !Task.isCancelled {
-          let interval = await self.nextPollInterval()
-          log("RunnerPoller › poll loop — next fetch in \(Int(interval))s", category: .runner)
-          do {
-            try await Task.sleep(for: .seconds(interval))
-          } catch is CancellationError {
-            log("RunnerPoller › poll loop — CancellationError, exiting cleanly", category: .runner)
-            break
-          } catch {
-            log("RunnerPoller › poll loop — unexpected error \(error), exiting", category: .runner)
-            break
-          }
-          guard !Task.isCancelled else {
-            log("RunnerPoller › poll loop — cancelled after sleep, exiting", category: .runner)
-            break
-          }
-          await self.fetch()
+          guard await self.waitForNextTickAndFetch() else { break }
         }
       })
+  }
+
+  /// Sleeps for the adaptive interval, then performs one fetch.
+  ///
+  /// - Returns: `false` when the poll loop must exit (cancelled or unexpected
+  ///   sleep error); `true` to continue looping.
+  private func waitForNextTickAndFetch() async -> Bool {
+    let interval = await nextPollInterval()
+    log("RunnerPoller › poll loop — next fetch in \(Int(interval))s", category: .runner)
+    do {
+      try await Task.sleep(for: .seconds(interval))
+    } catch is CancellationError {
+      log("RunnerPoller › poll loop — CancellationError, exiting cleanly", category: .runner)
+      return false
+    } catch {
+      log("RunnerPoller › poll loop — unexpected error \(error), exiting", category: .runner)
+      return false
+    }
+    guard !Task.isCancelled else {
+      log("RunnerPoller › poll loop — cancelled after sleep, exiting", category: .runner)
+      return false
+    }
+    await fetch()
+    return true
   }
 
   // MARK: - Adaptive-interval counters
@@ -133,9 +142,11 @@ extension RunnerPoller {
   /// Returns `true` when at least one job or action group is currently active
   /// (in-progress or queued).
   func hasActiveWork() -> Bool {
-    let hasActiveJobs = jobs.contains { $0.jobStatus == .inProgress || $0.jobStatus == .queued }
-    let hasActiveActions = actions.contains {
-      $0.groupStatus == .inProgress || $0.groupStatus == .queued
+    let hasActiveJobs = jobs.contains { job in
+      job.jobStatus == .inProgress || job.jobStatus == .queued
+    }
+    let hasActiveActions = actions.contains { action in
+      action.groupStatus == .inProgress || action.groupStatus == .queued
     }
     return hasActiveJobs || hasActiveActions
   }
