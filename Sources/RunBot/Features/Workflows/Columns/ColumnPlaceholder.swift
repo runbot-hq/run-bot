@@ -1,11 +1,11 @@
-// MigrationColumnPlaceholder.swift
+// ColumnPlaceholder.swift
 // RunBot
 
 import SwiftUI
 
 /// Width-adaptive placeholder for workflow column panes.
 /// Uses `minimumScaleFactor` so text stays visible in narrow columns.
-struct MigrationColumnPlaceholder: View {
+struct ColumnPlaceholder: View {
     /// Primary label shown below the icon.
     let title: String
     /// SF Symbol name for the placeholder icon.

@@ -1,9 +1,9 @@
-// MigrationSettingsSectionLayout.swift
+// SettingsSectionLayout.swift
 // RunBot
 
 import SwiftUI
 
-// MARK: - MigrationSettingsSectionLayout
+// MARK: - SettingsSectionLayout
 
 /// Titled section wrapper for migration settings detail views.
 ///
@@ -12,11 +12,11 @@ import SwiftUI
 ///
 /// ## Usage
 /// ```swift
-/// MigrationSettingsSectionLayout(title: "Authentication") {
+/// SettingsSectionLayout(title: "Authentication") {
 ///     authCard
 /// }
 /// ```
-struct MigrationSettingsSectionLayout<Content: View>: View {
+struct SettingsSectionLayout<Content: View>: View {
 
     // MARK: - Inputs
 

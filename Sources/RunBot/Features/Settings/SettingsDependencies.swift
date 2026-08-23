@@ -1,26 +1,26 @@
-// MigrationSettingsDependencies.swift
+// SettingsDependencies.swift
 // RunBot
 
 import AppUpdater
 import RunBotCore
 
-// MARK: - MigrationSettingsDependencies
+// MARK: - SettingsDependencies
 
 /// Holds the services genuinely needed by the windowed Settings destination.
 ///
-/// Owned once by `MigrationAppDependencies` and threaded through
-/// `AppShellView` → `AppDetailView` → `MigrationSettingsView`.
+/// Owned once by `AppDependencies` and threaded through
+/// `AppShellView` → `AppDetailView` → `SettingsListView`.
 /// Do not instantiate services inside this type — receive them from
 /// the composition root to avoid the startup-coupling regression
 /// removed after issue #2815.
 ///
 /// ## Auth actions
 /// OAuth sign-in / sign-out require `OAuthCredentialController`, which
-/// depends on `GitHubClient`. Rather than pulling `GitHubClient` into the
-/// migration layer, those actions are expressed as plain closures built
+/// depends on `GitHubClient`. Rather than pulling `GitHubClient` into
+/// this layer, those actions are expressed as plain closures built
 /// at the app root where the controller already exists.
 @MainActor
-final class MigrationSettingsDependencies {
+final class SettingsDependencies {
     /// App-wide preference store (automatic updates, beta channel).
     let settings: AppPreferencesStore
     /// Observable runner state — drives the update action row.

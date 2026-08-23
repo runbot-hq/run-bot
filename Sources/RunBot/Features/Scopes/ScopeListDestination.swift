@@ -1,19 +1,19 @@
-// MigrationScopeListDestination.swift
+// ScopeListDestination.swift
 // RunBot
 
 import RunBotCore
 import SwiftUI
 
-// MARK: - MigrationScopeListDestination
+// MARK: - ScopeListDestination
 
 /// Content-column destination for the Scopes section.
 ///
 /// Owns sheet presentation and action dispatch while keeping
-/// `MigrationScopeListView` purely presentational. Selection is
+/// `ScopeListView` purely presentational. Selection is
 /// owned by `AppShellView` and passed in as a binding so the detail
 /// column can resolve the selected scope independently. (#2900)
 @MainActor
-struct MigrationScopeListDestination: View {
+struct ScopeListDestination: View {
 
     // MARK: - Inputs
 
@@ -31,7 +31,7 @@ struct MigrationScopeListDestination: View {
 
     /// List view with sheet and action wiring.
     var body: some View {
-        MigrationScopeListView(
+        ScopeListView(
             scopes: scopeStore.entries,
             selectedScopeID: $selectedScopeID,
             onAdd: { isAddScopePresented = true },

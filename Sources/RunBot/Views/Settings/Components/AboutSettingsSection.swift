@@ -15,7 +15,7 @@ import SwiftUI
 /// to keep detection logic in one place. See PR #2085 / #2108.
 ///
 /// ## Layout
-/// The outer section title is provided by `MigrationSettingsSectionLayout`.
+/// The outer section title is provided by `SettingsSectionLayout`.
 /// This view renders the "Version" group heading and one card row.
 struct AboutSettingsSection: View {
 

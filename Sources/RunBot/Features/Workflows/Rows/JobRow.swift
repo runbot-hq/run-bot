@@ -1,18 +1,18 @@
-// MigrationJobRow.swift
+// JobRow.swift
 // RunBot
 
 import GitHubClient
 import RunBotCore
 import SwiftUI
 
-// MARK: - MigrationJobRow
+// MARK: - JobRow
 
 /// A single job row in the workflow hierarchy.
 ///
 /// Mirrors the main-branch `JobRowCard` header text layout (#2880):
 /// status dot · runner-type-icon · job-name · job-id · Spacer
 /// · elapsed · steps-progress.
-struct MigrationJobRow: View {
+struct JobRow: View {
     /// The job to render.
     let job: ActiveJob
 
@@ -37,7 +37,7 @@ struct MigrationJobRow: View {
     /// The single-line row layout.
     var body: some View {
         HStack(spacing: 6) {
-            MigrationStatusIndicator(status: job.rbStatus)
+            StatusIndicator(status: job.rbStatus)
             Image(systemName: runnerSymbolName)
                 .font(.system(size: 9))
                 .foregroundColor(.secondary)

@@ -1,11 +1,11 @@
-// MigrationStepRow.swift
+// StepRow.swift
 // RunBot
 
 import GitHubClient
 import RunBotCore
 import SwiftUI
 
-// MARK: - MigrationStepRow
+// MARK: - StepRow
 
 /// A single step row in the workflow hierarchy.
 ///
@@ -13,7 +13,7 @@ import SwiftUI
 /// status dot · step-name · step-number · Spacer · elapsed.
 /// The chevron is dropped — steps no longer navigate to a separate route;
 /// selection updates the step-log detail column in place.
-struct MigrationStepRow: View {
+struct StepRow: View {
     /// The step to render.
     let step: GitHubStep
 
@@ -25,7 +25,7 @@ struct MigrationStepRow: View {
     /// `formatElapsed` returns the sentinel "00:00" (never "") when start is nil.
     var body: some View {
         HStack(spacing: 6) {
-            MigrationStatusIndicator(status: step.rbStatus)
+            StatusIndicator(status: step.rbStatus)
             Text(step.name)
                 .font(RBFont.mono)
                 .foregroundColor(Color.rbTextSecondary)

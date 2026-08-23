@@ -214,8 +214,8 @@ public struct WorkflowActionGroup: Identifiable, Equatable, Sendable {
     //
     // ⚠️ Do NOT reintroduce identity-based (`lhs.id == rhs.id`) equality here.
     // SwiftUI decides whether to re-invoke a view's `body` by comparing the view's
-    // stored properties with `==`. The migration shell rows and columns
-    // (`MigrationWorkflowRow`, `MigrationWorkflowListView`) store a
+    // stored properties with `==`. The shell rows and columns
+    // (`WorkflowRow`, `WorkflowSelection`) store a
     // `WorkflowActionGroup` / `[WorkflowActionGroup]` directly, so an id-only `==`
     // made every post-conclusion snapshot compare "equal" and SwiftUI skipped the
     // re-render — the status dot stayed blue until the view was recreated by

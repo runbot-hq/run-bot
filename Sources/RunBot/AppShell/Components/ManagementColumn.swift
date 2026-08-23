@@ -1,9 +1,9 @@
-// MigrationManagementColumn.swift
+// ManagementColumn.swift
 // RunBot
 
 import SwiftUI
 
-// MARK: - MigrationManagementColumn
+// MARK: - ManagementColumn
 
 /// Shared column container for management split-view panes (Scopes, Local runners).
 /// Renders a 44-pt header with the column title on the left and an Add action on
@@ -11,7 +11,7 @@ import SwiftUI
 ///
 /// Use for any pane that owns a top-level Add action. The read-only workflow
 /// hierarchy and step-log panes render without a header (#2880).
-struct MigrationManagementColumn<Content: View>: View {
+struct ManagementColumn<Content: View>: View {
     /// The column heading displayed in the header bar.
     let title: String
     /// Label for the Add button shown at the trailing edge of the header.

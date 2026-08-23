@@ -1,4 +1,4 @@
-// MigrationStepLogView.swift
+// StepLogPaneView.swift
 // RunBot
 
 import GitHubClient
@@ -16,7 +16,7 @@ private struct StepLogSelectionID: Hashable, Sendable {
 }
 
 /// Step-log pane — renders the full step log using the shared `StepLogContentView`.
-struct MigrationStepLogView: View {
+struct StepLogPaneView: View {
     /// The job that owns the selected step.
     let selectedJob: ActiveJob?
     /// The currently selected step, or `nil` when none is selected.
@@ -34,7 +34,7 @@ struct MigrationStepLogView: View {
             )
             .id(StepLogSelectionID(jobID: job.id, stepNumber: step.number))
         } else {
-            MigrationColumnPlaceholder(
+            ColumnPlaceholder(
                 title: "Select a step",
                 systemImage: "doc.plaintext"
             )

@@ -1,4 +1,4 @@
-// MigrationSettingsCard.swift
+// SettingsCard.swift
 // RunBot
 
 import SwiftUI
@@ -28,7 +28,7 @@ extension Color {
     )
 }
 
-// MARK: - MigrationSettingsCardModifier
+// MARK: - SettingsCardModifier
 
 /// Applies a soft, opaque filled card surface to any view.
 ///
@@ -40,7 +40,7 @@ extension Color {
 ///
 /// Multi-row cards should add subtle internal `Divider`s (opacity 0.12)
 /// between rows before applying this modifier.
-private struct MigrationSettingsCardModifier: ViewModifier {
+private struct SettingsCardModifier: ViewModifier {
     /// Applies the card surface to the content.
     func body(content: Content) -> some View {
         content
@@ -56,7 +56,7 @@ private struct MigrationSettingsCardModifier: ViewModifier {
 extension View {
 
     /// Wraps the receiver in a migration settings card surface.
-    func migrationSettingsCard() -> some View {
-        modifier(MigrationSettingsCardModifier())
+    func settingsCard() -> some View {
+        modifier(SettingsCardModifier())
     }
 }

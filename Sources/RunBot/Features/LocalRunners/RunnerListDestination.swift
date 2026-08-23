@@ -1,20 +1,20 @@
-// MigrationRunnerListDestination.swift
+// RunnerListDestination.swift
 // RunBot
 
 import GitHubClient
 import RunBotCore
 import SwiftUI
 
-// MARK: - MigrationRunnerListDestination
+// MARK: - RunnerListDestination
 
 /// Content-column destination for the Local Runners section.
 ///
 /// Owns sheet presentation and action dispatch while keeping
-/// `MigrationRunnerListView` purely presentational. Selection is
+/// `RunnerListView` purely presentational. Selection is
 /// owned by `AppShellView` and passed in as a binding so the detail
 /// column can resolve the selected runner independently. (#2900)
 @MainActor
-struct MigrationRunnerListDestination: View {
+struct RunnerListDestination: View {
 
     // MARK: - Inputs
 
@@ -39,7 +39,7 @@ struct MigrationRunnerListDestination: View {
 
     /// List view with sheet and action wiring.
     var body: some View {
-        MigrationRunnerListView(
+        RunnerListView(
             runners: runnerState.localRunners,
             selectedRunnerID: $selectedRunnerID,
             onAdd: { isAddRunnerPresented = true },

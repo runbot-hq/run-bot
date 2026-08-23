@@ -1,12 +1,12 @@
-// MigrationRunnerListView.swift
+// RunnerListView.swift
 // RunBot
 import RunBotCore
 import SwiftUI
 
-// MARK: - MigrationRunnerListView
+// MARK: - RunnerListView
 
 /// Left pane: list of configured local runners plus an Add action.
-struct MigrationRunnerListView: View {
+struct RunnerListView: View {
 
     // MARK: - Inputs
 
@@ -25,13 +25,13 @@ struct MigrationRunnerListView: View {
 
     /// The column layout: header with Add action, divider, list or empty placeholder.
     var body: some View {
-        MigrationManagementColumn(
+        ManagementColumn(
             title: "Local runners",
             addTitle: "Add local runner",
             onAdd: onAdd
         ) {
             if runners.isEmpty {
-                MigrationColumnPlaceholder(
+                ColumnPlaceholder(
                     title: "No local runners",
                     systemImage: "desktopcomputer",
                     description: "Add a local self-hosted runner to manage it."

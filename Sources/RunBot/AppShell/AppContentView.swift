@@ -19,10 +19,10 @@ struct AppContentView: View {
     /// Configured local-runner store forwarded from the composition root.
     let localRunnerStore: LocalRunnerStore
     /// Shared workflow → job → step selection owned by `AppShellView`.
-    var workflowSelection: MigrationWorkflowSelection
+    var workflowSelection: WorkflowSelection
 
     /// Shared settings section selection owned by `AppShellView`.
-    @Binding var settingsSelection: MigrationSettingsSection?
+    @Binding var settingsSelection: SettingsSection?
     /// Shared runner selection owned by `AppShellView`. (#2900)
     @Binding var selectedRunnerID: RunnerModel.ID?
     /// Shared scope selection owned by `AppShellView`. (#2900)
@@ -32,26 +32,26 @@ struct AppContentView: View {
     var body: some View {
         switch selection {
         case .workflows:
-            MigrationWorkflowHierarchyView(
+            WorkflowHierarchyView(
                 runnerState: runnerState,
                 selection: workflowSelection
             )
             .navigationSplitViewColumnWidth(min: 320, ideal: 420, max: 640)
         case .localRunners:
-            MigrationRunnerListDestination(
+            RunnerListDestination(
                 runnerState: runnerState,
                 localRunnerStore: localRunnerStore,
                 selectedRunnerID: $selectedRunnerID
             )
             .navigationSplitViewColumnWidth(min: 320, ideal: 420, max: 520)
         case .scopes:
-            MigrationScopeListDestination(
+            ScopeListDestination(
                 scopeStore: .shared,
                 selectedScopeID: $selectedScopeID
             )
             .navigationSplitViewColumnWidth(min: 320, ideal: 420, max: 520)
         case .settings:
-            MigrationSettingsListView(selection: $settingsSelection)
+            SettingsListView(selection: $settingsSelection)
                 .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 320)
         case nil:
             ContentUnavailableView(

@@ -1,9 +1,9 @@
-// MigrationRunnerDetailView.swift
+// RunnerDetailView.swift
 // RunBot
 import RunBotCore
 import SwiftUI
 
-// MARK: - MigrationRunnerDetailView
+// MARK: - RunnerDetailView
 
 /// Detail-column view for the Local Runners section.
 ///
@@ -11,7 +11,7 @@ import SwiftUI
 /// a large page title, compact section headings, rounded filled cards,
 /// left-aligned labels, trailing values, and subtle inset separators.
 /// Replaces the older `RunnerDetailContentView` delegation. (#2904)
-struct MigrationRunnerDetailView: View {
+struct RunnerDetailView: View {
 
     // MARK: - Inputs
 
@@ -33,7 +33,7 @@ struct MigrationRunnerDetailView: View {
         if let runner {
             detailBody(runner)
         } else {
-            MigrationColumnPlaceholder(
+            ColumnPlaceholder(
                 title: "Select a local runner",
                 systemImage: "desktopcomputer"
             )
@@ -65,7 +65,7 @@ struct MigrationRunnerDetailView: View {
 
     /// 'Runner information' card section.
     private func runnerInformationSection(_ runner: RunnerModel) -> some View {
-        migrationDetailSection(title: "Runner information") {
+        detailSection(title: "Runner information") {
             if let url = runner.gitHubUrl {
                 migrationCopyableDetailRow(
                     title: "GitHub URL",
@@ -112,7 +112,7 @@ struct MigrationRunnerDetailView: View {
 
     /// 'Configuration' card section.
     private func configurationSection(_ runner: RunnerModel) -> some View {
-        migrationDetailSection(title: "Configuration") {
+        detailSection(title: "Configuration") {
             migrationDetailRow(
                 title: "Labels",
                 description: "Used by workflows to target this runner.",
