@@ -34,7 +34,3 @@ jobs:
       - name: Run SwiftLint (GitHubClient)
         working-directory: Packages/GitHubClient
         run: swiftlint lint --strict --reporter github-actions-logging
-
-      - name: Run SwiftLint (MenuBarKit)
-        working-directory: Packages/MenuBarKit
-        run: swiftlint lint --strict --reporter github-actions-logging

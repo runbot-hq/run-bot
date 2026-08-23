@@ -359,23 +359,6 @@ enum RBMetrics {
     /// Maximum width for the head-branch label in `ActionRowView`.
     /// Kept narrower than `actionRowTitleMaxWidth` since branch names are lower priority (#1194).
     static let actionRowBranchMaxWidth: CGFloat = 80
-    /// Minimum width of the Main panel list (420 pt).
-    ///
-    /// Applied by `PanelMainView` to its own root via a min/ideal/max frame.
-    /// Main may size between `panelListMinWidth` and `panelListMaxWidth`;
-    /// workflow and runner rows still participate in intrinsic sizing within that range.
-    ///
-    /// MenuBarKit deliberately has no width parameter: a range in its wrapper is
-    /// inherited by every route, which would stretch the fixed-width Settings screen.
-    /// ❌ NEVER pass these tokens to `MBKPanelController` or move them into MenuBarKit.
-    /// ❌ Settings width is independent and must remain unaffected.
-    static let panelListMinWidth: CGFloat = 420
-    /// Preferred (ideal) width of the Main panel list (460 pt).
-    /// SwiftUI proposes this width when the panel has unconstrained space.
-    /// Rows can still influence the resolved width within the 420–480 range.
-    static let panelListIdealWidth: CGFloat = 460
-    /// Maximum width of the Main panel list (480 pt). See `panelListMinWidth`.
-    static let panelListMaxWidth: CGFloat = 480
 }
 
 // MARK: - Typography Tokens
