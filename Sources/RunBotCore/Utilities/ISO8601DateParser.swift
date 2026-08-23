@@ -32,7 +32,7 @@ public actor ISO8601DateParser {
 
     /// Private initialiser — callers must use `shared`.
     private init() {
-        // Intentionally empty: singleton; formatters are created lazily per call.
+        // Intentionally empty: formatter properties initialize from declaration defaults.
     }
 
     /// Parses standard and fractional ISO-8601 timestamps.
