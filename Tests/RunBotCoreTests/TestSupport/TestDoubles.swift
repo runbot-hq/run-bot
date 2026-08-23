@@ -131,17 +131,29 @@ actor SpyProxyStore: RunnerProxyStoreProtocol {
 /// store and a write log.
 actor MockScopePreferencesStore: ScopePreferencesStoreProtocol {
     func preferences(for _: String) -> ScopePreferences { ScopePreferences() }
-    func setPreferences(_: ScopePreferences, for _: String) {}
+    func setPreferences(_: ScopePreferences, for _: String) {
+        // Intentionally empty: stateless mock — writes are discarded by design.
+    }
     func alias(for _: String) -> String? { nil }
-    func setAlias(_: String?, for _: String) {}
+    func setAlias(_: String?, for _: String) {
+        // Intentionally empty: stateless mock — writes are discarded by design.
+    }
     func displayName(for scope: String) -> String { scope }
     func pollingInterval(for _: String) -> Int? { nil }
-    func setPollingInterval(_: Int?, for _: String) {}
+    func setPollingInterval(_: Int?, for _: String) {
+        // Intentionally empty: stateless mock — writes are discarded by design.
+    }
     func notifyOnSuccess(for _: String) -> Bool? { nil }
-    func setNotifyOnSuccess(_: Bool?, for _: String) {}
+    func setNotifyOnSuccess(_: Bool?, for _: String) {
+        // Intentionally empty: stateless mock — writes are discarded by design.
+    }
     func notifyOnFailure(for _: String) -> Bool? { nil }
-    func setNotifyOnFailure(_: Bool?, for _: String) {}
-    func cleanUp(scope _: String) {}
+    func setNotifyOnFailure(_: Bool?, for _: String) {
+        // Intentionally empty: stateless mock — writes are discarded by design.
+    }
+    func cleanUp(scope _: String) {
+        // Intentionally empty: nothing to clean up in a stateless mock.
+    }
     // Intentionally does not write back — this mock is stateless by design.
     // `setPreferences` is also a no-op here. If you need state persistence,
     // use `FakeScopePreferencesStore` instead.

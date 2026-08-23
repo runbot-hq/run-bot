@@ -120,7 +120,10 @@ extension GitHubStep {
         let json = """
         {"number":\(n),"name":\"\(name)\","status":\"\(status)\","conclusion":\(conclusionJSON),"started_at":\(startJSON),"completed_at":\(endJSON)}
         """
-        self = try! JSONDecoder().decode(GitHubStep.self, from: Data(json.utf8)) // swiftlint:disable:this force_try
+        guard let decoded = try? JSONDecoder().decode(GitHubStep.self, from: Data(json.utf8)) else {
+            fatalError("GitHubStep fixture JSON failed to decode: \(json)")
+        }
+        self = decoded
     }
 
     /// Test-only init: typed `JobStatus` / `JobConclusion` overload.
@@ -160,7 +163,10 @@ extension GitHubRunner {
         let json = """
         {"id":\(id),"name":\"\(name)\","status":\"\(status.rawValue)\","busy":\(busy ? "true" : "false"),"labels":[]}
         """
-        self = try! JSONDecoder().decode(GitHubRunner.self, from: Data(json.utf8)) // swiftlint:disable:this force_try
+        guard let decoded = try? JSONDecoder().decode(GitHubRunner.self, from: Data(json.utf8)) else {
+            fatalError("GitHubRunner fixture JSON failed to decode: \(json)")
+        }
+        self = decoded
     }
 
     /// Convenience forwarder for tests that call `runner.displayStatus` without args.
