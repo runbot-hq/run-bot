@@ -414,18 +414,10 @@ final class GitHubTransportConcurrencyGateTests {
           try? await Task.sleep(for: storedDelay)
         }
 
-        guard
-            let response = makeStubResponse(
-                url: request.url,
-                statusCode: 200,
-                headerFields: ["Content-Type": "application/json"])
-        else {
-            client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
-            return
-        }
-        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-        client?.urlProtocol(self, didLoad: data)
-        client?.urlProtocolDidFinishLoading(self)
+        deliverStubbedResponse(
+            data: data,
+            statusCode: 200,
+            headerFields: ["Content-Type": "application/json"])
         await Self.monitor.decrement()
       }
     }
