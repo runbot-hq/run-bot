@@ -13,7 +13,9 @@ import GitHubClient
 public struct RunnerLifecycleService: RunnerLifecycleServiceProtocol {
 
     /// Creates a new `RunnerLifecycleService` instance.
-    public init() {}
+    public init() {
+        // Intentionally empty: stateless service holds no stored properties.
+    }
 
     // MARK: - Start
 

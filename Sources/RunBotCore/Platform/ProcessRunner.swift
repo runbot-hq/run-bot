@@ -330,7 +330,9 @@ public enum ProcessRunner {
         // Empty sync barrier — blocks until drainQueue's readDataToEndOfFile() finishes.
         // This is the sole happens-before edge; no work belongs inside the closure.
         // See doc comment above for why this DispatchQueue.sync is intentionally retained.
-        drainQueue.sync {}
+        drainQueue.sync {
+            // Intentionally empty: barrier-only sync — the happens-before edge is the work.
+        }
         let outputData = outputBox.withLock { $0 }
         log("ProcessRunner › exit=\(exitCode) bytes=\(outputData.count) — \(executableName)", category: .services)
         continuation.resume(returning: Result(

@@ -31,7 +31,9 @@ public actor ISO8601DateParser {
     public static let shared = ISO8601DateParser()
 
     /// Private initialiser — callers must use `shared`.
-    private init() {}
+    private init() {
+        // Intentionally empty: singleton; formatters are created lazily per call.
+    }
 
     /// Parses standard and fractional ISO-8601 timestamps.
     ///

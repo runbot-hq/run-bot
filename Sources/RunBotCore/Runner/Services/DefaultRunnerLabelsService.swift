@@ -21,7 +21,9 @@ import GitHubClient
 /// no signing, no entitlements.
 public struct DefaultRunnerLabelsService: RunnerLabelsService, Sendable {
     /// Creates a new `DefaultRunnerLabelsService`.
-    public init() {}
+    public init() {
+        // Intentionally empty: stateless service holds no stored properties.
+    }
 
     /// Replaces ALL custom labels on the runner identified by `runnerID` within `scope`
     /// by delegating to the `patchRunnerLabels` free function.

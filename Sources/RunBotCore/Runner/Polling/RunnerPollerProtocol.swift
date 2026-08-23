@@ -66,5 +66,7 @@ public actor MockPoller: RunnerPollerProtocol {
     }
 
     /// No-op. Does not start a poll loop or make any network calls.
-    public func start() async {}
+    public func start() async {
+        // Intentionally empty: inert protocol default for preview/test contexts.
+    }
 }

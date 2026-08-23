@@ -77,7 +77,9 @@ final class PollLoopCoordinator: @unchecked Sendable {
     // MARK: - Init
 
     /// Creates a new coordinator with all task handles set to `nil`.
-    init() {}
+    init() {
+        // Intentionally empty: optional handles start as `nil` by declaration.
+    }
 
     // ⚠️ Load-bearing deinit: RunnerPoller's poll task captures `self` (RunnerPoller)
     // strongly via `while let self`. The cycle (RunnerPoller → pollLoop → Task → RunnerPoller)
