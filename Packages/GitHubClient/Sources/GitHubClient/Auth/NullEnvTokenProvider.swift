@@ -51,5 +51,7 @@ struct NullEnvTokenProvider: EnvTokenProviding, Sendable {
     /// Always returns `nil` — no env-var read or shell subprocess is performed.
     func token() async -> String? { nil }
     /// No-op — there is no shell outcome latch or cached state to reset.
-    nonisolated func invalidate() {}
+    nonisolated func invalidate() {
+        // Intentionally empty: null-object pattern has no state to reset.
+    }
 }

@@ -77,7 +77,9 @@ private final class EnvReadingStubProvider: EnvTokenProviding, Sendable {
     }
     return nil
   }
-  func invalidate() {}
+  func invalidate() {
+    // Intentionally empty: test stub has no cached state to reset.
+  }
 }
 
 // MARK: - GitHubTokenCacheTests

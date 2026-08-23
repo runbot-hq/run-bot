@@ -93,7 +93,9 @@ final class StubURLProtocol: URLProtocol, @unchecked Sendable {
     client?.urlProtocol(self, didLoad: stub.data)
     client?.urlProtocolDidFinishLoading(self)
   }
-  override func stopLoading() {}
+  override func stopLoading() {
+    // Intentionally empty: stubbed URL protocol has no real load to stop.
+  }
 }
 
 // MARK: - Helpers
