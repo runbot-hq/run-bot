@@ -34,7 +34,7 @@ public enum LogCategory: String, CaseIterable {
     /// OS-level services: Keychain, LoginItem, ProcessRunner,
     /// TerminalLauncher, LogFetcher.
     case services
-    /// Panel / MBK sizing, layout, and navigation diagnostics.
+    /// Panel sizing, layout, and navigation diagnostics.
     /// Temporary — remove after side-jump bug is resolved.
     case panel
 }

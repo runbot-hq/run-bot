@@ -9,8 +9,8 @@ import Observation
 
 /// Observable read model populated by `RunnerPoller` and consumed by the app layer.
 ///
-/// All mutations happen on the `MainActor`. Views and `AppDelegate` observe this
-/// object directly via `withObservationTracking` or `ObservationLoop`.
+/// All mutations happen on the `MainActor`. Views observe this
+/// object directly via SwiftUI's observation machinery.
 ///
 /// The six poll-written properties (`runners`, `jobs`, `actions`, `isRateLimited`,
 /// `rateLimitResetDate`, `fetchError`) are `public internal(set)` — only

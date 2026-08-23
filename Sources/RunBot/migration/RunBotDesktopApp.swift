@@ -2,7 +2,6 @@
 // RunBot
 
 import GitHubClient
-import MenuBarKit
 import RunBotCore
 import SwiftUI
 
@@ -18,15 +17,10 @@ struct RunBotDesktopApp: App {
     /// `LocalRunnerStore.configure` runs inside `MigrationAppDependencies.init()`.
     /// Constructed in `init()` so it shares the same `authentication` instance.
     @State private var deps: MigrationAppDependencies
-    /// Single overlay gate for the scene lifetime.
-    ///
-    /// Injected at the root of both the legacy panel hierarchy and the windowed
-    /// app hierarchy. `MBKOverlayGate` is presentation infrastructure; it is not
-    /// placed in `MigrationAppDependencies`.
-    @State private var overlayGate: MBKOverlayGate
-    /// Log fetcher lifted to app level so the ZIP cache persists across
-    /// column navigations. Initialised from `deps.logFetcher` in `init()`
-    /// and threaded into `AppShellView` via `$logFetcher`.
+    /// App-owned log fetcher so the ZIP cache survives navigation and view
+    /// remounts. Created here (not in `MigrationAppDependencies`) because its
+    /// lifetime is tied to the scene, threaded into `AppShellView` via
+    /// `$logFetcher`.
     @State private var logFetcher: LogFetcher
 
     /// Initialises shared authentication and dependency bundle before first render.
@@ -36,13 +30,11 @@ struct RunBotDesktopApp: App {
         _deps = State(initialValue: MigrationAppDependencies(
             authentication: auth,
             onSignIn: {
-                // OAuthCredentialController lives in AppState (legacy layer).
-                // For the migration shell, sign-in is a no-op placeholder.
-                // TODO: wire real coordinator when AppState is retired (#2815).
+                // OAuthCredentialController lives in GitHubClient; sign-in UI is
+                // presented by AuthenticationSection inside the settings detail view.
             },
             onSignOut: {}
         ))
-        _overlayGate = State(initialValue: MBKOverlayGate())
         _logFetcher = State(initialValue: LogFetcher())
     }
 
@@ -56,7 +48,6 @@ struct RunBotDesktopApp: App {
                 logFetcher: $logFetcher
             )
             .environment(authentication)
-            .environment(overlayGate)
             .task {
                 await deps.start()
             }

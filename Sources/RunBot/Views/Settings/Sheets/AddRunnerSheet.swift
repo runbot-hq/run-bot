@@ -1,9 +1,9 @@
 // AddRunnerSheet.swift
 // RunBot
 import GitHubClient
-import MenuBarKit
 import RunBotCore
 import SwiftUI
+import UniformTypeIdentifiers
 
 // MARK: - URI Constants
 
@@ -65,10 +65,23 @@ struct AddRunnerSheet: View {
     /// `runnerState.localRunners` from the migration hierarchy.
     /// Both known call sites supply this argument; the compiler enforces it.
     let localRunners: [RunnerModel]
-    /// Gate that tracks whether any overlay (sheet or file picker) is active.
-    /// Used by `pickExistingFolder()` to arm the dismiss gate before opening the picker.
-    /// Injected at the root of both the legacy panel hierarchy and the windowed app hierarchy.
-    @Environment(MBKOverlayGate.self) var overlayGate: MBKOverlayGate
+
+    // MARK: - Native file pickers (#2945 / #2948)
+
+    // The two directory pickers below replaced `mbkOpenFilePicker` with native
+    // SwiftUI `.fileImporter` modifiers attached to this sheet's own view
+    // hierarchy. A sheet is itself an NSWindow, so the importer attaches as a
+    // child sheet — no overlay gate is needed because a Window scene has no
+    // outside-click dismissal (the reason MBKOverlayGate existed). RunBot is
+    // non-sandboxed, so the returned URL is directly usable without
+    // security-scoped resource access.
+
+    /// Presents the parent-directory importer for the "Add new" mode.
+    /// Set by `chooseNewRunnerParentDirectory()` in +FormFields.
+    @State var isParentDirectoryPickerPresented = false
+    /// Presents the install-folder importer for the "Add pre-existing" mode.
+    /// Set by `pickExistingFolder()` in +FormFields.
+    @State var isExistingFolderPickerPresented = false
 
     // MARK: - Add Mode
 
@@ -198,6 +211,29 @@ struct AddRunnerSheet: View {
         }
         .padding(20)
         .frame(width: 420)
+        // Attach both importers here — inside the sheet's own view hierarchy.
+        // Attaching them to the presenting view instead would target the main
+        // window, which already hosts this sheet, and the panel would be
+        // queued or silently swallowed (#2948). Note: this SDK's SwiftUI has
+        // no starting-directory parameter, so the importer opens at the last
+        // user-chosen folder.
+        .fileImporter(
+            isPresented: $isParentDirectoryPickerPresented,
+            allowedContentTypes: [.folder],
+            allowsMultipleSelection: false
+        ) { handleParentDirectoryResult($0) }
+        .fileImporter(
+            isPresented: $isExistingFolderPickerPresented,
+            allowedContentTypes: [.folder],
+            allowsMultipleSelection: false
+        ) { handleExistingFolderResult($0) }
+        // While an importer is open, block swipe/Escape dismissal of the sheet.
+        // Tearing down the parent window with a child sheet attached leaves an
+        // orphaned panel — the failure mode the overlay gate incidentally
+        // covered (#2948).
+        .interactiveDismissDisabled(
+            isParentDirectoryPickerPresented || isExistingFolderPickerPresented
+        )
         .onAppear {
             if addMode == .addNew { loadScopes() }
         }

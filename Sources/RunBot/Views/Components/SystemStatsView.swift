@@ -47,7 +47,7 @@ struct SystemStatsView: View {
 /// A stable glass wrapper for live-updating chip content (CPU, GPU, MEM, DISK chips only).
 ///
 /// Uses `rbGlassNeutralBackground` (black 0.15 light / white 0.10 dark) beneath a `.regular`
-/// glass effect — matching the `StatusBadge` pattern in `SettingsView+Sections.swift`.
+/// glass effect — matching the badge pattern used across the settings sections.
 ///
 /// Corner radius: `RBRadius.small` (6 pt) -- matches toolbar button rounding.
 ///

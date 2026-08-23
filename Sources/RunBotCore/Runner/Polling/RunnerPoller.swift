@@ -27,8 +27,8 @@ import os
 ///   picks up the mutation automatically — no Combine `PassthroughSubject` needed.
 /// - Local-runner state is read via the injected `localRunners` closure, which returns
 ///   a `@MainActor`-isolated snapshot without crossing into the app layer.
-/// - Status-icon refresh is no longer triggered from inside the actor. `AppDelegate` wires
-///   an `ObservationLoop` on `state.runners` in Step 13.
+/// - Status-icon refresh is no longer triggered from inside the actor. Views observe
+///   `state.runners` directly via SwiftUI observation.
 public actor RunnerPoller {
 
   // MARK: - State
@@ -123,7 +123,7 @@ public actor RunnerPoller {
   /// `internal` (not `private`) — written by `RunnerPoller+PollLoop.swift` (SPM
   /// cross-file extension rule). Do not access from any other extension or call site.
   let pollLoop = PollLoopCoordinator()
-  /// Observable read model — the source of truth for all views and AppDelegate observers.
+  /// Observable read model — the source of truth for all views.
   public let state: RunnerState
   /// Returns the current local-runner snapshot on the `@MainActor`.
   /// Injected at init so the actor body never imports the app-layer `LocalRunnerStore`.
@@ -173,7 +173,7 @@ public actor RunnerPoller {
   /// Designated init for dependency injection.
   ///
   /// - Parameters:
-  ///   - state: The observable read model that views and AppDelegate observe.
+  ///   - state: The observable read model that views observe.
   ///   - preferencesStore: Retained for other consumers; no longer drives poll cadence.
   ///   - scopeStore: Provides `activeScopes`.
   ///   - localRunners: Closure returning the current local-runner snapshot on `@MainActor`.

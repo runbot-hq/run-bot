@@ -7,7 +7,7 @@ import Foundation
 /// Lookup maps built from the local runner list, used by `fetchAndEnrichRunners`.
 ///
 /// `public` so the app target can reference the type (e.g. in tests and in
-/// `AppDelegate+StoreSetup` for DI wiring). `buildInstallPathMap` is `internal`
+/// `MigrationAppDependencies` for DI wiring). `buildInstallPathMap` is `internal`
 /// — it is only called from within `RunBotCore`.
 public struct InstallPathMap {
     /// Maps "scope/runnerName" to installPath (exact scope-prefixed match).
