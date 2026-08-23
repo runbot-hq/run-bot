@@ -28,7 +28,7 @@
 - **Swift 6.2**, strict concurrency (`NonisolatedNonsendingByDefault` enabled on every target).
 - **macOS 26 (Tahoe)** minimum, **Apple Silicon (arm64) only**.
 
-> **Note:** `Sources/RunBot/main.swift` has a compile-time guard
+> **Note:** `Sources/RunBot/App/main.swift` has a compile-time guard
 > (`#if !arch(arm64) #error(...)`) — the project will not build on x86_64. Intel Macs are not supported.
 
 ---
@@ -292,7 +292,9 @@ order) by `GitHubTokenCache` / `OAuthService`:
 3. `GITHUB_TOKEN` environment variable
 
 ```bash
-export GH_TOKEN=ghp_yourtoken   # optional: test with a specific token
+# Optional: test with a specific token (paste it at the prompt).
+# Avoid putting a literal token on the command line or in docs.
+read -rs GH_TOKEN && export GH_TOKEN
 swift run
 ```
 
