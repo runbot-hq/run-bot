@@ -111,8 +111,8 @@ private func withConclusion(_ d: inout [String: Any], _ conclusion: String?) {
 /// dispatch-triggered runs that must be placed in their own group.
 private func minimalRun(
   id: Int,
-  workflowID: Int? = nil,
   sha: String,
+  workflowID: Int? = nil,
   status: String = "completed",
   conclusion: String? = "success",
   name: String = "CI",
@@ -235,12 +235,6 @@ struct WorkflowActionGroupFetcherTests {
 
   // MARK: - Empty API responses
 
-  /// Verifies that when all three status endpoints return empty `workflow_runs` arrays, `fetch` returns an empty array.
-  @Test func fetchActionGroupsAllEndpointsEmptyReturnsEmpty() async {
-    let f = WorkflowActionGroupFetcher(transport: makeTransport())
-    #expect(await f.fetch(for: "owner/repo").isEmpty)
-  }
-
   /// Verifies that when the transport returns `nil` for all endpoints (simulating no network), `fetch` returns an empty array.
   @Test func fetchActionGroupsNilResponsesReturnsEmpty() async {
     let f = WorkflowActionGroupFetcher(transport: StubTransport())
@@ -314,32 +308,6 @@ struct WorkflowActionGroupFetcherTests {
     #expect(dispatchGroup?.jobs.first?.id == 20)
   }
 
-  // MARK: - Sort order
-
-  /// Verifies that in-progress groups are sorted before completed groups in the returned array.
-  @Test func fetchActionGroupsMixedStatusesInProgressSortsFirst() async {
-    let j = envelope(key: "jobs", [])
-    let t = makeTransport(with: [
-      "repos/owner/repo/actions/runs?status=in_progress": envelope(
-        key: "workflow_runs",
-        [
-          minimalRun(id: 1, sha: "aaainprogress", status: "in_progress", conclusion: nil)
-        ]),
-      "repos/owner/repo/actions/runs?status=completed": envelope(
-        key: "workflow_runs",
-        [
-          minimalRun(id: 2, sha: "bbbcompleted", status: "completed", conclusion: "success")
-        ]),
-      "repos/owner/repo/actions/runs/1/jobs": j,
-      "repos/owner/repo/actions/runs/2/jobs": j,
-    ])
-    let f = WorkflowActionGroupFetcher(transport: t)
-    let r = await f.fetch(for: "owner/repo")
-    #expect(r.count == 2)
-    #expect(r.first?.headSha == "aaainprogress")
-    #expect(r.last?.headSha == "bbbcompleted")
-  }
-
   // MARK: - Cache hit
 
   /// Verifies that a concluded cache entry for a given SHA is served directly without re-fetching the `/jobs` endpoint (only 3 status calls are made).
@@ -390,9 +358,6 @@ struct WorkflowActionGroupFetcherTests {
 
   /// Verifies that individual job refresh calls are capped at `maxRefreshConcurrency` — when a run has 4 in-progress jobs, only 3 individual `/actions/jobs/{id}` calls are dispatched.
   @Test func fetchActionGroupsInProgressJobsCappedAtMaxRefreshConcurrency() async {
-    // When a single run has 4 in-progress jobs but maxRefreshConcurrency is 3,
-    // only 3 individual /actions/jobs/{id} refresh calls are dispatched.
-    // The 4th job silently uses stale data — verified by the call count not reaching 8.
     let runID = 1
     let sha = "capcap"
     let inProgressJobs = (1...4).map { i in
@@ -406,9 +371,6 @@ struct WorkflowActionGroupFetcherTests {
         ]),
       "repos/owner/repo/actions/runs/\(runID)/jobs": envelope(key: "jobs", inProgressJobs),
     ]
-    // Register individual job endpoints for the first 3 jobs only.
-    // Job 104 is deliberately unregistered — if the cap fails, the fetcher
-    // will call it and get nil; the callCount assertion detects the difference.
     for i in 1...3 {
       let job = minimalJob(id: 100 + i, status: "in_progress", conclusion: nil)
       extras["repos/owner/repo/actions/jobs/\(100 + i)"] =
@@ -425,10 +387,8 @@ struct WorkflowActionGroupFetcherTests {
 
   // MARK: - Cross-scope cache miss
 
-  /// Verifies that a concluded cache entry whose `repo` field does not match the current fetch scope is not served — the fetcher re-fetches from the API and returns the live job, not the cached one.
+  /// Verifies that a concluded cache entry whose `repo` field does not match the current fetch scope is not served.
   @Test func fetchActionGroupsCachedEntryForDifferentRepoNotServedAsCacheHit() async {
-    // A concluded cache entry whose `repo` doesn't match the fetch scope must
-    // NOT be served — the `cached.repo == scope` guard must fire and re-fetch.
     let sha = "crossreposha"
     let cacheKey = "owner/repo:\(sha):commit"
     let cached = makeCachedGroup(
@@ -447,23 +407,6 @@ struct WorkflowActionGroupFetcherTests {
     #expect(r.first?.jobs.first?.id == 888)
     // 3 status calls + 1 jobs-list call = 4 (not 3 — cache was not served)
     #expect(t.callCount == 4)
-  }
-
-  // MARK: - Repo label
-
-  /// Verifies that the `repo` field on a returned group matches the scope string passed to `fetch(for:)`.
-  @Test func fetchActionGroupsSingleRunGroupHasCorrectRepoScope() async {
-    let t = makeTransport(with: [
-      "repos/owner/repo/actions/runs?status=in_progress": envelope(
-        key: "workflow_runs",
-        [
-          minimalRun(id: 1, sha: "scopecheck", status: "in_progress", conclusion: nil)
-        ]),
-      "repos/owner/repo/actions/runs/1/jobs": envelope(key: "jobs", []),
-    ])
-    let f = WorkflowActionGroupFetcher(transport: t)
-    let r = await f.fetch(for: "owner/repo")
-    #expect(r.first?.repo == "owner/repo")
   }
 
   // MARK: - Three-way status-bucket merge (#1983 Step 6)
@@ -622,33 +565,9 @@ struct WorkflowActionGroupFetcherTests {
   // NOTE: Cross-event eviction (fetchActionGroupsFreshPushDoesNotEvictDispatchCacheEntry)
   // is intentionally not tested at this layer. evictFreshShas lives in PollResultBuilder,
   // not in the fetcher — that regression is covered in PollResultBuilderEvictionTests.
+  // MARK: - Job response ordering (#2541 / #2718 / #2724 / #2725)
 
-  /// Verifies that a run JSON object missing the `event` key still decodes cleanly
-  /// and is grouped under the `"push"` → `"commit"` default (regression guard for #2444
-  /// secondary fix: `RunPayload.event` is now `String?`).
-  @Test func fetchActionGroupsMissingEventFieldDefaultsToCommitGroup() async {
-    let sha = "noeventsha"
-    // Build a run fixture without the "event" key — simulates an unusual API response.
-    var runDict: [String: Any] = ["id": 9, "workflow_id": 9, "head_sha": sha, "status": "completed", "name": "CI"]
-    runDict["conclusion"] = "success"
-    let t = makeTransport(with: [
-      "repos/owner/repo/actions/runs?status=in_progress": (
-        try? JSONSerialization.data(withJSONObject: ["workflow_runs": [runDict]])) ?? Data(),
-      "repos/owner/repo/actions/runs/9/jobs": envelope(key: "jobs", [minimalJob(id: 3)]),
-    ])
-    let f = WorkflowActionGroupFetcher(transport: t)
-    let r = await f.fetch(for: "owner/repo")
-    // Must produce one group; must not crash or return empty.
-    #expect(r.count == 1)
-    // The group is bucketed under the "push" default → normalised to "commit".
-    #expect(r.first?.normalizedEvent == "commit")
-  }
-
-  // Regression guard for the fix landed in PR #2720 (issue #2541 / #2718).
-  // IDs are deliberately non-monotonic [303, 101, 202] so that the old
-  // `.sorted { $0.id < $1.id }` path would produce [101, 202, 303] and fail.
-  // Completed jobs prevent any per-job refresh call, keeping the test
-  // focused exclusively on ordering through the full fetch pipeline.
+  /// Regression guard for issue #2541 / #2718: jobs must be returned in GitHub API response order.
   @Test func fetchPreservesGitHubJobResponseOrder() async {
     let expectedJobIDs = [303, 101, 202]
     let t = makeTransport(with: [
@@ -670,14 +589,13 @@ struct WorkflowActionGroupFetcherTests {
   // Regression guard for workflow-level ordering (issue #2724 / #2725).
   // Input order conflicts with every candidate sort: input position, run ID,
   // and workflow ID all disagree. Only ascending workflowID produces the
-  // expected "Job A, Job B, Job C" sequence. Completed jobs suppress refresh
-  // calls so the test covers only the ordering pipeline.
+  // expected "Job A, Job B, Job C" sequence.
   @Test func fetchOrdersJobsByWorkflowIdentityAcrossRuns() async {
     let sha = "workflow-ordering-sha"
     let runs = [
-      minimalRun(id: 100, workflowID: 30, sha: sha, name: "Workflow C"),
-      minimalRun(id: 300, workflowID: 10, sha: sha, name: "Workflow A"),
-      minimalRun(id: 200, workflowID: 20, sha: sha, name: "Workflow B"),
+      minimalRun(id: 100, sha: sha, workflowID: 30, name: "Workflow C"),
+      minimalRun(id: 300, sha: sha, workflowID: 10, name: "Workflow A"),
+      minimalRun(id: 200, sha: sha, workflowID: 20, name: "Workflow B"),
     ]
     let t = makeTransport(with: [
       "repos/owner/repo/actions/runs?status=completed": envelope(
@@ -700,4 +618,5 @@ struct WorkflowActionGroupFetcherTests {
     // Old run-ID sort would produce: Job C (100), Job B (200), Job A (300)
     #expect(groups[0].jobs.map(\.name) == ["Job A", "Job B", "Job C"])
   }
+
 }

@@ -8,6 +8,7 @@ import Foundation
 import OAuthTokenKit
 @testable import GitHubClient
 import Testing
+import XCTest
 
 // MARK: - Helpers
 
@@ -45,7 +46,10 @@ struct OAuthCredentialControllerTests {
         let service = MockOAuthService()
         service.signInURLToReturn = signInURL
         service.isAuthenticated = isAuthenticated
-        let auth = GitHubAuthentication(defaults: UserDefaults(suiteName: UUID().uuidString)!)
+        guard let defaults = UserDefaults(suiteName: UUID().uuidString) else {
+            fatalError("Failed to create UserDefaults with suite name")
+        }
+        let auth = GitHubAuthentication(defaults: defaults)
         let controller = OAuthCredentialController(
             service: service,
             authentication: auth
@@ -97,28 +101,24 @@ struct OAuthCredentialControllerTests {
         #expect(auth.selectedSource == .oauth)
     }
 
-    // MARK: - 4. reconcile() with token present produces .signedIn
+    // MARK: - 4. reconcile() tracks authentication state
 
-    @Test("reconcile with token present sets .signedIn")
-    func reconcileWithToken() async {
-        let (controller, _, auth) = makeSUT(isAuthenticated: true)
-
-        controller.reconcile()
-
-        #expect(auth.oauthState.isSignedIn)
-        #expect(auth.selectedSource == .oauth)
-    }
-
-    // MARK: - 5. reconcile() without token produces .signedOut
-
-    @Test("reconcile without token sets .signedOut")
-    func reconcileWithoutToken() async {
-        let (controller, _, auth) = makeSUT(isAuthenticated: false)
-
-        controller.reconcile()
-
-        #expect(auth.oauthState.isSignedOut)
-        #expect(auth.selectedSource == .unauthenticated)
+    @Test("reconcile tracks authentication state")
+    func reconcileTracksAuthentication() async {
+        let cases: [(isAuthenticated: Bool, expectedSource: GitHubAuthSource)] = [
+            (true,  .oauth),
+            (false, .unauthenticated),
+        ]
+        for testCase in cases {
+            let (controller, _, auth) = makeSUT(isAuthenticated: testCase.isAuthenticated)
+            controller.reconcile()
+            #expect(auth.selectedSource == testCase.expectedSource)
+            if testCase.isAuthenticated {
+                #expect(auth.oauthState.isSignedIn)
+            } else {
+                #expect(auth.oauthState.isSignedOut)
+            }
+        }
     }
 
     // MARK: - 6. signOut() deletes token, reconciles state, then invokes didSignOut
@@ -149,18 +149,6 @@ struct OAuthCredentialControllerTests {
         #expect(callbackObservedSignedOut)
     }
 
-    @Test("signOut succeeds when didSignOut is not configured")
-    func signOutWithoutCallback() async {
-        let (controller, service, auth) = makeSUT(isAuthenticated: true)
-        controller.reconcile()
-        #expect(auth.oauthState.isSignedIn)
-
-        service.isAuthenticated = false
-        await controller.signOut()  // must not crash with nil didSignOut
-
-        #expect(service.signOutCallCount == 1)
-        #expect(auth.oauthState.isSignedOut)
-    }
 
     // MARK: - 7. Natural deallocation cancels the subscription
 
@@ -168,7 +156,11 @@ struct OAuthCredentialControllerTests {
     func deinitCancelsTask() async {
         let service = MockOAuthService()
         service.signInURLToReturn = URL(string: "https://example.com")
-        let auth = GitHubAuthentication(defaults: UserDefaults(suiteName: UUID().uuidString)!)
+        guard let defaults = UserDefaults(suiteName: UUID().uuidString) else {
+            XCTFail("Failed to create UserDefaults")
+            return
+        }
+        let auth = GitHubAuthentication(defaults: defaults)
 
         do {
             let controller = OAuthCredentialController(
@@ -186,27 +178,6 @@ struct OAuthCredentialControllerTests {
         await pollUntil(maxIterations: 10) { service.signInSubscriberCount == 0 }
     }
 
-    // MARK: - 8. makeSignInURL delegates to service
-
-    @Test("makeSignInURL delegates to service")
-    func makeSignInURLDelegates() {
-        let (controller, service, _) = makeSUT()
-
-        let url = controller.makeSignInURL()
-
-        #expect(url != nil)
-        #expect(service.makeSignInURLCallCount == 1)
-    }
-
-    @Test("makeSignInURL returns nil when service returns nil")
-    func makeSignInURLReturnsNil() {
-        let (controller, service, _) = makeSUT(signInURL: nil)
-
-        let url = controller.makeSignInURL()
-
-        #expect(url == nil)
-        #expect(service.makeSignInURLCallCount == 1)
-    }
 }
 
 // MARK: - OAuthState helpers

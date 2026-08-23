@@ -44,65 +44,42 @@ struct ActiveJobAsCompletedTests {
     )
   }
 
-  // MARK: Status
+  // MARK: Status and isDimmed
 
-  @Test func asCompleted_setsStatusToCompleted() {
+  @Test func asCompleted_setsStatusCompletedAndDimmed() {
     let result = makeJob().asCompleted(at: Self.fallback)
     #expect(result.jobStatus == .completed)
-  }
-
-  // MARK: isDimmed
-
-  @Test func asCompleted_setsDimmedTrue() {
-    let result = makeJob().asCompleted(at: Self.fallback)
     #expect(result.isDimmed)
   }
 
-  // MARK: Conclusion — nil becomes .neutral
+  // MARK: Missing timestamp uses fallback; nil conclusion becomes .neutral; scope preserved
 
-  @Test func asCompleted_conclusionNilBecomesNeutral() {
-    let result = makeJob(conclusion: nil).asCompleted(at: Self.fallback)
+  @Test func asCompleted_fallbackTimestampAndNeutralConclusion() {
+    let result = makeJob(conclusion: nil, completedAt: nil, scope: "myorg/myrepo")
+      .asCompleted(at: Self.fallback)
+    // status + dimming
+    #expect(result.jobStatus == .completed)
+    #expect(result.isDimmed)
+    // nil conclusion → .neutral
     #expect(result.jobConclusion == .neutral)
-  }
-
-  // MARK: Conclusion — existing conclusion preserved
-
-  @Test func asCompleted_existingConclusionPreserved() {
-    let result = makeJob(conclusion: "failure").asCompleted(at: Self.fallback)
-    #expect(result.jobConclusion == .failure)
-  }
-
-  @Test func asCompleted_successConclusionPreserved() {
-    let result = makeJob(conclusion: "success").asCompleted(at: Self.fallback)
-    #expect(result.jobConclusion == .success)
-  }
-
-  // MARK: completedAt — fallback written when nil
-
-  @Test func asCompleted_fallbackWrittenWhenCompletedAtNil() {
-    let result = makeJob(completedAt: nil).asCompleted(at: Self.fallback)
-    // completedDate must equal fallback to within 1 second (ISO-8601 drops sub-second precision).
+    // fallback timestamp written when completedAt is nil
     let diff = abs((result.completedDate ?? .distantPast).timeIntervalSince(Self.fallback))
     #expect(diff < 1)
-  }
-
-  // MARK: completedAt — existing value preserved when already set
-
-  @Test func asCompleted_existingCompletedAtNotOverwritten() {
-    let result = makeJob(completedAt: Self.knownDate).asCompleted(at: Self.fallback)
-    let diff = abs((result.completedDate ?? .distantPast).timeIntervalSince(Self.knownDate))
-    #expect(diff < 1)
-  }
-
-  // MARK: Scope preserved
-
-  @Test func asCompleted_scopePreserved() {
-    let result = makeJob(scope: "myorg/myrepo").asCompleted(at: Self.fallback)
+    // scope forwarded
     #expect(result.scope == "myorg/myrepo")
   }
 
-  @Test func asCompleted_nilScopePreserved() {
-    let result = makeJob(scope: nil).asCompleted(at: Self.fallback)
+  // MARK: Existing timestamp and conclusion are preserved
+
+  @Test func asCompleted_existingTimestampAndConclusionPreserved() {
+    let result = makeJob(conclusion: "failure", completedAt: Self.knownDate, scope: nil)
+      .asCompleted(at: Self.fallback)
+    // existing conclusion kept
+    #expect(result.jobConclusion == .failure)
+    // existing completedAt not overwritten
+    let diff = abs((result.completedDate ?? .distantPast).timeIntervalSince(Self.knownDate))
+    #expect(diff < 1)
+    // nil scope forwarded
     #expect(result.scope == nil)
   }
 

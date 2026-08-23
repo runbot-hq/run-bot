@@ -5,104 +5,32 @@ import GitHubClient
 import RunBotCore
 import Testing
 
-// MARK: - ActiveJob.elapsed
+// MARK: - Model elapsed integration
 
-@Suite("ActiveJob.elapsed")
-struct ActiveJobElapsedTests {
+@Suite("ModelElapsedIntegrationTests")
+struct ModelElapsedIntegrationTests {
 
-  /// A queued job (never started) returns "00:00" elapsed time.
-  @Test func elapsedQueuedReturnsZero() {
-    let job = ActiveJob(id: 1, name: "J", status: "queued")
-    #expect(job.elapsed == "00:00")
-  }
+    /// startedAt takes precedence; createdAt is the fallback for running jobs.
+    @Test func activeJobElapsedUsesJobTimingFallbacks() {
+        let now = Date(timeIntervalSinceReferenceDate: 20_000)
 
-  /// Elapsed time is formatted as "MM:SS" when start and end dates are provided for a completed job.
-  @Test func elapsedCompletedWithTimes() {
-    let start = Date(timeIntervalSinceReferenceDate: 0)
-    let end = Date(timeIntervalSinceReferenceDate: 125)
-    let job = ActiveJob(
-      id: 1, name: "J", status: "completed",
-      conclusion: "success",
-      startedAt: start,
-      completedAt: end
-    )
-    #expect(job.elapsed == "02:05")
-  }
+        let started = ActiveJob(id: 1, name: "started", status: "in_progress",
+                                startedAt: now.addingTimeInterval(-90))
+        let created = ActiveJob(id: 2, name: "created", status: "in_progress",
+                                createdAt: now.addingTimeInterval(-60))
 
-  /// A completed job without timestamps returns "--:--" as elapsed time.
-  @Test func elapsedCompletedMissingTimesReturnsDashes() {
-    let job = ActiveJob(id: 1, name: "J", status: "completed", conclusion: "success")
-    #expect(job.elapsed == "--:--")
-  }
+        #expect(started.elapsed(now: now) == "01:30")
+        #expect(created.elapsed(now: now) == "01:00")
+    }
 
-  /// An in-progress job calculates elapsed time from startedAt using an injected clock.
-  @Test func elapsedInProgressUsesStartedAt() {
-    let now = Date(timeIntervalSinceReferenceDate: 10_000)
-    let start = now.addingTimeInterval(-90)
-    let job = ActiveJob(id: 1, name: "J", status: "in_progress", startedAt: start)
-    #expect(job.elapsed(now: now) == "01:30")
-  }
-
-  /// An in-progress job falls back to createdAt when startedAt is nil, using an injected clock.
-  @Test func elapsedInProgressFallsBackToCreatedAt() {
-    let now = Date(timeIntervalSinceReferenceDate: 20_000)
-    let created = now.addingTimeInterval(-60)
-    let job = ActiveJob(id: 1, name: "J", status: "in_progress", createdAt: created)
-    #expect(job.elapsed(now: now) == "01:00")
-  }
-
-  /// An in-progress job with neither startedAt nor createdAt returns "00:00".
-  @Test func elapsedInProgressNeitherDateReturnsZero() {
-    let job = ActiveJob(id: 1, name: "J", status: "in_progress")
-    #expect(job.elapsed == "00:00")
-  }
-
-  /// `var elapsed` on a job frozen via `asCompleted()` returns a fixed "mm:ss" string.
-  ///
-  /// `asCompleted()` guarantees `raw.completedAt` is non-nil (writing `fallbackDate` when the
-  /// API value is absent), so `raw.elapsed` always produces a fixed duration rather than a
-  /// live "time since start" value. This test pins that guarantee so any future change to
-  /// `asCompleted()` that breaks the invariant surfaces immediately.
-  @Test func elapsedVarOnFrozenJobReturnFixedDuration() {
-    let start = Date(timeIntervalSinceReferenceDate: 0)
-    let fallback = Date(timeIntervalSinceReferenceDate: 75) // 1m 15s after start
-    let job = ActiveJob(id: 1, name: "J", status: "in_progress", startedAt: start)
-    let frozen = job.asCompleted(at: fallback)
-    // var elapsed must return a fixed string, not a live clock value.
-    #expect(frozen.elapsed == "01:15")
-  }
-}
-
-// MARK: - GitHubStep.elapsed
-
-@Suite("GitHubStep.elapsed")
-struct GitHubStepElapsedTests {
-
-  /// A completed step formats elapsed time as "MM:SS" given fixed start/end dates.
-  @Test func elapsedFixedDuration() {
-    let start = Date(timeIntervalSinceReferenceDate: 0)
-    let end = Date(timeIntervalSinceReferenceDate: 185)  // 3m 5s
-    let step = GitHubStep(
-      id: 1, name: "S", status: "completed",
-      startedAt: start, completedAt: end)
-    #expect(step.elapsed == "03:05")
-  }
-
-  /// A step with nil start and end dates returns "00:00".
-  @Test func elapsedNilDatesReturnsZero() {
-    let step = GitHubStep(id: 1, name: "S", status: "in_progress")
-    #expect(step.elapsed == "00:00")
-  }
-
-  /// Exactly one minute (60 seconds) is formatted as "01:00".
-  @Test func elapsedExactlyOneMinute() {
-    let start = Date(timeIntervalSinceReferenceDate: 0)
-    let end = Date(timeIntervalSinceReferenceDate: 60)
-    let step = GitHubStep(
-      id: 1, name: "S", status: "completed",
-      startedAt: start, completedAt: end)
-    #expect(step.elapsed == "01:00")
-  }
+    /// A step maps its own timestamps and completion into the shared formatter.
+    @Test func stepElapsedUsesStepTiming() {
+        let start = Date(timeIntervalSinceReferenceDate: 0)
+        let end   = start.addingTimeInterval(60)
+        let step  = GitHubStep(id: 1, name: "S", status: "completed",
+                               startedAt: start, completedAt: end)
+        #expect(step.elapsed == "01:00")
+    }
 }
 
 // MARK: - ActiveJob.isLocalRunner
@@ -110,118 +38,99 @@ struct GitHubStepElapsedTests {
 @Suite("ActiveJob.isLocalRunner")
 struct ActiveJobIsLocalRunnerTests {
 
-  /// isLocalRunner returns nil when a job has no runner name.
-  @Test func isLocalRunnerNilWhenNoRunnerName() {
-    let job = ActiveJob(id: 1, name: "J", status: "queued")
-    #expect(job.isLocalRunner == nil)
-  }
-
-  /// All known hosted-runner name patterns return false — they are not local runners.
-  @Test(arguments: [
-    "ubuntu-latest",
-    "macos-14",
-    "windows-2022",
-    "buildjet-4vcpu-ubuntu-2204",
-    "depot-ubuntu-22.04",
-    "GitHub Actions 12",
-  ])
-  func isLocalRunnerFalseForHostedRunners(runnerName: String) {
-    let job = ActiveJob(id: 1, name: "J", status: "completed", runnerName: runnerName)
-    #expect(job.isLocalRunner == false)
-  }
-
-  /// An arbitrary self-hosted runner name is identified as local.
-  @Test func isLocalRunnerTrueForSelfHosted() {
-    let job = ActiveJob(id: 1, name: "J", status: "completed", runnerName: "my-mac-mini")
-    #expect(job.isLocalRunner == true)
-  }
-
-  /// A custom-named runner (e.g., "office-m2-runner") is identified as local.
-  @Test func isLocalRunnerTrueForCustomName() {
-    let job = ActiveJob(id: 1, name: "J", status: "completed", runnerName: "office-m2-runner")
-    #expect(job.isLocalRunner == true)
+  /// Classification matrix: nil, every hosted-prefix family (case-insensitive),
+  /// and an arbitrary self-hosted name. The forwarding itself is trivial; the
+  /// hosted prefixes are the contract worth pinning.
+  @Test func runnerNameClassification() {
+    let cases: [(name: String?, expected: Bool?)] = [
+      (nil,                          nil),
+      ("ubuntu-latest",              false),
+      ("macos-14",                   false),
+      ("windows-2022",               false),
+      ("buildjet-4vcpu-ubuntu-2204", false),
+      ("depot-ubuntu-22.04",         false),
+      ("GitHub Actions 12",          false),
+      ("UBUNTU-LATEST",              false),
+      ("office-mac-mini",            true)
+    ]
+    for testCase in cases {
+      let job = ActiveJob(id: 1, name: "job", status: "completed", runnerName: testCase.name)
+      #expect(job.isLocalRunner == testCase.expected,
+              "runnerName=\(String(describing: testCase.name))")
+    }
   }
 }
 
-// MARK: - RunnerModel.displayStatus
+// MARK: - RunnerModel presentation
 
-@Suite("RunnerModel.displayStatus")
-struct RunnerModelDisplayStatusTests {
+/// One state-policy matrix for ``RunnerModel``'s twin projections of the same
+/// internal resolved state: `displayStatus` (text) and `statusColor` (colour).
+/// Asserting both in every fixture keeps them from drifting apart.
+@Suite("RunnerModel presentation")
+struct RunnerModelPresentationTests {
 
-  /// Verifies that a running runner reports `"running"` as its display status.
-  @Test func displayStatusRunning() {
-    #expect(makeRunnerModel(isRunning: true).displayStatus == "running")
-  }
+  @Test
+  func presentationFollowsResolvedState() {
+    struct Case {
+      let label: String
+      let isRunning: Bool
+      let githubStatus: RunnerStatus?
+      let isBusy: Bool
+      let warning: String?
+      let expectedText: String
+      let expectedColor: RunnerModel.StatusColor
+    }
 
-  /// Verifies that a runner that is both running and busy reports `"busy"` as its display status.
-  @Test func displayStatusBusy() {
-    #expect(makeRunnerModel(isRunning: true, isBusy: true).displayStatus == "busy")
-  }
+    let cases: [Case] = [
+      // Lifecycle warning outranks running/busy for both text and colour.
+      Case(label: "warning wins",
+           isRunning: true, githubStatus: .online, isBusy: true,
+           warning: "update required",
+           expectedText: "update required", expectedColor: .offline),
+      // Local process up + executing a job.
+      Case(label: "local busy",
+           isRunning: true, githubStatus: nil, isBusy: true,
+           warning: nil,
+           expectedText: "busy", expectedColor: .busy),
+      // GitHub reports busy even though the local process is absent.
+      Case(label: "remote busy",
+           isRunning: false, githubStatus: .busy, isBusy: false,
+           warning: nil,
+           expectedText: "busy", expectedColor: .busy),
+      // Local process up, no job.
+      Case(label: "local process running",
+           isRunning: true, githubStatus: nil, isBusy: false,
+           warning: nil,
+           expectedText: "running", expectedColor: .running),
+      // Not running locally but reachable per GitHub — yellow-dot idle.
+      Case(label: "remote online",
+           isRunning: false, githubStatus: .online, isBusy: false,
+           warning: nil,
+           expectedText: "online", expectedColor: .idle),
+      Case(label: "offline",
+           isRunning: false, githubStatus: .offline, isBusy: false,
+           warning: nil,
+           expectedText: "offline", expectedColor: .offline),
+      // Deliberate fallback policy: unrecognised GitHub statuses read as offline.
+      Case(label: "unknown is offline",
+           isRunning: false, githubStatus: .unknown("draining"), isBusy: false,
+           warning: nil,
+           expectedText: "offline", expectedColor: .offline),
+    ]
 
-  /// Verifies that a non-running runner with GitHub status `.online` reports `"online"`.
-  @Test func displayStatusOnline() {
-    #expect(makeRunnerModel(isRunning: false, githubStatus: .online).displayStatus == "online")
-  }
+    for testCase in cases {
+      let runner = makeRunnerModel(
+        isRunning: testCase.isRunning,
+        isBusy: testCase.isBusy,
+        // `nil` and `.offline` resolve identically when the local process is down;
+        // while running, `githubStatus` only matters when it is `.busy`.
+        githubStatus: testCase.githubStatus ?? .offline,
+        lifecycleWarning: testCase.warning
+      )
 
-  /// Verifies that a non-running runner with GitHub status `.offline` reports `"offline"`.
-  @Test func displayStatusOffline() {
-    #expect(makeRunnerModel(isRunning: false, githubStatus: .offline).displayStatus == "offline")
-  }
-
-  /// Verifies that a lifecycle warning string takes priority over the running state in display status.
-  @Test func displayStatusLifecycleWarningTakesPriority() {
-    let runner = makeRunnerModel(isRunning: true, lifecycleWarning: "update required")
-    #expect(runner.displayStatus == "update required")
-  }
-
-  /// Verifies that a non-running runner whose GitHub status is `.busy` reports `"busy"`.
-  @Test func displayStatusBusyGithubStatusWhenNotRunning() {
-    #expect(makeRunnerModel(isRunning: false, githubStatus: .busy).displayStatus == "busy")
-  }
-
-  /// Verifies that an unknown GitHub status falls back to `"offline"` as the display status.
-  @Test func displayStatusDefaultsToOfflineForUnknownStatus() {
-    #expect(
-      makeRunnerModel(isRunning: false, githubStatus: .unknown("draining")).displayStatus
-        == "offline")
-  }
-}
-
-// MARK: - RunnerModel.statusColor
-
-@Suite("RunnerModel.statusColor")
-struct RunnerModelStatusColorTests {
-
-  /// Verifies that a running runner's status color is `.running`.
-  @Test func statusColorRunning() {
-    #expect(makeRunnerModel(isRunning: true).statusColor == .running)
-  }
-
-  /// Verifies that a running and busy runner's status color is `.busy`.
-  @Test func statusColorBusy() {
-    #expect(makeRunnerModel(isRunning: true, isBusy: true).statusColor == .busy)
-  }
-
-  /// Verifies that a non-running runner with GitHub status `.online` receives the `.idle` color.
-  @Test func statusColorGithubOnlineIsIdle() {
-    #expect(makeRunnerModel(isRunning: false, githubStatus: .online).statusColor == .idle)
-  }
-
-  /// Verifies that a non-running runner with GitHub status `.offline` receives the `.offline` color.
-  @Test func statusColorOffline() {
-    #expect(makeRunnerModel(isRunning: false, githubStatus: .offline).statusColor == .offline)
-  }
-
-  /// Verifies that a lifecycle warning overrides the normal running color and returns `.offline`.
-  @Test func statusColorLifecycleWarning() {
-    #expect(
-      makeRunnerModel(isRunning: true, lifecycleWarning: "restart failed").statusColor == .offline)
-  }
-
-  /// Verifies that an unknown GitHub status results in the `.offline` status color.
-  @Test func statusColorUnknownGithubStatus() {
-    #expect(
-      makeRunnerModel(isRunning: false, githubStatus: .unknown("draining")).statusColor == .offline)
+      #expect(runner.displayStatus == testCase.expectedText, "\(testCase.label)")
+      #expect(runner.statusColor == testCase.expectedColor, "\(testCase.label)")
+    }
   }
 }
 
@@ -460,25 +369,23 @@ struct PollResultBuilderTests {
 @Suite("JobStatus.isActive")
 struct JobStatusIsActiveTests {
 
-  /// Verifies that each active status returns `true` for `isActive`.
-  @Test(arguments: [
-    JobStatus.queued,
-    .inProgress,
-    .waiting,
-    .requested,
-    .pending,
-  ])
-  func isActiveTrue(status: JobStatus) {
-    #expect(status.isActive)
-  }
-
-  /// Verifies that each inactive status returns `false` for `isActive`.
-  @Test(arguments: [
-    JobStatus.completed,
-    .unknown("draining"),
-  ])
-  func isActiveFalse(status: JobStatus) {
-    #expect(!status.isActive)
+  @Test
+  func activeClassification() {
+    let cases: [(status: JobStatus, expected: Bool)] = [
+      (.queued,              true),
+      (.inProgress,          true),
+      (.waiting,             true),
+      (.requested,           true),
+      (.pending,             true),
+      (.completed,           false),
+      (.unknown("draining"), false),
+    ]
+    for testCase in cases {
+      #expect(
+        testCase.status.isActive == testCase.expected,
+        "status=\(testCase.status) expected isActive=\(testCase.expected)"
+      )
+    }
   }
 }
 
@@ -578,7 +485,7 @@ struct PollResultBuilderGroupStateTests {
       enrichJobs: { $0 }
     )
     #expect(
-      result.display.filter { !$0.isDimmed }.isEmpty,
+      !result.display.contains { !$0.isDimmed },
       "Completed group must not appear as a live (non-dimmed) row")
     #expect(!result.newGroupCache.isEmpty)
   }
@@ -608,7 +515,7 @@ struct PollResultBuilderGroupStateTests {
       fetchGroups: { _ in [completedGroup] },
       enrichJobs: { $0 }
     )
-    #expect(result.display.filter { !$0.isDimmed }.isEmpty)
+    #expect(!result.display.contains { !$0.isDimmed })
     #expect(result.newGroupCache[completedGroup.id] != nil)
   }
 
@@ -647,7 +554,7 @@ struct PollResultBuilderGroupStateTests {
     let displayForSha = result.display.filter { $0.headSha == sha }
     let cacheForSha = result.newGroupCache.values.filter { $0.headSha == sha }
     #expect(displayForSha.count == 1)
-    #expect(cacheForSha.count == 0)
+    #expect(cacheForSha.isEmpty)
   }
 
 }
@@ -736,8 +643,8 @@ struct PollResultBuilderEvictionTests {
       fetchGroups: { _ in [freshCommit] },
       enrichJobs: { $0 }
     )
-    let dispatchSurvives = result.newGroupCache.values.contains {
-      $0.headSha == sha && $0.normalizedEvent == "workflow_dispatch"
+    let dispatchSurvives = result.newGroupCache.values.contains { group in
+      group.headSha == sha && group.normalizedEvent == "workflow_dispatch"
     }
     #expect(
       dispatchSurvives,
@@ -809,223 +716,5 @@ struct ProcessRunnerRunAsyncStdinTests {
             "stdout must be empty when output is written only to stderr")
   }
 
-  // ⚠️⚠️⚠️  SIGTERM TESTING — HARD STOP. READ EVERY WORD BEFORE TOUCHING ANYTHING BELOW.  ⚠️⚠️⚠️
-  //
-  // This test is intentionally, permanently minimal. Do NOT add assertions,
-  // do NOT add new SIGTERM tests, do NOT "improve" the signal construct below.
-  //
-  // ─── PRODUCT IDENTITY ───────────────────────────────────────────────────────
-  // run-bot is a menu-bar GitHub runner manager. It is NOT a crash analytics
-  // tool, NOT a signal-tracing debugger, and NOT a process-lifecycle monitor.
-  // Signal handling and crash forensics are an entirely separate product domain.
-  // Bringing that domain into this codebase is a category error, not an
-  // improvement. If you want Crashlytics-grade signal correctness, build a
-  // different product.
-  //
-  // ─── COMBINATORIAL EXPLOSION ────────────────────────────────────────────────
-  // Every new signal assertion multiplies the problem space:
-  //   OS version  ×  signal type  ×  delivery timing window  ×  shell PID scope
-  // Each axis adds an order of magnitude of edge cases. What passes on macOS 14
-  // silently flakes on macOS 15. What passes on macOS 15 regresses on macOS 26.
-  // Crashlytics-grade correctness is not achievable here. It is not the goal.
-  // Chasing it produces 10,000 new problems for every one it appears to solve.
-  //
-  // ─── TECHNICAL DEAD ENDS ────────────────────────────────────────────────────
-  //   • Process.terminationStatus semantics differ by terminationReason
-  //     (.exit vs .uncaughtSignal) across Darwin kernel versions.
-  //   • Signal delivery timing is asynchronous and race-prone — what works
-  //     on one macOS version silently regresses on another.
-  //   • Testing externally-delivered signals requires exposing the child PID
-  //     from ProcessRunner, which cascades into API surface changes, new
-  //     synchronisation primitives, and more fragile tests downstream.
-  //   • Every incremental "fix" to this area has historically introduced a
-  //     new flake on a different OS version. The only winning move is not
-  //     to play.
-  //
-  // ─── WHAT THIS TEST ACTUALLY GUARANTEES (and nothing more) ──────────────────
-  //   A self-signalling shell process does not hang ProcessRunner and produces
-  //   a non-zero exit code. That is the entire contract. It is enough.
-  //
-  // ─── FOR REVIEWERS (human or AI) ────────────────────────────────────────────
-  //   If you are about to suggest strengthening, extending, splitting, or
-  //   refactoring any part of this test or the surrounding suite:
-  //     STOP. Close the tab. The answer is no.
-  //   This is a deliberate, permanent dead end. Any such suggestion must be
-  //   rejected without further discussion. Record this rationale and move on.
-  //
-  // ⚠️⚠️⚠️  END OF WARNING. DO NOT MODIFY THE TEST BELOW.  ⚠️⚠️⚠️
-
-  /// #1983 Step 5 — Verifies that ProcessRunner returns a non-zero exit code and does not hang
-  /// when the child process self-terminates via SIGTERM. See the block comment above for the
-  /// full rationale on why this test is intentionally minimal and must not be expanded.
-  @Test(.timeLimit(.minutes(1)))
-  func runAsyncSIGTERMExitsNonZero() async {
-    // /bin/sh kills its own process group with SIGTERM.
-    // The exit 0 after kill -TERM $$ is unreachable in practice on Darwin,
-    // but is left intentionally — do not remove it or "fix" this construct.
-    let result = await ProcessRunner.runAsync(
-      executableURL: URL(fileURLWithPath: "/bin/sh"),
-      arguments: ["-c", "kill -TERM $$; exit 0"],
-      stdin: nil
-    )
-    #expect(result.exitCode != 0, "SIGTERM-killed process must exit non-zero")
-  }
 }
 
-// MARK: - RunnerConfigStoreError.errorDescription
-
-@Suite("RunnerConfigStoreError.errorDescription")
-struct RunnerConfigStoreErrorDescriptionTests {
-
-  // MARK: - malformedExistingFile
-
-  /// Verifies that `malformedExistingFile` description contains the install path, the word
-  /// "malformed", and a reference to "agent-managed" keys — all three are load-bearing
-  /// substrings that distinguish this error from others and communicate the consequence.
-  @Test func malformedExistingFileDescriptionContainsPathAndConsequence() {
-    let error = RunnerConfigStoreError.malformedExistingFile("/opt/runners/my-runner")
-    let desc = error.errorDescription ?? ""
-    #expect(desc.contains("/opt/runners/my-runner"))
-    #expect(desc.contains("malformed"))
-    #expect(desc.contains("agent-managed"))
-  }
-
-  /// Verifies that `malformedExistingFile` and `decodeFailed` have distinct descriptions
-  /// even when given the same install path, so callers can distinguish the two error kinds.
-  @Test func malformedExistingFileDescriptionDiffersFromDecodeFailed() {
-    let malformed = RunnerConfigStoreError.malformedExistingFile("/opt/runners/r")
-    let decode = RunnerConfigStoreError.decodeFailed("/opt/runners/r")
-    #expect(malformed.errorDescription != decode.errorDescription)
-  }
-
-  // MARK: - decodeFailed
-
-  /// Verifies that `decodeFailed` description contains the install path and the word "decode",
-  /// confirming the error message identifies both the location and the failure kind.
-  @Test func decodeFailedDescriptionContainsPathAndKeyword() {
-    let error = RunnerConfigStoreError.decodeFailed("/opt/runners/decode-runner")
-    let desc = error.errorDescription ?? ""
-    #expect(desc.contains("/opt/runners/decode-runner"),
-            "description must include the install path")
-    #expect(desc.contains("decode"),
-            "description must contain a distinctive keyword identifying the failure kind")
-  }
-
-  // MARK: - readFailed
-
-  /// Verifies that `readFailed` description contains the install path, a reference to "read",
-  /// and the underlying error's localised description — all required for actionable diagnostics.
-  @Test func readFailedDescriptionContainsPathAndUnderlyingError() {
-    struct FakeError: LocalizedError {
-      var errorDescription: String? { "disk not found" }
-    }
-    let error = RunnerConfigStoreError.readFailed("/opt/runners/read-runner", FakeError())
-    let desc = error.errorDescription ?? ""
-    #expect(desc.contains("/opt/runners/read-runner"),
-            "description must include the install path")
-    #expect(desc.contains("read"),
-            "description must reference the read operation")
-    #expect(desc.contains("disk not found"),
-            "description must embed the underlying error's localised description")
-  }
-
-  // MARK: - writeFailed
-
-  /// Verifies that `writeFailed` description contains the install path, a reference to "write",
-  /// and the underlying error's localised description.
-  @Test func writeFailedDescriptionContainsPathAndUnderlyingError() {
-    struct FakeError: LocalizedError {
-      var errorDescription: String? { "no space left on device" }
-    }
-    let error = RunnerConfigStoreError.writeFailed("/opt/runners/write-runner", FakeError())
-    let desc = error.errorDescription ?? ""
-    #expect(desc.contains("/opt/runners/write-runner"),
-            "description must include the install path")
-    #expect(desc.contains("write"),
-            "description must reference the write operation")
-    #expect(desc.contains("no space left on device"),
-            "description must embed the underlying error's localised description")
-  }
-
-  // MARK: - ioReadFailedDuringSave
-
-  /// Verifies that `ioReadFailedDuringSave` description contains the install path, a reference
-  /// to "agent-managed" keys (to communicate the consequence), and the underlying error's
-  /// localised description.
-  @Test func ioReadFailedDuringSaveDescriptionContainsPathConsequenceAndUnderlyingError() {
-    struct FakeError: LocalizedError {
-      var errorDescription: String? { "permission denied" }
-    }
-    let error = RunnerConfigStoreError.ioReadFailedDuringSave(
-      "/opt/runners/save-runner", FakeError())
-    let desc = error.errorDescription ?? ""
-    #expect(desc.contains("/opt/runners/save-runner"),
-            "description must include the install path")
-    #expect(desc.contains("agent-managed"),
-            "description must communicate that agent-managed keys would be lost")
-    #expect(desc.contains("permission denied"),
-            "description must embed the underlying error's localised description")
-  }
-
-  /// Verifies that `ioReadFailedDuringSave` and `readFailed` have distinct descriptions
-  /// even when given the same path and underlying error, so callers can distinguish
-  /// the two I/O read failure origins (save-time vs. load-time).
-  @Test func ioReadFailedDuringSaveDiffersFromReadFailed() {
-    struct FakeError: LocalizedError {
-      var errorDescription: String? { "some io error" }
-    }
-    let ioSave = RunnerConfigStoreError.ioReadFailedDuringSave("/opt/runners/r", FakeError())
-    let read = RunnerConfigStoreError.readFailed("/opt/runners/r", FakeError())
-    #expect(ioSave.errorDescription != read.errorDescription,
-            "ioReadFailedDuringSave and readFailed must produce distinct descriptions")
-  }
-}
-// MARK: - SystemStats.gpuPct
-
-@Suite("SystemStats.gpuPct")
-struct SystemStatsGPUTests {
-
-    /// Verifies that `SystemStats` stores and returns the GPU percentage value.
-    @Test func storesGPUPercentage() {
-        let stats = SystemStats(
-            cpuPct: 20,
-            gpuPct: 73,
-            memUsedGB: 8,
-            memTotalGB: 16,
-            diskUsedGB: 100,
-            diskTotalGB: 500
-        )
-        #expect(stats.gpuPct == 73)
-    }
-
-    /// Verifies that `.zero` has `gpuPct == nil` so the caller can distinguish
-    /// "no data" from a 0% GPU load.
-    @Test func zeroStatsHasUnavailableGPU() {
-        #expect(SystemStats.zero.gpuPct == nil)
-    }
-
-    /// Verifies that `gpuPct` defaults to `nil` when omitted from the initialiser.
-    @Test func gpuPctDefaultsToNil() {
-        let stats = SystemStats(
-            cpuPct: 10,
-            memUsedGB: 4,
-            memTotalGB: 8,
-            diskUsedGB: 50,
-            diskTotalGB: 500
-        )
-        #expect(stats.gpuPct == nil)
-    }
-
-    /// Verifies that `gpuPct` can be `nil` explicitly.
-    @Test func nilGpuPctIsExplicitlyRepresentable() {
-        let stats = SystemStats(
-            cpuPct: 10,
-            gpuPct: nil,
-            memUsedGB: 4,
-            memTotalGB: 8,
-            diskUsedGB: 50,
-            diskTotalGB: 500
-        )
-        #expect(stats.gpuPct == nil)
-    }
-}

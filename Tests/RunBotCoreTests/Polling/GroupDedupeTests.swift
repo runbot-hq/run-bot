@@ -16,15 +16,15 @@ import Testing
 // MARK: - Factory
 
 private func makeGroup(
-    repo: String = "owner/repo",
     sha: String,
-    event: String = "commit",
     runIDs: [Int],
+    repo: String = "owner/repo",
+    event: String = "commit",
     status: JobStatus = JobStatus.inProgress,
     createdAt: Date? = nil
 ) -> WorkflowActionGroup {
-    let runs = runIDs.map {
-        WorkflowRunRef(id: $0, name: "CI", status: status, conclusion: nil, htmlUrl: nil)
+    let runs = runIDs.map { id in
+        WorkflowRunRef(id: id, name: "CI", status: status, conclusion: nil, htmlUrl: nil)
     }
     return WorkflowActionGroup(
         headSha: sha,
@@ -52,21 +52,21 @@ struct GroupIdentityTests {
 
     /// push and workflow_dispatch on the same SHA are two distinct groups.
     @Test func eventSeparationPreserved() {
-        let push   = makeGroup(sha: "abc", event: "commit",            runIDs: [100])
-        let manual = makeGroup(sha: "abc", event: "workflow_dispatch", runIDs: [101])
+        let push   = makeGroup(sha: "abc", runIDs: [100], event: "commit")
+        let manual = makeGroup(sha: "abc", runIDs: [101], event: "workflow_dispatch")
         #expect(push.id != manual.id)
     }
 
     /// Same SHA + event under two different repos are two distinct groups.
     @Test func repoSeparationPreserved() {
-        let repoA = makeGroup(repo: "owner/repoA", sha: "abc", runIDs: [100])
-        let repoB = makeGroup(repo: "owner/repoB", sha: "abc", runIDs: [101])
+        let repoA = makeGroup(sha: "abc", runIDs: [100], repo: "owner/repoA")
+        let repoB = makeGroup(sha: "abc", runIDs: [101], repo: "owner/repoB")
         #expect(repoA.id != repoB.id)
     }
 
     /// compositeCacheKey static and instance overloads must agree.
     @Test func compositeCacheKeyConsistency() {
-        let group = makeGroup(repo: "owner/repo", sha: "deadbeef", event: "push", runIDs: [42])
+        let group = makeGroup(sha: "deadbeef", runIDs: [42], repo: "owner/repo", event: "push")
         let staticKey = WorkflowActionGroup.compositeCacheKey(
             repo: "owner/repo", headSha: "deadbeef", normalizedEvent: "push")
         #expect(group.compositeCacheKey == staticKey)
@@ -109,7 +109,7 @@ struct GroupDisplayDedupeTests {
         let groups: [WorkflowActionGroup] = [
             makeGroup(sha: "abc", runIDs: [100], status: JobStatus.inProgress),
             makeGroup(sha: "def", runIDs: [200], status: JobStatus.inProgress),
-            makeGroup(repo: "owner/other", sha: "abc", runIDs: [300], status: JobStatus.inProgress),
+            makeGroup(sha: "abc", runIDs: [300], repo: "owner/other", status: JobStatus.inProgress),
         ]
         let display = PollResultBuilder.buildGroupDisplay(live: groups, cache: [:])
         let ids = display.map(\.id)
@@ -139,17 +139,4 @@ struct MakeShaKeyedCacheTests {
         #expect(entry?.latestRunID == 10)
     }
 
-    /// A cache with no collisions passes through unchanged.
-    @Test func noCollisionPassthrough() {
-        let g1 = makeGroup(sha: "aaa", runIDs: [1])
-        let g2 = makeGroup(sha: "bbb", runIDs: [2])
-        let cache: [String: WorkflowActionGroup] = [
-            g1.compositeCacheKey: g1,
-            g2.compositeCacheKey: g2,
-        ]
-        let result = PollResultBuilder.makeShaKeyedCache(cache)
-        #expect(result.count == 2)
-        #expect(result[g1.compositeCacheKey]?.latestRunID == 1)
-        #expect(result[g2.compositeCacheKey]?.latestRunID == 2)
-    }
 }

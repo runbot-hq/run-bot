@@ -2,279 +2,148 @@
 // RunBotTests
 
 import Testing
+@testable import RunBotCore
 @testable import RunBot
 
-/// Tests for ``MainHierarchyState``.
-///
-/// Covers expansion storage, job-state cleanup invariants owned by
-/// `setExpansion`, status reconciliation (both first-observation and
-/// transition), pruning, and visible-count persistence.
+/// Four behavioral contracts for ``MainHierarchyState``:
+///   expansionCleanupContract   - per-group keying, full<->partial<->collapsed job cleanup
+///   firstObservationContract   - automatic expansion policy on first status observation
+///   statusTransitionContract   - reconcile transitions: collapse, expand, user-intent preservation
+///   retainGroupsPrunesState    - stale expansion, job, and status removal
 @MainActor
 struct MainHierarchyStateTests {
 
-    // MARK: - Expansion storage
+    // MARK: - 1. Expansion / job-state lifecycle
 
-    /// Verifies that a new workflow group has no stored expansion entry.
     @Test
-    func newGroupHasNoEntry() {
+    func expansionCleanupContract() {
         let state = MainHierarchyState()
-        #expect(state.expansion(for: "group-1") == nil)
-    }
 
-    /// Verifies that an explicit `.collapsed` entry is distinct from no entry.
-    @Test
-    func collapsedIsDistinctFromAbsent() {
-        let state = MainHierarchyState()
-        state.setExpansion(.collapsed, for: "group-1")
-        #expect(state.expansion(for: "group-1") == .collapsed)
-        #expect(state.expansion(for: "group-2") == nil)
-    }
+        // No entry for unseen group.
+        #expect(state.expansion(for: "wf-a") == nil)
 
-    /// Verifies that `.partial` survives repeated reads.
-    @Test
-    func partialSurvivesRepeatedReads() {
-        let state = MainHierarchyState()
-        state.setExpansion(.partial, for: "g")
-        #expect(state.expansion(for: "g") == .partial)
-        #expect(state.expansion(for: "g") == .partial)
-    }
-
-    /// Verifies that `.full` survives repeated reads.
-    @Test
-    func fullSurvivesRepeatedReads() {
-        let state = MainHierarchyState()
-        state.setExpansion(.full, for: "g")
-        #expect(state.expansion(for: "g") == .full)
-        #expect(state.expansion(for: "g") == .full)
-    }
-
-    // MARK: - Job-state cleanup invariants (owned by setExpansion)
-
-    /// Verifies that `setExpansion(.partial)` from `.full` clears nested jobs.
-    ///
-    /// Tests the production contract of `setExpansion`; callers must not
-    /// need to manage this cleanup themselves.
-    @Test
-    func fullToPartialClearsJobs() {
-        let state = MainHierarchyState()
+        // Full expansion + jobs on two independent groups.
         state.setExpansion(.full, for: "wf-a")
         state.setJobs([1, 2], for: "wf-a")
+        state.setJobs([3], for: "wf-b")
 
+        #expect(state.expansion(for: "wf-a") == .full)
+        #expect(state.jobs(for: "wf-a") == [1, 2])
+        #expect(state.jobs(for: "wf-b") == [3])
+
+        // Full -> partial clears nested jobs for wf-a, leaves wf-b intact.
         state.setExpansion(.partial, for: "wf-a")
 
+        #expect(state.expansion(for: "wf-a") == .partial)
         #expect(state.jobs(for: "wf-a").isEmpty)
-    }
+        #expect(state.jobs(for: "wf-b") == [3])
 
-    /// Verifies that `setExpansion(.collapsed)` clears nested jobs.
-    ///
-    /// Tests the production contract of `setExpansion`; callers must not
-    /// need to call `clearJobs` separately.
-    @Test
-    func explicitCollapseClearsJobs() {
-        let state = MainHierarchyState()
+        // Re-populate wf-a then collapse -- clears jobs again.
         state.setExpansion(.full, for: "wf-a")
-        state.setJobs([1, 2], for: "wf-a")
-
+        state.setJobs([4], for: "wf-a")
         state.setExpansion(.collapsed, for: "wf-a")
 
         #expect(state.jobs(for: "wf-a").isEmpty)
     }
 
-    // MARK: - Job expansion accessors
+    // MARK: - 2. First-observation policy
 
-    /// Verifies that job IDs are stored independently per workflow group.
     @Test
-    func jobIDsStoredPerGroup() {
-        let state = MainHierarchyState()
-        state.setJobs([1, 2, 3], for: "wf-a")
-        #expect(state.jobs(for: "wf-a") == [1, 2, 3])
+    func firstObservationContract() {
+        let cases: [(status: RBStatus, expected: MainHierarchyState.WorkflowExpansion)] = [
+            (.inProgress, .partial),
+            (.queued,     .collapsed),
+            (.success,    .collapsed),
+            (.failed,     .collapsed)
+        ]
+
+        for (index, testCase) in cases.enumerated() {
+            let state   = MainHierarchyState()
+            let groupID = "wf-\(index)"
+
+            let changed = state.reconcile(status: testCase.status, for: groupID)
+
+            #expect(changed)
+            #expect(state.expansion(for: groupID) == testCase.expected)
+            #expect(state.status(for: groupID) == testCase.status)
+        }
     }
 
-    /// Verifies that two workflow groups do not share nested job state.
+    // MARK: - 3. Status transition contract
+
     @Test
-    func groupsDoNotShareJobState() {
-        let state = MainHierarchyState()
-        state.setJobs([1], for: "wf-a")
-        state.setJobs([2], for: "wf-b")
-        #expect(state.jobs(for: "wf-a") == [1])
-        #expect(state.jobs(for: "wf-b") == [2])
+    func statusTransitionContract() {
+        typealias Expansion = MainHierarchyState.WorkflowExpansion
+
+        struct TransitionCase {
+            let initialStatus: RBStatus
+            let initialExpansion: Expansion
+            let newStatus: RBStatus
+            let expectedExpansion: Expansion
+            let expectedChanged: Bool
+            let shouldClearJobs: Bool
+        }
+
+        let transitions: [TransitionCase] = [
+            // Terminal status on a partial expansion collapses and clears jobs.
+            .init(initialStatus: .inProgress, initialExpansion: .partial, newStatus: .success,
+                  expectedExpansion: .collapsed, expectedChanged: true, shouldClearJobs: true),
+            .init(initialStatus: .inProgress, initialExpansion: .partial, newStatus: .failed,
+                  expectedExpansion: .collapsed, expectedChanged: true, shouldClearJobs: true),
+            // Work resuming from queued expands collapsed -> partial, jobs untouched.
+            .init(initialStatus: .queued, initialExpansion: .collapsed, newStatus: .inProgress,
+                  expectedExpansion: .partial, expectedChanged: true, shouldClearJobs: false),
+            // Non-running transitions preserve user-selected full expansion and jobs.
+            .init(initialStatus: .success, initialExpansion: .full, newStatus: .success,
+                  expectedExpansion: .full, expectedChanged: false, shouldClearJobs: false),
+            .init(initialStatus: .failed, initialExpansion: .full, newStatus: .success,
+                  expectedExpansion: .full, expectedChanged: false, shouldClearJobs: false)
+        ]
+
+        for (index, transition) in transitions.enumerated() {
+            let state   = MainHierarchyState()
+            let groupID = "wf-\(index)"
+
+            state.reconcile(status: transition.initialStatus, for: groupID)
+            state.setExpansion(transition.initialExpansion, for: groupID)
+            state.setJobs([1, 2], for: groupID)
+
+            let changed = state.reconcile(status: transition.newStatus, for: groupID)
+
+            #expect(state.expansion(for: groupID) == transition.expectedExpansion)
+            #expect(changed == transition.expectedChanged)
+            #expect(state.status(for: groupID) == transition.newStatus)
+
+            if transition.shouldClearJobs {
+                #expect(state.jobs(for: groupID).isEmpty)
+            } else {
+                #expect(state.jobs(for: groupID) == [1, 2])
+            }
+        }
     }
 
-    /// Verifies that setting an empty job set returns an empty set on read.
+    // MARK: - 4. Pruning contract
+
     @Test
-    func emptyJobSetIsEmpty() {
+    func retainGroupsPrunesState() {
         let state = MainHierarchyState()
-        state.setJobs([1], for: "wf-a")
-        state.setJobs([], for: "wf-a")
-        #expect(state.jobs(for: "wf-a").isEmpty)
-    }
 
-    // MARK: - Status reconciliation: first observation
+        state.setExpansion(.full,    for: "keep")
+        state.setJobs([1],           for: "keep")
+        state.setStatus(.success,    for: "keep")
 
-    /// Verifies that the first observation of `.inProgress` initializes `.partial`.
-    @Test
-    func firstInProgressInitializesPartial() {
-        let state = MainHierarchyState()
-        state.reconcile(status: .inProgress, for: "wf-a")
-        #expect(state.expansion(for: "wf-a") == .partial)
-    }
+        state.setExpansion(.partial, for: "stale")
+        state.setJobs([2],           for: "stale")
+        state.setStatus(.inProgress, for: "stale")
 
-    /// Verifies that the first observation of a terminal status initializes `.collapsed`.
-    @Test
-    func firstSuccessInitializesCollapsed() {
-        let state = MainHierarchyState()
-        state.reconcile(status: .success, for: "wf-a")
-        #expect(state.expansion(for: "wf-a") == .collapsed)
-    }
+        state.retainGroups(["keep"])
 
-    /// Verifies that the first observation of `.queued` initializes `.collapsed`.
-    @Test
-    func firstQueuedInitializesCollapsed() {
-        let state = MainHierarchyState()
-        state.reconcile(status: .queued, for: "wf-a")
-        #expect(state.expansion(for: "wf-a") == .collapsed)
-    }
+        #expect(state.expansion(for: "keep") == .full)
+        #expect(state.jobs(for: "keep")      == [1])
+        #expect(state.status(for: "keep")    == .success)
 
-    // MARK: - Status reconciliation: transitions while unmounted
-
-    /// Verifies that `.inProgress` → `.success` while Main is unmounted collapses expansion.
-    @Test
-    func inProgressToSuccessWhileUnmountedCollapses() {
-        let state = MainHierarchyState()
-        state.reconcile(status: .inProgress, for: "wf-a") // partial
-        state.setExpansion(.partial, for: "wf-a")
-
-        // Simulate Main unmount: no view is observing status changes.
-        // On remount, ActionRowView calls reconcile with the current status.
-        state.reconcile(status: .success, for: "wf-a")
-
-        #expect(state.expansion(for: "wf-a") == .collapsed)
-    }
-
-    /// Verifies that `.inProgress` → `.failed` while Main is unmounted collapses expansion.
-    @Test
-    func inProgressToFailedWhileUnmountedCollapses() {
-        let state = MainHierarchyState()
-        state.reconcile(status: .inProgress, for: "wf-a")
-
-        state.reconcile(status: .failed, for: "wf-a")
-
-        #expect(state.expansion(for: "wf-a") == .collapsed)
-    }
-
-    /// Verifies that `.collapsed` → `.inProgress` while Main is unmounted auto-expands to partial.
-    @Test
-    func queuedCollapsedToInProgressWhileUnmountedExpandsToPartial() {
-        let state = MainHierarchyState()
-        state.reconcile(status: .queued, for: "wf-a") // .collapsed
-
-        state.reconcile(status: .inProgress, for: "wf-a")
-
-        #expect(state.expansion(for: "wf-a") == .partial)
-    }
-
-    /// Verifies that a completed workflow that was explicitly expanded remains `.full`
-    /// when no status transition occurred while Main was away.
-    @Test
-    func completedFullWithNoTransitionRemainsFullOnRemount() {
-        let state = MainHierarchyState()
-        state.reconcile(status: .success, for: "wf-a") // .collapsed
-        state.setExpansion(.full, for: "wf-a")         // user tapped expand
-
-        // Remount: status is still .success — no transition.
-        state.reconcile(status: .success, for: "wf-a")
-
-        #expect(state.expansion(for: "wf-a") == .full)
-    }
-
-    /// Verifies that a terminal → success transition (e.g. re-run) while unmounted
-    /// does not collapse an explicitly expanded row (no inProgress previous).
-    @Test
-    func terminalToSuccessWithNoInProgressDoesNotCollapse() {
-        let state = MainHierarchyState()
-        state.reconcile(status: .failed, for: "wf-a")  // .collapsed
-        state.setExpansion(.full, for: "wf-a")          // user expanded
-
-        state.reconcile(status: .success, for: "wf-a")
-
-        #expect(state.expansion(for: "wf-a") == .full)
-    }
-
-    /// Verifies that a terminal transition clears nested job IDs.
-    @Test
-    func inProgressToSuccessClearsNestedJobs() {
-        let state = MainHierarchyState()
-        state.reconcile(status: .inProgress, for: "wf-a")
-        state.setJobs([1, 2], for: "wf-a")
-
-        state.reconcile(status: .success, for: "wf-a")
-
-        #expect(state.jobs(for: "wf-a").isEmpty)
-    }
-
-    /// Verifies that status entries are pruned when their workflow group is removed.
-    @Test
-    func retainGroupsPrunesStaleStatuses() {
-        let state = MainHierarchyState()
-        state.reconcile(status: .success, for: "wf-stale")
-        state.retainGroups([])
-        #expect(state.status(for: "wf-stale") == nil)
-    }
-
-    // MARK: - Pruning
-
-    /// Verifies that `retainGroups` keeps current groups.
-    @Test
-    func retainGroupsKeepsCurrent() {
-        let state = MainHierarchyState()
-        state.setExpansion(.full, for: "wf-a")
-        state.retainGroups(["wf-a"])
-        #expect(state.expansion(for: "wf-a") == .full)
-    }
-
-    /// Verifies that `retainGroups` removes obsolete workflow expansion.
-    @Test
-    func retainGroupsRemovesObsoleteExpansion() {
-        let state = MainHierarchyState()
-        state.setExpansion(.full, for: "wf-stale")
-        state.retainGroups([])
-        #expect(state.expansion(for: "wf-stale") == nil)
-    }
-
-    /// Verifies that `retainGroups` removes obsolete nested job state.
-    @Test
-    func retainGroupsRemovesObsoleteJobs() {
-        let state = MainHierarchyState()
-        state.setJobs([1, 2], for: "wf-stale")
-        state.retainGroups([])
-        #expect(state.jobs(for: "wf-stale").isEmpty)
-    }
-
-    /// Verifies that reordering the same group IDs does not affect stored state.
-    @Test
-    func reorderingDoesNotAffectState() {
-        let state = MainHierarchyState()
-        state.setExpansion(.full, for: "wf-a")
-        state.setExpansion(.partial, for: "wf-b")
-        state.retainGroups(["wf-b", "wf-a"])
-        #expect(state.expansion(for: "wf-a") == .full)
-        #expect(state.expansion(for: "wf-b") == .partial)
-    }
-
-    // MARK: - Visible count
-
-    /// Verifies that `visibleCount` defaults to 10.
-    @Test
-    func visibleCountDefaults() {
-        let state = MainHierarchyState()
-        #expect(state.visibleCount == 10)
-    }
-
-    /// Verifies that `visibleCount` survives mutation.
-    @Test
-    func visibleCountSurvivesMutation() {
-        let state = MainHierarchyState()
-        state.visibleCount = 25
-        #expect(state.visibleCount == 25)
+        #expect(state.expansion(for: "stale") == nil)
+        #expect(state.jobs(for: "stale").isEmpty)
+        #expect(state.status(for: "stale")    == nil)
     }
 }

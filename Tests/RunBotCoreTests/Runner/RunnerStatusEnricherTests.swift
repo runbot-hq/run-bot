@@ -1,73 +1,69 @@
 // RunnerStatusEnricherTests.swift
 // RunBotCoreTests
-//
-// Tests scope filtering for stopped local runners (#2467).
-@testable import RunBotCore
 import Foundation
 import Testing
 
-// MARK: - Helpers
+@testable import RunBotCore
 
-/// Builds a runner with a GitHub scope so it would normally contribute to enrichment.
-private func makeEnrichableRunner(
-    name: String,
-    isRunning: Bool,
-    gitHubUrl: URL = URL(string: "https://github.com/eoncode/runner-bar")!
-) -> RunnerModel {
-    RunnerModel(
+/// Scope-filtering contract for ``RunnerStatusEnricher.buildScopeToRunnerIndices`` (#2467):
+/// stopped runners must contribute no enrichment scopes, running runners deduplicate
+/// their shared scope, and mixed lists keep only running indices.
+@Suite("RunnerStatusEnricher filtering")
+struct RunnerStatusEnricherTests {
+
+  @Test
+  func scopeFilteringContract() throws {
+    let url = try #require(URL(string: "https://github.com/eoncode/runner-bar"))
+
+    /// Builds a runner with a GitHub scope so it would normally contribute to enrichment.
+    func runner(_ name: String, running: Bool) -> RunnerModel {
+      RunnerModel(
         runnerName: name,
-        gitHubUrl: gitHubUrl,
+        gitHubUrl: url,
         agentId: nil,
         workFolder: nil,
         installPath: testRunnerInstallPath,
-        isRunning: isRunning,
+        isRunning: running,
         githubStatus: .online,
         isBusy: false,
         lifecycleWarning: nil
-    )
-}
-
-// MARK: - Suite
-
-@Suite("RunnerStatusEnricher.buildScopeToRunnerIndices — stopped runner filtering (#2467)")
-struct RunnerStatusEnricherTests {
-    private let scope = "https://github.com/eoncode/runner-bar"
-
-    @Test("All-stopped runners produce no scopes")
-    func allStoppedProducesNoScopes() {
-        let runners = [
-            makeEnrichableRunner(name: "run-bar-repo-runner-2", isRunning: false),
-            makeEnrichableRunner(name: "run-bar-runner-1", isRunning: false)
-        ]
-
-        let scopes = RunnerStatusEnricher().buildScopeToRunnerIndices(runners)
-
-        #expect(scopes.isEmpty)
+      )
     }
 
-    @Test("All-running runners deduplicate a shared scope")
-    func allRunningProducesOneDeduplicatedScope() {
-        let runners = [
-            makeEnrichableRunner(name: "run-bar-repo-runner-2", isRunning: true),
-            makeEnrichableRunner(name: "run-bar-runner-1", isRunning: true)
-        ]
-
-        let scopes = RunnerStatusEnricher().buildScopeToRunnerIndices(runners)
-
-        #expect(scopes.count == 1)
-        #expect(scopes[scope] == [0, 1])
+    struct Case {
+      let label: String
+      let runners: [RunnerModel]
+      let expected: [String: [Int]]
     }
 
-    @Test("Mixed list includes only the running runner index")
-    func mixedListIncludesOnlyRunningIndex() {
-        let runners = [
-            makeEnrichableRunner(name: "stopped-runner", isRunning: false),
-            makeEnrichableRunner(name: "running-runner", isRunning: true)
-        ]
+    let scope = url.absoluteString
+    let cases: [Case] = [
+      Case(label: "all stopped",
+           runners: [
+             runner("stopped-a", running: false),
+             runner("stopped-b", running: false),
+           ],
+           expected: [:]),
+      // Two runners on one shared scope collapse into one deduplicated entry.
+      Case(label: "shared running scope",
+           runners: [
+             runner("running-a", running: true),
+             runner("running-b", running: true),
+           ],
+           expected: [scope: [0, 1]]),
+      // Only the running index survives.
+      Case(label: "mixed",
+           runners: [
+             runner("stopped", running: false),
+             runner("running", running: true),
+           ],
+           expected: [scope: [1]]),
+    ]
 
-        let scopes = RunnerStatusEnricher().buildScopeToRunnerIndices(runners)
+    for testCase in cases {
+      let result = RunnerStatusEnricher().buildScopeToRunnerIndices(testCase.runners)
 
-        #expect(scopes.count == 1)
-        #expect(scopes[scope] == [1])
+      #expect(result == testCase.expected, "\(testCase.label)")
     }
+  }
 }
