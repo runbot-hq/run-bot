@@ -99,7 +99,10 @@ func makeGitHubRunner(
     let json = """
     {"id":\(id),"name":"\(name)","status":"\(status.rawValue)","busy":\(busy ? "true" : "false"),"labels":[]}
     """
-    return try! JSONDecoder().decode(GitHubRunner.self, from: Data(json.utf8)) // swiftlint:disable:this force_try
+    guard let decoded = try? JSONDecoder().decode(GitHubRunner.self, from: Data(json.utf8)) else {
+        fatalError("GitHubRunner fixture JSON failed to decode: \(json)")
+    }
+    return decoded
 }
 
 // MARK: - WorkflowActionGroup
