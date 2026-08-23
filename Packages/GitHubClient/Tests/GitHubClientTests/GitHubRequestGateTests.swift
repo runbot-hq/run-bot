@@ -419,7 +419,10 @@ final class GitHubTransportConcurrencyGateTests {
                 url: request.url,
                 statusCode: 200,
                 headerFields: ["Content-Type": "application/json"])
-        else { return }
+        else {
+            client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
+            return
+        }
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: data)
         client?.urlProtocolDidFinishLoading(self)
