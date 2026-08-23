@@ -17,7 +17,11 @@ public protocol GitHubLogger: Sendable {
 /// A no-op logger used as a safe default when no logger is injected.
 public struct SilentGitHubLogger: GitHubLogger {
     /// Creates a new silent logger.
-    public init() {}
+    public init() {
+        // Intentionally empty: stateless no-op logger needs no initialisation.
+    }
     /// Does nothing.
-    public nonisolated func log(_ message: String, category: String) {}
+    public nonisolated func log(_ _: String, category _: String) {
+        // Intentionally empty: default no-op logging implementation.
+    }
 }

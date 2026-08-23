@@ -33,7 +33,10 @@ struct RunBotDesktopApp: App {
                 // OAuthCredentialController lives in GitHubClient; sign-in UI is
                 // presented by AuthenticationSection inside the settings detail view.
             },
-            onSignOut: {}
+            onSignOut: {
+                // Intentionally empty: sign-out UI is handled by
+                // AuthenticationSection; no app-level teardown is required.
+            }
         ))
         _logFetcher = State(initialValue: LogFetcher())
     }

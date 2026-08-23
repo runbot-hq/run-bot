@@ -50,7 +50,9 @@ public actor APICallCounter: APICallCounterProtocol {
     ///   filter, and produces incorrect results if the buffer is unsorted.
     var timestamps: [ContinuousClock.Instant] = []
     /// Creates a new `APICallCounter` instance.
-    public init() {}
+    public init() {
+        // Intentionally empty: actor holds no state requiring initialisation.
+    }
 
     // MARK: - Protocol
 

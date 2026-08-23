@@ -414,21 +414,18 @@ final class GitHubTransportConcurrencyGateTests {
           try? await Task.sleep(for: storedDelay)
         }
 
-        let response = HTTPURLResponse(
-          url: request.url!,
-          statusCode: 200,
-          httpVersion: "HTTP/1.1",
-          headerFields: ["Content-Type": "application/json"]
-        )!
-        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-        client?.urlProtocol(self, didLoad: data)
-        client?.urlProtocolDidFinishLoading(self)
+        deliverStubbedResponse(
+            data: data,
+            statusCode: 200,
+            headerFields: ["Content-Type": "application/json"])
         await Self.monitor.decrement()
       }
     }
 
     /// Stops loading (no-op for stubs).
-    override func stopLoading() {}
+    override func stopLoading() {
+      // Intentionally empty: stubbed URL protocol has no real load to stop.
+    }
   }
 
   /// Verifies that when `GitHubTransport` is configured with

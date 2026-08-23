@@ -27,7 +27,9 @@ import GitHubClient
 public struct GitHubLoggerAdapter: GitHubLogger {
 
     /// Creates a new `GitHubLoggerAdapter` instance.
-    public init() {}
+    public init() {
+        // Intentionally empty: stateless forwarding adapter needs no initialisation.
+    }
 
     /// Forwards a message from `GitHubClient` into `os.Logger` via the RunBot
     /// `log()` free function.

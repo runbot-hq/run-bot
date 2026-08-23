@@ -39,11 +39,15 @@ internal let fixtureZipBase64 =
     "ZWNrb3V0LnR4dFBLAQIUAxQAAAAIACp7/1x94DpHeAAAAKQAAAAaAAAAAAAAAAAAAACAAWYAAABy" +
     "ZWxlYXNlLzdfQ29tcGxldGUgam9iLnR4dFBLBQYAAAAAAgACAIwAAAAWAQAAAAA="
 
-/// Decoded bytes of the fixture ZIP. Force-unwrap is intentional: a decode failure
-/// means the committed constant is corrupt, which must be caught immediately.
+/// Decoded bytes of the fixture ZIP. A decode failure means the committed
+/// constant is corrupt, which must be caught immediately.
 /// Declared as `let` so the base64 decode runs once per process, not once per test access.
-internal let fixtureZip: Data =
-    Data(base64Encoded: fixtureZipBase64, options: .ignoreUnknownCharacters)!
+internal let fixtureZip: Data = {
+    guard let decoded = Data(base64Encoded: fixtureZipBase64, options: .ignoreUnknownCharacters) else {
+        fatalError("Fixture ZIP base64 constant failed to decode")
+    }
+    return decoded
+}()
 
 // MARK: - Subprocess availability probe
 
@@ -88,18 +92,13 @@ func makeRunnerModel(
 // use `GitHubRunner` + the `displayStatus(metrics:)` extension from RunBotCore.
 // This factory function bridges the gap.
 
-func makeGitHubRunner(
-    id: Int = 1,
-    name: String = "r",
-    busy: Bool = false,
-    status: RunnerStatus
-) -> GitHubRunner {
+func makeGitHubRunner(status: RunnerStatus, id: Int = 1, name: String = "r", busy: Bool = false) -> GitHubRunner {
     // GitHubRunner.labels is [GitHubRunnerLabel] (not [String]) and has no public
     // memberwise init, so we round-trip through JSON to construct a test instance.
     let json = """
     {"id":\(id),"name":"\(name)","status":"\(status.rawValue)","busy":\(busy ? "true" : "false"),"labels":[]}
     """
-    return try! JSONDecoder().decode(GitHubRunner.self, from: Data(json.utf8)) // swiftlint:disable:this force_try
+    return decodeFixture(GitHubRunner.self, from: json)
 }
 
 // MARK: - WorkflowActionGroup
