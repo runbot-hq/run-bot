@@ -21,7 +21,7 @@ public struct SilentGitHubLogger: GitHubLogger {
         // Intentionally empty: stateless no-op logger needs no initialisation.
     }
     /// Does nothing.
-    public nonisolated func log(_ message: String, category: String) {
+    public nonisolated func log(_ _: String, category _: String) {
         // Intentionally empty: default no-op logging implementation.
     }
 }
