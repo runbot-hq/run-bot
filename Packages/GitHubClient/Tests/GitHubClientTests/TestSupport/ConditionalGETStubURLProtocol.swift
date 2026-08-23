@@ -84,18 +84,7 @@ final class ConditionalGETStubURLProtocol: URLProtocol, @unchecked Sendable {
       client?.urlProtocol(self, didFailWithError: URLError(.fileDoesNotExist))
       return
     }
-    guard
-        let response = makeStubResponse(
-            url: request.url,
-            statusCode: stub.statusCode,
-            headerFields: stub.headers)
-    else {
-        client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
-        return
-    }
-    client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-    client?.urlProtocol(self, didLoad: stub.data)
-    client?.urlProtocolDidFinishLoading(self)
+    deliverStubbedResponse(data: stub.data, statusCode: stub.statusCode, headerFields: stub.headers)
   }
 
   override func stopLoading() {
