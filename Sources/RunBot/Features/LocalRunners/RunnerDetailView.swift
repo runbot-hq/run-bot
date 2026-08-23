@@ -67,42 +67,42 @@ struct RunnerDetailView: View {
     private func runnerInformationSection(_ runner: RunnerModel) -> some View {
         detailSection(title: "Runner information") {
             if let url = runner.gitHubUrl {
-                migrationCopyableDetailRow(
+                copyableDetailRow(
                     title: "GitHub URL",
                     description: "Repository or organization this runner is registered with.",
                     value: url.absoluteString
                 )
-                migrationRowDivider()
+                rowDivider()
             }
-            migrationDetailRow(
+            detailRow(
                 title: "Work folder",
                 description: "Directory used to store workflow files and job data.",
                 value: runner.workFolder ?? "_work"
             )
-            migrationRowDivider()
-            migrationDetailRow(
+            rowDivider()
+            detailRow(
                 title: "Ephemeral",
                 description: "Automatically unregisters after completing one job.",
                 value: runner.isEphemeral ? "Yes" : "No"
             )
             if !displayOsArch.isEmpty {
-                migrationRowDivider()
-                migrationDetailRow(
+                rowDivider()
+                detailRow(
                     title: "OS / Arch",
                     description: "Operating system and processor architecture.",
                     value: displayOsArch
                 )
             }
             if !displayVersion.isEmpty {
-                migrationRowDivider()
-                migrationDetailRow(
+                rowDivider()
+                detailRow(
                     title: "Version",
                     description: "Installed GitHub Actions runner version.",
                     value: displayVersion
                 )
             }
-            migrationRowDivider()
-            migrationDetailRow(
+            rowDivider()
+            detailRow(
                 title: "Status",
                 description: "Current availability reported by the runner.",
                 value: runner.displayStatus
@@ -113,13 +113,13 @@ struct RunnerDetailView: View {
     /// 'Configuration' card section.
     private func configurationSection(_ runner: RunnerModel) -> some View {
         detailSection(title: "Configuration") {
-            migrationDetailRow(
+            detailRow(
                 title: "Labels",
                 description: "Used by workflows to target this runner.",
                 value: runner.labels.isEmpty ? "—" : runner.labels.joined(separator: ", ")
             )
-            migrationRowDivider()
-            migrationDetailRow(
+            rowDivider()
+            detailRow(
                 title: "Group",
                 description: "Controls which repositories can use this runner.",
                 value: runner.runnerGroup ?? "—"

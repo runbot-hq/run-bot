@@ -61,9 +61,7 @@ struct AddRunnerSheet: View {
     /// Injected local runner store — avoids direct `.shared` references inside the sheet.
     var localRunnerStore: LocalRunnerStore = .shared
     /// Snapshot of already-registered local runners used for synchronous duplicate checks.
-    /// Pass `appState.runnerState.localRunners` from the legacy hierarchy, or
-    /// `runnerState.localRunners` from the migration hierarchy.
-    /// Both known call sites supply this argument; the compiler enforces it.
+    /// Pass `runnerState.localRunners` from the app state; the compiler enforces it.
     let localRunners: [RunnerModel]
 
     // MARK: - Native file pickers (#2945 / #2948)

@@ -5,10 +5,10 @@ import SwiftUI
 
 // MARK: - Color token
 
-/// Adaptive color extensions for migration settings surfaces.
+/// Adaptive color extensions for settings surfaces.
 extension Color {
 
-    /// Adaptive card-background color for migration settings section cards.
+    /// Adaptive card-background color for settings section cards.
     ///
     /// Dark:  6% white overlay — surface slightly lifted above the detail background.
     /// Light: 3.5% black overlay — surface slightly tinted below the light background.
@@ -52,10 +52,10 @@ private struct SettingsCardModifier: ViewModifier {
     }
 }
 
-/// Migration settings card convenience extensions on `View`.
+/// Settings card convenience extensions on `View`.
 extension View {
 
-    /// Wraps the receiver in a migration settings card surface.
+    /// Wraps the receiver in a settings card surface.
     func settingsCard() -> some View {
         modifier(SettingsCardModifier())
     }

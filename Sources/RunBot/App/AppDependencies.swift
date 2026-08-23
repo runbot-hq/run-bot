@@ -42,7 +42,7 @@ final class AppDependencies {
     /// Guards against duplicate `start()` calls (SwiftUI `.task` can fire more than once).
     private var didStart = false
 
-    /// Creates the dependency graph for the windowed migration app shell.
+    /// Creates the dependency graph for the windowed app shell.
     /// - Parameters:
     ///   - authentication: GitHub authentication controller.
     ///   - onSignIn: Closure called on the main actor after a successful sign-in.

@@ -5,7 +5,7 @@ import SwiftUI
 
 // MARK: - SettingsSectionLayout
 
-/// Titled section wrapper for migration settings detail views.
+/// Titled section wrapper for settings detail views.
 ///
 /// Renders a `.title2.weight(.semibold)` title followed by a `VStack` of
 /// section content with 28-point spacing.

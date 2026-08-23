@@ -31,7 +31,7 @@ func detailSection<Content: View>(
 ///
 /// `valueColor` defaults to `.secondary`; pass `Color.rbSuccess` etc. for
 /// semantic state colours.
-func migrationDetailRow(
+func detailRow(
     title: String,
     description: String,
     value: String,
@@ -61,7 +61,7 @@ func migrationDetailRow(
 }
 
 /// Two-line label / value row with an inline copy button; used for URLs.
-func migrationCopyableDetailRow(
+func copyableDetailRow(
     title: String,
     description: String,
     value: String
@@ -101,7 +101,7 @@ func migrationCopyableDetailRow(
 }
 
 /// Subtle one-point inset separator between card rows.
-func migrationRowDivider() -> some View {
+func rowDivider() -> some View {
     Rectangle()
         .fill(Color.primary.opacity(0.12))
         .frame(height: 1)

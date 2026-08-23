@@ -27,8 +27,7 @@ enum RelativeTimeFormatter {
 
 // MARK: - WorkflowActionGroup display helpers
 
-/// UI-layer extensions on `WorkflowActionGroup` for display strings used by
-/// the migration workflow rows.
+/// UI-layer extensions on `WorkflowActionGroup` for display strings used by the workflow rows.
 extension WorkflowActionGroup {
     /// `true` when the group is completed and its conclusion is neither success nor a failure-class
     /// outcome (i.e. not `.success` and `isFailure` is `false`).

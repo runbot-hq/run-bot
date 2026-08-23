@@ -7,9 +7,8 @@ import SwiftUI
 
 /// Reusable read-only body extracted from `RunnerDetailSheet`.
 ///
-/// Used directly in the migration two-pane detail pane so the detail pane
-/// does not present a modal sheet inside itself.
-/// `RunnerDetailSheet` keeps wrapping this view for the legacy panel flow.
+/// Used directly in the two-pane detail pane so it does not present a modal
+/// sheet inside itself.
 struct RunnerDetailContentView: View {
 
     // MARK: - Inputs
