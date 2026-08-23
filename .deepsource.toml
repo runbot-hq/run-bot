@@ -1,0 +1,32 @@
+# DeepSource configuration.
+#
+# Rule overrides below encode deliberate house-style decisions that override
+# the analyzer defaults (see AGENTS.md and docs/principles/project-tech-principles.md):
+#
+# - SW-R1014 (same-file extensions) is disabled: this codebase deliberately uses
+#   same-file extensions to group related API (`WorkflowActionGroup.rbStatus`,
+#   `RunnerModel.copying(...)`, Codable conformances). Cross-file extension
+#   members must be `internal` — see the #1566 traps doc, item 5.
+# - SW-R1001 (named arguments in multiline closures) is disabled: it conflicts
+#   with SwiftLint's `identifier_name` enforcement (#205 renamed every short
+#   identifier); SwiftLint config wins where the two linters disagree.
+version = 1
+
+[[analyzer]]
+name = "shell"
+enabled = true
+
+[[analyzer]]
+name = "swift"
+enabled = true
+
+  [[analyzer.issue_rule]]
+  code = "SW-R1001"
+  enabled = false
+
+  [[analyzer.issue_rule]]
+  code = "SW-R1014"
+  enabled = false
+
+[[test_coverage]]
+enabled = true

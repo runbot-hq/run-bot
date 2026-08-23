@@ -24,6 +24,10 @@ public struct InstallPathMap {
     /// For org runners the GitHub API assigns an `id` that differs from the local
     /// `.runner` JSON `AgentId`. This map is keyed on the API id so that metrics
     /// can be resolved for org runners even when `byAgentId` misses.
+    ///
+    /// Built with per-entry filtering: a runner missing `installPath` or `apiId`
+    /// is skipped without affecting the other entries. If two runners ever share
+    /// an `apiId`, the last-seen entry wins (dictionary subscript assignment).
     public let byApiId: [Int: String]
 
     /// Creates an `InstallPathMap` with pre-built lookup dictionaries.

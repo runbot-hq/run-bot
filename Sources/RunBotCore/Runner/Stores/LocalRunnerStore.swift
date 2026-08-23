@@ -373,7 +373,9 @@ public actor LocalRunnerStore {
     /// Builds lookup dictionaries for in-flight metrics from `current` runners.
     ///
     /// Only runners that are both busy **and** have metrics are included — idle runners
-    /// have no metrics worth preserving across a refresh cycle.
+    /// have no metrics worth preserving across a refresh cycle. Entries are filtered
+    /// per key (`if let`), so one runner missing an id never empties the map; on a
+    /// duplicate key the last-seen entry wins (dictionary subscript assignment).
     private func buildMetricsDictionaries(from current: [RunnerModel]) -> MetricsDictionaries {
         var byApiId: [Int: RunnerMetrics] = [:]
         var byAgentId: [Int: RunnerMetrics] = [:]
