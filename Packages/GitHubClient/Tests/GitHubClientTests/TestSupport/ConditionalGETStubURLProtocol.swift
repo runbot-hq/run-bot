@@ -84,11 +84,10 @@ final class ConditionalGETStubURLProtocol: URLProtocol, @unchecked Sendable {
       client?.urlProtocol(self, didFailWithError: URLError(.fileDoesNotExist))
       return
     }
-    guard let url = request.url,
-          let response = HTTPURLResponse(
-            url: url,
+    guard
+        let response = makeStubResponse(
+            url: request.url,
             statusCode: stub.statusCode,
-            httpVersion: "HTTP/1.1",
             headerFields: stub.headers)
     else { return }
     client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
