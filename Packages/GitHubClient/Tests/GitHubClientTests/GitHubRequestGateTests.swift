@@ -428,7 +428,9 @@ final class GitHubTransportConcurrencyGateTests {
     }
 
     /// Stops loading (no-op for stubs).
-    override func stopLoading() {}
+    override func stopLoading() {
+      // Intentionally empty: stubbed URL protocol has no real load to stop.
+    }
   }
 
   /// Verifies that when `GitHubTransport` is configured with

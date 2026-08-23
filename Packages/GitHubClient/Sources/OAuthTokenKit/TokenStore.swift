@@ -74,7 +74,9 @@ public protocol TokenStore: Sendable {
 /// can construct it without a test-target dependency.
 public struct NullTokenStore: TokenStore, Sendable {
     /// Creates a new `NullTokenStore`.
-    public init() {}
+    public init() {
+        // Intentionally empty: stateless null-object store needs no initialisation.
+    }
     /// Always returns `nil` — no token is stored.
     /// `nonisolated` is required by the `TokenStore` protocol: `TokenCache` stores
     /// `any TokenStore` as a `let` property on a `Sendable` type and calls these
