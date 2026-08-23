@@ -5,15 +5,15 @@
 
 /// Minimal interface for the GitHub poll-loop actor.
 ///
-/// Typed as `any RunnerPollerProtocol` in `AppDelegate` so tests and SwiftUI
-/// previews can substitute a `MockPoller` without importing the RunBot app target.
+/// Typed as `any RunnerPollerProtocol` in `MigrationAppDependencies` so tests and
+/// SwiftUI previews can substitute a `MockPoller` without importing the RunBot app target.
 public protocol RunnerPollerProtocol: AnyObject {
     /// Starts the poll loop, observers, and initial fetch.
     func start() async
     /// The observable state object driven by this poller.
     ///
     /// Exposed on the protocol so callers holding `any RunnerPollerProtocol` —
-    /// including `AppDelegate` and SwiftUI preview hosts — can inject `state`
+    /// including the composition root and SwiftUI preview hosts — can inject `state`
     /// into the environment without importing the concrete type.
     var state: RunnerState { get }
 }
