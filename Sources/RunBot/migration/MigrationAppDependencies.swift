@@ -30,9 +30,6 @@ final class MigrationAppDependencies {
     let localRunnerStore: LocalRunnerStore
     /// Dependencies for the Settings scene (accounts, preferences, scopes).
     let settingsDependencies: MigrationSettingsDependencies
-    /// Shared log fetcher — owns the ZIP cache for the windowed app lifetime.
-    /// Exposed so views can thread it via `@Binding` into `StepLogContentView`.
-    let logFetcher: LogFetcher
 
     /// GitHub authentication controller used for credential reconcile and OAuth flow.
     private let authentication: GitHubAuthentication
@@ -134,7 +131,6 @@ final class MigrationAppDependencies {
                 authentication.setEnvironmentState(environmentState)
             }
         )
-        self.logFetcher = LogFetcher()
     }
 }
 

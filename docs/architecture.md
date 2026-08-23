@@ -42,6 +42,7 @@ Regression guards and architectural decisions are enforced inline in the source.
 main.swift
 └── RunBotDesktopApp
     ├── GitHubAuthentication
+    ├── LogFetcher
     ├── MigrationAppDependencies
     │   ├── GitHubClient
     │   ├── OAuthCredentialController
@@ -49,7 +50,6 @@ main.swift
     │   ├── LocalRunnerStore
     │   ├── RunnerPoller
     │   │   └── PollLoopCoordinator
-    │   ├── LogFetcher
     │   └── MigrationSettingsDependencies
     │       └── AppUpdater
     └── AppShellView
@@ -69,8 +69,10 @@ main.swift
 - `MigrationAppDependencies` owns all long-lived domain services for the app
   lifetime. Views receive shared state and services; they never construct their
   own instances of stores, clients, or pollers.
-- `RunnerState` is the observable read model for the entire UI — one instance,
-  written only by `RunnerPoller`, observed directly by SwiftUI.
+- `RunnerState` is the observable read model for the UI. Poll-owned
+  properties are written by `RunnerPoller`; local-runner discovery state
+  is written by `LocalRunnerStore`. Views consume the resulting snapshots
+  read-only.
 - `RunnerPoller` owns GitHub polling. Its `PollLoopCoordinator` owns the three
   task handles driving the loop (poll, interval observation, scope observation)
   and remains active architecture.
@@ -128,8 +130,9 @@ State ownership:
 - `MigrationWorkflowSelection` owns workflow → job → step selection.
 - Runner, scope, and settings selection are owned by the shell and passed down
   as bindings so the content list and detail column stay consistent (#2900).
-- `LogFetcher` is app-owned (`RunBotDesktopApp` → `@Binding` into
-  `AppShellView`) so its ZIP cache survives navigation and view remounts.
+- `LogFetcher` is app-owned (`RunBotDesktopApp` creates the single `@State`
+  instance and threads it into `AppShellView` via `@Binding`) so its ZIP cache
+  survives navigation and view remounts.
 - Detail views resolve selected models from current observable snapshots rather
   than retaining stale copies.
 
@@ -285,11 +288,9 @@ The public key is embedded as a base64 constant in `MigrationAppDependencies.swi
 
 ### `RunBotCore` Library Rationale
 
-`RunBotCore` is a plain Swift package library target — no app bundle, no AppKit,
-no entitlements. Code there is **completely decoupled from the macOS app
-runtime**. In a pure SPM codebase without `.xcodeproj`, this boundary is
-enforced by the compiler itself: if you accidentally import AppKit-level app
-concerns in a Core file, the build fails.
+`RunBotCore` is a Swift package library target with no application
+bundle or entitlements. It may use macOS frameworks where required,
+but it cannot depend on or import the `RunBot` application target.
 
 **Why it pays off:**
 

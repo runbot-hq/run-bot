@@ -17,9 +17,10 @@ struct RunBotDesktopApp: App {
     /// `LocalRunnerStore.configure` runs inside `MigrationAppDependencies.init()`.
     /// Constructed in `init()` so it shares the same `authentication` instance.
     @State private var deps: MigrationAppDependencies
-    /// Log fetcher lifted to app level so the ZIP cache persists across
-    /// column navigations. Initialised from `deps.logFetcher` in `init()`
-    /// and threaded into `AppShellView` via `$logFetcher`.
+    /// App-owned log fetcher so the ZIP cache survives navigation and view
+    /// remounts. Created here (not in `MigrationAppDependencies`) because its
+    /// lifetime is tied to the scene, threaded into `AppShellView` via
+    /// `$logFetcher`.
     @State private var logFetcher: LogFetcher
 
     /// Initialises shared authentication and dependency bundle before first render.
