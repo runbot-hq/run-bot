@@ -56,6 +56,9 @@ struct RunnerDetailView: View {
             .padding(.horizontal, 32)
             .padding(.top, 12)
             .padding(.bottom, 28)
+            // Same load-bearing 820 pt readability cap as SettingsDetailView —
+            // keep the two in sync. Do not replace with idealWidth: it is a
+            // preference, not a constraint (see AppShellView sizing contract).
             .frame(maxWidth: 820, alignment: .topLeading)
         }
         .task(id: runner.id) { await loadDisplayFields(for: runner) }

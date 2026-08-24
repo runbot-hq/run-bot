@@ -32,6 +32,24 @@ import SwiftUI
 ///   or `.unauthenticated` to match main's toggle logic.
 /// - A `.task` on `AuthenticationSection` runs `refreshAuthentication()` once
 ///   on mount so `environmentState` exits `.checking`.
+///
+/// ## SIZING CONTRACT — condensed from the pre-AppShell SettingsView guards
+/// The popover-era `SettingsView` carried a WIDTH/HEIGHT CONTRACT block built
+/// from several layout regressions. The constraints that still apply here:
+///
+/// - The `maxWidth: 820` cap in `body` is LOAD-BEARING for readability.
+///   ❌ Do not remove it — detail content then stretches to the full window
+///   width. ❌ Do not replace it with `.frame(idealWidth:)` — idealWidth is a
+///   preference, not a constraint, and is ignored when the parent offers more.
+/// - ❌ Do not wrap this view's root `ScrollView` in a GeometryReader to
+///   measure it — measurement has exactly one owner (see the SIZING CONTRACT
+///   on `AppShellView`). Measuring here reintroduces the multi-source
+///   disagreement that caused #2278/#2279 and the side-jump family (#375–377).
+/// - `.fixedSize(horizontal: false, vertical: true)` on multi-line rows in
+///   the section views (Updates, General, Authentication cards) is
+///   LOAD-BEARING inside a ScrollView: without it, text views under-report
+///   their height (the old "height-inheritance" regression class — content
+///   clipped instead of growing).
 @MainActor
 struct SettingsDetailView: View {
 
