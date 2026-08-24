@@ -15,7 +15,10 @@ struct ActiveJobAsCompletedTests {
   /// ISO-8601 string used as an explicit completedAt in some fixtures.
   private static let knownDateString = "2024-01-15T10:30:00Z"
   private static let knownDate: Date = {
-    ISO8601DateFormatter().date(from: knownDateString)!
+    guard let date = ISO8601DateFormatter().date(from: knownDateString) else {
+      fatalError("Invalid knownDateString fixture: \(knownDateString)")
+    }
+    return date
   }()
 
   /// A fallback `Date` passed to `asCompleted(at:)`.

@@ -62,45 +62,51 @@ final class GitHubHelpersTests: XCTestCase {
 
     /// Verifies stage-1 exact name matching: the step name must match the
     /// `##[group]` header directly, returning only the matched section.
-    func test_fallback_exactNameMatch() {
+    func test_fallback_exactNameMatch() throws {
         let raw = makeLog(sections: [
             (name: "Build", body: ["build output"]),
             (name: "Test",  body: ["test output"])
         ])
-        let result = parseStepLog(raw, stepName: "Build", stepNumber: 1, logger: nil)
-        XCTAssertNotNil(result, "Stage-1 exact match must find the section")
-        XCTAssert(result!.contains("build output"))
-        XCTAssertFalse(result!.contains("test output"),
+        let result = try XCTUnwrap(
+            parseStepLog(raw, stepName: "Build", stepNumber: 1, logger: nil),
+            "Stage-1 exact match must find the section"
+        )
+        XCTAssert(result.contains("build output"))
+        XCTAssertFalse(result.contains("test output"),
             "Only the matched section must be returned")
     }
 
     /// Verifies stage-2 `Run`-prefix normalisation: a step name without the
     /// `Run ` prefix must match a `##[group]` header that has it, and vice versa.
-    func test_fallback_runPrefixNormalisation() {
+    func test_fallback_runPrefixNormalisation() throws {
         let raw = makeLog(sections: [
             (name: "Run actions/checkout@v4", body: ["Fetching the repository"]),
             (name: "Run build",               body: ["unrelated build output"])
         ])
-        let result = parseStepLog(raw, stepName: "actions/checkout@v4", stepNumber: 2, logger: nil)
-        XCTAssertNotNil(result, "Run-prefix normalisation must bridge step name to ##[group] header")
-        XCTAssert(result!.contains("Fetching the repository"))
-        XCTAssertFalse(result!.contains("unrelated build output"),
+        let result = try XCTUnwrap(
+            parseStepLog(raw, stepName: "actions/checkout@v4", stepNumber: 2, logger: nil),
+            "Run-prefix normalisation must bridge step name to ##[group] header"
+        )
+        XCTAssert(result.contains("Fetching the repository"))
+        XCTAssertFalse(result.contains("unrelated build output"),
             "Run-prefix match must return only the matched section")
     }
 
     /// Verifies stage-3 synthetic-step epilogue heuristic: `Complete job` (which
     /// produces no `##[group]` markers in real logs) must be routed to the
     /// epilogue section, not return nil or the full log blob.
-    func test_fallback_completeJobEpilogueHeuristic() {
+    func test_fallback_completeJobEpilogueHeuristic() throws {
         let raw = makeLog(
             sections: [(name: "Run some-action", body: ["doing work"])],
             epilogue: ["Post job cleanup.", "Cleaning up orphan processes"]
         )
-        let result = parseStepLog(raw, stepName: "Complete job", stepNumber: 99, logger: nil)
-        XCTAssertNotNil(result, "Complete job must resolve to the epilogue section")
-        XCTAssert(result!.contains("Post job cleanup."),
+        let result = try XCTUnwrap(
+            parseStepLog(raw, stepName: "Complete job", stepNumber: 99, logger: nil),
+            "Complete job must resolve to the epilogue section"
+        )
+        XCTAssert(result.contains("Post job cleanup."),
             "Epilogue content must be returned for the synthetic Complete job step")
-        XCTAssertFalse(result!.contains("doing work"),
+        XCTAssertFalse(result.contains("doing work"),
             "Body of an unrelated section must not bleed into the epilogue result")
     }
 
@@ -108,22 +114,24 @@ final class GitHubHelpersTests: XCTestCase {
     /// differs only in casing from the `##[group]` header must still match.
     /// This path was a real prior regression — case-sensitive matching caused
     /// steps like "Set up job" (API) vs "set up job" (log header) to miss.
-    func test_fallback_exactNameMatch_caseInsensitive() {
+    func test_fallback_exactNameMatch_caseInsensitive() throws {
         let raw = makeLog(sections: [
             (name: "Set Up Job", body: ["runner provisioned"]),
             (name: "Build",      body: ["build output"])
         ])
-        let result = parseStepLog(raw, stepName: "set up job", stepNumber: 1, logger: nil)
-        XCTAssertNotNil(result, "Case-insensitive match must find the section")
-        XCTAssert(result!.contains("runner provisioned"))
-        XCTAssertFalse(result!.contains("build output"),
+        let result = try XCTUnwrap(
+            parseStepLog(raw, stepName: "set up job", stepNumber: 1, logger: nil),
+            "Case-insensitive match must find the section"
+        )
+        XCTAssert(result.contains("runner provisioned"))
+        XCTAssertFalse(result.contains("build output"),
             "Only the matched section must be returned")
     }
 
     /// Verifies that lines between `##[group]` blocks are not duplicated in the
     /// matched section. A prior regression caused inter-group orphan lines to
     /// be appended to the *next* matched section, inflating its output.
-    func test_fallback_interGroupLines_noDuplication() {
+    func test_fallback_interGroupLines_noDuplication() throws {
         // Raw log: orphan line lives between two groups.
         let orphanLine = "2026-01-01T00:00:00Z orphan line between groups"
         let raw = [
@@ -135,11 +143,11 @@ final class GitHubHelpersTests: XCTestCase {
             "2026-01-01T00:00:00Z test line",
             "2026-01-01T00:00:00Z ##[endgroup]"
         ].joined(separator: "\n")
-        let result = parseStepLog(raw, stepName: "Test", stepNumber: 2, logger: nil)
-        XCTAssertNotNil(result, "Test section must be found")
-        XCTAssertFalse(result!.contains("orphan line between groups"),
+        let result = try XCTUnwrap(parseStepLog(raw, stepName: "Test", stepNumber: 2, logger: nil),
+            "Test section must be found")
+        XCTAssertFalse(result.contains("orphan line between groups"),
             "Inter-group orphan lines must not bleed into the following section")
-        XCTAssert(result!.contains("test line"))
+        XCTAssert(result.contains("test line"))
     }
 
     /// Verifies that buildParsedLog ignores a stray `##[endgroup]` before the first
@@ -194,16 +202,15 @@ final class GitHubHelpersTests: XCTestCase {
     ///
     /// Since #2413, ANSI is no longer stripped at parse time — it passes through
     /// to the UI layer for rendering by `ansiAttributedString`.
-    func test_parseStepLog_ansiPassThrough() {
+    func test_parseStepLog_ansiPassThrough() throws {
         let esc = "\u{001B}"
         let raw = makeLog(sections: [
             (name: "Build", body: ["\(esc)[32mbuild output\(esc)[0m"])
         ])
-        let result = parseStepLog(raw, stepName: "Build", stepNumber: 1, logger: nil)
-        XCTAssertNotNil(result)
-        XCTAssert(result!.contains(esc),
+        let result = try XCTUnwrap(parseStepLog(raw, stepName: "Build", stepNumber: 1, logger: nil))
+        XCTAssert(result.contains(esc),
             "parseStepLog must preserve ANSI sequences — stripping happens at the render layer")
-        XCTAssert(result!.contains("build output"))
+        XCTAssert(result.contains("build output"))
     }
 
     // MARK: - cleanLogText pipeline
