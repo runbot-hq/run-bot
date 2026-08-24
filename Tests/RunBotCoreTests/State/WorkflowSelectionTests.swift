@@ -1,8 +1,8 @@
 // WorkflowSelectionTests.swift
-// RunBotTests
+// RunBotCore
 
 import Testing
-@testable import RunBot
+@testable import RunBotCore
 
 /// Smoke test — just enough to confirm WorkflowSelection exists and basic
 /// select/clear round-trips work. Detailed reconcile behaviour is intentionally
