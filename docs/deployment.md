@@ -270,12 +270,12 @@ needs it — mark intentional keeps with `// periphery:ignore`.
 
 ### Tests
 ```bash
-swift test --filter RunBotCoreTests
+swift test
 ```
-> ⚠️ This is exactly what CI runs (`.github/workflows/swift-test.yml`, on `macos-26`). Bare
-> `swift test` is not the CI command. The UI tests (`RunBotUITests`) run separately via
-> `xcodebuild` on the self-hosted runner (`.github/workflows/ui-tests.yml`) and are **not** part
-> of the SwiftPM test run — don't try to run them with `swift test`.
+> ⚠️ This is exactly what CI runs (`.github/workflows/swift-test.yml`, on `macos-26`). CI also
+> runs `swift test` inside `Packages/GitHubClient` as a second step. The UI tests (`RunBotUITests`)
+> run separately via `xcodebuild` on the self-hosted runner (`.github/workflows/ui-tests.yml`) and are
+> **not** part of the SwiftPM test run — don't try to run them with `swift test`.
 
 Add new tests under `Tests/RunBotCoreTests/` alongside any new logic in `RunBotCore`; reuse
 the shared doubles/fixtures in `Tests/RunBotCoreTests/TestSupport/`.
@@ -538,10 +538,14 @@ At launch, `AppUpdater.checkAndHandle(state:)` hits `GET /repos/.../releases`,
 sorts by semver (not publish date), and filters by the `betaChannel` preference
 from `AppPreferencesStore`. The result is applied to `RunnerState` via
 `UpdateStateProviding.apply(_ phase:)`, which advances the state machine
-(`idle` → `available` → `downloading` → `ready` / `failed`). After the
-launch-time check, `AppUpdater.scheduleBackgroundCheck(state:)` registers a
+(`idle` → `available(version)` → `downloading(version)` → `ready(version)` / `failed(version)`).
+After the launch-time check, `AppUpdater.scheduleBackgroundCheck(state:)` registers a
 repeating background check at `AppUpdater.checkInterval`. Settings → About
 reads `RunnerState.availableUpdate` and shows the update row if non-nil.
+
+> **Note:** `checkAndHandle(state:)` and `scheduleBackgroundCheck(state:)` are entry points in
+> the `runbot-hq/AppUpdater` library, not defined in this repo.
+
 For full details see [Update Flow](#update-flow) below.
 
 ### Dry run
