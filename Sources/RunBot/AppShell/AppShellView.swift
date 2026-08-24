@@ -9,6 +9,30 @@ import SwiftUI
 /// Owns the top-level sidebar selection and the shared workflow selection so
 /// the content column (workflow hierarchy) and detail column (step log) stay
 /// in sync (issue #2880).
+///
+/// ## SIZING CONTRACT — restored lessons from the popover era
+/// (refs #375–377 side-jump regressions, #2278/#2279 stale-cap regressions,
+/// #2305 width inheritance)
+///
+/// The windowed shell replaced the anchored menu-bar panel, but the failure
+/// modes that shaped that design still apply to window/column sizing:
+///
+/// - ONE MEASUREMENT, ONE OWNER. Exactly one layer may measure content and
+///   derive a size from it. The old panel regressed repeatedly when two
+///   independent height caps and three measurement sources (a content
+///   GeometryReader, `.preferredContentSize`, and a manual `setFrame`) could
+///   disagree. Here the `Window` scene owns the min/default size and each
+///   column owns only its width range — no view below the shell re-measures.
+/// - NEVER size a window from `.preferredContentSize`, an invisible helper
+///   pass, or a GeometryReader feedback loop. That was the direct cause of
+///   the side-jump family of bugs (#375–377); the fix each time was to
+///   collapse to a single owner.
+/// - WRAPPERS MUST NOT IMPOSE WIDTH ON ROUTED CHILDREN (#2305). The old
+///   popover wrapper applied its own `minWidth/maxWidth`, which stretched the
+///   fixed-width Settings screen to the list's width. Width ranges live where
+///   the column lives: `navigationSplitViewColumnWidth` here, and per-view
+///   caps (e.g. the 820 pt readability cap in `SettingsDetailView`) in the
+///   views that own them.
 struct AppShellView: View {
     /// Currently selected sidebar section. Defaults to Workflows.
     @State private var selection: AppSection? = .workflows
@@ -71,6 +95,10 @@ struct AppShellView: View {
             )
         }
         .navigationSplitViewStyle(.balanced)
+        // Content min-size floor. Must stay in sync with
+        // `.windowResizability(.contentMinSize)` + `.defaultSize` in
+        // RunBotDesktopApp — two sources that must never disagree (see the
+        // one-measurement rule above).
         .frame(minWidth: 720, minHeight: 480)
     }
 }
