@@ -36,7 +36,8 @@ final class FakeTransport: GitHubTransportProtocol, @unchecked Sendable {
 
 final class ZIPPrefetchQueueTests: XCTestCase {
 
-    private var tempDir: URL!
+    private var tempDir = FileManager.default.temporaryDirectory
+        .appendingPathComponent(UUID().uuidString)
 
     override func setUp() async throws {
         try await super.setUp()

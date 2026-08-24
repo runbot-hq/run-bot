@@ -148,12 +148,12 @@ public actor DiskZIPCache {
             includingPropertiesForKeys: [.contentModificationDateKey, .isDirectoryKey],
             options: .skipsHiddenFiles
         ) else { return }
-        let dirs = contents.filter {
-            (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
+        let dirs = contents.filter { item in
+            (try? item.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
         }
-        let sorted = dirs.sorted {
-            let d0 = (try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
-            let d1 = (try? $1.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+        let sorted = dirs.sorted { lhs, rhs in
+            let d0 = (try? lhs.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+            let d1 = (try? rhs.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
             return d0 > d1  // newest first
         }
         for dir in sorted.dropFirst(Self.maxGroupCapacity) {
