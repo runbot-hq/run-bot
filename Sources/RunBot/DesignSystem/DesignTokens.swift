@@ -322,4 +322,3 @@ extension RBStatus {
         }
     }
 }
-

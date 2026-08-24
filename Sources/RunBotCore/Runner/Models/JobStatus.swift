@@ -6,7 +6,6 @@
 // See: ActiveJob, WorkflowActionGroup, PollResultBuilder
 import Foundation
 
-
 // MARK: - JobStatus
 
 /// The lifecycle status of a GitHub Actions job or workflow run.
