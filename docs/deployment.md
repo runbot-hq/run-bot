@@ -64,14 +64,18 @@ No `gh` CLI or `gh auth login` is required — see [Auth](#auth-during-developme
 
 ## Development environment
 
-### Targets
+### SwiftPM targets
 
 ```
-RunBotCore      (library)     — pure logic, no UI; the testable core
+RunBotCore      (library)     — non-UI domain and platform services; models, polling,
+                                persistence, process execution, and log handling
 RunBot          (executable)  — AppKit/SwiftUI app; depends on RunBotCore
 RunBotCoreTests (test)        — swift-testing suite for the core
 RunBotTests     (test)        — swift-testing suite for the app target
 ```
+
+`RunBotUITests` is an Xcode/XcodeGen-driven UI test target — it is not part of the SwiftPM
+build graph and cannot be run with `swift test`. See [Triggering UI Tests](#triggering-ui-tests).
 
 `RunBotCore` must never import the `RunBot` app target — app-layer dependencies are injected
 via protocols and closures. See [`docs/architecture/file-hierarchy.md`](../architecture/file-hierarchy.md)
@@ -98,7 +102,7 @@ No IDE required.
 ```bash
 swift run
 ```
-Compiles incrementally and launches the app. The AppShell window opens and the menu bar icon appears. `Ctrl+C` to stop.
+Compiles incrementally and opens the RunBot AppShell window. Press `Ctrl+C` in the launching terminal to stop the process.
 
 ### Type-check after changes
 ```bash
@@ -256,7 +260,7 @@ swiftlint lint --strict
 > ⚠️ **Use `--strict`.** A bare `swiftlint` passes locally while CI fails, because `--strict`
 > promotes every warning to an error — which is how CI runs it
 > (`.github/workflows/swiftlint.yml`). Common gotchas enforced by `.swiftlint.yml`:
-> - **`file_header`** — every file must start with `// <Filename>.swift` then `// RunBot`, `// AppUpdater`, or `// GitHubClient` (whichever module the file belongs to).
+> - **`file_header`** — every file must start with `// <Filename>.swift` then the module name, matched by the `required_pattern` in the applicable `.swiftlint.yml`. The root and `Packages/GitHubClient` run separate lint configurations — check the relevant `.swiftlint.yml` rather than relying on a manually-maintained list.
 > - **`missing_docs`** — every declaration needs a `///` doc comment.
 > - **`sorted_imports`** — keep `import` statements alphabetically ordered.
 
@@ -368,12 +372,12 @@ zipping, and creating the GitHub Release — is handled by CI automatically.
    4. **Build** — `bash build.sh` compiles arm64, assembles `.app`,
       signs ad-hoc, zips to `dist/RunBot.zip` (see [Build internals](#build-internals) below)
    5. **Verify** — confirms the binary is actually present inside the zip
-   6. **Generate SHA-256 sidecar** — computes a `shasum -a 256` digest and writes
-      `RunBot.zip.sha256` alongside the zip. **This step is load-bearing:** `AppUpdater`
-      treats a missing sidecar as a hard failure — every user's in-app update
-      will fall back to the curl install command if the sidecar is absent
+   6. **Sign release zip (Ed25519)** — signs `RunBot.zip` with the `ED25519_PRIVATE_KEY`
+      secret and writes `RunBot.zip.sig` (raw 64-byte signature). **This step is
+      load-bearing:** `AppUpdater` treats a missing or invalid signature as a hard
+      failure — installation will not proceed without a valid `.sig` sidecar
    7. **Tag + push** — creates an annotated git tag and pushes it
-   8. **Create GitHub Release** — attaches both the zip and the SHA-256 sidecar,
+   8. **Create GitHub Release** — attaches both the zip and `RunBot.zip.sig`,
       with `--prerelease` for beta or `--latest` for stable
 
    > **Dry-run via `workflow_dispatch`:** See [Dry run](#dry-run) below for
@@ -457,8 +461,8 @@ ad-hoc codesign without --deep
 ditto creates dist/RunBot.zip
 ```
 
-The output is always `dist/RunBot.zip`. CI then generates the `.sha256` sidecar
-from that zip before attaching both to the GitHub Release.
+The output is always `dist/RunBot.zip`. CI then signs it with Ed25519 to produce
+`RunBot.zip.sig` before attaching both to the GitHub Release.
 
 ### Distribution & install
 
@@ -552,7 +556,7 @@ For full details see [Update Flow](#update-flow) below.
 
 The publish pipeline has a built-in dry-run mode that exercises every step
 — tag computation, duplicate-tag guard, `Info.plist` patching, build, zip
-verification, and SHA-256 sidecar generation — without creating a tag,
+verification, and Ed25519 signing — without creating a tag,
 committing anything, or publishing a GitHub Release.
 
 Use this to verify the pipeline is healthy before shipping a real release,
@@ -578,7 +582,7 @@ or after any changes to `publish.yml` or `build.sh`.
 | Patch `Info.plist` | ✅ | ✅ |
 | Build | ✅ | ✅ |
 | Verify zip | ✅ | ✅ |
-| Generate SHA-256 sidecar | ✅ | ✅ |
+| Sign release zip (Ed25519) | ✅ | ✅ |
 | Commit patched `Info.plist` | ❌ skipped | ✅ |
 | Tag + push | ❌ skipped | ✅ |
 | Create GitHub Release | ❌ skipped | ✅ |
@@ -593,7 +597,7 @@ or after any changes to `publish.yml` or `build.sh`.
 - **Build** — exits 0; no Swift compiler errors
 - **Verify zip** — log line reads:
   `Zip verified: RunBot.app/Contents/MacOS/RunBot is present at archive root.`
-- **Generate SHA-256 sidecar** — log line shows a 64-character hex digest
+- **Sign release zip (Ed25519)** — log line shows `Signed: RunBot.zip.sig (64 bytes)`
 - **Commit patched Info.plist**, **Tag and push**, **Create GitHub Release** —
   all show ❌ (skipped), confirming dry-run mode was active
 
@@ -626,7 +630,7 @@ RunBot checks for updates in the background and presents a single update row in 
    ```
    ~/Library/Caches/io.github.runbot-hq/RunBot-<version>.zip
    ```
-   The version string and cache path are persisted in `UserDefaults` (`AutoUpdaterDefaults`) so the state survives force-quits.
+   The version string and cache path are persisted in `UserDefaults` so the state survives force-quits.
 
 4. **UI state** — Settings → About shows a single `updateActionRow`:
 
@@ -636,7 +640,7 @@ RunBot checks for updates in the background and presents a single update row in 
    | Download complete | **Install & Relaunch** |
    | Failure (any step) | **Download** (browser fallback) |
 
-5. **Install & Relaunch** — When the user taps **Install & Relaunch**, `AutoUpdater.installAndRelaunch` performs the following sequence:
+5. **Install & Relaunch** — When the user taps **Install & Relaunch**, `AppUpdater.installAndRelaunch(state:)` performs the following sequence:
    - Extracts the zip into a temporary directory using `ditto`
    - Replaces the running `RunBot.app` bundle using `FileManager.replaceItem(at:withItemAt:backupItemName:options:resultingItemURL:)` — an atomic rename-based swap; the old bundle is preserved as a named backup and removed on success, so a mid-swap crash cannot leave a half-written bundle
    - Relaunches via `open -n`
@@ -646,23 +650,28 @@ RunBot checks for updates in the background and presents a single update row in 
 
    > ⚠️ **Permission note:** `replaceItem` requires write access to the directory containing `RunBot.app`. This works when RunBot is installed in `~/Applications` (the recommended location). If installed in the system `/Applications` directory, the process will not have write permission and Install & Relaunch will silently fall back to the browser Download button.
 
-6. **Failure fallback** — Any failure during download, checksum verification, or install sets `updateActionFailed = true`. The row then shows a **Download** button that opens the GitHub releases page in the browser. The fallback also triggers when the `RunBot.zip` asset is missing from the release (`updateAssetMissing`).
+6. **Failure fallback** — Any failure during download, signature verification, or install sets `updateActionFailed = true`. The row then shows a **Download** button that opens the GitHub releases page in the browser. The fallback also triggers when the `RunBot.zip` asset is missing from the release (`updateAssetMissing`).
 
-#### Integrity verification — v1 status
+#### Update signature verification
 
-**SHA-256 checksum verification is implemented in v1.** `AutoUpdater.downloadUpdate` fetches the `RunBot.zip.sha256` sidecar asset from the GitHub Release, and `verifyChecksum` computes a `CryptoKit` SHA-256 digest of the downloaded zip and compares it against the expected hex string. A mismatch sets `updateActionFailed = true`.
+Release archives are authenticated with an Ed25519 signature. The publish workflow signs
+`RunBot.zip` and produces `RunBot.zip.sig` (a raw 64-byte Ed25519 signature).
+`AppUpdater` downloads this sidecar and verifies it against the Ed25519 public key embedded
+in `AppDependencies` before installation. A signature mismatch sets `updateActionFailed = true`.
 
-Code-signing identity verification (`codesign --verify`) is deferred to [#1795](https://github.com/runbot-hq/run-bot/issues/1795). The `checksumURL` field is already decoded in `AvailableRelease` so that #1795 can add further verification logic without a model change.
+This is separate from macOS code signing:
+
+- The application bundle is currently ad-hoc signed.
+- The release archive is authenticated with Ed25519.
+- Developer ID signing and notarisation are not currently part of the pipeline.
 
 #### Key types
 
 | Type | Role |
 |---|---|
-| `UpdateChecker` | Fetches releases, semver comparison, selects best asset — lives in `runbot-hq/AppUpdater` |
-| `AutoUpdater` | Caseless enum; static functions for download, install, relaunch — lives in `runbot-hq/AppUpdater` |
-| `RunnerState` | `@Observable @MainActor`; holds `availableUpdate`, `isInstalling`, `updateActionFailed` |
-| `AutoUpdaterDefaults` | `UserDefaults` keys for persisting version + cache path — lives in `runbot-hq/AppUpdater` |
-| `AvailableRelease` | Decoded model; includes `checksumURL` for SHA-256 verification — lives in `runbot-hq/AppUpdater` |
+| `AppUpdater` | Owns update checks, scheduling, download, Ed25519 verification, installation, and relaunch — lives in `runbot-hq/AppUpdater`; instantiated in `AppDependencies` |
+| `RunnerState` | `@Observable @MainActor`; implements the update-state contract consumed by `AppUpdater` and the Settings UI |
+| `SettingsDependencies` | Carries the shared `AppUpdater` instance from the composition root into Settings |
 
 #### Design constraints
 
