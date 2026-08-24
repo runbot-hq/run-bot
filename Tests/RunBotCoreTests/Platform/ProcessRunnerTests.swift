@@ -2,7 +2,7 @@
 // RunBotCoreTests
 import Foundation
 import Testing
-@testable import RunBotCore
+import RunBotCore
 
 // MARK: - ProcessRunner.runAsync stdin
 
