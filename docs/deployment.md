@@ -69,7 +69,8 @@ No `gh` CLI or `gh auth login` is required — see [Auth](#auth-during-developme
 ```
 RunBotCore      (library)     — pure logic, no UI; the testable core
 RunBot          (executable)  — AppKit/SwiftUI app; depends on RunBotCore
-RunBotCoreTests (test)         — swift-testing suite for the core
+RunBotCoreTests (test)        — swift-testing suite for the core
+RunBotTests     (test)        — swift-testing suite for the app target
 ```
 
 `RunBotCore` must never import the `RunBot` app target — app-layer dependencies are injected
@@ -97,7 +98,7 @@ No IDE required.
 ```bash
 swift run
 ```
-Compiles incrementally and launches the app. The menu bar icon appears immediately. `Ctrl+C` to stop.
+Compiles incrementally and launches the app. The AppShell window opens and the menu bar icon appears. `Ctrl+C` to stop.
 
 ### Type-check after changes
 ```bash
@@ -113,8 +114,7 @@ swift package clean && swift build
 ```bash
 swift package show-dependencies
 ```
-Third-party dependencies in the root package are revision-pinned in this
-repository's `Package.swift`.
+The root `Package.swift` has no direct third-party dependencies.
 
 Organization-owned packages (`runbot-hq/*`) track `branch: "main"` and are
 never revision-pinned. `MarkdownKit` is resolved from
@@ -156,7 +156,7 @@ cd ~/run-bot && \
 pkill -x RunBot 2>/dev/null || true && \
 sleep 1 && \
 rm -rf dist/ && \
-touch Sources/RunBot/App/AppDelegate.swift && \
+touch Sources/RunBot/App/RunBotDesktopApp.swift && \
 bash build.sh && \
 sleep 1 && \
 log stream --level debug \
@@ -256,9 +256,9 @@ swiftlint lint --strict
 > ⚠️ **Use `--strict`.** A bare `swiftlint` passes locally while CI fails, because `--strict`
 > promotes every warning to an error — which is how CI runs it
 > (`.github/workflows/swiftlint.yml`). Common gotchas enforced by `.swiftlint.yml`:
-> - **`file_header`** — every file must start with `// <Filename>.swift` then `// RunBot`.
+> - **`file_header`** — every file must start with `// <Filename>.swift` then `// RunBot`, `// AppUpdater`, or `// GitHubClient` (whichever module the file belongs to).
 > - **`missing_docs`** — every declaration needs a `///` doc comment.
-> - **`sorted_imports`**, and **`large_tuple`** (no 3+ member tuples — use a small struct).
+> - **`sorted_imports`** — keep `import` statements alphabetically ordered.
 
 ### Dead-code scan
 ```bash
@@ -654,11 +654,11 @@ Code-signing identity verification (`codesign --verify`) is deferred to [#1795](
 
 | Type | Role |
 |---|---|
-| `UpdateChecker` | Fetches releases, semver comparison, selects best asset |
-| `AutoUpdater` | Caseless enum; static functions for download, install, relaunch |
+| `UpdateChecker` | Fetches releases, semver comparison, selects best asset — lives in `runbot-hq/AppUpdater` |
+| `AutoUpdater` | Caseless enum; static functions for download, install, relaunch — lives in `runbot-hq/AppUpdater` |
 | `RunnerState` | `@Observable @MainActor`; holds `availableUpdate`, `isInstalling`, `updateActionFailed` |
-| `AutoUpdaterDefaults` | `UserDefaults` keys for persisting version + cache path |
-| `AvailableRelease` | Decoded model; includes `checksumURL` for SHA-256 verification |
+| `AutoUpdaterDefaults` | `UserDefaults` keys for persisting version + cache path — lives in `runbot-hq/AppUpdater` |
+| `AvailableRelease` | Decoded model; includes `checksumURL` for SHA-256 verification — lives in `runbot-hq/AppUpdater` |
 
 #### Design constraints
 
