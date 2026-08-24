@@ -24,7 +24,9 @@ struct LocalRunnerIndexTests {
   /// Callers are responsible for cleanup via `UserDefaults.standard.removePersistentDomain(forName:)`.
   private static func makeSuite() -> (UserDefaults, String) {
     let suiteName = "com.runbot.tests.LocalRunnerIndex.\(UUID().uuidString)"
-    let defaults = UserDefaults(suiteName: suiteName)!
+    guard let defaults = UserDefaults(suiteName: suiteName) else {
+      fatalError("Unable to create test UserDefaults suite: \(suiteName)")
+    }
     return (defaults, suiteName)
   }
 
