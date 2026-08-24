@@ -128,6 +128,17 @@ final class CompletedGroupZIPPrefetchTests: XCTestCase {
 
     // MARK: - Factory
 
+    /// Creates an isolated UUID-namespaced `UserDefaults` suite for fixture
+    /// state. A failed suite initialisation must report the offending name
+    /// rather than crash on a bare force-unwrap.
+    private func makeDefaultsStore() -> UserDefaults {
+        let suiteName = UUID().uuidString
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            fatalError("Unable to create test UserDefaults suite: \(suiteName)")
+        }
+        return defaults
+    }
+
     @MainActor
     private func makePoller(transport: TestFakeTransport) -> RunnerPoller {
         let disk = DiskZIPCache(cacheDir: tempDir)
@@ -138,7 +149,7 @@ final class CompletedGroupZIPPrefetchTests: XCTestCase {
             scopeStore: StubScopeStore(),
             localRunners: { [] },
             applyMetrics: { _, _, _ in },
-            notificationPreferences: NotificationPreferences(store: UserDefaults(suiteName: UUID().uuidString)!),
+            notificationPreferences: NotificationPreferences(store: makeDefaultsStore()),
             diskZIPCache: disk,
             zipPrefetchQueue: queue
         )
@@ -320,7 +331,7 @@ final class CompletedGroupZIPPrefetchTests: XCTestCase {
             localRunners: { [] },
             applyMetrics: { _, _, _ in },
             notificationPreferences: NotificationPreferences(
-                store: UserDefaults(suiteName: UUID().uuidString)!),
+                store: makeDefaultsStore()),
             diskZIPCache: disk,
             zipPrefetchQueue: queue
         )
@@ -401,7 +412,7 @@ final class CompletedGroupZIPPrefetchTests: XCTestCase {
             localRunners: { [] },
             applyMetrics: { _, _, _ in },
             notificationPreferences: NotificationPreferences(
-                store: UserDefaults(suiteName: UUID().uuidString)!),
+                store: makeDefaultsStore()),
             zipPrefetchQueue: queue
         )
 
