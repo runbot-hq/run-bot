@@ -79,10 +79,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     ///    have been migrated to AppState. Use `appState.x` instead.
     let appState = AppState()
 
-    /// Gate that tracks whether a sheet or file-picker overlay is active.
+    /// Gate tracking whether a sheet, file picker, or alert is active.
+    ///
     /// Injected into the SwiftUI view tree by `RootEnvView`, which is created
-    /// in `setupPanel()`. Views use `.mbkSheet(overlayGate:)` and
-    /// `mbkOpenFilePicker()` to arm this gate for the overlay lifetime.
+    /// in `setupPanel()`. `.mbkSheet` and `.mbkAlert` manage the environment
+    /// gate automatically; `mbkOpenFilePicker(overlayGate:)` receives the same
+    /// gate explicitly because it is a free function.
     let overlayGate = MBKOverlayGate()
 
     /// Panel controller handle injected into the SwiftUI environment.
@@ -91,8 +93,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// controller only when a view later requests remeasurement.
     var panelControllerHandle: PanelControllerHandle?
 
-    /// Owns the panel lifecycle: status item, anchored NSPanel, arrow placement,
-    /// size tracking, outside-click monitor, workspace observer.
+    /// Owns the panel lifecycle: status item, anchored NSPanel, size tracking,
+    /// outside-click monitor, and workspace observer.
     /// Replaced NSPopover + KVO as of #2262.
     var panelController: MBKPanelController<RootEnvView>!
 
