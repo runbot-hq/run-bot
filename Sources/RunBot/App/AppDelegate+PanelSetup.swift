@@ -14,7 +14,8 @@ import SwiftUI
 // that now.
 //
 // As of the anchored-panel rewrite there is no NSPopover anywhere in the app.
-// MenuBarKit owns one borderless NSPanel and draws the bubble and arrow itself.
+// MenuBarKit owns one borderless NSPanel and its Liquid Glass surface.
+// It does not use NSPopover or an anchor arrow.
 //
 // As of #2264 the root view is RootPanelView — a single persistent view that
 // owns all route switching via Group { switch }.id(route). This replaces the
@@ -105,20 +106,11 @@ extension AppDelegate {
             maxHeightFraction: AppDelegate.panelHeightMultiplier
         )
 
-        // onWillShow is intentionally empty / commented out.
+        // No onWillShow callback is required.
         //
-        // WHY nav state does not need to be restored here:
-        // appState.savedNavState is persistent @Observable state. Panel dismissal
-        // does not clear it; only explicit back-navigation changes the route.
-        // RootPanelView reads it directly and reactively, so the SwiftUI tree is
-        // already rendering the saved route before the panel becomes visible.
-        //
-        // Other candidates considered for this callback (auth token pre-flight, stale-job
-        // guard restoration) were deferred — see the commented-out block below for context.
-        // Do not remove; restore and expand once onWillShow responsibilities are decided.
-        // ctrl.onWillShow = {
-        //     log("AppDelegate › onWillShow")
-        // }
+        // Navigation state is persistent observable state owned by AppState.
+        // Panel dismissal does not clear it, and RootPanelView reads it
+        // reactively before the panel becomes visible.
 
         // onDidShow — fires one actor turn after openPanel().
         // Restore runner sheet state now that the view tree has a window.

@@ -68,9 +68,9 @@ import SwiftUI
 //         MEASURE passes (stale fittingSize open → settled onGeometryChange resize),
 //         SwiftUI re-centres the VStack in the new space instead of keeping it at the top.
 //
-// The panel's Liquid Glass bubble and arrow are drawn by MenuBarKit in AppKit
-// (`MBKPanelChromeView`: an NSGlassEffectView body plus a rotated NSGlassEffectView
-// arrow), one layer *below* this view —
+// The panel's Liquid Glass surface is owned by MenuBarKit in AppKit
+// (`NSGlassEffectView` set directly as the panel's contentView), one layer
+// *below* this view —
 // exactly where NSPopover used to put its chrome. That is deliberate: a SwiftUI
 // `.glassEffect` ancestor flattens every GlassEffectContainer in this file (the
 // metric bars, the SUCCESS/FAILED tags, every chip), which is what happened on
@@ -87,9 +87,9 @@ struct PanelMainView: View {
     var localRunnerStore: LocalRunnerStore = .shared
     /// Panel open/close and transient-hide state from the environment.
     @Environment(PanelVisibilityState.self) private var panelVisibilityState: PanelVisibilityState
-    /// Core runner/job/action/rate-limit state injected from AppDelegate.wrapEnv.
+    /// Core runner/job/action/rate-limit state injected by RootEnvView.
     @Environment(AppState.self) private var appState
-    /// Panel controller handle injected from AppDelegate.wrapEnv — used to
+    /// Panel controller handle injected by RootEnvView — used to
     /// invalidate content size when the list grows and standard KVO is insufficient.
     @Environment(PanelControllerHandle.self) private var panelControllerHandle
     /// View model for CPU/GPU/memory stats displayed in the header.

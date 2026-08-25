@@ -10,10 +10,11 @@ import SwiftUI
 //
 // As of #2262, NSPopover + PopoverLifecycleCoordinator + KVO are replaced by
 // MBKPanelController. As of the anchored-panel rewrite there is no NSPopover
-// anywhere in the app: MenuBarKit owns one borderless NSPanel and draws the
-// bubble and arrow itself. The panel lifecycle (open, close, force-close,
-// outside-click monitor, workspace observer, arrow placement, size tracking)
-// is fully owned by MBKPanelController from MenuBarKit.
+// anywhere in the app: MenuBarKit owns one borderless NSPanel and its Liquid
+// Glass surface. It does not use NSPopover or an anchor arrow. The panel
+// lifecycle (open, close, force-close, outside-click monitor, workspace
+// observer, size tracking) is fully owned by MBKPanelController from
+// MenuBarKit.
 //
 // Run-bot's responsibilities are:
 //   1. Wire onWillShow / onDidShow / onWillClose callbacks.
@@ -30,8 +31,10 @@ import SwiftUI
 //
 // PANELVISIBILITYSTATE:
 // panelVisibilityState.isOpen is set in onWillClose (false) and onDidShow (true).
-// ❌ NEVER remove. ❌ NEVER remove from wrapEnv().
-// See ARCHITECTURE.md §panelVisibilityState.
+// Injected through RootEnvView. Do not remove from the environment chain
+// while the MenuBarKit panel shell remains active.
+// See PanelContainerView and AppDelegate+PanelSetup for the panel
+// visibility-state lifecycle.
 
 /// Environment-injectable handle for remeasuring the panel when SwiftUI content grows.
 ///
@@ -40,15 +43,15 @@ import SwiftUI
 /// a plain `final class` and cannot be made `@Observable` from outside the
 /// `MenuBarKit` module, so this wrapper bridges the gap.
 ///
-/// The `panelController` reference is weak to avoid a retain cycle — the
-/// controller owns the panel which owns the hosting view which owns the SwiftUI
-/// tree that holds this handle.
+/// The handle stores an injected closure rather than the panel controller
+/// itself. The production closure captures AppDelegate weakly, avoiding a
+/// retain cycle through the controller, hosting view, and SwiftUI environment.
 @MainActor
 @Observable
 final class PanelControllerHandle {
-    /// Calls `MBKPanelController.invalidateContentSize()` via the weak reference
-    /// captured at construction time. Safe to call while the panel is closed —
-    /// the measurement is skipped by `applyMeasuredSize`'s `isShown` guard.
+    /// Requests `MBKPanelController.invalidateContentSize()` through the
+    /// injected closure. Safe while the panel is closed: the measurement is
+    /// skipped by `applyMeasuredSize`'s `isShown` guard.
     let remeasure: () -> Void
 
     /// Creates a handle with the given remeasure closure.
@@ -77,15 +80,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let appState = AppState()
 
     /// Gate that tracks whether a sheet or file-picker overlay is active.
-    /// Injected into the SwiftUI view tree via `.environment(overlayGate)` in
-    /// `wrapEnv(_:)`. Views use `.mbkSheet(overlayGate:)` and
+    /// Injected into the SwiftUI view tree by `RootEnvView`, which is created
+    /// in `setupPanel()`. Views use `.mbkSheet(overlayGate:)` and
     /// `mbkOpenFilePicker()` to arm this gate for the overlay lifetime.
     let overlayGate = MBKOverlayGate()
 
     /// Panel controller handle injected into the SwiftUI environment.
-    /// Created after `panelController` is assigned so the remeasure closure
-    /// captures a non-nil reference. Updated in `setupPanel()` after the
-    /// controller is created.
+    /// Assigned during `setupPanel()`. The handle itself is constructed before
+    /// `panelController` is assigned; its weakly capturing closure resolves the
+    /// controller only when a view later requests remeasurement.
     var panelControllerHandle: PanelControllerHandle?
 
     /// Owns the panel lifecycle: status item, anchored NSPanel, arrow placement,
@@ -98,8 +101,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let panelSheetState = PanelSheetState()
 
     /// Shared observable that tracks whether the panel is open.
-    /// Injected into every SwiftUI view via `wrapEnv(_:)`
-    /// ❌ NEVER remove. ❌ NEVER remove from wrapEnv().
+    /// Injected through RootEnvView. Do not remove from the environment chain
+    /// while the MenuBarKit panel shell remains active.
     let panelVisibilityState = PanelVisibilityState()
 
     // MARK: - Environment injection (removed)

@@ -30,8 +30,9 @@ import RunBotCore
 // WHY NOT AppStateProtocol?
 // SettingsView previously accepted protocol-typed service parameters so tests
 // could inject stubs. With AppState as the single injection point, tests must
-// construct a full AppState — an accepted trade-off since AppState's concrete
-// types have no side effects at init time (tracked as migration debt in wrapEnv).
+// construct a full AppState directly. This remains an accepted trade-off while
+// its dependencies are initialization-safe and perform no network or process
+// work during construction.
 //
 // THREADING:
 // @MainActor-isolated. Domain sub-objects that write observable state hop
@@ -49,9 +50,8 @@ import RunBotCore
 
 /// Coordinator for all domain-level state owned by the RunBot app process.
 ///
-/// Injected into the SwiftUI environment as a single `.environment(appState)`
-/// call inside `AppDelegate.wrapEnv(_:)`. Views access sub-objects via
-/// `@Environment(AppState.self)`.
+/// Injected into the SwiftUI environment by `RootEnvView`.
+/// Views access domain state through `@Environment(AppState.self)`.
 @Observable
 @MainActor
 final class AppState {
