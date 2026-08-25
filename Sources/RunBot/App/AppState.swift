@@ -22,10 +22,10 @@ import RunBotCore
 //    PanelSheetState, or any AppKit wiring. Those stay on AppDelegate.
 //
 // LAYERING:
-// AppState lives in the RunBot app target. It may import RunBotCore,
-// GitHubClient, and AppUpdater. It must NOT import MenuBarKit — that
-// would create a circular dependency (MBKOverlayGate is AppDelegate-owned
-// specifically to honour this constraint).
+// AppState lives in the RunBot app target and may import RunBotCore,
+// GitHubClient, and AppUpdater. It deliberately does not import MenuBarKit:
+// panel, overlay, and window lifecycle belong to AppDelegate composition,
+// not to the domain coordinator.
 //
 // WHY NOT AppStateProtocol?
 // SettingsView previously accepted protocol-typed service parameters so tests
@@ -137,9 +137,8 @@ final class AppState {
     ///
     /// Created here (not inside `start()`) so it survives for the full app
     /// lifetime. `RunnerPoller.applyFetchResult` writes into this instance on
-    /// the `@MainActor` after every poll cycle. Views read from it via
-    /// Views read from it by declaring `@Environment(AppState.self) var appState`
-    /// and accessing `appState.runnerState`.
+    /// the `@MainActor` after every poll cycle. Views read it through
+    /// `@Environment(AppState.self)` and access `appState.runnerState`.
     let runnerState = RunnerState()
 
     /// Auto-update driver. Injected into `SettingsView` for the
@@ -208,8 +207,9 @@ final class AppState {
     /// Shared `LogFetcher` instance owned above the `.id(navState)` boundary
     /// in `RootPanelView`. Owning it here means the ZIP cache (`zipCache`)
     /// survives across step-tap navigation: every step tap recreates
-    /// `StepLogView`, but `AppState` is not remounted, so the cache persists
-    /// for the lifetime of the panel session.
+    /// `StepLogView`, but `AppState` is not remounted, so the cache persists.
+    /// The instance lives for the AppState/process lifetime and survives
+    /// repeated panel close/reopen cycles.
     ///
     /// ⚠️ Must be constructed after `github` so the transport is already wired.
     var logFetcher: LogFetcher
@@ -224,7 +224,9 @@ final class AppState {
     // closePanel() and the settings-back callback — both AppKit-level wiring
     // events, not domain events. Co-locating it with popover lifecycle is cleaner.
 
-    /// Write-only task handle — the assignment keeps the Task alive (ARC).
+    /// Retained task handle used for explicit cancellation during AppState
+    /// teardown. The task executes independently of handle retention; storing
+    /// the handle provides lifecycle control.
     /// `@ObservationIgnored`: never read externally, no-op registrar calls.
     /// `nonisolated(unsafe)`: lets `deinit` call `.cancel()` safely; Task.cancel()
     /// is thread-safe and writes only happen on @MainActor in startObservations().
@@ -393,8 +395,9 @@ final class AppState {
 
         // Step 0: seed GitHubAuthentication from live credential stores on cold launch.
         // OAuth sync is synchronous so there is no `.signedOut` flash before the poll
-        // loop starts (Step 4). Env discovery runs in a detached Task (login-shell
-        // probe can take ~50–200ms). syncOAuthState — NOT recordOAuthSignIn — so the
+        // loop starts (Step 4). Env discovery runs in a separate unstructured MainActor
+        // task so startup does not wait for the login-shell probe (which can take
+        // ~50–200ms). syncOAuthState — NOT recordOAuthSignIn — so the
         // persisted `selectedSource` is never overwritten here (fix for #2464).
         authentication.syncOAuthState(isAuthenticated: oauthService.isAuthenticated)
         Task { @MainActor [authentication, github] in
@@ -432,20 +435,19 @@ final class AppState {
         }
 
         // Step 4: start the poll loop.
-        // On a cold Finder/Dock/login-item launch, the first poll cycle's token()
-        // call suspends here for ~50–200 ms while the login shell sources
-        // ~/.zprofile and ~/.zshrc to recover GH_TOKEN. The result is cached;
+        // RunnerPoller.start() installs the poll task and returns. The poll task's
+        // initial fetch may spend ~50–200 ms resolving a login-shell token on a
+        // cold Finder/Dock/login-item launch (the shell sources ~/.zprofile and
+        // ~/.zshrc to recover GH_TOKEN). The resolved token is then cached;
         // all subsequent poll cycles return immediately from the in-memory cache.
         // Terminal, CI, and Keychain OAuth launches resolve from ProcessInfo or
         // Keychain and do not spawn a shell.
         await store.start()
         log("AppState › start — poll loop started")
 
-        // Seed autoUpdater flag from user preference (#2501).
-        // Must run after Step 4 (store.start()) so UserDefaults is fully
-        // initialised. Placed here rather than at AppUpdater init time because
-        // AppPreferencesStore.shared is a @MainActor singleton whose value is
-        // stable only after the app's main-actor startup sequence begins.
+        // Seed AppUpdater's runtime gate from the persisted preference (#2501)
+        // before performing the launch-time update check and registering the
+        // scheduler.
         autoUpdater.automaticUpdatesEnabled = AppPreferencesStore.shared.automaticUpdatesEnabled
         log("AppState › start — autoUpdater.automaticUpdatesEnabled=\(autoUpdater.automaticUpdatesEnabled)")
 
