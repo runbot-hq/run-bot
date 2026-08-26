@@ -160,7 +160,7 @@ cd ~/run-bot && \
 pkill -x RunBot 2>/dev/null || true && \
 sleep 1 && \
 rm -rf dist/ && \
-touch Sources/RunBot/App/RunBotDesktopApp.swift && \
+touch Sources/RunBot/App/RunBotApp.swift && \
 bash build.sh && \
 sleep 1 && \
 log stream --level debug \
@@ -657,7 +657,7 @@ RunBot checks for updates in the background and presents a single update row in 
 Release archives are authenticated with an Ed25519 signature. The publish workflow signs
 `RunBot.zip` and produces `RunBot.zip.sig` (a raw 64-byte Ed25519 signature).
 `AppUpdater` downloads this sidecar and verifies it against the Ed25519 public key embedded
-in `AppDependencies` before installation. A signature mismatch sets `updateActionFailed = true`.
+in `RunBotRuntime` before installation. A signature mismatch sets `updateActionFailed = true`.
 
 This is separate from macOS code signing:
 
@@ -669,7 +669,7 @@ This is separate from macOS code signing:
 
 | Type | Role |
 |---|---|
-| `AppUpdater` | Owns update checks, scheduling, download, Ed25519 verification, installation, and relaunch — lives in `runbot-hq/AppUpdater`; instantiated in `AppDependencies` |
+| `AppUpdater` | Owns update checks, scheduling, download, Ed25519 verification, installation, and relaunch — lives in `runbot-hq/AppUpdater`; instantiated in `RunBotRuntime` |
 | `RunnerState` | `@Observable @MainActor`; implements the update-state contract consumed by `AppUpdater` and the Settings UI |
 | `SettingsDependencies` | Carries the shared `AppUpdater` instance from the composition root into Settings |
 

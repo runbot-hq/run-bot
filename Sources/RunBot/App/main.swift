@@ -1,7 +1,7 @@
 // main.swift
 // RunBot
 /// Entry point for the SwiftUI windowed application.
-/// `RunBotDesktopApp.main()` is called explicitly because `@main` cannot
+/// `RunBotApp.main()` is called explicitly because `@main` cannot
 /// coexist with top-level code in `main.swift`.
 /// ❌ NEVER remove the MainActor.assumeIsolated wrapper — the OS always
 /// starts on the main thread and this satisfies strict-concurrency checking.
@@ -13,5 +13,5 @@ import SwiftUI
 #endif
 
 MainActor.assumeIsolated {
-    RunBotDesktopApp.main()
+    RunBotApp.main()
 }

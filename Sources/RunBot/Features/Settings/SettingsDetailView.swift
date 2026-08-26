@@ -27,7 +27,7 @@ import SwiftUI
 ///
 /// ## Dependency rules
 /// - `GitHubAuthentication` is read from the environment (owned by
-///   `RunBotDesktopApp`). No second instance is created here.
+///   `RunBotApp`). No second instance is created here.
 /// - `onToggleEnvironment` selects `.environment`, `.oauth` (when signed in),
 ///   or `.unauthenticated` to match main's toggle logic.
 /// - A `.task` on `AuthenticationSection` runs `refreshAuthentication()` once

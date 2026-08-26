@@ -1,4 +1,4 @@
-// AppDependencies.swift
+// RunBotRuntime.swift
 // RunBot
 import AppKit
 import AppUpdater
@@ -7,9 +7,9 @@ import GitHubClient
 import Observation
 import RunBotCore
 
-// MARK: - AppDependencies
+// MARK: - RunBotRuntime
 
-/// Owns and configures the minimum domain dependencies required by the windowed app.
+/// Owns and configures the long-lived domain services required by the windowed app.
 ///
 /// `LocalRunnerStore.configure(viewModel:)` must be the very first call,
 /// synchronously, before any view is mounted. This mirrors the ordering rule
@@ -23,7 +23,7 @@ import RunBotCore
 ///   runnerStore.start             <- begins poll loop
 @MainActor
 @Observable
-final class AppDependencies {
+final class RunBotRuntime {
     /// Live runner state tree shared across all views in the windowed app.
     let runnerState: RunnerState
     /// Store that manages local (self-hosted) runner registration and refresh.
@@ -42,7 +42,7 @@ final class AppDependencies {
     /// Guards against duplicate `start()` calls (SwiftUI `.task` can fire more than once).
     private var didStart = false
 
-    /// Creates the dependency graph for the windowed app shell.
+    /// Creates the domain runtime for the windowed app shell.
     /// - Parameters:
     ///   - authentication: GitHub authentication controller.
     ///   - onSignIn: Closure called on the main actor after a successful sign-in.
@@ -137,7 +137,7 @@ final class AppDependencies {
 // MARK: - OAuth callback
 
 /// OAuth callback handling for the windowed SwiftUI lifecycle.
-extension AppDependencies {
+extension RunBotRuntime {
     /// Forwards a macOS open-URL event to the OAuth service so the
     /// authorization code can be exchanged for a token.
     ///
@@ -152,8 +152,8 @@ extension AppDependencies {
 
 // MARK: - Startup
 
-/// Startup lifecycle for `AppDependencies`.
-extension AppDependencies {
+/// Startup lifecycle for `RunBotRuntime`.
+extension RunBotRuntime {
     /// Starts the domain pipeline: credential reconcile -> local refresh -> poll loop.
     ///
     /// Idempotent - SwiftUI may recreate the root .task; subsequent calls are no-ops.

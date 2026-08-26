@@ -30,7 +30,7 @@ public actor LocalRunnerStore {
     /// The app-wide shared instance. Must be called on the main actor.
     ///
     /// ⚠️ Must not be accessed before `configure(viewModel:)` is called from
-    /// `AppDependencies.init`. Accessing it earlier
+    /// `RunBotRuntime.init`. Accessing it earlier
     /// produces a `fatalError` with a diagnostic message.
     @MainActor
     public static var shared: LocalRunnerStore {
@@ -82,7 +82,7 @@ public actor LocalRunnerStore {
     /// The current list of locally-installed runners, sorted by name.
     /// Private: all external reads go through `viewModel.localRunners` (pushed via MainActor.run).
     /// Widening to internal is unnecessary — the `localRunners` closure in
-    /// `AppDependencies` reads `runnerState.localRunners`, not this
+    /// `RunBotRuntime` reads `runnerState.localRunners`, not this
     /// property directly.
     private var runners: [RunnerModel] = []
 
@@ -272,7 +272,7 @@ public actor LocalRunnerStore {
     /// Awaitable refresh. Suspends until disk hydration + launchctl + GitHub enrichment
     /// completes, then returns.
     ///
-    /// Use ONLY at app startup in `AppDependencies.start()` so that the
+    /// Use ONLY at app startup in `RunBotRuntime.start()` so that the
     /// poll loop is guaranteed to have a populated `runners` array before its
     /// first `fetch()` fires.
     public func refreshAsync() async {
