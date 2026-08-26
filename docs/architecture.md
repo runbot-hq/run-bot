@@ -40,10 +40,10 @@ Regression guards and architectural decisions are enforced inline in the source.
 
 ```
 main.swift
-└── RunBotDesktopApp
+└── RunBotApp
     ├── GitHubAuthentication
     ├── LogFetcher
-    ├── AppDependencies
+    ├── RunBotRuntime
     │   ├── GitHubClient
     │   ├── OAuthCredentialController
     │   ├── RunnerState
@@ -52,21 +52,21 @@ main.swift
     │   │   └── PollLoopCoordinator
     │   └── SettingsDependencies
     │       └── AppUpdater
-    └── AppShellView
+    └── AppNavigationSplitView
         └── NavigationSplitView
-            ├── AppSidebarView
-            ├── AppContentView
-            └── AppDetailView
+            ├── AppSidebarColumnView
+            ├── AppContentColumnView
+            └── AppDetailColumnView
 ```
 
-- `main.swift` calls `RunBotDesktopApp.main()` inside `MainActor.assumeIsolated`.
+- `main.swift` calls `RunBotApp.main()` inside `MainActor.assumeIsolated`.
   (`@main` cannot coexist with top-level code in `main.swift`; never remove the
   `assumeIsolated` wrapper — the OS always starts on the main thread and this
   satisfies strict-concurrency checking.)
-- `RunBotDesktopApp` is the application composition root. It constructs
+- `RunBotApp` is the application composition root. It constructs
   authentication and dependencies synchronously before any view is mounted and
   handles the OAuth callback via `.onOpenURL`.
-- `AppDependencies` owns all long-lived domain services for the app
+- `RunBotRuntime` owns all long-lived domain services for the app
   lifetime. Views receive shared state and services; they never construct their
   own instances of stores, clients, or pollers.
 - `RunnerState` is the observable read model for the UI. Poll-owned
@@ -81,17 +81,17 @@ main.swift
 
 ## Startup lifecycle
 
-The order below is encoded by `AppDependencies`:
+The order below is encoded by `RunBotRuntime`:
 
 ```
-RunBotDesktopApp.init
+RunBotApp.init
 → create GitHubAuthentication
-→ create AppDependencies
+→ create RunBotRuntime
 → configure LocalRunnerStore synchronously
 → construct GitHubClient and RunnerPoller
 → construct OAuthCredentialController
-→ mount AppShellView
-→ AppDependencies.start()
+→ mount AppNavigationSplitView
+→ RunBotRuntime.start()
 → reconcile OAuth state
 → start OAuth observation
 → refresh local runners
@@ -120,18 +120,18 @@ A three-column `NavigationSplitView` shell:
 
 | Column | Router | Responsibilities |
 |---|---|---|
-| Sidebar | `AppSidebarView` | Top-level section selection and pinned system metrics |
-| Content | `AppContentView` | Workflow hierarchy, local runners, scopes, or settings list |
-| Detail | `AppDetailView` | Step log, runner detail, scope detail, or settings detail |
+| Sidebar | `AppSidebarColumnView` | Top-level destination selection and pinned system metrics |
+| Content | `AppContentColumnView` | Workflow hierarchy, local runners, scopes, or settings list |
+| Detail | `AppDetailColumnView` | Step log, runner detail, scope detail, or settings detail |
 
 State ownership:
 
-- `AppShellView` owns top-level section selection.
+- `AppNavigationSplitView` owns top-level destination selection.
 - `WorkflowSelection` owns workflow → job → step selection.
 - Runner, scope, and settings selection are owned by the shell and passed down
   as bindings so the content list and detail column stay consistent (#2900).
-- `LogFetcher` is app-owned (`RunBotDesktopApp` creates the single `@State`
-  instance and threads it into `AppShellView` via `@Binding`) so its ZIP cache
+- `LogFetcher` is app-owned (`RunBotApp` creates the single `@State`
+  instance and threads it into `AppNavigationSplitView` via `@Binding`) so its ZIP cache
   survives navigation and view remounts.
 - Detail views resolve selected models from current observable snapshots rather
   than retaining stale copies.
@@ -192,7 +192,7 @@ Keychain.
 
 **How RunBot wires it up:**
 
-`AppDependencies` constructs a single `GitHubClient` instance in
+`RunBotRuntime` constructs a single `GitHubClient` instance in
 `init()`, passing Keychain credentials (service/account names must match the
 pre-GitHubClient keychain entries — changing them orphans stored tokens) and an
 auth-source closure reading `GitHubAuthentication`. The client's `oauthService`
@@ -206,7 +206,7 @@ and transport references are injected into `RunBotCore` types (`RunnerPoller`,
 - `fetchJobs(runID:scope:)` — called when a run is expanded in the UI to load its jobs and steps
 - `fetchStepLog(jobID:stepNumber:scope:)` — called by `LogFetcher` to retrieve and display per-step CI logs
 - `fetchUserOrgs()` / `fetchUserRepos()` — called by `AddScopeSheet` to populate the scope picker
-- `oauthService.makeSignInURL()` / `oauthService.handleCallback(_:)` — sign-in URL opened from the settings auth card; callbacks arrive via `.onOpenURL` → `AppDependencies.handleOAuthCallback(_:)`
+- `oauthService.makeSignInURL()` / `oauthService.handleCallback(_:)` — sign-in URL opened from the settings auth card; callbacks arrive via `.onOpenURL` → `RunBotRuntime.handleOAuthCallback(_:)`
 
 **Token resolution in RunBot's context:**
 
@@ -218,7 +218,7 @@ Credentials never fall back across modes. Discovering an environment token only 
 
 All tests that touch network or Keychain inject mock transports and OAuth services via the `GitHubClient(oauthService:transport:)` test initialiser. No production `GitHubClient` instance is created in the test suite.
 
-- ❌ NEVER construct a second `GitHubClient` instance — the one created by `AppDependencies` is the single source of truth for tokens and rate-limit state.
+- ❌ NEVER construct a second `GitHubClient` instance — the one created by `RunBotRuntime` is the single source of truth for tokens and rate-limit state.
 
 ---
 
@@ -242,10 +242,10 @@ The package tracks the `main` branch. Dependency pinning and release behavior ar
 
 **How RunBot wires it up:**
 
-`AppDependencies.init()` constructs a single `AppUpdater` instance inside `SettingsDependencies`, initialised with RunBot's GitHub repo slug, the current bundle version, the expected zip asset name, an Ed25519 public key (embedded in the binary as a base64 constant), and the `NSBackgroundActivityScheduler` identifier. Its `UpdateState`-conforming state object drives update UI via observation.
+`RunBotRuntime.init()` constructs a single `AppUpdater` instance inside `SettingsDependencies`, initialised with RunBot's GitHub repo slug, the current bundle version, the expected zip asset name, an Ed25519 public key (embedded in the binary as a base64 constant), and the `NSBackgroundActivityScheduler` identifier. Its `UpdateState`-conforming state object drives update UI via observation.
 
 ```swift
-// AppDependencies.swift (illustrative)
+// RunBotRuntime.swift (illustrative)
 let updater = AppUpdater(
     repo: "runbot-hq/run-bot",
     currentVersion: Bundle.main.rbVersionString,
@@ -267,7 +267,7 @@ let updater = AppUpdater(
 
 **Ed25519 key:**
 
-The public key is embedded as a base64 constant in `AppDependencies.swift` (not in `UserDefaults` or any plist). The matching private key lives as a GitHub Actions secret and is used by the release workflow to sign each `RunBot.zip` artifact before upload.
+The public key is embedded as a base64 constant in `RunBotRuntime.swift` (not in `UserDefaults` or any plist). The matching private key lives as a GitHub Actions secret and is used by the release workflow to sign each `RunBot.zip` artifact before upload.
 
 **`fixedZipURL` invariant:**
 
@@ -362,7 +362,7 @@ sign-off (a deliberate Principle #4 exception) so `deinit` can cancel the handle
 
 ### `RunnerPollerProtocol` and `MockPoller`
 
-`AppDependencies` types the poller as `any RunnerPollerProtocol`
+`RunBotRuntime` types the poller as `any RunnerPollerProtocol`
 (`func start() async` + `var state: RunnerState { get }`). `RunnerPoller` is the
 production conformer; `MockPoller` is a no-op actor for SwiftUI previews and
 snapshot tests — `start()` is a guaranteed no-op that never touches the network.

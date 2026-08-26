@@ -1,4 +1,4 @@
-// SidebarMetricsView.swift
+// SidebarMetricsCard.swift
 // RunBot
 
 import RunBotCore
@@ -17,7 +17,7 @@ enum SidebarMetricLayout {
     static let barHeight: CGFloat = 6
 }
 
-// MARK: - SidebarMetricsView
+// MARK: - SidebarMetricsCard
 
 /// Pinned sidebar footer showing live CPU, GPU, memory, and disk metrics.
 ///
@@ -28,7 +28,7 @@ enum SidebarMetricLayout {
 ///
 /// ## Layout
 /// A `thinMaterial` rounded-rectangle groups the four rows inside a compact
-/// footer that stays pinned below the navigation `List` in `AppSidebarView`.
+/// footer that stays pinned below the navigation `List` in `AppSidebarColumnView`.
 /// The footer height is bounded so it cannot consume the entire sidebar when
 /// the window is short.
 ///
@@ -36,22 +36,22 @@ enum SidebarMetricLayout {
 /// Reuses `SystemStatsViewModel`, `SystemStats`, and `SparklineView`.
 /// Does not embed the full-page `SystemStatsView`.
 @MainActor
-struct SidebarMetricsView: View {
+struct SidebarMetricsCard: View {
 
-    /// View-local sampler. Constructed once; never written to `AppDependencies`.
+    /// View-local sampler. Constructed once; never written to `RunBotRuntime`.
     @State private var viewModel = SystemStatsViewModel()
 
     /// The four metric rows grouped in a compact material surface.
     var body: some View {
         VStack(spacing: 0) {
-            SidebarUsageMetricView(
+            SidebarUsageMetricRow(
                 title: "CPU",
                 accessibilityTitle: "CPU",
                 value: viewModel.stats.cpuPct,
                 history: viewModel.cpuHistory.values,
                 fractionDigits: 1
             )
-            SidebarUsageMetricView(
+            SidebarUsageMetricRow(
                 title: "GPU",
                 accessibilityTitle: "GPU",
                 value: viewModel.stats.gpuPct,
@@ -59,13 +59,13 @@ struct SidebarMetricsView: View {
                 fractionDigits: 0
             )
 
-            SidebarCapacityMetricView(
+            SidebarCapacityMetricRow(
                 title: "MEM",
                 accessibilityTitle: "Memory",
                 used: viewModel.stats.memUsedGB,
                 total: viewModel.stats.memTotalGB
             )
-            SidebarCapacityMetricView(
+            SidebarCapacityMetricRow(
                 title: "DISK",
                 accessibilityTitle: "Disk",
                 used: viewModel.stats.diskUsedGB,

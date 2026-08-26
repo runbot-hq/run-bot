@@ -1,16 +1,16 @@
-// SidebarCapacityMetricView.swift
+// SidebarCapacityMetricRow.swift
 // RunBot
 
 import SwiftUI
 
-// MARK: - SidebarCapacityMetricView
+// MARK: - SidebarCapacityMetricRow
 
 /// Three-zone metric row: header with used/total, capacity progress bar, used/free footer.
 ///
 /// Used for Memory and Disk in the sidebar metrics footer.
 /// Values are expressed in GB (Double) to match `SystemStats` storage.
 /// Adaptive precision: values below 100 GB show one decimal; 100+ show none.
-struct SidebarCapacityMetricView: View {
+struct SidebarCapacityMetricRow: View {
 
     /// Short uppercase label shown as the row heading, e.g. "MEM" or "DISK".
     let title: String

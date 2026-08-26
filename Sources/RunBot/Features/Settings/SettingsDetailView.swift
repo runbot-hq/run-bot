@@ -27,7 +27,7 @@ import SwiftUI
 ///
 /// ## Dependency rules
 /// - `GitHubAuthentication` is read from the environment (owned by
-///   `RunBotDesktopApp`). No second instance is created here.
+///   `RunBotApp`). No second instance is created here.
 /// - `onToggleEnvironment` selects `.environment`, `.oauth` (when signed in),
 ///   or `.unauthenticated` to match main's toggle logic.
 /// - A `.task` on `AuthenticationSection` runs `refreshAuthentication()` once
@@ -43,7 +43,7 @@ import SwiftUI
 ///   preference, not a constraint, and is ignored when the parent offers more.
 /// - ❌ Do not wrap this view's root `ScrollView` in a GeometryReader to
 ///   measure it — measurement has exactly one owner (see the SIZING CONTRACT
-///   on `AppShellView`). Measuring here reintroduces the multi-source
+///   on `AppNavigationSplitView`). Measuring here reintroduces the multi-source
 ///   disagreement that caused #2278/#2279 and the side-jump family (#375–377).
 /// - `.fixedSize(horizontal: false, vertical: true)` on multi-line rows in
 ///   the section views (Updates, General, Authentication cards) is

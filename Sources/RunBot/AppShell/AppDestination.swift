@@ -1,11 +1,11 @@
-// AppSection.swift
+// AppDestination.swift
 // RunBot
 
 import SwiftUI
 
 /// Top-level sidebar route model.
 /// Raw string value prepares for `@SceneStorage` persistence in a later step.
-enum AppSection: String, CaseIterable, Identifiable {
+enum AppDestination: String, CaseIterable, Identifiable {
     /// The workflows feature destination.
     case workflows
     /// The local runners feature destination.
