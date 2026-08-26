@@ -1,4 +1,4 @@
-// AppContentView.swift
+// AppContentColumnView.swift
 // RunBot
 
 import GitHubClient
@@ -7,25 +7,25 @@ import SwiftUI
 
 /// Content-column router. Switches on the current sidebar selection.
 ///
-/// Workflows shows the workflow hierarchy (issue #2880); the other sections
+/// Workflows shows the workflow hierarchy (issue #2880); the other destinations
 /// host their existing self-contained feature roots. The `nil` case is
 /// defensive; Workflows is always selected on launch.
-struct AppContentView: View {
-    /// The currently selected sidebar section.
-    let selection: AppSection?
+struct AppContentColumnView: View {
+    /// The currently selected sidebar destination.
+    let selection: AppDestination?
 
     /// Observable runner state pushed by `LocalRunnerStore`.
     let runnerState: RunnerState
     /// Configured local-runner store forwarded from the composition root.
     let localRunnerStore: LocalRunnerStore
-    /// Shared workflow → job → step selection owned by `AppShellView`.
+    /// Shared workflow → job → step selection owned by `AppNavigationSplitView`.
     var workflowSelection: WorkflowSelection
 
-    /// Shared settings section selection owned by `AppShellView`.
+    /// Shared settings section selection owned by `AppNavigationSplitView`.
     @Binding var settingsSelection: SettingsSection?
-    /// Shared runner selection owned by `AppShellView`. (#2900)
+    /// Shared runner selection owned by `AppNavigationSplitView`. (#2900)
     @Binding var selectedRunnerID: RunnerModel.ID?
-    /// Shared scope selection owned by `AppShellView`. (#2900)
+    /// Shared scope selection owned by `AppNavigationSplitView`. (#2900)
     @Binding var selectedScopeID: ScopeEntry.ID?
 
     /// Routes to the corresponding content-column view.

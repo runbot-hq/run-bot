@@ -1,16 +1,16 @@
-// SidebarUsageMetricView.swift
+// SidebarUsageMetricRow.swift
 // RunBot
 
 import SwiftUI
 
-// MARK: - SidebarUsageMetricView
+// MARK: - SidebarUsageMetricRow
 
 /// Two-zone metric row: percentage header and full-width severity-colored sparkline.
 ///
 /// Used for CPU and GPU in the sidebar metrics footer.
 /// When `value` is `nil` the header shows an em-dash and a neutral
 /// empty graph band is rendered without fabricating zero samples.
-struct SidebarUsageMetricView: View {
+struct SidebarUsageMetricRow: View {
 
     /// Short uppercase label shown as the row heading, e.g. "CPU".
     let title: String
