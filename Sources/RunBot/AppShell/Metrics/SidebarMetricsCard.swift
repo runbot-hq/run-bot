@@ -38,7 +38,7 @@ enum SidebarMetricLayout {
 @MainActor
 struct SidebarMetricsCard: View {
 
-    /// View-local sampler. Constructed once; never written to `AppDependencies`.
+    /// View-local sampler. Constructed once; never written to `RunBotRuntime`.
     @State private var viewModel = SystemStatsViewModel()
 
     /// The four metric rows grouped in a compact material surface.

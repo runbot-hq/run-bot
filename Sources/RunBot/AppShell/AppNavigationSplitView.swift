@@ -59,7 +59,7 @@ struct AppNavigationSplitView: View {
     let localRunnerStore: LocalRunnerStore
     /// Settings services forwarded from the composition root.
     let settingsDependencies: SettingsDependencies
-    /// Shared log fetcher — owned by `AppDependencies`, threaded down
+    /// Shared log fetcher — owned by `RunBotRuntime`, threaded down
     /// via `@Binding` so the ZIP cache survives column navigations.
     @Binding var logFetcher: LogFetcher
 
@@ -97,7 +97,7 @@ struct AppNavigationSplitView: View {
         .navigationSplitViewStyle(.balanced)
         // Content min-size floor. Must stay in sync with
         // `.windowResizability(.contentMinSize)` + `.defaultSize` in
-        // RunBotDesktopApp — two sources that must never disagree (see the
+        // RunBotApp — two sources that must never disagree (see the
         // one-measurement rule above).
         .frame(minWidth: 720, minHeight: 480)
     }

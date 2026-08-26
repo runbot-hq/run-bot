@@ -8,7 +8,7 @@ import RunBotCore
 
 /// Holds the services genuinely needed by the windowed Settings destination.
 ///
-/// Owned once by `AppDependencies` and threaded through
+/// Owned once by `RunBotRuntime` and threaded through
 /// `AppNavigationSplitView` → `AppDetailColumnView` → `SettingsListView`.
 /// Do not instantiate services inside this type — receive them from
 /// the composition root to avoid the startup-coupling regression
