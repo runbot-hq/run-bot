@@ -2,55 +2,6 @@
 // RunBotCore
 import Foundation
 
-// MARK: - GroupStatus
-
-/// Type-safe status for a workflow run group (commit/PR trigger).
-/// Mirrors ci-dash.py's group status derivation logic.
-public enum GroupStatus {
-    /// At least one sibling run is in progress.
-    case inProgress
-    /// Jobs have not yet loaded and no run is active — transient fetch window.
-    case loading
-    /// No run is in progress, but at least one is queued.
-    case queued
-    /// All runs have concluded (or all jobs are done).
-    case completed
-}
-
-// MARK: - GroupStatus + display helpers
-
-/// Display and sorting helpers for `GroupStatus`.
-extension GroupStatus {
-    /// Sort priority for display ordering.
-    ///
-    /// Lower value = higher display priority (in-progress before loading before queued before completed).
-    public var sortPriority: Int {
-        switch self {
-        case .inProgress: return 0
-        case .loading:    return 1
-        case .queued:     return 2
-        case .completed:  return 3
-        }
-    }
-}
-
-// MARK: - GroupStatus + RBStatus
-
-/// RBStatus bridging for `GroupStatus`.
-extension GroupStatus {
-    /// Maps `GroupStatus` to the shared `RBStatus` for indicator display.
-    /// For completed groups use `WorkflowActionGroup.rbStatus` to get the
-    /// conclusion-aware mapping.
-    public var rbStatus: RBStatus {
-        switch self {
-        case .inProgress: return .inProgress
-        case .loading:    return .queued
-        case .queued:     return .queued
-        case .completed:  return .unknown
-        }
-    }
-}
-
 // MARK: - WorkflowActionGroup + RBStatus
 
 // swiftlint:disable:next missing_docs
@@ -82,43 +33,6 @@ extension WorkflowActionGroup {
         case .neutral, .stale, .unknown, nil:
             return .unknown
         }
-    }
-}
-// MARK: - WorkflowRunRef
-
-/// Lightweight reference to a single workflow run inside a `WorkflowActionGroup`.
-///
-/// Holds only the data needed for display and job fetching — deliberately
-/// minimal so the full job list lives on the parent `WorkflowActionGroup` instead.
-public struct WorkflowRunRef: Identifiable, Equatable, Sendable {
-    /// The unique GitHub run ID.
-    public let id: Int
-    /// Workflow file name, e.g. `"SonarQube"`, `"vitest"`.
-    public let name: String
-    /// Current run status as a typed `JobStatus` value.
-    public let status: JobStatus
-    /// Run conclusion once completed, or `nil` while running.
-    public let conclusion: JobConclusion?
-    /// URL to the run detail page on github.com.
-    public let htmlUrl: String?
-    /// The attempt number of this run. Starts at 1; incremented on each rerun.
-    public let runAttempt: Int
-
-    /// Creates a new `WorkflowRunRef`.
-    /// - Parameters:
-    ///   - id: The unique GitHub run ID.
-    ///   - name: Workflow file name.
-    ///   - status: Current run status.
-    ///   - conclusion: Run conclusion, or `nil` while running.
-    ///   - htmlUrl: URL to the run detail page.
-    ///   - runAttempt: Attempt number. Defaults to `1` so existing call sites compile unchanged.
-    public init(id: Int, name: String, status: JobStatus, conclusion: JobConclusion?, htmlUrl: String?, runAttempt: Int = 1) {
-        self.id = id
-        self.name = name
-        self.status = status
-        self.conclusion = conclusion
-        self.htmlUrl = htmlUrl
-        self.runAttempt = runAttempt
     }
 }
 
