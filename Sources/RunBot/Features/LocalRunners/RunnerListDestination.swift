@@ -11,7 +11,7 @@ import SwiftUI
 ///
 /// Owns sheet presentation and action dispatch while keeping
 /// `RunnerListView` purely presentational. Selection is
-/// owned by `AppShellView` and passed in as a binding so the detail
+/// owned by `AppNavigationSplitView` and passed in as a binding so the detail
 /// column can resolve the selected runner independently. (#2900)
 @MainActor
 struct RunnerListDestination: View {
@@ -22,7 +22,7 @@ struct RunnerListDestination: View {
     let runnerState: RunnerState
     /// The configured local-runner store.
     let localRunnerStore: LocalRunnerStore
-    /// Shell-owned selection binding shared with `AppDetailView`.
+    /// Shell-owned selection binding shared with `AppDetailColumnView`.
     @Binding var selectedRunnerID: RunnerModel.ID?
 
     // MARK: - Environment

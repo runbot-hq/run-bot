@@ -150,8 +150,8 @@ extension Color {
     /// - >60–85 % → orange (`.rbWarning`)
     /// - >85 %    → red (`.rbDanger`)
     ///
-    /// Used by `SparklineView`, `SidebarUsageMetricView`, and
-    /// `SidebarCapacityMetricView` so threshold logic is defined once.
+    /// Used by `SparklineView`, `SidebarUsageMetricRow`, and
+    /// `SidebarCapacityMetricRow` so threshold logic is defined once.
     static func rbMetricSeverity(percentage: Double) -> Color {
         let clamped = min(max(percentage, 0), 100)
         if clamped > 85 { return .rbDanger }

@@ -1,4 +1,4 @@
-// AppShellView.swift
+// AppNavigationSplitView.swift
 // RunBot
 
 import RunBotCore
@@ -33,9 +33,9 @@ import SwiftUI
 ///   the column lives: `navigationSplitViewColumnWidth` here, and per-view
 ///   caps (e.g. the 820 pt readability cap in `SettingsDetailView`) in the
 ///   views that own them.
-struct AppShellView: View {
-    /// Currently selected sidebar section. Defaults to Workflows.
-    @State private var selection: AppSection? = .workflows
+struct AppNavigationSplitView: View {
+    /// Currently selected sidebar destination. Defaults to Workflows.
+    @State private var selection: AppDestination? = .workflows
 
     /// Shared workflow → job → step selection. Owned at the shell level
     /// because the hierarchy and step-log columns both read and mutate it.
@@ -66,14 +66,14 @@ struct AppShellView: View {
     /// The top-level split-view layout.
     var body: some View {
         NavigationSplitView {
-            AppSidebarView(selection: $selection)
+            AppSidebarColumnView(selection: $selection)
                 .navigationSplitViewColumnWidth(
                     min: 180,
                     ideal: 210,
                     max: 260
                 )
         } content: {
-            AppContentView(
+            AppContentColumnView(
                 selection: selection,
                 runnerState: runnerState,
                 localRunnerStore: localRunnerStore,
@@ -83,7 +83,7 @@ struct AppShellView: View {
                 selectedScopeID: $selectedScopeID
             )
         } detail: {
-            AppDetailView(
+            AppDetailColumnView(
                 selection: selection,
                 runnerState: runnerState,
                 workflowSelection: workflowSelection,

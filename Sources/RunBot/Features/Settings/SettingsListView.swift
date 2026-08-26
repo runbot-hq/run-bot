@@ -8,7 +8,7 @@ import SwiftUI
 /// Settings section list shown in the content column of the app shell.
 ///
 /// Shows a compact "Settings" title above the section list, then the
-/// section rows. Selection is owned by `AppShellView` and flows down
+/// section rows. Selection is owned by `AppNavigationSplitView` and flows down
 /// as a binding. (#2898)
 ///
 /// ## Row styling

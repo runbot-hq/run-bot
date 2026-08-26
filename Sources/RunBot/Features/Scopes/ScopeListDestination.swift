@@ -10,7 +10,7 @@ import SwiftUI
 ///
 /// Owns sheet presentation and action dispatch while keeping
 /// `ScopeListView` purely presentational. Selection is
-/// owned by `AppShellView` and passed in as a binding so the detail
+/// owned by `AppNavigationSplitView` and passed in as a binding so the detail
 /// column can resolve the selected scope independently. (#2900)
 @MainActor
 struct ScopeListDestination: View {
@@ -19,7 +19,7 @@ struct ScopeListDestination: View {
 
     /// The shared scope store, injected at the composition boundary.
     let scopeStore: ScopeStore
-    /// Shell-owned selection binding shared with `AppDetailView`.
+    /// Shell-owned selection binding shared with `AppDetailColumnView`.
     @Binding var selectedScopeID: ScopeEntry.ID?
 
     // MARK: - Local UI state

@@ -7,7 +7,7 @@ import Foundation
 
 /// Identifies each row in the settings list pane.
 ///
-/// Mirrors the shape of `AppSection`: `String`-backed, `CaseIterable`,
+/// Mirrors the shape of `AppDestination`: `String`-backed, `CaseIterable`,
 /// `Identifiable` with `id: Self`, so it can drive a `List(selection:)`
 /// binding directly.
 enum SettingsSection: String, CaseIterable, Identifiable {

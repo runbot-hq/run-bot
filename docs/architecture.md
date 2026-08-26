@@ -52,11 +52,11 @@ main.swift
     │   │   └── PollLoopCoordinator
     │   └── SettingsDependencies
     │       └── AppUpdater
-    └── AppShellView
+    └── AppNavigationSplitView
         └── NavigationSplitView
-            ├── AppSidebarView
-            ├── AppContentView
-            └── AppDetailView
+            ├── AppSidebarColumnView
+            ├── AppContentColumnView
+            └── AppDetailColumnView
 ```
 
 - `main.swift` calls `RunBotDesktopApp.main()` inside `MainActor.assumeIsolated`.
@@ -90,7 +90,7 @@ RunBotDesktopApp.init
 → configure LocalRunnerStore synchronously
 → construct GitHubClient and RunnerPoller
 → construct OAuthCredentialController
-→ mount AppShellView
+→ mount AppNavigationSplitView
 → AppDependencies.start()
 → reconcile OAuth state
 → start OAuth observation
@@ -120,18 +120,18 @@ A three-column `NavigationSplitView` shell:
 
 | Column | Router | Responsibilities |
 |---|---|---|
-| Sidebar | `AppSidebarView` | Top-level section selection and pinned system metrics |
-| Content | `AppContentView` | Workflow hierarchy, local runners, scopes, or settings list |
-| Detail | `AppDetailView` | Step log, runner detail, scope detail, or settings detail |
+| Sidebar | `AppSidebarColumnView` | Top-level destination selection and pinned system metrics |
+| Content | `AppContentColumnView` | Workflow hierarchy, local runners, scopes, or settings list |
+| Detail | `AppDetailColumnView` | Step log, runner detail, scope detail, or settings detail |
 
 State ownership:
 
-- `AppShellView` owns top-level section selection.
+- `AppNavigationSplitView` owns top-level destination selection.
 - `WorkflowSelection` owns workflow → job → step selection.
 - Runner, scope, and settings selection are owned by the shell and passed down
   as bindings so the content list and detail column stay consistent (#2900).
 - `LogFetcher` is app-owned (`RunBotDesktopApp` creates the single `@State`
-  instance and threads it into `AppShellView` via `@Binding`) so its ZIP cache
+  instance and threads it into `AppNavigationSplitView` via `@Binding`) so its ZIP cache
   survives navigation and view remounts.
 - Detail views resolve selected models from current observable snapshots rather
   than retaining stale copies.

@@ -18,7 +18,7 @@ import SwiftUI
 struct WorkflowHierarchyView: View {
     /// Observable runner state. Observed directly to stay live across polls.
     @Bindable var runnerState: RunnerState
-    /// Shared selection state owned by `AppShellView`.
+    /// Shared selection state owned by `AppNavigationSplitView`.
     var selection: WorkflowSelection
 
     /// IDs of workflows whose job lists are currently expanded.

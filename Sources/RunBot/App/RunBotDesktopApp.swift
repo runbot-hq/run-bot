@@ -19,7 +19,7 @@ struct RunBotDesktopApp: App {
     @State private var deps: AppDependencies
     /// App-owned log fetcher so the ZIP cache survives navigation and view
     /// remounts. Created here (not in `AppDependencies`) because its
-    /// lifetime is tied to the scene, threaded into `AppShellView` via
+    /// lifetime is tied to the scene, threaded into `AppNavigationSplitView` via
     /// `$logFetcher`.
     @State private var logFetcher: LogFetcher
 
@@ -44,7 +44,7 @@ struct RunBotDesktopApp: App {
     /// The scene graph for the windowed application.
     var body: some Scene {
         Window("RunBot", id: "main") {
-            AppShellView(
+            AppNavigationSplitView(
                 runnerState: deps.runnerState,
                 localRunnerStore: deps.localRunnerStore,
                 settingsDependencies: deps.settingsDependencies,

@@ -1,35 +1,35 @@
-// AppDetailView.swift
+// AppDetailColumnView.swift
 // RunBot
 
 import GitHubClient
 import RunBotCore
 import SwiftUI
 
-/// Detail-column router. Shows the step log for the Workflows section and a
-/// neutral placeholder for sections whose content column is self-contained.
+/// Detail-column router. Shows the step log for the Workflows destination and a
+/// neutral placeholder for destinations whose content column is self-contained.
 ///
 /// Selected job and step are derived here from the shared selection plus the
 /// live runner snapshot so the log always reflects current data.
-struct AppDetailView: View {
-    /// The currently selected sidebar section.
-    let selection: AppSection?
+struct AppDetailColumnView: View {
+    /// The currently selected sidebar destination.
+    let selection: AppDestination?
 
     /// Observable runner state pushed by `LocalRunnerStore`.
     let runnerState: RunnerState
-    /// Shared workflow → job → step selection owned by `AppShellView`.
+    /// Shared workflow → job → step selection owned by `AppNavigationSplitView`.
     var workflowSelection: WorkflowSelection
-    /// Selected settings section forwarded from `AppShellView`.
+    /// Selected settings section forwarded from `AppNavigationSplitView`.
     let settingsSelection: SettingsSection?
 
     /// Settings services forwarded from the composition root.
     let settingsDependencies: SettingsDependencies
 
-    /// Shell-owned runner selection forwarded from `AppShellView`. (#2900)
+    /// Shell-owned runner selection forwarded from `AppNavigationSplitView`. (#2900)
     let selectedRunnerID: RunnerModel.ID?
-    /// Shell-owned scope selection forwarded from `AppShellView`. (#2900)
+    /// Shell-owned scope selection forwarded from `AppNavigationSplitView`. (#2900)
     let selectedScopeID: ScopeEntry.ID?
 
-    /// Shared log fetcher — threaded from `AppShellView`.
+    /// Shared log fetcher — threaded from `AppNavigationSplitView`.
     @Binding var logFetcher: LogFetcher
 
     // MARK: - Derived selection
