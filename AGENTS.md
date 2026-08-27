@@ -62,6 +62,22 @@ Sources/RunBot/       executable — AppKit/SwiftUI app; depends on RunBotCore
 Tests/RunBotCoreTests/ swift-testing suite (+ TestSupport doubles & fixtures)
 ```
 
+Inside the app target, `App/` and `UI/` are separate layers:
+
+```
+Sources/RunBot/App/                executable lifecycle and process-lifetime runtime wiring
+Sources/RunBot/UI/Navigation/      top-level navigation and column routing
+Sources/RunBot/UI/Features/        feature-specific presentation (one folder per domain)
+Sources/RunBot/UI/Shared/          presentation reused across features
+Sources/RunBot/UI/DesignSystem/    tokens and reusable visual treatments
+Sources/RunBot/Resources/          bundled assets
+```
+
+Presentation code belongs under `UI/`. Don't add new top-level folders beside it,
+and don't introduce global technical buckets (`Views/`, `Rows/`, `Modifiers/`,
+`ViewModels/`) — those scatter one feature across many folders. The organization
+under `UI/Features/` is feature-first; keep it that way.
+
 **Hard rule: `RunBotCore` must never import the `RunBot` app target.** App-layer
 dependencies are injected into Core via protocols and closures (`RunnerPollerProtocol`,
 `RunnerViewModelProtocol`, the `*StoreProtocol`s). This boundary is load-bearing.

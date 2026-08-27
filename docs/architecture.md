@@ -15,6 +15,7 @@ Regression guards and architectural decisions are enforced inline in the source.
 ## Index
 
 - [System overview](#system-overview)
+- [Source layout](#source-layout)
 - [Startup lifecycle](#startup-lifecycle)
 - [UI architecture](#ui-architecture)
 - [Presentation](#presentation)
@@ -76,6 +77,47 @@ main.swift
 - `RunnerPoller` owns GitHub polling. Its `PollLoopCoordinator` owns the three
   task handles driving the loop (poll, interval observation, scope observation)
   and remains active architecture.
+
+---
+
+## Source layout
+
+The app target separates executable lifecycle from presentation:
+
+```text
+Sources/RunBot/
+├── App/
+│   ├── RunBotApp.swift
+│   ├── RunBotRuntime.swift
+│   └── main.swift
+├── UI/
+│   ├── Navigation/
+│   │   └── SidebarMetrics/
+│   ├── Features/
+│   │   ├── LocalRunners/
+│   │   ├── Scopes/
+│   │   ├── Settings/
+│   │   └── Workflows/
+│   ├── Shared/
+│   │   ├── Components/
+│   │   └── ScopeSelection/
+│   └── DesignSystem/
+└── Resources/
+```
+
+- `App/` owns executable lifecycle and process-lifetime runtime wiring.
+- `UI/Navigation/` owns top-level navigation and column routing.
+- `UI/Features/` owns feature-specific presentation.
+- `UI/Shared/` owns presentation reused across features.
+- `UI/DesignSystem/` owns tokens and reusable visual treatments.
+- `Resources/` owns bundled assets.
+
+`UI/Features/` is organized feature-first — one folder per domain, each holding
+that feature's views, rows, and sheets together. Do not split features into
+global technical buckets (`Views/`, `Rows/`, `Modifiers/`, `ViewModels/`); that
+scatters one feature across the tree. A subfolder inside a feature is worth it
+when several peer files share a concern (`Workflows/StepLog/`), not for a single
+file.
 
 ---
 
@@ -158,8 +200,9 @@ While an importer is presented, the parent sheet disables interactive dismissal
 
 Dark & light mode follow the macOS system appearance with no user-facing
 toggle: Liquid Glass styling comes from `UI/DesignSystem/` (`glassCard` in
-`SurfaceModifiers.swift`, color/spacing/typography/radius tokens), and all views use semantic
-colors that resolve at render time. Never hardcode raw colors in the UI layer.
+`SurfaceModifiers.swift`, color/spacing/typography/radius tokens), and all views
+use semantic colors that resolve at render time. Never hardcode raw colors in the
+UI layer.
 
 ---
 
