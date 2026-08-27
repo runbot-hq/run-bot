@@ -119,6 +119,45 @@ scatters one feature across the tree. A subfolder inside a feature is worth it
 when several peer files share a concern (`Workflows/StepLog/`), not for a single
 file.
 
+The library target is organized by domain:
+
+```text
+Sources/RunBotCore/
+├── GitHub/
+├── Platform/          OS services only
+├── Preferences/
+├── Runner/
+│   ├── Models/
+│   ├── Polling/
+│   │   └── RunnerPoller/
+│   ├── Services/
+│   │   └── WorkflowActionGroupFetcher/
+│   ├── Stores/
+│   └── UseCases/
+├── Scopes/
+├── State/
+├── Utilities/         general-purpose helpers only
+└── WorkflowLogs/
+    ├── Fetching/
+    ├── Parsing/
+    └── Cache/
+```
+
+- `WorkflowLogs/` owns the whole step-log pipeline: downloading the run ZIP
+  (`Fetching/`), turning raw log text into styled lines (`Parsing/`), and the
+  on-disk ZIP cache (`Cache/`). Log code does not belong in `Platform/` or
+  `Utilities/`.
+- `Platform/` is for OS services — GPU sampling, login items, process running,
+  system stats, terminal launching. `Utilities/` is for general-purpose helpers
+  with no domain of their own. Neither is a home for domain code.
+- A large type's file family gets its own folder once it crowds its parent —
+  `Runner/Polling/RunnerPoller/` and
+  `Runner/Services/WorkflowActionGroupFetcher/`. Collaborators of that type stay
+  in the parent folder; only the type's own declaration and extensions move in.
+- `Runner/Models/` is deliberately flat. The files are prefix-searchable and
+  reference one another constantly; splitting them would create nesting like
+  `Models/Runner/` and `Models/Status/` that helps no one.
+
 ---
 
 ## Startup lifecycle
