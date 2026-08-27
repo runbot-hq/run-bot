@@ -7,7 +7,7 @@
 ///
 /// Cases are defined here in `RunBotCore` so that `ActiveJob.rbStatus` can be
 /// computed without importing SwiftUI or AppKit.
-/// The `color` property is added via a `RunBot`-layer extension in `DesignTokens.swift`.
+/// The `color` property is added via a `RunBot`-layer extension in `ColorTokens.swift`.
 public enum RBStatus: Sendable {
     /// A job or workflow step that is currently executing.
     case inProgress

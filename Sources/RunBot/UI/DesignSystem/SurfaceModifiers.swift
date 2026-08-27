@@ -1,4 +1,4 @@
-// PanelViewModifiers.swift
+// SurfaceModifiers.swift
 // RunBot
 import RunBotCore
 import SwiftUI
