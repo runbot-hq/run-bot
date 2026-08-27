@@ -157,8 +157,8 @@ While an importer is presented, the parent sheet disables interactive dismissal
 (#2948).
 
 Dark & light mode follow the macOS system appearance with no user-facing
-toggle: Liquid Glass styling comes from the design tokens in `DesignTokens.swift`
-(`glassCard`, spacing/typography/radius tokens), and all views use semantic
+toggle: Liquid Glass styling comes from `UI/DesignSystem/` (`glassCard` in
+`SurfaceModifiers.swift`, color/spacing/typography/radius tokens), and all views use semantic
 colors that resolve at render time. Never hardcode raw colors in the UI layer.
 
 ---

@@ -97,7 +97,7 @@ ones**. That's why `AppDelegate`, `AddRunnerSheet`, and `RunnerPoller` are split
   `docs/ui/popover-side-jump-prevention.md` and `docs/ui/nspopover-dynamic-width.md`, and respect
   the regression guards in `PanelMainView` / `PanelVisibilityState` (refs #375–377).
   Sheets/dismiss: `docs/ui/nspopover-dismiss-and-sheets.md`.
-- Follow the macOS 26 Liquid Glass design system (`DesignTokens`, `PanelViewModifiers`); support
+- Follow the macOS 26 Liquid Glass design system (`ColorTokens`, `SurfaceModifiers`); support
   dark & light mode.
 
 ## Boundaries (do not touch)

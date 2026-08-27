@@ -6,7 +6,7 @@ import SwiftUI
 // MARK: - ansiAdaptive
 
 /// Appearance-adaptive colour resolver for the ANSI palette.
-/// Mirrors `Color.adaptive(light:dark:)` from RunBot.DesignTokens without that module's
+/// Mirrors `Color.adaptive(light:dark:)` from RunBot.ColorTokens without that module's
 /// dependency on a shared logger or `darkAppearanceNames` constant. Only called with
 /// opaque sRGB values, so alpha loss through the NSColor bridge is irrelevant.
 private func ansiAdaptive(light: Color, dark: Color) -> Color {
