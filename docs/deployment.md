@@ -102,7 +102,7 @@ No IDE required.
 ```bash
 swift run
 ```
-Compiles incrementally and opens the RunBot AppShell window. Press `Ctrl+C` in the launching terminal to stop the process.
+Compiles incrementally and opens the RunBot app window. Press `Ctrl+C` in the launching terminal to stop the process.
 
 ### Type-check after changes
 ```bash

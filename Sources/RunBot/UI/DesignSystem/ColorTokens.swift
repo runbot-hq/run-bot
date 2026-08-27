@@ -1,4 +1,4 @@
-// DesignTokens.swift
+// ColorTokens.swift
 // RunBot
 import AppKit
 import OSLog
@@ -24,7 +24,9 @@ private let darkAppearanceNames: [NSAppearance.Name] = [
     .accessibilityHighContrastVibrantDark
 ]
 
-/// OSLog logger for DesignTokens — subsystem matches the main bundle identifier.
+/// OSLog logger for the color tokens — subsystem matches the main bundle identifier.
+/// The `DesignTokens` category predates the file rename (#3021) and is left unchanged
+/// so existing `log stream` predicates keep matching.
 private let logger = Logger(subsystem: "com.runbot-hq.RunBot", category: "DesignTokens")
 
 /// Helpers for creating appearance-adaptive `Color` values that respond to light/dark mode.
