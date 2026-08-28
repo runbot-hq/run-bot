@@ -169,14 +169,19 @@ extension Color {
     // MARK: Surface & Border Tokens
     //
     // DESIGN TOKEN NOTE:
-    // On macOS 26+ the panel chrome uses NSGlassEffectView which provides its own
-    // backdrop blur and tinting. Surface tokens must use near-zero opacity so the
-    // glass layer shows through. Pre-26 values use the existing vibrancy opacities.
+    // Surfaces are composited over a Liquid Glass layer: `SurfaceModifiers`
+    // applies `.glassEffect(.regular)`, which supplies its own backdrop blur and
+    // tinting. Surface tokens must therefore carry near-zero opacity so that
+    // glass layer shows through rather than being painted over.
     //
     // ⚠️ TRANSLUCENCY CONTRACT — DO NOT REMOVE THIS COMMENT.
-    // NSVisualEffectView uses .hudWindow (.behindWindow). MUST stay opacity < 1.0.
-    // ❌ NEVER set opacity 1.0 — kills vibrancy.
-    // ❌ NEVER switch PanelChrome material back to .popover — warm brown tint.
+    // ❌ NEVER set opacity 1.0 on these tokens — an opaque fill covers the glass
+    //    backdrop entirely and the surface renders as flat grey.
+    // ❌ NEVER hardcode a material behind them. The historical failure here was a
+    //    `.popover` material under the old AppKit panel chrome, which tinted every
+    //    surface warm brown. The panel is gone, but the rule generalises: the
+    //    backdrop is owned by `.glassEffect` in `SurfaceModifiers`, not by these
+    //    tokens, and not by whatever view happens to host them.
     // If you are an agent or human, DO NOT REMOVE THIS COMMENT.
     //
     // FIX (#2098): Surface tokens now use `adaptiveGrayscale` instead of
@@ -287,7 +292,11 @@ extension Color {
         dark: (white: 1, alpha: 0.06)
     )
 
-    /// Adaptive stroke color for job-row cards in `InlineJobRowsView`.
+    /// Adaptive stroke color for job-row cards.
+    ///
+    /// Currently has no consumer — its original caller (`InlineJobRowsView`) was
+    /// removed in the AppShell migration and `JobRow` draws no stroke. Retained
+    /// pending the design-token cleanup; see #3028.
     /// Black 0.18 in light mode (replaces the previous fixed white, which was invisible);
     /// white 0.25 in dark mode (preserves the existing dark-mode stroke strength).
     ///

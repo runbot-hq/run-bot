@@ -136,7 +136,7 @@ public actor RunnerPoller {
   /// No longer drives poll cadence (removed in Step 4 of #2069 — `preferencesStore.pollingInterval`
   /// replaced by `PollIntervalStrategy`). Step 10 (#2073) removed `pollingInterval` from the
   /// protocol; this property is now dead inside `RunnerPoller`. Pending removal together
-  /// with its `AppState` injection site in a follow-up cleanup.
+  /// with its injection site in `RunBotRuntime.init` in a follow-up cleanup.
   let preferencesStore: any AppPreferencesStoreProtocol
   /// Injected scope store. Provides `activeScopes`.
   /// `internal` (not `private`) so that extension files can read this property.
@@ -181,8 +181,13 @@ public actor RunnerPoller {
   ///   - notificationPreferences: Notification preference store used to gate dispatch.
   ///     Pass `.shared` in production; pass an ephemeral instance in tests.
   ///   - actionGroupFetcher: Fetcher for workflow action groups.
-  ///   - zipPrefetchQueue: Background ZIP prefetch queue. Defaults to a shared instance;
-  ///     inject a stub in tests.
+  ///   - diskZIPCache: Shared on-disk ZIP cache. Note the interaction with the next
+  ///     parameter: when `zipPrefetchQueue` is `nil` this cache is threaded into the
+  ///     queue that gets built here, but when a `zipPrefetchQueue` **is** supplied it
+  ///     carries its own cache and this argument only sets the actor's own property.
+  ///     Passing both and expecting them to be the same cache is a mistake.
+  ///   - zipPrefetchQueue: Background ZIP prefetch queue. Defaults to one built over
+  ///     `diskZIPCache`; inject a stub in tests.
   public init(
     state: RunnerState,
     preferencesStore: any AppPreferencesStoreProtocol,

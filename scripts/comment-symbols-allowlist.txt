@@ -1,0 +1,18 @@
+# Symbols that comments may reference even though they are not declared in this
+# repository. Add a name here ONLY when it is owned somewhere else — an Apple
+# framework, the Swift standard library, a POSIX constant, a launchd plist key,
+# an external analyser rule, or the GitHub Actions runner server.
+#
+# Do NOT add a name here to silence a reference to something this repo deleted.
+# Either fix the reference or phrase it as history ("replaced by …"); see #3029.
+
+# Swift standard library / concurrency
+TaskGroup
+NaN
+
+# Foundation / AppKit
+AnyCodable
+NSUserDefaultsDidChangeNotification
+
+# Generic placeholders used in prose rather than as real types
+Value

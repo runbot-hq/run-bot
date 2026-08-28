@@ -126,9 +126,12 @@ actor SpyProxyStore: RunnerProxyStoreProtocol {
 /// writes are no-ops. It exists only to satisfy the protocol at the call site
 /// for tests that do not exercise state round-trips.
 ///
-/// For tests that need real state persistence, use `FakeScopePreferencesStore`
-/// in `ScopeEditSheetTests.swift`, which has a backing `[String: ScopePreferences]`
-/// store and a write log.
+/// There is currently **no stateful double** for this protocol. `ScopeEditSheetTests`
+/// used to provide `FakeScopePreferencesStore` — a backing
+/// `[String: ScopePreferences]` dictionary plus a write log — but both that fixture
+/// and its test file were removed with `ScopeEditSheet` in the AppShell migration.
+/// A test that needs state round-trips must add its own double; do not assume this
+/// one records writes.
 actor MockScopePreferencesStore: ScopePreferencesStoreProtocol {
     func preferences(for _: String) -> ScopePreferences { ScopePreferences() }
     func setPreferences(_: ScopePreferences, for _: String) {
@@ -155,8 +158,9 @@ actor MockScopePreferencesStore: ScopePreferencesStoreProtocol {
         // Intentionally empty: nothing to clean up in a stateless mock.
     }
     // Intentionally does not write back — this mock is stateless by design.
-    // `setPreferences` is also a no-op here. If you need state persistence,
-    // use `FakeScopePreferencesStore` instead.
+    // `setPreferences` is also a no-op here, so the mutation below is applied to a
+    // throwaway value and discarded. If you need state persistence, write a
+    // stateful double (see the type doc — there is no shared one).
     func modifyPreferences(for scope: String, with mutation: @Sendable (inout ScopePreferences) -> Void) {
         var prefs = preferences(for: scope)
         mutation(&prefs)

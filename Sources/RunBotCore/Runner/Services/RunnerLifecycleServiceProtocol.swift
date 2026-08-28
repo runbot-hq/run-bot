@@ -6,7 +6,7 @@ import Foundation
 
 /// Abstraction over macOS launchctl runner lifecycle operations (start, stop, remove).
 ///
-/// Introduced so `LocalRunnersView` and any future consumers can depend on the
+/// Introduced so the local-runner UI and any future consumers can depend on the
 /// protocol rather than the concrete `RunnerLifecycleService`, enabling unit testing
 /// with a stub that does not spawn real `svc.sh` processes.
 ///

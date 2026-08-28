@@ -15,16 +15,19 @@
 // (in that case unzipBinaryExists stays true but fetchStepLog returns something other
 // than .slice, which the !isSlice arm catches).
 //
-// Coverage map:
-//   Normal step — timestamp stripped, ANSI preserved         — test_normalStep_returnsSlice
-//   Regression #2358 — synthetic "Complete job" step (stub)  — test_completeJob_regression2358
-//   Regression #2358 — real extractor against fixture ZIP    — test_completeJob_regression2358_realExtractor
-//   Prefix match when filename differs from step.name        — test_sanitisedFilenameDiffers_prefixMatchSucceeds
-//   Whitespace-only content → .syntheticEmpty                — test_emptyContent_returnsSyntheticEmpty
-//   Only top-level blobs (no '/') → .flatBlobFallback        — test_onlyTopLevelBlobs_returnsFlatBlobFallback
-//   Job name with / and : sanitised                          — test_jobNameWithSlashAndColon_sanitised
-//   Job name > 90 UTF-16 code units truncated                — test_jobNameExceeds90UTF16Units_truncated
-//   Cache hit: zero extra network calls                      — test_cacheHit_zeroAdditionalNetworkCalls
+// Coverage areas (every test carries a descriptive @Test display name — read those
+// for the per-test detail rather than maintaining a duplicate index here, which is
+// how the previous hand-written coverage map silently drifted out of sync):
+//
+//   • StepLogResult cases — .slice, .syntheticEmpty (incl. isSkipped),
+//     .flatBlobFallback
+//   • Content correctness — timestamp prefixes stripped, ANSI escapes preserved
+//   • Regression #2358 — synthetic "Complete job" step with no ##[group] markers,
+//     exercised against the real extractor and the fixture ZIP
+//   • Request shaping — runAttempt reaches the attempts/N/logs endpoint
+//   • Caching — a repeat call for the same runID makes zero extra network calls
+//   • sanitizeJobNameForZIP — slash and Windows-invalid character stripping,
+//     90-UTF-16-unit truncation, and surrogate-pair safety at the cut boundary
 
 import Foundation
 import GitHubClient

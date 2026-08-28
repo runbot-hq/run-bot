@@ -38,9 +38,12 @@ extension RunnerPoller {
     /// Builds a `JobPollResult` by fetching live jobs for all monitored scopes,
     /// backfilling step data from the cache, and diffing against `snapPrev`.
     ///
-    /// - Parameter scopes: The scope snapshot captured by `fetchInternal`, threaded
-    ///   through to `fetchAllJobs(scopes:)` to avoid a TOCTOU re-read of
-    ///   `scopeStore.activeScopes`.
+    /// - Parameters:
+    ///   - snapPrev: Live-job snapshot from the previous poll, used to diff.
+    ///   - snapCache: Completed-job cache from the previous poll; backfilled in place.
+    ///   - scopes: The scope snapshot captured by `fetchInternal`, threaded
+    ///     through to `fetchAllJobs(scopes:)` to avoid a TOCTOU re-read of
+    ///     `scopeStore.activeScopes`.
     func buildJobState(
         snapPrev: [Int: ActiveJob],
         snapCache: [Int: ActiveJob],
@@ -67,9 +70,13 @@ extension RunnerPoller {
     /// Builds a `GroupPollResult` by fetching live workflow action groups for all monitored scopes,
     /// enriching jobs from the job cache, and diffing against `snapPrevGroups`.
     ///
-    /// - Parameter scopes: The scope snapshot captured by `fetchInternal`, threaded
-    ///   through to `fetchActionGroups(scopes:shaKeyedCache:)` to avoid a TOCTOU re-read
-    ///   of `scopeStore.activeScopes`.
+    /// - Parameters:
+    ///   - snapPrevGroups: Live-group snapshot from the previous poll, used to diff.
+    ///   - snapGroupCache: Completed-group cache from the previous poll.
+    ///   - jobCache: Completed-job cache used to enrich each group's job list.
+    ///   - scopes: The scope snapshot captured by `fetchInternal`, threaded
+    ///     through to `fetchActionGroups(scopes:shaKeyedCache:)` to avoid a TOCTOU
+    ///     re-read of `scopeStore.activeScopes`.
     func buildGroupState(
         snapPrevGroups: [String: WorkflowActionGroup],
         snapGroupCache: [String: WorkflowActionGroup],

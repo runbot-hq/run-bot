@@ -42,12 +42,15 @@ let package = Package(
         ),
         .executableTarget(
             name: "RunBot",
-            // GitHubClient is declared explicitly because AppDelegate+StoreSetup.swift
-            // calls configureGHAPI / configureGHRaw / configureGHAPIPaginated /
-            // configureGHLogger directly. SwiftPM does not re-export transitive
-            // dependencies, so the symbols are only visible when GitHubClient is a
-            // direct dependency of this target. AppUpdater is consumed transitively
-            // via RunBotCore and needs no explicit entry.
+            // GitHubClient is declared explicitly because the app target uses its
+            // types directly, not only through RunBotCore: RunBotRuntime constructs
+            // GitHubClient and OAuthCredentialController, RunBotApp reads
+            // GitHubConstants for the OAuth callback, and roughly twenty UI files
+            // import GitHubClient for GitHubAuthentication / GitHubStep / OAuthState.
+            // SwiftPM does not re-export transitive dependencies, so those symbols
+            // are only visible when GitHubClient is a direct dependency of this
+            // target. AppUpdater is consumed transitively via RunBotCore and needs
+            // no explicit entry.
             dependencies: [
                 "RunBotCore",
                 .product(name: "GitHubClient", package: "GitHubClient"),

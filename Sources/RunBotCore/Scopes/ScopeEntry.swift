@@ -7,7 +7,7 @@ import Foundation
 /// A single watched GitHub scope (repo or org) with an enable/disable flag.
 ///
 /// `scope` is either `"owner/repo"` (repository) or `"myorg"` (organisation).
-/// `isEnabled` controls whether `RunnerStore` polls this scope; disabled scopes
+/// `isEnabled` controls whether `RunnerPoller` polls this scope; disabled scopes
 /// are retained in the list but silently skipped during fetch.
 ///
 /// ## Equatable / Hashable — displayName excluded
@@ -25,7 +25,7 @@ public struct ScopeEntry: Identifiable, Codable, Equatable, Hashable, Sendable {
     /// `let`: the scope string is immutable after construction. To change a scope,
     /// remove the existing entry and add a new one via `ScopeStore`.
     public let scope: String
-    /// When `false`, `RunnerStore` skips this scope during polling.
+    /// When `false`, `RunnerPoller` skips this scope during polling.
     /// `let`: use `copying(isEnabled:)` to derive a toggled copy — the only intended
     /// mutation site is `ScopeStore.setEnabled(_:_:)`.
     public let isEnabled: Bool

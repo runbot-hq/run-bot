@@ -7,8 +7,8 @@ import SwiftUI
 ///
 /// Renders a straight bar with an elbow arrow pointing at the row content.
 /// For the last item in a group the bar stops at the elbow instead of
-/// continuing to the bottom edge. Simplified from the menu-bar
-/// `TreeLineLeader` (issue #2881) — no vertical-overlap bridging is needed
+/// continuing to the bottom edge. Simplified from the menu-bar era's since-deleted
+/// tree-line leader (issue #2881) — no vertical-overlap bridging is needed
 /// because hierarchy rows are stacked without card padding between segments.
 struct TreeConnector: View {
     /// Whether this is the last item in the group (bar stops at the elbow).

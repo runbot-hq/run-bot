@@ -24,8 +24,10 @@ extension RunnerPoller {
     ///    warning spam. They re-enter the cache with correct scope data on the next
     ///    poll cycle once a new live fetch completes. This flash is cosmetic and
     ///    self-corrects within one poll cycle.
-    ///    TODO: Remove this guard after two release cycles once pre-F-26 cache
-    ///    entries are definitively gone from the field.
+    ///    TODO(#3029): Remove this guard once pre-F-26 caches are gone from the
+    ///    field. Concretely: it is safe to delete when no supported release still
+    ///    writes `scope == nil` entries — check the two most recent tagged releases
+    ///    before removing, rather than counting cycles from an unrecorded start.
     ///
     /// 2. **Org-only scope (`!scope.contains("/")`)**
     ///    The GitHub Jobs API has no `orgs/{org}/actions/jobs/{id}` endpoint — only

@@ -48,7 +48,7 @@ private struct RunnerPayload: Decodable, Sendable {
     /// The GitHub REST API numeric runner ID.
     ///
     /// Stored as `RunnerModel.apiId` after enrichment so that
-    /// `RunnerStore.buildInstallPathMap` can build a `byApiId` lookup map —
+    /// `RunnerPoller.buildInstallPathMap` can build a `byApiId` lookup map —
     /// enabling metrics resolution for org runners whose local `.runner` JSON
     /// `AgentId` differs from this GitHub-assigned id.
     let id: Int?

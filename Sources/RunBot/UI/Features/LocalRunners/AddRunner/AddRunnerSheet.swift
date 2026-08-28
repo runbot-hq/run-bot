@@ -373,6 +373,15 @@ struct AddRunnerSheet: View {
         let name = registrationName
         let dir = registrationPath
 
+        // ⚠️ CONTAINMENT GUARD — the install path is user-editable text, and below we
+        // createDirectory, download into it, untar into it, and run config.sh from it.
+        // Confine all of that to the user's home directory. Two details are
+        // load-bearing and must not be "simplified":
+        //   1. Symlinks are resolved on BOTH sides. Comparing raw paths lets a
+        //      symlinked install dir point anywhere outside ~ while still passing.
+        //   2. The prefix test is `homeDir + "/"`, not `homeDir`. A bare
+        //      hasPrefix(homeDir) also accepts sibling paths that merely start with
+        //      the same characters — /Users/eve passes a check anchored on /Users/ev.
         let homeDir = FileManager.default.homeDirectoryForCurrentUser
             .resolvingSymlinksInPath().path
         let resolvedDir = URL(fileURLWithPath: dir).resolvingSymlinksInPath().path
@@ -382,6 +391,12 @@ struct AddRunnerSheet: View {
             return
         }
 
+        // Already-registered guard: a `.runner` file means this directory is a
+        // configured runner already, so re-running config.sh would fail or clobber it.
+        // Returns silently and deliberately — no errorMessage — because the common way
+        // to reach this is re-opening the sheet on an existing install, which is not a
+        // user error worth surfacing. If you are here because "nothing happens and no
+        // error shows", this is why; that is intended, not a missing error path.
         let runnerFile = URL(fileURLWithPath: dir).appendingPathComponent(".runner").path
         if FileManager.default.fileExists(atPath: runnerFile) {
             isRegistering = false
@@ -399,6 +414,10 @@ struct AddRunnerSheet: View {
 
         let configPath = URL(fileURLWithPath: dir).appendingPathComponent("config.sh").path
 
+        // Download + unpack only when config.sh is absent. This is what makes
+        // registering into a pre-existing (but unconfigured) runner directory
+        // idempotent: an interrupted earlier attempt that already unpacked the
+        // tarball resumes at the token step instead of re-downloading ~100 MB.
         if !FileManager.default.fileExists(atPath: configPath) {
             setStep("Downloading runner package…")
             guard let downloadURL = await fetchRunnerDownloadURL() else {
@@ -419,6 +438,8 @@ struct AddRunnerSheet: View {
             }
             setStep("Unpacking runner package…")
             let tarResult = await runSimpleProcess(GitHubURIs.tarPath, args: ["xzf", tarPath, "-C", dir])
+            // `try?` is deliberate: the tarball is scratch, and failing to delete it
+            // must not abort a registration that otherwise succeeded.
             try? FileManager.default.removeItem(atPath: tarPath)
             guard tarResult == 0 else {
                 isRegistering = false

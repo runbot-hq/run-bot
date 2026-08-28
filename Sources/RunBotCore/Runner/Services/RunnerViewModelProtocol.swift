@@ -9,8 +9,9 @@ import Foundation
 ///
 /// Declaring the protocol in `RunBotCore` (rather than the app target) achieves two goals:
 /// 1. `RunnerPoller` and `LocalRunnerStore` can reference it without importing AppKit or SwiftUI.
-/// 2. Test doubles (`MockRunnerViewModel`) can be defined inside `RunBotCoreTests` and
-///    passed into the actors without any app-target dependency.
+/// 2. Test doubles can be defined inside `RunBotCoreTests` and passed into the
+///    actors without any app-target dependency. (The original `MockRunnerViewModel`
+///    has since been removed; the point stands for any future double.)
 ///
 /// **Direction of data flow:** stores *push* into the receiver; the receiver never pulls.
 /// All mutations arrive on `@MainActor` via `await MainActor.run { }`.

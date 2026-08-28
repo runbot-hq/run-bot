@@ -4,7 +4,12 @@ import AppKit
 import RunBotCore
 import SwiftUI
 
-/// Top-bar copy button shared by ActionDetailView, JobDetailView, and StepLogView.
+/// Top-bar copy button for the step-log toolbar.
+///
+/// Originally shared by three popover-era detail views; those are gone and the
+/// only remaining consumer is `StepLogContentView`. Kept as a separate type
+/// because the copy/copied state machine is self-contained, not because it is
+/// currently reused.
 /// States: idle -> loading -> done (1.5 s) or failed (1.5 s) -> idle.
 struct LogCopyButton: View {
     /// Callback-based fetch. Invoke `completion` with the log text on success,

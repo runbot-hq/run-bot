@@ -15,7 +15,7 @@ public protocol ScopePreferencesStoreProtocol: Actor {
     /// Returns a full `ScopePreferences` snapshot for the scope in one actor hop.
     ///
     /// Prefer this over calling individual getters in sequence when multiple fields
-    /// are needed at once (e.g. before presenting `ScopeEditSheet`) — one `await`
+    /// are needed at once (e.g. before presenting a scope editor) — one `await`
     /// instead of N. The returned value is a value-type copy and is safe to use
     /// outside the actor.
     func preferences(for scope: String) -> ScopePreferences
