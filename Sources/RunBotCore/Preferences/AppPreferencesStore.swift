@@ -48,7 +48,7 @@ import SwiftUI
 ///
 /// ## betaChannel — why stored var, not computed or @AppStorage
 /// `betaChannel` MUST be `@Observable`-tracked so that `.onChange(of: settings.betaChannel)`
-/// fires in `SettingsView+Sections.betaChannelRow`.
+/// fires in `UpdateSettingsSection.betaChannelRow`.
 ///
 /// **Why not `@ObservationIgnored @AppStorage`:**
 /// `@ObservationIgnored` suppresses `withMutation(keyPath:)` in the setter, so
@@ -116,9 +116,12 @@ public final class AppPreferencesStore {
     @AppStorage(AppPreferencesStore.keyShowDimmedRunners)
     public var showDimmedRunners: Bool = true
 
-    /// INERT — has no effect since PR #2305 replaced NSPopover with an owned panel.
-    /// Preserved here to avoid removing a user-visible Settings toggle in the same PR.
-    /// Either wire to something meaningful or remove in a follow-up.
+    /// INERT — has no effect. #2305 replaced the `NSPopover` this controlled with an
+    /// owned panel, and the AppShell migration then replaced that panel with a plain
+    /// `Window`; there has been no popover arrow to show or hide for two architectures.
+    /// Preserved only to avoid silently dropping a persisted user default. It is not
+    /// read anywhere — wire it to something meaningful or remove it along with the
+    /// Settings toggle. Tracked in #3029.
     @ObservationIgnored // required — see class-level ## @AppStorage + @ObservationIgnored
     @AppStorage(AppPreferencesStore.keyShowPopoverArrow)
     public var showPopoverArrow: Bool = true
@@ -173,7 +176,7 @@ public final class AppPreferencesStore {
     ///
     /// Defaults to `true`. Follows the same stored-var + `didSet` pattern as
     /// `betaChannel` so `.onChange(of: settings.automaticUpdatesEnabled)` fires
-    /// correctly in `SettingsView`. See class-level `## betaChannel — why stored
+    /// correctly in `UpdateSettingsSection`. See class-level `## betaChannel — why stored
     /// var, not computed or @AppStorage` for the rationale.
     public var automaticUpdatesEnabled: Bool = true {
         didSet {

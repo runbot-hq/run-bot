@@ -6,7 +6,7 @@ import Foundation
 
 /// Persists the list of watched GitHub scopes as `[ScopeEntry]` in `UserDefaults`.
 ///
-/// Mutations update the `@Observable` `entries` array; `RunnerStore` observes
+/// Mutations update the `@Observable` `entries` array; `RunnerPoller` observes
 /// `activeScopes` via `withObservationTracking`/`AsyncStream` (no Combine bridge).
 @MainActor
 @Observable
@@ -32,7 +32,7 @@ public final class ScopeStore {
   /// the only other write path; it assigns during initialisation only.
   public private(set) var entries: [ScopeEntry] = []
 
-  /// Scopes that are currently enabled — used by `RunnerStore` for polling.
+  /// Scopes that are currently enabled — used by `RunnerPoller` for polling.
   public var activeScopes: [String] { entries.filter(\.isEnabled).map(\.scope) }
 
   /// Designated initialiser.
@@ -109,7 +109,7 @@ public final class ScopeStore {
   }
 
   /// Toggles the `isEnabled` flag for the entry with the given ID and persists
-  /// the change. `RunnerStore` observes `activeScopes` via `withObservationTracking`,
+  /// the change. `RunnerPoller` observes `activeScopes` via `withObservationTracking`,
   /// so replacing the element in the `@Observable` `entries` array triggers a
   /// poll-loop restart.
   public func setEnabled(_ id: UUID, _ enabled: Bool) {
@@ -127,9 +127,8 @@ public final class ScopeStore {
 
   /// Re-hydrates the transient `displayName` on every entry from `ScopePreferencesStore`.
   ///
-  /// Call this once after launch (from `AppDelegate+StoreSetup`) and again after
-  /// `ScopeEditSheet` saves new preferences, so `ScopesView` reflects alias changes
-  /// without requiring a full restart. Runs on `@MainActor`; the actor hop to
+  /// Call this once after launch and again whenever scope preferences are saved,
+  /// so the scope list reflects alias changes without requiring a full restart. Runs on `@MainActor`; the actor hop to
   /// `ScopePreferencesStore` is handled by `preferences(for:)`.
   ///
   /// ## Concurrency safety

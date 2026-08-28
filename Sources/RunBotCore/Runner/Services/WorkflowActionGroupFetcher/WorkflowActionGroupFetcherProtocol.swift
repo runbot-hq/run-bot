@@ -1,13 +1,13 @@
 // WorkflowActionGroupFetcherProtocol.swift
 // RunBotCore
 //
-// Protocol allowing RunnerStore to store an existential instead of a concrete
-// WorkflowActionGroupFetcher, making future RunnerStore integration tests easier
+// Protocol allowing RunnerPoller to store an existential instead of a concrete
+// WorkflowActionGroupFetcher, making future RunnerPoller integration tests easier
 // to write (a stub conformer can return a predetermined [WorkflowActionGroup]
 // without wiring up an HTTP stub).
 //
 // - Note: `Sendable` conformance is required so the existential can be stored as
-//   a `let` inside `RunnerStore` (a custom `actor`) without triggering
+//   a `let` inside `RunnerPoller` (a custom `actor`) without triggering
 //   non-Sendable-capture warnings at the actor boundary.
 import Foundation
 
@@ -15,13 +15,13 @@ import Foundation
 
 /// Abstraction over fetching and grouping workflow action groups.
 ///
-/// Introduced so that `RunnerStore` depends on an injected fetcher instead of
+/// Introduced so that `RunnerPoller` depends on an injected fetcher instead of
 /// the concrete `WorkflowActionGroupFetcher`, enabling future unit tests of
-/// `RunnerStore` itself to supply a stub that returns predetermined groups.
+/// `RunnerPoller` itself to supply a stub that returns predetermined groups.
 ///
 /// ## Production usage
 /// ```swift
-/// RunnerStore(…, actionGroupFetcher: WorkflowActionGroupFetcher())
+/// RunnerPoller(…, actionGroupFetcher: WorkflowActionGroupFetcher())
 /// ```
 ///
 /// ## Test double

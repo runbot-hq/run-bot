@@ -16,7 +16,7 @@ import os
 /// and `log stream --predicate`.
 ///
 /// **Access level:** `public` because the app target (`Sources/RunBot/**`)
-/// calls `log()` directly from `AppDelegate`, views, and sheets.
+/// calls `log()` directly from the app runtime, views, and sheets.
 /// `internal` would cause a compile error in the app target.
 ///
 /// **Raw value convention:** all raw values are lowercase kebab-case so

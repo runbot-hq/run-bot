@@ -7,8 +7,9 @@ import SwiftUI
 
 /// Design-system `Color` mapping for `RunnerModel.StatusColor`.
 ///
-/// Centralises the runner-status dot colour used by `LocalRunnersView`
-/// and `RunnerDetailSheet` (resolves #1643).
+/// Centralises the runner-status dot colour so the list row and the detail view
+/// cannot drift apart (resolves #1643). Consumed via `runner.statusColor.color`
+/// — currently from `LocalRunnerRowView`.
 extension RunnerModel.StatusColor {
     /// The design-system `Color` that represents this status category.
     ///

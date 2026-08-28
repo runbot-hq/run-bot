@@ -10,7 +10,7 @@ import SwiftUI
 ///
 /// Replaces the single-branch `accountSection` in `SettingsView+Sections.swift`.
 /// Reads `GitHubAuthentication` state directly and fires action callbacks so the
-/// parent (`SettingsView`) keeps ownership of service calls.
+/// parent (`SettingsDetailView`) keeps ownership of service calls.
 ///
 /// ## Layout (from #2892)
 /// Both cards stack vertically as full-width rows so titles never wrap.

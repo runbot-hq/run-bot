@@ -15,18 +15,21 @@ import SwiftUI
 /// GitHub API) with an explicit load-failure fallback, and Cancel / Add buttons.
 ///
 /// On confirmation calls `ScopeStore.shared.add(_:)`. No `onRestartPolling`
-/// callback is needed — `ScopeStore` mutation is observed by `RunnerStore`'s
+/// callback is needed — `ScopeStore` mutation is observed by `RunnerPoller`'s
 /// `withObservationTracking` loop, which triggers restart automatically.
 ///
 /// ## Why `.sheet` is on the root VStack, not the picker Button
 /// `RepoSelectorSheet` is presented via `.sheet(isPresented: $showRepoSelector)`
 /// and `.sheet(isPresented: $showOrgSelector)`.
-/// Attaching those modifiers to the `Button` (nested inside a `VStack`) constrains
-/// sheet presentation to the parent view bounds — i.e. the NSPopover panel size —
-/// instead of escaping to the window level. Lifting them to the root `VStack` causes
-/// AppKit to attach the sheet to `NSPopoverWindowFrame` directly, matching the
-/// behaviour of `AddRunnerSheet` and preserving compatibility with the legacy
-/// status-bar hierarchy that still reuses this sheet.
+/// Attaching those modifiers to the `Button` (nested inside a `VStack`) constrained
+/// sheet presentation to the parent view bounds instead of letting it escape to the
+/// window level; lifting them to the root `VStack` made AppKit attach the sheet to
+/// the hosting window frame directly, matching `AddRunnerSheet`.
+///
+/// That diagnosis was made against the menu-bar popover host, which no longer
+/// exists. The placement is kept because it is known-good and costs nothing, but
+/// the original mechanism no longer applies — revalidate before relying on this
+/// reasoning for a new sheet.
 /// ❌ NEVER move `.sheet(isPresented: $showRepoSelector)` or `.sheet(isPresented: $showOrgSelector)`
 /// back onto the individual Buttons.
 ///
@@ -34,7 +37,7 @@ import SwiftUI
 /// The content is a fixed set of controls (segmented picker, one field or button,
 /// helper caption) that never needs to scroll. A `ScrollView` prevents SwiftUI from
 /// computing a real `preferredContentSize` for the sheet window — it reports the
-/// container height (the NSPopover panel size) instead of the content height.
+/// container height instead of the content height.
 /// Replacing it with a plain `VStack` lets the sheet size itself intrinsically.
 /// ❌ NEVER wrap the content VStack in a ScrollView here.
 struct AddScopeSheet: View {
@@ -312,7 +315,7 @@ struct AddScopeSheet: View {
     }
 
     /// Persists `effectiveScope` to `ScopeStore` and dismisses the sheet.
-    /// Restart polling is driven automatically by `RunnerStore`'s
+    /// Restart polling is driven automatically by `RunnerPoller`'s
     /// `withObservationTracking` loop observing `ScopeStore` mutations.
     @MainActor private func confirmAdd() {
         let scope = effectiveScope

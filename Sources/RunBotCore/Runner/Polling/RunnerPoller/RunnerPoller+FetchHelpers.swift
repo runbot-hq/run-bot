@@ -43,8 +43,12 @@ extension RunnerPoller {
 
   /// Fetches workflow action groups for the given scopes concurrently.
   ///
-  /// - Parameter scopes: The scope snapshot captured by `fetchInternal` — passed in
-  ///   directly to avoid re-reading `scopeStore.activeScopes` and creating a TOCTOU window.
+  /// - Parameters:
+  ///   - scopes: The scope snapshot captured by `fetchInternal` — passed in
+  ///     directly to avoid re-reading `scopeStore.activeScopes` and creating a
+  ///     TOCTOU window.
+  ///   - shaKeyedCache: Previously-fetched groups keyed by head SHA, forwarded to
+  ///     each per-scope fetch so already-known groups are not re-enriched.
   ///
   /// `internal` — required for cross-file extension access from `RunnerPoller+PollBridge.swift`.
   func fetchActionGroups(scopes: [String], shaKeyedCache: [String: WorkflowActionGroup]) async

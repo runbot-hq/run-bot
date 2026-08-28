@@ -14,7 +14,7 @@ public enum LoginItem {
     }
 
     /// Registers or unregisters launch-at-login based on `enabled`.
-    /// Called from the login-item toggle in `SettingsView` via the two-argument
+    /// Called from the login-item toggle in `GeneralSettingsSection` via the two-argument
     /// `onChange(of:)` form, which supplies the new toggle value directly.
     /// Errors are logged to stderr but otherwise swallowed — failure is non-fatal
     /// since the toggle will reflect the unchanged state via `LoginItem.isEnabled`.

@@ -20,7 +20,7 @@ public struct ActiveJob: Identifiable, Equatable, Sendable {
     /// `true` for recently-completed jobs shown as faded history entries.
     public let isDimmed: Bool
     /// The repo or org scope string this job belongs to.
-    /// Always `nil` at decode time — injected post-fetch by `RunnerStore`.
+    /// Always `nil` at decode time — injected post-fetch by `RunnerPoller`.
     public let scope: String?
 
     // Override slots — used only by asCompleted to freeze status/conclusion.

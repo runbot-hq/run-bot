@@ -139,6 +139,13 @@ public struct LogFetcher: Sendable {
     /// - Parameters:
     ///   - runID: The GitHub workflow run ID (from `job.runID`).
     ///   - startedAt: Raw ISO 8601 start string (reserved for future use — currently unused in cache key).
+    ///   - runAttempt: The run attempt number (1-based). Part of the ZIP identity —
+    ///     a re-run produces different logs for the same `runID`, so attempts must
+    ///     not share a cache entry.
+    ///   - cacheGroup: Optional group key (`repo` + `headSha` + `normalizedEvent`)
+    ///     used to bucket ZIPs on disk so a whole commit's archives can be evicted
+    ///     together. When non-`nil`, a ZIP that fails extraction evicts the entire
+    ///     group rather than the single entry. Pass `nil` to opt out of grouping.
     ///   - jobID: The GitHub Actions job ID used for the flat-blob fallback path.
     ///   - jobName: The job display name (from `job.name`). Sanitised before ZIP lookup.
     ///   - step: The `GitHubStep` whose log is requested.

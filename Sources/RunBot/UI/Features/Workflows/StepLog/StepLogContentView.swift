@@ -15,10 +15,13 @@ private let markdownRenderLogger = Logger(
 
 /// Reusable step-log content view — fetch lifecycle, toolbar, metadata, and log body.
 ///
-/// Extracted from `StepLogView` so it can be embedded in both the panel-based
-/// popover UI and the windowed `StepLogPaneView` without duplication.
+/// Originally extracted from `StepLogView` so the same body could serve the
+/// menu-bar popover and the windowed shell. The popover is gone; the only
+/// production consumer is now `StepLogPaneView`, which hosts this view in the
+/// detail column of `AppNavigationSplitView`.
 ///
-/// Callers are responsible for the `maxHeight` cap on this view (ref #370).
+/// See the SIZING CONTRACT on `body` — the height cap and `idealWidth` are
+/// load-bearing and predate the windowed shell (ref #370, #375–377).
 @MainActor
 struct StepLogContentView: View {
     /// The job that owns this step.
@@ -67,18 +70,18 @@ struct StepLogContentView: View {
     /// the user explicitly toggles, this flag prevents `loadLog()` write-backs from
     /// overriding their choice during live refreshes.
     @State private var hasToggledMarkdown: Bool = false
-    /// `isMarkdownMode` alone can't distinguish "never set" from "user toggled off" —
-    /// Bound to the `AppState`-owned `LogFetcher` so the ZIP cache survives
-    /// across step taps. `@State` would be discarded on every `.id(navState)`
-    /// remount in `RootPanelView` (SwiftUI tears down the full state tree when
-    /// the identity key changes, which happens on every step tap). By owning
-    /// `LogFetcher` in `AppState` and threading it down via `@Binding`, the
-    /// ZIP cache persists for the lifetime of the panel session: the second
-    /// step tap in the same run hits the cache and skips the network call.
+    /// Bound to the scene-owned `LogFetcher` so the ZIP cache survives across
+    /// step taps.
+    ///
+    /// `@State` would be discarded on every remount, and this view is remounted
+    /// on *every* step tap: `StepLogPaneView` applies
+    /// `.id(StepLogSelectionID(jobID:stepNumber:))`, and SwiftUI tears down the
+    /// full state tree when that identity changes. By owning `LogFetcher` in
+    /// `RunBotApp` (`@State private var logFetcher`) and threading it down via
+    /// `@Binding`, the ZIP cache persists for the lifetime of the scene: the
+    /// second step tap in the same run hits the cache and skips the network call.
     /// The snapshot/writeback pattern in `loadLog()` propagates cache updates
-    /// back to `AppState` through this binding on the MainActor after each fetch.
-    /// Bound to the `AppState`-owned `LogFetcher` so the ZIP cache survives
-    /// across step taps.
+    /// back to the scene through this binding on the MainActor after each fetch.
     @Binding var logFetcher: LogFetcher
 
     /// Creates a `StepLogContentView` for the given job and step.
@@ -299,15 +302,33 @@ struct StepLogContentView: View {
                     }
                 }
             }
-            // ⚠️ REQUIRED -- caps preferredContentSize.height. Prevents panel growing off-screen.
+            // ⚠️ REQUIRED — caps the height this subtree reports to its parent.
+            // Without it the ScrollView reports the *full log text height* as its
+            // ideal height, which propagates up and grows the detail column (and
+            // in the popover era grew the panel off-screen — ref #370).
             // ❌ NEVER remove this modifier.
             .frame(maxHeight: NSScreen.main.map { $0.visibleFrame.height * 0.75 } ?? 600)
         }
         // ════════════════════════════════════════════════════════════════════════
-        // ⚠️ idealWidth: 480 hints the initial panel width before KVO fires.
-        // ❌ NEVER use .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // ⚠️ SIZING CONTRACT — carried forward from the popover era.
+        //
+        // These rules were written for the NSPanel/NSHostingController host, which
+        // is gone. They still hold in the windowed shell, for a related reason:
+        // this view sits in the detail column of `AppNavigationSplitView`, and a
+        // subtree that reports an unbounded ideal size still pushes that column
+        // (and the window) around. See the SIZING CONTRACT on
+        // `AppNavigationSplitView` — ONE MEASUREMENT, ONE OWNER. This view is not
+        // the owner; it only bounds what it reports upward.
+        //
+        // ✔ idealWidth: 480 gives the subtree a natural width to report when the
+        //   parent offers a range rather than a fixed width.
+        // ❌ NEVER use .frame(maxWidth: .infinity, maxHeight: .infinity) — the
+        //   maxHeight: .infinity corrupts width measurement when the host measures
+        //   this view unconstrained (the original AppKit defect behind #375/#376).
         // ❌ NEVER omit idealWidth: 480
         // ❌ NEVER add .frame(height:) or .fixedSize() here
+        // ❌ NEVER remove the ScrollView's .frame(maxHeight:) cap above (#370)
+        //
         // If you are an agent or human, DO NOT REMOVE THIS COMMENT, YOU ARE NOT
         // ALLOWED UNDER ANY CIRCUMSTANCE. The regression we get when this comment
         // is removed is major major major.

@@ -5,7 +5,13 @@
 // Runs on the self-hosted runner via xcodebuild.
 //
 // Design:
-//   • AppDelegate sets .regular activation policy + activate() when UI_TESTING is set.
+//   • The app sets .regular activation policy + activate() when UI_TESTING is set.
+//
+// ⚠️ STALE-ASSUMPTION WARNING: every constraint below was written against the
+//    menu-bar NSPanel host, which the AppShell migration replaced with a plain
+//    SwiftUI `Window`. These rules are retained because they encode real, hard-won
+//    failures, but they have NOT been revalidated against the windowed shell.
+//    Confirm on the self-hosted runner before trusting or deleting any of them.
 //
 // ⚠️ app.windows does NOT enumerate NSPanel with [.borderless, .nonactivatingPanel].
 //    ❌ NEVER use app.windows. Use app.staticTexts / app.buttons directly.
