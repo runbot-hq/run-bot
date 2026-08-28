@@ -1,4 +1,4 @@
-// GitHubRunner+RunnerBridge.swift
+// GitHubRunner+Metrics.swift
 // RunBotCore
 //
 // RunBotCore-layer extensions on GitHubRunner that depend on types
