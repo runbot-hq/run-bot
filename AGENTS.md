@@ -78,6 +78,21 @@ and don't introduce global technical buckets (`Views/`, `Rows/`, `Modifiers/`,
 `ViewModels/`) — those scatter one feature across many folders. The organization
 under `UI/Features/` is feature-first; keep it that way.
 
+`RunBotCore` is organized by domain (`GitHub/`, `Preferences/`, `Runner/`,
+`Scopes/`, `State/`, `WorkflowLogs/`) plus two catch-alls that are deliberately
+narrow:
+
+- `Platform/` is OS services only — GPU sampling, login items, process running,
+  system stats, terminal launching.
+- `Utilities/` is general-purpose helpers only.
+
+Domain code does not go in either. The whole step-log pipeline lives in
+`WorkflowLogs/` (`Fetching/`, `Parsing/`, `Cache/`), not scattered between the
+two. When one type's file family crowds its folder, give it its own subfolder —
+`Runner/Polling/RunnerPoller/`, `Runner/Services/WorkflowActionGroupFetcher/` —
+and leave that type's collaborators in the parent. Mirror source paths in
+`Tests/RunBotCoreTests/`.
+
 **Hard rule: `RunBotCore` must never import the `RunBot` app target.** App-layer
 dependencies are injected into Core via protocols and closures (`RunnerPollerProtocol`,
 `RunnerViewModelProtocol`, the `*StoreProtocol`s). This boundary is load-bearing.
