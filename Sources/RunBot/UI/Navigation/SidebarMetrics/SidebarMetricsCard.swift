@@ -33,8 +33,9 @@ enum SidebarMetricLayout {
 /// the window is short.
 ///
 /// ## Reuse
-/// Reuses `SystemStatsViewModel`, `SystemStats`, and `SparklineView`.
-/// Does not embed the full-page `SystemStatsView`.
+/// Reuses `SystemStatsViewModel`, `SystemStats`, and `SparklineView`. This is the
+/// only metrics surface in the app — the popover-era full-page stats view is gone,
+/// so these rows are the presentation, not a condensed version of one.
 @MainActor
 struct SidebarMetricsCard: View {
 

@@ -11,9 +11,11 @@ import Foundation
 ///
 /// - Parameters:
 ///   - start: The start date, or `nil` if timing data is unavailable.
-///   - end:   The end date, or `nil` to use `Date()` (i.e. still running).
+///   - end:   The end date, or `nil` to fall back to `now` (i.e. still running).
 ///   - isCompleted: When `true` and `start` is `nil`, returns `"--:--"`
 ///     (timing data unavailable) instead of `"00:00"` (not yet started).
+///   - now: The reference "current time" used when `end` is `nil`. Defaults to
+///     `Date()`; inject a fixed date in tests so elapsed output is deterministic.
 /// - Returns: A `mm:ss` string such as `"02:47"`, or a sentinel value
 ///   (`"--:--"` / `"00:00"`) when timing data is absent.
 public func formatElapsed(

@@ -115,7 +115,7 @@ public actor ScopePreferencesStore: ScopePreferencesStoreProtocol {
   /// Returns the full `ScopePreferences` snapshot for `scope` in a single actor hop.
   ///
   /// This is the preferred read path when multiple fields are needed at once
-  /// (e.g. seeding `ScopeEditSheet` draft state). One `await` instead of N.
+  /// (e.g. seeding scope-editor draft state). One `await` instead of N.
   public func preferences(for scope: String) -> ScopePreferences {
     read(scope: scope)
   }
@@ -123,7 +123,7 @@ public actor ScopePreferencesStore: ScopePreferencesStoreProtocol {
   /// Writes a complete `ScopePreferences` snapshot for `scope` in a single actor hop.
   ///
   /// This is the preferred write path when multiple fields need to be committed
-  /// atomically (e.g. `ScopeEditSheet.confirmSave()`). One `await` and one
+  /// atomically (e.g. a scope editor's save action). One `await` and one
   /// encode/write instead of N sequential read-modify-write cycles.
   ///
   /// - Important: Do not call `preferences(for:)` and then `setPreferences(_:for:)`

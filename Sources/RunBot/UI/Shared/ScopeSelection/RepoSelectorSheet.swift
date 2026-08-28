@@ -7,8 +7,9 @@ import SwiftUI
 // #580 / #576: Reusable searchable sheet for picking a repository or organisation.
 //
 // Accepts a pre-loaded list of items (no API calls) and filters them
-// client-side via localizedCaseInsensitiveContains, matching the UX
-// pattern established by BranchSelectorSheet.
+// client-side via localizedCaseInsensitiveContains. This is now the only
+// selector sheet of its kind; the branch selector it was modelled on has since
+// been removed.
 //
 // Usage:
 // RepoSelectorSheet(

@@ -35,6 +35,8 @@ import os
 
 /// Shared primitive for launching subprocesses. See file-level doc comment above for full details.
 public enum ProcessRunner {
+    // MARK: - Result
+
     /// The collected output and exit status from a subprocess invocation.
     public struct Result {
         /// Collected stdout bytes, or `nil` when the process failed to launch

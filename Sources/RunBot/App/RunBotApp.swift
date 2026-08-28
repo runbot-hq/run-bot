@@ -5,7 +5,7 @@ import GitHubClient
 import RunBotCore
 import SwiftUI
 
-// @main removed: Sources/RunBot/main.swift is top-level code.
+// @main removed: Sources/RunBot/App/main.swift is top-level code.
 // RunBotApp.main() is called from main.swift instead.
 
 /// The SwiftUI application entry point for RunBot.

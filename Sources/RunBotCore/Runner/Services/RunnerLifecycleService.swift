@@ -145,6 +145,12 @@ public struct RunnerLifecycleService: RunnerLifecycleServiceProtocol {
         }
         let dir = URL(fileURLWithPath: path)
 
+        // Step 1 is best-effort and its result is deliberately NOT propagated:
+        // `svcOk` is logged and then only re-reported in the final summary line. A
+        // runner whose LaunchAgent was already unloaded (or never installed) fails
+        // here harmlessly, and blocking deregistration on that would strand the
+        // runner as registered on GitHub with no local way to remove it.
+        // ❌ Do not "fix" this by returning early when svcOk is false.
         logStep("REMOVE", "step1: svc.sh uninstall")
         let (svcOk, _) = await runScriptWithOutput(
             executableName: "svc.sh", arguments: ["uninstall"],

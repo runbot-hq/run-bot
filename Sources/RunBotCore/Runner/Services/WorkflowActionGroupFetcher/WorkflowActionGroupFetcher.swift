@@ -53,7 +53,7 @@ public struct WorkflowActionGroupFetcher: Sendable, WorkflowActionGroupFetcherPr
   /// Date parsing goes through `ISO8601DateParser.shared` — one actor, one formatter.
   ///
   /// - Note: `@concurrent` is applied only to this public entry point so that
-  ///   callers on an actor-bound context (e.g. `RunnerStore`'s custom actor executor) hop
+  ///   callers on an actor-bound context (e.g. `RunnerPoller`'s custom actor executor) hop
   ///   off the actor executor for the entire fetch pipeline. The private helpers
   ///   (`buildActionGroup`, `fetchJobsForGroup`, `fetchJobsForRun`) are internal
   ///   to `withTaskGroup` and already run on the task's executor, so they don't

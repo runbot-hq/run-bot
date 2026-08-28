@@ -9,7 +9,7 @@ import Foundation
 ///
 /// All methods are static and operate only on data passed as parameters.
 /// Fetch / API side-effects are injected as closures so this type is
-/// independently unit-testable without a RunnerStore instance.
+/// independently unit-testable without a RunnerPoller instance.
 public enum PollResultBuilder {
 
   // MARK: - Cache limits

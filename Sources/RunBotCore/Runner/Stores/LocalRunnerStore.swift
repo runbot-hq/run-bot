@@ -255,10 +255,10 @@ public actor LocalRunnerStore {
 
     /// Fire-and-forget refresh. Spawns a Task and returns immediately.
     ///
-    /// Use this from views and on-demand callers (e.g. SettingsView lifecycle actions)
+    /// Use this from views and on-demand callers (e.g. runner lifecycle actions)
     /// that do not need to wait for completion.
     ///
-    /// At app startup, prefer `refreshAsync()` so that `RunnerStore.start()` is only
+    /// At app startup, prefer `refreshAsync()` so that `RunnerPoller.start()` is only
     /// called after `runners` is fully populated — ensuring cycle-1 `installPathMap`
     /// is never empty and metrics appear on first runner appearance.
     public func refresh() {

@@ -43,8 +43,8 @@ extension WorkflowActionGroup {
 /// `group_runs()` + `enrich_group()`.
 ///
 /// Hierarchy: `WorkflowActionGroup` → jobs (flat across all sibling runs) → `JobStep` → log.
-/// `ActionDetailView` drills into the flat job list; `JobDetailView`/`StepLogView`
-/// are reused unchanged below that.
+/// `WorkflowHierarchyView` renders the whole tree inline in the content column;
+/// `StepLogPaneView` renders the selected step's log in the detail column.
 public struct WorkflowActionGroup: Identifiable, Equatable, Sendable {
     /// The git commit SHA that triggered this group of runs.
     public let headSha: String
@@ -99,7 +99,7 @@ public struct WorkflowActionGroup: Identifiable, Equatable, Sendable {
     public var latestRunID: Int { runs.map { $0.id }.max() ?? 0 }
 
     /// All jobs across every run in this group, fetched and flattened.
-    /// This is what `ActionDetailView` renders.
+    /// This is what `WorkflowHierarchyView` expands under each workflow row.
     public let jobs: [ActiveJob]
 
     /// UTC time of the earliest job `startedAt` across all runs.
@@ -141,13 +141,13 @@ public struct WorkflowActionGroup: Identifiable, Equatable, Sendable {
     // `id` remains stable across polls, so `List`/`ForEach` still diff groups as
     // in-place updates rather than remove+insert pairs (#2688 stays fixed).
     //
-    // Cost note: `onChange(of: store.actions)` in `PanelMainView` now deep-compares
+    // Cost note: `onChange(of: runnerState.actions)` in `WorkflowHierarchyView` deep-compares
     // job arrays once per poll snapshot. The lists involved are tens of value
     // structs — negligible next to the network fetch that produced them.
 
     /// Returns a copy of this group with a replacement jobs array.
     ///
-    /// Used in `RunnerStore` to enrich job data without reconstructing the
+    /// Used in `RunnerPoller` to enrich job data without reconstructing the
     /// full struct at every call site.
     public func withJobs(_ newJobs: [ActiveJob]) -> WorkflowActionGroup {
         WorkflowActionGroup(
