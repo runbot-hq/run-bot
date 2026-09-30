@@ -203,8 +203,9 @@ public struct SaveRunnerEditsUseCase: Sendable {
 
     /// Validates the prerequisites for the labels API call and extracts the scope string.
     ///
-    /// Delegates path extraction to the canonical `scopeFromUrl(_:)` in
-    /// `GitHubURLHelpers` (F-52), replacing the previous inline `pathComponents` slice.
+    /// Delegates path extraction to the canonical `scopeFromUrl(_:)` in the
+    /// `GitHubClient` package (`GitHubURLParsing.swift`, F-52), replacing the
+    /// previous inline `pathComponents` slice.
     ///
     /// - Returns: `.success((agentId, scope))` when both fields are present;
     ///   `.failure(LabelsPrerequisiteError)` identifying the first missing field.

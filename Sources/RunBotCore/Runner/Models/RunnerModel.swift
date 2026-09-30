@@ -49,7 +49,7 @@ public struct RunnerModel: Sendable, Identifiable, Equatable {
     /// Populated by `RunnerStatusEnricher.applyEnrichment` after the first
     /// enrichment cycle. `nil` until enrichment has run at least once.
     ///
-    /// Used by `RunnerStore.buildInstallPathMap` to build the `byApiId` lookup
+    /// Used by `RunnerPoller.buildInstallPathMap` to build the `byApiId` lookup
     /// map so that metrics can be matched for org runners whose local `agentId`
     /// does not match the GitHub API id.
     public let apiId: Int?
@@ -214,7 +214,12 @@ public struct RunnerModel: Sendable, Identifiable, Equatable {
     /// - `"offline"` — runner is not reachable.
     public var displayStatus: String {
         switch resolvedState {
-        case .warning: return lifecycleWarning!  // resolvedState only reaches .warning when lifecycleWarning != nil
+        case .warning:
+            // Invariant: `resolvedState` reaches `.warning` only when
+            // `lifecycleWarning != nil`, so the fallback never fires today.
+            // It guards against a future refactor of that check reintroducing
+            // a crash path. Lowercase matches the sibling labels below.
+            return lifecycleWarning ?? "warning"
         case .busy: return "busy"
         case .running: return "running"
         case .githubOnline: return "online"
@@ -222,7 +227,9 @@ public struct RunnerModel: Sendable, Identifiable, Equatable {
         }
     }
 
-    /// Dot colour category used by `SettingsView.localRunnerDotColor(for:)`.
+    /// Dot colour category. Mapped to a design-system `Color` by the
+    /// `RunnerModel.StatusColor` extension in the app target and rendered by
+    /// `LocalRunnerRowView`.
     public var statusColor: StatusColor {
         switch resolvedState {
         case .warning: return .offline

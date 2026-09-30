@@ -2,73 +2,37 @@
 // RunBotCore
 import Foundation
 
-// MARK: - GroupStatus
+// MARK: - WorkflowActionGroup + RBStatus
 
-/// Type-safe status for a workflow run group (commit/PR trigger).
-/// Mirrors ci-dash.py's group status derivation logic.
-public enum GroupStatus {
-    /// At least one sibling run is in progress.
-    case inProgress
-    /// Jobs have not yet loaded and no run is active — transient fetch window.
-    case loading
-    /// No run is in progress, but at least one is queued.
-    case queued
-    /// All runs have concluded (or all jobs are done).
-    case completed
-}
-
-// MARK: - GroupStatus + display helpers
-
-/// Display and sorting helpers for `GroupStatus`.
-extension GroupStatus {
-    /// Sort priority for display ordering.
+// swiftlint:disable:next missing_docs
+extension WorkflowActionGroup {
+    /// Canonical `RBStatus` derived from both the group's status and its conclusion.
     ///
-    /// Lower value = higher display priority (in-progress before loading before queued before completed).
-    public var sortPriority: Int {
-        switch self {
-        case .inProgress: return 0
-        case .loading:    return 1
-        case .queued:     return 2
-        case .completed:  return 3
+    /// Mirrors the legacy `ActionRowView.rowStatus` mapping so the windowed app
+    /// and the status-bar app show identical conclusion colours.
+    public var rbStatus: RBStatus {
+        switch groupStatus {
+        case .inProgress: return .inProgress
+        case .loading:    return .queued
+        case .queued:     return .queued
+        case .completed:  return completedRBStatus
         }
     }
-}
 
-// MARK: - WorkflowRunRef
-
-/// Lightweight reference to a single workflow run inside a `WorkflowActionGroup`.
-///
-/// Holds only the data needed for display and job fetching — deliberately
-/// minimal so the full job list lives on the parent `WorkflowActionGroup` instead.
-public struct WorkflowRunRef: Identifiable, Sendable {
-    /// The unique GitHub run ID.
-    public let id: Int
-    /// Workflow file name, e.g. `"SonarQube"`, `"vitest"`.
-    public let name: String
-    /// Current run status as a typed `JobStatus` value.
-    public let status: JobStatus
-    /// Run conclusion once completed, or `nil` while running.
-    public let conclusion: JobConclusion?
-    /// URL to the run detail page on github.com.
-    public let htmlUrl: String?
-    /// The attempt number of this run. Starts at 1; incremented on each rerun.
-    public let runAttempt: Int
-
-    /// Creates a new `WorkflowRunRef`.
-    /// - Parameters:
-    ///   - id: The unique GitHub run ID.
-    ///   - name: Workflow file name.
-    ///   - status: Current run status.
-    ///   - conclusion: Run conclusion, or `nil` while running.
-    ///   - htmlUrl: URL to the run detail page.
-    ///   - runAttempt: Attempt number. Defaults to `1` so existing call sites compile unchanged.
-    public init(id: Int, name: String, status: JobStatus, conclusion: JobConclusion?, htmlUrl: String?, runAttempt: Int = 1) {
-        self.id = id
-        self.name = name
-        self.status = status
-        self.conclusion = conclusion
-        self.htmlUrl = htmlUrl
-        self.runAttempt = runAttempt
+    /// Conclusion-aware status for completed workflow groups.
+    private var completedRBStatus: RBStatus {
+        switch conclusion {
+        case .success:
+            return .success
+        case .failure, .timedOut, .actionRequired, .startupFailure:
+            return .failed
+        case .cancelled:
+            return .cancelled
+        case .skipped:
+            return .skipped
+        case .neutral, .stale, .unknown, nil:
+            return .unknown
+        }
     }
 }
 
@@ -79,8 +43,8 @@ public struct WorkflowRunRef: Identifiable, Sendable {
 /// `group_runs()` + `enrich_group()`.
 ///
 /// Hierarchy: `WorkflowActionGroup` → jobs (flat across all sibling runs) → `JobStep` → log.
-/// `ActionDetailView` drills into the flat job list; `JobDetailView`/`StepLogView`
-/// are reused unchanged below that.
+/// `WorkflowHierarchyView` renders the whole tree inline in the content column;
+/// `StepLogPaneView` renders the selected step's log in the detail column.
 public struct WorkflowActionGroup: Identifiable, Equatable, Sendable {
     /// The git commit SHA that triggered this group of runs.
     public let headSha: String
@@ -135,7 +99,7 @@ public struct WorkflowActionGroup: Identifiable, Equatable, Sendable {
     public var latestRunID: Int { runs.map { $0.id }.max() ?? 0 }
 
     /// All jobs across every run in this group, fetched and flattened.
-    /// This is what `ActionDetailView` renders.
+    /// This is what `WorkflowHierarchyView` expands under each workflow row.
     public let jobs: [ActiveJob]
 
     /// UTC time of the earliest job `startedAt` across all runs.
@@ -160,23 +124,30 @@ public struct WorkflowActionGroup: Identifiable, Equatable, Sendable {
 
     // MARK: Equatable
 
-    /// Identity-based equality: two groups are equal when their stable `id` matches.
-    ///
-    /// This satisfies the `onChange(of: store.actions)` requirement in `PanelMainView`
-    /// without deep-comparing mutable job arrays on every poll.
-    ///
-    /// ⚠️ `copying()` can produce structurally different instances — for example,
-    /// toggling `isDimmed` or updating `lastJobCompletedAt` — that this operator
-    /// still treats as equal because only `id` is compared. Any caller that needs
-    /// to detect snapshot-level field changes (e.g. freeze-state transitions) must
-    /// compare fields directly; `==` will not fire for those differences.
-    public static func == (lhs: WorkflowActionGroup, rhs: WorkflowActionGroup) -> Bool {
-        lhs.id == rhs.id
-    }
+    // Equality is SYNTHESIZED (memberwise) — deliberately no custom `==`.
+    //
+    // ⚠️ Do NOT reintroduce identity-based (`lhs.id == rhs.id`) equality here.
+    // SwiftUI decides whether to re-invoke a view's `body` by comparing the view's
+    // stored properties with `==`. The shell rows and columns
+    // (`WorkflowRow`, `WorkflowSelection`) store a
+    // `WorkflowActionGroup` / `[WorkflowActionGroup]` directly, so an id-only `==`
+    // made every post-conclusion snapshot compare "equal" and SwiftUI skipped the
+    // re-render — the status dot stayed blue until the view was recreated by
+    // navigating away and back (#2859, #2870).
+    //
+    // Memberwise equality covers `runs`, `jobs`, and `isDimmed`, which are exactly
+    // the inputs of the derived `groupStatus` / `conclusion` / `rbStatus`, so any
+    // status or conclusion change now invalidates the observing views in place.
+    // `id` remains stable across polls, so `List`/`ForEach` still diff groups as
+    // in-place updates rather than remove+insert pairs (#2688 stays fixed).
+    //
+    // Cost note: `onChange(of: runnerState.actions)` in `WorkflowHierarchyView` deep-compares
+    // job arrays once per poll snapshot. The lists involved are tens of value
+    // structs — negligible next to the network fetch that produced them.
 
     /// Returns a copy of this group with a replacement jobs array.
     ///
-    /// Used in `RunnerStore` to enrich job data without reconstructing the
+    /// Used in `RunnerPoller` to enrich job data without reconstructing the
     /// full struct at every call site.
     public func withJobs(_ newJobs: [ActiveJob]) -> WorkflowActionGroup {
         WorkflowActionGroup(

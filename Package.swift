@@ -24,8 +24,6 @@ let package = Package(
         .package(url: "https://github.com/runbot-hq/AppUpdater", branch: "main"),
         // Local path — source of truth is now Packages/GitHubClient in this repo.
         .package(path: "Packages/GitHubClient"),
-        // Local path — source of truth is now Packages/MenuBarKit in this repo.
-        .package(path: "Packages/MenuBarKit"),
         // Organization-owned — tracks main. Source of truth is the runbot-hq/MarkdownKit repo.
         // Do not pin to a revision or exact hash.
         .package(url: "https://github.com/runbot-hq/MarkdownKit", branch: "main"),
@@ -44,20 +42,18 @@ let package = Package(
         ),
         .executableTarget(
             name: "RunBot",
-            // GitHubClient is declared explicitly because AppDelegate+StoreSetup.swift
-            // calls configureGHAPI / configureGHRaw / configureGHAPIPaginated /
-            // configureGHLogger directly. SwiftPM does not re-export transitive
-            // dependencies, so the symbols are only visible when GitHubClient is a
-            // direct dependency of this target. AppUpdater is consumed transitively
-            // via RunBotCore and needs no explicit entry.
+            // GitHubClient is declared explicitly because the app target uses its
+            // types directly, not only through RunBotCore: RunBotRuntime constructs
+            // GitHubClient and OAuthCredentialController, RunBotApp reads
+            // GitHubConstants for the OAuth callback, and roughly twenty UI files
+            // import GitHubClient for GitHubAuthentication / GitHubStep / OAuthState.
+            // SwiftPM does not re-export transitive dependencies, so those symbols
+            // are only visible when GitHubClient is a direct dependency of this
+            // target. AppUpdater is consumed transitively via RunBotCore and needs
+            // no explicit entry.
             dependencies: [
                 "RunBotCore",
                 .product(name: "GitHubClient", package: "GitHubClient"),
-                // MenuBarKit declared here so RunBot can import it incrementally
-                // during the #2027/#2028 migration alongside PopoverLifecycleCoordinator.
-                // No RunBot source imports MenuBarKit yet — the dependency is additive
-                // and costs nothing until the first import statement is written.
-                .product(name: "MenuBarKit", package: "MenuBarKit"),
                 // MarkdownKit — organization-owned package (#2751). Tracks branch: "main".
                 .product(name: "MarkdownKit", package: "MarkdownKit"),
 
@@ -93,14 +89,6 @@ let package = Package(
                 // The duplicate RunBotCore test suite was removed under #2600.
             ],
             path: "Tests/RunBotCoreTests",
-            swiftSettings: [
-                .enableUpcomingFeature("NonisolatedNonsendingByDefault")
-            ]
-        ),
-        .testTarget(
-            name: "RunBotTests",
-            dependencies: ["RunBot"],
-            path: "Tests/RunBotTests",
             swiftSettings: [
                 .enableUpcomingFeature("NonisolatedNonsendingByDefault")
             ]

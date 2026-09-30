@@ -16,6 +16,7 @@ swift build                                   # type-check the whole package
 swift test                                    # run all test suites (RunBotCoreTests + AppUpdaterTests)
 swiftlint lint --strict                       # CI fails on warnings, not just errors
 periphery scan                                # dead-code scan (config: .periphery.yml)
+python3 scripts/check-comment-symbols.py      # fail if a comment names a symbol that no longer exists
 swift run                                      # build + launch the app locally
 bash build.sh                                  # release build via xcodegen+xcodebuild (arm64 only; requires xcodegen)
 ```
@@ -54,13 +55,44 @@ Don't reformat unrelated code to satisfy the linter — keep diffs scoped to you
 
 ## Project layout
 
-Two targets plus a test target (full map: `docs/architecture/file-hierarchy.md`):
+Two targets plus a test target (full map: `docs/architecture.md`):
 
 ```
 Sources/RunBotCore/   library — pure logic, no UI; the testable core
 Sources/RunBot/       executable — AppKit/SwiftUI app; depends on RunBotCore
 Tests/RunBotCoreTests/ swift-testing suite (+ TestSupport doubles & fixtures)
 ```
+
+Inside the app target, `App/` and `UI/` are separate layers:
+
+```
+Sources/RunBot/App/                executable lifecycle and process-lifetime runtime wiring
+Sources/RunBot/UI/Navigation/      top-level navigation and column routing
+Sources/RunBot/UI/Features/        feature-specific presentation (one folder per domain)
+Sources/RunBot/UI/Shared/          presentation reused across features
+Sources/RunBot/UI/DesignSystem/    tokens and reusable visual treatments
+Sources/RunBot/Resources/          bundled assets
+```
+
+Presentation code belongs under `UI/`. Don't add new top-level folders beside it,
+and don't introduce global technical buckets (`Views/`, `Rows/`, `Modifiers/`,
+`ViewModels/`) — those scatter one feature across many folders. The organization
+under `UI/Features/` is feature-first; keep it that way.
+
+`RunBotCore` is organized by domain (`GitHub/`, `Preferences/`, `Runner/`,
+`Scopes/`, `State/`, `WorkflowLogs/`) plus two catch-alls that are deliberately
+narrow:
+
+- `Platform/` is OS services only — GPU sampling, login items, process running,
+  system stats, terminal launching.
+- `Utilities/` is general-purpose helpers only.
+
+Domain code does not go in either. The whole step-log pipeline lives in
+`WorkflowLogs/` (`Fetching/`, `Parsing/`, `Cache/`), not scattered between the
+two. When one type's file family crowds its folder, give it its own subfolder —
+`Runner/Polling/RunnerPoller/`, `Runner/Services/WorkflowActionGroupFetcher/` —
+and leave that type's collaborators in the parent. Mirror source paths in
+`Tests/RunBotCoreTests/`.
 
 **Hard rule: `RunBotCore` must never import the `RunBot` app target.** App-layer
 dependencies are injected into Core via protocols and closures (`RunnerPollerProtocol`,
@@ -77,27 +109,32 @@ ones**. That's why `AppDelegate`, `AddRunnerSheet`, and `RunnerPoller` are split
 - **Immutable, `Sendable` value models** (`Runner`, `RunnerModel`, config types): `let` properties,
   mutate via `copying(…)`. No `@unchecked Sendable` in production types except the documented
   sign-off on `PollLoopCoordinator`.
-- See `docs/architecture/ARCHITECTURE.md` for the data model, concurrency model, and library rationale detail, and `docs/principles/project-tech-principles.md` for the canonical 21 principles this codebase commits to.
+- See `docs/architecture.md` for the data model, concurrency model, and library rationale detail, and `docs/principles.md` for the canonical principles this codebase commits to.
 
 ## GitHub networking & auth
 
 - **Do not shell out to `gh api`.** Networking goes through a `URLSession`-based transport
   (`GitHubTransportProtocol` / `GitHubURLSessionTransport`), with typed `Codable` decoding, the
-  `GitHubRateLimitHandler` actor, and Link-header pagination (`ghAPIPaginated`).
-- In tests, inject a stub conforming to `GitHubTransportProtocol` (see `GitHubTransportShimTests`
-  and `StubURLProtocol`). Never hit the live network in tests.
-- **Auth** is resolved by `GitHubTokenCache` / `OAuthService`, priority order: in-app OAuth
+  `GitHubRateLimitHandler` actor, and Link-header pagination (`apiPaginated`). These live in
+  the in-repo `Packages/GitHubClient` package, not in `RunBotCore`.
+- In tests, inject a stub conforming to `GitHubTransportProtocol` (see `StubURLProtocol` and the
+  per-suite stub transports, e.g. `FetchStepStubTransport`). Never hit the live network in tests.
+- **Auth** is resolved by `TokenCache` / `OAuthService`, priority order: in-app OAuth
   sign-in (Keychain) → `GH_TOKEN` → `GITHUB_TOKEN`. `gh auth login` / `gh auth token` is **not**
   a supported path (removed in Batch 18) — don't reference it in code, strings, or docs.
 
 ## UI notes
 
-- Menu-bar-only (no Dock icon). Dot colour reflects `AggregateStatus`.
-- **Popover side-jump is a known hazard.** Before touching panel sizing/anchoring, read
-  `docs/ui/popover-side-jump-prevention.md` and `docs/ui/nspopover-dynamic-width.md`, and respect
-  the regression guards in `PanelMainView` / `PanelVisibilityState` (refs #375–377).
-  Sheets/dismiss: `docs/ui/nspopover-dismiss-and-sheets.md`.
-- Follow the macOS 26 Liquid Glass design system (`DesignTokens`, `PanelViewModifiers`); support
+- Windowed app: a single SwiftUI `Window` scene hosting `AppNavigationSplitView`
+  (sidebar / content / detail). The menu-bar popover and its owned panel are both gone.
+  Dot colour reflects `AggregateStatus`.
+- **Sizing is a known hazard.** The popover-era side-jump and stale-cap regressions
+  (#375–377, #2278/#2279, #2305) were all caused by more than one layer measuring content.
+  The rule survived the migration: ONE MEASUREMENT, ONE OWNER. Read the SIZING CONTRACT
+  comments on `AppNavigationSplitView`, `SettingsDetailView`, and `StepLogContentView`
+  before changing any frame, and do not size a window from `.preferredContentSize`,
+  a GeometryReader feedback loop, or an invisible measuring pass.
+- Follow the macOS 26 Liquid Glass design system (`ColorTokens`, `SurfaceModifiers`); support
   dark & light mode.
 
 ## Boundaries (do not touch)

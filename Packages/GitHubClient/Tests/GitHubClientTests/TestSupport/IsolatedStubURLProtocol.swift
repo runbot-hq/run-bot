@@ -41,14 +41,9 @@ final class IsolatedStubURLProtocol: URLProtocol, @unchecked Sendable {
       client?.urlProtocol(self, didFailWithError: URLError(.fileDoesNotExist))
       return
     }
-    let response = HTTPURLResponse(
-      url: request.url!,
-      statusCode: stub.statusCode,
-      httpVersion: "HTTP/1.1",
-      headerFields: stub.headers)!
-    client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-    client?.urlProtocol(self, didLoad: stub.data)
-    client?.urlProtocolDidFinishLoading(self)
+    deliverStubbedResponse(data: stub.data, statusCode: stub.statusCode, headerFields: stub.headers)
   }
-  override func stopLoading() {}
+  override func stopLoading() {
+    // Intentionally empty: stubbed URL protocol has no real load to stop.
+  }
 }

@@ -58,7 +58,3 @@ jobs:
       - name: Run tests (GitHubClient)
         working-directory: Packages/GitHubClient
         run: swift test
-
-      - name: Run tests (MenuBarKit)
-        working-directory: Packages/MenuBarKit
-        run: swift test

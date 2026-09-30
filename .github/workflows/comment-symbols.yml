@@ -1,0 +1,20 @@
+name: Comment Symbol Check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  comment-symbols:
+    name: Comment symbols
+    runs-on: macos-26
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        # Branch-pinned by convention — see the note in periphery.yml.
+        uses: actions/checkout@v4
+
+      - name: Check comments for references to deleted symbols
+        run: python3 scripts/check-comment-symbols.py

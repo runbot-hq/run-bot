@@ -1,0 +1,422 @@
+// LogFetcher.swift
+// RunBotCore
+import Foundation
+import GitHubClient
+import os
+
+// MARK: - LogFetcher
+
+/// Injectable fetcher for GitHub Actions job and workflow-run logs.
+///
+/// Wraps a `GitHubTransportProtocol` and exposes single-job and grouped-run log
+/// fetching. All network access goes through the injected transport, making this
+/// type testable without live network access.
+///
+/// ## Concurrency
+///
+/// `LogFetcher` is a `Sendable` struct — it holds a transport existential
+/// that is safe for concurrent use. The public entry
+/// points are `async` but do not carry `@concurrent` since they are called from
+/// `Task.detached` contexts (not actor-isolated code paths).
+public struct LogFetcher: Sendable {
+    /// The injected GitHub transport used for all network access.
+    private let transport: any GitHubTransportProtocol
+    /// Persistent disk cache (L3) — survives app restarts.
+    let diskZIPCache: DiskZIPCache
+    /// Defaults to the real `unzipLogsTyped` subprocess path.
+    /// Tests inject a stub that returns pre-built tuples directly, avoiding any
+    /// filesystem or process access (which the test sandbox blocks).
+    var zipExtractor: ZipExtractor
+
+    /// Creates a fetcher backed by the given transport.
+    ///
+    /// - Parameters:
+    ///   - transport: Defaults to `currentTransport` — the live `@TaskLocal`
+    ///     read path wired by `GitHubClient.init`. Tests can override via
+    ///     `withTransport(_:operation:)` without touching any global.
+    ///   - diskZIPCache: Persistent disk cache (L3). Defaults to a fresh instance; inject in tests.
+    ///   - zipExtractor: Defaults to the real `/usr/bin/unzip`-based path.
+    ///     Pass a custom closure in tests to bypass subprocess spawning.
+    public init(
+        transport: any GitHubTransportProtocol = currentTransport,
+        diskZIPCache: DiskZIPCache = DiskZIPCache(),
+        zipExtractor: ZipExtractor? = nil
+    ) {
+        self.transport = transport
+        self.diskZIPCache = diskZIPCache
+        self.zipExtractor = zipExtractor ?? { data in await unzipLogsTyped(data) }
+    }
+
+    // MARK: - Job log (plain text, 1 call)
+
+    /// Fetches the full plain-text log for a single job.
+    ///
+    /// `/actions/jobs/{id}/logs` 302-redirects to a short-lived S3 URL; the transport follows it.
+    /// Returns `nil` when `scope` is not in `owner/repo` form, the request fails,
+    /// or the response body looks like a JSON error object (starts with `"{"`).
+    ///
+    /// - Parameters:
+    ///   - jobID: The GitHub Actions job ID.
+    ///   - scope: The `owner/repo` string identifying the repository.
+    /// - Returns: Plain-text log content, or `nil` on failure.
+    public func fetchJobLog(jobID: Int, scope: String) async -> String? {
+        guard scope.contains("/") else { return nil }
+        guard let data = await transport.raw("repos/\(scope)/actions/jobs/\(jobID)/logs"),
+              let text = String(data: data, encoding: .utf8) else { return nil }
+        if text.hasPrefix("{") { return nil }
+        return text
+    }
+
+    // MARK: - Action logs (ZIP per run, N calls)
+
+    /// Fetches and concatenates all job logs for every run in a group.
+    ///
+    /// Issues one async task per run inside a `TaskGroup`, each retrieving a ZIP
+    /// archive and extracting all `.txt` log files via `unzipLogs(_:)`. Results are
+    /// collected and sorted by filename for stable ordering when names are unique.
+    ///
+    /// - Parameter group: The `WorkflowActionGroup` whose runs should be fetched.
+    /// - Returns: A single concatenated string with `=== <name> ===` section headers,
+    ///   or `nil` if `scope` is invalid, `runs` is empty, or all fetches fail.
+    public func fetchActionLogs(group: WorkflowActionGroup) async -> String? {
+        let scope = group.repo
+        guard scope.contains("/") else { return nil }
+        let runIDs = group.runs.map { $0.id }
+        guard !runIDs.isEmpty else { return nil }
+
+        let parts: [(name: String, text: String)] = await withTaskGroup(
+            of: [(name: String, text: String)].self
+        ) { taskGroup in
+            for runID in runIDs {
+                taskGroup.addTask {
+                    guard let data = await transport.raw("repos/\(scope)/actions/runs/\(runID)/logs") else {
+                        log("fetchActionLogs › run \(runID) — transport.raw returned nil, skipping", category: .services)
+                        return []
+                    }
+                    switch await unzipLogsTyped(data) {
+                    case .success(let files):
+                        return files
+                    case .processFailed(let exitCode):
+                        log("fetchActionLogs › run \(runID) — unzip exited \(exitCode)", category: .services)
+                        return []
+                    case .ioError:
+                        log("fetchActionLogs › run \(runID) — unzip I/O error", category: .services)
+                        return []
+                    }
+                }
+            }
+            var collected: [(name: String, text: String)] = []
+            for await batch in taskGroup {
+                collected.append(contentsOf: batch)
+            }
+            return collected
+        }
+
+        guard !parts.isEmpty else { return nil }
+        return parts
+            .sorted { $0.name < $1.name }
+            .map { "=== \($0.name) ===\n\($0.text)" }
+            .joined(separator: "\n\n")
+    }
+
+    // MARK: - Step log via ZIP per-step files (root-cause fix for #2358)
+
+    /// Fetches the log for a single step using the run-level ZIP archive.
+    ///
+    /// GitHub pre-splits the ZIP into per-step files named `{sanitisedJobName}/{stepNumber}_*.txt`.
+    /// Every step — including synthetic steps (`Set up job`, `Post *`, `Complete job`) — gets
+    /// its own file, making heuristic parsing unnecessary.
+    ///
+    /// ## Cache
+    /// The ZIP is cached on disk keyed by `runID`. Subsequent calls for steps in the
+    /// same job (same `runID`) cost zero network calls.
+    ///
+    /// ## Fallback
+    /// When the ZIP contains no per-step files for the requested job, falls back to the existing
+    /// flat blob + `parseStepLog` path and returns `.flatBlobFallback`. This keeps the old
+    /// heuristic path alive as a degraded path without deleting it.
+    ///
+    /// - Parameters:
+    ///   - runID: The GitHub workflow run ID (from `job.runID`).
+    ///   - startedAt: Raw ISO 8601 start string (reserved for future use — currently unused in cache key).
+    ///   - runAttempt: The run attempt number (1-based). Part of the ZIP identity —
+    ///     a re-run produces different logs for the same `runID`, so attempts must
+    ///     not share a cache entry.
+    ///   - cacheGroup: Optional group key (`repo` + `headSha` + `normalizedEvent`)
+    ///     used to bucket ZIPs on disk so a whole commit's archives can be evicted
+    ///     together. When non-`nil`, a ZIP that fails extraction evicts the entire
+    ///     group rather than the single entry. Pass `nil` to opt out of grouping.
+    ///   - jobID: The GitHub Actions job ID used for the flat-blob fallback path.
+    ///   - jobName: The job display name (from `job.name`). Sanitised before ZIP lookup.
+    ///   - step: The `GitHubStep` whose log is requested.
+    ///   - scope: The `owner/repo` string identifying the repository.
+    ///   - isCompleted: Whether the run has completed. When `false`, the disk cache
+    ///     write is skipped to avoid persisting a partial ZIP for an in-progress run.
+    /// - Returns: A `StepLogResult` — never silent about failure or wrong content.
+    public func fetchStepLog(
+        runID: Int,
+        startedAt: String?,
+        runAttempt: Int = 1,
+        cacheGroup: ZIPCacheGroupKey? = nil,
+        jobID: Int,
+        jobName: String,
+        step: GitHubStep,
+        scope: String,
+        isCompleted: Bool = true
+    ) async -> StepLogResult {
+        guard scope.contains("/") else {
+            log("fetchStepLog › invalid scope '\(scope)' — must be owner/repo", category: .services)
+            return .fetchFailed(reason: "This run does not have a valid owner/repo scope, so the step log request could not be built.")
+        }
+
+        // Cache lookup — two-layer: disk → network. Returns raw ZIP Data.
+        let fetchStart = ContinuousClock.now
+        log(
+            "fetchStepLog › runID=\(runID) jobName='\(jobName)' sanitised='\(sanitizeJobNameForZIP(jobName))' step=\(step.number) '\(step.name)' scope='\(scope)'",
+            category: .services
+        )
+        let zipData: Data
+        let zipFromCache: Bool
+        switch await loadZipFiles(runID: runID, runAttempt: runAttempt, cacheGroup: cacheGroup, scope: scope, isCompleted: isCompleted) {
+        case .hit(let data): zipData = data; zipFromCache = true
+        case .miss(let data): zipData = data; zipFromCache = false
+        case .failed(let result): return result
+        }
+        // Unzip lazily here — one entry at a time, only when the user taps a step.
+        // If extraction fails and the data came from the network (not a cache hit),
+        // evict it from both caches so a malformed download cannot loop forever.
+        guard let extraction = await extractZip(zipData, runID: runID) else {
+            if !zipFromCache, let cacheGroup {
+                await diskZIPCache.evictGroup(key: cacheGroup)
+                log("fetchStepLog › evicted bad ZIP group for runID=\(runID) attempt=\(runAttempt) after extraction failure", category: .services)
+            }
+            return .fetchFailed(reason: "GitHub returned the run log archive, but macOS could not extract it (unzip exit code or I/O error).")
+        }
+        let allFiles = extraction.files
+        log("fetchStepLog › allFiles (\(allFiles.count)): [\(allFiles.map { $0.name }.joined(separator: ", "))]", category: .services)
+
+        // Exclude top-level blob files. Only entries with a "/" in the name are per-step
+        // slices (e.g. "release/2_Checkout.txt" → name "release/2_Checkout"). Top-level
+        // entries like a hypothetical root-level `.txt` file are filtered here.
+        // `logs.zip` is already excluded in `unzipLogsTyped` (extension + explicit URL guard).
+        // Keep only per-step entries (must contain "/") and strip macOS AppleDouble
+        // metadata entries that the system zip tool injects under __MACOSX/.
+        // The __MACOSX filter is also applied in unzipLogsTyped (filesystem layer) but
+        // repeated here as defence-in-depth for stub-injected entries in tests and any
+        // future extractor that doesn't strip them at source.
+        let stepFiles = allFiles.filter { $0.name.contains("/") && !$0.name.hasPrefix("__MACOSX/") }
+        let sanitised = sanitizeJobNameForZIP(jobName)
+        let hasStepFiles = stepFiles.contains {
+            $0.name.hasPrefix("\(sanitised)/") && !$0.name.hasSuffix("/system")
+        }
+        log("fetchStepLog › stepFiles (\(stepFiles.count)): [\(stepFiles.map { $0.name }.joined(separator: ", "))] hasStepFiles=\(hasStepFiles) sanitised='\(sanitised)'", category: .services)
+
+        guard hasStepFiles else {
+            guard let result = await flatBlobFallback(jobID: jobID, scope: scope, step: step, runID: runID) else {
+                return .fetchFailed(reason: "Request was cancelled before flat-blob fallback could complete.")
+            }
+            return result
+        }
+
+        let prefix = "\(sanitised)/\(step.number)_"
+        // Primary match: case-sensitive prefix (matches well-formed ZIP entries).
+        // Fallback: case-insensitive prefix for enterprise instances where the server
+        // may produce a different-cased folder name than the API job name.
+        let prefixLower = prefix.lowercased()
+        guard let match = stepFiles.first(where: { $0.name.hasPrefix(prefix) })
+                       ?? stepFiles.first(where: { $0.name.lowercased().hasPrefix(prefixLower) })
+        else {
+            return stepMissResult(
+                step: step, prefix: prefix, jobName: jobName,
+                sanitised: sanitised, runID: runID, stepFiles: stepFiles
+            )
+        }
+
+        let cleaned = cleanLogText(match.text)
+        if cleaned.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            log(
+                "fetchStepLog › step \(step.number) '\(step.name)' job '\(jobName)' run \(runID) " +
+                "— file '\(match.name)' found but content is empty after cleaning",
+                category: .services
+            )
+            return .syntheticEmpty(
+                stepName: step.name,
+                reason: "The matching step log file was found (\(match.name)), but it was empty after cleanup."
+            )
+        }
+        let fetchedTotal = fetchStart.duration(to: .now)
+        log(
+            "fetchStepLog › ✓ step \(step.number) '\(step.name)' job '\(jobName)' run \(runID) " +
+            "— matched '\(match.name)' (\(cleaned.utf8.count) bytes) totalElapsed=\(fetchedTotal)",
+            category: .services
+        )
+        return .slice(content: cleaned)
+    }
+
+    // MARK: - Private helpers
+
+    /// Typed result from the cache/network pipeline used by `fetchStepLog`.
+    /// Values are raw ZIP `Data`; unzipping happens in `fetchStepLog` after this returns.
+    private enum ZipLoadResult {
+        /// Raw ZIP bytes returned from a cache layer — no network call was made.
+        case hit(Data)
+        /// Raw ZIP bytes freshly downloaded — both cache layers have been updated.
+        case miss(Data)
+        /// A network or I/O failure occurred; the associated value is the terminal result.
+        case failed(StepLogResult)
+    }
+
+    /// Extracts ZIP `Data` via `zipExtractor` and logs diagnostic info.
+    ///
+    /// Returns the extracted files on success, or a `StepLogResult` error on failure.
+    private func extractZip(
+        _ zipData: Data,
+        runID: Int
+    ) async -> (files: [(name: String, text: String)], error: StepLogResult?)? {
+        let unzipStart = ContinuousClock.now
+        switch await zipExtractor(zipData) {
+        case .success(let files):
+            let unzipDuration = unzipStart.duration(to: .now)
+            let stepCount = files.filter { $0.name.contains("/") }.count
+            log(
+                "fetchStepLog › ZIP extracted \(files.count) file(s) for run \(runID) " +
+                "(\(stepCount) with step-prefix '/') in \(unzipDuration)",
+                category: .services
+            )
+            if stepCount == 0 {
+                let names = files.map(\.name).joined(separator: ", ")
+                log(
+                    "fetchStepLog › ZIP has no per-step files for run \(runID) — " +
+                    "all entries: [\(names.isEmpty ? "<empty archive>" : names)]",
+                    category: .services
+                )
+            }
+            return (files, nil)
+        case .processFailed(let exitCode):
+            let unzipDuration = unzipStart.duration(to: .now)
+            log("fetchStepLog › unzip failed for run \(runID) — exit code \(exitCode) after \(unzipDuration)", category: .services)
+            return nil
+        case .ioError:
+            let unzipDuration = unzipStart.duration(to: .now)
+            log("fetchStepLog › I/O error writing or reading ZIP tmp dir for run \(runID) after \(unzipDuration)", category: .services)
+            return nil
+        }
+    }
+
+    /// Performs the flat-blob fallback when the ZIP contains no per-step files.
+    /// Returns nil if the request was cancelled.
+    private func flatBlobFallback(
+        jobID: Int,
+        scope: String,
+        step: GitHubStep,
+        runID: Int
+    ) async -> StepLogResult? {
+        log("fetchStepLog › no step files for job — attempting flat-blob fallback via fetchJobLog jobID=\(jobID)", category: .services)
+        guard !Task.isCancelled else {
+            log("fetchStepLog › cancelled before flat-blob fallback for job \(jobID)", category: .services)
+            return .fetchFailed(reason: "Request was cancelled before flat-blob fallback could complete.")
+        }
+        let blobStart = ContinuousClock.now
+        guard let raw = await fetchJobLog(jobID: jobID, scope: scope) else {
+            log("fetchStepLog › flat-blob fallback also failed for job \(jobID) scope '\(scope)' after \(blobStart.duration(to: .now))", category: .services)
+            return .fetchFailed(reason: "GitHub did not provide per-step log files for this job, and the fallback full-job log request also failed.")
+        }
+        let blobDuration = blobStart.duration(to: .now)
+        guard !Task.isCancelled else {
+            log("fetchStepLog › cancelled after flat-blob download for job \(jobID) (\(raw.utf8.count) bytes downloaded in \(blobDuration))", category: .services)
+            return .fetchFailed(reason: "Request was cancelled after flat-blob download but before result could be returned.")
+        }
+        let parsed = parseStepLog(raw, stepName: step.name, stepNumber: step.number, logger: transport.logger)
+        log("fetchStepLog › flat-blob fallback result: parsed=\(parsed != nil) rawBytes=\(raw.utf8.count) elapsed=\(blobDuration)", category: .services)
+        if parsed == nil {
+            log("fetchStepLog › parseStepLog returned nil for step \(step.number) '\(step.name)' job \(jobID) run \(runID) — serving full raw job log via flatBlobFallback", category: .services)
+        }
+        return .flatBlobFallback(content: parsed ?? cleanLogText(raw))
+    }
+
+    /// Fetches and caches raw ZIP `Data` for `runID` using a two-layer lookup:
+    /// 1. Disk cache (`DiskZIPCache`) — zero network
+    /// 2. Network download — backfills disk cache with raw `Data` on success
+    ///
+    /// Unzipping is **not** performed here. Callers (`fetchStepLog`) extract lazily
+    /// after this method returns, so the cache only stores raw bytes.
+    private func loadZipFiles(
+        runID: Int,
+        runAttempt: Int,
+        cacheGroup: ZIPCacheGroupKey?,
+        scope: String,
+        isCompleted: Bool
+    ) async -> ZipLoadResult {
+        // Layer 1: Disk cache
+        if let cacheGroup,
+           let cached = await diskZIPCache.get(key: ZIPCacheEntryKey(group: cacheGroup, runID: runID, runAttempt: runAttempt)) {
+            log(
+                "fetchStepLog › DISK HIT runID=\(runID) — \(cached.count) byte(s)",
+                category: .services
+            )
+            return .hit(cached)
+        }
+        // Layer 2: Network
+        let downloadStart = ContinuousClock.now
+        log(
+            "fetchStepLog › cache MISS runID=\(runID) — downloading ZIP",
+            category: .services
+        )
+        guard let data = await transport.raw(
+            "repos/\(scope)/actions/runs/\(runID)"
+                + "/attempts/\(runAttempt)/logs"
+        ) else {
+            log("fetchStepLog › network failure fetching ZIP for run \(runID) scope '\(scope)' after \(downloadStart.duration(to: .now))", category: .services)
+            return .failed(.fetchFailed(reason: "Could not download the run log archive from GitHub."))
+        }
+        let downloadDuration = downloadStart.duration(to: .now)
+        log("fetchStepLog › ZIP downloaded \(data.count) bytes for run \(runID) in \(downloadDuration)", category: .services)
+        // Backfill disk cache with raw bytes when group identity is known.
+        if let cacheGroup {
+            await diskZIPCache.set(
+                key: ZIPCacheEntryKey(group: cacheGroup, runID: runID, runAttempt: runAttempt),
+                zip: data,
+                isCompleted: isCompleted
+            )
+        }
+        return .miss(data)
+    }
+
+    /// Returns the `.syntheticEmpty` result for a step whose ZIP entry is missing,
+    /// after logging the available files for diagnosis.
+    ///
+    /// Returns the informational skipped-step variant when `step.stepConclusion == .skipped`,
+    /// mirroring `gh`'s silent `continue` for steps that genuinely have no ZIP entry.
+    private func stepMissResult(
+        step: GitHubStep,
+        prefix: String,
+        jobName: String,
+        sanitised: String,
+        runID: Int,
+        stepFiles: [(name: String, text: String)]
+    ) -> StepLogResult {
+        let available = stepFiles
+            .filter { $0.name.hasPrefix("\(sanitised)/") }
+            .map { $0.name }
+            .joined(separator: ", ")
+        log(
+            "fetchStepLog › no file matching prefix '\(prefix)' for step \(step.number) '\(step.name)' " +
+            "job '\(jobName)' (sanitised: '\(sanitised)') run \(runID) — " +
+            "files for this job: [\(available.isEmpty ? "<none>" : available)]",
+            category: .services
+        )
+        if step.stepConclusion == .skipped {
+            log(
+                "fetchStepLog › step \(step.number) '\(step.name)' was skipped — no ZIP entry expected",
+                category: .services
+            )
+            return .syntheticEmpty(stepName: step.name, reason: "This step was skipped and produced no log output.")
+        }
+        return .syntheticEmpty(
+            stepName: step.name,
+            reason: available.isEmpty
+                ? "This job had step log files, but none matched step \(step.number)."
+                : "This job had step log files, but none matched step \(step.number). Available files for this job: \(available). Tried prefix: '\(prefix)' (sanitised job name: '\(sanitised)')."
+        )
+    }
+}

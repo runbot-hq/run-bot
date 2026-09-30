@@ -63,7 +63,7 @@ extension Bundle {
     ///
     /// ## Why the call site uses `Bundle.main.isPreReleaseBuild`, not `appVersion.contains("-")`
     ///
-    /// REVIEWER: `aboutSection` in `SettingsView+Sections.swift` uses this property
+    /// REVIEWER: `AboutSettingsSection` uses this property
     /// directly rather than re-implementing `contains("-")` inline against `appVersion`.
     /// Both produce identical runtime output today (both read `rbVersionString`), but
     /// this property is the purpose-built API: the detection logic, all edge case docs,
@@ -103,7 +103,7 @@ extension Bundle {
     /// Returns `true` when `version` is strictly newer than the running bundle's
     /// `RBVersionString`.
     ///
-    /// Uses the same `ParsedVersion` comparison logic as `UpdateChecker` so beta
+    /// Delegates to `UpdateChecker.isNewer(_:than:)` so beta
     /// ordering is consistent throughout the app.
     ///
     /// ```swift

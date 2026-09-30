@@ -8,7 +8,7 @@ import GitHubClient
 /// Bridges `GitHubLogger` (defined in `GitHubClient`) to the RunBot unified
 /// logging system (`log()` free function in Logger.swift).
 ///
-/// Passed to `GitHubClient` at construction time in `AppDelegate` so that
+/// Passed to `GitHubClient` at construction time in `RunBotRuntime.init` so that
 /// all `GitHubClient` diagnostic messages appear in the same `os.Logger`
 /// stream as the rest of the app, filtered under the matching category.
 ///
@@ -27,7 +27,9 @@ import GitHubClient
 public struct GitHubLoggerAdapter: GitHubLogger {
 
     /// Creates a new `GitHubLoggerAdapter` instance.
-    public init() {}
+    public init() {
+        // Intentionally empty: stateless forwarding adapter needs no initialisation.
+    }
 
     /// Forwards a message from `GitHubClient` into `os.Logger` via the RunBot
     /// `log()` free function.

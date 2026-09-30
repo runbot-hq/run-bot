@@ -9,8 +9,8 @@ import Observation
 
 /// Observable read model populated by `RunnerPoller` and consumed by the app layer.
 ///
-/// All mutations happen on the `MainActor`. Views and `AppDelegate` observe this
-/// object directly via `withObservationTracking` or `ObservationLoop`.
+/// All mutations happen on the `MainActor`. Views observe this
+/// object directly via SwiftUI's observation machinery.
 ///
 /// The six poll-written properties (`runners`, `jobs`, `actions`, `isRateLimited`,
 /// `rateLimitResetDate`, `fetchError`) are `public internal(set)` — only
@@ -62,7 +62,9 @@ public final class RunnerState {
     // MARK: - Init
 
     /// Creates a default-initialised `RunnerState` with all properties at their zero values.
-    public init() {}
+    public init() {
+        // Intentionally empty: property defaults define the zero state.
+    }
 
     // MARK: - Auto-update storage (written via UpdateStateProviding.apply(_:))
 

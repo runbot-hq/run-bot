@@ -30,7 +30,7 @@ public actor LocalRunnerStore {
     /// The app-wide shared instance. Must be called on the main actor.
     ///
     /// ⚠️ Must not be accessed before `configure(viewModel:)` is called from
-    /// `AppDelegate+PanelSetup.applicationDidFinishLaunching`. Accessing it earlier
+    /// `RunBotRuntime.init`. Accessing it earlier
     /// produces a `fatalError` with a diagnostic message.
     @MainActor
     public static var shared: LocalRunnerStore {
@@ -81,8 +81,9 @@ public actor LocalRunnerStore {
 
     /// The current list of locally-installed runners, sorted by name.
     /// Private: all external reads go through `viewModel.localRunners` (pushed via MainActor.run).
-    /// Widening to internal is unnecessary — the `localRunners` closure in AppDelegate+PanelSetup
-    /// reads `runnerState.localRunners`, not this property directly.
+    /// Widening to internal is unnecessary — the `localRunners` closure in
+    /// `RunBotRuntime` reads `runnerState.localRunners`, not this
+    /// property directly.
     private var runners: [RunnerModel] = []
 
     /// `true` while a refresh cycle is in flight; prevents concurrent refreshes.
@@ -254,10 +255,10 @@ public actor LocalRunnerStore {
 
     /// Fire-and-forget refresh. Spawns a Task and returns immediately.
     ///
-    /// Use this from views and on-demand callers (e.g. SettingsView lifecycle actions)
+    /// Use this from views and on-demand callers (e.g. runner lifecycle actions)
     /// that do not need to wait for completion.
     ///
-    /// At app startup, prefer `refreshAsync()` so that `RunnerStore.start()` is only
+    /// At app startup, prefer `refreshAsync()` so that `RunnerPoller.start()` is only
     /// called after `runners` is fully populated — ensuring cycle-1 `installPathMap`
     /// is never empty and metrics appear on first runner appearance.
     public func refresh() {
@@ -271,8 +272,9 @@ public actor LocalRunnerStore {
     /// Awaitable refresh. Suspends until disk hydration + launchctl + GitHub enrichment
     /// completes, then returns.
     ///
-    /// Use ONLY at app startup in `AppDelegate+PanelSetup` so that `RunnerStore.start()`
-    /// is guaranteed to have a populated `runners` array before its first `fetch()` fires.
+    /// Use ONLY at app startup in `RunBotRuntime.start()` so that the
+    /// poll loop is guaranteed to have a populated `runners` array before its
+    /// first `fetch()` fires.
     public func refreshAsync() async {
         await performRefresh()
     }
@@ -371,7 +373,9 @@ public actor LocalRunnerStore {
     /// Builds lookup dictionaries for in-flight metrics from `current` runners.
     ///
     /// Only runners that are both busy **and** have metrics are included — idle runners
-    /// have no metrics worth preserving across a refresh cycle.
+    /// have no metrics worth preserving across a refresh cycle. Entries are filtered
+    /// per key (`if let`), so one runner missing an id never empties the map; on a
+    /// duplicate key the last-seen entry wins (dictionary subscript assignment).
     private func buildMetricsDictionaries(from current: [RunnerModel]) -> MetricsDictionaries {
         var byApiId: [Int: RunnerMetrics] = [:]
         var byAgentId: [Int: RunnerMetrics] = [:]
